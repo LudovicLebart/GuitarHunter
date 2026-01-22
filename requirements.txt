@@ -2,3 +2,5 @@ google-generativeai
 firebase-admin
 python-dotenv
 playwright
+requests
+pillow

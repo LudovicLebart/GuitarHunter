@@ -231,7 +231,7 @@ const App = () => {
                       <h2 className="text-2xl font-black text-slate-800 leading-tight pr-4 capitalize">{deal.title || "Modèle Non Précisé"}</h2>
                       <div className="text-right">
                         <p className="text-3xl font-black text-blue-600 tracking-tighter">{deal.price} $</p>
-                        <p className="text-[10px] text-slate-400 font-black uppercase">Valeur Est.: {deal.estimated_value} $</p>
+                        <p className="text-[10px] text-slate-400 font-black uppercase">Valeur Est.: {deal.aiAnalysis?.estimated_value || deal.estimated_value || "?"} $</p>
                       </div>
                     </div>
 
