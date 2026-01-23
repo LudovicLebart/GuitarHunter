@@ -229,10 +229,13 @@ const App = () => {
           setIsRefreshing(true);
           const targetUserId = PYTHON_USER_ID;
           const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
+          console.log("Envoi de la demande de refresh...");
           await setDoc(userDocRef, { forceRefresh: Date.now() }, { merge: true });
+          console.log("Demande de refresh envoyée avec succès.");
           setTimeout(() => setIsRefreshing(false), 5000);
       } catch (e) {
           console.error("Erreur refresh :", e);
+          setError("Erreur lors du lancement du scan : " + e.message);
           setIsRefreshing(false);
       }
   };

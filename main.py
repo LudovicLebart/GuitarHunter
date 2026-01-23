@@ -41,20 +41,38 @@ else:
     print("⚠️ ATTENTION: Pas de clé API Gemini trouvée dans le fichier .env")
 
 # Initialisation Firebase
+db = None
+offline_mode = False
+
 if not firebase_admin._apps:
     try:
-        cred = credentials.Certificate(FIREBASE_KEY_PATH)
-        firebase_admin.initialize_app(cred)
-        # Utilisation de la base de données par défaut (plus de 'guitarhunterdb')
-        db = firestore.client()
-        print("✅ Firebase connecté avec succès (Database: Default).")
+        if os.path.exists(FIREBASE_KEY_PATH):
+            cred = credentials.Certificate(FIREBASE_KEY_PATH)
+            print(f"🔑 Projet ID détecté : {cred.project_id}")
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            print("✅ Firebase connecté avec succès (Database: Default).")
+            
+            # Test de permissions immédiat
+            try:
+                list(db.collections())
+                print("✅ Permissions de lecture confirmées sur la base.")
+            except Exception as e:
+                print(f"❌ ERREUR PERMISSIONS : {e}")
+                print("👉 Le compte de service n'a pas les droits. Passage en MODE HORS-LIGNE (Simulation).")
+                offline_mode = True
+        else:
+            print(f"⚠️ Fichier {FIREBASE_KEY_PATH} introuvable. Passage en MODE HORS-LIGNE.")
+            offline_mode = True
+
     except Exception as e:
         print(f"❌ Erreur critique Firebase: {e}")
-        exit(1)
+        offline_mode = True
 
 
 class GuitarHunterBot:
     def __init__(self, prompt_instruction=PROMPT_INSTRUCTION):
+        global offline_mode
         self.prompt_instruction = prompt_instruction
         # Configuration par défaut
         self.scan_config = {
@@ -75,7 +93,10 @@ class GuitarHunterBot:
         print(f"   - USER ID : {USER_ID_TARGET}")
         print(f"   - CHEMIN  : {self.collection_path}")
         print(f"   - PROMPT  : {self.prompt_instruction}")
-        print(f"👉 Assurez-vous que ce chemin est IDENTIQUE à celui affiché dans l'encadré jaune de l'application React.\n")
+        
+        if offline_mode:
+            print("⚠️ ATTENTION : MODE HORS-LIGNE ACTIVÉ. Aucune donnée ne sera sauvegardée dans Firebase.")
+            return
 
         # Référence à la collection spécifique suivie par l'App React
         self.collection_ref = db.collection('artifacts').document(APP_ID_TARGET) \
@@ -105,10 +126,8 @@ class GuitarHunterBot:
                     
             except Exception as e:
                 print(f"❌ Erreur de connexion Firebase lors de l'init : {e}")
-                print("👉 Vérifiez votre fichier serviceAccountKey.json.")
-                print("👉 IMPORTANT : Vérifiez que l'heure de votre PC est correcte (synchro internet).")
-                print("   Une horloge décalée invalide le token d'authentification Google.")
-                # On ne quitte pas ici, on laisse le bot essayer de continuer ou de réessayer plus tard
+                print("👉 Passage en MODE HORS-LIGNE temporaire.")
+                offline_mode = True
                 return
 
             # 2. Création du document User (artifacts/{APP_ID}/users/{USER_ID})
@@ -123,13 +142,16 @@ class GuitarHunterBot:
                 print(f"👤 Document parent créé : users/{USER_ID_TARGET}")
             else:
                 # Si le document existe, on récupère le prompt et la config
-                self.sync_configuration()
+                self.sync_configuration(initial=True)
                 
         except Exception as e:
             print(f"⚠️ Impossible de créer les documents parents (non bloquant) : {e}")
 
-    def sync_configuration(self):
+    def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
+        if offline_mode:
+            return False
+
         try:
             doc = self.user_ref.get()
             if doc.exists:
@@ -154,11 +176,12 @@ class GuitarHunterBot:
                 # 3. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
-                    # Si c'est la première fois qu'on voit ce timestamp (et qu'il n'est pas 0), on le note
-                    if self.last_refresh_timestamp == 0:
-                         self.last_refresh_timestamp = last_refresh
+                    
+                    if initial:
+                        # Initialisation : on se cale sur le timestamp actuel sans déclencher
+                        self.last_refresh_timestamp = last_refresh
                     elif last_refresh != self.last_refresh_timestamp:
-                        print(f"⚡ Refresh manuel demandé !")
+                        print(f"⚡ Refresh manuel demandé ! (Timestamp: {last_refresh})")
                         self.last_refresh_timestamp = last_refresh
                         return True # Signal to run scan immediately
             
@@ -255,16 +278,30 @@ class GuitarHunterBot:
             clean_text = response.text.replace('```json', '').replace('```', '').strip()
             return json.loads(clean_text)
         except Exception as e:
-            print(f"❌ Erreur Gemini: {e}")
+            error_str = str(e)
+            if "403" in error_str and "leaked" in error_str:
+                print("\n" + "!"*60)
+                print("❌ ERREUR CRITIQUE : VOTRE CLÉ API GEMINI A FUITÉ ET EST BLOQUÉE.")
+                print("👉 Google a désactivé cette clé par sécurité.")
+                print("👉 Générez-en une nouvelle ici : https://aistudio.google.com/app/apikey")
+                print("👉 Mettez à jour GEMINI_API_KEY dans votre fichier .env")
+                print("!"*60 + "\n")
+            else:
+                print(f"❌ Erreur Gemini: {e}")
+
             return {
                 "verdict": "FAIR",
                 "estimated_value": listing_data['price'],
-                "reasoning": "Erreur d'analyse IA",
+                "reasoning": "Erreur d'analyse IA (Voir logs console)",
                 "confidence": 0
             }
 
     def save_to_firestore(self, listing_data, analysis, doc_id=None):
         """Sauvegarde les données au chemin exact écouté par React."""
+        if offline_mode:
+            print(f"🚫 [OFFLINE] Données non sauvegardées : {listing_data['title']}")
+            return
+
         try:
             # Si pas d'ID fourni, on génère un ID de secours (ne devrait pas arriver avec FB)
             if not doc_id:
@@ -426,18 +463,22 @@ class GuitarHunterBot:
                         print(f"   ✨ Annonce trouvée : {title} ({price} $)")
                         
                         # --- VERIFICATION INTELLIGENTE (ID + PRIX) ---
-                        doc_ref = self.collection_ref.document(fb_id)
-                        doc_snap = doc_ref.get()
-                        
-                        if doc_snap.exists:
-                            existing_data = doc_snap.to_dict()
-                            old_price = existing_data.get('price')
-                            
-                            if old_price == price:
-                                print(f"   ⏭️ Annonce existante et prix inchangé ({price} $). On passe.")
-                                continue
-                            else:
-                                print(f"   🔄 Le prix a changé ! (Ancien: {old_price} $ -> Nouveau: {price} $). Mise à jour...")
+                        if not offline_mode:
+                            try:
+                                doc_ref = self.collection_ref.document(fb_id)
+                                doc_snap = doc_ref.get()
+                                
+                                if doc_snap.exists:
+                                    existing_data = doc_snap.to_dict()
+                                    old_price = existing_data.get('price')
+                                    
+                                    if old_price == price:
+                                        print(f"   ⏭️ Annonce existante et prix inchangé ({price} $). On passe.")
+                                        continue
+                                    else:
+                                        print(f"   🔄 Le prix a changé ! (Ancien: {old_price} $ -> Nouveau: {price} $). Mise à jour...")
+                            except Exception as e:
+                                print(f"   ⚠️ Erreur vérification doublon (Firestore): {e}")
                         
                         # --- Scraping détaillé de la page ---
                         description = f"Annonce Marketplace. {title}. Localisation: {location}"
