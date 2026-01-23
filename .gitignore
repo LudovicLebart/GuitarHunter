@@ -5,3 +5,9 @@ dist
 .env.local
 .DS_Store
 .vite
+serviceAccountKey.json
+.env
+__pycache__/
+*.py[cod]
+venv/
+.venv/
