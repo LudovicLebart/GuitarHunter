@@ -3,9 +3,13 @@ import time
 import json
 import random
 import requests
+import warnings
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
+
+# Suppression des avertissements de dépréciation (Gemini)
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
 
 # --- Librairies Externes ---
 import firebase_admin
@@ -55,7 +59,11 @@ class GuitarHunterBot:
         # Configuration par défaut
         self.scan_config = {
             "max_ads": 5,
-            "frequency": 60 # minutes
+            "frequency": 60, # minutes
+            "location": "montreal",
+            "distance": 60, # km
+            "min_price": 0,
+            "max_price": 10000
         }
         self.last_refresh_timestamp = 0
 
@@ -79,16 +87,33 @@ class GuitarHunterBot:
             .collection('users').document(USER_ID_TARGET)
 
         # --- CORRECTION : CRÉATION EXPLICITE DES PARENTS (Pour éviter l'italique/fantôme) ---
+        print("   ⏳ Vérification de l'accès Firestore (Timeout 10s)...")
         try:
             # 1. Création du document App (artifacts/{APP_ID})
             app_ref = db.collection('artifacts').document(APP_ID_TARGET)
-            if not app_ref.get().exists:
-                app_ref.set({'created_at': firestore.SERVER_TIMESTAMP, 'type': 'app_root'})
-                print(f"📁 Document parent créé : artifacts/{APP_ID_TARGET}")
+            
+            # Vérification de la connexion avant de tenter des écritures
+            try:
+                # Ajout d'un timeout pour éviter le blocage infini si le réseau/auth déconne
+                doc_snapshot = app_ref.get(timeout=10)
+                
+                if not doc_snapshot.exists:
+                    app_ref.set({'created_at': firestore.SERVER_TIMESTAMP, 'type': 'app_root'})
+                    print(f"📁 Document parent créé : artifacts/{APP_ID_TARGET}")
+                else:
+                    print("   ✅ Connexion Firestore OK.")
+                    
+            except Exception as e:
+                print(f"❌ Erreur de connexion Firebase lors de l'init : {e}")
+                print("👉 Vérifiez votre fichier serviceAccountKey.json.")
+                print("👉 IMPORTANT : Vérifiez que l'heure de votre PC est correcte (synchro internet).")
+                print("   Une horloge décalée invalide le token d'authentification Google.")
+                # On ne quitte pas ici, on laisse le bot essayer de continuer ou de réessayer plus tard
+                return
 
             # 2. Création du document User (artifacts/{APP_ID}/users/{USER_ID})
             user_ref = app_ref.collection('users').document(USER_ID_TARGET)
-            if not user_ref.get().exists:
+            if not user_ref.get(timeout=10).exists:
                 user_ref.set({
                     'created_at': firestore.SERVER_TIMESTAMP, 
                     'type': 'user_root', 
@@ -120,6 +145,10 @@ class GuitarHunterBot:
                     config = data['scanConfig']
                     self.scan_config['max_ads'] = config.get('maxAds', 5)
                     self.scan_config['frequency'] = config.get('frequency', 60)
+                    self.scan_config['location'] = config.get('location', 'montreal')
+                    self.scan_config['distance'] = config.get('distance', 60)
+                    self.scan_config['min_price'] = config.get('minPrice', 0)
+                    self.scan_config['max_price'] = config.get('maxPrice', 10000)
                     # print(f"⚙️ Config chargée : {self.scan_config}")
 
                 # 3. Force Refresh
@@ -254,9 +283,9 @@ class GuitarHunterBot:
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
 
-    def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", max_ads=5):
+    def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", distance=60, min_price=0, max_price=10000, max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
-        print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location} (Max: {max_ads})...")
+        print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location} (Max: {max_ads}, Prix: {min_price}-{max_price}$)...")
         
         with sync_playwright() as p:
 
@@ -278,7 +307,7 @@ class GuitarHunterBot:
 
             # URL de recherche Marketplace
             # Note: L'URL peut varier selon la région. 
-            url = f"https://www.facebook.com/marketplace/{location}/search?query={search_query}"
+            url = f"https://www.facebook.com/marketplace/{location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -460,7 +489,9 @@ class GuitarHunterBot:
                             "description": description,
                             "imageUrl": image_urls[0] if image_urls else image_url,
                             "imageUrls": image_urls,
-                            "link": clean_link
+                            "link": clean_link,
+                            "location": location,
+                            "searchDistance": distance
                         }
                         
                         # Analyse IA
@@ -546,7 +577,10 @@ if __name__ == "__main__":
                 # Lancement du scan
                 bot.scan_facebook_marketplace(
                     search_query="electric guitar", 
-                    location="montreal",
+                    location=bot.scan_config['location'],
+                    distance=bot.scan_config['distance'],
+                    min_price=bot.scan_config['min_price'],
+                    max_price=bot.scan_config['max_price'],
                     max_ads=bot.scan_config['max_ads']
                 )
                 

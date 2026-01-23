@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle, 
-  Activity, ChevronDown, ChevronUp, Settings, Clock
+  Activity, ChevronDown, ChevronUp, Settings, Clock,
+  MapPin, Filter, Image as ImageIcon
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -74,10 +75,22 @@ const App = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   
+  // Filter States
+  const [filterDealType, setFilterDealType] = useState('ALL');
+  const [filterMinPrice, setFilterMinPrice] = useState('');
+  const [filterMaxPrice, setFilterMaxPrice] = useState('');
+
   // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [scanConfig, setScanConfig] = useState({ maxAds: 5, frequency: 60 });
+  const [scanConfig, setScanConfig] = useState({ 
+      maxAds: 5, 
+      frequency: 60,
+      location: 'montreal',
+      distance: 60,
+      minPrice: 0,
+      maxPrice: 10000
+  });
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -224,6 +237,18 @@ const App = () => {
       }
   };
 
+  // Filtering Logic
+  const filteredDeals = deals.filter(deal => {
+      const verdict = deal.aiAnalysis?.verdict || deal.verdict;
+      if (filterDealType !== 'ALL' && verdict !== filterDealType) return false;
+      
+      const price = deal.price;
+      if (filterMinPrice && price < parseFloat(filterMinPrice)) return false;
+      if (filterMaxPrice && price > parseFloat(filterMaxPrice)) return false;
+      
+      return true;
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 text-[14px]">
       
@@ -242,10 +267,10 @@ const App = () => {
           </div>
         </div>
 
-        <div className="flex flex-col md:flex-row gap-4">
+        <div className="flex flex-col md:flex-row items-start gap-4">
             
             {/* CONFIGURATION PANEL */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] md:w-[350px] overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] md:w-[350px] overflow-hidden h-fit">
               <button 
                 onClick={() => setShowConfig(!showConfig)}
                 className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
@@ -291,12 +316,21 @@ const App = () => {
                         </div>
                         {isEditingConfig ? (
                             <div className="grid grid-cols-2 gap-2">
+                                <div className="col-span-2">
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Localisation</label>
+                                    <input 
+                                        type="text" 
+                                        value={scanConfig?.location || 'montreal'}
+                                        onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
                                 <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Max Annonces</label>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Distance (km)</label>
                                     <input 
                                         type="number" 
-                                        value={scanConfig?.maxAds || 5}
-                                        onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
+                                        value={scanConfig?.distance || 60}
+                                        onChange={(e) => setScanConfig({...scanConfig, distance: parseInt(e.target.value) || 60})}
                                         className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
                                     />
                                 </div>
@@ -309,12 +343,40 @@ const App = () => {
                                         className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Prix Min ($)</label>
+                                    <input 
+                                        type="number" 
+                                        value={scanConfig?.minPrice || 0}
+                                        onChange={(e) => setScanConfig({...scanConfig, minPrice: parseInt(e.target.value) || 0})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Prix Max ($)</label>
+                                    <input 
+                                        type="number" 
+                                        value={scanConfig?.maxPrice || 10000}
+                                        onChange={(e) => setScanConfig({...scanConfig, maxPrice: parseInt(e.target.value) || 10000})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Max Annonces</label>
+                                    <input 
+                                        type="number" 
+                                        value={scanConfig?.maxAds || 5}
+                                        onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
                                 <button onClick={handleSaveConfig} className="col-span-2 bg-blue-600 text-white py-1 rounded text-[10px] font-bold uppercase mt-1">Sauvegarder</button>
                             </div>
                         ) : (
-                            <div className="flex justify-between text-xs text-slate-600">
-                                <span>Max: <b>{scanConfig?.maxAds || 5}</b></span>
-                                <span>Freq: <b>{scanConfig?.frequency || 60} min</b></span>
+                            <div className="flex flex-col gap-1 text-xs text-slate-600">
+                                <div className="flex justify-between"><span>Lieu: <b>{scanConfig?.location || 'montreal'}</b></span> <span>Dist: <b>{scanConfig?.distance || 60}km</b></span></div>
+                                <div className="flex justify-between"><span>Prix: <b>{scanConfig?.minPrice || 0}-{scanConfig?.maxPrice || 10000}$</b></span></div>
+                                <div className="flex justify-between"><span>Max: <b>{scanConfig?.maxAds || 5}</b></span> <span>Freq: <b>{scanConfig?.frequency || 60}min</b></span></div>
                             </div>
                         )}
                     </div>
@@ -333,7 +395,7 @@ const App = () => {
             </div>
 
             {/* SYSTEM STATUS PANEL */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden h-fit">
               <button 
                 onClick={() => setShowDebug(!showDebug)}
                 className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
@@ -360,22 +422,65 @@ const App = () => {
         </div>
       </header>
 
+      {/* FILTERS */}
+      <div className="max-w-6xl mx-auto mb-6 flex flex-wrap gap-4 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-r border-slate-100 pr-4">
+              <Filter size={14} /> Filtres
+          </div>
+          
+          <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">Verdict:</span>
+              <select 
+                  value={filterDealType} 
+                  onChange={(e) => setFilterDealType(e.target.value)}
+                  className="bg-slate-50 border border-slate-200 text-xs rounded p-1 font-medium focus:outline-none focus:border-blue-500"
+              >
+                  <option value="ALL">Tous</option>
+                  <option value="GOOD_DEAL">Bonnes Affaires</option>
+                  <option value="FAIR">Prix Correct</option>
+                  <option value="BAD_DEAL">Trop Cher</option>
+              </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">Prix:</span>
+              <input 
+                  type="number" 
+                  placeholder="Min" 
+                  value={filterMinPrice}
+                  onChange={(e) => setFilterMinPrice(e.target.value)}
+                  className="w-16 bg-slate-50 border border-slate-200 text-xs rounded p-1 focus:outline-none focus:border-blue-500"
+              />
+              <span className="text-slate-300">-</span>
+              <input 
+                  type="number" 
+                  placeholder="Max" 
+                  value={filterMaxPrice}
+                  onChange={(e) => setFilterMaxPrice(e.target.value)}
+                  className="w-16 bg-slate-50 border border-slate-200 text-xs rounded p-1 focus:outline-none focus:border-blue-500"
+              />
+          </div>
+          
+          <div className="ml-auto text-xs text-slate-400 font-medium">
+              {filteredDeals.length} annonce(s) affichée(s)
+          </div>
+      </div>
+
       {/* MAIN CONTENT */}
       <main className="max-w-6xl mx-auto">
-        {deals.length === 0 ? (
+        {filteredDeals.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 shadow-inner">
             <Search className="mx-auto text-slate-100 mb-4" size={80} />
-            <h2 className="text-xl text-slate-400 font-black uppercase tracking-tighter italic">Recherche de pépites...</h2>
+            <h2 className="text-xl text-slate-400 font-black uppercase tracking-tighter italic">Aucune annonce trouvée...</h2>
             <p className="mt-4 text-[11px] text-slate-400 font-medium">
-              Vérifiez que votre script Python utilise bien l'App ID : <br/>
-              <code className="bg-slate-100 px-2 py-1 rounded mt-2 inline-block text-blue-600">{appId}</code>
+              Essayez de modifier vos filtres ou attendez le prochain scan.
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6">
-            {deals.map((deal) => (
+            {filteredDeals.map((deal) => (
               <div key={deal.id} className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-xl transition-all duration-300">
-                <div className="md:w-72 h-56 md:h-auto bg-slate-100 relative">
+                <div className="md:w-72 h-56 md:h-auto bg-slate-100 relative group">
                   <img src={deal.imageUrl} className="w-full h-full object-cover" alt="guitar" />
                   <div className="absolute top-4 left-4">
                     <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white shadow-lg ${ (deal.aiAnalysis?.verdict === 'GOOD_DEAL' || deal.verdict === 'GOOD_DEAL') ? 'bg-green-500' : 'bg-slate-800/80'}`}>
@@ -385,7 +490,7 @@ const App = () => {
                 </div>
                 <div className="flex-1 p-8 flex flex-col justify-between">
                   <div>
-                    <div className="flex justify-between items-start mb-4">
+                    <div className="flex justify-between items-start mb-2">
                       <h2 className="text-2xl font-black text-slate-800 leading-tight pr-4 capitalize">{deal.title || "Modèle Non Précisé"}</h2>
                       <div className="text-right">
                         <div className="flex flex-col items-end">
@@ -399,6 +504,12 @@ const App = () => {
                       </div>
                     </div>
 
+                    <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-4">
+                        <MapPin size={12} />
+                        <span>{deal.location || "Localisation inconnue"}</span>
+                        {deal.searchDistance && <span>(Rayon: {deal.searchDistance}km)</span>}
+                    </div>
+
                     <div className="flex items-center gap-4 mb-6">
                        <DealScore score={(deal.aiAnalysis?.confidence || deal.confidence || 0) / 10} />
                        <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
@@ -406,12 +517,29 @@ const App = () => {
                        </div>
                     </div>
 
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 italic">
+                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 italic mb-4">
                       <p className="text-slate-600 text-sm font-medium italic">"{deal.aiAnalysis?.reasoning || deal.reasoning || "Analyse Gemini en cours..."}"</p>
                     </div>
+
+                    {/* Images Analysis */}
+                    {deal.imageUrls && deal.imageUrls.length > 0 && (
+                        <div className="mb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                                <ImageIcon size={12} className="text-slate-400"/>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Images analysées</p>
+                            </div>
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {deal.imageUrls.map((url, idx) => (
+                                    <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block w-16 h-16 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden hover:opacity-80 transition-opacity">
+                                        <img src={url} className="w-full h-full object-cover" alt={`analysis-${idx}`} />
+                                    </a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                   </div>
 
-                  <div className="mt-8 flex items-center justify-between">
+                  <div className="mt-4 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-slate-300 font-bold text-[10px]">
                       <Clock size={14} />
                       <span className="uppercase tracking-widest">{deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleTimeString() : 'Maintenant'}</span>
