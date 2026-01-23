@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Search, ExternalLink, Guitar,
-  AlertTriangle, RefreshCw, Copy, ShieldCheck, Clock,
-  CheckCircle, XCircle, Activity, ChevronDown, ChevronUp, Edit3, Settings
+  AlertTriangle, RefreshCw, CheckCircle, XCircle, 
+  Activity, ChevronDown, ChevronUp, Settings, Clock
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -11,11 +11,10 @@ import {
   getFirestore, collection, onSnapshot, doc, getDoc, setDoc
 } from 'firebase/firestore';
 import {
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged
+  getAuth, signInAnonymously, onAuthStateChanged
 } from 'firebase/auth';
 
-// --- RÉCUPÉRATION DE LA CONFIGURATION SYSTÈME ---
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+// --- CONFIGURATION FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyDtr1pAc2oTWxnDyMHUclkt4G34qdAAAXw",
   authDomain: "guitarehunter-d6e35.firebaseapp.com",
@@ -30,11 +29,12 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- CONSTANTES DE SYNCHRONISATION (Correspondance avec votre script Python) ---
+// --- CONSTANTES ---
 const PYTHON_APP_ID = "c_5d118e719dbddbfc_index.html-217";
 const PYTHON_USER_ID = "00737242777130596039";
 const appId = PYTHON_APP_ID;
 
+// --- COMPOSANTS UTILITAIRES ---
 const DealScore = ({ score }) => {
   const s = parseFloat(score) || 0;
   const getColor = (val) => {
@@ -69,20 +69,19 @@ const App = () => {
   const [deals, setDeals] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // UI States
   const [showDebug, setShowDebug] = useState(false);
-  const [showConfig, setShowConfig] = useState(false); // Nouveau state pour le menu config
+  const [showConfig, setShowConfig] = useState(false);
+  
+  // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-
-  // Nouveaux états pour la configuration
-  const [scanConfig, setScanConfig] = useState({
-    maxAds: 5,
-    frequency: 60 // minutes
-  });
+  const [scanConfig, setScanConfig] = useState({ maxAds: 5, frequency: 60 });
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // États de diagnostic pour aider l'utilisateur
+  // Diagnostic State
   const [diag, setDiag] = useState({
     auth: { status: 'loading', msg: 'Connexion...' },
     appDoc: { status: 'pending', msg: 'En attente' },
@@ -90,7 +89,7 @@ const App = () => {
     collection: { status: 'pending', msg: 'En attente' }
   });
 
-  // 1. Authentification Automatique
+  // 1. Auth
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -107,14 +106,14 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Diagnostic des chemins de données
+  // 2. Diagnostics & Load Config
   useEffect(() => {
     if (!user) return;
 
     const runDiagnostics = async () => {
       const targetUserId = PYTHON_USER_ID;
 
-      // Vérification du document de l'application
+      // App Doc
       setDiag(prev => ({ ...prev, appDoc: { status: 'loading', msg: `Vérif artifacts/${appId}...` } }));
       try {
         const appDocRef = doc(db, 'artifacts', appId);
@@ -128,18 +127,17 @@ const App = () => {
         setDiag(prev => ({ ...prev, appDoc: { status: 'error', msg: e.message } }));
       }
 
-      // Vérification du dossier utilisateur cible
+      // User Doc & Config
       setDiag(prev => ({ ...prev, userDoc: { status: 'loading', msg: `Vérif users/${targetUserId}...` } }));
       try {
         const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
           setDiag(prev => ({ ...prev, userDoc: { status: 'success', msg: 'Dossier Python trouvé' } }));
-          // Charger le prompt et la config s'ils existent
           const userData = userDocSnap.data();
           if (userData) {
              if (userData.prompt) setPrompt(userData.prompt);
-             if (userData.scanConfig) setScanConfig(userData.scanConfig);
+             if (userData.scanConfig) setScanConfig(prev => ({ ...prev, ...userData.scanConfig }));
           }
         } else {
           setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: 'Dossier Python absent' } }));
@@ -152,7 +150,7 @@ const App = () => {
     runDiagnostics();
   }, [user]);
 
-  // 3. Écoute des données temps réel
+  // 3. Realtime Deals
   useEffect(() => {
     if (!user) return;
 
@@ -188,15 +186,15 @@ const App = () => {
     return () => unsubscribe();
   }, [user]);
 
+  // Handlers
   const handleSavePrompt = async () => {
       try {
           const targetUserId = PYTHON_USER_ID;
           const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
           await setDoc(userDocRef, { prompt: prompt }, { merge: true });
           setIsEditingPrompt(false);
-          console.log("Prompt sauvegardé !");
       } catch (e) {
-          console.error("Erreur lors de la sauvegarde du prompt :", e);
+          console.error("Erreur sauvegarde prompt :", e);
           setError("Impossible de sauvegarder le prompt.");
       }
   };
@@ -207,7 +205,6 @@ const App = () => {
           const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
           await setDoc(userDocRef, { scanConfig: scanConfig }, { merge: true });
           setIsEditingConfig(false);
-          console.log("Config sauvegardée !");
       } catch (e) {
           console.error("Erreur sauvegarde config :", e);
           setError("Impossible de sauvegarder la config.");
@@ -220,8 +217,6 @@ const App = () => {
           const targetUserId = PYTHON_USER_ID;
           const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
           await setDoc(userDocRef, { forceRefresh: Date.now() }, { merge: true });
-          
-          // Simulation d'attente
           setTimeout(() => setIsRefreshing(false), 5000);
       } catch (e) {
           console.error("Erreur refresh :", e);
@@ -231,6 +226,8 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 text-[14px]">
+      
+      {/* HEADER */}
       <header className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold flex items-center gap-2 italic tracking-tight">
@@ -239,14 +236,15 @@ const App = () => {
           </h1>
           <div className="mt-2 flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
              <div className="flex items-center gap-4">
-                 <span>Python Target: <span className="text-blue-600">{PYTHON_USER_ID}</span></span>
+                 <span>Target: <span className="text-blue-600">{PYTHON_USER_ID}</span></span>
                  <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connecté</span>
              </div>
           </div>
         </div>
 
         <div className="flex flex-col md:flex-row gap-4">
-            {/* --- NOUVEAU GROUPE DE CONFIGURATION --- */}
+            
+            {/* CONFIGURATION PANEL */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] md:w-[350px] overflow-hidden">
               <button 
                 onClick={() => setShowConfig(!showConfig)}
@@ -260,7 +258,7 @@ const App = () => {
               
               {showConfig && (
                 <div className="p-4 border-t border-slate-100">
-                    {/* Prompt Section */}
+                    {/* Prompt */}
                     <div className="mb-4 pb-4 border-b border-slate-100">
                         <div className="flex items-center justify-between mb-2">
                             <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prompt IA</h5>
@@ -283,7 +281,7 @@ const App = () => {
                         )}
                     </div>
 
-                    {/* Search Config Section */}
+                    {/* Scan Config */}
                     <div className="mb-4 pb-4 border-b border-slate-100">
                         <div className="flex items-center justify-between mb-2">
                             <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recherche</h5>
@@ -297,7 +295,7 @@ const App = () => {
                                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Max Annonces</label>
                                     <input 
                                         type="number" 
-                                        value={scanConfig.maxAds}
+                                        value={scanConfig?.maxAds || 5}
                                         onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
                                         className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
                                     />
@@ -306,7 +304,7 @@ const App = () => {
                                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Fréquence (min)</label>
                                     <input 
                                         type="number" 
-                                        value={scanConfig.frequency}
+                                        value={scanConfig?.frequency || 60}
                                         onChange={(e) => setScanConfig({...scanConfig, frequency: parseInt(e.target.value) || 60})}
                                         className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
                                     />
@@ -315,8 +313,8 @@ const App = () => {
                             </div>
                         ) : (
                             <div className="flex justify-between text-xs text-slate-600">
-                                <span>Max: <b>{scanConfig.maxAds}</b></span>
-                                <span>Freq: <b>{scanConfig.frequency} min</b></span>
+                                <span>Max: <b>{scanConfig?.maxAds || 5}</b></span>
+                                <span>Freq: <b>{scanConfig?.frequency || 60} min</b></span>
                             </div>
                         )}
                     </div>
@@ -334,7 +332,7 @@ const App = () => {
               )}
             </div>
 
-            {/* --- GROUPE ETAT SYSTEME (EXISTANT) --- */}
+            {/* SYSTEM STATUS PANEL */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden">
               <button 
                 onClick={() => setShowDebug(!showDebug)}
@@ -362,9 +360,8 @@ const App = () => {
         </div>
       </header>
 
+      {/* MAIN CONTENT */}
       <main className="max-w-6xl mx-auto">
-        {/* Les sections de configuration ont été déplacées dans le header */}
-
         {deals.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 shadow-inner">
             <Search className="mx-auto text-slate-100 mb-4" size={80} />
