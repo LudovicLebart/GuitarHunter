@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, Copy, ShieldCheck, Clock,
-  CheckCircle, XCircle, Activity
+  CheckCircle, XCircle, Activity, ChevronDown, ChevronUp, Edit3, Settings
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
 import { initializeApp } from 'firebase/app';
 import {
-  getFirestore, collection, onSnapshot, doc, getDoc
+  getFirestore, collection, onSnapshot, doc, getDoc, setDoc
 } from 'firebase/firestore';
 import {
   getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged
@@ -69,6 +69,17 @@ const App = () => {
   const [deals, setDeals] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
+  const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
+  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
+
+  // Nouveaux états pour la configuration
+  const [scanConfig, setScanConfig] = useState({
+    maxAds: 5,
+    frequency: 60 // minutes
+  });
+  const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // États de diagnostic pour aider l'utilisateur
   const [diag, setDiag] = useState({
@@ -127,6 +138,12 @@ const App = () => {
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
           setDiag(prev => ({ ...prev, userDoc: { status: 'success', msg: 'Dossier Python trouvé' } }));
+          // Charger le prompt et la config s'ils existent
+          const userData = userDocSnap.data();
+          if (userData) {
+             if (userData.prompt) setPrompt(userData.prompt);
+             if (userData.scanConfig) setScanConfig(userData.scanConfig);
+          }
         } else {
           setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: 'Dossier Python absent' } }));
         }
@@ -174,6 +191,48 @@ const App = () => {
     return () => unsubscribe();
   }, [user]);
 
+  const handleSavePrompt = async () => {
+      try {
+          const targetUserId = PYTHON_USER_ID;
+          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
+          // On utilise setDoc avec merge: true pour ne pas écraser les autres champs
+          await setDoc(userDocRef, { prompt: prompt }, { merge: true });
+          setIsEditingPrompt(false);
+          console.log("Prompt sauvegardé !");
+      } catch (e) {
+          console.error("Erreur lors de la sauvegarde du prompt :", e);
+          setError("Impossible de sauvegarder le prompt.");
+      }
+  };
+
+  const handleSaveConfig = async () => {
+      try {
+          const targetUserId = PYTHON_USER_ID;
+          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
+          await setDoc(userDocRef, { scanConfig: scanConfig }, { merge: true });
+          setIsEditingConfig(false);
+          console.log("Config sauvegardée !");
+      } catch (e) {
+          console.error("Erreur sauvegarde config :", e);
+          setError("Impossible de sauvegarder la config.");
+      }
+  };
+
+  const handleManualRefresh = async () => {
+      try {
+          setIsRefreshing(true);
+          const targetUserId = PYTHON_USER_ID;
+          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
+          await setDoc(userDocRef, { forceRefresh: Date.now() }, { merge: true });
+          
+          // Simulation d'attente
+          setTimeout(() => setIsRefreshing(false), 5000);
+      } catch (e) {
+          console.error("Erreur refresh :", e);
+          setIsRefreshing(false);
+      }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 text-[14px]">
       <header className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
@@ -187,23 +246,163 @@ const App = () => {
                  <span>Python Target: <span className="text-blue-600">{PYTHON_USER_ID}</span></span>
                  <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connecté</span>
              </div>
-             <div>App ID: <span className="text-slate-600">{PYTHON_APP_ID}</span></div>
-             <div>Path: <span className="text-slate-500 normal-case">artifacts/{PYTHON_APP_ID}/users/{PYTHON_USER_ID}/guitar_deals</span></div>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 min-w-[250px]">
-          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1">
-            <Activity size={12} /> État du Système
-          </h4>
-          <DebugStatus label="Authentification" status={diag.auth.status} details={diag.auth.msg} />
-          <DebugStatus label="Structure App" status={diag.appDoc.status} details={diag.appDoc.msg} />
-          <DebugStatus label="Structure User" status={diag.userDoc.status} details={diag.userDoc.msg} />
-          <DebugStatus label="Base de données" status={diag.collection.status} details={diag.collection.msg} />
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden">
+          <button 
+            onClick={() => setShowDebug(!showDebug)}
+            className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+          >
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+              <Activity size={12} /> État du Système
+            </h4>
+            {showDebug ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
+          </button>
+          
+          {showDebug && (
+            <div className="p-4 border-t border-slate-100">
+              <div className="mb-3 text-[10px] text-slate-400">
+                <div>App ID: <span className="text-slate-600 font-mono">{PYTHON_APP_ID}</span></div>
+                <div className="mt-1">Path: <span className="text-slate-500 font-mono break-all">artifacts/{PYTHON_APP_ID}/users/{PYTHON_USER_ID}/guitar_deals</span></div>
+              </div>
+              <DebugStatus label="Authentification" status={diag.auth.status} details={diag.auth.msg} />
+              <DebugStatus label="Structure App" status={diag.appDoc.status} details={diag.appDoc.msg} />
+              <DebugStatus label="Structure User" status={diag.userDoc.status} details={diag.userDoc.msg} />
+              <DebugStatus label="Base de données" status={diag.collection.status} details={diag.collection.msg} />
+            </div>
+          )}
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto">
+        {/* Section Prompt */}
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2">
+                    <Edit3 size={20} className="text-blue-600" />
+                    Configuration du Prompt IA
+                </h3>
+                {!isEditingPrompt ? (
+                    <button 
+                        onClick={() => setIsEditingPrompt(true)}
+                        className="text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-wider"
+                    >
+                        Modifier
+                    </button>
+                ) : (
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={() => setIsEditingPrompt(false)}
+                            className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider px-3 py-1"
+                        >
+                            Annuler
+                        </button>
+                        <button 
+                            onClick={handleSavePrompt}
+                            className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                        >
+                            Sauvegarder
+                        </button>
+                    </div>
+                )}
+            </div>
+            
+            {isEditingPrompt ? (
+                <textarea 
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[100px]"
+                    placeholder="Entrez les instructions pour l'IA..."
+                />
+            ) : (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <p className="text-slate-600 text-sm italic">"{prompt}"</p>
+                </div>
+            )}
+            <p className="mt-2 text-[10px] text-slate-400">
+                Ce prompt sera utilisé par le script Python pour analyser les nouvelles annonces.
+            </p>
+        </div>
+
+        {/* Section Configuration Recherche */}
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2">
+                    <Settings size={20} className="text-blue-600" />
+                    Paramètres de Recherche
+                </h3>
+                <div className="flex gap-2">
+                   <button 
+                        onClick={handleManualRefresh}
+                        disabled={isRefreshing}
+                        className={`flex items-center gap-2 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                    >
+                        <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+                        {isRefreshing ? "Scan en cours..." : "Lancer Scan"}
+                    </button>
+                    
+                    {!isEditingConfig ? (
+                        <button 
+                            onClick={() => setIsEditingConfig(true)}
+                            className="text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-wider"
+                        >
+                            Modifier
+                        </button>
+                    ) : (
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setIsEditingConfig(false)}
+                                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider px-3 py-1"
+                            >
+                                Annuler
+                            </button>
+                            <button 
+                                onClick={handleSaveConfig}
+                                className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
+                            >
+                                Sauvegarder
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            {isEditingConfig ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre d'annonces à traiter</label>
+                        <input 
+                            type="number" 
+                            value={scanConfig.maxAds}
+                            onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fréquence de recherche (minutes)</label>
+                        <input 
+                            type="number" 
+                            value={scanConfig.frequency}
+                            onChange={(e) => setScanConfig({...scanConfig, frequency: parseInt(e.target.value) || 60})}
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Annonces par scan</span>
+                        <span className="text-lg font-black text-slate-700">{scanConfig.maxAds}</span>
+                    </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Fréquence auto</span>
+                        <span className="text-lg font-black text-slate-700">{scanConfig.frequency} min</span>
+                    </div>
+                </div>
+            )}
+        </div>
+
         {deals.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 shadow-inner">
             <Search className="mx-auto text-slate-100 mb-4" size={80} />
@@ -230,8 +429,14 @@ const App = () => {
                     <div className="flex justify-between items-start mb-4">
                       <h2 className="text-2xl font-black text-slate-800 leading-tight pr-4 capitalize">{deal.title || "Modèle Non Précisé"}</h2>
                       <div className="text-right">
-                        <p className="text-3xl font-black text-blue-600 tracking-tighter">{deal.price} $</p>
-                        <p className="text-[10px] text-slate-400 font-black uppercase">Valeur Est.: {deal.aiAnalysis?.estimated_value || deal.estimated_value || "?"} $</p>
+                        <div className="flex flex-col items-end">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Prix Demandé</span>
+                            <p className="text-3xl font-black text-blue-600 tracking-tighter">{deal.price} $</p>
+                        </div>
+                        <div className="mt-2 flex flex-col items-end">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Valeur Estimée</span>
+                            <p className="text-xl font-black text-slate-700">{deal.aiAnalysis?.estimated_value || deal.estimated_value || "?"} $</p>
+                        </div>
                       </div>
                     </div>
 

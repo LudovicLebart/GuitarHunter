@@ -19,6 +19,7 @@ load_dotenv()
 # --- CONFIGURATION ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FIREBASE_KEY_PATH = "serviceAccountKey.json"  # Doit être à la racine du projet
+PROMPT_INSTRUCTION = "Evalue cette guitare Au quebec (avec le prix)."  # Instruction principale pour l'analyse IA
 
 # ==================================================================================
 # ⚠️ IMPORTANT : CES IDs DOIVENT CORRESPONDRE À CEUX DE VOTRE APP REACT ⚠️
@@ -49,7 +50,15 @@ if not firebase_admin._apps:
 
 
 class GuitarHunterBot:
-    def __init__(self):
+    def __init__(self, prompt_instruction=PROMPT_INSTRUCTION):
+        self.prompt_instruction = prompt_instruction
+        # Configuration par défaut
+        self.scan_config = {
+            "max_ads": 5,
+            "frequency": 60 # minutes
+        }
+        self.last_refresh_timestamp = 0
+
         # Construction du chemin pour vérification
         self.collection_path = f"artifacts/{APP_ID_TARGET}/users/{USER_ID_TARGET}/guitar_deals"
         
@@ -57,12 +66,17 @@ class GuitarHunterBot:
         print(f"   - APP ID  : {APP_ID_TARGET}")
         print(f"   - USER ID : {USER_ID_TARGET}")
         print(f"   - CHEMIN  : {self.collection_path}")
+        print(f"   - PROMPT  : {self.prompt_instruction}")
         print(f"👉 Assurez-vous que ce chemin est IDENTIQUE à celui affiché dans l'encadré jaune de l'application React.\n")
 
         # Référence à la collection spécifique suivie par l'App React
         self.collection_ref = db.collection('artifacts').document(APP_ID_TARGET) \
             .collection('users').document(USER_ID_TARGET) \
             .collection('guitar_deals')
+            
+        # Référence au document utilisateur pour écouter les changements de prompt et config
+        self.user_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+            .collection('users').document(USER_ID_TARGET)
 
         # --- CORRECTION : CRÉATION EXPLICITE DES PARENTS (Pour éviter l'italique/fantôme) ---
         try:
@@ -75,11 +89,70 @@ class GuitarHunterBot:
             # 2. Création du document User (artifacts/{APP_ID}/users/{USER_ID})
             user_ref = app_ref.collection('users').document(USER_ID_TARGET)
             if not user_ref.get().exists:
-                user_ref.set({'created_at': firestore.SERVER_TIMESTAMP, 'type': 'user_root'})
+                user_ref.set({
+                    'created_at': firestore.SERVER_TIMESTAMP, 
+                    'type': 'user_root', 
+                    'prompt': self.prompt_instruction,
+                    'scanConfig': self.scan_config
+                })
                 print(f"👤 Document parent créé : users/{USER_ID_TARGET}")
+            else:
+                # Si le document existe, on récupère le prompt et la config
+                self.sync_configuration()
                 
         except Exception as e:
             print(f"⚠️ Impossible de créer les documents parents (non bloquant) : {e}")
+
+    def sync_configuration(self):
+        """Synchronise la configuration et vérifie les demandes de refresh."""
+        try:
+            doc = self.user_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                
+                # 1. Prompt
+                if 'prompt' in data and data['prompt'] != self.prompt_instruction:
+                    self.prompt_instruction = data['prompt']
+                    print(f"🔄 Prompt mis à jour : {self.prompt_instruction}")
+
+                # 2. Scan Config
+                if 'scanConfig' in data:
+                    config = data['scanConfig']
+                    self.scan_config['max_ads'] = config.get('maxAds', 5)
+                    self.scan_config['frequency'] = config.get('frequency', 60)
+                    # print(f"⚙️ Config chargée : {self.scan_config}")
+
+                # 3. Force Refresh
+                if 'forceRefresh' in data:
+                    last_refresh = data['forceRefresh']
+                    # Si c'est la première fois qu'on voit ce timestamp (et qu'il n'est pas 0), on le note
+                    if self.last_refresh_timestamp == 0:
+                         self.last_refresh_timestamp = last_refresh
+                    elif last_refresh != self.last_refresh_timestamp:
+                        print(f"⚡ Refresh manuel demandé !")
+                        self.last_refresh_timestamp = last_refresh
+                        return True # Signal to run scan immediately
+            
+            return False
+        except Exception as e:
+            print(f"⚠️ Erreur sync config : {e}")
+            return False
+
+    def extract_facebook_id(self, url):
+        """Extrait l'ID numérique unique de l'annonce Facebook depuis l'URL."""
+        try:
+            # Format typique: https://www.facebook.com/marketplace/item/1234567890/
+            if "/item/" in url:
+                # On coupe après /item/
+                segment = url.split("/item/")[1]
+                # On prend ce qu'il y a avant le prochain / ou ?
+                fb_id = segment.split("/")[0].split("?")[0]
+                if fb_id.isdigit():
+                    return fb_id
+            return None
+        except Exception as e:
+            print(f"⚠️ Erreur extraction ID: {e}")
+            return None
 
     def download_image(self, url):
         """Télécharge l'image depuis l'URL et la convertit en objet PIL Image."""
@@ -97,24 +170,44 @@ class GuitarHunterBot:
 
     def analyze_deal_with_gemini(self, listing_data):
         """Utilise Gemini pour évaluer si l'annonce est une bonne affaire (Multimodal)."""
+        # Mise à jour du prompt avant chaque analyse (au cas où)
+        self.sync_configuration()
+
         print(f"🤖 Analyse IA pour : {listing_data['title']}...")
 
-        # Téléchargement de l'image pour l'analyse
-        image = self.download_image(listing_data['imageUrl'])
+        # Téléchargement des images
+        images = []
+        # Gestion de plusieurs images (imageUrls) ou d'une seule (imageUrl)
+        urls_to_process = listing_data.get('imageUrls', [])
+        if not urls_to_process and listing_data.get('imageUrl'):
+            urls_to_process = [listing_data['imageUrl']]
+            
+        # Limite à 5 images pour éviter de surcharger
+        urls_to_process = urls_to_process[:5]
+
+        for url in urls_to_process:
+            img = self.download_image(url)
+            if img:
+                images.append(img)
         
         prompt_text = f"""
-        Evalue cette guitare Au quebec (avec le prix).
+        {self.prompt_instruction}
         
         Détails de l'annonce :
         Titre: {listing_data['title']}
         Prix: {listing_data['price']} $
         Description: {listing_data['description']}
 
+        Règles strictes pour le verdict :
+        - "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
+        - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
+        - "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
+
         Réponds en JSON uniquement avec cette structure :
         {{
           "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL",
           "estimated_value": number,
-          "reasoning": "explication courte",
+          "reasoning": "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur",
           "confidence": number (0-100)
         }}
         """
@@ -122,9 +215,10 @@ class GuitarHunterBot:
         try:
             # Construction du contenu multimodal
             content = [prompt_text]
-            if image:
-                content.append(image)
-                print("   📸 Image incluse dans l'analyse.")
+            content.extend(images)
+            
+            if images:
+                print(f"   📸 {len(images)} images incluses dans l'analyse.")
             else:
                 print("   ⚠️ Analyse texte uniquement (pas d'image valide).")
 
@@ -140,13 +234,13 @@ class GuitarHunterBot:
                 "confidence": 0
             }
 
-    def save_to_firestore(self, listing_data, analysis):
+    def save_to_firestore(self, listing_data, analysis, doc_id=None):
         """Sauvegarde les données au chemin exact écouté par React."""
         try:
-            # ID unique basé sur le titre et le prix
-            doc_id = f"{listing_data['title'][:15]}_{listing_data['price']}".replace(" ", "_").lower()
-            # Nettoyage des caractères invalides pour un ID Firestore
-            doc_id = "".join(c for c in doc_id if c.isalnum() or c in ('_', '-'))
+            # Si pas d'ID fourni, on génère un ID de secours (ne devrait pas arriver avec FB)
+            if not doc_id:
+                doc_id = f"{listing_data['title'][:15]}_{listing_data['price']}".replace(" ", "_").lower()
+                doc_id = "".join(c for c in doc_id if c.isalnum() or c in ('_', '-'))
 
             data = {
                 **listing_data,
@@ -160,18 +254,23 @@ class GuitarHunterBot:
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
 
-    def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal"):
+    def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
-        print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location}...")
+        print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location} (Max: {max_ads})...")
         
         with sync_playwright() as p:
-            # Headless=False est souvent nécessaire pour FB pour éviter d'être bloqué immédiatement
-            # et pour le débogage visuel.
-            browser = p.chromium.launch(headless=False)
+
+            # --- MODIFICATION : Démarrage minimisé ---
+            # args=["--start-minimized"] demande à Chrome de démarrer réduit dans la barre des tâches
+            browser = p.chromium.launch(
+                headless=False,
+                args=["--start-minimized"] 
+            )
             
-            # Configuration du contexte pour ressembler à un vrai utilisateur
+            # Configuration du contexte
+            # viewport=None est CRUCIAL pour que --start-minimized fonctionne (sinon Playwright redimensionne la fenêtre)
             context = browser.new_context(
-                viewport={'width': 1280, 'height': 800},
+                viewport=None,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             
@@ -223,8 +322,8 @@ class GuitarHunterBot:
                 seen_urls = set()
 
                 for link_loc in listings_locators:
-                    if processed_count >= 5: # Limite pour éviter de spammer l'API Gemini/Firestore pendant les tests
-                        print("   🛑 Limite de 5 annonces atteinte pour ce test.")
+                    if processed_count >= max_ads: 
+                        print(f"   🛑 Limite de {max_ads} annonces atteinte.")
                         break
                         
                     href = link_loc.get_attribute("href")
@@ -244,23 +343,47 @@ class GuitarHunterBot:
                         continue
                     seen_urls.add(clean_link)
 
-                    # Extraction des données brutes (Titre, Prix, Image)
-                    # On essaie de parser le texte contenu dans le lien (souvent structuré en lignes)
+                    # --- Extraction de l'ID Facebook ---
+                    fb_id = self.extract_facebook_id(clean_link)
+                    if not fb_id:
+                        continue
+
+                    # --- Extraction des données brutes ---
                     text_content = link_loc.inner_text()
                     lines = [line.strip() for line in text_content.split('\n') if line.strip()]
                     
-                    # Heuristique simple pour identifier Prix et Titre
-                    price = 0
+                    # Extraction de l'image (miniature)
+                    img_loc = link_loc.locator("img").first
+                    image_url = "https://via.placeholder.com/400?text=No+Image"
+                    
+                    # --- MODIFICATION : Extraction du titre via l'attribut ALT de l'image ---
+                    # C'est beaucoup plus fiable que de deviner dans le texte
                     title = ""
-                    
-                    # Souvent : Prix en premier ou deuxième, Titre ensuite
-                    # Exemple: "150 $", "Guitare Fender", "Montréal, QC"
-                    
+                    if img_loc.count() > 0:
+                        src = img_loc.get_attribute("src")
+                        if src:
+                            image_url = src
+                        
+                        # Le titre complet est souvent dans le alt de l'image
+                        alt_text = img_loc.get_attribute("alt")
+                        if alt_text and len(alt_text) > 3:
+                            title = alt_text
+
+                    # Fallback si pas de alt text (rare)
+                    if not title:
+                        # On essaie de trouver une ligne qui n'est PAS un prix
+                        for line in lines:
+                            if not any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']) and len(line) > 3:
+                                title = line
+                                break
+                        if not title:
+                            title = "Titre Inconnu"
+
+                    # Extraction du prix
+                    price = 0
                     found_price = False
                     for line in lines:
-                        # Détection basique de prix
                         if not found_price and any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']):
-                            # Nettoyage du prix
                             digits = ''.join(filter(str.isdigit, line))
                             if digits:
                                 price = int(digits)
@@ -268,39 +391,83 @@ class GuitarHunterBot:
                             elif "Free" in line or "Gratuit" in line:
                                 price = 0
                                 found_price = True
-                        elif not title and len(line) > 3:
-                            # On suppose que la première ligne de texte substantielle qui n'est pas le prix est le titre
-                            title = line
 
-                    # Si on n'a pas trouvé de titre clair, on prend tout le texte
-                    if not title:
-                        title = " ".join(lines[:2]) if lines else "Titre Inconnu"
-
-                    # Extraction de l'image
-                    img_loc = link_loc.locator("img").first
-                    image_url = "https://via.placeholder.com/400?text=No+Image"
-                    if img_loc.count() > 0:
-                        src = img_loc.get_attribute("src")
-                        if src:
-                            image_url = src
-
-                    # On ignore les annonces sans prix détecté ou sans titre
-                    if title and (price > 0 or "Gratuit" in text_content or "Free" in text_content):
+                    # On ignore les annonces sans prix détecté
+                    if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
                         print(f"   ✨ Annonce trouvée : {title} ({price} $)")
                         
+                        # --- VERIFICATION INTELLIGENTE (ID + PRIX) ---
+                        doc_ref = self.collection_ref.document(fb_id)
+                        doc_snap = doc_ref.get()
+                        
+                        if doc_snap.exists:
+                            existing_data = doc_snap.to_dict()
+                            old_price = existing_data.get('price')
+                            
+                            if old_price == price:
+                                print(f"   ⏭️ Annonce existante et prix inchangé ({price} $). On passe.")
+                                continue
+                            else:
+                                print(f"   🔄 Le prix a changé ! (Ancien: {old_price} $ -> Nouveau: {price} $). Mise à jour...")
+                        
+                        # --- Scraping détaillé de la page ---
+                        description = f"Annonce Marketplace. {title}. Localisation: {location}"
+                        image_urls = [image_url] 
+                        
+                        try:
+                            print(f"   ➡️  Ouverture de l'annonce pour détails : {clean_link}")
+                            detail_page = context.new_page()
+                            detail_page.goto(clean_link, timeout=45000)
+                            
+                            time.sleep(2) 
+                            
+                            potential_images = detail_page.locator("img").all()
+                            found_urls = []
+                            for img in potential_images:
+                                try:
+                                    src = img.get_attribute("src")
+                                    if src and src.startswith("http") and "scontent" in src:
+                                        if src not in found_urls:
+                                            found_urls.append(src)
+                                except:
+                                    pass
+                            
+                            if found_urls:
+                                image_urls = list(dict.fromkeys(found_urls)) # Dedup
+                                print(f"   📸 {len(image_urls)} images trouvées sur la page.")
+
+                            try:
+                                detail_page.get_by_role("button", name="Plus").click(timeout=1000)
+                            except:
+                                try:
+                                    detail_page.get_by_role("button", name="See more").click(timeout=1000)
+                                except:
+                                    pass
+                                
+                            full_text = detail_page.locator("body").inner_text()
+                            description = full_text[:3000]
+
+                            detail_page.close()
+                        except Exception as e:
+                            print(f"   ⚠️ Impossible de récupérer les détails (fallback) : {e}")
+                            if 'detail_page' in locals():
+                                try: detail_page.close()
+                                except: pass
+
                         listing_data = {
                             "title": title,
                             "price": price,
-                            "description": f"Annonce Marketplace. {title}. Localisation: {location}", # Description placeholder car on ne clique pas sur l'annonce
-                            "imageUrl": image_url,
+                            "description": description,
+                            "imageUrl": image_urls[0] if image_urls else image_url,
+                            "imageUrls": image_urls,
                             "link": clean_link
                         }
                         
                         # Analyse IA
                         analysis = self.analyze_deal_with_gemini(listing_data)
                         
-                        # Sauvegarde
-                        self.save_to_firestore(listing_data, analysis)
+                        # Sauvegarde avec l'ID Facebook
+                        self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
                         
                         processed_count += 1
                         
@@ -322,33 +489,72 @@ class GuitarHunterBot:
                 "price": 1600,
                 "description": "État neuf, micros Burstbucker, étui original. Urgent.",
                 "imageUrl": "https://images.unsplash.com/photo-1516924962500-2b4b3b99ea02?q=80&w=400",
-                "link": "https://facebook.com/marketplace/item/test1"
+                "imageUrls": [
+                    "https://images.unsplash.com/photo-1516924962500-2b4b3b99ea02?q=80&w=400",
+                    "https://images.unsplash.com/photo-1564186763535-ebb21ef5277f?q=80&w=400"
+                ],
+                "link": "https://facebook.com/marketplace/item/1234567890"
             },
             {
                 "title": "Squier Strat Classic Vibe 60s",
                 "price": 250,
                 "description": "Excellent état, parfaite pour débuter ou upgrade.",
                 "imageUrl": "https://images.unsplash.com/photo-1550291652-6ea9114a47b1?q=80&w=400",
-                "link": "https://facebook.com/marketplace/item/test2"
+                "imageUrls": [
+                    "https://images.unsplash.com/photo-1550291652-6ea9114a47b1?q=80&w=400"
+                ],
+                "link": "https://facebook.com/marketplace/item/0987654321"
             }
         ]
 
         for listing in mock_listings:
+            # Extraction ID fictif
+            fb_id = self.extract_facebook_id(listing['link'])
             analysis = self.analyze_deal_with_gemini(listing)
-            self.save_to_firestore(listing, analysis)
+            self.save_to_firestore(listing, analysis, doc_id=fb_id)
             time.sleep(1)
 
 
 if __name__ == "__main__":
+    # Demande du prompt personnalisé au démarrage
+    print(f"Prompt par défaut: {PROMPT_INSTRUCTION}")
+    
     bot = GuitarHunterBot()
     
-    # Choix du mode
-    print("1. Lancer le scan réel (Facebook Marketplace)")
-    print("2. Lancer le test (Données fictives)")
-    choice = input("Votre choix (1/2) [défaut: 1]: ").strip()
+    print("\n--- MODE AUTOMATIQUE ---")
+    print("Le bot va surveiller la configuration et scanner périodiquement.")
+    print("Appuyez sur Ctrl+C pour arrêter.")
     
-    if choice == "2":
-        bot.run_test_scan()
-    else:
-        # Vous pouvez changer la requête et la localisation ici
-        bot.scan_facebook_marketplace(search_query="electric guitar", location="montreal")
+    last_scan_time = 0
+    
+    try:
+        while True:
+            # 1. Synchronisation de la config et vérification du refresh manuel
+            should_refresh = bot.sync_configuration()
+            
+            # 2. Vérification du temps écoulé
+            current_time = time.time()
+            frequency_seconds = bot.scan_config['frequency'] * 60
+            
+            # Si refresh demandé OU temps écoulé
+            if should_refresh or (current_time - last_scan_time > frequency_seconds):
+                if should_refresh:
+                    print("⚡ Lancement du scan (Manuel)...")
+                else:
+                    print(f"⏰ Lancement du scan (Auto - {bot.scan_config['frequency']} min)...")
+                
+                # Lancement du scan
+                bot.scan_facebook_marketplace(
+                    search_query="electric guitar", 
+                    location="montreal",
+                    max_ads=bot.scan_config['max_ads']
+                )
+                
+                last_scan_time = time.time()
+                print(f"💤 Prochain scan auto dans {bot.scan_config['frequency']} minutes...")
+            
+            # Pause courte pour éviter de spammer Firestore
+            time.sleep(5)
+            
+    except KeyboardInterrupt:
+        print("\n🛑 Arrêt du bot.")
