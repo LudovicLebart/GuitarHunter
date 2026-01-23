@@ -70,6 +70,7 @@ const App = () => {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
+  const [showConfig, setShowConfig] = useState(false); // Nouveau state pour le menu config
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
 
@@ -93,14 +94,10 @@ const App = () => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // CORRECTION : On tente d'abord l'authentification anonyme
-        // L'erreur "custom-token-mismatch" indique que le token injecté n'est pas valide pour ce projet
-        // ou qu'il est mal formé. On privilégie l'accès anonyme direct.
         await signInAnonymously(auth);
         setDiag(prev => ({ ...prev, auth: { status: 'success', msg: 'Authentifié (Anonyme)' } }));
       } catch (err) {
         console.error("Auth Error:", err);
-        // Tentative de fallback si l'anonyme échoue (rare)
         setDiag(prev => ({ ...prev, auth: { status: 'error', msg: err.message } }));
         setError(`Erreur Auth: ${err.message}`);
       }
@@ -195,7 +192,6 @@ const App = () => {
       try {
           const targetUserId = PYTHON_USER_ID;
           const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
-          // On utilise setDoc avec merge: true pour ne pas écraser les autres champs
           await setDoc(userDocRef, { prompt: prompt }, { merge: true });
           setIsEditingPrompt(false);
           console.log("Prompt sauvegardé !");
@@ -235,7 +231,7 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 text-[14px]">
-      <header className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <header className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold flex items-center gap-2 italic tracking-tight">
             <Guitar className="text-blue-600" size={32} />
@@ -249,159 +245,125 @@ const App = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden">
-          <button 
-            onClick={() => setShowDebug(!showDebug)}
-            className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
-          >
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-              <Activity size={12} /> État du Système
-            </h4>
-            {showDebug ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
-          </button>
-          
-          {showDebug && (
-            <div className="p-4 border-t border-slate-100">
-              <div className="mb-3 text-[10px] text-slate-400">
-                <div>App ID: <span className="text-slate-600 font-mono">{PYTHON_APP_ID}</span></div>
-                <div className="mt-1">Path: <span className="text-slate-500 font-mono break-all">artifacts/{PYTHON_APP_ID}/users/{PYTHON_USER_ID}/guitar_deals</span></div>
-              </div>
-              <DebugStatus label="Authentification" status={diag.auth.status} details={diag.auth.msg} />
-              <DebugStatus label="Structure App" status={diag.appDoc.status} details={diag.appDoc.msg} />
-              <DebugStatus label="Structure User" status={diag.userDoc.status} details={diag.userDoc.msg} />
-              <DebugStatus label="Base de données" status={diag.collection.status} details={diag.collection.msg} />
+        <div className="flex flex-col md:flex-row gap-4">
+            {/* --- NOUVEAU GROUPE DE CONFIGURATION --- */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] md:w-[350px] overflow-hidden">
+              <button 
+                onClick={() => setShowConfig(!showConfig)}
+                className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                  <Settings size={12} /> Configuration
+                </h4>
+                {showConfig ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
+              </button>
+              
+              {showConfig && (
+                <div className="p-4 border-t border-slate-100">
+                    {/* Prompt Section */}
+                    <div className="mb-4 pb-4 border-b border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prompt IA</h5>
+                            <button onClick={() => setIsEditingPrompt(!isEditingPrompt)} className="text-blue-600 text-[10px] font-bold uppercase">
+                                {isEditingPrompt ? 'Fermer' : 'Modifier'}
+                            </button>
+                        </div>
+                        {isEditingPrompt ? (
+                            <div className="flex flex-col gap-2">
+                                <textarea 
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px]"
+                                    placeholder="Instructions pour l'IA..."
+                                />
+                                <button onClick={handleSavePrompt} className="bg-blue-600 text-white py-1 rounded text-[10px] font-bold uppercase">Sauvegarder</button>
+                            </div>
+                        ) : (
+                            <p className="text-xs text-slate-600 italic line-clamp-3">"{prompt}"</p>
+                        )}
+                    </div>
+
+                    {/* Search Config Section */}
+                    <div className="mb-4 pb-4 border-b border-slate-100">
+                        <div className="flex items-center justify-between mb-2">
+                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recherche</h5>
+                            <button onClick={() => setIsEditingConfig(!isEditingConfig)} className="text-blue-600 text-[10px] font-bold uppercase">
+                                {isEditingConfig ? 'Fermer' : 'Modifier'}
+                            </button>
+                        </div>
+                        {isEditingConfig ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Max Annonces</label>
+                                    <input 
+                                        type="number" 
+                                        value={scanConfig.maxAds}
+                                        onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Fréquence (min)</label>
+                                    <input 
+                                        type="number" 
+                                        value={scanConfig.frequency}
+                                        onChange={(e) => setScanConfig({...scanConfig, frequency: parseInt(e.target.value) || 60})}
+                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
+                                    />
+                                </div>
+                                <button onClick={handleSaveConfig} className="col-span-2 bg-blue-600 text-white py-1 rounded text-[10px] font-bold uppercase mt-1">Sauvegarder</button>
+                            </div>
+                        ) : (
+                            <div className="flex justify-between text-xs text-slate-600">
+                                <span>Max: <b>{scanConfig.maxAds}</b></span>
+                                <span>Freq: <b>{scanConfig.frequency} min</b></span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Refresh Button */}
+                    <button 
+                        onClick={handleManualRefresh}
+                        disabled={isRefreshing}
+                        className={`w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                    >
+                        <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                        {isRefreshing ? "Scan en cours..." : "Lancer Scan Manuel"}
+                    </button>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* --- GROUPE ETAT SYSTEME (EXISTANT) --- */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden">
+              <button 
+                onClick={() => setShowDebug(!showDebug)}
+                className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+              >
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                  <Activity size={12} /> État du Système
+                </h4>
+                {showDebug ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
+              </button>
+              
+              {showDebug && (
+                <div className="p-4 border-t border-slate-100">
+                  <div className="mb-3 text-[10px] text-slate-400">
+                    <div>App ID: <span className="text-slate-600 font-mono">{PYTHON_APP_ID}</span></div>
+                    <div className="mt-1">Path: <span className="text-slate-500 font-mono break-all">artifacts/{PYTHON_APP_ID}/users/{PYTHON_USER_ID}/guitar_deals</span></div>
+                  </div>
+                  <DebugStatus label="Authentification" status={diag.auth.status} details={diag.auth.msg} />
+                  <DebugStatus label="Structure App" status={diag.appDoc.status} details={diag.appDoc.msg} />
+                  <DebugStatus label="Structure User" status={diag.userDoc.status} details={diag.userDoc.msg} />
+                  <DebugStatus label="Base de données" status={diag.collection.status} details={diag.collection.msg} />
+                </div>
+              )}
+            </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto">
-        {/* Section Prompt */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-                    <Edit3 size={20} className="text-blue-600" />
-                    Configuration du Prompt IA
-                </h3>
-                {!isEditingPrompt ? (
-                    <button 
-                        onClick={() => setIsEditingPrompt(true)}
-                        className="text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-wider"
-                    >
-                        Modifier
-                    </button>
-                ) : (
-                    <div className="flex gap-2">
-                        <button 
-                            onClick={() => setIsEditingPrompt(false)}
-                            className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider px-3 py-1"
-                        >
-                            Annuler
-                        </button>
-                        <button 
-                            onClick={handleSavePrompt}
-                            className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
-                        >
-                            Sauvegarder
-                        </button>
-                    </div>
-                )}
-            </div>
-            
-            {isEditingPrompt ? (
-                <textarea 
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[100px]"
-                    placeholder="Entrez les instructions pour l'IA..."
-                />
-            ) : (
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <p className="text-slate-600 text-sm italic">"{prompt}"</p>
-                </div>
-            )}
-            <p className="mt-2 text-[10px] text-slate-400">
-                Ce prompt sera utilisé par le script Python pour analyser les nouvelles annonces.
-            </p>
-        </div>
-
-        {/* Section Configuration Recherche */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-8">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2">
-                    <Settings size={20} className="text-blue-600" />
-                    Paramètres de Recherche
-                </h3>
-                <div className="flex gap-2">
-                   <button 
-                        onClick={handleManualRefresh}
-                        disabled={isRefreshing}
-                        className={`flex items-center gap-2 px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider transition-colors ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                    >
-                        <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
-                        {isRefreshing ? "Scan en cours..." : "Lancer Scan"}
-                    </button>
-                    
-                    {!isEditingConfig ? (
-                        <button 
-                            onClick={() => setIsEditingConfig(true)}
-                            className="text-xs font-bold text-blue-600 hover:text-blue-800 uppercase tracking-wider"
-                        >
-                            Modifier
-                        </button>
-                    ) : (
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => setIsEditingConfig(false)}
-                                className="text-xs font-bold text-slate-400 hover:text-slate-600 uppercase tracking-wider px-3 py-1"
-                            >
-                                Annuler
-                            </button>
-                            <button 
-                                onClick={handleSaveConfig}
-                                className="bg-blue-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors"
-                            >
-                                Sauvegarder
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            {isEditingConfig ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nombre d'annonces à traiter</label>
-                        <input 
-                            type="number" 
-                            value={scanConfig.maxAds}
-                            onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Fréquence de recherche (minutes)</label>
-                        <input 
-                            type="number" 
-                            value={scanConfig.frequency}
-                            onChange={(e) => setScanConfig({...scanConfig, frequency: parseInt(e.target.value) || 60})}
-                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                    </div>
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Annonces par scan</span>
-                        <span className="text-lg font-black text-slate-700">{scanConfig.maxAds}</span>
-                    </div>
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                        <span className="block text-xs font-bold text-slate-400 uppercase mb-1">Fréquence auto</span>
-                        <span className="text-lg font-black text-slate-700">{scanConfig.frequency} min</span>
-                    </div>
-                </div>
-            )}
-        </div>
+        {/* Les sections de configuration ont été déplacées dans le header */}
 
         {deals.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 shadow-inner">
