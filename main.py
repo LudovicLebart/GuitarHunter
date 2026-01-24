@@ -4,6 +4,7 @@ import json
 import random
 import requests
 import warnings
+import unicodedata
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
@@ -34,6 +35,7 @@ USER_ID_TARGET = "00737242777130596039"           # À remplacer par le User ID 
 # ==================================================================================
 
 # Initialisation Gemini
+model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.0-flash')
@@ -226,6 +228,15 @@ class GuitarHunterBot:
         # Mise à jour du prompt avant chaque analyse (au cas où)
         self.sync_configuration()
 
+        if not model:
+             print("⚠️ Modèle Gemini non initialisé (Clé API manquante ?)")
+             return {
+                "verdict": "FAIR",
+                "estimated_value": listing_data['price'],
+                "reasoning": "Analyse IA impossible : Modèle non initialisé.",
+                "confidence": 0
+            }
+
         print(f"🤖 Analyse IA pour : {listing_data['title']}...")
 
         # Téléchargement des images
@@ -334,21 +345,41 @@ class GuitarHunterBot:
                 args=["--start-minimized"] 
             )
             
+            # Coordonnées de Montréal pour forcer la géolocalisation
+            # Cela aide Facebook à centrer la carte au bon endroit
+            montreal_geo = {"latitude": 45.5017, "longitude": -73.5673}
+
             # Configuration du contexte
             # viewport=None est CRUCIAL pour que --start-minimized fonctionne (sinon Playwright redimensionne la fenêtre)
             context = browser.new_context(
                 viewport=None,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                locale="fr-CA",
+                timezone_id="America/Montreal",
+                geolocation=montreal_geo,
+                permissions=["geolocation"]
             )
             
             page = context.new_page()
 
+            # --- Nettoyage du slug de la ville ---
+            clean_location = location
+            
+            # Si c'est un ID numérique (ex: 103769252995718), on le garde tel quel
+            if not location.isdigit():
+                # Facebook requiert des slugs en minuscules, sans accents.
+                # Ex: "Québec" -> "quebec", "Montréal" -> "montreal"
+                clean_location = location.lower()
+                # Suppression des accents
+                clean_location = unicodedata.normalize('NFD', clean_location).encode('ascii', 'ignore').decode("utf-8")
+            
             # URL de recherche Marketplace
             # Note: L'URL peut varier selon la région. 
-            url = f"https://www.facebook.com/marketplace/{location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}"
+            url = f"https://www.facebook.com/marketplace/{clean_location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
+                print(f"   🔗 URL générée : {url}")
                 page.goto(url, timeout=60000)
                 
                 # Gestion des popups cookies (Europe/Canada)
