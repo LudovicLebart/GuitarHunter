@@ -176,6 +176,7 @@ class GuitarHunterBot:
                 # 3. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
+                    print(f"DEBUG: Firestore timestamp: {last_refresh}, Bot timestamp: {self.last_refresh_timestamp}")
                     
                     if initial:
                         # Initialisation : on se cale sur le timestamp actuel sans déclencher

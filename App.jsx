@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Search, ExternalLink, Guitar,
-  AlertTriangle, RefreshCw, CheckCircle, XCircle, 
+  AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, ChevronDown, ChevronUp, Settings, Clock,
-  MapPin, Filter, Image as ImageIcon
+  MapPin, Filter, Image as ImageIcon, Sparkles, TrendingUp, DollarSign
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -15,7 +15,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from 'firebase/auth';
 
-// --- CONFIGURATION FIREBASE ---
+// --- CONFIGURATION FIREBASE (Extraite de ton code) ---
 const firebaseConfig = {
   apiKey: "AIzaSyDtr1pAc2oTWxnDyMHUclkt4G34qdAAAXw",
   authDomain: "guitarehunter-d6e35.firebaseapp.com",
@@ -36,31 +36,32 @@ const PYTHON_USER_ID = "00737242777130596039";
 const appId = PYTHON_APP_ID;
 
 // --- COMPOSANTS UTILITAIRES ---
-const DealScore = ({ score }) => {
-  const s = parseFloat(score) || 0;
-  const getColor = (val) => {
-    if (val >= 8) return 'bg-green-100 text-green-700 border-green-200';
-    if (val >= 6) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    return 'bg-red-100 text-red-700 border-red-200';
+const VerdictBadge = ({ verdict }) => {
+  const configs = {
+    'GOOD_DEAL': { label: 'Excellente Affaire', color: 'bg-emerald-500', icon: <Sparkles size={12}/> },
+    'FAIR': { label: 'Prix Correct', color: 'bg-blue-500', icon: <CheckCircle size={12}/> },
+    'BAD_DEAL': { label: 'Trop Cher', color: 'bg-rose-500', icon: <AlertTriangle size={12}/> },
+    'DEFAULT': { label: 'Analyse...', color: 'bg-slate-400', icon: <RefreshCw size={12} className="animate-spin"/> }
   };
+  const config = configs[verdict] || configs.DEFAULT;
   return (
-    <div className={`px-3 py-1 rounded-full border text-sm font-bold ${getColor(s)}`}>
-      Score Gemini: {s}/10
-    </div>
+    <span className={`${config.color} text-white px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5`}>
+      {config.icon} {config.label}
+    </span>
   );
 };
 
 const DebugStatus = ({ label, status, details }) => (
-  <div className="flex items-start gap-2 text-[10px] font-mono mb-1">
+  <div className="flex items-start gap-2 text-[10px] font-mono mb-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
     <div className="mt-0.5">
-      {status === 'loading' && <RefreshCw size={10} className="animate-spin text-blue-500" />}
-      {status === 'success' && <CheckCircle size={10} className="text-green-500" />}
-      {status === 'error' && <XCircle size={10} className="text-red-500" />}
-      {status === 'pending' && <div className="w-2.5 h-2.5 rounded-full border border-slate-300" />}
+      {status === 'loading' && <RefreshCw size={12} className="animate-spin text-blue-500" />}
+      {status === 'success' && <CheckCircle size={12} className="text-emerald-500" />}
+      {status === 'error' && <XCircle size={12} className="text-rose-500" />}
+      {status === 'pending' && <div className="w-3 h-3 rounded-full border-2 border-slate-300" />}
     </div>
-    <div>
-      <span className={`font-bold ${status === 'error' ? 'text-red-600' : 'text-slate-600'}`}>{label}</span>
-      {details && <p className="text-slate-400 leading-tight mt-0.5">{details}</p>}
+    <div className="flex-1">
+      <div className={`font-bold uppercase ${status === 'error' ? 'text-rose-600' : 'text-slate-600'}`}>{label}</div>
+      {details && <p className="text-slate-400 leading-tight mt-0.5 break-all">{details}</p>}
     </div>
   </div>
 );
@@ -70,26 +71,20 @@ const App = () => {
   const [deals, setDeals] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+
   // UI States
   const [showDebug, setShowDebug] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  
+
   // Filter States
-  const [filterDealType, setFilterDealType] = useState('ALL');
-  const [filterMinPrice, setFilterMinPrice] = useState('');
-  const [filterMaxPrice, setFilterMaxPrice] = useState('');
+  const [filterType, setFilterType] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [scanConfig, setScanConfig] = useState({ 
-      maxAds: 5, 
-      frequency: 60,
-      location: 'montreal',
-      distance: 60,
-      minPrice: 0,
-      maxPrice: 10000
+  const [scanConfig, setScanConfig] = useState({
+      maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000
   });
   const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -102,16 +97,15 @@ const App = () => {
     collection: { status: 'pending', msg: 'En attente' }
   });
 
-  // 1. Auth
+  // 1. Auth Init
   useEffect(() => {
     const initAuth = async () => {
       try {
         await signInAnonymously(auth);
-        setDiag(prev => ({ ...prev, auth: { status: 'success', msg: 'Authentifié (Anonyme)' } }));
+        setDiag(prev => ({ ...prev, auth: { status: 'success', msg: 'Authentifié' } }));
       } catch (err) {
-        console.error("Auth Error:", err);
         setDiag(prev => ({ ...prev, auth: { status: 'error', msg: err.message } }));
-        setError(`Erreur Auth: ${err.message}`);
+        setError(`Auth Error: ${err.message}`);
       }
     };
     initAuth();
@@ -119,449 +113,308 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Diagnostics & Load Config
+  // 2. Load Config & Diag
   useEffect(() => {
     if (!user) return;
-
     const runDiagnostics = async () => {
-      const targetUserId = PYTHON_USER_ID;
-
-      // App Doc
-      setDiag(prev => ({ ...prev, appDoc: { status: 'loading', msg: `Vérif artifacts/${appId}...` } }));
       try {
-        const appDocRef = doc(db, 'artifacts', appId);
-        const appDocSnap = await getDoc(appDocRef);
-        if (appDocSnap.exists()) {
-          setDiag(prev => ({ ...prev, appDoc: { status: 'success', msg: 'Document App trouvé' } }));
-        } else {
-          setDiag(prev => ({ ...prev, appDoc: { status: 'error', msg: 'Structure racine absente' } }));
-        }
-      } catch (e) {
-        setDiag(prev => ({ ...prev, appDoc: { status: 'error', msg: e.message } }));
-      }
-
-      // User Doc & Config
-      setDiag(prev => ({ ...prev, userDoc: { status: 'loading', msg: `Vérif users/${targetUserId}...` } }));
-      try {
-        const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
+        const userDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID);
         const userDocSnap = await getDoc(userDocRef);
         if (userDocSnap.exists()) {
           setDiag(prev => ({ ...prev, userDoc: { status: 'success', msg: 'Dossier Python trouvé' } }));
-          const userData = userDocSnap.data();
-          if (userData) {
-             if (userData.prompt) setPrompt(userData.prompt);
-             if (userData.scanConfig) setScanConfig(prev => ({ ...prev, ...userData.scanConfig }));
-          }
-        } else {
-          setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: 'Dossier Python absent' } }));
+          const data = userDocSnap.data();
+          if (data.prompt) setPrompt(data.prompt);
+          if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
         }
+        setDiag(prev => ({ ...prev, appDoc: { status: 'success', msg: 'Structure OK' } }));
       } catch (e) {
         setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: e.message } }));
       }
     };
-
     runDiagnostics();
   }, [user]);
 
-  // 3. Realtime Deals
+  // 3. Firestore Sync
   useEffect(() => {
     if (!user) return;
-
-    setLoading(true);
-    const targetUserId = PYTHON_USER_ID;
-    const collectionRef = collection(db, 'artifacts', appId, 'users', targetUserId, 'guitar_deals');
-
-    setDiag(prev => ({ ...prev, collection: { status: 'loading', msg: 'Écoute lancée...' } }));
-
+    const collectionRef = collection(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals');
     const unsubscribe = onSnapshot(collectionRef, (snapshot) => {
-      if (snapshot.empty) {
-        setDiag(prev => ({ ...prev, collection: { status: 'error', msg: 'Collection vide' } }));
-      } else {
-        setDiag(prev => ({ ...prev, collection: { status: 'success', msg: `${snapshot.size} annonces` } }));
-      }
-
-      const dealsData = [];
-      snapshot.forEach((doc) => {
-        dealsData.push({ id: doc.id, ...doc.data() });
-      });
-
+      const dealsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       dealsData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
       setDeals(dealsData);
       setLoading(false);
-      setError(null);
+      setDiag(prev => ({ ...prev, collection: { status: 'success', msg: `${snapshot.size} annonces` } }));
     }, (err) => {
-      console.error("Firestore Error:", err);
-      setDiag(prev => ({ ...prev, collection: { status: 'error', msg: err.message } }));
-      setError(`Erreur de données: ${err.message}`);
+      setError(err.message);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [user]);
 
-  // Handlers
-  const handleSavePrompt = async () => {
-      try {
-          const targetUserId = PYTHON_USER_ID;
-          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
-          await setDoc(userDocRef, { prompt: prompt }, { merge: true });
-          setIsEditingPrompt(false);
-      } catch (e) {
-          console.error("Erreur sauvegarde prompt :", e);
-          setError("Impossible de sauvegarder le prompt.");
-      }
-  };
-
-  const handleSaveConfig = async () => {
-      try {
-          const targetUserId = PYTHON_USER_ID;
-          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
-          await setDoc(userDocRef, { scanConfig: scanConfig }, { merge: true });
-          setIsEditingConfig(false);
-      } catch (e) {
-          console.error("Erreur sauvegarde config :", e);
-          setError("Impossible de sauvegarder la config.");
-      }
+  // Actions
+  const saveConfig = async (newVal) => {
+    try {
+      const userDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID);
+      await setDoc(userDocRef, newVal, { merge: true });
+    } catch (e) { setError("Erreur de sauvegarde"); }
   };
 
   const handleManualRefresh = async () => {
-      try {
-          setIsRefreshing(true);
-          const targetUserId = PYTHON_USER_ID;
-          const userDocRef = doc(db, 'artifacts', appId, 'users', targetUserId);
-          console.log("Envoi de la demande de refresh...");
-          await setDoc(userDocRef, { forceRefresh: Date.now() }, { merge: true });
-          console.log("Demande de refresh envoyée avec succès.");
-          setTimeout(() => setIsRefreshing(false), 5000);
-      } catch (e) {
-          console.error("Erreur refresh :", e);
-          setError("Erreur lors du lancement du scan : " + e.message);
-          setIsRefreshing(false);
-      }
+    setIsRefreshing(true);
+    await saveConfig({ forceRefresh: Date.now() });
+    setTimeout(() => setIsRefreshing(false), 5000);
   };
 
-  // Filtering Logic
-  const filteredDeals = deals.filter(deal => {
-      const verdict = deal.aiAnalysis?.verdict || deal.verdict;
-      if (filterDealType !== 'ALL' && verdict !== filterDealType) return false;
-      
-      const price = deal.price;
-      if (filterMinPrice && price < parseFloat(filterMinPrice)) return false;
-      if (filterMaxPrice && price > parseFloat(filterMaxPrice)) return false;
-      
-      return true;
-  });
+  // Memoized Filtered List
+  const filteredDeals = useMemo(() => {
+    return deals.filter(deal => {
+      const verdict = deal.aiAnalysis?.verdict || deal.verdict || 'PENDING';
+      const matchesType = filterType === 'ALL' || verdict === filterType;
+      const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesType && matchesSearch;
+    });
+  }, [deals, filterType, searchQuery]);
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 text-[14px]">
-      
-      {/* HEADER */}
-      <header className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold flex items-center gap-2 italic tracking-tight">
-            <Guitar className="text-blue-600" size={32} />
-            GUITAR HUNTER <span className="text-blue-600 underline">AI</span>
-          </h1>
-          <div className="mt-2 flex flex-col gap-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-             <div className="flex items-center gap-4">
-                 <span>Target: <span className="text-blue-600">{PYTHON_USER_ID}</span></span>
-                 <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-green-500" /> Connecté</span>
-             </div>
-          </div>
-        </div>
+    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
 
-        <div className="flex flex-col md:flex-row items-start gap-4">
-            
-            {/* CONFIGURATION PANEL */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] md:w-[350px] overflow-hidden h-fit">
-              <button 
-                onClick={() => setShowConfig(!showConfig)}
-                className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                  <Settings size={12} /> Configuration
-                </h4>
-                {showConfig ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
-              </button>
-              
-              {showConfig && (
-                <div className="p-4 border-t border-slate-100">
-                    {/* Prompt */}
-                    <div className="mb-4 pb-4 border-b border-slate-100">
-                        <div className="flex items-center justify-between mb-2">
-                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prompt IA</h5>
-                            <button onClick={() => setIsEditingPrompt(!isEditingPrompt)} className="text-blue-600 text-[10px] font-bold uppercase">
-                                {isEditingPrompt ? 'Fermer' : 'Modifier'}
-                            </button>
-                        </div>
-                        {isEditingPrompt ? (
-                            <div className="flex flex-col gap-2">
-                                <textarea 
-                                    value={prompt}
-                                    onChange={(e) => setPrompt(e.target.value)}
-                                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[80px]"
-                                    placeholder="Instructions pour l'IA..."
-                                />
-                                <button onClick={handleSavePrompt} className="bg-blue-600 text-white py-1 rounded text-[10px] font-bold uppercase">Sauvegarder</button>
-                            </div>
-                        ) : (
-                            <p className="text-xs text-slate-600 italic line-clamp-3">"{prompt}"</p>
-                        )}
-                    </div>
-
-                    {/* Scan Config */}
-                    <div className="mb-4 pb-4 border-b border-slate-100">
-                        <div className="flex items-center justify-between mb-2">
-                            <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recherche</h5>
-                            <button onClick={() => setIsEditingConfig(!isEditingConfig)} className="text-blue-600 text-[10px] font-bold uppercase">
-                                {isEditingConfig ? 'Fermer' : 'Modifier'}
-                            </button>
-                        </div>
-                        {isEditingConfig ? (
-                            <div className="grid grid-cols-2 gap-2">
-                                <div className="col-span-2">
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Localisation</label>
-                                    <input 
-                                        type="text" 
-                                        value={scanConfig?.location || 'montreal'}
-                                        onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Distance (km)</label>
-                                    <input 
-                                        type="number" 
-                                        value={scanConfig?.distance || 60}
-                                        onChange={(e) => setScanConfig({...scanConfig, distance: parseInt(e.target.value) || 60})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Fréquence (min)</label>
-                                    <input 
-                                        type="number" 
-                                        value={scanConfig?.frequency || 60}
-                                        onChange={(e) => setScanConfig({...scanConfig, frequency: parseInt(e.target.value) || 60})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Prix Min ($)</label>
-                                    <input 
-                                        type="number" 
-                                        value={scanConfig?.minPrice || 0}
-                                        onChange={(e) => setScanConfig({...scanConfig, minPrice: parseInt(e.target.value) || 0})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Prix Max ($)</label>
-                                    <input 
-                                        type="number" 
-                                        value={scanConfig?.maxPrice || 10000}
-                                        onChange={(e) => setScanConfig({...scanConfig, maxPrice: parseInt(e.target.value) || 10000})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Max Annonces</label>
-                                    <input 
-                                        type="number" 
-                                        value={scanConfig?.maxAds || 5}
-                                        onChange={(e) => setScanConfig({...scanConfig, maxAds: parseInt(e.target.value) || 5})}
-                                        className="w-full p-1 bg-slate-50 border border-slate-200 rounded text-xs"
-                                    />
-                                </div>
-                                <button onClick={handleSaveConfig} className="col-span-2 bg-blue-600 text-white py-1 rounded text-[10px] font-bold uppercase mt-1">Sauvegarder</button>
-                            </div>
-                        ) : (
-                            <div className="flex flex-col gap-1 text-xs text-slate-600">
-                                <div className="flex justify-between"><span>Lieu: <b>{scanConfig?.location || 'montreal'}</b></span> <span>Dist: <b>{scanConfig?.distance || 60}km</b></span></div>
-                                <div className="flex justify-between"><span>Prix: <b>{scanConfig?.minPrice || 0}-{scanConfig?.maxPrice || 10000}$</b></span></div>
-                                <div className="flex justify-between"><span>Max: <b>{scanConfig?.maxAds || 5}</b></span> <span>Freq: <b>{scanConfig?.frequency || 60}min</b></span></div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Refresh Button */}
-                    <button 
-                        onClick={handleManualRefresh}
-                        disabled={isRefreshing}
-                        className={`w-full py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-2 ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                    >
-                        <RefreshCw size={12} className={isRefreshing ? "animate-spin" : ""} />
-                        {isRefreshing ? "Scan en cours..." : "Lancer Scan Manuel"}
-                    </button>
-                </div>
-              )}
+      {/* NAVBAR */}
+      <nav className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200">
+              <Guitar size={24} />
             </div>
-
-            {/* SYSTEM STATUS PANEL */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-w-[250px] overflow-hidden h-fit">
-              <button 
-                onClick={() => setShowDebug(!showDebug)}
-                className="w-full p-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
-              >
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-                  <Activity size={12} /> État du Système
-                </h4>
-                {showDebug ? <ChevronUp size={14} className="text-slate-400"/> : <ChevronDown size={14} className="text-slate-400"/>}
-              </button>
-              
-              {showDebug && (
-                <div className="p-4 border-t border-slate-100">
-                  <div className="mb-3 text-[10px] text-slate-400">
-                    <div>App ID: <span className="text-slate-600 font-mono">{PYTHON_APP_ID}</span></div>
-                    <div className="mt-1">Path: <span className="text-slate-500 font-mono break-all">artifacts/{PYTHON_APP_ID}/users/{PYTHON_USER_ID}/guitar_deals</span></div>
-                  </div>
-                  <DebugStatus label="Authentification" status={diag.auth.status} details={diag.auth.msg} />
-                  <DebugStatus label="Structure App" status={diag.appDoc.status} details={diag.appDoc.msg} />
-                  <DebugStatus label="Structure User" status={diag.userDoc.status} details={diag.userDoc.msg} />
-                  <DebugStatus label="Base de données" status={diag.collection.status} details={diag.collection.msg} />
-                </div>
-              )}
+            <div>
+              <h1 className="text-lg font-black tracking-tight text-slate-800">GUITAR HUNTER <span className="text-blue-600">AI</span></h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Scraper & Gemini Evaluator</p>
             </div>
-        </div>
-      </header>
-
-      {/* FILTERS */}
-      <div className="max-w-6xl mx-auto mb-6 flex flex-wrap gap-4 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-r border-slate-100 pr-4">
-              <Filter size={14} /> Filtres
-          </div>
-          
-          <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase">Verdict:</span>
-              <select 
-                  value={filterDealType} 
-                  onChange={(e) => setFilterDealType(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 text-xs rounded p-1 font-medium focus:outline-none focus:border-blue-500"
-              >
-                  <option value="ALL">Tous</option>
-                  <option value="GOOD_DEAL">Bonnes Affaires</option>
-                  <option value="FAIR">Prix Correct</option>
-                  <option value="BAD_DEAL">Trop Cher</option>
-              </select>
           </div>
 
           <div className="flex items-center gap-2">
-              <span className="text-[10px] font-bold text-slate-400 uppercase">Prix:</span>
-              <input 
-                  type="number" 
-                  placeholder="Min" 
-                  value={filterMinPrice}
-                  onChange={(e) => setFilterMinPrice(e.target.value)}
-                  className="w-16 bg-slate-50 border border-slate-200 text-xs rounded p-1 focus:outline-none focus:border-blue-500"
-              />
-              <span className="text-slate-300">-</span>
-              <input 
-                  type="number" 
-                  placeholder="Max" 
-                  value={filterMaxPrice}
-                  onChange={(e) => setFilterMaxPrice(e.target.value)}
-                  className="w-16 bg-slate-50 border border-slate-200 text-xs rounded p-1 focus:outline-none focus:border-blue-500"
-              />
+            <button
+                onClick={handleManualRefresh}
+                disabled={isRefreshing}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100'}`}
+            >
+              <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+              <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
+            </button>
+            <button
+              onClick={() => setShowConfig(!showConfig)}
+              className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+            >
+              <Settings size={20} />
+            </button>
           </div>
-          
-          <div className="ml-auto text-xs text-slate-400 font-medium">
-              {filteredDeals.length} annonce(s) affichée(s)
-          </div>
-      </div>
+        </div>
+      </nav>
 
-      {/* MAIN CONTENT */}
-      <main className="max-w-6xl mx-auto">
-        {filteredDeals.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-slate-200 shadow-inner">
-            <Search className="mx-auto text-slate-100 mb-4" size={80} />
-            <h2 className="text-xl text-slate-400 font-black uppercase tracking-tighter italic">Aucune annonce trouvée...</h2>
-            <p className="mt-4 text-[11px] text-slate-400 font-medium">
-              Essayez de modifier vos filtres ou attendez le prochain scan.
-            </p>
+      <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
+
+        {/* SIDEBAR - CONTROLS & STATUS */}
+        <aside className="lg:col-span-1 space-y-6">
+
+          {/* Status Card */}
+          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Système</h3>
+              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg text-[9px] font-bold">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
+              </div>
+            </div>
+            <div className="space-y-1">
+              <DebugStatus label="Auth" status={diag.auth.status} details={diag.auth.msg} />
+              <DebugStatus label="Engine" status={diag.userDoc.status} details="Python Bot Connected" />
+              <DebugStatus label="Database" status={diag.collection.status} details={diag.collection.msg} />
+            </div>
           </div>
-        ) : (
+
+          {/* Config Card (Si ouvert) */}
+          {showConfig && (
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Configuration Bot</h3>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Gemini</label>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
+                />
+                <button
+                  onClick={() => saveConfig({ prompt })}
+                  className="w-full mt-2 bg-slate-900 text-white py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-600 transition-colors"
+                >
+                  Mettre à jour le prompt
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Lieu</label>
+                  <input type="text" value={scanConfig.location} onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
+                  <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+              </div>
+              <button
+                onClick={() => saveConfig({ scanConfig: scanConfig })}
+                className="w-full bg-blue-50 text-blue-600 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-100"
+              >
+                Sauvegarder Paramètres
+              </button>
+            </div>
+          )}
+        </aside>
+
+        {/* MAIN FEED */}
+        <main className="lg:col-span-3 space-y-6">
+
+          {/* SEARCH & FILTERS BAR */}
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center">
+            <div className="flex-1 min-w-[200px] relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Rechercher par modèle..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+              />
+            </div>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL'].map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setFilterType(type)}
+                  className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+                >
+                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : 'Trop Cher'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* LISTING GRID */}
           <div className="grid grid-cols-1 gap-6">
-            {filteredDeals.map((deal) => (
-              <div key={deal.id} className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-xl transition-all duration-300">
-                <div className="md:w-72 h-56 md:h-auto bg-slate-100 relative group">
-                  <img src={deal.imageUrl} className="w-full h-full object-cover" alt="guitar" />
-                  <div className="absolute top-4 left-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest text-white shadow-lg ${ (deal.aiAnalysis?.verdict === 'GOOD_DEAL' || deal.verdict === 'GOOD_DEAL') ? 'bg-green-500' : 'bg-slate-800/80'}`}>
-                      {deal.aiAnalysis?.verdict || deal.verdict || 'ANALYSE'}
-                    </span>
-                  </div>
+            {loading ? (
+              <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200">
+                <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
+                <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
+              </div>
+            ) : filteredDeals.length === 0 ? (
+              <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-dashed border-slate-200">
+                <div className="bg-slate-50 p-6 rounded-full mb-4">
+                  <Search className="text-slate-200" size={48} />
                 </div>
-                <div className="flex-1 p-8 flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-start mb-2">
-                      <h2 className="text-2xl font-black text-slate-800 leading-tight pr-4 capitalize">{deal.title || "Modèle Non Précisé"}</h2>
-                      <div className="text-right">
-                        <div className="flex flex-col items-end">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Prix Demandé</span>
-                            <p className="text-3xl font-black text-blue-600 tracking-tighter">{deal.price} $</p>
+                <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight italic">Aucun trésor trouvé</h3>
+                <p className="text-slate-400 text-xs mt-1">Ajustez vos filtres ou lancez un scan manuel</p>
+              </div>
+            ) : (
+              filteredDeals.map((deal) => (
+                <div key={deal.id} className="group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
+                  {/* Image Section */}
+                  <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
+                    <img
+                      src={deal.imageUrl}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                      alt={deal.title}
+                    />
+                    <div className="absolute top-4 left-4 z-10">
+                      <VerdictBadge verdict={deal.aiAnalysis?.verdict || deal.verdict} />
+                    </div>
+                    {/* Overlay gradient */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+                  </div>
+
+                  {/* Content Section */}
+                  <div className="flex-1 p-6 md:p-8 flex flex-col">
+                    <div className="flex justify-between items-start gap-4 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1">
+                          <MapPin size={10} /> {deal.location || 'Québec'}
                         </div>
-                        <div className="mt-2 flex flex-col items-end">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Valeur Estimée</span>
-                            <p className="text-xl font-black text-slate-700">{deal.aiAnalysis?.estimated_value || deal.estimated_value || "?"} $</p>
+                        <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                        <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl">
+                          <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
+                          <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
                         </div>
+                        {deal.aiAnalysis?.estimated_value && (
+                          <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
+                            <TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-4">
-                        <MapPin size={12} />
-                        <span>{deal.location || "Localisation inconnue"}</span>
-                        {deal.searchDistance && <span>(Rayon: {deal.searchDistance}km)</span>}
-                    </div>
-
-                    <div className="flex items-center gap-4 mb-6">
-                       <DealScore score={(deal.aiAnalysis?.confidence || deal.confidence || 0) / 10} />
-                       <div className="h-1.5 flex-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-blue-500 transition-all duration-1000" style={{width: `${deal.aiAnalysis?.confidence || deal.confidence || 0}%`}}></div>
-                       </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 italic mb-4">
-                      <p className="text-slate-600 text-sm font-medium italic">"{deal.aiAnalysis?.reasoning || deal.reasoning || "Analyse Gemini en cours..."}"</p>
-                    </div>
-
-                    {/* Images Analysis */}
-                    {deal.imageUrls && deal.imageUrls.length > 0 && (
-                        <div className="mb-4">
-                            <div className="flex items-center gap-2 mb-2">
-                                <ImageIcon size={12} className="text-slate-400"/>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Images analysées</p>
-                            </div>
-                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-                                {deal.imageUrls.map((url, idx) => (
-                                    <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="block w-16 h-16 flex-shrink-0 rounded-lg border border-slate-200 overflow-hidden hover:opacity-80 transition-opacity">
-                                        <img src={url} className="w-full h-full object-cover" alt={`analysis-${idx}`} />
-                                    </a>
-                                ))}
-                            </div>
+                    {/* AI Insights */}
+                    <div className="relative mb-6">
+                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-100 rounded-full" />
+                      <div className="pl-5 py-1">
+                        <div className="flex items-center gap-1.5 text-blue-600 mb-2">
+                          <Sparkles size={14} />
+                          <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
                         </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-slate-300 font-bold text-[10px]">
-                      <Clock size={14} />
-                      <span className="uppercase tracking-widest">{deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleTimeString() : 'Maintenant'}</span>
+                        <p className="text-slate-600 text-sm font-medium italic leading-relaxed">
+                          "{deal.aiAnalysis?.reasoning || deal.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
+                        </p>
+                      </div>
                     </div>
-                    <a href={deal.link} target="_blank" className="bg-slate-900 text-white px-8 py-3 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] hover:bg-blue-600 transition-all shadow-lg flex items-center gap-2">
-                      Voir sur Marketplace <ExternalLink size={14} />
-                    </a>
+
+                    {/* Meta & Action */}
+                    <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold">
+                          <Clock size={14} />
+                          <span className="uppercase tracking-widest">
+                            {deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}
+                          </span>
+                        </div>
+                        {deal.aiAnalysis?.confidence && (
+                          <div className="flex items-center gap-2">
+                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence}%`}} />
+                            </div>
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {deal.aiAnalysis.confidence}%</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <a
+                        href={deal.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                      >
+                        Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+                      </a>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
-        )}
-      </main>
+        </main>
+      </div>
 
+      {/* ERROR TOAST */}
       {error && (
-        <div className="fixed bottom-6 right-6 bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl text-xs font-bold flex items-center gap-3 animate-pulse">
-          <AlertTriangle size={20} />
-          <p>{error}</p>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10">
+          <div className="bg-rose-600 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-rose-200 flex items-center gap-4">
+            <AlertTriangle size={24} />
+            <div>
+              <p className="font-black uppercase text-[10px] tracking-widest leading-none mb-1 opacity-80">Erreur Détectée</p>
+              <p className="text-sm font-bold">{error}</p>
+            </div>
+            <button onClick={() => setError(null)} className="ml-4 hover:bg-white/20 p-1 rounded-lg transition-colors">
+              <XCircle size={20} />
+            </button>
+          </div>
         </div>
       )}
     </div>
