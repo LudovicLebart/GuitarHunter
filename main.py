@@ -375,7 +375,7 @@ class GuitarHunterBot:
             
             # URL de recherche Marketplace
             # Note: L'URL peut varier selon la région. 
-            url = f"https://www.facebook.com/marketplace/{clean_location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}&radius={distance}"
+            url = f"https://www.facebook.com/marketplace/{clean_location}/search/?query={search_query}&exact=false&minPrice={min_price}&maxPrice={max_price}&radius_in_km={distance}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
