@@ -83,7 +83,7 @@ const App = () => {
   // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
   const [scanConfig, setScanConfig] = useState({
-      maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000
+      maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000, searchQuery: "electric guitar"
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
   
@@ -303,6 +303,28 @@ const App = () => {
                 <div>
                   <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
                   <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label>
+                  <input type="number" value={scanConfig.minPrice} onChange={(e) => setScanConfig({...scanConfig, minPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label>
+                  <input type="number" value={scanConfig.maxPrice} onChange={(e) => setScanConfig({...scanConfig, maxPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label>
+                  <input type="number" value={scanConfig.maxAds} onChange={(e) => setScanConfig({...scanConfig, maxAds: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
+                  <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                 </div>
               </div>
 

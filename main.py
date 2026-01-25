@@ -5,6 +5,7 @@ import random
 import requests
 import warnings
 import unicodedata
+import urllib.parse
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
@@ -84,7 +85,8 @@ class GuitarHunterBot:
             "location": "montreal",
             "distance": 60, # km
             "min_price": 0,
-            "max_price": 10000
+            "max_price": 10000,
+            "search_query": "electric guitar"
         }
         self.last_refresh_timestamp = 0
         self.city_mapping = {} # Sera rempli depuis Firestore
@@ -211,6 +213,7 @@ class GuitarHunterBot:
                     self.scan_config['distance'] = config.get('distance', 60)
                     self.scan_config['min_price'] = config.get('minPrice', 0)
                     self.scan_config['max_price'] = config.get('maxPrice', 10000)
+                    self.scan_config['search_query'] = config.get('searchQuery', 'electric guitar')
                     # print(f"⚙️ Config chargée : {self.scan_config}")
 
                 # 3. Force Refresh
@@ -432,8 +435,11 @@ class GuitarHunterBot:
             
             page = context.new_page()
             
+            # Encodage de la requête de recherche pour l'URL
+            encoded_query = urllib.parse.quote(search_query)
+            
             # URL de recherche Marketplace avec l'ID de ville
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={search_query}&exact=false&radius_in_km={distance}"
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={encoded_query}&exact=false&radius_in_km={distance}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -743,7 +749,7 @@ if __name__ == "__main__":
                 
                 # Lancement du scan
                 bot.scan_facebook_marketplace(
-                    search_query="electric guitar", 
+                    search_query=bot.scan_config['search_query'],
                     location=bot.scan_config['location'],
                     distance=bot.scan_config['distance'],
                     min_price=bot.scan_config['min_price'],
