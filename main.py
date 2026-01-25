@@ -595,8 +595,8 @@ class GuitarHunterBot:
                             # --- RECUPERATION DES IMAGES (Mode Galerie) ---
                             collected_urls = []
                             
-                            # Sélecteur pour le bouton "Suivant" (Flèche droite)
-                            next_btn_selector = "div[aria-label*='suivante'], div[aria-label*='Next'], div[aria-label*='Suivant']"
+                            # Sélecteur pour le bouton "Suivant" (Flèche droite) - Amélioré
+                            next_btn_selector = "div[aria-label*='suivante'], div[aria-label*='Next'], div[aria-label*='Suivant'], div[aria-label*='Photos suivantes']"
                             
                             # On tente de faire défiler jusqu'à 10 images
                             for i in range(10):
@@ -619,19 +619,33 @@ class GuitarHunterBot:
                                 except Exception as e:
                                     pass
 
-                                # 2. Cliquer sur "Suivant"
+                                # 2. Cliquer sur "Suivant" ou Flèche Droite
                                 try:
                                     btn = detail_page.locator(next_btn_selector).first
                                     if btn.count() > 0 and btn.is_visible():
                                         btn.click(timeout=1000)
                                         time.sleep(1) # Pause pour le chargement de la nouvelle image
                                     else:
-                                        break
+                                        # Fallback : Flèche droite clavier
+                                        detail_page.keyboard.press("ArrowRight")
+                                        time.sleep(1)
                                 except:
                                     break
                             
+                            # Si on n'a rien trouvé, on essaie de prendre toutes les images visibles d'un coup (Grid view?)
+                            if not collected_urls:
+                                try:
+                                    imgs = detail_page.locator("div[role='main'] img").all()
+                                    for img in imgs:
+                                        src = img.get_attribute("src")
+                                        if src and "scontent" in src and src not in collected_urls:
+                                            box = img.bounding_box()
+                                            if box and box['width'] > 200: # Seuil plus bas
+                                                collected_urls.append(src)
+                                except: pass
+
                             image_urls = collected_urls
-                            print(f"   📸 {len(image_urls)} images récupérées via défilement.")
+                            print(f"   📸 {len(image_urls)} images récupérées.")
                             
                             # --- RECUPERATION DESCRIPTION ---
                             try:

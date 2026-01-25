@@ -3,7 +3,7 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -65,6 +65,65 @@ const DebugStatus = ({ label, status, details }) => (
     </div>
   </div>
 );
+
+const ImageGallery = ({ images, title }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  if (!images || images.length === 0) {
+    return (
+      <div className="w-full h-full bg-slate-100 flex items-center justify-center text-slate-400">
+        <Guitar size={48} className="opacity-20" />
+      </div>
+    );
+  }
+
+  const nextImage = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const prevImage = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  return (
+    <div className="relative w-full h-full group">
+      <img
+        src={images[currentIndex]}
+        className="w-full h-full object-cover transition-transform duration-700"
+        alt={`${title} - ${currentIndex + 1}`}
+      />
+      
+      {images.length > 1 && (
+        <>
+          <button 
+            onClick={prevImage}
+            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button 
+            onClick={nextImage}
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+            {images.map((_, idx) => (
+              <div 
+                key={idx} 
+                className={`w-1.5 h-1.5 rounded-full ${idx === currentIndex ? 'bg-white' : 'bg-white/50'}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -424,11 +483,7 @@ const App = () => {
                 <div key={deal.id} className="group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
                   {/* Image Section */}
                   <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
-                    <img
-                      src={deal.imageUrl}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
-                      alt={deal.title}
-                    />
+                    <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
                     <div className="absolute top-4 left-4 z-10">
                       <VerdictBadge verdict={deal.aiAnalysis?.verdict || deal.verdict} />
                     </div>
