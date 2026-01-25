@@ -375,7 +375,7 @@ class GuitarHunterBot:
             
             # URL de recherche Marketplace
             # Note: L'URL peut varier selon la région. 
-            url = f"https://www.facebook.com/marketplace/{clean_location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}"
+            url = f"https://www.facebook.com/marketplace/{clean_location}/search?query={search_query}&minPrice={min_price}&maxPrice={max_price}&radius={distance}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -514,30 +514,62 @@ class GuitarHunterBot:
                         
                         # --- Scraping détaillé de la page ---
                         description = f"Annonce Marketplace. {title}. Localisation: {location}"
-                        image_urls = [image_url] 
+                        image_urls = [] # Reset pour ne pas mélanger avec la page précédente
                         
                         try:
                             print(f"   ➡️  Ouverture de l'annonce pour détails : {clean_link}")
                             detail_page = context.new_page()
                             detail_page.goto(clean_link, timeout=45000)
                             
+                            # Attente du chargement
+                            try:
+                                detail_page.wait_for_selector("div[role='main']", timeout=10000)
+                            except:
+                                pass
                             time.sleep(2) 
                             
-                            potential_images = detail_page.locator("img").all()
-                            found_urls = []
-                            for img in potential_images:
-                                try:
-                                    src = img.get_attribute("src")
-                                    if src and src.startswith("http") and "scontent" in src:
-                                        if src not in found_urls:
-                                            found_urls.append(src)
-                                except:
-                                    pass
+                            # --- RECUPERATION DES IMAGES (Mode Galerie) ---
+                            collected_urls = []
                             
-                            if found_urls:
-                                image_urls = list(dict.fromkeys(found_urls)) # Dedup
-                                print(f"   📸 {len(image_urls)} images trouvées sur la page.")
+                            # Sélecteur pour le bouton "Suivant" (Flèche droite)
+                            next_btn_selector = "div[aria-label*='suivante'], div[aria-label*='Next'], div[aria-label*='Suivant']"
+                            
+                            # On tente de faire défiler jusqu'à 10 images
+                            for i in range(10):
+                                # 1. Capturer l'image principale visible
+                                try:
+                                    # On cible les images dans le main role pour éviter les pubs/suggestions
+                                    imgs = detail_page.locator("div[role='main'] img").all()
+                                    
+                                    for img in imgs:
+                                        if not img.is_visible(): continue
+                                        
+                                        box = img.bounding_box()
+                                        # Filtre taille : on veut la grande image (souvent > 300px)
+                                        if box and box['width'] > 300 and box['height'] > 300:
+                                            src = img.get_attribute("src")
+                                            if src and "scontent" in src and src not in collected_urls:
+                                                collected_urls.append(src)
+                                                # On a trouvé l'image principale affichée, on arrête de chercher dans les autres img de la page pour ce step
+                                                break 
+                                except Exception as e:
+                                    pass
 
+                                # 2. Cliquer sur "Suivant"
+                                try:
+                                    btn = detail_page.locator(next_btn_selector).first
+                                    if btn.count() > 0 and btn.is_visible():
+                                        btn.click(timeout=1000)
+                                        time.sleep(1) # Pause pour le chargement de la nouvelle image
+                                    else:
+                                        break
+                                except:
+                                    break
+                            
+                            image_urls = collected_urls
+                            print(f"   📸 {len(image_urls)} images récupérées via défilement.")
+                            
+                            # --- RECUPERATION DESCRIPTION ---
                             try:
                                 detail_page.get_by_role("button", name="Plus").click(timeout=1000)
                             except:
@@ -556,11 +588,15 @@ class GuitarHunterBot:
                                 try: detail_page.close()
                                 except: pass
 
+                        # Si aucune image trouvée dans l'annonce, on met une liste vide (ou placeholder générique), 
+                        # mais PAS l'image de la recherche (image_url) comme demandé.
+                        final_image_url = image_urls[0] if image_urls else "https://via.placeholder.com/400?text=No+Image+Found"
+
                         listing_data = {
                             "title": title,
                             "price": price,
                             "description": description,
-                            "imageUrl": image_urls[0] if image_urls else image_url,
+                            "imageUrl": final_image_url,
                             "imageUrls": image_urls,
                             "link": clean_link,
                             "location": location,
