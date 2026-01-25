@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
-  Activity, ChevronDown, ChevronUp, Settings, Clock,
-  MapPin, Filter, Image as ImageIcon, Sparkles, TrendingUp, DollarSign
+  Activity, Settings, Clock,
+  MapPin, Sparkles, TrendingUp, Plus, Trash2
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
 import { initializeApp } from 'firebase/app';
 import {
-  getFirestore, collection, onSnapshot, doc, getDoc, setDoc
+  getFirestore, collection, onSnapshot, doc, setDoc, deleteField, addDoc, deleteDoc
 } from 'firebase/firestore';
 import {
   getAuth, signInAnonymously, onAuthStateChanged
@@ -69,11 +69,11 @@ const DebugStatus = ({ label, status, details }) => (
 const App = () => {
   const [user, setUser] = useState(null);
   const [deals, setDeals] = useState([]);
+  const [cities, setCities] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // UI States
-  const [showDebug, setShowDebug] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
 
   // Filter States
@@ -82,17 +82,18 @@ const App = () => {
 
   // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
-  const [isEditingPrompt, setIsEditingPrompt] = useState(false);
   const [scanConfig, setScanConfig] = useState({
       maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000
   });
-  const [isEditingConfig, setIsEditingConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // New City Form State
+  const [newCityName, setNewCityName] = useState('');
+  const [newCityId, setNewCityId] = useState('');
 
   // Diagnostic State
   const [diag, setDiag] = useState({
     auth: { status: 'loading', msg: 'Connexion...' },
-    appDoc: { status: 'pending', msg: 'En attente' },
     userDoc: { status: 'pending', msg: 'En attente' },
     collection: { status: 'pending', msg: 'En attente' }
   });
@@ -113,28 +114,41 @@ const App = () => {
     return () => unsubscribe();
   }, []);
 
-  // 2. Load Config & Diag
+  // 2. User Config & Diag Sync (Real-time)
   useEffect(() => {
     if (!user) return;
-    const runDiagnostics = async () => {
-      try {
-        const userDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          setDiag(prev => ({ ...prev, userDoc: { status: 'success', msg: 'Dossier Python trouvé' } }));
-          const data = userDocSnap.data();
-          if (data.prompt) setPrompt(data.prompt);
-          if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
-        }
-        setDiag(prev => ({ ...prev, appDoc: { status: 'success', msg: 'Structure OK' } }));
-      } catch (e) {
-        setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: e.message } }));
-      }
-    };
-    runDiagnostics();
-  }, [user]);
+    const userDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID);
+    
+    const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setDiag(prev => ({ ...prev, userDoc: { status: 'success', msg: 'Dossier Python trouvé' } }));
+        const data = docSnap.data();
+        
+        // Synchronise le prompt et la config depuis Firestore
+        if (data.prompt) setPrompt(data.prompt);
+        if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
 
-  // 3. Firestore Sync
+        // Gère l'erreur de scan envoyée par le bot
+        if (data.scanError) {
+          setError(data.scanError);
+        } else {
+          // Si l'erreur a été résolue (champ supprimé), on nettoie le message d'erreur
+          if (error && error.startsWith("Ville")) {
+             setError(null);
+          }
+        }
+
+      } else {
+        setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: "Dossier Python introuvable" } }));
+      }
+    }, (e) => {
+      setDiag(prev => ({ ...prev, userDoc: { status: 'error', msg: e.message } }));
+    });
+
+    return () => unsubscribe();
+  }, [user, error]);
+
+  // 3. Firestore Deals Sync
   useEffect(() => {
     if (!user) return;
     const collectionRef = collection(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals');
@@ -151,18 +165,54 @@ const App = () => {
     return () => unsubscribe();
   }, [user]);
 
+  // 4. Firestore Cities Sync
+  useEffect(() => {
+    if (!user) return;
+    const citiesRef = collection(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'cities');
+    const unsubscribe = onSnapshot(citiesRef, (snapshot) => {
+      const citiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setCities(citiesData);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
   // Actions
-  const saveConfig = async (newVal) => {
+  const saveConfig = useCallback(async (newVal) => {
     try {
       const userDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID);
       await setDoc(userDocRef, newVal, { merge: true });
     } catch (e) { setError("Erreur de sauvegarde"); }
-  };
+  }, []);
 
   const handleManualRefresh = async () => {
     setIsRefreshing(true);
-    await saveConfig({ forceRefresh: Date.now() });
+    // On efface l'ancienne erreur avant de relancer
+    await saveConfig({ forceRefresh: Date.now(), scanError: deleteField() });
     setTimeout(() => setIsRefreshing(false), 5000);
+  };
+
+  const handleAddCity = async () => {
+    if (!newCityName || !newCityId) return;
+    try {
+      const citiesRef = collection(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'cities');
+      await addDoc(citiesRef, {
+        name: newCityName,
+        id: newCityId,
+        createdAt: new Date()
+      });
+      setNewCityName('');
+      setNewCityId('');
+    } catch (e) {
+      setError("Erreur ajout ville: " + e.message);
+    }
+  };
+
+  const handleDeleteCity = async (docId) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'cities', docId));
+    } catch (e) {
+      setError("Erreur suppression ville");
+    }
   };
 
   // Memoized Filtered List
@@ -240,32 +290,66 @@ const App = () => {
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
+                  onBlur={() => saveConfig({ prompt })}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
                 />
-                <button
-                  onClick={() => saveConfig({ prompt })}
-                  className="w-full mt-2 bg-slate-900 text-white py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-600 transition-colors"
-                >
-                  Mettre à jour le prompt
-                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
                 <div>
                   <label className="text-[9px] font-bold text-slate-400 uppercase">Lieu</label>
-                  <input type="text" value={scanConfig.location} onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  <input type="text" value={scanConfig.location} onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                 </div>
                 <div>
                   <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
-                  <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: e.target.value})} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                 </div>
               </div>
-              <button
-                onClick={() => saveConfig({ scanConfig: scanConfig })}
-                className="w-full bg-blue-50 text-blue-600 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-100"
-              >
-                Sauvegarder Paramètres
-              </button>
+
+              {/* GESTION DES VILLES */}
+              <div className="pt-4 border-t border-slate-100">
+                <label className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Villes Autorisées</label>
+                
+                <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
+                  {cities.map(city => (
+                    <div key={city.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-lg text-xs">
+                      <div>
+                        <span className="font-bold block">{city.name}</span>
+                        <span className="text-[9px] text-slate-400 font-mono">{city.id}</span>
+                      </div>
+                      <button onClick={() => handleDeleteCity(city.id)} className="text-rose-400 hover:text-rose-600 p-1">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {cities.length === 0 && <p className="text-[10px] text-slate-400 italic">Aucune ville configurée.</p>}
+                </div>
+
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Nom (ex: Montreal)" 
+                    value={newCityName}
+                    onChange={(e) => setNewCityName(e.target.value)}
+                    className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px]"
+                  />
+                  <input 
+                    type="text" 
+                    placeholder="ID Facebook" 
+                    value={newCityId}
+                    onChange={(e) => setNewCityId(e.target.value)}
+                    className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px]"
+                  />
+                </div>
+                <button
+                  onClick={handleAddCity}
+                  disabled={!newCityName || !newCityId}
+                  className="w-full mt-2 bg-blue-50 text-blue-600 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  <Plus size={12} /> Ajouter Ville
+                </button>
+              </div>
+
             </div>
           )}
         </aside>

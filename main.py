@@ -23,6 +23,7 @@ load_dotenv()
 
 # --- CONFIGURATION ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 FIREBASE_KEY_PATH = "serviceAccountKey.json"  # Doit être à la racine du projet
 PROMPT_INSTRUCTION = "Evalue cette guitare Au quebec (avec le prix)."  # Instruction principale pour l'analyse IA
 
@@ -86,6 +87,7 @@ class GuitarHunterBot:
             "max_price": 10000
         }
         self.last_refresh_timestamp = 0
+        self.city_mapping = {} # Sera rempli depuis Firestore
 
         # Construction du chemin pour vérification
         self.collection_path = f"artifacts/{APP_ID_TARGET}/users/{USER_ID_TARGET}/guitar_deals"
@@ -108,6 +110,11 @@ class GuitarHunterBot:
         # Référence au document utilisateur pour écouter les changements de prompt et config
         self.user_ref = db.collection('artifacts').document(APP_ID_TARGET) \
             .collection('users').document(USER_ID_TARGET)
+            
+        # Référence à la collection des villes
+        self.cities_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+            .collection('users').document(USER_ID_TARGET) \
+            .collection('cities')
 
         # --- CORRECTION : CRÉATION EXPLICITE DES PARENTS (Pour éviter l'italique/fantôme) ---
         print("   ⏳ Vérification de l'accès Firestore (Timeout 10s)...")
@@ -146,8 +153,35 @@ class GuitarHunterBot:
                 # Si le document existe, on récupère le prompt et la config
                 self.sync_configuration(initial=True)
                 
+            # Chargement initial des villes
+            self.load_cities_from_firestore()
+                
         except Exception as e:
             print(f"⚠️ Impossible de créer les documents parents (non bloquant) : {e}")
+
+    def load_cities_from_firestore(self):
+        """Charge la liste des villes configurées par l'utilisateur depuis Firestore."""
+        if offline_mode:
+            return
+
+        try:
+            docs = self.cities_ref.stream()
+            new_mapping = {}
+            count = 0
+            for doc in docs:
+                data = doc.to_dict()
+                if 'name' in data and 'id' in data:
+                    # Normalisation du nom pour la recherche (minuscules, sans accents)
+                    normalized_name = data['name'].lower().strip()
+                    normalized_name = unicodedata.normalize('NFD', normalized_name).encode('ascii', 'ignore').decode("utf-8")
+                    new_mapping[normalized_name] = data['id']
+                    count += 1
+            
+            self.city_mapping = new_mapping
+            print(f"   🏙️ {count} villes chargées depuis Firestore.")
+            
+        except Exception as e:
+            print(f"⚠️ Erreur chargement des villes : {e}")
 
     def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
@@ -155,6 +189,10 @@ class GuitarHunterBot:
             return False
 
         try:
+            # On recharge aussi les villes à chaque sync pour être à jour
+            if not initial:
+                self.load_cities_from_firestore()
+
             doc = self.user_ref.get()
             if doc.exists:
                 data = doc.to_dict()
@@ -178,7 +216,7 @@ class GuitarHunterBot:
                 # 3. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
-                    print(f"DEBUG: Firestore timestamp: {last_refresh}, Bot timestamp: {self.last_refresh_timestamp}")
+                    # print(f"DEBUG: Firestore timestamp: {last_refresh}, Bot timestamp: {self.last_refresh_timestamp}")
                     
                     if initial:
                         # Initialisation : on se cale sur le timestamp actuel sans déclencher
@@ -336,6 +374,38 @@ class GuitarHunterBot:
         """Scrape réellement Facebook Marketplace avec Playwright."""
         print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location} (Max: {max_ads}, Prix: {min_price}-{max_price}$)...")
         
+        # --- VALIDATION DE LA VILLE VIA FIRESTORE ---
+        normalized_loc = location.lower().strip()
+        # Nettoyage des accents (ex: Montréal -> montreal)
+        normalized_loc = unicodedata.normalize('NFD', normalized_loc).encode('ascii', 'ignore').decode("utf-8")
+        
+        city_id = self.city_mapping.get(normalized_loc)
+        
+        if not city_id:
+            # Si c'est déjà un ID (chiffres), on laisse passer
+            if location.isdigit():
+                city_id = location
+            else:
+                error_msg = f"Ville '{location}' inconnue. Ajoutez-la dans l'onglet Configuration."
+                print(f"❌ {error_msg}")
+                
+                # Envoi de l'erreur à l'UI via Firestore
+                if not offline_mode:
+                    try:
+                        self.user_ref.update({'scanStatus': 'error', 'scanError': error_msg})
+                    except Exception as e:
+                        print(f"⚠️ Impossible d'envoyer l'erreur à l'UI : {e}")
+                return # On arrête le scan ici
+        
+        # Si on a trouvé la ville, on efface les erreurs précédentes
+        if not offline_mode:
+            try:
+                self.user_ref.update({'scanStatus': 'running', 'scanError': firestore.DELETE_FIELD})
+            except:
+                pass
+
+        print(f"   📍 Ville identifiée : ID {city_id}")
+
         with sync_playwright() as p:
 
             # --- MODIFICATION : Démarrage minimisé ---
@@ -361,21 +431,9 @@ class GuitarHunterBot:
             )
             
             page = context.new_page()
-
-            # --- Nettoyage du slug de la ville ---
-            clean_location = location
             
-            # Si c'est un ID numérique (ex: 103769252995718), on le garde tel quel
-            if not location.isdigit():
-                # Facebook requiert des slugs en minuscules, sans accents.
-                # Ex: "Québec" -> "quebec", "Montréal" -> "montreal"
-                clean_location = location.lower()
-                # Suppression des accents
-                clean_location = unicodedata.normalize('NFD', clean_location).encode('ascii', 'ignore').decode("utf-8")
-            
-            # URL de recherche Marketplace
-            # Note: L'URL peut varier selon la région. 
-            url = f"https://www.facebook.com/marketplace/{clean_location}/search/?query={search_query}&exact=false&minPrice={min_price}&maxPrice={max_price}&radius_in_km={distance}"
+            # URL de recherche Marketplace avec l'ID de ville
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={search_query}&exact=false&radius_in_km={distance}"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -441,7 +499,7 @@ class GuitarHunterBot:
                         continue
                     seen_urls.add(clean_link)
 
-                    # --- Extraction de l'ID Facebook ---
+                    # --- Extraction des ID Facebook ---
                     fb_id = self.extract_facebook_id(clean_link)
                     if not fb_id:
                         continue
