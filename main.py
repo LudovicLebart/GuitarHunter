@@ -439,7 +439,8 @@ class GuitarHunterBot:
             encoded_query = urllib.parse.quote(search_query)
             
             # URL de recherche Marketplace avec l'ID de ville
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={encoded_query}&exact=false&radius_in_km={distance}"
+            # On retire les paramètres de rayon de l'URL pour laisser l'UI gérer
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={encoded_query}&exact=false"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -459,6 +460,116 @@ class GuitarHunterBot:
                     print("   🍪 Cookies optionnels refusés.")
                 except:
                     pass
+
+                # --- GESTION DU POPUP DE CONNEXION (NOUVEAU) ---
+                try:
+                    print("   🔐 Vérification du popup de connexion...")
+                    time.sleep(2)
+                    # Sélecteur pour le bouton de fermeture (X) du popup de login
+                    # Souvent un div avec role='button' et aria-label='Fermer' ou 'Close'
+                    close_login_btn = page.locator("div[aria-label='Fermer'], div[aria-label='Close'], div[role='button'][aria-label*='Fermer']").first
+                    
+                    if close_login_btn.count() > 0 and close_login_btn.is_visible():
+                        close_login_btn.click()
+                        print("   ✅ Popup de connexion fermé.")
+                        time.sleep(1)
+                    else:
+                        # Parfois c'est juste un clic en dehors qui marche, ou le popup n'est pas là
+                        pass
+                except Exception as e:
+                    print(f"   ⚠️ Erreur fermeture popup login (non bloquant) : {e}")
+
+
+                # --- APPLICATION DU RAYON VIA UI (METHODE ROBUSTE) ---
+                try:
+                    print(f"   📍 Tentative d'application du rayon de {distance} km via l'interface...")
+                    
+                    # 1. Trouver le bouton de localisation (contient souvent "km" ou le nom de la ville)
+                    # On attend que l'interface soit chargée
+                    time.sleep(2)
+                    
+                    # Sélecteur large pour le bouton de localisation dans la sidebar
+                    loc_btn = page.locator("div[role='button']").filter(has_text="km").first
+                    
+                    if loc_btn.count() > 0 and loc_btn.is_visible():
+                        loc_btn.click()
+                        time.sleep(2) # Attente ouverture modale
+                        
+                        # 2. Trouver la modale et le menu déroulant du rayon
+                        # On cible la modale active
+                        modal = page.locator("div[role='dialog']").first
+                        if modal.count() > 0:
+                            print("   ✅ Modale de localisation ouverte.")
+                            
+                            # Chercher le dropdown de rayon à l'intérieur de la modale
+                            # MISE A JOUR : Ciblage spécifique basé sur le snippet fourni par l'utilisateur
+                            # On cherche un élément contenant "kilomètres" ou "km"
+                            radius_dropdown = modal.locator("div, span").filter(has_text="kilomètres").last
+                            
+                            if radius_dropdown.count() == 0:
+                                # Fallback sur "km" si "kilomètres" n'est pas trouvé
+                                radius_dropdown = modal.locator("div, span").filter(has_text="km").last
+                            
+                            if radius_dropdown.count() > 0:
+                                print("   ✅ Menu déroulant de rayon trouvé.")
+                                radius_dropdown.click()
+                                time.sleep(1)
+                                
+                                # 3. Sélectionner l'option exacte
+                                # On cherche dans la liste des options (souvent role='option' ou 'menuitem')
+                                # Mise à jour basée sur le snippet HTML fourni : div[role="option"] contenant un span avec "X kilomètres"
+                                
+                                # On construit le sélecteur pour "60 kilomètres" ou "60 km"
+                                option_text_long = f"{distance} kilomètres"
+                                option_text_short = f"{distance} km"
+                                
+                                option = page.locator(f"div[role='option']").filter(has_text=option_text_long).first
+                                
+                                if option.count() == 0:
+                                     option = page.locator(f"div[role='option']").filter(has_text=option_text_short).first
+                                
+                                if option.count() > 0:
+                                    print(f"   ✅ Option '{distance}' trouvée, clic...")
+                                    option.click()
+                                    time.sleep(1)
+                                else:
+                                    print(f"   ⚠️ Option '{distance} km/kilomètres' non trouvée. Tentative avec valeur proche...")
+                                    # Fallback : on prend le premier qui contient le chiffre exact isolé (pour éviter 100 quand on cherche 10)
+                                    # C'est compliqué avec juste des locators textuels simples.
+                                    # On va essayer de trouver n'importe quelle option contenant le chiffre.
+                                    option_approx = page.locator(f"div[role='option']").filter(has_text=str(distance)).first
+                                    if option_approx.count() > 0:
+                                        print(f"   ⚠️ Option approximative trouvée pour {distance}.")
+                                        option_approx.click()
+                                        time.sleep(1)
+                            else:
+                                print("   ⚠️ Menu déroulant de rayon NON trouvé dans la modale.")
+                            
+                            # 4. Cliquer sur Appliquer dans la modale
+                            # Sélecteurs élargis pour le bouton Appliquer
+                            apply_btn = modal.locator("div[aria-label*='Appliquer'], div[aria-label*='Apply'], span:has-text('Appliquer'), span:has-text('Apply')").first
+                            
+                            if apply_btn.count() > 0:
+                                print("   ✅ Bouton 'Appliquer' trouvé, clic...")
+                                apply_btn.click()
+                                
+                                # Attente critique pour le rechargement des résultats
+                                time.sleep(5)
+                                try:
+                                    page.wait_for_load_state("networkidle", timeout=5000)
+                                except:
+                                    pass
+                            else:
+                                print("   ⚠️ Bouton 'Appliquer' introuvable.")
+                                page.keyboard.press("Escape")
+                        else:
+                             print("   ⚠️ Modale de localisation non détectée.")
+                    else:
+                        print("   ⚠️ Bouton de localisation introuvable dans l'interface.")
+
+                except Exception as e:
+                    print(f"   ⚠️ Erreur lors de l'application du rayon (UI) : {e}")
+                    # On continue quand même, peut-être que l'URL par défaut suffit
 
                 # Attente du chargement de la grille de résultats
                 # On attend un élément qui ressemble à une annonce ou le conteneur principal
