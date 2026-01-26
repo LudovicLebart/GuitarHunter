@@ -79,7 +79,15 @@ class GuitarHunterBot:
     def __init__(self, prompt_instruction=PROMPT_INSTRUCTION):
         global offline_mode
         self.prompt_instruction = prompt_instruction
-        # Configuration par défaut
+        
+        # Configuration par défaut des règles et du raisonnement
+        self.verdict_rules = """- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
+- "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
+- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée."""
+        
+        self.reasoning_instruction = "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur"
+
+        # Configuration par défaut du scan
         self.scan_config = {
             "max_ads": 5,
             "frequency": 60, # minutes
@@ -149,6 +157,8 @@ class GuitarHunterBot:
                     'created_at': firestore.SERVER_TIMESTAMP, 
                     'type': 'user_root', 
                     'prompt': self.prompt_instruction,
+                    'verdictRules': self.verdict_rules,
+                    'reasoningInstruction': self.reasoning_instruction,
                     'scanConfig': self.scan_config
                 })
                 print(f"👤 Document parent créé : users/{USER_ID_TARGET}")
@@ -200,12 +210,35 @@ class GuitarHunterBot:
             if doc.exists:
                 data = doc.to_dict()
                 
+                # --- MISE À JOUR : Ajout des champs manquants ---
+                update_payload = {}
+                if 'verdictRules' not in data:
+                    update_payload['verdictRules'] = self.verdict_rules
+                if 'reasoningInstruction' not in data:
+                    update_payload['reasoningInstruction'] = self.reasoning_instruction
+                
+                if update_payload:
+                    print("🔧 Mise à jour du document utilisateur avec les nouveaux champs de configuration...")
+                    self.user_ref.update(update_payload)
+                    data.update(update_payload) # Met à jour la copie locale des données
+                # --- FIN MISE À JOUR ---
+
                 # 1. Prompt
                 if 'prompt' in data and data['prompt'] != self.prompt_instruction:
                     self.prompt_instruction = data['prompt']
                     print(f"🔄 Prompt mis à jour : {self.prompt_instruction}")
 
-                # 2. Scan Config
+                # 2. Verdict Rules
+                if 'verdictRules' in data and data['verdictRules'] != self.verdict_rules:
+                    self.verdict_rules = data['verdictRules']
+                    print(f"🔄 Règles de verdict mises à jour.")
+
+                # 3. Reasoning Instruction
+                if 'reasoningInstruction' in data and data['reasoningInstruction'] != self.reasoning_instruction:
+                    self.reasoning_instruction = data['reasoningInstruction']
+                    print(f"🔄 Instruction de raisonnement mise à jour.")
+
+                # 4. Scan Config
                 if 'scanConfig' in data:
                     config = data['scanConfig']
                     self.scan_config['max_ads'] = config.get('maxAds', 5)
@@ -217,7 +250,7 @@ class GuitarHunterBot:
                     self.scan_config['search_query'] = config.get('searchQuery', 'electric guitar')
                     # print(f"⚙️ Config chargée : {self.scan_config}")
 
-                # 3. Force Refresh
+                # 5. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
                     # print(f"DEBUG: Firestore timestamp: {last_refresh}, Bot timestamp: {self.last_refresh_timestamp}")
@@ -305,15 +338,13 @@ class GuitarHunterBot:
         Description: {listing_data['description']}
 
         Règles strictes pour le verdict :
-        - "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
-        - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
-        - "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
+        {self.verdict_rules}
 
         Réponds en JSON uniquement avec cette structure :
         {{
           "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL",
           "estimated_value": number,
-          "reasoning": "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur",
+          "reasoning": "{self.reasoning_instruction}",
           "confidence": number (0-100)
         }}
         """

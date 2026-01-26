@@ -141,6 +141,8 @@ const App = () => {
 
   // Config States
   const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
+  const [verdictRules, setVerdictRules] = useState("");
+  const [reasoningInstruction, setReasoningInstruction] = useState("");
   const [scanConfig, setScanConfig] = useState({
       maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000, searchQuery: "electric guitar"
   });
@@ -185,6 +187,8 @@ const App = () => {
         
         // Synchronise le prompt et la config depuis Firestore
         if (data.prompt) setPrompt(data.prompt);
+        if (data.verdictRules) setVerdictRules(data.verdictRules);
+        if (data.reasoningInstruction) setReasoningInstruction(data.reasoningInstruction);
         if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
 
         // Gère l'erreur de scan envoyée par le bot
@@ -351,6 +355,26 @@ const App = () => {
                   onChange={(e) => setPrompt(e.target.value)}
                   onBlur={() => saveConfig({ prompt })}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Règles de Verdict</label>
+                <textarea
+                  value={verdictRules}
+                  onChange={(e) => setVerdictRules(e.target.value)}
+                  onBlur={() => saveConfig({ verdictRules })}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instruction de Raisonnement</label>
+                <textarea
+                  value={reasoningInstruction}
+                  onChange={(e) => setReasoningInstruction(e.target.value)}
+                  onBlur={() => saveConfig({ reasoningInstruction })}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
                 />
               </div>
 
