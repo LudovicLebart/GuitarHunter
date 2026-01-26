@@ -83,7 +83,8 @@ class GuitarHunterBot:
         # Configuration par défaut des règles et du raisonnement
         self.verdict_rules = """- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
 - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
-- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée."""
+- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
+- "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.)."""
         
         self.reasoning_instruction = "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur"
 
@@ -342,7 +343,7 @@ class GuitarHunterBot:
 
         Réponds en JSON uniquement avec cette structure :
         {{
-          "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL",
+          "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
           "estimated_value": number,
           "reasoning": "{self.reasoning_instruction}",
           "confidence": number (0-100)
@@ -397,15 +398,20 @@ class GuitarHunterBot:
             num_images_payload = len(listing_data.get('imageUrls', []))
             print(f"   💾 Préparation pour sauvegarde : {num_images_payload} images dans le payload.")
 
+            # Si le verdict est REJECTED, on met le statut à 'rejected'
+            status = "analyzed"
+            if analysis.get('verdict') == 'REJECTED':
+                status = "rejected"
+
             data = {
                 **listing_data,
                 "aiAnalysis": analysis,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "status": "analyzed"
+                "status": status
             }
 
             self.collection_ref.document(doc_id).set(data)
-            print(f"💾 Envoyé à l'App: {listing_data['title']} (ID: {doc_id})")
+            print(f"💾 Envoyé à l'App: {listing_data['title']} (ID: {doc_id}) - Status: {status}")
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
 
@@ -732,7 +738,7 @@ class GuitarHunterBot:
                     if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
                         print(f"   ✨ Annonce trouvée : {title} ({price} $)")
                         
-                        # --- VERIFICATION INTELLIGENTE (ID + PRIX) ---
+                        # --- VERIFICATION INTELLIGENTE (ID + PRIX + REJECTED) ---
                         if not offline_mode:
                             try:
                                 doc_ref = self.collection_ref.document(fb_id)
@@ -740,6 +746,12 @@ class GuitarHunterBot:
                                 
                                 if doc_snap.exists:
                                     existing_data = doc_snap.to_dict()
+                                    
+                                    # Check if already rejected
+                                    if existing_data.get('status') == 'rejected':
+                                        print(f"   🚫 Annonce déjà rejetée. On passe.")
+                                        continue
+
                                     old_price = existing_data.get('price')
                                     
                                     if old_price == price:

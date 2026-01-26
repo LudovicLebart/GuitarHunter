@@ -3,13 +3,13 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
 import { initializeApp } from 'firebase/app';
 import {
-  getFirestore, collection, onSnapshot, doc, setDoc, deleteField, addDoc, deleteDoc
+  getFirestore, collection, onSnapshot, doc, setDoc, deleteField, addDoc, deleteDoc, updateDoc
 } from 'firebase/firestore';
 import {
   getAuth, signInAnonymously, onAuthStateChanged
@@ -41,6 +41,7 @@ const VerdictBadge = ({ verdict }) => {
     'GOOD_DEAL': { label: 'Excellente Affaire', color: 'bg-emerald-500', icon: <Sparkles size={12}/> },
     'FAIR': { label: 'Prix Correct', color: 'bg-blue-500', icon: <CheckCircle size={12}/> },
     'BAD_DEAL': { label: 'Trop Cher', color: 'bg-rose-500', icon: <AlertTriangle size={12}/> },
+    'REJECTED': { label: 'Rejeté', color: 'bg-slate-600', icon: <Ban size={12}/> },
     'DEFAULT': { label: 'Analyse...', color: 'bg-slate-400', icon: <RefreshCw size={12} className="animate-spin"/> }
   };
   const config = configs[verdict] || configs.DEFAULT;
@@ -278,10 +279,31 @@ const App = () => {
     }
   };
 
+  const handleRejectDeal = async (dealId) => {
+    try {
+      const dealDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals', dealId);
+      await updateDoc(dealDocRef, {
+        status: 'rejected',
+        'aiAnalysis.verdict': 'REJECTED'
+      });
+    } catch (e) {
+      setError("Erreur lors du rejet de l'annonce.");
+    }
+  };
+
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
-      const verdict = deal.aiAnalysis?.verdict || deal.verdict || 'PENDING';
+      const verdict = deal.aiAnalysis?.verdict || 'PENDING';
+      const status = deal.status;
+
+      if (filterType === 'REJECTED') {
+        return status === 'rejected';
+      }
+      if (status === 'rejected') {
+        return false;
+      }
+
       const matchesType = filterType === 'ALL' || verdict === filterType;
       const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesType && matchesSearch;
@@ -393,9 +415,14 @@ const App = () => {
                     <input type="number" value={scanConfig.maxAds} onChange={(e) => setScanConfig({...scanConfig, maxAds: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                   </div>
                   <div>
-                    <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
-                    <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label>
+                    <input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({...scanConfig, frequency: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                   </div>
+                </div>
+                
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
+                  <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                 </div>
               </div>
 
@@ -501,13 +528,13 @@ const App = () => {
               />
             </div>
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL'].map((type) => (
+              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
                   className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                 >
-                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : 'Trop Cher'}
+                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : 'Rejetées'}
                 </button>
               ))}
             </div>
@@ -530,12 +557,12 @@ const App = () => {
               </div>
             ) : (
               filteredDeals.map((deal) => (
-                <div key={deal.id} className="group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4">
+                <div key={deal.id} className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
                   {/* Image Section */}
                   <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
                     <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
                     <div className="absolute top-4 left-4 z-10">
-                      <VerdictBadge verdict={deal.aiAnalysis?.verdict || deal.verdict} />
+                      <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
                     </div>
                     {/* Overlay gradient */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
@@ -555,7 +582,7 @@ const App = () => {
                           <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
                           <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
                         </div>
-                        {deal.aiAnalysis?.estimated_value && (
+                        {deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (
                           <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
                             <TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$
                           </div>
@@ -572,7 +599,7 @@ const App = () => {
                           <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
                         </div>
                         <p className="text-slate-600 text-sm font-medium italic leading-relaxed">
-                          "{deal.aiAnalysis?.reasoning || deal.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
+                          "{deal.aiAnalysis?.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
                         </p>
                       </div>
                     </div>
@@ -596,14 +623,24 @@ const App = () => {
                         )}
                       </div>
 
-                      <a
-                        href={deal.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
-                      >
-                        Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
-                      </a>
+                      <div className="flex items-center gap-2">
+                        {deal.status !== 'rejected' && (
+                          <button
+                            onClick={() => handleRejectDeal(deal.id)}
+                            className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                          >
+                            <Ban size={14} />
+                          </button>
+                        )}
+                        <a
+                          href={deal.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                        >
+                          Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+                        </a>
+                      </div>
                     </div>
                   </div>
                 </div>
