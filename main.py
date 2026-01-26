@@ -99,6 +99,7 @@ class GuitarHunterBot:
             "search_query": "electric guitar"
         }
         self.last_refresh_timestamp = 0
+        self.last_cleanup_timestamp = 0
         self.city_mapping = {} # Sera rempli depuis Firestore
 
         # Construction du chemin pour vérification
@@ -200,7 +201,7 @@ class GuitarHunterBot:
     def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
         if offline_mode:
-            return False
+            return False, False
 
         try:
             # On recharge aussi les villes à chaque sync pour être à jour
@@ -208,6 +209,9 @@ class GuitarHunterBot:
                 self.load_cities_from_firestore()
 
             doc = self.user_ref.get()
+            should_refresh = False
+            should_cleanup = False
+
             if doc.exists:
                 data = doc.to_dict()
                 
@@ -254,7 +258,6 @@ class GuitarHunterBot:
                 # 5. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
-                    # print(f"DEBUG: Firestore timestamp: {last_refresh}, Bot timestamp: {self.last_refresh_timestamp}")
                     
                     if initial:
                         # Initialisation : on se cale sur le timestamp actuel sans déclencher
@@ -262,12 +265,23 @@ class GuitarHunterBot:
                     elif last_refresh != self.last_refresh_timestamp:
                         print(f"⚡ Refresh manuel demandé ! (Timestamp: {last_refresh})")
                         self.last_refresh_timestamp = last_refresh
-                        return True # Signal to run scan immediately
+                        should_refresh = True
+
+                # 6. Force Cleanup
+                if 'forceCleanup' in data:
+                    last_cleanup = data['forceCleanup']
+                    
+                    if initial:
+                        self.last_cleanup_timestamp = last_cleanup
+                    elif last_cleanup != self.last_cleanup_timestamp:
+                        print(f"🧹 Nettoyage manuel demandé ! (Timestamp: {last_cleanup})")
+                        self.last_cleanup_timestamp = last_cleanup
+                        should_cleanup = True
             
-            return False
+            return should_refresh, should_cleanup
         except Exception as e:
             print(f"⚠️ Erreur sync config : {e}")
-            return False
+            return False, False
 
     def extract_facebook_id(self, url):
         """Extrait l'ID numérique unique de l'annonce Facebook depuis l'URL."""
@@ -414,6 +428,75 @@ class GuitarHunterBot:
             print(f"💾 Envoyé à l'App: {listing_data['title']} (ID: {doc_id}) - Status: {status}")
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
+
+    def cleanup_sold_listings(self):
+        """Vérifie si les annonces en base sont toujours disponibles et supprime les vendues."""
+        if offline_mode:
+            return
+
+        print("\n🧹 Lancement du nettoyage des annonces vendues...")
+        try:
+            # 1. Get all non-rejected listings
+            docs = self.collection_ref.where('status', '!=', 'rejected').stream()
+            
+            listings_to_check = []
+            for doc in docs:
+                listings_to_check.append({'id': doc.id, 'data': doc.to_dict()})
+
+            if not listings_to_check:
+                print("   ✅ Aucune annonce active à vérifier.")
+                return
+                
+            print(f"   🔍 {len(listings_to_check)} annonces à vérifier...")
+
+            deleted_count = 0
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                
+                # Utilisation d'un contexte similaire au scan pour éviter les blocages
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                    locale="fr-CA",
+                    timezone_id="America/Montreal"
+                )
+                
+                for listing in listings_to_check:
+                    listing_id = listing['id']
+                    listing_data = listing['data']
+                    url = listing_data.get('link')
+
+                    if not url:
+                        continue
+
+                    page = context.new_page()
+                    try:
+                        print(f"   - Vérification de : {listing_data.get('title', listing_id)}...")
+                        page.goto(url, timeout=30000)
+                        
+                        # Check for "This listing is no longer available"
+                        # The text is "Cette annonce n’est plus disponible" in French
+                        sold_indicator = page.locator('span:has-text("Cette annonce n’est plus disponible"), span:has-text("This listing is no longer available")')
+                        
+                        if sold_indicator.count() > 0:
+                            print(f"   🗑️ Annonce vendue/supprimée. Suppression de la base de données...")
+                            self.collection_ref.document(listing_id).delete()
+                            deleted_count += 1
+                        else:
+                            # print(f"   👍 Annonce toujours active.")
+                            pass
+
+                    except Exception as e:
+                        print(f"   ⚠️ Erreur lors de la vérification de {listing_id}: {e}")
+                    finally:
+                        page.close()
+                        time.sleep(1) # Petite pause pour être gentil avec le serveur
+
+                browser.close()
+            
+            print(f"🏁 Nettoyage terminé. {deleted_count} annonce(s) supprimée(s).")
+
+        except Exception as e:
+            print(f"❌ Erreur durant le processus de nettoyage : {e}")
 
     def _close_login_popup(self, page):
         """Tente de fermer le popup de connexion qui peut apparaître."""
@@ -979,16 +1062,29 @@ if __name__ == "__main__":
     print("Appuyez sur Ctrl+C pour arrêter.")
     
     last_scan_time = 0
+    last_auto_cleanup_time = 0
     
     try:
         while True:
             # 1. Synchronisation de la config et vérification du refresh manuel
-            should_refresh = bot.sync_configuration()
+            should_refresh, should_cleanup = bot.sync_configuration()
             
             # 2. Vérification du temps écoulé
             current_time = time.time()
             frequency_seconds = bot.scan_config['frequency'] * 60
             
+            # --- GESTION DU NETTOYAGE (MANUEL OU QUOTIDIEN) ---
+            # Nettoyage automatique une fois par jour (24h = 86400s)
+            if should_cleanup or (current_time - last_auto_cleanup_time > 86400):
+                if should_cleanup:
+                    print("🧹 Lancement du nettoyage (Manuel)...")
+                else:
+                    print("🧹 Lancement du nettoyage quotidien (Auto)...")
+                
+                bot.cleanup_sold_listings()
+                last_auto_cleanup_time = time.time()
+
+            # --- GESTION DU SCAN ---
             # Si refresh demandé OU temps écoulé
             if should_refresh or (current_time - last_scan_time > frequency_seconds):
                 if should_refresh:
