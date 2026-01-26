@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import json
 import random
@@ -713,7 +714,7 @@ class GuitarHunterBot:
                                 print(f"   ⚠️ Erreur vérification doublon (Firestore): {e}")
                         
                         # --- Scraping détaillé de la page ---
-                        description = f"Annonce Marketplace. {title}. Localisation: {location}"
+                        description = f"Annonce Marketplace. {title}. Localisation: {location}" # Default description
                         image_urls = [] # Reset pour ne pas mélanger avec la page précédente
                         
                         try:
@@ -783,21 +784,69 @@ class GuitarHunterBot:
                             image_urls = collected_urls
                             print(f"   📸 {len(image_urls)} images récupérées.")
                             
-                            # --- RECUPERATION DESCRIPTION ---
+                            # --- RECUPERATION DESCRIPTION (AMÉLIORÉE ET FIABILISÉE) ---
+                            extracted_description = None
                             try:
-                                detail_page.get_by_role("button", name="Plus").click(timeout=1000)
-                            except:
-                                try:
-                                    detail_page.get_by_role("button", name="See more").click(timeout=1000)
-                                except:
-                                    pass
-                                
-                            full_text = detail_page.locator("body").inner_text()
-                            description = full_text[:3000]
+                                # Tenter d'extraire de la balise meta og:description
+                                og_description_meta = detail_page.locator('meta[property="og:description"]').get_attribute('content')
+                                if og_description_meta and len(og_description_meta.strip()) > 10:
+                                    extracted_description = og_description_meta.strip()
+                                    print(f"   📝 Description extraite de og:description (longueur: {len(extracted_description)}).")
+                                else:
+                                    # Tenter d'extraire de la balise meta name="description"
+                                    name_description_meta = detail_page.locator('meta[name="description"]').get_attribute('content')
+                                    if name_description_meta and len(name_description_meta.strip()) > 10:
+                                        extracted_description = name_description_meta.strip()
+                                        print(f"   📝 Description extraite de meta name='description' (longueur: {len(extracted_description)}).")
+
+                                if not extracted_description:
+                                    # Fallback à la méthode précédente si les meta tags ne donnent rien
+                                    try:
+                                        # Clic sur "Voir plus" pour déplier la description
+                                        see_more_button = detail_page.locator('div[role="button"]:has-text("Voir plus"), div[role="button"]:has-text("See more")').first
+                                        if see_more_button.is_visible(timeout=2000):
+                                            see_more_button.click()
+                                            time.sleep(0.5)
+
+                                        # Stratégie 1: Chercher la section "Détails"
+                                        details_heading = detail_page.locator('h2:has-text("Détails"), h2:has-text("Details")').first
+                                        if details_heading.is_visible(timeout=1000):
+                                            parent_container = details_heading.locator('xpath=..')
+                                            all_texts = parent_container.locator('span[dir="auto"]').all_inner_texts()
+                                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50]
+                                            if long_texts:
+                                                extracted_description = max(long_texts, key=len)
+                                                print(f"   📝 Description extraite via section 'Détails' (longueur: {len(extracted_description)}).")
+
+                                        # Stratégie 2 (Fallback): Recherche globale dans 'main' si toujours rien
+                                        if not extracted_description:
+                                            print("   ⚠️ Section 'Détails' non trouvée ou vide, utilisation du fallback.")
+                                            all_texts = detail_page.locator('div[role="main"] span[dir="auto"]').all_inner_texts()
+                                            # Exclure le titre et le prix pour éviter les faux positifs
+                                            excluded_texts = {title, f"{price} $", location}
+                                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50 and t not in excluded_texts]
+                                            if long_texts:
+                                                extracted_description = max(long_texts, key=len)
+                                                print(f"   📝 Description extraite via fallback (longueur: {len(extracted_description)}).")
+
+                                    except Exception as fallback_e:
+                                        print(f"   ⚠️ Erreur lors de l'extraction de la description via fallback: {fallback_e}")
+                                        # La description par défaut sera utilisée
+
+                            except Exception as meta_e:
+                                print(f"   ⚠️ Erreur lors de l'extraction de la description via meta tags: {meta_e}")
+                                # Continuer avec la logique de fallback si les meta tags échouent
+
+                            if extracted_description:
+                                description = extracted_description
+                            else:
+                                print("   ⚠️ Aucune description détaillée trouvée, utilisation de la description par défaut.")
+                            
+                            description = description[:3000] # Toujours tronquer pour la sécurité
 
                             detail_page.close()
                         except Exception as e:
-                            print(f"   ⚠️ Impossible de récupérer les détails (fallback) : {e}")
+                            print(f"   ❌ Erreur lors de la récupération des détails de l'annonce : {e}")
                             if 'detail_page' in locals():
                                 try: detail_page.close()
                                 except: pass
@@ -874,6 +923,11 @@ if __name__ == "__main__":
     print(f"Prompt par défaut: {PROMPT_INSTRUCTION}")
     
     bot = GuitarHunterBot()
+
+    # --- SÉCURITÉ AU DÉMARRAGE ---
+    if offline_mode:
+        print("\n❌ Le bot n'a pas pu s'initialiser correctement (mode hors-ligne). Arrêt du script.")
+        sys.exit(1)
     
     print("\n--- MODE AUTOMATIQUE ---")
     print("Le bot va surveiller la configuration et scanner périodiquement.")
