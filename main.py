@@ -362,6 +362,10 @@ class GuitarHunterBot:
                 doc_id = f"{listing_data['title'][:15]}_{listing_data['price']}".replace(" ", "_").lower()
                 doc_id = "".join(c for c in doc_id if c.isalnum() or c in ('_', '-'))
 
+            # --- AJOUT LOGGING ---
+            num_images_payload = len(listing_data.get('imageUrls', []))
+            print(f"   💾 Préparation pour sauvegarde : {num_images_payload} images dans le payload.")
+
             data = {
                 **listing_data,
                 "aiAnalysis": analysis,
@@ -373,6 +377,23 @@ class GuitarHunterBot:
             print(f"💾 Envoyé à l'App: {listing_data['title']} (ID: {doc_id})")
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
+
+    def _close_login_popup(self, page):
+        """Tente de fermer le popup de connexion qui peut apparaître."""
+        try:
+            # On attend un peu que le popup se charge s'il doit apparaître
+            time.sleep(1) # Réduit le délai pour être plus réactif
+            close_login_btn = page.locator("div[aria-label='Fermer'], div[aria-label='Close'], div[role='button'][aria-label*='Fermer']").first
+            
+            if close_login_btn.count() > 0 and close_login_btn.is_visible(timeout=2000):
+                print("   🔐 Popup de connexion détecté, tentative de fermeture...")
+                close_login_btn.click()
+                print("   ✅ Popup de connexion fermé.")
+                time.sleep(1)
+        except Exception as e:
+            # Non bloquant, on continue
+            # print(f"   ⚠️ Pas de popup de connexion trouvé ou erreur (non bloquant): {e}")
+            pass
 
     def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", distance=60, min_price=0, max_price=10000, max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
@@ -469,23 +490,8 @@ class GuitarHunterBot:
                 except:
                     pass
 
-                # --- GESTION DU POPUP DE CONNEXION (NOUVEAU) ---
-                try:
-                    print("   🔐 Vérification du popup de connexion...")
-                    time.sleep(2)
-                    # Sélecteur pour le bouton de fermeture (X) du popup de login
-                    # Souvent un div avec role='button' et aria-label='Fermer' ou 'Close'
-                    close_login_btn = page.locator("div[aria-label='Fermer'], div[aria-label='Close'], div[role='button'][aria-label*='Fermer']").first
-                    
-                    if close_login_btn.count() > 0 and close_login_btn.is_visible():
-                        close_login_btn.click()
-                        print("   ✅ Popup de connexion fermé.")
-                        time.sleep(1)
-                    else:
-                        # Parfois c'est juste un clic en dehors qui marche, ou le popup n'est pas là
-                        pass
-                except Exception as e:
-                    print(f"   ⚠️ Erreur fermeture popup login (non bloquant) : {e}")
+                # --- GESTION DU POPUP DE CONNEXION ---
+                self._close_login_popup(page)
 
 
                 # --- APPLICATION DU RAYON VIA UI (METHODE ROBUSTE) ---
@@ -722,6 +728,9 @@ class GuitarHunterBot:
                             detail_page = context.new_page()
                             detail_page.goto(clean_link, timeout=45000)
                             
+                            # --- GESTION POPUP DANS L'ONGLET ---
+                            self._close_login_popup(detail_page)
+                            
                             # Attente du chargement
                             try:
                                 detail_page.wait_for_selector("div[role='main']", timeout=10000)
@@ -731,17 +740,14 @@ class GuitarHunterBot:
                             
                             # --- RECUPERATION DES IMAGES (Mode Galerie) ---
                             collected_urls = []
-                            
-                            # Sélecteur pour le bouton "Suivant" (Flèche droite) - Amélioré
-                            next_btn_selector = "div[aria-label*='suivante'], div[aria-label*='Next'], div[aria-label*='Suivant'], div[aria-label*='Photos suivantes']"
+                            seen_srcs = set() # Pour dédoublonnage rapide
                             
                             # On tente de faire défiler jusqu'à 10 images
-                            for i in range(10):
-                                # 1. Capturer l'image principale visible
+                            for i in range(10): 
+                                # Capturer toutes les images principales visibles à ce moment
                                 try:
-                                    # On cible les images dans le main role pour éviter les pubs/suggestions
                                     imgs = detail_page.locator("div[role='main'] img").all()
-                                    
+                                    found_new_image_in_this_step = False
                                     for img in imgs:
                                         if not img.is_visible(): continue
                                         
@@ -749,40 +755,36 @@ class GuitarHunterBot:
                                         # Filtre taille : on veut la grande image (souvent > 300px)
                                         if box and box['width'] > 300 and box['height'] > 300:
                                             src = img.get_attribute("src")
-                                            if src and "scontent" in src and src not in collected_urls:
+                                            if src and "scontent" in src and src not in seen_srcs:
+                                                print(f"       -> Image URL capturée: ...{src[-20:]}")
                                                 collected_urls.append(src)
-                                                # On a trouvé l'image principale affichée, on arrête de chercher dans les autres img de la page pour ce step
-                                                break 
+                                                seen_srcs.add(src)
+                                                found_new_image_in_this_step = True
+                                                # Pas de break ici, on collecte toutes les grandes images visibles à la fois
                                 except Exception as e:
                                     pass
+                                
+                                # Si aucune nouvelle image n'a été trouvée à cette étape, et qu'on en a déjà,
+                                # cela peut signifier la fin de la galerie ou un chargement lent.
+                                if not found_new_image_in_this_step and len(collected_urls) > 0:
+                                    print("       -> Aucune nouvelle image large trouvée, fin de la galerie ou chargement lent.")
+                                    break # Sortir de la boucle si aucune nouvelle image n'apparaît
 
-                                # 2. Cliquer sur "Suivant" ou Flèche Droite
-                                try:
-                                    btn = detail_page.locator(next_btn_selector).first
-                                    if btn.count() > 0 and btn.is_visible():
-                                        btn.click(timeout=1000)
-                                        time.sleep(1) # Pause pour le chargement de la nouvelle image
-                                    else:
-                                        # Fallback : Flèche droite clavier
-                                        detail_page.keyboard.press("ArrowRight")
-                                        time.sleep(1)
-                                except:
+                                # Limite de sécurité
+                                if len(collected_urls) >= 10:
+                                    print("       -> Limite de 10 images atteinte.")
                                     break
-                            
-                            # Si on n'a rien trouvé, on essaie de prendre toutes les images visibles d'un coup (Grid view?)
-                            if not collected_urls:
-                                try:
-                                    imgs = detail_page.locator("div[role='main'] img").all()
-                                    for img in imgs:
-                                        src = img.get_attribute("src")
-                                        if src and "scontent" in src and src not in collected_urls:
-                                            box = img.bounding_box()
-                                            if box and box['width'] > 200: # Seuil plus bas
-                                                collected_urls.append(src)
-                                except: pass
 
+                                # Cliquer sur "Suivant" ou Flèche Droite
+                                try:
+                                    detail_page.keyboard.press("ArrowRight")
+                                    time.sleep(0.8) 
+                                except:
+                                    print("       -> Erreur en appuyant sur la flèche droite ou fin de la galerie.")
+                                    break # Sortir de la boucle si l'appui sur la flèche échoue
+                            
                             image_urls = collected_urls
-                            print(f"   📸 {len(image_urls)} images récupérées.")
+                            print(f"   📸 {len(image_urls)} images récupérées au total pour cette annonce.")
                             
                             # --- RECUPERATION DESCRIPTION (AMÉLIORÉE ET FIABILISÉE) ---
                             extracted_description = None
@@ -853,7 +855,7 @@ class GuitarHunterBot:
 
                         # Si aucune image trouvée dans l'annonce, on met une liste vide (ou placeholder générique), 
                         # mais PAS l'image de la recherche (image_url) comme demandé.
-                        final_image_url = image_urls[0] if image_urls else "https://via.placeholder.com/400?text=No+Image+Found"
+                        final_image_url = image_urls[0] if image_urls else image_url
 
                         listing_data = {
                             "title": title,
