@@ -447,6 +447,13 @@ class GuitarHunterBot:
                 print(f"   🔗 URL générée : {url}")
                 page.goto(url, timeout=60000)
                 
+                # --- ZOOM 50% (Demande utilisateur pour visibilité bouton) ---
+                try:
+                    print("   🔍 Application du zoom 50%...")
+                    page.evaluate("document.body.style.zoom = '0.5'")
+                except Exception as e:
+                    print(f"   ⚠️ Impossible d'appliquer le zoom : {e}")
+                
                 # Gestion des popups cookies (Europe/Canada)
                 try:
                     # Sélecteurs génériques pour les boutons de cookies
@@ -513,35 +520,52 @@ class GuitarHunterBot:
                             if radius_dropdown.count() > 0:
                                 print("   ✅ Menu déroulant de rayon trouvé.")
                                 radius_dropdown.click()
-                                time.sleep(1)
                                 
-                                # 3. Sélectionner l'option exacte
-                                # On cherche dans la liste des options (souvent role='option' ou 'menuitem')
-                                # Mise à jour basée sur le snippet HTML fourni : div[role="option"] contenant un span avec "X kilomètres"
+                                # 3. Sélectionner l'option la plus proche
+                                # On attend que les options apparaissent (souvent dans un portal global)
+                                try:
+                                    page.wait_for_selector("div[role='option']", timeout=5000)
+                                except:
+                                    print("   ⚠️ Timeout attente options.")
+
+                                # On cherche les options globalement (au cas où ce serait un portal)
+                                # On filtre pour ne garder que celles qui sont visibles
+                                available_options = page.locator("div[role='option']").all()
                                 
-                                # On construit le sélecteur pour "60 kilomètres" ou "60 km"
-                                option_text_long = f"{distance} kilomètres"
-                                option_text_short = f"{distance} km"
+                                best_option = None
+                                min_diff = float('inf')
+                                best_text = ""
                                 
-                                option = page.locator(f"div[role='option']").filter(has_text=option_text_long).first
+                                # Filtrage manuel des options visibles
+                                visible_options = []
+                                for opt in available_options:
+                                    if opt.is_visible():
+                                        visible_options.append(opt)
                                 
-                                if option.count() == 0:
-                                     option = page.locator(f"div[role='option']").filter(has_text=option_text_short).first
+                                print(f"   ℹ️ Analyse des {len(visible_options)} distances disponibles...")
                                 
-                                if option.count() > 0:
-                                    print(f"   ✅ Option '{distance}' trouvée, clic...")
-                                    option.click()
+                                for option in visible_options:
+                                    text = option.inner_text()
+                                    # Extraction des chiffres uniquement
+                                    digits = ''.join(filter(str.isdigit, text))
+                                    
+                                    if digits:
+                                        val = int(digits)
+                                        diff = abs(val - distance)
+                                        
+                                        # On cherche la différence minimale
+                                        if diff < min_diff:
+                                            min_diff = diff
+                                            best_option = option
+                                            best_text = text
+                                
+                                if best_option:
+                                    print(f"   ✅ Distance la plus proche trouvée : '{best_text}' (Delta: {min_diff} km)")
+                                    best_option.click()
                                     time.sleep(1)
                                 else:
-                                    print(f"   ⚠️ Option '{distance} km/kilomètres' non trouvée. Tentative avec valeur proche...")
-                                    # Fallback : on prend le premier qui contient le chiffre exact isolé (pour éviter 100 quand on cherche 10)
-                                    # C'est compliqué avec juste des locators textuels simples.
-                                    # On va essayer de trouver n'importe quelle option contenant le chiffre.
-                                    option_approx = page.locator(f"div[role='option']").filter(has_text=str(distance)).first
-                                    if option_approx.count() > 0:
-                                        print(f"   ⚠️ Option approximative trouvée pour {distance}.")
-                                        option_approx.click()
-                                        time.sleep(1)
+                                    print(f"   ⚠️ Impossible de trouver une distance proche. Aucune option numérique détectée.")
+                                    
                             else:
                                 print("   ⚠️ Menu déroulant de rayon NON trouvé dans la modale.")
                             
@@ -562,6 +586,7 @@ class GuitarHunterBot:
                             else:
                                 print("   ⚠️ Bouton 'Appliquer' introuvable.")
                                 page.keyboard.press("Escape")
+                                    
                         else:
                              print("   ⚠️ Modale de localisation non détectée.")
                     else:
