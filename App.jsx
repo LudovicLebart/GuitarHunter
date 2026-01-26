@@ -346,72 +346,60 @@ const App = () => {
           {/* Config Card (Si ouvert) */}
           {showConfig && (
             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Configuration Bot</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
 
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Gemini</label>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onBlur={() => saveConfig({ prompt })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Règles de Verdict</label>
-                <textarea
-                  value={verdictRules}
-                  onChange={(e) => setVerdictRules(e.target.value)}
-                  onBlur={() => saveConfig({ verdictRules })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instruction de Raisonnement</label>
-                <textarea
-                  value={reasoningInstruction}
-                  onChange={(e) => setReasoningInstruction(e.target.value)}
-                  onBlur={() => saveConfig({ reasoningInstruction })}
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Lieu</label>
-                  <input type="text" value={scanConfig.location} onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+              {/* SECTION 1: FACEBOOK SEARCH */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-blue-600 mb-2">
+                  <Search size={14} />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Recherche Facebook</span>
                 </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
-                  <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Lieu</label>
+                    <select
+                      value={scanConfig.location}
+                      onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})}
+                      onBlur={() => saveConfig({ scanConfig })}
+                      className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="" disabled>Choisir une ville</option>
+                      {cities.map(city => (
+                        <option key={city.id} value={city.name}>{city.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
+                    <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label>
-                  <input type="number" value={scanConfig.minPrice} onChange={(e) => setScanConfig({...scanConfig, minPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label>
+                    <input type="number" value={scanConfig.minPrice} onChange={(e) => setScanConfig({...scanConfig, minPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label>
+                    <input type="number" value={scanConfig.maxPrice} onChange={(e) => setScanConfig({...scanConfig, maxPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label>
-                  <input type="number" value={scanConfig.maxPrice} onChange={(e) => setScanConfig({...scanConfig, maxPrice: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label>
-                  <input type="number" value={scanConfig.maxAds} onChange={(e) => setScanConfig({...scanConfig, maxAds: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
-                  <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label>
+                    <input type="number" value={scanConfig.maxAds} onChange={(e) => setScanConfig({...scanConfig, maxAds: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
+                    <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+                  </div>
                 </div>
               </div>
 
-              {/* GESTION DES VILLES */}
+              {/* SECTION 2: GESTION DES VILLES (Déplacé ici) */}
               <div className="pt-4 border-t border-slate-100">
                 <label className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Villes Autorisées</label>
                 
@@ -453,6 +441,44 @@ const App = () => {
                 >
                   <Plus size={12} /> Ajouter Ville
                 </button>
+              </div>
+
+              {/* SECTION 3: AI BOT CONFIG */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <div className="flex items-center gap-2 text-purple-600 mb-2">
+                  <Sparkles size={14} />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Intelligence Artificielle</span>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Gemini</label>
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onBlur={() => saveConfig({ prompt })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Règles de Verdict</label>
+                  <textarea
+                    value={verdictRules}
+                    onChange={(e) => setVerdictRules(e.target.value)}
+                    onBlur={() => saveConfig({ verdictRules })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instruction de Raisonnement</label>
+                  <textarea
+                    value={reasoningInstruction}
+                    onChange={(e) => setReasoningInstruction(e.target.value)}
+                    onBlur={() => saveConfig({ reasoningInstruction })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
+                  />
+                </div>
               </div>
 
             </div>
