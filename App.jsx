@@ -50,6 +50,7 @@ const VerdictBadge = ({ verdict }) => {
     'FAIR': { label: 'Prix Correct', color: 'bg-blue-500', icon: <CheckCircle size={12}/> },
     'BAD_DEAL': { label: 'Trop Cher', color: 'bg-rose-500', icon: <AlertTriangle size={12}/> },
     'REJECTED': { label: 'Rejeté', color: 'bg-slate-600', icon: <Ban size={12}/> },
+    'ERROR': { label: 'Erreur Analyse', color: 'bg-rose-600', icon: <XCircle size={12}/> },
     'DEFAULT': { label: 'Analyse...', color: 'bg-slate-400', icon: <RefreshCw size={12} className="animate-spin"/> }
   };
   const config = configs[verdict] || configs.DEFAULT;
@@ -335,26 +336,48 @@ const App = () => {
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
-      const verdict = deal.aiAnalysis?.verdict || 'PENDING';
+      const analysis = deal.aiAnalysis || {};
+      const verdict = analysis.verdict || 'PENDING';
       const status = deal.status;
-      const reasoning = deal.aiAnalysis?.reasoning || "";
+      const reasoning = analysis.reasoning || ""; // Vide si pas de raisonnement
 
-      // Détection des erreurs : verdict manquant ou texte par défaut persistant
-      const isError = !verdict || verdict === 'DEFAULT' || reasoning.includes("Analyse de l'état et de la valeur en cours");
+      // Détection stricte des erreurs / analyses incomplètes
+      // 1. Pas d'analyse du tout
+      // 2. Verdict 'DEFAULT' ou 'PENDING' ou 'ERROR'
+      // 3. Raisonnement vide (ce qui provoque l'affichage du texte par défaut)
+      // 4. Raisonnement contenant des mots clés d'erreur explicites
+      const isError = 
+        !deal.aiAnalysis || 
+        verdict === 'DEFAULT' || 
+        verdict === 'ERROR' ||
+        !reasoning || // Raisonnement vide = Erreur/En attente
+        reasoning.includes("Erreur") ||
+        reasoning.includes("Analyse IA impossible");
 
       if (filterType === 'ERROR') {
+        // Dans l'onglet erreur, on veut voir tout ce qui a échoué, sauf si c'est déjà rejeté (poubelle)
         return isError && status !== 'rejected';
       }
 
       if (filterType === 'REJECTED') {
         return status === 'rejected';
       }
+      
+      // Pour les autres filtres (ALL, GOOD_DEAL, etc.)
+      // On exclut les annonces rejetées
       if (status === 'rejected') {
         return false;
       }
 
+      // Si on filtre par type (ex: GOOD_DEAL), on doit s'assurer que ce n'est PAS une erreur déguisée
+      // Si l'utilisateur veut voir les GOOD_DEAL, il ne veut pas voir celles qui ont un verdict GOOD_DEAL mais pas de raisonnement.
+      if (filterType !== 'ALL' && isError) {
+          return false; 
+      }
+
       const matchesType = filterType === 'ALL' || verdict === filterType;
       const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
+
       return matchesType && matchesSearch;
     });
   }, [deals, filterType, searchQuery]);

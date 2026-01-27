@@ -7,6 +7,7 @@ import requests
 import warnings
 import unicodedata
 import urllib.parse
+import threading
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
@@ -46,14 +47,20 @@ RÈGLES DE VALIDATION :
 2. PRIX FICTIF : Si le prix est 0$, 1$ ou 1234$, ignore ce chiffre. Analyse la description pour trouver le prix réel ou une demande d'échange (ex: contre une voiture).
 3. RAISONNEMENT : Tu dois toujours expliquer ton calcul (Valeur marchande - Prix demandé = Profit potentiel).
 
-Tu dois répondre EXCLUSIVEMENT en format JSON."""
+Tu dois répondre EXCLUSIVEMENT en format JSON avec la structure suivante :
+{
+  "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
+  "estimated_value": 1234,
+  "reasoning": "Explication détaillée...",
+  "confidence": 90
+}"""
 
 # Initialisation Gemini
 model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        model_name='gemini-2.0-flash',
+        model_name='gemini-2.5-pro',
         system_instruction=SYSTEM_PROMPT,
         generation_config={
             "response_mime_type": "application/json", # Force le format JSON
@@ -339,7 +346,7 @@ class GuitarHunterBot:
         if not model:
              print("⚠️ Modèle Gemini non initialisé (Clé API manquante ?)")
              return {
-                "verdict": "FAIR",
+                "verdict": "ERROR",
                 "estimated_value": listing_data['price'],
                 "reasoning": "Analyse IA impossible : Modèle non initialisé.",
                 "confidence": 0
@@ -386,7 +393,21 @@ class GuitarHunterBot:
 
             response = model.generate_content(content)
             # Pas besoin de nettoyer le markdown, response_mime_type est JSON
-            return json.loads(response.text)
+            result = json.loads(response.text)
+            
+            # --- CORRECTION : GESTION DU CAS OÙ GEMINI RENVOIE UNE LISTE ---
+            if isinstance(result, list):
+                if len(result) > 0:
+                    return result[0]
+                else:
+                    return {
+                        "verdict": "ERROR",
+                        "estimated_value": listing_data['price'],
+                        "reasoning": "L'IA a renvoyé une liste vide.",
+                        "confidence": 0
+                    }
+            return result
+
         except Exception as e:
             error_str = str(e)
             if "403" in error_str and "leaked" in error_str:
@@ -400,7 +421,7 @@ class GuitarHunterBot:
                 print(f"❌ Erreur Gemini: {e}")
 
             return {
-                "verdict": "FAIR",
+                "verdict": "ERROR",
                 "estimated_value": listing_data['price'],
                 "reasoning": "Erreur d'analyse IA (Voir logs console)",
                 "confidence": 0
@@ -1120,6 +1141,18 @@ class GuitarHunterBot:
             self.save_to_firestore(listing, analysis, doc_id=fb_id)
             time.sleep(1)
 
+def monitor_retries(bot):
+    """Fonction exécutée dans un thread séparé pour surveiller les demandes de ré-analyse."""
+    print("🧵 Démarrage du thread de surveillance des ré-analyses...")
+    while True:
+        try:
+            # On vérifie la file d'attente
+            bot.process_retry_queue()
+            # Pause courte pour ne pas spammer Firestore (5 secondes)
+            time.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Erreur dans le thread de surveillance : {e}")
+            time.sleep(10) # Pause plus longue en cas d'erreur
 
 if __name__ == "__main__":
     # Demande du prompt personnalisé au démarrage
@@ -1131,6 +1164,10 @@ if __name__ == "__main__":
     if offline_mode:
         print("\n❌ Le bot n'a pas pu s'initialiser correctement (mode hors-ligne). Arrêt du script.")
         sys.exit(1)
+    
+    # --- DÉMARRAGE DU THREAD DE SURVEILLANCE ---
+    retry_thread = threading.Thread(target=monitor_retries, args=(bot,), daemon=True)
+    retry_thread.start()
     
     print("\n--- MODE AUTOMATIQUE ---")
     print("Le bot va surveiller la configuration et scanner périodiquement.")
@@ -1144,10 +1181,9 @@ if __name__ == "__main__":
             # 1. Synchronisation de la config et vérification du refresh manuel
             should_refresh, should_cleanup = bot.sync_configuration()
             
-            # 2. Traitement des ré-analyses (Prioritaire)
-            bot.process_retry_queue()
+            # NOTE: bot.process_retry_queue() est maintenant géré par le thread monitor_retries
 
-            # 3. Vérification du temps écoulé
+            # 2. Vérification du temps écoulé
             current_time = time.time()
             frequency_seconds = bot.scan_config['frequency'] * 60
             
