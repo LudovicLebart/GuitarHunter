@@ -34,8 +34,8 @@ PROMPT_INSTRUCTION = "Evalue cette guitare Au quebec (avec le prix)."  # Instruc
 # ⚠️ IMPORTANT : CES IDs DOIVENT CORRESPONDRE À CEUX DE VOTRE APP REACT ⚠️
 # Regardez dans l'en-tête de l'application React ou dans la section "Vérification du chemin Python"
 # ==================================================================================
-APP_ID_TARGET = "c_5d118e719dbddbfc_index.html-217"  # À remplacer par l'App ID affiché dans React
-USER_ID_TARGET = "00737242777130596039"           # À remplacer par le User ID affiché dans React
+APP_ID_TARGET = os.getenv("APP_ID_TARGET", "c_5d118e719dbddbfc_index.html-217")
+USER_ID_TARGET = os.getenv("USER_ID_TARGET", "00737242777130596039")
 # ==================================================================================
 
 # --- NOUVELLES INSTRUCTIONS SYSTÈME ---
@@ -154,7 +154,10 @@ class GuitarHunterBot:
             .collection('users').document(USER_ID_TARGET) \
             .collection('cities')
 
-        # --- CORRECTION : CRÉATION EXPLICITE DES PARENTS (Pour éviter l'italique/fantôme) ---
+        self._init_firestore_structure()
+
+    def _init_firestore_structure(self):
+        """Initialise la structure Firestore si elle n'existe pas."""
         print("   ⏳ Vérification de l'accès Firestore (Timeout 10s)...")
         try:
             # 1. Création du document App (artifacts/{APP_ID})
@@ -162,7 +165,6 @@ class GuitarHunterBot:
             
             # Vérification de la connexion avant de tenter des écritures
             try:
-                # Ajout d'un timeout pour éviter le blocage infini si le réseau/auth déconne
                 doc_snapshot = app_ref.get(timeout=10)
                 
                 if not doc_snapshot.exists:
@@ -174,6 +176,7 @@ class GuitarHunterBot:
             except Exception as e:
                 print(f"❌ Erreur de connexion Firebase lors de l'init : {e}")
                 print("👉 Passage en MODE HORS-LIGNE temporaire.")
+                global offline_mode
                 offline_mode = True
                 return
 
@@ -278,7 +281,6 @@ class GuitarHunterBot:
                     self.scan_config['min_price'] = config.get('minPrice', 0)
                     self.scan_config['max_price'] = config.get('maxPrice', 10000)
                     self.scan_config['search_query'] = config.get('searchQuery', 'electric guitar')
-                    # print(f"⚙️ Config chargée : {self.scan_config}")
 
                 # 5. Force Refresh
                 if 'forceRefresh' in data:
@@ -543,322 +545,292 @@ class GuitarHunterBot:
                 time.sleep(1)
         except Exception as e:
             # Non bloquant, on continue
-            # print(f"   ⚠️ Pas de popup de connexion trouvé ou erreur (non bloquant): {e}")
             pass
+
+    def _setup_browser(self, p):
+        """Initialise le navigateur et le contexte Playwright."""
+        browser = p.chromium.launch(
+            headless=False,
+            args=["--start-minimized"] 
+        )
+        
+        # Coordonnées de Montréal pour forcer la géolocalisation
+        montreal_geo = {"latitude": 45.5017, "longitude": -73.5673}
+
+        context = browser.new_context(
+            viewport=None,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            locale="fr-CA",
+            timezone_id="America/Montreal",
+            geolocation=montreal_geo,
+            permissions=["geolocation"],
+            extra_http_headers={"Referer": "https://www.google.com/"}
+        )
+        return browser, context
+
+    def _apply_filters(self, page, distance, max_price):
+        """Applique les filtres de rayon et de prix sur la page de recherche."""
+        # --- APPLICATION DU RAYON VIA UI ---
+        try:
+            print(f"   📍 Tentative d'application du rayon de {distance} km via l'interface...")
+            time.sleep(2)
+            
+            loc_btn = page.locator("div[role='button']").filter(has_text="km").first
+            
+            if loc_btn.count() > 0 and loc_btn.is_visible():
+                loc_btn.click()
+                time.sleep(2)
+                
+                modal = page.locator("div[role='dialog']").first
+                if modal.count() > 0:
+                    radius_dropdown = modal.locator("div, span").filter(has_text="kilomètres").last
+                    if radius_dropdown.count() == 0:
+                        radius_dropdown = modal.locator("div, span").filter(has_text="km").last
+                    
+                    if radius_dropdown.count() > 0:
+                        radius_dropdown.click()
+                        try: page.wait_for_selector("div[role='option']", timeout=5000)
+                        except: pass
+
+                        available_options = page.locator("div[role='option']").all()
+                        best_option = None
+                        min_diff = float('inf')
+                        
+                        visible_options = [opt for opt in available_options if opt.is_visible()]
+                        
+                        for option in visible_options:
+                            text = option.inner_text()
+                            digits = ''.join(filter(str.isdigit, text))
+                            if digits:
+                                val = int(digits)
+                                diff = abs(val - distance)
+                                if diff < min_diff:
+                                    min_diff = diff
+                                    best_option = option
+                        
+                        if best_option:
+                            best_option.click()
+                            time.sleep(1)
+                    
+                    apply_btn = modal.locator("div[aria-label*='Appliquer'], div[aria-label*='Apply'], span:has-text('Appliquer'), span:has-text('Apply')").first
+                    if apply_btn.count() > 0:
+                        apply_btn.click()
+                        time.sleep(5)
+                        try: page.wait_for_load_state("networkidle", timeout=5000)
+                        except: pass
+                    else:
+                        page.keyboard.press("Escape")
+        except Exception as e:
+            print(f"   ⚠️ Erreur lors de l'application du rayon (UI) : {e}")
+
+        # --- FORÇAGE DE LA MISE À JOUR VIA LE PRIX ---
+        try:
+            print(f"   💰 Application du prix final ({max_price} $) pour forcer la mise à jour...")
+            max_price_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price']").first
+            
+            if max_price_input.is_visible(timeout=5000):
+                max_price_input.fill(str(max_price))
+                time.sleep(0.5)
+                max_price_input.press("Enter")
+                print("   ✅ Prix final appliqué. Attente du rechargement...")
+                page.wait_for_load_state("networkidle", timeout=10000)
+                time.sleep(3)
+        except Exception as e:
+            print(f"   ⚠️ Erreur lors de l'application du prix final : {e}")
+
+    def _extract_listing_details(self, context, clean_link, title, price, location):
+        """Ouvre une annonce et extrait les détails (images, description)."""
+        description = f"Annonce Marketplace. {title}. Localisation: {location}"
+        image_urls = []
+        
+        try:
+            print(f"   ➡️  Ouverture de l'annonce pour détails : {clean_link}")
+            detail_page = context.new_page()
+            detail_page.goto(clean_link, timeout=45000)
+            self._close_login_popup(detail_page)
+            
+            try: detail_page.wait_for_selector("div[role='main']", timeout=10000)
+            except: pass
+            time.sleep(2) 
+            
+            # --- RECUPERATION DES IMAGES ---
+            collected_urls = []
+            seen_srcs = set()
+            
+            for i in range(10): 
+                try:
+                    imgs = detail_page.locator("div[role='main'] img").all()
+                    found_new = False
+                    for img in imgs:
+                        if not img.is_visible(): continue
+                        box = img.bounding_box()
+                        if box and box['width'] > 300 and box['height'] > 300:
+                            src = img.get_attribute("src")
+                            if src and "scontent" in src and src not in seen_srcs:
+                                collected_urls.append(src)
+                                seen_srcs.add(src)
+                                found_new = True
+                except: pass
+                
+                if not found_new and len(collected_urls) > 0: break
+                if len(collected_urls) >= 10: break
+
+                try:
+                    detail_page.keyboard.press("ArrowRight")
+                    time.sleep(0.8) 
+                except: break
+            
+            image_urls = collected_urls
+            
+            # --- RECUPERATION DESCRIPTION ---
+            extracted_description = None
+            try:
+                og_desc = detail_page.locator('meta[property="og:description"]').get_attribute('content')
+                if og_desc and len(og_desc.strip()) > 10:
+                    extracted_description = og_desc.strip()
+                else:
+                    name_desc = detail_page.locator('meta[name="description"]').get_attribute('content')
+                    if name_desc and len(name_desc.strip()) > 10:
+                        extracted_description = name_desc.strip()
+
+                if not extracted_description:
+                    try:
+                        see_more = detail_page.locator('div[role="button"]:has-text("Voir plus"), div[role="button"]:has-text("See more")').first
+                        if see_more.is_visible(timeout=2000):
+                            see_more.click()
+                            time.sleep(0.5)
+
+                        details_heading = detail_page.locator('h2:has-text("Détails"), h2:has-text("Details")').first
+                        if details_heading.is_visible(timeout=1000):
+                            parent = details_heading.locator('xpath=..')
+                            all_texts = parent.locator('span[dir="auto"]').all_inner_texts()
+                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50]
+                            if long_texts: extracted_description = max(long_texts, key=len)
+
+                        if not extracted_description:
+                            all_texts = detail_page.locator('div[role="main"] span[dir="auto"]').all_inner_texts()
+                            excluded = {title, f"{price} $", location}
+                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50 and t not in excluded]
+                            if long_texts: extracted_description = max(long_texts, key=len)
+
+                    except: pass
+
+            except: pass
+
+            if extracted_description:
+                description = extracted_description
+            
+            description = description[:3000]
+            detail_page.close()
+            
+        except Exception as e:
+            print(f"   ❌ Erreur détails annonce : {e}")
+            if 'detail_page' in locals():
+                try: detail_page.close()
+                except: pass
+        
+        return description, image_urls
 
     def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", distance=60, min_price=0, max_price=10000, max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
         print(f"\n🌍 Lancement du scan Facebook pour '{search_query}' à {location} (Max: {max_ads}, Prix: {min_price}-{max_price}$)...")
         
-        # --- VALIDATION DE LA VILLE VIA FIRESTORE ---
+        # --- VALIDATION DE LA VILLE ---
         normalized_loc = location.lower().strip()
-        # Nettoyage des accents (ex: Montréal -> montreal)
         normalized_loc = unicodedata.normalize('NFD', normalized_loc).encode('ascii', 'ignore').decode("utf-8")
-        
         city_id = self.city_mapping.get(normalized_loc)
         
         if not city_id:
-            # Si c'est déjà un ID (chiffres), on laisse passer
-            if location.isdigit():
-                city_id = location
+            if location.isdigit(): city_id = location
             else:
                 error_msg = f"Ville '{location}' inconnue. Ajoutez-la dans l'onglet Configuration."
                 print(f"❌ {error_msg}")
-                
-                # Envoi de l'erreur à l'UI via Firestore
                 if not offline_mode:
-                    try:
-                        self.user_ref.update({'scanStatus': 'error', 'scanError': error_msg})
-                    except Exception as e:
-                        print(f"⚠️ Impossible d'envoyer l'erreur à l'UI : {e}")
-                return # On arrête le scan ici
+                    try: self.user_ref.update({'scanStatus': 'error', 'scanError': error_msg})
+                    except: pass
+                return
         
-        # Si on a trouvé la ville, on efface les erreurs précédentes
         if not offline_mode:
-            try:
-                self.user_ref.update({'scanStatus': 'running', 'scanError': firestore.DELETE_FIELD})
-            except:
-                pass
+            try: self.user_ref.update({'scanStatus': 'running', 'scanError': firestore.DELETE_FIELD})
+            except: pass
 
         print(f"   📍 Ville identifiée : ID {city_id}")
 
         with sync_playwright() as p:
-
-            # --- MODIFICATION : Démarrage minimisé ---
-            # args=["--start-minimized"] demande à Chrome de démarrer réduit dans la barre des tâches
-            browser = p.chromium.launch(
-                headless=False,
-                args=["--start-minimized"] 
-            )
-            
-            # Coordonnées de Montréal pour forcer la géolocalisation
-            # Cela aide Facebook à centrer la carte au bon endroit
-            montreal_geo = {"latitude": 45.5017, "longitude": -73.5673}
-
-            # Configuration du contexte
-            # viewport=None est CRUCIAL pour que --start-minimized fonctionne (sinon Playwright redimensionne la fenêtre)
-            context = browser.new_context(
-                viewport=None,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                locale="fr-CA",
-                timezone_id="America/Montreal",
-                geolocation=montreal_geo,
-                permissions=["geolocation"],
-                extra_http_headers={"Referer": "https://www.google.com/"} # Ajoute ceci pour éviter d'être flaggé
-            )
-            
+            browser, context = self._setup_browser(p)
             page = context.new_page()
             
-            # Encodage de la requête de recherche pour l'URL
             encoded_query = urllib.parse.quote(search_query)
-            
-            # URL de recherche Marketplace avec l'ID de ville et un prix max temporaire
-            # pour forcer la mise à jour plus tard.
             temp_max_price = max_price - 1 if max_price > min_price and max_price > 0 else max_price
             url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={temp_max_price}&query={encoded_query}&exact=false"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
-                print(f"   🔗 URL générée : {url}")
                 page.goto(url, timeout=60000)
                 
-                # --- ZOOM 50% (Demande utilisateur pour visibilité bouton) ---
-                try:
-                    print("   🔍 Application du zoom 50%...")
-                    page.evaluate("document.body.style.zoom = '0.5'")
-                except Exception as e:
-                    print(f"   ⚠️ Impossible d'appliquer le zoom : {e}")
+                try: page.evaluate("document.body.style.zoom = '0.5'")
+                except: pass
                 
-                # Gestion des popups cookies (Europe/Canada)
-                try:
-                    # Sélecteurs génériques pour les boutons de cookies
-                    page.get_by_role("button", name="Allow all cookies").click(timeout=3000)
-                    print("   🍪 Cookies acceptés.")
-                except:
-                    pass
-                
-                try:
-                    page.get_by_role("button", name="Decline optional cookies").click(timeout=3000)
-                    print("   🍪 Cookies optionnels refusés.")
-                except:
-                    pass
+                # Cookies
+                try: page.get_by_role("button", name="Allow all cookies").click(timeout=3000)
+                except: pass
+                try: page.get_by_role("button", name="Decline optional cookies").click(timeout=3000)
+                except: pass
 
-                # --- GESTION DU POPUP DE CONNEXION ---
                 self._close_login_popup(page)
+                self._apply_filters(page, distance, max_price)
 
-
-                # --- APPLICATION DU RAYON VIA UI (METHODE ROBUSTE) ---
-                try:
-                    print(f"   📍 Tentative d'application du rayon de {distance} km via l'interface...")
-                    
-                    # 1. Trouver le bouton de localisation (contient souvent "km" ou le nom de la ville)
-                    # On attend que l'interface soit chargée
-                    time.sleep(2)
-                    
-                    # Sélecteur large pour le bouton de localisation dans la sidebar
-                    loc_btn = page.locator("div[role='button']").filter(has_text="km").first
-                    
-                    if loc_btn.count() > 0 and loc_btn.is_visible():
-                        loc_btn.click()
-                        time.sleep(2) # Attente ouverture modale
-                        
-                        # 2. Trouver la modale et le menu déroulant du rayon
-                        # On cible la modale active
-                        modal = page.locator("div[role='dialog']").first
-                        if modal.count() > 0:
-                            print("   ✅ Modale de localisation ouverte.")
-                            
-                            # Chercher le dropdown de rayon à l'intérieur de la modale
-                            # MISE A JOUR : Ciblage spécifique basé sur le snippet fourni par l'utilisateur
-                            # On cherche un élément contenant "kilomètres" ou "km"
-                            radius_dropdown = modal.locator("div, span").filter(has_text="kilomètres").last
-                            
-                            if radius_dropdown.count() == 0:
-                                # Fallback sur "km" si "kilomètres" n'est pas trouvé
-                                radius_dropdown = modal.locator("div, span").filter(has_text="km").last
-                            
-                            if radius_dropdown.count() > 0:
-                                print("   ✅ Menu déroulant de rayon trouvé.")
-                                radius_dropdown.click()
-                                
-                                # 3. Sélectionner l'option la plus proche
-                                # On attend que les options apparaissent (souvent dans un portal global)
-                                try:
-                                    page.wait_for_selector("div[role='option']", timeout=5000)
-                                except:
-                                    print("   ⚠️ Timeout attente options.")
-
-                                # On cherche les options globalement (au cas où ce serait un portal)
-                                # On filtre pour ne garder que celles qui sont visibles
-                                available_options = page.locator("div[role='option']").all()
-                                
-                                best_option = None
-                                min_diff = float('inf')
-                                best_text = ""
-                                
-                                # Filtrage manuel des options visibles
-                                visible_options = []
-                                for opt in available_options:
-                                    if opt.is_visible():
-                                        visible_options.append(opt)
-                                
-                                print(f"   ℹ️ Analyse des {len(visible_options)} distances disponibles...")
-                                
-                                for option in visible_options:
-                                    text = option.inner_text()
-                                    # Extraction des chiffres uniquement
-                                    digits = ''.join(filter(str.isdigit, text))
-                                    
-                                    if digits:
-                                        val = int(digits)
-                                        diff = abs(val - distance)
-                                        
-                                        # On cherche la différence minimale
-                                        if diff < min_diff:
-                                            min_diff = diff
-                                            best_option = option
-                                            best_text = text
-                                
-                                if best_option:
-                                    print(f"   ✅ Distance la plus proche trouvée : '{best_text}' (Delta: {min_diff} km)")
-                                    best_option.click()
-                                    time.sleep(1)
-                                else:
-                                    print(f"   ⚠️ Impossible de trouver une distance proche. Aucune option numérique détectée.")
-                                    
-                            else:
-                                print("   ⚠️ Menu déroulant de rayon NON trouvé dans la modale.")
-                            
-                            # 4. Cliquer sur Appliquer dans la modale
-                            # Sélecteurs élargis pour le bouton Appliquer
-                            apply_btn = modal.locator("div[aria-label*='Appliquer'], div[aria-label*='Apply'], span:has-text('Appliquer'), span:has-text('Apply')").first
-                            
-                            if apply_btn.count() > 0:
-                                print("   ✅ Bouton 'Appliquer' trouvé, clic...")
-                                apply_btn.click()
-                                
-                                # Attente critique pour le rechargement des résultats
-                                time.sleep(5)
-                                try:
-                                    page.wait_for_load_state("networkidle", timeout=5000)
-                                except:
-                                    pass
-                            else:
-                                print("   ⚠️ Bouton 'Appliquer' introuvable.")
-                                page.keyboard.press("Escape")
-                                    
-                        else:
-                             print("   ⚠️ Modale de localisation non détectée.")
-                    else:
-                        print("   ⚠️ Bouton de localisation introuvable dans l'interface.")
-
-                except Exception as e:
-                    print(f"   ⚠️ Erreur lors de l'application du rayon (UI) : {e}")
-                    # On continue quand même, peut-être que l'URL par défaut suffit
-
-                # --- FORÇAGE DE LA MISE À JOUR VIA LE PRIX ---
-                try:
-                    print(f"   💰 Application du prix final ({max_price} $) pour forcer la mise à jour...")
-                    
-                    # Sélecteur pour le champ de prix maximum.
-                    max_price_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price']").first
-                    
-                    if max_price_input.is_visible(timeout=5000):
-                        max_price_input.fill(str(max_price))
-                        time.sleep(0.5)
-                        max_price_input.press("Enter") # Valider le changement
-                        
-                        print("   ✅ Prix final appliqué. Attente du rechargement...")
-                        page.wait_for_load_state("networkidle", timeout=10000)
-                        time.sleep(3) # Sécurité supplémentaire
-                    else:
-                        print("   ⚠️ Champ de prix maximum introuvable pour le forçage.")
-
-                except Exception as e:
-                    print(f"   ⚠️ Erreur lors de l'application du prix final : {e}")
-
-                # Attente du chargement de la grille de résultats
-                # On attend un élément qui ressemble à une annonce ou le conteneur principal
-                try:
-                    page.wait_for_selector("div[role='main']", timeout=15000)
-                except:
-                    print("⚠️ Timeout en attendant le contenu principal. La page a peut-être changé.")
-
-                # Scroll progressif pour charger plus d'annonces (lazy loading)
-                print("   📜 Défilement pour charger les annonces...")
+                # Scroll
+                try: page.wait_for_selector("div[role='main']", timeout=15000)
+                except: pass
+                print("   📜 Défilement...")
                 for _ in range(3):
                     page.mouse.wheel(0, 1000)
                     time.sleep(2)
 
-                # Extraction des liens d'annonces
-                # Les annonces Marketplace ont généralement des liens contenant '/marketplace/item/'
+                # Extraction
                 print("   🔍 Recherche des éléments d'annonce...")
                 listings_locators = page.locator("a[href*='/marketplace/item/']").all()
-                
-                print(f"   👀 {len(listings_locators)} éléments trouvés (certains peuvent être des doublons).")
+                print(f"   👀 {len(listings_locators)} éléments trouvés.")
                 
                 processed_count = 0
                 seen_urls = set()
 
                 for link_loc in listings_locators:
-                    if processed_count >= max_ads: 
-                        print(f"   🛑 Limite de {max_ads} annonces atteinte.")
-                        break
+                    if processed_count >= max_ads: break
                         
                     href = link_loc.get_attribute("href")
-                    if not href:
-                        continue
-                        
-                    # Nettoyage de l'URL (parfois relative)
-                    if href.startswith("/"):
-                        full_link = f"https://www.facebook.com{href}"
-                    else:
-                        full_link = href
-                        
-                    # On retire les paramètres de tracking FB pour l'unicité
+                    if not href: continue
+                    full_link = f"https://www.facebook.com{href}" if href.startswith("/") else href
                     clean_link = full_link.split('?')[0]
                     
-                    if clean_link in seen_urls:
-                        continue
+                    if clean_link in seen_urls: continue
                     seen_urls.add(clean_link)
 
-                    # --- Extraction des ID Facebook ---
                     fb_id = self.extract_facebook_id(clean_link)
-                    if not fb_id:
-                        continue
+                    if not fb_id: continue
 
-                    # --- Extraction des données brutes ---
+                    # Extraction basique
                     text_content = link_loc.inner_text()
                     lines = [line.strip() for line in text_content.split('\n') if line.strip()]
                     
-                    # Extraction de l'image (miniature)
                     img_loc = link_loc.locator("img").first
                     image_url = "https://via.placeholder.com/400?text=No+Image"
-                    
-                    # --- MODIFICATION : Extraction du titre via l'attribut ALT de l'image ---
-                    # C'est beaucoup plus fiable que de deviner dans le texte
                     title = ""
+                    
                     if img_loc.count() > 0:
                         src = img_loc.get_attribute("src")
-                        if src:
-                            image_url = src
-                        
-                        # Le titre complet est souvent dans le alt de l'image
+                        if src: image_url = src
                         alt_text = img_loc.get_attribute("alt")
-                        if alt_text and len(alt_text) > 3:
-                            title = alt_text
+                        if alt_text and len(alt_text) > 3: title = alt_text
 
-                    # Fallback si pas de alt text (rare)
                     if not title:
-                        # On essaie de trouver une ligne qui n'est PAS un prix
                         for line in lines:
                             if not any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']) and len(line) > 3:
                                 title = line
                                 break
-                        if not title:
-                            title = "Titre Inconnu"
+                        if not title: title = "Titre Inconnu"
 
-                    # Extraction du prix
                     price = 0
                     found_price = False
                     for line in lines:
@@ -871,170 +843,26 @@ class GuitarHunterBot:
                                 price = 0
                                 found_price = True
 
-                    # On ignore les annonces sans prix détecté
                     if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
                         print(f"   ✨ Annonce trouvée : {title} ({price} $)")
                         
-                        # --- VERIFICATION INTELLIGENTE (ID + PRIX + REJECTED) ---
+                        # Vérification doublon
                         if not offline_mode:
                             try:
-                                doc_ref = self.collection_ref.document(fb_id)
-                                doc_snap = doc_ref.get()
-                                
+                                doc_snap = self.collection_ref.document(fb_id).get()
                                 if doc_snap.exists:
-                                    existing_data = doc_snap.to_dict()
-                                    
-                                    # Check if already rejected
-                                    if existing_data.get('status') == 'rejected':
+                                    existing = doc_snap.to_dict()
+                                    if existing.get('status') == 'rejected':
                                         print(f"   🚫 Annonce déjà rejetée. On passe.")
                                         continue
-
-                                    old_price = existing_data.get('price')
-                                    
-                                    if old_price == price:
-                                        print(f"   ⏭️ Annonce existante et prix inchangé ({price} $). On passe.")
+                                    if existing.get('price') == price:
+                                        print(f"   ⏭️ Annonce existante et prix inchangé. On passe.")
                                         continue
-                                    else:
-                                        print(f"   🔄 Le prix a changé ! (Ancien: {old_price} $ -> Nouveau: {price} $). Mise à jour...")
-                            except Exception as e:
-                                print(f"   ⚠️ Erreur vérification doublon (Firestore): {e}")
+                                    print(f"   🔄 Le prix a changé ! Mise à jour...")
+                            except: pass
                         
-                        # --- Scraping détaillé de la page ---
-                        description = f"Annonce Marketplace. {title}. Localisation: {location}" # Default description
-                        image_urls = [] # Reset pour ne pas mélanger avec la page précédente
-                        
-                        try:
-                            print(f"   ➡️  Ouverture de l'annonce pour détails : {clean_link}")
-                            detail_page = context.new_page()
-                            detail_page.goto(clean_link, timeout=45000)
-                            
-                            # --- GESTION POPUP DANS L'ONGLET ---
-                            self._close_login_popup(detail_page)
-                            
-                            # Attente du chargement
-                            try:
-                                detail_page.wait_for_selector("div[role='main']", timeout=10000)
-                            except:
-                                pass
-                            time.sleep(2) 
-                            
-                            # --- RECUPERATION DES IMAGES (Mode Galerie) ---
-                            collected_urls = []
-                            seen_srcs = set() # Pour dédoublonnage rapide
-                            
-                            # On tente de faire défiler jusqu'à 10 images
-                            for i in range(10): 
-                                # Capturer toutes les images principales visibles à ce moment
-                                try:
-                                    imgs = detail_page.locator("div[role='main'] img").all()
-                                    found_new_image_in_this_step = False
-                                    for img in imgs:
-                                        if not img.is_visible(): continue
-                                        
-                                        box = img.bounding_box()
-                                        # Filtre taille : on veut la grande image (souvent > 300px)
-                                        if box and box['width'] > 300 and box['height'] > 300:
-                                            src = img.get_attribute("src")
-                                            if src and "scontent" in src and src not in seen_srcs:
-                                                print(f"       -> Image URL capturée: ...{src[-20:]}")
-                                                collected_urls.append(src)
-                                                seen_srcs.add(src)
-                                                found_new_image_in_this_step = True
-                                                # Pas de break ici, on collecte toutes les grandes images visibles à la fois
-                                except Exception as e:
-                                    pass
-                                
-                                # Si aucune nouvelle image n'a été trouvée à cette étape, et qu'on en a déjà,
-                                # cela peut signifier la fin de la galerie ou un chargement lent.
-                                if not found_new_image_in_this_step and len(collected_urls) > 0:
-                                    print("       -> Aucune nouvelle image large trouvée, fin de la galerie ou chargement lent.")
-                                    break # Sortir de la boucle si aucune nouvelle image n'apparaît
-
-                                # Limite de sécurité
-                                if len(collected_urls) >= 10:
-                                    print("       -> Limite de 10 images atteinte.")
-                                    break
-
-                                # Cliquer sur "Suivant" ou Flèche Droite
-                                try:
-                                    detail_page.keyboard.press("ArrowRight")
-                                    time.sleep(0.8) 
-                                except:
-                                    print("       -> Erreur en appuyant sur la flèche droite ou fin de la galerie.")
-                                    break # Sortir de la boucle si l'appui sur la flèche échoue
-                            
-                            image_urls = collected_urls
-                            print(f"   📸 {len(image_urls)} images récupérées au total pour cette annonce.")
-                            
-                            # --- RECUPERATION DESCRIPTION (AMÉLIORÉE ET FIABILISÉE) ---
-                            extracted_description = None
-                            try:
-                                # Tenter d'extraire de la balise meta og:description
-                                og_description_meta = detail_page.locator('meta[property="og:description"]').get_attribute('content')
-                                if og_description_meta and len(og_description_meta.strip()) > 10:
-                                    extracted_description = og_description_meta.strip()
-                                    print(f"   📝 Description extraite de og:description (longueur: {len(extracted_description)}).")
-                                else:
-                                    # Tenter d'extraire de la balise meta name="description"
-                                    name_description_meta = detail_page.locator('meta[name="description"]').get_attribute('content')
-                                    if name_description_meta and len(name_description_meta.strip()) > 10:
-                                        extracted_description = name_description_meta.strip()
-                                        print(f"   📝 Description extraite de meta name='description' (longueur: {len(extracted_description)}).")
-
-                                if not extracted_description:
-                                    # Fallback à la méthode précédente si les meta tags ne donnent rien
-                                    try:
-                                        # Clic sur "Voir plus" pour déplier la description
-                                        see_more_button = detail_page.locator('div[role="button"]:has-text("Voir plus"), div[role="button"]:has-text("See more")').first
-                                        if see_more_button.is_visible(timeout=2000):
-                                            see_more_button.click()
-                                            time.sleep(0.5)
-
-                                        # Stratégie 1: Chercher la section "Détails"
-                                        details_heading = detail_page.locator('h2:has-text("Détails"), h2:has-text("Details")').first
-                                        if details_heading.is_visible(timeout=1000):
-                                            parent_container = details_heading.locator('xpath=..')
-                                            all_texts = parent_container.locator('span[dir="auto"]').all_inner_texts()
-                                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50]
-                                            if long_texts:
-                                                extracted_description = max(long_texts, key=len)
-                                                print(f"   📝 Description extraite via section 'Détails' (longueur: {len(extracted_description)}).")
-
-                                        # Stratégie 2 (Fallback): Recherche globale dans 'main' si toujours rien
-                                        if not extracted_description:
-                                            print("   ⚠️ Section 'Détails' non trouvée ou vide, utilisation du fallback.")
-                                            all_texts = detail_page.locator('div[role="main"] span[dir="auto"]').all_inner_texts()
-                                            # Exclure le titre et le prix pour éviter les faux positifs
-                                            excluded_texts = {title, f"{price} $", location}
-                                            long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50 and t not in excluded_texts]
-                                            if long_texts:
-                                                extracted_description = max(long_texts, key=len)
-                                                print(f"   📝 Description extraite via fallback (longueur: {len(extracted_description)}).")
-
-                                    except Exception as fallback_e:
-                                        print(f"   ⚠️ Erreur lors de l'extraction de la description via fallback: {fallback_e}")
-                                        # La description par défaut sera utilisée
-
-                            except Exception as meta_e:
-                                print(f"   ⚠️ Erreur lors de l'extraction de la description via meta tags: {meta_e}")
-                                # Continuer avec la logique de fallback si les meta tags échouent
-
-                            if extracted_description:
-                                description = extracted_description
-                            else:
-                                print("   ⚠️ Aucune description détaillée trouvée, utilisation de la description par défaut.")
-                            
-                            description = description[:3000] # Toujours tronquer pour la sécurité
-
-                            detail_page.close()
-                        except Exception as e:
-                            print(f"   ❌ Erreur lors de la récupération des détails de l'annonce : {e}")
-                            if 'detail_page' in locals():
-                                try: detail_page.close()
-                                except: pass
-
-                        # Si aucune image trouvée dans l'annonce, on met une liste vide (ou placeholder générique), 
-                        # mais PAS l'image de la recherche (image_url) comme demandé.
+                        # Extraction détaillée
+                        description, image_urls = self._extract_listing_details(context, clean_link, title, price, location)
                         final_image_url = image_urls[0] if image_urls else image_url
 
                         listing_data = {
@@ -1048,12 +876,8 @@ class GuitarHunterBot:
                             "searchDistance": distance
                         }
                         
-                        # Analyse IA
                         analysis = self.analyze_deal_with_gemini(listing_data)
-                        
-                        # Sauvegarde avec l'ID Facebook
                         self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
-                        
                         processed_count += 1
                         
             except Exception as e:

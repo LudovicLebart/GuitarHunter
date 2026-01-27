@@ -135,6 +135,111 @@ const ImageGallery = ({ images, title }) => {
   );
 };
 
+// --- NOUVEAU COMPOSANT EXTRAIT ---
+const DealCard = React.memo(({ deal, filterType, onRetry, onReject }) => {
+  return (
+    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
+      {/* Image Section */}
+      <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
+        <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
+        <div className="absolute top-4 left-4 z-10">
+          <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
+        </div>
+        {/* Overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+      </div>
+
+      {/* Content Section */}
+      <div className="flex-1 p-6 md:p-8 flex flex-col">
+        <div className="flex justify-between items-start gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1">
+              <MapPin size={10} /> {deal.location || 'Québec'}
+            </div>
+            <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
+          </div>
+          <div className="text-right flex flex-col items-end">
+            <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl">
+              <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
+              <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
+            </div>
+            {deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (
+              <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
+                <TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* AI Insights */}
+        <div className="relative mb-6">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-100 rounded-full" />
+          <div className="pl-5 py-1">
+            <div className="flex items-center gap-1.5 text-blue-600 mb-2">
+              <Sparkles size={14} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
+            </div>
+            <p className="text-slate-600 text-sm font-medium italic leading-relaxed">
+              "{deal.aiAnalysis?.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
+            </p>
+          </div>
+        </div>
+
+        {/* Meta & Action */}
+        <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold">
+              <Clock size={14} />
+              <span className="uppercase tracking-widest">
+                {deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}
+              </span>
+            </div>
+            {deal.aiAnalysis?.confidence && (
+              <div className="flex items-center gap-2">
+                <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence}%`}} />
+                </div>
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {deal.aiAnalysis.confidence}%</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Bouton Relancer Analyse (Visible si erreur ou status retry) */}
+            {(filterType === 'ERROR' || deal.status === 'retry_analysis') && (
+                <button
+                    onClick={() => onRetry(deal.id)}
+                    disabled={deal.status === 'retry_analysis'}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-600'}`}
+                >
+                    <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
+                    {deal.status === 'retry_analysis' ? 'En cours...' : 'Relancer'}
+                </button>
+            )}
+
+            {deal.status !== 'rejected' && (
+              <button
+                onClick={() => onReject(deal.id)}
+                className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+              >
+                <Ban size={14} />
+              </button>
+            )}
+            <a
+              href={deal.link}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+            >
+              Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const App = () => {
   const [user, setUser] = useState(null);
   const [deals, setDeals] = useState([]);
@@ -258,20 +363,20 @@ const App = () => {
     } catch (e) { setError("Erreur de sauvegarde"); }
   }, []);
 
-  const handleManualRefresh = async () => {
+  const handleManualRefresh = useCallback(async () => {
     setIsRefreshing(true);
     // On efface l'ancienne erreur avant de relancer
     await saveConfig({ forceRefresh: Date.now(), scanError: deleteField() });
     setTimeout(() => setIsRefreshing(false), 5000);
-  };
+  }, [saveConfig]);
 
-  const handleManualCleanup = async () => {
+  const handleManualCleanup = useCallback(async () => {
     setIsCleaning(true);
     await saveConfig({ forceCleanup: Date.now() });
     setTimeout(() => setIsCleaning(false), 5000);
-  };
+  }, [saveConfig]);
 
-  const handleResetDefaults = async () => {
+  const handleResetDefaults = useCallback(async () => {
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       setPrompt(DEFAULT_PROMPT);
       setVerdictRules(DEFAULT_VERDICT_RULES);
@@ -282,9 +387,9 @@ const App = () => {
         reasoningInstruction: DEFAULT_REASONING_INSTRUCTION
       });
     }
-  };
+  }, [saveConfig]);
 
-  const handleAddCity = async () => {
+  const handleAddCity = useCallback(async () => {
     if (!newCityName || !newCityId) return;
     try {
       const citiesRef = collection(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'cities');
@@ -298,17 +403,17 @@ const App = () => {
     } catch (e) {
       setError("Erreur ajout ville: " + e.message);
     }
-  };
+  }, [newCityName, newCityId]);
 
-  const handleDeleteCity = async (docId) => {
+  const handleDeleteCity = useCallback(async (docId) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'cities', docId));
     } catch (e) {
       setError("Erreur suppression ville");
     }
-  };
+  }, []);
 
-  const handleRejectDeal = async (dealId) => {
+  const handleRejectDeal = useCallback(async (dealId) => {
     try {
       const dealDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals', dealId);
       await updateDoc(dealDocRef, {
@@ -318,9 +423,9 @@ const App = () => {
     } catch (e) {
       setError("Erreur lors du rejet de l'annonce.");
     }
-  };
+  }, []);
 
-  const handleRetryAnalysis = async (dealId) => {
+  const handleRetryAnalysis = useCallback(async (dealId) => {
     try {
       const dealDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals', dealId);
       await updateDoc(dealDocRef, {
@@ -331,7 +436,7 @@ const App = () => {
     } catch (e) {
       setError("Erreur lors de la demande de ré-analyse.");
     }
-  };
+  }, []);
 
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
@@ -646,105 +751,13 @@ const App = () => {
               </div>
             ) : (
               filteredDeals.map((deal) => (
-                <div key={deal.id} className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
-                  {/* Image Section */}
-                  <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
-                    <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
-                    <div className="absolute top-4 left-4 z-10">
-                      <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
-                    </div>
-                    {/* Overlay gradient */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
-                  </div>
-
-                  {/* Content Section */}
-                  <div className="flex-1 p-6 md:p-8 flex flex-col">
-                    <div className="flex justify-between items-start gap-4 mb-4">
-                      <div>
-                        <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1">
-                          <MapPin size={10} /> {deal.location || 'Québec'}
-                        </div>
-                        <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
-                      </div>
-                      <div className="text-right flex flex-col items-end">
-                        <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl">
-                          <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
-                          <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
-                        </div>
-                        {deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (
-                          <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg">
-                            <TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* AI Insights */}
-                    <div className="relative mb-6">
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-100 rounded-full" />
-                      <div className="pl-5 py-1">
-                        <div className="flex items-center gap-1.5 text-blue-600 mb-2">
-                          <Sparkles size={14} />
-                          <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
-                        </div>
-                        <p className="text-slate-600 text-sm font-medium italic leading-relaxed">
-                          "{deal.aiAnalysis?.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Meta & Action */}
-                    <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-6">
-                        <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold">
-                          <Clock size={14} />
-                          <span className="uppercase tracking-widest">
-                            {deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}
-                          </span>
-                        </div>
-                        {deal.aiAnalysis?.confidence && (
-                          <div className="flex items-center gap-2">
-                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence}%`}} />
-                            </div>
-                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {deal.aiAnalysis.confidence}%</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* Bouton Relancer Analyse (Visible si erreur ou status retry) */}
-                        {(filterType === 'ERROR' || deal.status === 'retry_analysis') && (
-                            <button
-                                onClick={() => handleRetryAnalysis(deal.id)}
-                                disabled={deal.status === 'retry_analysis'}
-                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-600'}`}
-                            >
-                                <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
-                                {deal.status === 'retry_analysis' ? 'En cours...' : 'Relancer'}
-                            </button>
-                        )}
-
-                        {deal.status !== 'rejected' && (
-                          <button
-                            onClick={() => handleRejectDeal(deal.id)}
-                            className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
-                          >
-                            <Ban size={14} />
-                          </button>
-                        )}
-                        <a
-                          href={deal.link}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
-                        >
-                          Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <DealCard
+                  key={deal.id}
+                  deal={deal}
+                  filterType={filterType}
+                  onRetry={handleRetryAnalysis}
+                  onReject={handleRejectDeal}
+                />
               ))
             )}
           </div>
