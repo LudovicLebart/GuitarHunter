@@ -3,7 +3,7 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -34,6 +34,14 @@ const db = getFirestore(app);
 const PYTHON_APP_ID = "c_5d118e719dbddbfc_index.html-217";
 const PYTHON_USER_ID = "00737242777130596039";
 const appId = PYTHON_APP_ID;
+
+// --- VALEURS PAR DÉFAUT ---
+const DEFAULT_PROMPT = "Evalue cette guitare Au quebec (avec le prix).";
+const DEFAULT_VERDICT_RULES = `- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
+- "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
+- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
+- "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.).`;
+const DEFAULT_REASONING_INSTRUCTION = "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur";
 
 // --- COMPOSANTS UTILITAIRES ---
 const VerdictBadge = ({ verdict }) => {
@@ -141,9 +149,9 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Config States
-  const [prompt, setPrompt] = useState("Evalue cette guitare Au quebec (avec le prix).");
-  const [verdictRules, setVerdictRules] = useState("");
-  const [reasoningInstruction, setReasoningInstruction] = useState("");
+  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [verdictRules, setVerdictRules] = useState(DEFAULT_VERDICT_RULES);
+  const [reasoningInstruction, setReasoningInstruction] = useState(DEFAULT_REASONING_INSTRUCTION);
   const [scanConfig, setScanConfig] = useState({
       maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000, searchQuery: "electric guitar"
   });
@@ -262,6 +270,19 @@ const App = () => {
     setTimeout(() => setIsCleaning(false), 5000);
   };
 
+  const handleResetDefaults = async () => {
+    if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
+      setPrompt(DEFAULT_PROMPT);
+      setVerdictRules(DEFAULT_VERDICT_RULES);
+      setReasoningInstruction(DEFAULT_REASONING_INSTRUCTION);
+      await saveConfig({
+        prompt: DEFAULT_PROMPT,
+        verdictRules: DEFAULT_VERDICT_RULES,
+        reasoningInstruction: DEFAULT_REASONING_INSTRUCTION
+      });
+    }
+  };
+
   const handleAddCity = async () => {
     if (!newCityName || !newCityId) return;
     try {
@@ -298,11 +319,32 @@ const App = () => {
     }
   };
 
+  const handleRetryAnalysis = async (dealId) => {
+    try {
+      const dealDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals', dealId);
+      await updateDoc(dealDocRef, {
+        status: 'retry_analysis',
+        'aiAnalysis.verdict': 'DEFAULT',
+        'aiAnalysis.reasoning': 'Analyse relancée...'
+      });
+    } catch (e) {
+      setError("Erreur lors de la demande de ré-analyse.");
+    }
+  };
+
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const status = deal.status;
+      const reasoning = deal.aiAnalysis?.reasoning || "";
+
+      // Détection des erreurs : verdict manquant ou texte par défaut persistant
+      const isError = !verdict || verdict === 'DEFAULT' || reasoning.includes("Analyse de l'état et de la valeur en cours");
+
+      if (filterType === 'ERROR') {
+        return isError && status !== 'rejected';
+      }
 
       if (filterType === 'REJECTED') {
         return status === 'rejected';
@@ -487,9 +529,18 @@ const App = () => {
 
               {/* SECTION 3: AI BOT CONFIG */}
               <div className="space-y-3 pt-4 border-t border-slate-100">
-                <div className="flex items-center gap-2 text-purple-600 mb-2">
-                  <Sparkles size={14} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Intelligence Artificielle</span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-purple-600">
+                    <Sparkles size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Intelligence Artificielle</span>
+                  </div>
+                  <button 
+                    onClick={handleResetDefaults}
+                    className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors"
+                    title="Réinitialiser aux valeurs par défaut"
+                  >
+                    <RotateCcw size={10} /> Reset
+                  </button>
                 </div>
 
                 <div>
@@ -543,13 +594,13 @@ const App = () => {
               />
             </div>
             <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED'].map((type) => (
+              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
                   className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                 >
-                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : 'Rejetées'}
+                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
                 </button>
               ))}
             </div>
@@ -639,6 +690,18 @@ const App = () => {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {/* Bouton Relancer Analyse (Visible si erreur ou status retry) */}
+                        {(filterType === 'ERROR' || deal.status === 'retry_analysis') && (
+                            <button
+                                onClick={() => handleRetryAnalysis(deal.id)}
+                                disabled={deal.status === 'retry_analysis'}
+                                className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-600'}`}
+                            >
+                                <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
+                                {deal.status === 'retry_analysis' ? 'En cours...' : 'Relancer'}
+                            </button>
+                        )}
+
                         {deal.status !== 'rejected' && (
                           <button
                             onClick={() => handleRejectDeal(deal.id)}

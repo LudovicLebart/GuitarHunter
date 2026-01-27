@@ -37,11 +37,29 @@ APP_ID_TARGET = "c_5d118e719dbddbfc_index.html-217"  # À remplacer par l'App ID
 USER_ID_TARGET = "00737242777130596039"           # À remplacer par le User ID affiché dans React
 # ==================================================================================
 
+# --- NOUVELLES INSTRUCTIONS SYSTÈME ---
+SYSTEM_PROMPT = """Tu es un expert en évaluation de guitares pour le marché du Québec.
+Ta mission est d'analyser des annonces et de déterminer si elles sont authentiques et rentables.
+
+RÈGLES DE VALIDATION :
+1. REJET (REJECTED) : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
+2. PRIX FICTIF : Si le prix est 0$, 1$ ou 1234$, ignore ce chiffre. Analyse la description pour trouver le prix réel ou une demande d'échange (ex: contre une voiture).
+3. RAISONNEMENT : Tu dois toujours expliquer ton calcul (Valeur marchande - Prix demandé = Profit potentiel).
+
+Tu dois répondre EXCLUSIVEMENT en format JSON."""
+
 # Initialisation Gemini
 model = None
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel(
+        model_name='gemini-2.0-flash',
+        system_instruction=SYSTEM_PROMPT,
+        generation_config={
+            "response_mime_type": "application/json", # Force le format JSON
+            "temperature": 0.4 # Réduit la créativité pour plus de rigueur
+        }
+    )
 else:
     print("⚠️ ATTENTION: Pas de clé API Gemini trouvée dans le fichier .env")
 
@@ -344,29 +362,21 @@ class GuitarHunterBot:
             if img:
                 images.append(img)
         
-        prompt_text = f"""
-        {self.prompt_instruction}
+        # Le prompt devient une simple fiche technique
+        user_message = f"""
+        Évalue cette annonce :
+        Titre : {listing_data['title']}
+        Prix affiché : {listing_data['price']}$
+        Description : {listing_data['description']}
+        Localisation : {listing_data['location']}
         
-        Détails de l'annonce :
-        Titre: {listing_data['title']}
-        Prix: {listing_data['price']} $
-        Description: {listing_data['description']}
-
-        Règles strictes pour le verdict :
+        Règles de verdict à appliquer :
         {self.verdict_rules}
-
-        Réponds en JSON uniquement avec cette structure :
-        {{
-          "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
-          "estimated_value": number,
-          "reasoning": "{self.reasoning_instruction}",
-          "confidence": number (0-100)
-        }}
         """
 
         try:
             # Construction du contenu multimodal
-            content = [prompt_text]
+            content = [user_message]
             content.extend(images)
             
             if images:
@@ -375,8 +385,8 @@ class GuitarHunterBot:
                 print("   ⚠️ Analyse texte uniquement (pas d'image valide).")
 
             response = model.generate_content(content)
-            clean_text = response.text.replace('```json', '').replace('```', '').strip()
-            return json.loads(clean_text)
+            # Pas besoin de nettoyer le markdown, response_mime_type est JSON
+            return json.loads(response.text)
         except Exception as e:
             error_str = str(e)
             if "403" in error_str and "leaked" in error_str:
@@ -572,7 +582,8 @@ class GuitarHunterBot:
                 locale="fr-CA",
                 timezone_id="America/Montreal",
                 geolocation=montreal_geo,
-                permissions=["geolocation"]
+                permissions=["geolocation"],
+                extra_http_headers={"Referer": "https://www.google.com/"} # Ajoute ceci pour éviter d'être flaggé
             )
             
             page = context.new_page()
@@ -580,9 +591,10 @@ class GuitarHunterBot:
             # Encodage de la requête de recherche pour l'URL
             encoded_query = urllib.parse.quote(search_query)
             
-            # URL de recherche Marketplace avec l'ID de ville
-            # On retire les paramètres de rayon de l'URL pour laisser l'UI gérer
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={encoded_query}&exact=false"
+            # URL de recherche Marketplace avec l'ID de ville et un prix max temporaire
+            # pour forcer la mise à jour plus tard.
+            temp_max_price = max_price - 1 if max_price > min_price and max_price > 0 else max_price
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={temp_max_price}&query={encoded_query}&exact=false"
             
             try:
                 print(f"   ➡️ Navigation vers : {url}")
@@ -722,6 +734,27 @@ class GuitarHunterBot:
                 except Exception as e:
                     print(f"   ⚠️ Erreur lors de l'application du rayon (UI) : {e}")
                     # On continue quand même, peut-être que l'URL par défaut suffit
+
+                # --- FORÇAGE DE LA MISE À JOUR VIA LE PRIX ---
+                try:
+                    print(f"   💰 Application du prix final ({max_price} $) pour forcer la mise à jour...")
+                    
+                    # Sélecteur pour le champ de prix maximum.
+                    max_price_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price']").first
+                    
+                    if max_price_input.is_visible(timeout=5000):
+                        max_price_input.fill(str(max_price))
+                        time.sleep(0.5)
+                        max_price_input.press("Enter") # Valider le changement
+                        
+                        print("   ✅ Prix final appliqué. Attente du rechargement...")
+                        page.wait_for_load_state("networkidle", timeout=10000)
+                        time.sleep(3) # Sécurité supplémentaire
+                    else:
+                        print("   ⚠️ Champ de prix maximum introuvable pour le forçage.")
+
+                except Exception as e:
+                    print(f"   ⚠️ Erreur lors de l'application du prix final : {e}")
 
                 # Attente du chargement de la grille de résultats
                 # On attend un élément qui ressemble à une annonce ou le conteneur principal
@@ -1010,6 +1043,48 @@ class GuitarHunterBot:
                 browser.close()
                 print("🏁 Session de scraping terminée.")
 
+    def process_retry_queue(self):
+        """Traite les annonces marquées pour ré-analyse."""
+        if offline_mode: return
+
+        try:
+            # On cherche les annonces avec status='retry_analysis'
+            docs = self.collection_ref.where('status', '==', 'retry_analysis').stream()
+            count = 0
+            
+            for doc in docs:
+                data = doc.to_dict()
+                print(f"🔄 Ré-analyse demandée pour : {data.get('title', 'Sans titre')}")
+                
+                # On reconstruit listing_data à partir de Firestore
+                # On s'assure d'avoir les champs minimaux
+                if not data.get('title'):
+                    print("   ⚠️ Données incomplètes, impossible de ré-analyser.")
+                    continue
+                    
+                listing_data = {
+                    "title": data.get('title'),
+                    "price": data.get('price'),
+                    "description": data.get('description', ''),
+                    "location": data.get('location', 'Inconnue'),
+                    "imageUrls": data.get('imageUrls', []),
+                    "imageUrl": data.get('imageUrl'),
+                    "link": data.get('link')
+                }
+                
+                # Analyse IA
+                analysis = self.analyze_deal_with_gemini(listing_data)
+                
+                # Sauvegarde (mettra à jour le status)
+                self.save_to_firestore(listing_data, analysis, doc_id=doc.id)
+                count += 1
+                
+            if count > 0:
+                print(f"✅ {count} annonces ré-analysées.")
+                
+        except Exception as e:
+            print(f"❌ Erreur lors du traitement de la file d'attente : {e}")
+
     def run_test_scan(self):
         """Génère des données de test pour vérifier la synchronisation."""
         print(f"🔎 Démarrage du scan de test (MOCK)...")
@@ -1069,7 +1144,10 @@ if __name__ == "__main__":
             # 1. Synchronisation de la config et vérification du refresh manuel
             should_refresh, should_cleanup = bot.sync_configuration()
             
-            # 2. Vérification du temps écoulé
+            # 2. Traitement des ré-analyses (Prioritaire)
+            bot.process_retry_queue()
+
+            # 3. Vérification du temps écoulé
             current_time = time.time()
             frequency_seconds = bot.scan_config['frequency'] * 60
             
