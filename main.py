@@ -842,9 +842,18 @@ class GuitarHunterBot:
                             elif "Free" in line or "Gratuit" in line:
                                 price = 0
                                 found_price = True
+                    
+                    # --- TENTATIVE D'EXTRACTION DE LA LOCALISATION SPÉCIFIQUE ---
+                    specific_location = location # Fallback
+                    if len(lines) >= 3:
+                        # Souvent la dernière ligne est la ville
+                        potential_loc = lines[-1]
+                        # Filtre basique pour éviter de prendre un prix ou un statut
+                        if len(potential_loc) < 40 and not any(c in potential_loc for c in ['$', '€']):
+                             specific_location = potential_loc
 
                     if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
-                        print(f"   ✨ Annonce trouvée : {title} ({price} $)")
+                        print(f"   ✨ Annonce trouvée : {title} ({price} $) @ {specific_location}")
                         
                         # Vérification doublon
                         if not offline_mode:
@@ -872,7 +881,7 @@ class GuitarHunterBot:
                             "imageUrl": final_image_url,
                             "imageUrls": image_urls,
                             "link": clean_link,
-                            "location": location,
+                            "location": specific_location, # Utilisation de la localisation spécifique
                             "searchDistance": distance
                         }
                         
