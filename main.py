@@ -11,6 +11,7 @@ import threading
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
+import re # Importation de la bibliothèque re pour les expressions régulières
 
 # Suppression des avertissements de dépréciation (Gemini)
 warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
@@ -20,6 +21,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import google.generativeai as genai
 from playwright.sync_api import sync_playwright
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 # Chargement des variables d'environnement (.env)
 load_dotenv()
@@ -29,14 +31,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 FIREBASE_KEY_PATH = "serviceAccountKey.json"  # Doit être à la racine du projet
 PROMPT_INSTRUCTION = "Evalue cette guitare Au quebec (avec le prix)."  # Instruction principale pour l'analyse IA
+APP_ID_TARGET = os.getenv("APP_ID_TARGET")
+USER_ID_TARGET = os.getenv("USER_ID_TARGET")
 
-# ==================================================================================
-# ⚠️ IMPORTANT : CES IDs DOIVENT CORRESPONDRE À CEUX DE VOTRE APP REACT ⚠️
-# Regardez dans l'en-tête de l'application React ou dans la section "Vérification du chemin Python"
-# ==================================================================================
-APP_ID_TARGET = os.getenv("APP_ID_TARGET", "c_5d118e719dbddbfc_index.html-217")
-USER_ID_TARGET = os.getenv("USER_ID_TARGET", "00737242777130596039")
-# ==================================================================================
+if not APP_ID_TARGET or not USER_ID_TARGET:
+    print("❌ ERREUR: APP_ID_TARGET et USER_ID_TARGET doivent être définis dans le fichier .env")
+    sys.exit(1)
 
 # --- NOUVELLES INSTRUCTIONS SYSTÈME ---
 SYSTEM_PROMPT = """Tu es un expert en évaluation de guitares pour le marché du Québec.
@@ -101,8 +101,10 @@ if not firebase_admin._apps:
 
 
 class GuitarHunterBot:
-    def __init__(self, prompt_instruction=PROMPT_INSTRUCTION):
-        global offline_mode
+    def __init__(self, db_client, gemini_model, is_offline, prompt_instruction=PROMPT_INSTRUCTION):
+        self.db = db_client
+        self.model = gemini_model
+        self.offline_mode = is_offline
         self.prompt_instruction = prompt_instruction
         
         # Configuration par défaut des règles et du raisonnement
@@ -136,21 +138,21 @@ class GuitarHunterBot:
         print(f"   - CHEMIN  : {self.collection_path}")
         print(f"   - PROMPT  : {self.prompt_instruction}")
         
-        if offline_mode:
+        if self.offline_mode:
             print("⚠️ ATTENTION : MODE HORS-LIGNE ACTIVÉ. Aucune donnée ne sera sauvegardée dans Firebase.")
             return
 
         # Référence à la collection spécifique suivie par l'App React
-        self.collection_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+        self.collection_ref = self.db.collection('artifacts').document(APP_ID_TARGET) \
             .collection('users').document(USER_ID_TARGET) \
             .collection('guitar_deals')
             
         # Référence au document utilisateur pour écouter les changements de prompt et config
-        self.user_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+        self.user_ref = self.db.collection('artifacts').document(APP_ID_TARGET) \
             .collection('users').document(USER_ID_TARGET)
             
         # Référence à la collection des villes
-        self.cities_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+        self.cities_ref = self.db.collection('artifacts').document(APP_ID_TARGET) \
             .collection('users').document(USER_ID_TARGET) \
             .collection('cities')
 
@@ -161,7 +163,7 @@ class GuitarHunterBot:
         print("   ⏳ Vérification de l'accès Firestore (Timeout 10s)...")
         try:
             # 1. Création du document App (artifacts/{APP_ID})
-            app_ref = db.collection('artifacts').document(APP_ID_TARGET)
+            app_ref = self.db.collection('artifacts').document(APP_ID_TARGET)
             
             # Vérification de la connexion avant de tenter des écritures
             try:
@@ -176,8 +178,7 @@ class GuitarHunterBot:
             except Exception as e:
                 print(f"❌ Erreur de connexion Firebase lors de l'init : {e}")
                 print("👉 Passage en MODE HORS-LIGNE temporaire.")
-                global offline_mode
-                offline_mode = True
+                self.offline_mode = True
                 return
 
             # 2. Création du document User (artifacts/{APP_ID}/users/{USER_ID})
@@ -204,7 +205,7 @@ class GuitarHunterBot:
 
     def load_cities_from_firestore(self):
         """Charge la liste des villes configurées par l'utilisateur depuis Firestore."""
-        if offline_mode:
+        if self.offline_mode:
             return
 
         try:
@@ -228,7 +229,7 @@ class GuitarHunterBot:
 
     def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
-        if offline_mode:
+        if self.offline_mode:
             return False, False
 
         try:
@@ -345,7 +346,7 @@ class GuitarHunterBot:
         # Mise à jour du prompt avant chaque analyse (au cas où)
         self.sync_configuration()
 
-        if not model:
+        if not self.model:
              print("⚠️ Modèle Gemini non initialisé (Clé API manquante ?)")
              return {
                 "verdict": "ERROR",
@@ -393,7 +394,7 @@ class GuitarHunterBot:
             else:
                 print("   ⚠️ Analyse texte uniquement (pas d'image valide).")
 
-            response = model.generate_content(content)
+            response = self.model.generate_content(content)
             # Pas besoin de nettoyer le markdown, response_mime_type est JSON
             result = json.loads(response.text)
             
@@ -431,7 +432,7 @@ class GuitarHunterBot:
 
     def save_to_firestore(self, listing_data, analysis, doc_id=None):
         """Sauvegarde les données au chemin exact écouté par React."""
-        if offline_mode:
+        if self.offline_mode:
             print(f"🚫 [OFFLINE] Données non sauvegardées : {listing_data['title']}")
             return
 
@@ -464,13 +465,13 @@ class GuitarHunterBot:
 
     def cleanup_sold_listings(self):
         """Vérifie si les annonces en base sont toujours disponibles et supprime les vendues."""
-        if offline_mode:
+        if self.offline_mode:
             return
 
         print("\n🧹 Lancement du nettoyage des annonces vendues...")
         try:
             # 1. Get all non-rejected listings
-            docs = self.collection_ref.where('status', '!=', 'rejected').stream()
+            docs = self.collection_ref.where(filter=FieldFilter('status', '!=', 'rejected')).stream()
             
             listings_to_check = []
             for doc in docs:
@@ -635,13 +636,16 @@ class GuitarHunterBot:
                 print("   ✅ Prix final appliqué. Attente du rechargement...")
                 page.wait_for_load_state("networkidle", timeout=10000)
                 time.sleep(3)
+            else:
+                print("   ⚠️ Champ 'Prix maximum' non trouvé (timeout).")
         except Exception as e:
             print(f"   ⚠️ Erreur lors de l'application du prix final : {e}")
 
     def _extract_listing_details(self, context, clean_link, title, price, location):
-        """Ouvre une annonce et extrait les détails (images, description)."""
+        """Ouvre une annonce et extrait les détails (images, description, et coordonnées)."""
         description = f"Annonce Marketplace. {title}. Localisation: {location}"
         image_urls = []
+        coordinates = None # Initialisation des coordonnées à None
         
         try:
             print(f"   ➡️  Ouverture de l'annonce pour détails : {clean_link}")
@@ -682,6 +686,24 @@ class GuitarHunterBot:
             
             image_urls = collected_urls
             
+            # --- EXTRACTION DES COORDONNÉES DE LA CARTE ---
+            try:
+                map_image_locator = detail_page.locator('img[src*="staticmap"]').first
+                if map_image_locator.is_visible(timeout=5000): # Attendre que l'image de la carte soit visible
+                    src = map_image_locator.get_attribute('src')
+                    if src:
+                        # Utiliser une regex pour extraire les coordonnées dans l'URL
+                        match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', src)
+                        if match:
+                            coordinates = {"lat": float(match.group(1)), "lng": float(match.group(2))}
+                            print(f"   🗺️ Coordonnées extraites: {coordinates['lat']}, {coordinates['lng']}")
+                        else:
+                            print("   ⚠️ Coordonnées non trouvées dans l'URL de la carte statique.")
+                else:
+                    print("   ⚠️ Image de carte statique non trouvée sur la page de détails.")
+            except Exception as e:
+                print(f"   ❌ Erreur lors de l'extraction des coordonnées de la carte: {e}")
+
             # --- RECUPERATION DESCRIPTION ---
             extracted_description = None
             try:
@@ -729,7 +751,107 @@ class GuitarHunterBot:
                 try: detail_page.close()
                 except: pass
         
-        return description, image_urls
+        return description, image_urls, coordinates # Modification de la valeur de retour
+
+    def _process_listing(self, link_loc, context, location, distance, max_ads, processed_count, seen_urls):
+        """Traite un élément d'annonce individuel."""
+        if processed_count >= max_ads:
+            return processed_count
+
+        href = link_loc.get_attribute("href")
+        if not href: return processed_count
+        full_link = f"https://www.facebook.com{href}" if href.startswith("/") else href
+        clean_link = full_link.split('?')[0]
+        
+        if clean_link in seen_urls: return processed_count
+        seen_urls.add(clean_link)
+
+        fb_id = self.extract_facebook_id(clean_link)
+        if not fb_id: return processed_count
+
+        # Extraction basique
+        text_content = link_loc.inner_text()
+        lines = [line.strip() for line in text_content.split('\n') if line.strip()]
+        
+        img_loc = link_loc.locator("img").first
+        image_url = "https://via.placeholder.com/400?text=No+Image"
+        title = ""
+        
+        if img_loc.count() > 0:
+            src = img_loc.get_attribute("src")
+            if src: image_url = src
+            alt_text = img_loc.get_attribute("alt")
+            if alt_text and len(alt_text) > 3: title = alt_text
+
+        if not title:
+            for line in lines:
+                if not any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']) and len(line) > 3:
+                    title = line
+                    break
+            if not title: title = "Titre Inconnu"
+
+        price = 0
+        found_price = False
+        for line in lines:
+            if not found_price and any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']):
+                digits = ''.join(filter(str.isdigit, line))
+                if digits:
+                    price = int(digits)
+                    found_price = True
+                elif "Free" in line or "Gratuit" in line:
+                    price = 0
+                    found_price = True
+        
+        # --- TENTATIVE D'EXTRACTION DE LA LOCALISATION SPÉCIFIQUE ---
+        specific_location = location # Fallback
+        if len(lines) >= 3:
+            # Souvent la dernière ligne est la ville
+            potential_loc = lines[-1]
+            # Filtre basique pour éviter de prendre un prix ou un statut
+            if len(potential_loc) < 40 and not any(c in potential_loc for c in ['$', '€']):
+                specific_location = potential_loc
+
+        if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
+            print(f"   ✨ Annonce trouvée : {title} ({price} $) @ {specific_location}")
+            
+            # Vérification doublon
+            if not self.offline_mode:
+                try:
+                    doc_snap = self.collection_ref.document(fb_id).get()
+                    if doc_snap.exists:
+                        existing = doc_snap.to_dict()
+                        if existing.get('status') == 'rejected':
+                            print(f"   🚫 Annonce déjà rejetée. On passe.")
+                            return processed_count
+                        if existing.get('price') == price:
+                            print(f"   ⏭️ Annonce existante et prix inchangé. On passe.")
+                            return processed_count
+                        print(f"   🔄 Le prix a changé ! Mise à jour...")
+                except: pass
+            
+            # Extraction détaillée
+            description, image_urls, coordinates = self._extract_listing_details(context, clean_link, title, price, location) # Récupération des coordonnées
+            final_image_url = image_urls[0] if image_urls else image_url
+
+            listing_data = {
+                "title": title,
+                "price": price,
+                "description": description,
+                "imageUrl": final_image_url,
+                "imageUrls": image_urls,
+                "link": clean_link,
+                "location": specific_location, # Utilisation de la localisation spécifique
+                "searchDistance": distance
+            }
+            if coordinates: # Ajout des coordonnées si elles ont été trouvées
+                listing_data["latitude"] = coordinates["lat"]
+                listing_data["longitude"] = coordinates["lng"]
+            
+            analysis = self.analyze_deal_with_gemini(listing_data)
+            self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
+            return processed_count + 1
+        
+        return processed_count
 
     def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", distance=60, min_price=0, max_price=10000, max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
@@ -745,12 +867,12 @@ class GuitarHunterBot:
             else:
                 error_msg = f"Ville '{location}' inconnue. Ajoutez-la dans l'onglet Configuration."
                 print(f"❌ {error_msg}")
-                if not offline_mode:
+                if not self.offline_mode:
                     try: self.user_ref.update({'scanStatus': 'error', 'scanError': error_msg})
                     except: pass
                 return
         
-        if not offline_mode:
+        if not self.offline_mode:
             try: self.user_ref.update({'scanStatus': 'running', 'scanError': firestore.DELETE_FIELD})
             except: pass
 
@@ -797,97 +919,8 @@ class GuitarHunterBot:
                 seen_urls = set()
 
                 for link_loc in listings_locators:
+                    processed_count = self._process_listing(link_loc, context, location, distance, max_ads, processed_count, seen_urls)
                     if processed_count >= max_ads: break
-                        
-                    href = link_loc.get_attribute("href")
-                    if not href: continue
-                    full_link = f"https://www.facebook.com{href}" if href.startswith("/") else href
-                    clean_link = full_link.split('?')[0]
-                    
-                    if clean_link in seen_urls: continue
-                    seen_urls.add(clean_link)
-
-                    fb_id = self.extract_facebook_id(clean_link)
-                    if not fb_id: continue
-
-                    # Extraction basique
-                    text_content = link_loc.inner_text()
-                    lines = [line.strip() for line in text_content.split('\n') if line.strip()]
-                    
-                    img_loc = link_loc.locator("img").first
-                    image_url = "https://via.placeholder.com/400?text=No+Image"
-                    title = ""
-                    
-                    if img_loc.count() > 0:
-                        src = img_loc.get_attribute("src")
-                        if src: image_url = src
-                        alt_text = img_loc.get_attribute("alt")
-                        if alt_text and len(alt_text) > 3: title = alt_text
-
-                    if not title:
-                        for line in lines:
-                            if not any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']) and len(line) > 3:
-                                title = line
-                                break
-                        if not title: title = "Titre Inconnu"
-
-                    price = 0
-                    found_price = False
-                    for line in lines:
-                        if not found_price and any(c in line for c in ['$', '€', '£', 'Free', 'Gratuit']):
-                            digits = ''.join(filter(str.isdigit, line))
-                            if digits:
-                                price = int(digits)
-                                found_price = True
-                            elif "Free" in line or "Gratuit" in line:
-                                price = 0
-                                found_price = True
-                    
-                    # --- TENTATIVE D'EXTRACTION DE LA LOCALISATION SPÉCIFIQUE ---
-                    specific_location = location # Fallback
-                    if len(lines) >= 3:
-                        # Souvent la dernière ligne est la ville
-                        potential_loc = lines[-1]
-                        # Filtre basique pour éviter de prendre un prix ou un statut
-                        if len(potential_loc) < 40 and not any(c in potential_loc for c in ['$', '€']):
-                             specific_location = potential_loc
-
-                    if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
-                        print(f"   ✨ Annonce trouvée : {title} ({price} $) @ {specific_location}")
-                        
-                        # Vérification doublon
-                        if not offline_mode:
-                            try:
-                                doc_snap = self.collection_ref.document(fb_id).get()
-                                if doc_snap.exists:
-                                    existing = doc_snap.to_dict()
-                                    if existing.get('status') == 'rejected':
-                                        print(f"   🚫 Annonce déjà rejetée. On passe.")
-                                        continue
-                                    if existing.get('price') == price:
-                                        print(f"   ⏭️ Annonce existante et prix inchangé. On passe.")
-                                        continue
-                                    print(f"   🔄 Le prix a changé ! Mise à jour...")
-                            except: pass
-                        
-                        # Extraction détaillée
-                        description, image_urls = self._extract_listing_details(context, clean_link, title, price, location)
-                        final_image_url = image_urls[0] if image_urls else image_url
-
-                        listing_data = {
-                            "title": title,
-                            "price": price,
-                            "description": description,
-                            "imageUrl": final_image_url,
-                            "imageUrls": image_urls,
-                            "link": clean_link,
-                            "location": specific_location, # Utilisation de la localisation spécifique
-                            "searchDistance": distance
-                        }
-                        
-                        analysis = self.analyze_deal_with_gemini(listing_data)
-                        self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
-                        processed_count += 1
                         
             except Exception as e:
                 print(f"❌ Erreur durant le scraping : {e}")
@@ -899,11 +932,11 @@ class GuitarHunterBot:
 
     def process_retry_queue(self):
         """Traite les annonces marquées pour ré-analyse."""
-        if offline_mode: return
+        if self.offline_mode: return
 
         try:
             # On cherche les annonces avec status='retry_analysis'
-            docs = self.collection_ref.where('status', '==', 'retry_analysis').stream()
+            docs = self.collection_ref.where(filter=FieldFilter('status', '==', 'retry_analysis')).stream()
             count = 0
             
             for doc in docs:
@@ -925,6 +958,10 @@ class GuitarHunterBot:
                     "imageUrl": data.get('imageUrl'),
                     "link": data.get('link')
                 }
+                # Si les coordonnées existent déjà, on les garde
+                if data.get('latitude') is not None and data.get('longitude') is not None:
+                    listing_data['latitude'] = data['latitude']
+                    listing_data['longitude'] = data['longitude']
                 
                 # Analyse IA
                 analysis = self.analyze_deal_with_gemini(listing_data)
@@ -991,10 +1028,10 @@ if __name__ == "__main__":
     # Demande du prompt personnalisé au démarrage
     print(f"Prompt par défaut: {PROMPT_INSTRUCTION}")
     
-    bot = GuitarHunterBot()
+    bot = GuitarHunterBot(db, model, offline_mode)
 
     # --- SÉCURITÉ AU DÉMARRAGE ---
-    if offline_mode:
+    if bot.offline_mode:
         print("\n❌ Le bot n'a pas pu s'initialiser correctement (mode hors-ligne). Arrêt du script.")
         sys.exit(1)
     
