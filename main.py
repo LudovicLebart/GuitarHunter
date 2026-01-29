@@ -50,7 +50,7 @@ TA MISSION D'ANALYSE :
 
 FORMAT DE RÉPONSE ATTENDU (JSON) :
 {
-  "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
+  "verdict": "PEPITE" | "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
   "estimated_value": 1200,
   "confidence": 90,
   "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
@@ -111,7 +111,8 @@ class GuitarHunterBot:
         self.prompt_instruction = prompt_instruction
         
         # Configuration par défaut des règles et du raisonnement
-        self.verdict_rules = """- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
+        self.verdict_rules = """- "PEPITE" : La valeur estimée est SUPERIEURE à 3 fois le prix demandé. C'est une occasion en or.
+- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée (mais pas une pépite).
 - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
 - "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
 - "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.)."""

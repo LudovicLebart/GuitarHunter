@@ -3,7 +3,7 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit, Gem
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -47,14 +47,15 @@ TA MISSION D'ANALYSE :
 
 FORMAT DE RÉPONSE ATTENDU (JSON) :
 {
-  "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
+  "verdict": "PEPITE" | "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
   "estimated_value": 1200,
   "confidence": 90,
   "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
   "red_flags": ["Frettes très usées", "Bouton de volume non original"]
 }`;
 
-const DEFAULT_VERDICT_RULES = `- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
+const DEFAULT_VERDICT_RULES = `- "PEPITE" : La valeur estimée est SUPERIEURE à 3 fois le prix demandé. C'est une occasion en or.
+- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée (mais pas une pépite).
 - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
 - "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
 - "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.).`;
@@ -907,7 +908,8 @@ const CITY_COORDINATES = {
 // --- COMPOSANTS UTILITAIRES ---
 const VerdictBadge = ({ verdict }) => {
   const configs = {
-    'GOOD_DEAL': { label: 'Excellente Affaire', color: 'bg-emerald-500', icon: <Sparkles size={12}/> },
+    'PEPITE': { label: 'Pépite !', color: 'bg-yellow-400', icon: <Gem size={12}/> },
+    'GOOD_DEAL': { label: 'Bonne Affaire', color: 'bg-emerald-500', icon: <Sparkles size={12}/> },
     'FAIR': { label: 'Prix Correct', color: 'bg-blue-500', icon: <CheckCircle size={12}/> },
     'BAD_DEAL': { label: 'Trop Cher', color: 'bg-rose-500', icon: <AlertTriangle size={12}/> },
     'REJECTED': { label: 'Rejeté', color: 'bg-slate-600', icon: <Ban size={12}/> },
@@ -1236,7 +1238,8 @@ const MapView = ({ deals, onDealSelect }) => {
       if (coords) {
         // Couleur du marqueur selon le verdict
         let markerColor = '#64748b'; // Slate (Default)
-        if (deal.aiAnalysis?.verdict === 'GOOD_DEAL') markerColor = '#10b981'; // Emerald
+        if (deal.aiAnalysis?.verdict === 'PEPITE') markerColor = '#facc15'; // Yellow
+        else if (deal.aiAnalysis?.verdict === 'GOOD_DEAL') markerColor = '#10b981'; // Emerald
         else if (deal.aiAnalysis?.verdict === 'FAIR') markerColor = '#3b82f6'; // Blue
         else if (deal.aiAnalysis?.verdict === 'BAD_DEAL') markerColor = '#f43f5e'; // Rose
 
@@ -1863,13 +1866,13 @@ const App = () => {
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 w-full lg:w-auto">
-              {['ALL', 'FAVORITES', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
+              {['ALL', 'FAVORITES', 'PEPITE', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
                   className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                 >
-                  {type === 'ALL' ? 'Toutes' : type === 'FAVORITES' ? 'Favoris' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
+                  {type === 'ALL' ? 'Toutes' : type === 'FAVORITES' ? 'Favoris' : type === 'PEPITE' ? 'Pépites' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
                 </button>
               ))}
             </div>
