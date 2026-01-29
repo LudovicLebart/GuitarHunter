@@ -202,7 +202,7 @@ class GuitarHunterBot:
                 self.sync_configuration(initial=True)
                 
             # Chargement initial des villes
-            self.load_cities_from_firestore()
+            # self.load_cities_from_firestore() # Moved to main loop
                 
         except Exception as e:
             print(f"⚠️ Impossible de créer les documents parents (non bloquant) : {e}")
@@ -234,17 +234,16 @@ class GuitarHunterBot:
     def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
         if self.offline_mode:
-            return False, False, False
+            return False, False, False, None # Added None for specific_url_to_scan
 
         try:
-            # On recharge aussi les villes à chaque sync pour être à jour
-            if not initial:
-                self.load_cities_from_firestore()
+            # Removed: self.load_cities_from_firestore()
 
             doc = self.user_ref.get()
             should_refresh = False
             should_cleanup = False
-            should_reanalyze_all = False # Nouvelle variable
+            should_reanalyze_all = False
+            specific_url_to_scan = None # New variable
 
             if doc.exists:
                 data = doc.to_dict()
@@ -320,11 +319,16 @@ class GuitarHunterBot:
                         print(f"🧠 Ré-analyse globale demandée ! (Timestamp: {last_reanalyze})")
                         self.last_reanalyze_all_timestamp = last_reanalyze
                         should_reanalyze_all = True
-            
-            return should_refresh, should_cleanup, should_reanalyze_all
+                
+                # 8. Scan Specific URL
+                if 'scanSpecificUrl' in data and data['scanSpecificUrl']:
+                    specific_url_to_scan = data['scanSpecificUrl']
+                    print(f"🔗 Scan d'URL spécifique demandé : {specific_url_to_scan}")
+
+            return should_refresh, should_cleanup, should_reanalyze_all, specific_url_to_scan
         except Exception as e:
             print(f"⚠️ Erreur sync config : {e}")
-            return False, False, False
+            return False, False, False, None
 
     def extract_facebook_id(self, url):
         """Extrait l'ID numérique unique de l'annonce Facebook depuis l'URL."""
@@ -358,8 +362,7 @@ class GuitarHunterBot:
 
     def analyze_deal_with_gemini(self, listing_data):
         """Utilise Gemini pour évaluer si l'annonce est une bonne affaire (Multimodal)."""
-        # Mise à jour du prompt avant chaque analyse (au cas où)
-        self.sync_configuration()
+        # Removed: self.sync_configuration()
 
         if not self.model:
              print("⚠️ Modèle Gemini non initialisé (Clé API manquante ?)")
@@ -379,8 +382,8 @@ class GuitarHunterBot:
         if not urls_to_process and listing_data.get('imageUrl'):
             urls_to_process = [listing_data['imageUrl']]
             
-        # Limite à 5 images pour éviter de surcharger
-        urls_to_process = urls_to_process[:5]
+        # Limite à 8 images pour éviter de surcharger
+        urls_to_process = urls_to_process[:8] # Changed from 5 to 8
 
         for url in urls_to_process:
             img = self.download_image(url)
@@ -697,7 +700,7 @@ class GuitarHunterBot:
                 try:
                     detail_page.keyboard.press("ArrowRight")
                     time.sleep(0.8) 
-                except: break
+                except: pass # Changed from `break` to `pass` to allow trying other image extraction methods
             
             image_urls = collected_urls
             
@@ -945,6 +948,89 @@ class GuitarHunterBot:
                 browser.close()
                 print("🏁 Session de scraping terminée.")
 
+    def scan_specific_url(self, url_to_scan):
+        """Scanne une URL Facebook Marketplace spécifique, extrait les détails, analyse et sauvegarde."""
+        if self.offline_mode:
+            print(f"🚫 [OFFLINE] Impossible de scanner l'URL spécifique : {url_to_scan}")
+            return
+
+        print(f"\n🔗 Lancement du scan d'URL spécifique : {url_to_scan}")
+
+        # Clear the specific URL request in Firestore immediately
+        try:
+            self.user_ref.update({'scanSpecificUrl': firestore.DELETE_FIELD})
+            print("   ✅ Requête d'URL spécifique effacée de Firestore.")
+        except Exception as e:
+            print(f"   ⚠️ Erreur lors de l'effacement de scanSpecificUrl dans Firestore : {e}")
+
+        fb_id = self.extract_facebook_id(url_to_scan)
+        if not fb_id:
+            print(f"❌ Impossible d'extraire l'ID Facebook de l'URL : {url_to_scan}")
+            return
+
+        with sync_playwright() as p:
+            browser, context = self._setup_browser(p)
+            try:
+                detail_page = context.new_page()
+                detail_page.goto(url_to_scan, timeout=60000)
+                self._close_login_popup(detail_page)
+                try: detail_page.wait_for_selector("div[role='main']", timeout=15000)
+                except: pass
+                time.sleep(2)
+
+                # Extract title, price, location from the detail page
+                title = "Titre Inconnu"
+                price = 0
+                location = "Localisation Inconnue"
+
+                # Try to get title from meta tag first
+                og_title = detail_page.locator('meta[property="og:title"]').get_attribute('content')
+                if og_title:
+                    title = og_title.split(' - ')[0] # Often "Title - Price - Location"
+
+                # Try to get price
+                price_locator = detail_page.locator('div[role="main"] span:has-text("$"]').first
+                if price_locator.count() > 0:
+                    price_text = price_locator.inner_text()
+                    digits = ''.join(filter(str.isdigit, price_text))
+                    if digits:
+                        price = int(digits)
+
+                # Try to get location
+                location_locator = detail_page.locator('div[role="main"] span:has-text("·")').first # Often "City · Time"
+                if location_locator.count() > 0:
+                    location_text = location_locator.inner_text()
+                    location = location_text.split('·')[0].strip()
+
+
+                description, image_urls, coordinates = self._extract_listing_details(context, url_to_scan, title, price, location)
+                final_image_url = image_urls[0] if image_urls else "https://via.placeholder.com/400?text=No+Image"
+
+                listing_data = {
+                    "title": title,
+                    "price": price,
+                    "description": description,
+                    "imageUrl": final_image_url,
+                    "imageUrls": image_urls,
+                    "link": url_to_scan,
+                    "location": location,
+                    "searchDistance": 0 # Not applicable for specific URL scan
+                }
+                if coordinates:
+                    listing_data["latitude"] = coordinates["lat"]
+                    listing_data["longitude"] = coordinates["lng"]
+
+                analysis = self.analyze_deal_with_gemini(listing_data)
+                self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
+                print(f"✅ Scan d'URL spécifique terminé pour : {title}")
+
+            except Exception as e:
+                print(f"❌ Erreur lors du scan d'URL spécifique {url_to_scan}: {e}")
+                import traceback
+                traceback.print_exc()
+            finally:
+                browser.close()
+
     def process_retry_queue(self):
         """Traite les annonces marquées pour ré-analyse."""
         if self.offline_mode: return
@@ -1089,9 +1175,13 @@ if __name__ == "__main__":
     try:
         while True:
             # 1. Synchronisation de la config et vérification du refresh manuel
-            should_refresh, should_cleanup, should_reanalyze_all = bot.sync_configuration()
+            should_refresh, should_cleanup, should_reanalyze_all, specific_url_to_scan = bot.sync_configuration()
             
             # NOTE: bot.process_retry_queue() est maintenant géré par le thread monitor_retries
+
+            # --- GESTION DU SCAN D'URL SPÉCIFIQUE ---
+            if specific_url_to_scan:
+                bot.scan_specific_url(specific_url_to_scan)
 
             # 2. Vérification du temps écoulé
             current_time = time.time()
@@ -1112,7 +1202,7 @@ if __name__ == "__main__":
             if should_reanalyze_all:
                 bot.reanalyze_all_listings()
 
-            # --- GESTION DU SCAN ---
+            # --- GESTION DU SCAN PÉRIODIQUE ---
             # Si refresh demandé OU temps écoulé
             if should_refresh or (current_time - last_scan_time > frequency_seconds):
                 if should_refresh:
@@ -1120,6 +1210,9 @@ if __name__ == "__main__":
                 else:
                     print(f"⏰ Lancement du scan (Auto - {bot.scan_config['frequency']} min)...")
                 
+                # Load cities before every scan
+                bot.load_cities_from_firestore() # Moved here
+
                 # Lancement du scan
                 bot.scan_facebook_marketplace(
                     search_query=bot.scan_config['search_query'],

@@ -1316,6 +1316,10 @@ const App = () => {
   const [newCityName, setNewCityName] = useState('');
   const [newCityId, setNewCityId] = useState('');
 
+  // New Specific URL Scan State
+  const [specificUrl, setSpecificUrl] = useState('');
+  const [isScanningUrl, setIsScanningUrl] = useState(false);
+
   // Diagnostic State
   const [diag, setDiag] = useState({
     auth: { status: 'loading', msg: 'Connexion...' },
@@ -1510,6 +1514,19 @@ const App = () => {
     }
   }, [saveConfig]);
 
+  const handleScanSpecificUrl = useCallback(async () => {
+    if (!specificUrl) return;
+    setIsScanningUrl(true);
+    try {
+      await saveConfig({ scanSpecificUrl: specificUrl });
+      setSpecificUrl(''); // Clear input after sending
+      setTimeout(() => setIsScanningUrl(false), 5000); // Reset button state
+    } catch (e) {
+      setError("Erreur lors de la demande de scan d'URL.");
+      setIsScanningUrl(false);
+    }
+  }, [specificUrl, saveConfig]);
+
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
@@ -1685,6 +1702,28 @@ const App = () => {
                   <label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label>
                   <input type="text" value={scanConfig.searchQuery} onChange={(e) => setScanConfig({...scanConfig, searchQuery: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
                 </div>
+
+                {/* New Specific URL Scan Section */}
+                <div className="pt-3 border-t border-slate-100">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Scan d'URL Spécifique</label>
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      type="text"
+                      placeholder="Coller l'URL de l'annonce Facebook..."
+                      value={specificUrl}
+                      onChange={(e) => setSpecificUrl(e.target.value)}
+                      className="flex-grow p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                    />
+                    <button
+                      onClick={handleScanSpecificUrl}
+                      disabled={!specificUrl || isScanningUrl}
+                      className="bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 disabled:bg-slate-300 flex items-center justify-center"
+                    >
+                      {isScanningUrl ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}
+                    </button>
+                  </div>
+                </div>
+
               </div>
 
               {/* SECTION 2: GESTION DES VILLES (Déplacé ici) */}
