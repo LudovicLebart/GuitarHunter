@@ -38,25 +38,19 @@ if not APP_ID_TARGET or not USER_ID_TARGET:
     print("❌ ERREUR: APP_ID_TARGET et USER_ID_TARGET doivent être définis dans le fichier .env")
     sys.exit(1)
 
-# --- NOUVELLES INSTRUCTIONS SYSTÈME ---
-SYSTEM_PROMPT = """Tu es un luthier expert et un négociant de guitares chevronné pour le marché du Québec (MTL/QC).
-Ton but : Analyser les photos pour protéger l'acheteur contre les arnaques et les mauvais prix.
-
-TA MISSION D'ANALYSE :
-1.  **REJET (REJECTED)** : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
-2.  **Authentification** : Vérifie la forme de la tête (Headstock), le logo, le placement des boutons. Repère les 'Chibson' ou contrefaçons.
-3.  **État** : Zoome sur les frettes (usure ?), le chevalet (oxydation ?), le manche (fissures ?).
-4.  **Valeur** : Estime le prix de revente RÉALISTE au Québec (pas le prix neuf, le prix Kijiji/Marketplace).
-
-FORMAT DE RÉPONSE ATTENDU (JSON) :
-{
-  "verdict": "PEPITE" | "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
-  "estimated_value": 1200,
-  "confidence": 90,
-  "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
-  "red_flags": ["Frettes très usées", "Bouton de volume non original"]
-}
-"""
+# Chargement des prompts depuis le fichier JSON
+try:
+    with open('prompts.json', 'r', encoding='utf-8') as f:
+        prompts_data = json.load(f)
+        SYSTEM_PROMPT = prompts_data.get('system_prompt', "")
+        DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', "")
+        DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', "")
+except Exception as e:
+    print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
+    # Fallback si le fichier n'existe pas (valeurs par défaut minimales)
+    SYSTEM_PROMPT = "Tu es un expert en guitares."
+    DEFAULT_VERDICT_RULES = ""
+    DEFAULT_REASONING_INSTRUCTION = ""
 
 # Initialisation Gemini
 model = None
@@ -110,14 +104,9 @@ class GuitarHunterBot:
         self.offline_mode = is_offline
         self.prompt_instruction = prompt_instruction
         
-        # Configuration par défaut des règles et du raisonnement
-        self.verdict_rules = """- "PEPITE" : La valeur estimée est SUPERIEURE à 3 fois le prix demandé. C'est une occasion en or.
-- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée (mais pas une pépite).
-- "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
-- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
-- "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.)."""
-        
-        self.reasoning_instruction = "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur"
+        # Configuration par défaut des règles et du raisonnement (chargées depuis JSON)
+        self.verdict_rules = DEFAULT_VERDICT_RULES
+        self.reasoning_instruction = DEFAULT_REASONING_INSTRUCTION
 
         # Configuration par défaut du scan
         self.scan_config = {
@@ -393,14 +382,27 @@ class GuitarHunterBot:
         
         # Le prompt devient une simple fiche technique
         user_message = f"""
-        Évalue cette annonce :
-        Titre : {listing_data['title']}
-        Prix affiché : {listing_data['price']}$
-        Description : {listing_data['description']}
-        Localisation : {listing_data['location']}
-        
-        Règles de verdict à appliquer :
-        {self.verdict_rules}
+        Tu es un Maître Luthier et un expert en restauration de guitares.
+        Ton client est un bricoleur qui cherche des projets. Il ne veut pas un résumé, il veut une ANALYSE TECHNIQUE DÉTAILLÉE.
+
+        Détails de l'annonce :
+        - Titre : {listing_data.get('title', 'N/A')}
+        - Prix : {listing_data.get('price', 'N/A')}
+        - Description : {listing_data.get('description', 'N/A')}
+
+        TES OBJECTIFS (Dans cet ordre précis) :
+        1. **IDENTIFICATION & COTE** : Identifie le modèle exact (ex: Oscar Schmidt OE-60). Donne le prix neuf vs occasion.
+        2. **CALCUL DE RENTABILITÉ (La Règle de l'Étui)** : Estime la valeur de l'étui seul. Soustrais-le du prix total pour voir combien coûte réellement la guitare.
+        3. **INSPECTION VISUELLE "SHERLOCK HOLMES"** : Scrutine les photos. Cherche les "bricolages maison" (boutons déplacés, trous dans l'éclisse, têtes abîmées). Décris ce que tu vois précisément (ex: "Photo X : trou de préampli").
+        4. **PLAN DE BATAILLE (Luthier)** : Propose des solutions. (ex: "Fabriquer une plaque pour cacher le trou", "Refaire le câblage").
+
+        FORMAT DE RÉPONSE ATTENDU (JSON) :
+        {{
+            "identification": "Nom complet du modèle",
+            "market_value_estimate": "Fourchette de prix $$",
+            "verdict": "PEPITE / GOOD_DEAL / FAIR / BAD_DEAL",
+            "reasoning": "Rédige ici un RAPPORT COMPLET au format Markdown. Utilise des titres (###), des puces et du gras. Structure ta réponse exactement comme ceci : \\n\\n### 1. Analyse du Modèle\\n[Ton texte sur le modèle et sa valeur marché]\\n\\n### 2. Inspection des Dégâts\\n[Détails visuels précis : trou, boutons, état du vernis]\\n\\n### 3. Verdict Financier\\n[Calcul : Prix - Étui = Coût réel]\\n\\n### 4. Conseil du Luthier\\n[Idées de réparation : patch bois, nouvelle électronique, etc.]"
+        }}
         """
 
         try:
@@ -964,16 +966,26 @@ class GuitarHunterBot:
         except Exception as e:
             print(f"   ⚠️ Erreur lors de l'effacement de scanSpecificUrl dans Firestore : {e}")
 
+        # Tentative d'extraction immédiate (pour les URLs classiques)
         fb_id = self.extract_facebook_id(url_to_scan)
-        if not fb_id:
-            print(f"❌ Impossible d'extraire l'ID Facebook de l'URL : {url_to_scan}")
-            return
 
         with sync_playwright() as p:
             browser, context = self._setup_browser(p)
             try:
                 detail_page = context.new_page()
+                print(f"   ➡️ Navigation vers : {url_to_scan}")
                 detail_page.goto(url_to_scan, timeout=60000)
+                
+                # Si l'ID n'a pas été trouvé initialement (ex: URL de partage), on réessaie avec l'URL finale
+                if not fb_id:
+                    final_url = detail_page.url
+                    print(f"   🔗 URL après redirection : {final_url}")
+                    fb_id = self.extract_facebook_id(final_url)
+                
+                if not fb_id:
+                    print(f"❌ Impossible d'extraire l'ID Facebook même après ouverture de la page.")
+                    return
+
                 self._close_login_popup(detail_page)
                 try: detail_page.wait_for_selector("div[role='main']", timeout=15000)
                 except: pass
@@ -990,7 +1002,7 @@ class GuitarHunterBot:
                     title = og_title.split(' - ')[0] # Often "Title - Price - Location"
 
                 # Try to get price
-                price_locator = detail_page.locator('div[role="main"] span:has-text("$"]').first
+                price_locator = detail_page.locator('div[role="main"] span', has_text="$").first
                 if price_locator.count() > 0:
                     price_text = price_locator.inner_text()
                     digits = ''.join(filter(str.isdigit, price_text))
@@ -998,13 +1010,19 @@ class GuitarHunterBot:
                         price = int(digits)
 
                 # Try to get location
-                location_locator = detail_page.locator('div[role="main"] span:has-text("·")').first # Often "City · Time"
+                location_locator = detail_page.locator('div[role="main"] span', has_text="·").first # Often "City · Time"
                 if location_locator.count() > 0:
                     location_text = location_locator.inner_text()
                     location = location_text.split('·')[0].strip()
 
 
-                description, image_urls, coordinates = self._extract_listing_details(context, url_to_scan, title, price, location)
+                # On récupère l'URL propre après redirection
+                clean_link = detail_page.url.split('?')[0]
+                
+                # On ferme la page actuelle car _extract_listing_details va en ouvrir une nouvelle
+                detail_page.close() 
+                
+                description, image_urls, coordinates = self._extract_listing_details(context, clean_link, title, price, location)
                 final_image_url = image_urls[0] if image_urls else "https://via.placeholder.com/400?text=No+Image"
 
                 listing_data = {
@@ -1013,7 +1031,7 @@ class GuitarHunterBot:
                     "description": description,
                     "imageUrl": final_image_url,
                     "imageUrls": image_urls,
-                    "link": url_to_scan,
+                    "link": clean_link,
                     "location": location,
                     "searchDistance": 0 # Not applicable for specific URL scan
                 }

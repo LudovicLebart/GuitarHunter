@@ -15,6 +15,9 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from 'firebase/auth';
 
+// --- Import des prompts centralisés ---
+import promptsData from './prompts.json';
+
 // --- CONFIGURATION FIREBASE (Extraite de ton code) ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -35,31 +38,23 @@ const PYTHON_APP_ID = "c_5d118e719dbddbfc_index.html-217";
 const PYTHON_USER_ID = "00737242777130596039";
 const appId = PYTHON_APP_ID;
 
-// --- VALEURS PAR DÉFAUT (MISES À JOUR) ---
-const DEFAULT_PROMPT = `Tu es un luthier expert et un négociant de guitares chevronné pour le marché du Québec (MTL/QC).
-Ton but : Analyser les photos pour protéger l'acheteur contre les arnaques et les mauvais prix.
+// --- VALEURS PAR DÉFAUT (MISES À JOUR DEPUIS JSON) ---
 
-TA MISSION D'ANALYSE :
-1.  **REJET (REJECTED)** : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
-2.  **Authentification** : Vérifie la forme de la tête (Headstock), le logo, le placement des boutons. Repère les 'Chibson' ou contrefaçons.
-3.  **État** : Zoome sur les frettes (usure ?), le chevalet (oxydation ?), le manche (fissures ?).
-4.  **Valeur** : Estime le prix de revente RÉALISTE au Québec (pas le prix neuf, le prix Kijiji/Marketplace).
+const DEFAULT_PROMPT = promptsData.system_prompt;
+const DEFAULT_VERDICT_RULES = promptsData.verdict_rules;
+const DEFAULT_REASONING_INSTRUCTION = promptsData.reasoning_instruction;
 
-FORMAT DE RÉPONSE ATTENDU (JSON) :
-{
-  "verdict": "PEPITE" | "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
-  "estimated_value": 1200,
-  "confidence": 90,
-  "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
-  "red_flags": ["Frettes très usées", "Bouton de volume non original"]
-}`;
+const NEW_SYSTEM_PROMPT = `Tu es un Maître Luthier et Mentor pour un apprenti.
+Ton but n'est pas juste de dire "Oui/Non", mais d'ÉDUQUER sur le potentiel du projet.
 
-const DEFAULT_VERDICT_RULES = `- "PEPITE" : La valeur estimée est SUPERIEURE à 3 fois le prix demandé. C'est une occasion en or.
-- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée (mais pas une pépite).
-- "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
-- "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
-- "REJECTED" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, etc.).`;
-const DEFAULT_REASONING_INSTRUCTION = "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur";
+RÈGLES D'ANALYSE :
+1. **Ignorer la première impression** : Une guitare sale ou trouée n'est pas morte. C'est un projet.
+2. **La Règle de l'Étui** : Si un Hardcase est présent, il vaut ~80$. Déduis-le du prix.
+3. **Vision Rayons-X** : Repère les détails sur les photos (boutons non d'origine, trous de préampli, état du chevalet).
+4. **Mode "Solution"** : Au lieu de dire "L'électronique manque", dis "Opportunité d'installer un système moderne ou de faire un patch en bois".
+
+FORMAT JSON STRICT. Le champ "reasoning" doit contenir un RAPPORT DÉTAILLÉ structuré avec des titres Markdown (###), analysant le modèle, les dégâts spécifiques, et le plan de réparation suggéré.`;
+
 
 // --- DICTIONNAIRE DE VILLES (COORDONNÉES APPROXIMATIVES) ---
 // Utilisé pour placer les marqueurs sur la carte sans API de géocodage payante
@@ -1306,7 +1301,7 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Config States
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState(NEW_SYSTEM_PROMPT);
   const [verdictRules, setVerdictRules] = useState(DEFAULT_VERDICT_RULES);
   const [reasoningInstruction, setReasoningInstruction] = useState(DEFAULT_REASONING_INSTRUCTION);
   const [scanConfig, setScanConfig] = useState({
