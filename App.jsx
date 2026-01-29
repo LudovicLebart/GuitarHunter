@@ -3,7 +3,7 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -35,8 +35,25 @@ const PYTHON_APP_ID = "c_5d118e719dbddbfc_index.html-217";
 const PYTHON_USER_ID = "00737242777130596039";
 const appId = PYTHON_APP_ID;
 
-// --- VALEURS PAR DÉFAUT ---
-const DEFAULT_PROMPT = "Evalue cette guitare Au quebec (avec le prix).";
+// --- VALEURS PAR DÉFAUT (MISES À JOUR) ---
+const DEFAULT_PROMPT = `Tu es un luthier expert et un négociant de guitares chevronné pour le marché du Québec (MTL/QC).
+Ton but : Analyser les photos pour protéger l'acheteur contre les arnaques et les mauvais prix.
+
+TA MISSION D'ANALYSE :
+1.  **REJET (REJECTED)** : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
+2.  **Authentification** : Vérifie la forme de la tête (Headstock), le logo, le placement des boutons. Repère les 'Chibson' ou contrefaçons.
+3.  **État** : Zoome sur les frettes (usure ?), le chevalet (oxydation ?), le manche (fissures ?).
+4.  **Valeur** : Estime le prix de revente RÉALISTE au Québec (pas le prix neuf, le prix Kijiji/Marketplace).
+
+FORMAT DE RÉPONSE ATTENDU (JSON) :
+{
+  "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
+  "estimated_value": 1200,
+  "confidence": 90,
+  "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
+  "red_flags": ["Frettes très usées", "Bouton de volume non original"]
+}`;
+
 const DEFAULT_VERDICT_RULES = `- "GOOD_DEAL" : Le prix demandé est INFERIEUR à la valeur estimée.
 - "FAIR" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).
 - "BAD_DEAL" : Le prix demandé est SUPERIEUR à la valeur estimée.
@@ -980,7 +997,7 @@ const ImageGallery = ({ images, title }) => {
 };
 
 // --- NOUVEAU COMPOSANT EXTRAIT ---
-const DealCard = React.memo(({ deal, filterType, onRetry, onReject }) => {
+const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite }) => {
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
       {/* Image Section */}
@@ -1049,22 +1066,32 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject }) => {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Bouton Relancer Analyse (Visible si erreur ou status retry) */}
-            {(filterType === 'ERROR' || deal.status === 'retry_analysis') && (
+            {/* Bouton Favori */}
+            <button
+                onClick={() => onToggleFavorite(deal.id, deal.isFavorite)}
+                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`}
+                title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}
+            >
+                <Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} />
+            </button>
+
+            {/* CORRECTIF: Bouton Relancer Analyse (toujours visible si non rejeté) */}
+            {deal.status !== 'rejected' && (
                 <button
                     onClick={() => onRetry(deal.id)}
                     disabled={deal.status === 'retry_analysis'}
-                    className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-amber-50 hover:bg-amber-500 hover:text-white text-amber-600'}`}
+                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
+                    title="Relancer l'analyse"
                 >
                     <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
-                    {deal.status === 'retry_analysis' ? 'En cours...' : 'Relancer'}
                 </button>
             )}
 
             {deal.status !== 'rejected' && (
               <button
                 onClick={() => onReject(deal.id)}
-                className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                title="Rejeter l'annonce"
               >
                 <Ban size={14} />
               </button>
@@ -1269,6 +1296,7 @@ const App = () => {
   const [viewMode, setViewMode] = useState('LIST'); // 'LIST' ou 'MAP'
   const [selectedDealFromMap, setSelectedDealFromMap] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(0.85); // 85% par défaut
+  const [isReanalyzingAll, setIsReanalyzingAll] = useState(false); // New state for UI feedback
 
   // Filter States
   const [filterType, setFilterType] = useState('ALL');
@@ -1458,6 +1486,30 @@ const App = () => {
     }
   }, []);
 
+  const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
+    try {
+      const dealDocRef = doc(db, 'artifacts', appId, 'users', PYTHON_USER_ID, 'guitar_deals', dealId);
+      await updateDoc(dealDocRef, {
+        isFavorite: !currentStatus
+      });
+    } catch (e) {
+      setError("Erreur lors de la mise à jour des favoris.");
+    }
+  }, []);
+
+  const handleRelaunchAll = useCallback(async () => {
+    if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment relancer l'analyse IA pour TOUTES les annonces ?\n\nCela peut prendre plusieurs minutes et consommer beaucoup de quota API.")) {
+        setIsReanalyzingAll(true);
+        try {
+            await saveConfig({ forceReanalyzeAll: Date.now() });
+            setTimeout(() => setIsReanalyzingAll(false), 5000); // Reset visual state after 5s
+        } catch (e) {
+            setError("Erreur lors de la demande de ré-analyse globale.");
+            setIsReanalyzingAll(false);
+        }
+    }
+  }, [saveConfig]);
+
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
@@ -1486,6 +1538,10 @@ const App = () => {
 
       if (filterType === 'REJECTED') {
         return status === 'rejected';
+      }
+
+      if (filterType === 'FAVORITES') {
+        return deal.isFavorite;
       }
       
       // Pour les autres filtres (ALL, GOOD_DEAL, etc.)
@@ -1691,6 +1747,15 @@ const App = () => {
                   </button>
                 </div>
 
+                <button
+                    onClick={handleRelaunchAll}
+                    disabled={isReanalyzingAll}
+                    className={`w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isReanalyzingAll ? 'bg-purple-100 text-purple-600' : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'}`}
+                >
+                    <BrainCircuit size={16} className={isReanalyzingAll ? "animate-pulse" : ""} />
+                    {isReanalyzingAll ? 'Demande envoyée...' : 'Relancer TOUTES les analyses'}
+                </button>
+
                 <div>
                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Gemini</label>
                   <textarea
@@ -1759,13 +1824,13 @@ const App = () => {
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 w-full lg:w-auto">
-              {['ALL', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
+              {['ALL', 'FAVORITES', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setFilterType(type)}
                   className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
                 >
-                  {type === 'ALL' ? 'Toutes' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
+                  {type === 'ALL' ? 'Toutes' : type === 'FAVORITES' ? 'Favoris' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
                 </button>
               ))}
             </div>
@@ -1796,6 +1861,7 @@ const App = () => {
                   filterType={filterType}
                   onRetry={handleRetryAnalysis}
                   onReject={handleRejectDeal}
+                  onToggleFavorite={handleToggleFavorite}
                 />
               ))}
             </div>
@@ -1869,6 +1935,7 @@ const App = () => {
                 filterType={filterType}
                 onRetry={handleRetryAnalysis}
                 onReject={handleRejectDeal}
+                onToggleFavorite={handleToggleFavorite}
               />
           </div>
         </div>

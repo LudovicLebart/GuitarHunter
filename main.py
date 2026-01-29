@@ -39,21 +39,24 @@ if not APP_ID_TARGET or not USER_ID_TARGET:
     sys.exit(1)
 
 # --- NOUVELLES INSTRUCTIONS SYSTÈME ---
-SYSTEM_PROMPT = """Tu es un expert en évaluation de guitares pour le marché du Québec.
-Ta mission est d'analyser des annonces et de déterminer si elles sont authentiques et rentables.
+SYSTEM_PROMPT = """Tu es un luthier expert et un négociant de guitares chevronné pour le marché du Québec (MTL/QC).
+Ton but : Analyser les photos pour protéger l'acheteur contre les arnaques et les mauvais prix.
 
-RÈGLES DE VALIDATION :
-1. REJET (REJECTED) : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
-2. PRIX FICTIF : Si le prix est 0$, 1$ ou 1234$, ignore ce chiffre. Analyse la description pour trouver le prix réel ou une demande d'échange (ex: contre une voiture).
-3. RAISONNEMENT : Tu dois toujours expliquer ton calcul (Valeur marchande - Prix demandé = Profit potentiel).
+TA MISSION D'ANALYSE :
+1.  **REJET (REJECTED)** : Si l'objet n'est pas une guitare/basse (ex: ampli, pédale, jouet, montre, guitare de jeu video). 
+2.  **Authentification** : Vérifie la forme de la tête (Headstock), le logo, le placement des boutons. Repère les 'Chibson' ou contrefaçons.
+3.  **État** : Zoome sur les frettes (usure ?), le chevalet (oxydation ?), le manche (fissures ?).
+4.  **Valeur** : Estime le prix de revente RÉALISTE au Québec (pas le prix neuf, le prix Kijiji/Marketplace).
 
-Tu dois répondre EXCLUSIVEMENT en format JSON avec la structure suivante :
+FORMAT DE RÉPONSE ATTENDU (JSON) :
 {
   "verdict": "GOOD_DEAL" | "FAIR" | "BAD_DEAL" | "REJECTED",
-  "estimated_value": 1234,
-  "reasoning": "Explication détaillée...",
-  "confidence": 90
-}"""
+  "estimated_value": 1200,
+  "confidence": 90,
+  "reasoning": "Modèle 2018 authentique. Le prix demandé (800$) est bien sous la cote habituelle (1100$). Attention : légère scratch au dos.",
+  "red_flags": ["Frettes très usées", "Bouton de volume non original"]
+}
+"""
 
 # Initialisation Gemini
 model = None
@@ -64,7 +67,7 @@ if GEMINI_API_KEY:
         system_instruction=SYSTEM_PROMPT,
         generation_config={
             "response_mime_type": "application/json", # Force le format JSON
-            "temperature": 0.4 # Réduit la créativité pour plus de rigueur
+            "temperature": 0.1 # Très bas pour une analyse froide et factuelle
         }
     )
 else:
@@ -127,6 +130,7 @@ class GuitarHunterBot:
         }
         self.last_refresh_timestamp = 0
         self.last_cleanup_timestamp = 0
+        self.last_reanalyze_all_timestamp = 0 # Pour la nouvelle fonctionnalité
         self.city_mapping = {} # Sera rempli depuis Firestore
 
         # Construction du chemin pour vérification
@@ -230,7 +234,7 @@ class GuitarHunterBot:
     def sync_configuration(self, initial=False):
         """Synchronise la configuration et vérifie les demandes de refresh."""
         if self.offline_mode:
-            return False, False
+            return False, False, False
 
         try:
             # On recharge aussi les villes à chaque sync pour être à jour
@@ -240,6 +244,7 @@ class GuitarHunterBot:
             doc = self.user_ref.get()
             should_refresh = False
             should_cleanup = False
+            should_reanalyze_all = False # Nouvelle variable
 
             if doc.exists:
                 data = doc.to_dict()
@@ -305,11 +310,21 @@ class GuitarHunterBot:
                         print(f"🧹 Nettoyage manuel demandé ! (Timestamp: {last_cleanup})")
                         self.last_cleanup_timestamp = last_cleanup
                         should_cleanup = True
+                
+                # 7. Force Reanalyze All
+                if 'forceReanalyzeAll' in data:
+                    last_reanalyze = data['forceReanalyzeAll']
+                    if initial:
+                        self.last_reanalyze_all_timestamp = last_reanalyze
+                    elif last_reanalyze != self.last_reanalyze_all_timestamp:
+                        print(f"🧠 Ré-analyse globale demandée ! (Timestamp: {last_reanalyze})")
+                        self.last_reanalyze_all_timestamp = last_reanalyze
+                        should_reanalyze_all = True
             
-            return should_refresh, should_cleanup
+            return should_refresh, should_cleanup, should_reanalyze_all
         except Exception as e:
             print(f"⚠️ Erreur sync config : {e}")
-            return False, False
+            return False, False, False
 
     def extract_facebook_id(self, url):
         """Extrait l'ID numérique unique de l'annonce Facebook depuis l'URL."""
@@ -458,7 +473,7 @@ class GuitarHunterBot:
                 "status": status
             }
 
-            self.collection_ref.document(doc_id).set(data)
+            self.collection_ref.document(doc_id).set(data, merge=True) # Utiliser merge=True pour ne pas écraser isFavorite
             print(f"💾 Envoyé à l'App: {listing_data['title']} (ID: {doc_id}) - Status: {status}")
         except Exception as e:
             print(f"❌ Erreur Firestore: {e}")
@@ -976,6 +991,31 @@ class GuitarHunterBot:
         except Exception as e:
             print(f"❌ Erreur lors du traitement de la file d'attente : {e}")
 
+    def reanalyze_all_listings(self):
+        """Marque toutes les annonces non rejetées pour une ré-analyse."""
+        if self.offline_mode:
+            print("🚫 [OFFLINE] Impossible de lancer la ré-analyse globale.")
+            return
+
+        print("🧠 Lancement du processus de ré-analyse globale...")
+        try:
+            docs = self.collection_ref.where(filter=FieldFilter('status', '!=', 'rejected')).stream()
+            
+            batch = self.db.batch()
+            count = 0
+            for doc in docs:
+                batch.update(doc.reference, {'status': 'retry_analysis'})
+                count += 1
+            
+            if count > 0:
+                batch.commit()
+                print(f"✅ {count} annonces marquées pour ré-analyse. Le thread de surveillance va les traiter.")
+            else:
+                print("✅ Aucune annonce active à ré-analyser.")
+
+        except Exception as e:
+            print(f"❌ Erreur lors du marquage pour ré-analyse globale : {e}")
+
     def run_test_scan(self):
         """Génère des données de test pour vérifier la synchronisation."""
         print(f"🔎 Démarrage du scan de test (MOCK)...")
@@ -1049,7 +1089,7 @@ if __name__ == "__main__":
     try:
         while True:
             # 1. Synchronisation de la config et vérification du refresh manuel
-            should_refresh, should_cleanup = bot.sync_configuration()
+            should_refresh, should_cleanup, should_reanalyze_all = bot.sync_configuration()
             
             # NOTE: bot.process_retry_queue() est maintenant géré par le thread monitor_retries
 
@@ -1067,6 +1107,10 @@ if __name__ == "__main__":
                 
                 bot.cleanup_sold_listings()
                 last_auto_cleanup_time = time.time()
+
+            # --- GESTION DE LA RÉ-ANALYSE GLOBALE ---
+            if should_reanalyze_all:
+                bot.reanalyze_all_listings()
 
             # --- GESTION DU SCAN ---
             # Si refresh demandé OU temps écoulé
