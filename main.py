@@ -45,12 +45,14 @@ try:
         SYSTEM_PROMPT = prompts_data.get('system_prompt', "")
         DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', "")
         DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', "")
+        DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', "")
 except Exception as e:
     print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
     # Fallback si le fichier n'existe pas (valeurs par défaut minimales)
     SYSTEM_PROMPT = "Tu es un expert en guitares."
     DEFAULT_VERDICT_RULES = ""
     DEFAULT_REASONING_INSTRUCTION = ""
+    DEFAULT_USER_PROMPT = "Analyse cette guitare : {title}, {price}, {description}"
 
 # Initialisation Gemini
 model = None
@@ -107,6 +109,7 @@ class GuitarHunterBot:
         # Configuration par défaut des règles et du raisonnement (chargées depuis JSON)
         self.verdict_rules = DEFAULT_VERDICT_RULES
         self.reasoning_instruction = DEFAULT_REASONING_INSTRUCTION
+        self.user_prompt_template = DEFAULT_USER_PROMPT
 
         # Configuration par défaut du scan
         self.scan_config = {
@@ -184,6 +187,7 @@ class GuitarHunterBot:
                     'prompt': self.prompt_instruction,
                     'verdictRules': self.verdict_rules,
                     'reasoningInstruction': self.reasoning_instruction,
+                    'userPrompt': self.user_prompt_template,
                     'scanConfig': self.scan_config
                 })
                 print(f"👤 Document parent créé : users/{USER_ID_TARGET}")
@@ -244,6 +248,8 @@ class GuitarHunterBot:
                     update_payload['verdictRules'] = self.verdict_rules
                 if 'reasoningInstruction' not in data:
                     update_payload['reasoningInstruction'] = self.reasoning_instruction
+                if 'userPrompt' not in data:
+                    update_payload['userPrompt'] = self.user_prompt_template
                 
                 if update_payload:
                     print("🔧 Mise à jour du document utilisateur avec les nouveaux champs de configuration...")
@@ -265,8 +271,13 @@ class GuitarHunterBot:
                 if 'reasoningInstruction' in data and data['reasoningInstruction'] != self.reasoning_instruction:
                     self.reasoning_instruction = data['reasoningInstruction']
                     print(f"🔄 Instruction de raisonnement mise à jour.")
+                
+                # 4. User Prompt Template
+                if 'userPrompt' in data and data['userPrompt'] != self.user_prompt_template:
+                    self.user_prompt_template = data['userPrompt']
+                    print(f"🔄 Template de prompt utilisateur mis à jour.")
 
-                # 4. Scan Config
+                # 5. Scan Config
                 if 'scanConfig' in data:
                     config = data['scanConfig']
                     self.scan_config['max_ads'] = config.get('maxAds', 5)
@@ -277,7 +288,7 @@ class GuitarHunterBot:
                     self.scan_config['max_price'] = config.get('maxPrice', 10000)
                     self.scan_config['search_query'] = config.get('searchQuery', 'electric guitar')
 
-                # 5. Force Refresh
+                # 6. Force Refresh
                 if 'forceRefresh' in data:
                     last_refresh = data['forceRefresh']
                     
@@ -289,7 +300,7 @@ class GuitarHunterBot:
                         self.last_refresh_timestamp = last_refresh
                         should_refresh = True
 
-                # 6. Force Cleanup
+                # 7. Force Cleanup
                 if 'forceCleanup' in data:
                     last_cleanup = data['forceCleanup']
                     
@@ -300,7 +311,7 @@ class GuitarHunterBot:
                         self.last_cleanup_timestamp = last_cleanup
                         should_cleanup = True
                 
-                # 7. Force Reanalyze All
+                # 8. Force Reanalyze All
                 if 'forceReanalyzeAll' in data:
                     last_reanalyze = data['forceReanalyzeAll']
                     if initial:
@@ -310,7 +321,7 @@ class GuitarHunterBot:
                         self.last_reanalyze_all_timestamp = last_reanalyze
                         should_reanalyze_all = True
                 
-                # 8. Scan Specific URL
+                # 9. Scan Specific URL
                 if 'scanSpecificUrl' in data and data['scanSpecificUrl']:
                     specific_url_to_scan = data['scanSpecificUrl']
                     print(f"🔗 Scan d'URL spécifique demandé : {specific_url_to_scan}")
@@ -380,30 +391,11 @@ class GuitarHunterBot:
             if img:
                 images.append(img)
         
-        # Le prompt devient une simple fiche technique
-        user_message = f"""
-        Tu es un Maître Luthier et un expert en restauration de guitares.
-        Ton client est un bricoleur qui cherche des projets. Il ne veut pas un résumé, il veut une ANALYSE TECHNIQUE DÉTAILLÉE.
-
-        Détails de l'annonce :
-        - Titre : {listing_data.get('title', 'N/A')}
-        - Prix : {listing_data.get('price', 'N/A')}
-        - Description : {listing_data.get('description', 'N/A')}
-
-        TES OBJECTIFS (Dans cet ordre précis) :
-        1. **IDENTIFICATION & COTE** : Identifie le modèle exact (ex: Oscar Schmidt OE-60). Donne le prix neuf vs occasion.
-        2. **CALCUL DE RENTABILITÉ (La Règle de l'Étui)** : Estime la valeur de l'étui seul. Soustrais-le du prix total pour voir combien coûte réellement la guitare.
-        3. **INSPECTION VISUELLE "SHERLOCK HOLMES"** : Scrutine les photos. Cherche les "bricolages maison" (boutons déplacés, trous dans l'éclisse, têtes abîmées). Décris ce que tu vois précisément (ex: "Photo X : trou de préampli").
-        4. **PLAN DE BATAILLE (Luthier)** : Propose des solutions. (ex: "Fabriquer une plaque pour cacher le trou", "Refaire le câblage").
-
-        FORMAT DE RÉPONSE ATTENDU (JSON) :
-        {{
-            "identification": "Nom complet du modèle",
-            "market_value_estimate": "Fourchette de prix $$",
-            "verdict": "PEPITE / GOOD_DEAL / FAIR / BAD_DEAL",
-            "reasoning": "Rédige ici un RAPPORT COMPLET au format Markdown. Utilise des titres (###), des puces et du gras. Structure ta réponse exactement comme ceci : \\n\\n### 1. Analyse du Modèle\\n[Ton texte sur le modèle et sa valeur marché]\\n\\n### 2. Inspection des Dégâts\\n[Détails visuels précis : trou, boutons, état du vernis]\\n\\n### 3. Verdict Financier\\n[Calcul : Prix - Étui = Coût réel]\\n\\n### 4. Conseil du Luthier\\n[Idées de réparation : patch bois, nouvelle électronique, etc.]"
-        }}
-        """
+        # Construction du message utilisateur à partir du template
+        # Utilisation de replace() au lieu de format() pour éviter les erreurs avec les accolades JSON dans le prompt
+        user_message = self.user_prompt_template.replace("{title}", str(listing_data.get('title', 'N/A'))) \
+                                                .replace("{price}", str(listing_data.get('price', 'N/A'))) \
+                                                .replace("{description}", str(listing_data.get('description', 'N/A')))
 
         try:
             # Construction du contenu multimodal
@@ -422,7 +414,7 @@ class GuitarHunterBot:
             # --- CORRECTION : GESTION DU CAS OÙ GEMINI RENVOIE UNE LISTE ---
             if isinstance(result, list):
                 if len(result) > 0:
-                    return result[0]
+                    result = result[0]
                 else:
                     return {
                         "verdict": "ERROR",
@@ -430,6 +422,22 @@ class GuitarHunterBot:
                         "reasoning": "L'IA a renvoyé une liste vide.",
                         "confidence": 0
                     }
+            
+            # --- CORRECTION : Conversion estimated_value en nombre ---
+            if 'estimated_value' in result:
+                ev = result['estimated_value']
+                if isinstance(ev, str):
+                    try:
+                        # Extraction de tous les nombres (gère "1200", "1200$", "1000-1200")
+                        nums = [float(n) for n in re.findall(r'\d+(?:\.\d+)?', ev.replace(',', '.'))]
+                        if nums:
+                            # Si range, on fait la moyenne
+                            result['estimated_value'] = int(sum(nums) / len(nums))
+                        else:
+                            result['estimated_value'] = 0
+                    except:
+                        result['estimated_value'] = 0
+
             return result
 
         except Exception as e:

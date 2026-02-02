@@ -43,18 +43,7 @@ const appId = PYTHON_APP_ID;
 const DEFAULT_PROMPT = promptsData.system_prompt;
 const DEFAULT_VERDICT_RULES = promptsData.verdict_rules;
 const DEFAULT_REASONING_INSTRUCTION = promptsData.reasoning_instruction;
-
-const NEW_SYSTEM_PROMPT = `Tu es un Maître Luthier et Mentor pour un apprenti.
-Ton but n'est pas juste de dire "Oui/Non", mais d'ÉDUQUER sur le potentiel du projet.
-
-RÈGLES D'ANALYSE :
-1. **Ignorer la première impression** : Une guitare sale ou trouée n'est pas morte. C'est un projet.
-2. **La Règle de l'Étui** : Si un Hardcase est présent, il vaut ~80$. Déduis-le du prix.
-3. **Vision Rayons-X** : Repère les détails sur les photos (boutons non d'origine, trous de préampli, état du chevalet).
-4. **Mode "Solution"** : Au lieu de dire "L'électronique manque", dis "Opportunité d'installer un système moderne ou de faire un patch en bois".
-
-FORMAT JSON STRICT. Le champ "reasoning" doit contenir un RAPPORT DÉTAILLÉ structuré avec des titres Markdown (###), analysant le modèle, les dégâts spécifiques, et le plan de réparation suggéré.`;
-
+const DEFAULT_USER_PROMPT = promptsData.user_prompt;
 
 // --- DICTIONNAIRE DE VILLES (COORDONNÉES APPROXIMATIVES) ---
 // Utilisé pour placer les marqueurs sur la carte sans API de géocodage payante
@@ -1301,9 +1290,10 @@ const App = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Config States
-  const [prompt, setPrompt] = useState(NEW_SYSTEM_PROMPT);
+  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [verdictRules, setVerdictRules] = useState(DEFAULT_VERDICT_RULES);
   const [reasoningInstruction, setReasoningInstruction] = useState(DEFAULT_REASONING_INSTRUCTION);
+  const [userPrompt, setUserPrompt] = useState(DEFAULT_USER_PROMPT);
   const [scanConfig, setScanConfig] = useState({
       maxAds: 5, frequency: 60, location: 'montreal', distance: 60, minPrice: 0, maxPrice: 10000, searchQuery: "electric guitar"
   });
@@ -1355,6 +1345,7 @@ const App = () => {
         if (data.prompt) setPrompt(data.prompt);
         if (data.verdictRules) setVerdictRules(data.verdictRules);
         if (data.reasoningInstruction) setReasoningInstruction(data.reasoningInstruction);
+        if (data.userPrompt) setUserPrompt(data.userPrompt);
         if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
 
         // Gère l'erreur de scan envoyée par le bot
@@ -1431,10 +1422,12 @@ const App = () => {
       setPrompt(DEFAULT_PROMPT);
       setVerdictRules(DEFAULT_VERDICT_RULES);
       setReasoningInstruction(DEFAULT_REASONING_INSTRUCTION);
+      setUserPrompt(DEFAULT_USER_PROMPT);
       await saveConfig({
         prompt: DEFAULT_PROMPT,
         verdictRules: DEFAULT_VERDICT_RULES,
-        reasoningInstruction: DEFAULT_REASONING_INSTRUCTION
+        reasoningInstruction: DEFAULT_REASONING_INSTRUCTION,
+        userPrompt: DEFAULT_USER_PROMPT
       });
     }
   }, [saveConfig]);
@@ -1800,6 +1793,17 @@ const App = () => {
                     onChange={(e) => setPrompt(e.target.value)}
                     onBlur={() => saveConfig({ prompt })}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Utilisateur (Template)</label>
+                  <textarea
+                    value={userPrompt}
+                    onChange={(e) => setUserPrompt(e.target.value)}
+                    onBlur={() => saveConfig({ userPrompt })}
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
+                    placeholder="Utilisez {title}, {price}, {description} comme placeholders."
                   />
                 </div>
 
