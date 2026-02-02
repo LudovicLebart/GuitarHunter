@@ -1136,6 +1136,29 @@ const ImageGallery = ({ images, title }) => {
   );
 };
 
+// --- NOUVEAU COMPOSANT POUR SECTION RÉDUCTIBLE ---
+const CollapsibleSection = ({ title, children }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="mt-4 border-t border-slate-200 pt-4">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex justify-between items-center w-full text-left text-sm font-bold text-slate-600 hover:text-blue-600 transition-colors"
+      >
+        <span>{title}</span>
+        <ChevronRight
+          size={16}
+          className={`transform transition-transform duration-200 ${
+            isOpen ? 'rotate-90' : ''
+          }`}
+        />
+      </button>
+      {isOpen && <div className="mt-2 animate-in fade-in">{children}</div>}
+    </div>
+  );
+};
+
 // --- NOUVEAU COMPOSANT EXTRAIT ---
 const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite }) => {
   return (
@@ -1189,13 +1212,30 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
               <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
             </div>
             
-            {/* Utilisation du nouveau composant SimpleMarkdown */}
             <div className="mt-2">
-               {deal.aiAnalysis?.reasoning ? (
-                 <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
-               ) : (
-                 <p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>
-               )}
+              {deal.aiAnalysis?.reasoning ? (
+                (() => {
+                  const reasoningText = deal.aiAnalysis.reasoning;
+                  const summaryMatch = reasoningText.match(/### RÉSUMÉ\n([\s\S]*?)(?=\n###|$)/);
+                  const summary = summaryMatch ? summaryMatch[1].trim() : reasoningText;
+                  
+                  const detailsMatch = reasoningText.match(/(### (?!RÉSUMÉ)[\s\S]*)/);
+                  const details = detailsMatch ? detailsMatch[1].trim() : null;
+
+                  return (
+                    <>
+                      <SimpleMarkdown text={summary} />
+                      {details && (
+                        <CollapsibleSection title="Voir l'analyse détaillée">
+                          <SimpleMarkdown text={details} />
+                        </CollapsibleSection>
+                      )}
+                    </>
+                  );
+                })()
+              ) : (
+                <p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>
+              )}
             </div>
 
           </div>
