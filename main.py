@@ -42,10 +42,15 @@ if not APP_ID_TARGET or not USER_ID_TARGET:
 try:
     with open('prompts.json', 'r', encoding='utf-8') as f:
         prompts_data = json.load(f)
-        SYSTEM_PROMPT = prompts_data.get('system_prompt', "")
-        DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', "")
-        DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', "")
-        DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', "")
+        
+        # --- CORRECTION : Joindre les listes en chaînes de caractères ---
+        def join_if_list(value):
+            return "\n".join(value) if isinstance(value, list) else value
+
+        SYSTEM_PROMPT = join_if_list(prompts_data.get('system_prompt', ""))
+        DEFAULT_VERDICT_RULES = join_if_list(prompts_data.get('verdict_rules', ""))
+        DEFAULT_REASONING_INSTRUCTION = join_if_list(prompts_data.get('reasoning_instruction', ""))
+        DEFAULT_USER_PROMPT = join_if_list(prompts_data.get('user_prompt', ""))
 except Exception as e:
     print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
     # Fallback si le fichier n'existe pas (valeurs par défaut minimales)
@@ -241,6 +246,10 @@ class GuitarHunterBot:
 
             if doc.exists:
                 data = doc.to_dict()
+
+                # --- AJOUT D'UNE FONCTION HELPER ---
+                def join_if_list(value):
+                    return "\n".join(value) if isinstance(value, list) else value
                 
                 # --- MISE À JOUR : Ajout des champs manquants ---
                 update_payload = {}
@@ -258,24 +267,32 @@ class GuitarHunterBot:
                 # --- FIN MISE À JOUR ---
 
                 # 1. Prompt
-                if 'prompt' in data and data['prompt'] != self.prompt_instruction:
-                    self.prompt_instruction = data['prompt']
-                    print(f"🔄 Prompt mis à jour : {self.prompt_instruction}")
+                if 'prompt' in data:
+                    new_prompt = join_if_list(data['prompt'])
+                    if new_prompt != self.prompt_instruction:
+                        self.prompt_instruction = new_prompt
+                        print(f"🔄 Prompt mis à jour.")
 
                 # 2. Verdict Rules
-                if 'verdictRules' in data and data['verdictRules'] != self.verdict_rules:
-                    self.verdict_rules = data['verdictRules']
-                    print(f"🔄 Règles de verdict mises à jour.")
+                if 'verdictRules' in data:
+                    new_rules = join_if_list(data['verdictRules'])
+                    if new_rules != self.verdict_rules:
+                        self.verdict_rules = new_rules
+                        print(f"🔄 Règles de verdict mises à jour.")
 
                 # 3. Reasoning Instruction
-                if 'reasoningInstruction' in data and data['reasoningInstruction'] != self.reasoning_instruction:
-                    self.reasoning_instruction = data['reasoningInstruction']
-                    print(f"🔄 Instruction de raisonnement mise à jour.")
+                if 'reasoningInstruction' in data:
+                    new_instruction = join_if_list(data['reasoningInstruction'])
+                    if new_instruction != self.reasoning_instruction:
+                        self.reasoning_instruction = new_instruction
+                        print(f"🔄 Instruction de raisonnement mise à jour.")
                 
                 # 4. User Prompt Template
-                if 'userPrompt' in data and data['userPrompt'] != self.user_prompt_template:
-                    self.user_prompt_template = data['userPrompt']
-                    print(f"🔄 Template de prompt utilisateur mis à jour.")
+                if 'userPrompt' in data:
+                    new_template = join_if_list(data['userPrompt'])
+                    if new_template != self.user_prompt_template:
+                        self.user_prompt_template = new_template
+                        print(f"🔄 Template de prompt utilisateur mis à jour.")
 
                 # 5. Scan Config
                 if 'scanConfig' in data:
@@ -361,6 +378,24 @@ class GuitarHunterBot:
             print(f"⚠️ Impossible de télécharger l'image : {e}")
             return None
 
+    def _optimize_image(self, img, max_size=2048):
+        """Redimensionne et convertit l'image pour optimiser les tokens Gemini (en mémoire)."""
+        try:
+            # Conservation du ratio d'aspect
+            if img.size[0] > max_size or img.size[1] > max_size:
+                w_percent = (max_size / float(img.size[0]))
+                h_size = int((float(img.size[1]) * float(w_percent)))
+                img = img.resize((max_size, h_size), Image.Resampling.LANCZOS)
+            
+            # Conversion en RGB
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+                
+            return img
+        except Exception as e:
+            print(f"⚠️ Erreur optimisation image : {e}")
+            return img
+
     def analyze_deal_with_gemini(self, listing_data):
         """Utilise Gemini pour évaluer si l'annonce est une bonne affaire (Multimodal)."""
         # Removed: self.sync_configuration()
@@ -389,6 +424,7 @@ class GuitarHunterBot:
         for url in urls_to_process:
             img = self.download_image(url)
             if img:
+                img = self._optimize_image(img)
                 images.append(img)
         
         # Construction du message utilisateur à partir du template

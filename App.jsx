@@ -1172,6 +1172,11 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
                 <TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$
               </div>
             )}
+            {deal.aiAnalysis?.estimated_value_after_repair > 0 && deal.status !== 'rejected' && (
+              <div className="mt-1 text-purple-600 flex items-center gap-1 font-bold text-xs bg-purple-50 px-2 py-1 rounded-lg">
+                <Activity size={12} /> Val. Revente: {deal.aiAnalysis.estimated_value_after_repair}$
+              </div>
+            )}
           </div>
         </div>
 
