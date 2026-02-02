@@ -8,6 +8,7 @@ import warnings
 import unicodedata
 import urllib.parse
 import threading
+import math
 from io import BytesIO
 from PIL import Image
 from dotenv import load_dotenv
@@ -103,6 +104,25 @@ if not firebase_admin._apps:
         print(f"❌ Erreur critique Firebase: {e}")
         offline_mode = True
 
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Calcule la distance en km entre deux points géographiques (Haversine)."""
+    try:
+        # Rayon de la Terre en km
+        R = 6371.0
+        
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        delta_phi = math.radians(lat2 - lat1)
+        delta_lambda = math.radians(lon2 - lon1)
+        
+        a = math.sin(delta_phi / 2)**2 + \
+            math.cos(phi1) * math.cos(phi2) * \
+            math.sin(delta_lambda / 2)**2
+        
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+    except Exception as e:
+        print(f"⚠️ Erreur calcul distance: {e}")
+        return 0
 
 class GuitarHunterBot:
     def __init__(self, db_client, gemini_model, is_offline, prompt_instruction=PROMPT_INSTRUCTION):
@@ -130,6 +150,7 @@ class GuitarHunterBot:
         self.last_cleanup_timestamp = 0
         self.last_reanalyze_all_timestamp = 0 # Pour la nouvelle fonctionnalité
         self.city_mapping = {} # Sera rempli depuis Firestore
+        self.city_coordinates = {} # Sera rempli depuis JSON
         
         # État du nettoyage
         self.is_cleaning = False
@@ -144,6 +165,14 @@ class GuitarHunterBot:
         print(f"   - CHEMIN  : {self.collection_path}")
         print(f"   - PROMPT  : {self.prompt_instruction}")
         
+        # Chargement des coordonnées des villes
+        try:
+            with open('city_coordinates.json', 'r', encoding='utf-8') as f:
+                self.city_coordinates = json.load(f)
+                print(f"   🗺️ {len(self.city_coordinates)} coordonnées de villes chargées.")
+        except Exception as e:
+            print(f"⚠️ Impossible de charger city_coordinates.json : {e}")
+
         if self.offline_mode:
             print("⚠️ ATTENTION : MODE HORS-LIGNE ACTIVÉ. Aucune donnée ne sera sauvegardée dans Firebase.")
             return
@@ -939,6 +968,32 @@ class GuitarHunterBot:
             
             # Extraction détaillée
             description, image_urls, coordinates = self._extract_listing_details(context, clean_link, title, price, location) # Récupération des coordonnées
+            
+            # --- FILTRE DE DISTANCE (NOUVEAU) ---
+            if coordinates:
+                # Récupération des coordonnées de la ville cible
+                target_city_key = self.scan_config['location'].lower().split(',')[0].strip()
+                # Normalisation pour correspondre aux clés du JSON (ex: "montreal")
+                target_city_key = unicodedata.normalize('NFD', target_city_key).encode('ascii', 'ignore').decode("utf-8")
+                
+                target_coords = self.city_coordinates.get(target_city_key)
+                
+                if target_coords:
+                    dist = calculate_distance(
+                        target_coords['lat'], target_coords['lng'],
+                        coordinates['lat'], coordinates['lng']
+                    )
+                    
+                    max_dist = self.scan_config['distance']
+                    # On ajoute une petite marge de tolérance (ex: 10%)
+                    if dist > max_dist * 1.1:
+                        print(f"   ⏩ Annonce ignorée : Trop loin ({dist:.1f} km > {max_dist} km)")
+                        return processed_count
+                    else:
+                        print(f"   ✅ Distance OK : {dist:.1f} km (Max: {max_dist} km)")
+                else:
+                    print(f"   ⚠️ Impossible de vérifier la distance : Coordonnées de '{target_city_key}' introuvables.")
+
             final_image_url = image_urls[0] if image_urls else image_url
 
             listing_data = {
