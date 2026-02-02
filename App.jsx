@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit, Gem
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit, Gem, Maximize2, X
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -890,6 +891,67 @@ const CITY_COORDINATES = {
 };
 
 // --- COMPOSANTS UTILITAIRES ---
+
+// Nouveau composant pour le rendu Markdown simplifié
+const SimpleMarkdown = ({ text }) => {
+  if (!text) return null;
+
+  // Découpe le texte par ligne
+  const lines = text.split('\n');
+
+  return (
+    <div className="space-y-2 text-slate-600 text-sm font-medium leading-relaxed">
+      {lines.map((line, index) => {
+        const trimmedLine = line.trim();
+        
+        // Gestion des titres (###)
+        if (trimmedLine.startsWith('###')) {
+          return (
+            <h3 key={index} className="text-blue-800 font-bold text-base mt-3 mb-1 uppercase tracking-wide">
+              {trimmedLine.replace(/^###\s*/, '')}
+            </h3>
+          );
+        }
+        
+        // Gestion des listes à puces (-)
+        if (trimmedLine.startsWith('- ')) {
+          return (
+            <div key={index} className="flex items-start gap-2 ml-2">
+              <span className="text-blue-400 mt-1.5">•</span>
+              <span>
+                {parseBold(trimmedLine.replace(/^- /, ''))}
+              </span>
+            </div>
+          );
+        }
+
+        // Paragraphe standard (avec gestion du gras)
+        if (trimmedLine.length > 0) {
+           return (
+             <p key={index}>
+               {parseBold(trimmedLine)}
+             </p>
+           );
+        }
+
+        return null; // Ligne vide
+      })}
+    </div>
+  );
+};
+
+// Fonction helper pour parser le gras (**texte**)
+const parseBold = (text) => {
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="text-slate-800 font-bold">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+};
+
+
 const VerdictBadge = ({ verdict }) => {
   const configs = {
     'PEPITE': { label: 'Pépite !', color: 'bg-yellow-400', icon: <Gem size={12}/> },
@@ -925,6 +987,31 @@ const DebugStatus = ({ label, status, details }) => (
 
 const ImageGallery = ({ images, title }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  // Gestion du scroll body quand le plein écran est actif
+  useEffect(() => {
+    if (isFullScreen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isFullScreen]);
+
+  // Gestion des touches clavier
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isFullScreen) return;
+      if (e.key === 'Escape') setIsFullScreen(false);
+      if (e.key === 'ArrowRight') nextImage(e);
+      if (e.key === 'ArrowLeft') prevImage(e);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullScreen, currentIndex, images]);
 
   if (!images || images.length === 0) {
     return (
@@ -935,61 +1022,131 @@ const ImageGallery = ({ images, title }) => {
   }
 
   const nextImage = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
     setCurrentIndex((prev) => (prev + 1) % images.length);
   };
 
   const prevImage = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
     setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
   };
 
+  const toggleFullScreen = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsFullScreen(!isFullScreen);
+  };
+
   return (
-    <div className="relative w-full h-full group">
-      <img
-        src={images[currentIndex]}
-        className="w-full h-full object-cover transition-transform duration-700"
-        alt={`${title} - ${currentIndex + 1}`}
-      />
-      
-      {images.length > 1 && (
-        <>
-          <button 
-            onClick={prevImage}
-            className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <button 
-            onClick={nextImage}
-            className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <ChevronRight size={20} />
-          </button>
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-            {images.map((_, idx) => (
-              <div 
-                key={idx} 
-                className={`w-1.5 h-1.5 rounded-full ${idx === currentIndex ? 'bg-white' : 'bg-white/50'}`}
-              />
-            ))}
-          </div>
-        </>
+    <>
+      {/* Mode Normal */}
+      <div className="relative w-full h-full group cursor-pointer" onClick={toggleFullScreen}>
+        <img
+          src={images[currentIndex]}
+          className="w-full h-full object-contain transition-transform duration-700"
+          alt={`${title} - ${currentIndex + 1}`}
+        />
+        
+        {/* Bouton Expand au survol */}
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white p-1.5 rounded-lg">
+            <Maximize2 size={16} />
+        </div>
+
+        {images.length > 1 && (
+          <>
+            <button 
+              onClick={prevImage}
+              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <button 
+              onClick={nextImage}
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <ChevronRight size={20} />
+            </button>
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+              {images.map((_, idx) => (
+                <div 
+                  key={idx} 
+                  className={`w-1.5 h-1.5 rounded-full ${idx === currentIndex ? 'bg-white' : 'bg-white/50'}`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Mode Plein Écran */}
+      {isFullScreen && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={() => setIsFullScreen(false)}>
+            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+                <img
+                    src={images[currentIndex]}
+                    className="max-w-full max-h-full object-contain shadow-2xl"
+                    alt={`${title} - Fullscreen`}
+                />
+
+                {images.length > 1 && (
+                    <>
+                        <button 
+                            onClick={prevImage}
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                        >
+                            <ChevronLeft size={48} />
+                        </button>
+                        <button 
+                            onClick={nextImage}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                        >
+                            <ChevronRight size={48} />
+                        </button>
+                        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
+                            {images.map((_, idx) => (
+                                <div 
+                                    key={idx} 
+                                    className={`w-2 h-2 rounded-full transition-all ${idx === currentIndex ? 'bg-white scale-125' : 'bg-white/30'}`}
+                                />
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            <button 
+                onClick={(e) => {
+                   e.stopPropagation();
+                   setIsFullScreen(false);
+                }}
+                className="absolute top-4 right-4 z-50 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+            >
+                <X size={32} />
+            </button>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 };
 
 // --- NOUVEAU COMPOSANT EXTRAIT ---
 const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite }) => {
   return (
-    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
+    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
       {/* Image Section */}
-      <div className="md:w-80 h-64 md:h-auto overflow-hidden relative">
-        <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
-        <div className="absolute top-4 left-4 z-10">
+      <div className="md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
+        {/* On force une hauteur minimale pour que le sticky fonctionne bien visuellement */}
+        <div className="h-64 md:h-80 w-full">
+            <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
+        </div>
+        <div className="absolute top-4 left-4 z-10 pointer-events-none">
           <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
         </div>
         {/* Overlay gradient */}
@@ -997,7 +1154,7 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
       </div>
 
       {/* Content Section */}
-      <div className="flex-1 p-6 md:p-8 flex flex-col">
+      <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none overflow-hidden">
         <div className="flex justify-between items-start gap-4 mb-4">
           <div>
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1">
@@ -1026,9 +1183,16 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
               <Sparkles size={14} />
               <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
             </div>
-            <p className="text-slate-600 text-sm font-medium italic leading-relaxed">
-              "{deal.aiAnalysis?.reasoning || "Analyse de l'état et de la valeur en cours par l'intelligence artificielle..."}"
-            </p>
+            
+            {/* Utilisation du nouveau composant SimpleMarkdown */}
+            <div className="mt-2">
+               {deal.aiAnalysis?.reasoning ? (
+                 <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
+               ) : (
+                 <p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>
+               )}
+            </div>
+
           </div>
         </div>
 
@@ -1929,12 +2093,12 @@ const App = () => {
       {/* MODAL FOR MAP DEAL */}
       {selectedDealFromMap && (
         <div 
-          className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center justify-center overflow-hidden animate-in fade-in backdrop-blur-sm"
+          className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center overflow-y-auto animate-in fade-in backdrop-blur-sm pt-24 pb-12"
           onClick={() => setSelectedDealFromMap(null)}
         >
           {/* Controls Bar */}
           <div 
-            className="absolute top-6 z-50 flex items-center gap-4"
+            className="fixed top-6 z-50 flex items-center gap-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-slate-900/90 text-white px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl border border-white/10">
@@ -1961,7 +2125,7 @@ const App = () => {
 
           {/* Scalable Content */}
           <div 
-            className="relative transition-transform duration-200 ease-out origin-center" 
+            className="relative transition-transform duration-200 ease-out origin-top"
             style={{ 
               transform: `scale(${zoomLevel})`,
               width: '100%',
