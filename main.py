@@ -130,6 +130,10 @@ class GuitarHunterBot:
         self.last_cleanup_timestamp = 0
         self.last_reanalyze_all_timestamp = 0 # Pour la nouvelle fonctionnalité
         self.city_mapping = {} # Sera rempli depuis Firestore
+        
+        # État du nettoyage
+        self.is_cleaning = False
+        self.cleanup_lock = threading.Lock()
 
         # Construction du chemin pour vérification
         self.collection_path = f"artifacts/{APP_ID_TARGET}/users/{USER_ID_TARGET}/guitar_deals"
@@ -529,73 +533,93 @@ class GuitarHunterBot:
             print(f"❌ Erreur Firestore: {e}")
 
     def cleanup_sold_listings(self):
-        """Vérifie si les annonces en base sont toujours disponibles et supprime les vendues."""
+        """Lance le nettoyage des annonces vendues dans un thread séparé."""
         if self.offline_mode:
             return
 
-        print("\n🧹 Lancement du nettoyage des annonces vendues...")
-        try:
-            # 1. Get all non-rejected listings
-            docs = self.collection_ref.where(filter=FieldFilter('status', '!=', 'rejected')).stream()
-            
-            listings_to_check = []
-            for doc in docs:
-                listings_to_check.append({'id': doc.id, 'data': doc.to_dict()})
+        if self.is_cleaning:
+            print("⚠️ Nettoyage déjà en cours en arrière-plan.")
+            return
 
-            if not listings_to_check:
-                print("   ✅ Aucune annonce active à vérifier.")
-                return
+        print("\n🧹 Démarrage du thread de nettoyage...")
+        cleanup_thread = threading.Thread(target=self._perform_cleanup_logic, daemon=True)
+        cleanup_thread.start()
+
+    def _perform_cleanup_logic(self):
+        """Logique interne de nettoyage (exécutée dans un thread)."""
+        with self.cleanup_lock:
+            self.is_cleaning = True
+            try:
+                # 1. Get all non-rejected listings
+                docs = self.collection_ref.where(filter=FieldFilter('status', '!=', 'rejected')).stream()
                 
-            print(f"   🔍 {len(listings_to_check)} annonces à vérifier...")
+                listings_to_check = []
+                for doc in docs:
+                    listings_to_check.append({'id': doc.id, 'data': doc.to_dict()})
 
-            deleted_count = 0
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                
-                # Utilisation d'un contexte similaire au scan pour éviter les blocages
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-                    locale="fr-CA",
-                    timezone_id="America/Montreal"
-                )
-                
-                for listing in listings_to_check:
-                    listing_id = listing['id']
-                    listing_data = listing['data']
-                    url = listing_data.get('link')
+                if not listings_to_check:
+                    print("   ✅ [Thread Nettoyage] Aucune annonce active à vérifier.")
+                    return
+                    
+                print(f"   🔍 [Thread Nettoyage] {len(listings_to_check)} annonces à vérifier...")
 
-                    if not url:
-                        continue
+                deleted_count = 0
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    
+                    # Utilisation d'un contexte similaire au scan pour éviter les blocages
+                    context = browser.new_context(
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                        locale="fr-CA",
+                        timezone_id="America/Montreal"
+                    )
+                    
+                    # --- OPTIMISATION : Bloquer les images et polices pour aller plus vite ---
+                    context.route("**/*", lambda route: route.abort() 
+                        if route.request.resource_type in ["image", "font", "stylesheet"] 
+                        else route.continue_())
 
-                    page = context.new_page()
-                    try:
-                        print(f"   - Vérification de : {listing_data.get('title', listing_id)}...")
-                        page.goto(url, timeout=30000)
-                        
-                        # Check for "This listing is no longer available"
-                        # The text is "Cette annonce n’est plus disponible" in French
-                        sold_indicator = page.locator('span:has-text("Cette annonce n’est plus disponible"), span:has-text("This listing is no longer available")')
-                        
-                        if sold_indicator.count() > 0:
-                            print(f"   🗑️ Annonce vendue/supprimée. Suppression de la base de données...")
-                            self.collection_ref.document(listing_id).delete()
-                            deleted_count += 1
-                        else:
-                            # print(f"   👍 Annonce toujours active.")
+                    for listing in listings_to_check:
+                        listing_id = listing['id']
+                        listing_data = listing['data']
+                        url = listing_data.get('link')
+
+                        if not url:
+                            continue
+
+                        page = context.new_page()
+                        try:
+                            # print(f"   - Vérification de : {listing_data.get('title', listing_id)}...")
+                            # Timeout réduit car on n'attend pas les images
+                            page.goto(url, timeout=15000) 
+                            
+                            # Check for "This listing is no longer available"
+                            # The text is "Cette annonce n’est plus disponible" in French
+                            sold_indicator = page.locator('span:has-text("Cette annonce n’est plus disponible"), span:has-text("This listing is no longer available")')
+                            
+                            if sold_indicator.count() > 0:
+                                print(f"   🗑️ [Thread Nettoyage] Annonce vendue : {listing_data.get('title')}. Suppression...")
+                                self.collection_ref.document(listing_id).delete()
+                                deleted_count += 1
+                            else:
+                                # print(f"   👍 Annonce toujours active.")
+                                pass
+
+                        except Exception as e:
+                            # print(f"   ⚠️ Erreur lors de la vérification de {listing_id}: {e}")
                             pass
+                        finally:
+                            page.close()
+                            time.sleep(0.5) # Pause réduite
 
-                    except Exception as e:
-                        print(f"   ⚠️ Erreur lors de la vérification de {listing_id}: {e}")
-                    finally:
-                        page.close()
-                        time.sleep(1) # Petite pause pour être gentil avec le serveur
+                    browser.close()
+                
+                print(f"🏁 [Thread Nettoyage] Terminé. {deleted_count} annonce(s) supprimée(s).")
 
-                browser.close()
-            
-            print(f"🏁 Nettoyage terminé. {deleted_count} annonce(s) supprimée(s).")
-
-        except Exception as e:
-            print(f"❌ Erreur durant le processus de nettoyage : {e}")
+            except Exception as e:
+                print(f"❌ [Thread Nettoyage] Erreur : {e}")
+            finally:
+                self.is_cleaning = False
 
     def _close_login_popup(self, page):
         """Tente de fermer le popup de connexion qui peut apparaître."""
@@ -753,17 +777,36 @@ class GuitarHunterBot:
             
             # --- EXTRACTION DES COORDONNÉES DE LA CARTE ---
             try:
-                map_image_locator = detail_page.locator('img[src*="staticmap"]').first
-                if map_image_locator.is_visible(timeout=5000): # Attendre que l'image de la carte soit visible
-                    src = map_image_locator.get_attribute('src')
-                    if src:
-                        # Utiliser une regex pour extraire les coordonnées dans l'URL
-                        match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', src)
-                        if match:
-                            coordinates = {"lat": float(match.group(1)), "lng": float(match.group(2))}
-                            print(f"   🗺️ Coordonnées extraites: {coordinates['lat']}, {coordinates['lng']}")
-                        else:
-                            print("   ⚠️ Coordonnées non trouvées dans l'URL de la carte statique.")
+                map_src = None
+                
+                # 1. Recherche balise IMG (Ancienne structure)
+                map_img = detail_page.locator('img[src*="staticmap"]').first
+                if map_img.count() > 0:
+                    try:
+                        if map_img.is_visible(timeout=2000):
+                            map_src = map_img.get_attribute('src')
+                    except: pass
+                
+                # 2. Recherche DIV avec background-image (Nouvelle structure)
+                if not map_src:
+                    map_div = detail_page.locator('div[style*="static_map.php"], div[style*="staticmap"]').first
+                    if map_div.count() > 0:
+                        try:
+                            if map_div.is_visible(timeout=2000):
+                                style = map_div.get_attribute('style')
+                                if style:
+                                    match_url = re.search(r'url\((?:&quot;|"|\')?(.*?)(?:&quot;|"|\')?\)', style)
+                                    if match_url:
+                                        map_src = match_url.group(1).replace('&amp;', '&')
+                        except: pass
+
+                if map_src:
+                    match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', map_src)
+                    if match:
+                        coordinates = {"lat": float(match.group(1)), "lng": float(match.group(2))}
+                        print(f"   🗺️ Coordonnées extraites: {coordinates['lat']}, {coordinates['lng']}")
+                    else:
+                        print("   ⚠️ Coordonnées non trouvées dans l'URL de la carte statique.")
                 else:
                     print("   ⚠️ Image de carte statique non trouvée sur la page de détails.")
             except Exception as e:
