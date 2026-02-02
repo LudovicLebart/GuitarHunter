@@ -759,6 +759,17 @@ class GuitarHunterBot:
         except Exception as e:
             print(f"   ⚠️ Erreur lors de l'application du prix final : {e}")
 
+    def _normalize_city_name(self, name):
+        """Normalise le nom de la ville pour correspondre aux clés JSON."""
+        if not name: return ""
+        # Enlever ", QC" ou autres suffixes
+        name = name.split(',')[0].strip()
+        # Minuscules
+        name = name.lower()
+        # Enlever les accents
+        name = unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode("utf-8")
+        return name
+
     def _extract_listing_details(self, context, clean_link, title, price, location):
         """Ouvre une annonce et extrait les détails (images, description, et coordonnées)."""
         description = f"Annonce Marketplace. {title}. Localisation: {location}"
@@ -891,20 +902,20 @@ class GuitarHunterBot:
         return description, image_urls, coordinates # Modification de la valeur de retour
 
     def _process_listing(self, link_loc, context, location, distance, max_ads, processed_count, seen_urls):
-        """Traite un élément d'annonce individuel."""
+        """Traite un élément d'annonce individuel. Retourne (nouveau_compte, est_trop_loin)."""
         if processed_count >= max_ads:
-            return processed_count
+            return processed_count, False
 
         href = link_loc.get_attribute("href")
-        if not href: return processed_count
+        if not href: return processed_count, False
         full_link = f"https://www.facebook.com{href}" if href.startswith("/") else href
         clean_link = full_link.split('?')[0]
         
-        if clean_link in seen_urls: return processed_count
+        if clean_link in seen_urls: return processed_count, False
         seen_urls.add(clean_link)
 
         fb_id = self.extract_facebook_id(clean_link)
-        if not fb_id: return processed_count
+        if not fb_id: return processed_count, False
 
         # Extraction basique
         text_content = link_loc.inner_text()
@@ -948,6 +959,24 @@ class GuitarHunterBot:
             if len(potential_loc) < 40 and not any(c in potential_loc for c in ['$', '€']):
                 specific_location = potential_loc
 
+        # --- PRÉ-FILTRE : VÉRIFICATION DE LA VILLE PAR TEXTE ---
+        target_city_key = self._normalize_city_name(self.scan_config['location'])
+        target_coords = self.city_coordinates.get(target_city_key)
+        
+        if target_coords:
+            normalized_specific_loc = self._normalize_city_name(specific_location)
+            specific_coords = self.city_coordinates.get(normalized_specific_loc)
+            
+            if specific_coords:
+                dist = calculate_distance(
+                    target_coords['lat'], target_coords['lng'],
+                    specific_coords['lat'], specific_coords['lng']
+                )
+                max_dist = self.scan_config['distance']
+                if dist > max_dist * 1.1:
+                    print(f"   ⏩ [Pré-filtre] Annonce ignorée : {specific_location} est à {dist:.1f} km (Max: {max_dist} km)")
+                    return processed_count, True # Est trop loin
+
         if (price > 0 or "Gratuit" in text_content or "Free" in text_content):
             print(f"   ✨ Annonce trouvée : {title} ({price} $) @ {specific_location}")
             
@@ -959,40 +988,29 @@ class GuitarHunterBot:
                         existing = doc_snap.to_dict()
                         if existing.get('status') == 'rejected':
                             print(f"   🚫 Annonce déjà rejetée. On passe.")
-                            return processed_count
+                            return processed_count, False # Pas trop loin, juste rejetée
                         if existing.get('price') == price:
                             print(f"   ⏭️ Annonce existante et prix inchangé. On passe.")
-                            return processed_count
+                            return processed_count, False # Pas trop loin, juste existante
                         print(f"   🔄 Le prix a changé ! Mise à jour...")
                 except: pass
             
             # Extraction détaillée
             description, image_urls, coordinates = self._extract_listing_details(context, clean_link, title, price, location) # Récupération des coordonnées
             
-            # --- FILTRE DE DISTANCE (NOUVEAU) ---
-            if coordinates:
-                # Récupération des coordonnées de la ville cible
-                target_city_key = self.scan_config['location'].lower().split(',')[0].strip()
-                # Normalisation pour correspondre aux clés du JSON (ex: "montreal")
-                target_city_key = unicodedata.normalize('NFD', target_city_key).encode('ascii', 'ignore').decode("utf-8")
+            # --- FILTRE DE DISTANCE (GPS) ---
+            if coordinates and target_coords:
+                dist = calculate_distance(
+                    target_coords['lat'], target_coords['lng'],
+                    coordinates['lat'], coordinates['lng']
+                )
                 
-                target_coords = self.city_coordinates.get(target_city_key)
-                
-                if target_coords:
-                    dist = calculate_distance(
-                        target_coords['lat'], target_coords['lng'],
-                        coordinates['lat'], coordinates['lng']
-                    )
-                    
-                    max_dist = self.scan_config['distance']
-                    # On ajoute une petite marge de tolérance (ex: 10%)
-                    if dist > max_dist * 1.1:
-                        print(f"   ⏩ Annonce ignorée : Trop loin ({dist:.1f} km > {max_dist} km)")
-                        return processed_count
-                    else:
-                        print(f"   ✅ Distance OK : {dist:.1f} km (Max: {max_dist} km)")
+                max_dist = self.scan_config['distance']
+                if dist > max_dist * 1.1:
+                    print(f"   ⏩ [GPS] Annonce ignorée : Trop loin ({dist:.1f} km > {max_dist} km)")
+                    return processed_count, True # Est trop loin
                 else:
-                    print(f"   ⚠️ Impossible de vérifier la distance : Coordonnées de '{target_city_key}' introuvables.")
+                    print(f"   ✅ Distance OK : {dist:.1f} km (Max: {max_dist} km)")
 
             final_image_url = image_urls[0] if image_urls else image_url
 
@@ -1012,9 +1030,9 @@ class GuitarHunterBot:
             
             analysis = self.analyze_deal_with_gemini(listing_data)
             self.save_to_firestore(listing_data, analysis, doc_id=fb_id)
-            return processed_count + 1
+            return processed_count + 1, False
         
-        return processed_count
+        return processed_count, False
 
     def scan_facebook_marketplace(self, search_query="electric guitar", location="montreal", distance=60, min_price=0, max_price=10000, max_ads=5):
         """Scrape réellement Facebook Marketplace avec Playwright."""
@@ -1080,9 +1098,21 @@ class GuitarHunterBot:
                 
                 processed_count = 0
                 seen_urls = set()
+                consecutive_out_of_bounds = 0 # Compteur pour le coupe-circuit
+                MAX_CONSECUTIVE_OUT_OF_BOUNDS = 30 # Limite avant arrêt
 
                 for link_loc in listings_locators:
-                    processed_count = self._process_listing(link_loc, context, location, distance, max_ads, processed_count, seen_urls)
+                    processed_count, is_too_far = self._process_listing(link_loc, context, location, distance, max_ads, processed_count, seen_urls)
+                    
+                    if is_too_far:
+                        consecutive_out_of_bounds += 1
+                        if consecutive_out_of_bounds >= MAX_CONSECUTIVE_OUT_OF_BOUNDS:
+                            print(f"🛑 Arrêt du scan : {MAX_CONSECUTIVE_OUT_OF_BOUNDS} annonces consécutives hors zone.")
+                            break
+                    else:
+                        # Si l'annonce est dans la zone (même si ignorée pour d'autres raisons comme doublon), on reset
+                        consecutive_out_of_bounds = 0
+
                     if processed_count >= max_ads: break
                         
             except Exception as e:
