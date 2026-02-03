@@ -4,7 +4,7 @@ import {
   Search, ExternalLink, Guitar,
   AlertTriangle, RefreshCw, CheckCircle, XCircle,
   Activity, Settings, Clock,
-  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit, Gem, Maximize2, X
+  MapPin, Sparkles, TrendingUp, Plus, Trash2, ChevronLeft, ChevronRight, Ban, RotateCcw, Map as MapIcon, List, Heart, BrainCircuit, Gem, Maximize2, X, Share2
 } from 'lucide-react';
 
 // --- Configuration Firebase ---
@@ -318,6 +318,18 @@ const CollapsibleSection = ({ title, children }) => {
 
 // --- NOUVEAU COMPOSANT EXTRAIT ---
 const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `${window.location.origin}${window.location.pathname}?dealId=${deal.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
       {/* Image Section */}
@@ -448,6 +460,16 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
                 <Ban size={14} />
               </button>
             )}
+
+            {/* BOUTON PARTAGER */}
+            <button
+                onClick={handleShare}
+                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${copied ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:text-blue-500'}`}
+                title="Copier le lien de l'analyse"
+            >
+                {copied ? <CheckCircle size={14} /> : <Share2 size={14} />}
+            </button>
+
             <a
               href={deal.link}
               target="_blank"
@@ -595,7 +617,7 @@ const MapView = ({ deals, onDealSelect }) => {
 
         // Création d'une icône SVG personnalisée
         const svgMarker = {
-            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5-2.5 2.5z",
             fillColor: markerColor,
             fillOpacity: 1,
             strokeWeight: 1,
@@ -647,7 +669,7 @@ const App = () => {
   // UI States
   const [showConfig, setShowConfig] = useState(false);
   const [viewMode, setViewMode] = useState('LIST'); // 'LIST' ou 'MAP'
-  const [selectedDealFromMap, setSelectedDealFromMap] = useState(null);
+  const [selectedDeal, setSelectedDeal] = useState(null); // RENAMED from selectedDealFromMap
   const [zoomLevel, setZoomLevel] = useState(0.85); // 85% par défaut
   const [isReanalyzingAll, setIsReanalyzingAll] = useState(false); // New state for UI feedback
 
@@ -761,6 +783,19 @@ const App = () => {
     });
     return () => unsubscribe();
   }, [user]);
+
+  // 5. Deep Linking (NEW)
+  useEffect(() => {
+    if (loading) return;
+    const params = new URLSearchParams(window.location.search);
+    const dealId = params.get('dealId');
+    if (dealId) {
+      const deal = deals.find(d => d.id === dealId);
+      if (deal) {
+        setSelectedDeal(deal);
+      }
+    }
+  }, [loading, deals]);
 
   // Actions
   const saveConfig = useCallback(async (newVal) => {
@@ -1258,7 +1293,7 @@ const App = () => {
               <p className="text-slate-400 text-xs mt-1">Ajustez vos filtres ou lancez un scan manuel</p>
             </div>
           ) : viewMode === 'MAP' ? (
-             <MapView deals={filteredDeals} onDealSelect={setSelectedDealFromMap} />
+             <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
           ) : (
             <div className="grid grid-cols-1 gap-6">
               {filteredDeals.map((deal) => (
@@ -1293,10 +1328,10 @@ const App = () => {
       )}
 
       {/* MODAL FOR MAP DEAL */}
-      {selectedDealFromMap && (
+      {selectedDeal && (
         <div 
           className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center overflow-y-auto animate-in fade-in backdrop-blur-sm pt-24 pb-12"
-          onClick={() => setSelectedDealFromMap(null)}
+          onClick={() => setSelectedDeal(null)}
         >
           {/* Controls Bar */}
           <div 
@@ -1318,7 +1353,7 @@ const App = () => {
             </div>
 
             <button 
-              onClick={() => setSelectedDealFromMap(null)}
+              onClick={() => setSelectedDeal(null)}
               className="bg-white text-slate-900 rounded-full p-2.5 shadow-2xl hover:bg-rose-500 hover:text-white transition-all"
             >
               <XCircle size={20} />
@@ -1337,8 +1372,8 @@ const App = () => {
             onClick={(e) => e.stopPropagation()}
           >
              <DealCard
-                key={selectedDealFromMap.id}
-                deal={selectedDealFromMap}
+                key={selectedDeal.id}
+                deal={selectedDeal}
                 filterType={filterType}
                 onRetry={handleRetryAnalysis}
                 onReject={handleRejectDeal}

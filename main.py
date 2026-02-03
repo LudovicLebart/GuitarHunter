@@ -745,7 +745,7 @@ class GuitarHunterBot:
         # --- FORÇAGE DE LA MISE À JOUR VIA LE PRIX ---
         try:
             print(f"   💰 Application du prix final ({max_price} $) pour forcer la mise à jour...")
-            max_price_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price']").first
+            max_price_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[aria-label='Maximum'], input[placeholder='Max.']").first
             
             if max_price_input.is_visible(timeout=5000):
                 max_price_input.fill(str(max_price))
