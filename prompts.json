@@ -40,7 +40,7 @@
     "- \"GOOD_DEAL\" : Le prix demandé est INFERIEUR à la valeur estimée (mais pas une pépite).",
     "- \"FAIR\" : Le prix demandé est PROCHE de la valeur estimée (à +/- 10%).",
     "- \"BAD_DEAL\" : Le prix demandé est SUPERIEUR à la valeur estimée.",
-    "- \"REJECTED\" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, périphériques de jeu vidéo, etc.). La Guitare est de marque First Act."
+    "- \"REJECTED\" : L'objet n'est PAS ce que l'on recherche (ex: une montre guitare, un accessoire seul si on cherche une guitare, une guitare jouet, périphériques de jeu vidéo, etc.). La Guitare est de marque First Act. Il s'agit d'un magasin (mention +TX"
   ],
   "reasoning_instruction": "explication détaillée et complète justifiant le verdict par rapport au prix et à la valeur, pécédé d'un résumé",
   "user_prompt": [
