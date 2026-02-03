@@ -13,21 +13,23 @@ class DealAnalyzer:
         self._init_gemini()
 
     def _init_gemini(self):
-        """Initialise le modèle Gemini."""
+        """Initialise le modèle Gemini avec fallback."""
         if GEMINI_API_KEY:
+            genai.configure(api_key=GEMINI_API_KEY)
+            
             try:
-                genai.configure(api_key=GEMINI_API_KEY)
                 self.model = genai.GenerativeModel(
-                    model_name='gemini-1.5-flash',
+                    model_name='gemini-2.0-flash',
                     system_instruction=SYSTEM_PROMPT,
                     generation_config={
                         "response_mime_type": "application/json",
                         "temperature": 0.1
                     }
                 )
-                print("🤖 Modèle Gemini initialisé dans DealAnalyzer.")
+                print("🤖 Modèle Gemini initialisé (gemini-2.0-flash).")
             except Exception as e:
-                print(f"❌ Erreur initialisation Gemini : {e}")
+                print(f"⚠️ Erreur init gemini-2.0-flash : {e}")
+
         else:
             print("⚠️ Pas de clé API Gemini fournie.")
 
@@ -114,7 +116,29 @@ class DealAnalyzer:
                 print("   ⚠️ Analyse texte uniquement (pas d'image valide).")
 
             response = self.model.generate_content(content)
-            result = json.loads(response.text)
+            
+            # Nettoyage de la réponse (au cas où le JSON est entouré de ```json ... ```)
+            text_response = response.text
+            if text_response.startswith("```json"):
+                text_response = text_response[7:]
+            if text_response.startswith("```"):
+                text_response = text_response[3:]
+            if text_response.endswith("```"):
+                text_response = text_response[:-3]
+            
+            text_response = text_response.strip()
+            
+            try:
+                result = json.loads(text_response)
+            except json.JSONDecodeError:
+                # Fallback si le modèle ne renvoie pas du JSON pur malgré la config
+                print(f"⚠️ Réponse non-JSON reçue : {text_response[:100]}...")
+                return {
+                    "verdict": "ERROR",
+                    "estimated_value": listing_data.get('price', 0),
+                    "reasoning": "Erreur format JSON: " + text_response[:200],
+                    "confidence": 0
+                }
             
             # Gestion du cas où Gemini renvoie une liste
             if isinstance(result, list):
@@ -155,6 +179,6 @@ class DealAnalyzer:
             return {
                 "verdict": "ERROR",
                 "estimated_value": listing_data.get('price', 0),
-                "reasoning": "Erreur d'analyse IA (Voir logs console)",
+                "reasoning": f"Erreur d'analyse IA : {e}",
                 "confidence": 0
             }

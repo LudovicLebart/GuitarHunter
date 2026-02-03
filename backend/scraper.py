@@ -68,7 +68,7 @@ class FacebookScraper:
                 time.sleep(1)
         except: pass
 
-    def _apply_filters(self, page, distance, max_price):
+    def _apply_filters(self, page, distance, min_price, max_price):
         """Applique les filtres de rayon et de prix."""
         # Rayon
         try:
@@ -114,13 +114,45 @@ class FacebookScraper:
 
         # Prix
         try:
-            max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max.']").first
-            if max_input.is_visible(timeout=5000):
-                max_input.fill(str(max_price))
+            print(f"   💰 Application des prix : {min_price}$ - {max_price}$")
+            
+            # Prix Minimum
+            if min_price > 0:
+                min_input = page.locator("input[aria-label='Prix minimum'], input[aria-label='Minimum price'], input[placeholder='Min'], input[placeholder='Min.']").first
+                if min_input.is_visible(timeout=3000):
+                    min_input.click()
+                    time.sleep(0.5)
+                    page.keyboard.press("Control+A")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+                    for digit in str(min_price):
+                        page.keyboard.type(digit)
+                        time.sleep(0.1)
+                    time.sleep(0.5)
+
+            # Prix Maximum
+            max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max'], input[placeholder='Max.']").first
+            
+            if max_input.is_visible(timeout=3000):
+                max_input.click()
                 time.sleep(0.5)
-                max_input.press("Enter")
+                # On efface le champ proprement (Ctrl+A -> Backspace)
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Backspace")
+                time.sleep(0.2)
+                
+                # On tape le prix chiffre par chiffre pour simuler un humain
+                for digit in str(max_price):
+                    page.keyboard.type(digit)
+                    time.sleep(0.1)
+                
+                time.sleep(0.5)
+                page.keyboard.press("Enter")
+                print("   ✅ Prix appliqués. Attente du rechargement...")
                 page.wait_for_load_state("networkidle", timeout=10000)
                 time.sleep(3)
+            else:
+                print("   ⚠️ Champ 'Prix maximum' introuvable.")
         except Exception as e:
             print(f"⚠️ Erreur filtre prix: {e}")
 
@@ -240,7 +272,7 @@ class FacebookScraper:
                 try: page.get_by_role("button", name="Decline optional cookies").click(timeout=3000)
                 except: pass
                 self._close_login_popup(page)
-                self._apply_filters(page, distance, max_price)
+                self._apply_filters(page, distance, min_price, max_price)
 
                 # Scroll
                 print("   📜 Défilement...")

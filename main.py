@@ -46,7 +46,7 @@ class GuitarHunterBot:
             "location": "montreal",
             "distance": 60,
             "min_price": 0,
-            "max_price": 10000,
+            "max_price": 150,
             "search_query": "electric guitar"
         }
         self.last_refresh_timestamp = 0
