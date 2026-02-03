@@ -46,6 +46,7 @@ const DEFAULT_PROMPT = promptsData.system_prompt;
 const DEFAULT_VERDICT_RULES = promptsData.verdict_rules;
 const DEFAULT_REASONING_INSTRUCTION = promptsData.reasoning_instruction;
 const DEFAULT_USER_PROMPT = promptsData.user_prompt;
+const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
 
 // --- COMPOSANTS UTILITAIRES ---
 
@@ -347,12 +348,18 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
 
       {/* Content Section */}
       <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none overflow-hidden">
-        <div className="flex justify-between items-start gap-4 mb-4">
+        <div className="flex justify-between items-start gap-4 mb-2">
           <div>
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1">
               <MapPin size={10} /> {deal.location || 'Québec'}
             </div>
             <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
+            {deal.aiAnalysis?.classification && (
+              <div className="mt-2 flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold">
+                <Guitar size={12} />
+                <span>{deal.aiAnalysis.classification}</span>
+              </div>
+            )}
           </div>
           <div className="text-right flex flex-col items-end">
             <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl">
@@ -617,7 +624,7 @@ const MapView = ({ deals, onDealSelect }) => {
 
         // Création d'une icône SVG personnalisée
         const svgMarker = {
-            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5-2.5 2.5z",
+            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
             fillColor: markerColor,
             fillOpacity: 1,
             strokeWeight: 1,
@@ -676,6 +683,11 @@ const App = () => {
   // Filter States
   const [filterType, setFilterType] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // --- NOUVEAUX ÉTATS POUR LE FILTRE HIÉRARCHIQUE ---
+  const [level1Filter, setLevel1Filter] = useState('ALL');
+  const [level2Filter, setLevel2Filter] = useState('ALL');
+  const [level3Filter, setLevel3Filter] = useState('ALL');
 
   // Config States
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
@@ -702,6 +714,30 @@ const App = () => {
     userDoc: { status: 'pending', msg: 'En attente' },
     collection: { status: 'pending', msg: 'En attente' }
   });
+
+  // --- HELPER: TAXONOMY PATH FINDER ---
+  // Construit une map inversée pour trouver le chemin d'une feuille vers la racine
+  // Ex: "Stratocaster" -> ["electrique", "solid_body", "S_Style", "Stratocaster"]
+  const taxonomyPaths = useMemo(() => {
+    const paths = {};
+    
+    const traverse = (node, currentPath) => {
+      if (Array.isArray(node)) {
+        // C'est une liste de feuilles (ex: ["Stratocaster", "Telecaster"])
+        node.forEach(item => {
+          paths[item] = [...currentPath, item];
+        });
+      } else if (typeof node === 'object' && node !== null) {
+        // C'est un noeud intermédiaire
+        Object.keys(node).forEach(key => {
+          traverse(node[key], [...currentPath, key]);
+        });
+      }
+    };
+
+    traverse(GUITAR_TAXONOMY, []);
+    return paths;
+  }, []);
 
   // 1. Auth Init
   useEffect(() => {
@@ -919,6 +955,53 @@ const App = () => {
     }
   }, [specificUrl, saveConfig]);
 
+  const handleCloseModal = useCallback(() => {
+    setSelectedDeal(null);
+    // Nettoyage de l'URL pour éviter la réouverture au refresh
+    const url = new URL(window.location);
+    url.searchParams.delete('dealId');
+    window.history.pushState({}, '', url);
+  }, []);
+
+  // --- LOGIQUE DE FILTRAGE HIÉRARCHIQUE ---
+
+  // Options pour le niveau 1 (Racine)
+  const level1Options = useMemo(() => {
+    return ['ALL', ...Object.keys(GUITAR_TAXONOMY)];
+  }, []);
+
+  // Options pour le niveau 2 (En fonction du niveau 1)
+  const level2Options = useMemo(() => {
+    if (level1Filter === 'ALL' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
+    const node = GUITAR_TAXONOMY[level1Filter];
+    if (Array.isArray(node)) return ['ALL', ...node]; // Cas rare où niveau 1 a direct des feuilles
+    return ['ALL', ...Object.keys(node)];
+  }, [level1Filter]);
+
+  // Options pour le niveau 3 (En fonction du niveau 2)
+  const level3Options = useMemo(() => {
+    if (level2Filter === 'ALL' || level1Filter === 'ALL') return ['ALL'];
+    const node1 = GUITAR_TAXONOMY[level1Filter];
+    if (!node1 || Array.isArray(node1)) return ['ALL'];
+    
+    const node2 = node1[level2Filter];
+    if (!node2) return ['ALL'];
+    
+    if (Array.isArray(node2)) return ['ALL', ...node2];
+    return ['ALL', ...Object.keys(node2)];
+  }, [level1Filter, level2Filter]);
+
+  // Reset des sous-filtres quand le parent change
+  useEffect(() => {
+    setLevel2Filter('ALL');
+    setLevel3Filter('ALL');
+  }, [level1Filter]);
+
+  useEffect(() => {
+    setLevel3Filter('ALL');
+  }, [level2Filter]);
+
+
   // Memoized Filtered List
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
@@ -928,20 +1011,15 @@ const App = () => {
       const reasoning = analysis.reasoning || ""; // Vide si pas de raisonnement
 
       // Détection stricte des erreurs / analyses incomplètes
-      // 1. Pas d'analyse du tout
-      // 2. Verdict 'DEFAULT' ou 'PENDING' ou 'ERROR'
-      // 3. Raisonnement vide (ce qui provoque l'affichage du texte par défaut)
-      // 4. Raisonnement contenant des mots clés d'erreur explicites
       const isError = 
         !deal.aiAnalysis || 
         verdict === 'DEFAULT' || 
         verdict === 'ERROR' ||
-        !reasoning || // Raisonnement vide = Erreur/En attente
+        !reasoning || 
         reasoning.includes("Erreur") ||
         reasoning.includes("Analyse IA impossible");
 
       if (filterType === 'ERROR') {
-        // Dans l'onglet erreur, on veut voir tout ce qui a échoué, sauf si c'est déjà rejeté (poubelle)
         return isError && status !== 'rejected';
       }
 
@@ -953,24 +1031,50 @@ const App = () => {
         return deal.isFavorite;
       }
       
-      // Pour les autres filtres (ALL, GOOD_DEAL, etc.)
-      // On exclut les annonces rejetées
       if (status === 'rejected') {
         return false;
       }
 
-      // Si on filtre par type (ex: GOOD_DEAL), on doit s'assurer que ce n'est PAS une erreur déguisée
-      // Si l'utilisateur veut voir les GOOD_DEAL, il ne veut pas voir celles qui ont un verdict GOOD_DEAL mais pas de raisonnement.
       if (filterType !== 'ALL' && isError) {
           return false; 
       }
 
       const matchesType = filterType === 'ALL' || verdict === filterType;
       const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      // --- FILTRAGE PAR CLASSIFICATION HIÉRARCHIQUE ---
+      let matchesClassification = true;
+      
+      if (level1Filter !== 'ALL') {
+        const classification = analysis.classification;
+        if (!classification) {
+           matchesClassification = false; // Pas de classification = exclu si filtre actif
+        } else {
+           // On récupère le chemin complet de cette classification
+           const path = taxonomyPaths[classification];
+           if (!path) {
+             matchesClassification = false; // Classification inconnue dans la taxonomie actuelle
+           } else {
+             // Vérification Niveau 1
+             if (path[0] !== level1Filter) matchesClassification = false;
+             
+             // Vérification Niveau 2
+             if (matchesClassification && level2Filter !== 'ALL') {
+                // Si le chemin est trop court (ex: classification au niveau 1), ça ne matche pas
+                if (path.length < 2 || path[1] !== level2Filter) matchesClassification = false;
+             }
 
-      return matchesType && matchesSearch;
+             // Vérification Niveau 3
+             if (matchesClassification && level3Filter !== 'ALL') {
+                if (path.length < 3 || path[2] !== level3Filter) matchesClassification = false;
+             }
+           }
+        }
+      }
+
+      return matchesType && matchesSearch && matchesClassification;
     });
-  }, [deals, filterType, searchQuery]);
+  }, [deals, filterType, searchQuery, level1Filter, level2Filter, level3Filter, taxonomyPaths]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
@@ -1276,6 +1380,49 @@ const App = () => {
                 </button>
               ))}
             </div>
+            
+            {/* FILTRES HIÉRARCHIQUES */}
+            <div className="w-full flex flex-wrap gap-2">
+              {/* Niveau 1 */}
+              <select
+                value={level1Filter}
+                onChange={(e) => setLevel1Filter(e.target.value)}
+                className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+              >
+                <option value="ALL">Type (Tous)</option>
+                {level1Options.filter(o => o !== 'ALL').map(o => (
+                  <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+
+              {/* Niveau 2 */}
+              {level1Filter !== 'ALL' && level2Options.length > 1 && (
+                <select
+                  value={level2Filter}
+                  onChange={(e) => setLevel2Filter(e.target.value)}
+                  className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2"
+                >
+                  <option value="ALL">Sous-catégorie (Toutes)</option>
+                  {level2Options.filter(o => o !== 'ALL').map(o => (
+                    <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              )}
+
+              {/* Niveau 3 */}
+              {level2Filter !== 'ALL' && level3Options.length > 1 && (
+                <select
+                  value={level3Filter}
+                  onChange={(e) => setLevel3Filter(e.target.value)}
+                  className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2"
+                >
+                  <option value="ALL">Modèle (Tous)</option>
+                  {level3Options.filter(o => o !== 'ALL').map(o => (
+                    <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           {/* CONTENT AREA (LIST OR MAP) */}
@@ -1331,7 +1478,7 @@ const App = () => {
       {selectedDeal && (
         <div 
           className="fixed inset-0 bg-black/80 z-50 flex flex-col items-center overflow-y-auto animate-in fade-in backdrop-blur-sm pt-24 pb-12"
-          onClick={() => setSelectedDeal(null)}
+          onClick={handleCloseModal}
         >
           {/* Controls Bar */}
           <div 
@@ -1353,7 +1500,7 @@ const App = () => {
             </div>
 
             <button 
-              onClick={() => setSelectedDeal(null)}
+              onClick={handleCloseModal}
               className="bg-white text-slate-900 rounded-full p-2.5 shadow-2xl hover:bg-rose-500 hover:text-white transition-all"
             >
               <XCircle size={20} />

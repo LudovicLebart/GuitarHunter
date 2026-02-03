@@ -48,10 +48,21 @@ try:
         def join_if_list(value):
             return "\n".join(value) if isinstance(value, list) else value
 
-        SYSTEM_PROMPT = join_if_list(prompts_data.get('system_prompt', ""))
+        # Récupération de la taxonomie
+        taxonomy_data = prompts_data.get('taxonomy_guitares', {})
+        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False)
+
+        # Injection de la taxonomie dans le System Prompt
+        raw_system_prompt = join_if_list(prompts_data.get('system_prompt', ""))
+        SYSTEM_PROMPT = raw_system_prompt.replace("{taxonomy}", taxonomy_str)
+
         DEFAULT_VERDICT_RULES = join_if_list(prompts_data.get('verdict_rules', ""))
         DEFAULT_REASONING_INSTRUCTION = join_if_list(prompts_data.get('reasoning_instruction', ""))
-        DEFAULT_USER_PROMPT = join_if_list(prompts_data.get('user_prompt', ""))
+        
+        # Injection de la taxonomie dans le User Prompt (si nécessaire, bien que System Prompt soit préférable)
+        raw_user_prompt = join_if_list(prompts_data.get('user_prompt', ""))
+        DEFAULT_USER_PROMPT = raw_user_prompt.replace("{taxonomy}", taxonomy_str)
+
 except Exception as e:
     print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
     # Fallback si le fichier n'existe pas (valeurs par défaut minimales)
