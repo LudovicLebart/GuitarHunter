@@ -1,2 +1,0 @@
-// CE FICHIER EST OBSOLÈTE.
-// VEUILLEZ VOUS RÉFÉRER À src/App.jsx
