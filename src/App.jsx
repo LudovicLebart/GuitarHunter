@@ -1,9 +1,9 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Search, Guitar,
   AlertTriangle, RefreshCw, XCircle,
-  Settings, Trash2, List, Map as MapIcon
+  Settings, Trash2
 } from 'lucide-react';
 
 // Hooks
@@ -11,16 +11,14 @@ import { useAuth } from './hooks/useAuth';
 import { useBotConfig } from './hooks/useBotConfig';
 import { useDeals } from './hooks/useDeals';
 import { useCities } from './hooks/useCities';
+import { useFilters } from './hooks/useFilters';
 
 // Components
 import DebugStatus from './components/DebugStatus';
 import ConfigPanel from './components/ConfigPanel';
 import DealCard from './components/DealCard';
 import MapView from './components/MapView';
-
-// Data
-import promptsData from '../prompts.json';
-const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
+import { FilterBar } from './components/FilterBar';
 
 
 const App = () => {
@@ -45,19 +43,17 @@ const App = () => {
     newCityId, setNewCityId, handleAddCity, handleDeleteCity
   } = useCities(user, setError);
 
+  const {
+    filteredDeals,
+    ...filterProps
+  } = useFilters(deals);
+
   // UI States
   const [showConfig, setShowConfig] = useState(false);
   const [viewMode, setViewMode] = useState('LIST');
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(0.85);
   const [specificUrl, setSpecificUrl] = useState('');
-
-  // Filter States
-  const [filterType, setFilterType] = useState('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [level1Filter, setLevel1Filter] = useState('ALL');
-  const [level2Filter, setLevel2Filter] = useState('ALL');
-  const [level3Filter, setLevel3Filter] = useState('ALL');
 
   // Deep Linking
   useEffect(() => {
@@ -78,75 +74,6 @@ const App = () => {
     url.searchParams.delete('dealId');
     window.history.pushState({}, '', url);
   }, []);
-
-  // Taxonomy Path Finder
-  const taxonomyPaths = useMemo(() => {
-    const paths = {};
-    const traverse = (node, currentPath) => {
-      if (Array.isArray(node)) {
-        node.forEach(item => {
-          paths[item] = [...currentPath, item];
-        });
-      } else if (typeof node === 'object' && node !== null) {
-        Object.keys(node).forEach(key => {
-          traverse(node[key], [...currentPath, key]);
-        });
-      }
-    };
-    traverse(GUITAR_TAXONOMY, []);
-    return paths;
-  }, []);
-
-  // Filter Options
-  const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY)], []);
-  const level2Options = useMemo(() => {
-    if (level1Filter === 'ALL' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
-    const node = GUITAR_TAXONOMY[level1Filter];
-    return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
-  }, [level1Filter]);
-  const level3Options = useMemo(() => {
-    if (level2Filter === 'ALL' || level1Filter === 'ALL') return ['ALL'];
-    const node1 = GUITAR_TAXONOMY[level1Filter];
-    if (!node1 || Array.isArray(node1)) return ['ALL'];
-    const node2 = node1[level2Filter];
-    if (!node2) return ['ALL'];
-    return ['ALL', ...(Array.isArray(node2) ? node2 : Object.keys(node2))];
-  }, [level1Filter, level2Filter]);
-
-  // Reset sub-filters
-  useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); }, [level1Filter]);
-  useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
-
-  // Filtered Deals
-  const filteredDeals = useMemo(() => {
-    return deals.filter(deal => {
-      const analysis = deal.aiAnalysis || {};
-      const verdict = analysis.verdict || 'PENDING';
-      const status = deal.status;
-      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !analysis.reasoning;
-
-      if (filterType === 'ERROR') return isError && status !== 'rejected';
-      if (filterType === 'REJECTED') return status === 'rejected';
-      if (filterType === 'FAVORITES') return deal.isFavorite;
-      if (status === 'rejected') return false;
-      if (filterType !== 'ALL' && isError) return false;
-
-      const matchesType = filterType === 'ALL' || verdict === filterType;
-      const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      let matchesClassification = true;
-      if (level1Filter !== 'ALL') {
-        const path = taxonomyPaths[analysis.classification];
-        if (!path) matchesClassification = false;
-        else {
-          if (path[0] !== level1Filter) matchesClassification = false;
-          if (matchesClassification && level2Filter !== 'ALL' && (path.length < 2 || path[1] !== level2Filter)) matchesClassification = false;
-          if (matchesClassification && level3Filter !== 'ALL' && (path.length < 3 || path[2] !== level3Filter)) matchesClassification = false;
-        }
-      }
-      return matchesType && matchesSearch && matchesClassification;
-    });
-  }, [deals, filterType, searchQuery, level1Filter, level2Filter, level3Filter, taxonomyPaths]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
@@ -206,41 +133,7 @@ const App = () => {
         </aside>
 
         <main className="lg:col-span-3 space-y-6">
-          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex-1 min-w-[200px] relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input type="text" placeholder="Rechercher par modèle..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" />
-            </div>
-            <div className="flex bg-slate-100 p-1 rounded-2xl">
-              <button onClick={() => setViewMode('LIST')} className={`p-2 rounded-xl transition-all ${viewMode === 'LIST' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><List size={18} /></button>
-              <button onClick={() => setViewMode('MAP')} className={`p-2 rounded-xl transition-all ${viewMode === 'MAP' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}><MapIcon size={18} /></button>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 w-full lg:w-auto">
-              {['ALL', 'FAVORITES', 'PEPITE', 'GOOD_DEAL', 'FAIR', 'BAD_DEAL', 'REJECTED', 'ERROR'].map((type) => (
-                <button key={type} onClick={() => setFilterType(type)} className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${filterType === type ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                  {type === 'ALL' ? 'Toutes' : type === 'FAVORITES' ? 'Favoris' : type === 'PEPITE' ? 'Pépites' : type === 'GOOD_DEAL' ? 'Bonnes Affaires' : type === 'FAIR' ? 'Prix Juste' : type === 'BAD_DEAL' ? 'Trop Cher' : type === 'REJECTED' ? 'Rejetées' : 'Erreurs'}
-                </button>
-              ))}
-            </div>
-            <div className="w-full flex flex-wrap gap-2">
-              <select value={level1Filter} onChange={(e) => setLevel1Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all">
-                <option value="ALL">Type (Tous)</option>
-                {level1Options.filter(o => o !== 'ALL').map(o => (<option key={o} value={o}>{o.replace(/_/g, ' ')}</option>))}
-              </select>
-              {level1Filter !== 'ALL' && level2Options.length > 1 && (
-                <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
-                  <option value="ALL">Sous-catégorie (Toutes)</option>
-                  {level2Options.filter(o => o !== 'ALL').map(o => (<option key={o} value={o}>{o.replace(/_/g, ' ')}</option>))}
-                </select>
-              )}
-              {level2Filter !== 'ALL' && level3Options.length > 1 && (
-                <select value={level3Filter} onChange={(e) => setLevel3Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
-                  <option value="ALL">Modèle (Tous)</option>
-                  {level3Options.filter(o => o !== 'ALL').map(o => (<option key={o} value={o}>{o.replace(/_/g, ' ')}</option>))}
-                </select>
-              )}
-            </div>
-          </div>
+          <FilterBar {...filterProps} viewMode={viewMode} setViewMode={setViewMode} />
 
           {loading ? (
             <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200">
