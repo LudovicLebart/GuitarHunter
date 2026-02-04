@@ -260,7 +260,7 @@ def main_loop(bot):
     }
 
     try:
-        bot.run_scan() # Run initial scan
+        # bot.run_scan() # Run initial scan
 
         scheduler = TaskScheduler(
             scan_func=bot.run_scan,
