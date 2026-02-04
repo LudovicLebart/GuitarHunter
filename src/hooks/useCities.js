@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { collection, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../services/firebase';
-
-const PYTHON_USER_ID = "00737242777130596039";
-const APP_ID = "c_5d118e719dbddbfc_index.html-217";
+import { onCitiesUpdate, addCity, deleteCity } from '../services/firestoreService';
 
 export const useCities = (user, setError) => {
   const [cities, setCities] = useState([]);
@@ -12,35 +8,35 @@ export const useCities = (user, setError) => {
 
   useEffect(() => {
     if (!user) return;
-    const citiesRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'cities');
-    const unsubscribe = onSnapshot(citiesRef, (snapshot) => {
-      const citiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const handleUpdate = (citiesData) => {
       setCities(citiesData);
-    });
+    };
+
+    const handleError = (err) => {
+      setError(err.message);
+    };
+
+    const unsubscribe = onCitiesUpdate(handleUpdate, handleError);
     return () => unsubscribe();
-  }, [user]);
+  }, [user, setError]);
 
   const handleAddCity = useCallback(async () => {
     if (!newCityName || !newCityId) return;
     try {
-      const citiesRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'cities');
-      await addDoc(citiesRef, {
-        name: newCityName,
-        id: newCityId,
-        createdAt: new Date()
-      });
+      await addCity(newCityName, newCityId);
       setNewCityName('');
       setNewCityId('');
     } catch (e) {
-      setError("Erreur ajout ville: " + e.message);
+      setError(e.message);
     }
   }, [newCityName, newCityId, setError]);
 
-  const handleDeleteCity = useCallback(async (docId) => {
+  const handleDeleteCity = useCallback(async (cityId) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'cities', docId));
+      await deleteCity(cityId);
     } catch (e) {
-      setError("Erreur suppression ville");
+      setError(e.message);
     }
   }, [setError]);
 
