@@ -6,10 +6,12 @@ import {
   Settings, Trash2
 } from 'lucide-react';
 
+// Contexts
+import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
+import { DealsProvider, useDealsContext } from './context/DealsContext';
+
 // Hooks
 import { useAuth } from './hooks/useAuth';
-import { useBotConfig } from './hooks/useBotConfig';
-import { useDeals } from './hooks/useDeals';
 import { useCities } from './hooks/useCities';
 import { useFilters } from './hooks/useFilters';
 
@@ -20,24 +22,27 @@ import DealCard from './components/DealCard';
 import MapView from './components/MapView';
 import { FilterBar } from './components/FilterBar';
 
-
-const App = () => {
+const AppContent = () => {
   const { user, authStatus } = useAuth();
+  
+  // Consommation des contextes
   const {
     configStatus, error, setError,
-    prompt, setPrompt, verdictRules, setVerdictRules,
-    reasoningInstruction, setReasoningInstruction, userPrompt, setUserPrompt,
-    scanConfig, setScanConfig, isRefreshing, isCleaning,
-    isReanalyzingAll, isScanningUrl, saveConfig,
-    handleManualRefresh, handleManualCleanup, handleRelaunchAll,
-    handleScanSpecificUrl, handleResetDefaults
-  } = useBotConfig(user);
-  
+    isRefreshing, isCleaning,
+    handleManualRefresh, handleManualCleanup
+  } = useBotConfigContext();
+
   const {
     deals, loading, dbStatus,
     handleRejectDeal, handleRetryAnalysis, handleToggleFavorite
-  } = useDeals(user, setError);
+  } = useDealsContext();
 
+  // Note: useCities pourrait aussi être migré vers un contexte, mais pour l'instant on le garde ici
+  // et on le passera au ConfigPanel via contexte ou props. 
+  // Pour simplifier ConfigPanel, l'idéal serait que ConfigPanel utilise useCities lui-même ou un CitiesContext.
+  // Pour cet exercice, je vais laisser useCities ici et le passer à ConfigPanel, 
+  // mais ConfigPanel n'aura plus besoin de toutes les props de config.
+  
   const {
     cities, newCityName, setNewCityName,
     newCityId, setNewCityId, handleAddCity, handleDeleteCity
@@ -53,7 +58,6 @@ const App = () => {
   const [viewMode, setViewMode] = useState('LIST');
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(0.85);
-  const [specificUrl, setSpecificUrl] = useState('');
 
   // Deep Linking
   useEffect(() => {
@@ -113,22 +117,15 @@ const App = () => {
               <DebugStatus label="Database" status={dbStatus.status} details={dbStatus.msg} />
             </div>
           </div>
+          
+          {/* ConfigPanel reçoit maintenant moins de props, car il consomme le contexte */}
           <ConfigPanel 
             showConfig={showConfig}
-            scanConfig={scanConfig} setScanConfig={setScanConfig}
-            saveConfig={saveConfig}
+            // Props liées aux villes (pas encore dans un contexte)
             cities={cities} handleDeleteCity={handleDeleteCity}
             newCityName={newCityName} setNewCityName={setNewCityName}
             newCityId={newCityId} setNewCityId={setNewCityId}
             handleAddCity={handleAddCity}
-            handleResetDefaults={handleResetDefaults}
-            handleRelaunchAll={handleRelaunchAll} isReanalyzingAll={isReanalyzingAll}
-            prompt={prompt} setPrompt={setPrompt}
-            userPrompt={userPrompt} setUserPrompt={setUserPrompt}
-            verdictRules={verdictRules} setVerdictRules={setVerdictRules}
-            reasoningInstruction={reasoningInstruction} setReasoningInstruction={setReasoningInstruction}
-            specificUrl={specificUrl} setSpecificUrl={setSpecificUrl}
-            handleScanSpecificUrl={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} isScanningUrl={isScanningUrl}
           />
         </aside>
 
@@ -188,6 +185,16 @@ const App = () => {
         document.body
       )}
     </div>
+  );
+};
+
+const App = () => {
+  return (
+    <BotConfigProvider>
+      <DealsProvider>
+        <AppContent />
+      </DealsProvider>
+    </BotConfigProvider>
   );
 };
 
