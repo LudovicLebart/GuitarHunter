@@ -2,17 +2,21 @@ from dataclasses import dataclass, field
 import logging
 import schedule
 import time
-from typing import Optional, Callable
+from typing import Optional, Callable, List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 @dataclass
+class Command:
+    """Représente une commande à exécuter par le bot."""
+    type: str
+    payload: Optional[Any] = None
+    firestore_field: Optional[str] = None
+
+@dataclass
 class SyncResult:
     """Résultat structuré de la synchronisation de la configuration."""
-    should_refresh: bool = False
-    should_cleanup: bool = False
-    should_reanalyze_all: bool = False
-    specific_url: Optional[str] = None
+    commands: List[Command] = field(default_factory=list)
     config_changed: bool = False
     new_scan_frequency: Optional[int] = None
 
@@ -53,11 +57,19 @@ class ConfigManager:
             logger.info("Scan config updated.")
 
         # Détection des commandes
-        result.should_refresh = self._check_command(config_data, 'forceRefresh', 'last_refresh_ts', initial)
-        result.should_cleanup = self._check_command(config_data, 'forceCleanup', 'last_cleanup_ts', initial)
-        result.should_reanalyze_all = self._check_command(config_data, 'forceReanalyzeAll', 'last_reanalyze_ts', initial)
+        if self._check_command(config_data, 'forceRefresh', 'last_refresh_ts', initial):
+            result.commands.append(Command(type='REFRESH', firestore_field='forceRefresh'))
+            
+        if self._check_command(config_data, 'forceCleanup', 'last_cleanup_ts', initial):
+            result.commands.append(Command(type='CLEANUP', firestore_field='forceCleanup'))
+            
+        if self._check_command(config_data, 'forceReanalyzeAll', 'last_reanalyze_ts', initial):
+            result.commands.append(Command(type='REANALYZE_ALL', firestore_field='forceReanalyzeAll'))
         
-        result.specific_url = config_data.get('scanSpecificUrl')
+        specific_url = config_data.get('scanSpecificUrl')
+        if specific_url:
+            # Note: scanSpecificUrl n'est pas basé sur un timestamp mais sur la présence du champ
+            result.commands.append(Command(type='SCAN_URL', payload=specific_url, firestore_field='scanSpecificUrl'))
 
         return result
 

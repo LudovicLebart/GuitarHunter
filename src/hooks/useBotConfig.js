@@ -28,11 +28,12 @@ export const useBotConfig = (user) => {
       max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
 
-  // UI feedback states
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isCleaning, setIsCleaning] = useState(false);
-  const [isReanalyzingAll, setIsReanalyzingAll] = useState(false);
-  const [isScanningUrl, setIsScanningUrl] = useState(false);
+  // UI feedback states derived from botStatus
+  const [botStatus, setBotStatus] = useState('idle');
+  const isRefreshing = botStatus === 'scanning';
+  const isCleaning = botStatus === 'cleaning';
+  const isReanalyzingAll = botStatus === 'reanalyzing_all';
+  const isScanningUrl = botStatus === 'scanning_url';
 
   useEffect(() => {
     if (!user) return;
@@ -45,6 +46,9 @@ export const useBotConfig = (user) => {
       if (data.reasoningInstruction) setReasoningInstruction(data.reasoningInstruction);
       if (data.userPrompt) setUserPrompt(data.userPrompt);
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      
+      // Update bot status from Firestore
+      if (data.botStatus) setBotStatus(data.botStatus);
 
       if (data.scanError) {
         setError(data.scanError);
@@ -71,50 +75,38 @@ export const useBotConfig = (user) => {
   }, []);
 
   const handleManualRefresh = useCallback(async () => {
-    setIsRefreshing(true);
     try {
       await triggerManualRefresh();
     } catch (e) {
       setError(e.message);
-    } finally {
-      setTimeout(() => setIsRefreshing(false), 5000);
     }
   }, []);
 
   const handleManualCleanup = useCallback(async () => {
-    setIsCleaning(true);
     try {
       await triggerManualCleanup();
     } catch (e) {
       setError(e.message);
-    } finally {
-      setTimeout(() => setIsCleaning(false), 5000);
     }
   }, []);
 
   const handleRelaunchAll = useCallback(async () => {
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment relancer l'analyse IA pour TOUTES les annonces ?")) {
-        setIsReanalyzingAll(true);
         try {
             await triggerRelaunchAll();
         } catch (e) {
             setError(e.message);
-        } finally {
-            setTimeout(() => setIsReanalyzingAll(false), 5000);
         }
     }
   }, []);
 
   const handleScanSpecificUrl = useCallback(async (specificUrl, setSpecificUrl) => {
     if (!specificUrl) return;
-    setIsScanningUrl(true);
     try {
       await triggerScanSpecificUrl(specificUrl);
       setSpecificUrl('');
     } catch (e) {
       setError(e.message);
-    } finally {
-      setTimeout(() => setIsScanningUrl(false), 5000);
     }
   }, []);
 

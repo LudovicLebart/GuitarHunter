@@ -68,7 +68,8 @@ class GuitarHunterBot:
             'verdictRules': DEFAULT_VERDICT_RULES,
             'reasoningInstruction': DEFAULT_REASONING_INSTRUCTION,
             'userPrompt': DEFAULT_USER_PROMPT,
-            'scanConfig': initial_scan_config
+            'scanConfig': initial_scan_config,
+            'botStatus': 'idle'
         }
         self.repo.ensure_initial_structure(initial_config)
 
@@ -114,16 +115,30 @@ class GuitarHunterBot:
             self.repo.save_deal(listing_data['id'], listing_data, analysis)
 
     def run_scan(self):
-        scan_config = self.config_manager.scan_config
-        logger.info(f"Starting scheduled scan (frequency: {scan_config.get('frequency', 'N/A')} min)...")
-        self.load_cities_from_firestore()
-        self.scraper.scan_marketplace(scan_config, self.handle_deal_found)
-        logger.info("Scheduled scan finished.")
+        if not self.offline_mode:
+            self.repo.update_bot_status('scanning')
+        
+        try:
+            scan_config = self.config_manager.scan_config
+            logger.info(f"Starting scheduled scan (frequency: {scan_config.get('frequency', 'N/A')} min)...")
+            self.load_cities_from_firestore()
+            self.scraper.scan_marketplace(scan_config, self.handle_deal_found)
+            logger.info("Scheduled scan finished.")
+        finally:
+            if not self.offline_mode:
+                self.repo.update_bot_status('idle')
 
     def scan_specific_url(self, url):
-        self.scraper.scan_specific_url(url, self.handle_deal_found)
         if not self.offline_mode:
-            self.repo.consume_command('scanSpecificUrl')
+            self.repo.update_bot_status('scanning_url')
+        
+        try:
+            self.scraper.scan_specific_url(url, self.handle_deal_found)
+            if not self.offline_mode:
+                self.repo.consume_command('scanSpecificUrl')
+        finally:
+            if not self.offline_mode:
+                self.repo.update_bot_status('idle')
 
     def cleanup_sold_listings(self):
         if self.offline_mode or self.is_cleaning: return
@@ -133,6 +148,9 @@ class GuitarHunterBot:
     def _perform_cleanup(self):
         with self.cleanup_lock:
             self.is_cleaning = True
+            if not self.offline_mode:
+                self.repo.update_bot_status('cleaning')
+            
             try:
                 docs = self.repo.get_active_listings()
                 listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
@@ -152,6 +170,8 @@ class GuitarHunterBot:
                 logger.error(f"An error occurred during cleanup: {e}", exc_info=True)
             finally:
                 self.is_cleaning = False
+                if not self.offline_mode:
+                    self.repo.update_bot_status('idle')
 
     def process_retry_queue(self):
         if self.offline_mode: return
@@ -174,7 +194,14 @@ class GuitarHunterBot:
 
     def reanalyze_all_listings(self):
         if self.offline_mode: return
-        self.repo.mark_all_for_reanalysis()
+        if not self.offline_mode:
+            self.repo.update_bot_status('reanalyzing_all')
+        
+        try:
+            self.repo.mark_all_for_reanalysis()
+        finally:
+            if not self.offline_mode:
+                self.repo.update_bot_status('idle')
 
 def monitor_retries(bot):
     logger.info("Retry queue monitoring thread started.")
@@ -192,6 +219,14 @@ def main_loop(bot):
     # Démarrage de la session Playwright
     bot.scraper.start_session()
     
+    # Command handlers mapping
+    command_handlers = {
+        'REFRESH': lambda _: bot.run_scan(),
+        'CLEANUP': lambda _: bot.cleanup_sold_listings(),
+        'REANALYZE_ALL': lambda _: bot.reanalyze_all_listings(),
+        'SCAN_URL': lambda url: bot.scan_specific_url(url)
+    }
+
     try:
         bot.run_scan() # Run initial scan
 
@@ -207,25 +242,17 @@ def main_loop(bot):
                 
                 sync_result = bot.sync_and_apply_config()
                 
-                if sync_result.specific_url:
-                    logger.info(f"Received command to scan specific URL: {sync_result.specific_url}")
-                    bot.scan_specific_url(sync_result.specific_url)
+                # Traitement des commandes
+                for command in sync_result.commands:
+                    logger.info(f"Received command: {command.type}")
+                    handler = command_handlers.get(command.type)
+                    if handler:
+                        handler(command.payload)
+                        if command.firestore_field:
+                            bot.repo.consume_command(command.firestore_field)
+                    else:
+                        logger.warning(f"Unknown command type: {command.type}")
 
-                if sync_result.should_cleanup:
-                    logger.info("Received command to force cleanup.")
-                    bot.cleanup_sold_listings()
-                    bot.repo.consume_command('forceCleanup')
-
-                if sync_result.should_reanalyze_all:
-                    logger.info("Received command to force re-analyze all.")
-                    bot.reanalyze_all_listings()
-                    bot.repo.consume_command('forceReanalyzeAll')
-                    
-                if sync_result.should_refresh:
-                    logger.info("Received command to force refresh.")
-                    bot.run_scan()
-                    bot.repo.consume_command('forceRefresh')
-                    
                 if sync_result.new_scan_frequency is not None:
                     scheduler.update_scan_frequency(sync_result.new_scan_frequency)
 

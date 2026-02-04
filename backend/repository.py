@@ -33,7 +33,8 @@ class FirestoreRepository:
                 self.user_ref.set({
                     **initial_config,
                     'created_at': firestore.SERVER_TIMESTAMP,
-                    'type': 'user_root'
+                    'type': 'user_root',
+                    'botStatus': 'idle'
                 })
             else:
                 logger.info("User document already exists.")
@@ -120,3 +121,11 @@ class FirestoreRepository:
             logger.info(f"Consumed command '{command_field}'.")
         except Exception as e:
             logger.error(f"Failed to consume command '{command_field}': {e}", exc_info=True)
+
+    def update_bot_status(self, status):
+        """Updates the bot status in Firestore."""
+        try:
+            self.user_ref.update({'botStatus': status})
+            logger.info(f"Updated bot status to '{status}'.")
+        except Exception as e:
+            logger.error(f"Failed to update bot status to '{status}': {e}", exc_info=True)

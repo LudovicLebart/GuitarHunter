@@ -49,7 +49,7 @@ def run_checks():
         try:
             genai.configure(api_key=GEMINI_API_KEY)
             # Note: Le modèle est juste pour tester l'init, pas pour générer du contenu ici.
-            model = genai.GenerativeModel(model_name='gemini-1.5-flash')
+            model = genai.GenerativeModel(model_name='gemini-2.0-flash')
             print("  ✅ Initialisation de Gemini réussie.")
         except Exception as e:
             print(f"  ❌ ERREUR: Impossible d'initialiser Gemini: {e}")
