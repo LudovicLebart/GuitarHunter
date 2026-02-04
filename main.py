@@ -48,6 +48,7 @@ class GuitarHunterBot:
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
         
         self.city_mapping = {}
+        self.allowed_cities = [] # Liste des noms de villes autorisées
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
@@ -88,13 +89,27 @@ class GuitarHunterBot:
     def load_cities_from_firestore(self):
         if self.offline_mode: return
         docs = self.repo.get_cities()
-        new_mapping = {
-            ListingParser.normalize_city_name(doc.to_dict()['name']): doc.to_dict()['id']
-            for doc in docs if 'name' in doc.to_dict() and 'id' in doc.to_dict()
-        }
-        self.city_mapping = new_mapping
-        self.scraper.city_mapping = new_mapping
-        logger.info(f"{len(new_mapping)} cities loaded from Firestore.")
+        
+        scannable_cities = {}
+        all_allowed_cities = []
+        
+        for doc in docs:
+            data = doc.to_dict()
+            if 'name' in data:
+                all_allowed_cities.append(data['name'])
+                
+                # Une ville est scannable si elle a un ID et isScannable est True
+                if data.get('isScannable') and data.get('id'):
+                    norm_name = ListingParser.normalize_city_name(data['name'])
+                    scannable_cities[norm_name] = data['id']
+        
+        self.city_mapping = scannable_cities
+        self.allowed_cities = all_allowed_cities
+        
+        self.scraper.city_mapping = scannable_cities
+        self.scraper.allowed_cities = all_allowed_cities
+        
+        logger.info(f"{len(scannable_cities)} scannable cities loaded. {len(all_allowed_cities)} total allowed cities.")
 
     def handle_deal_found(self, listing_data):
         logger.info(f"Processing new deal: {listing_data['title']}")
@@ -121,8 +136,24 @@ class GuitarHunterBot:
         try:
             scan_config = self.config_manager.scan_config
             logger.info(f"Starting scheduled scan (frequency: {scan_config.get('frequency', 'N/A')} min)...")
+            
             self.load_cities_from_firestore()
-            self.scraper.scan_marketplace(scan_config, self.handle_deal_found)
+            
+            cities_to_scan = list(self.city_mapping.keys())
+            
+            if not cities_to_scan:
+                logger.warning("No scannable cities configured. Scan will be skipped.")
+            else:
+                logger.info(f"Scanning {len(cities_to_scan)} cities: {', '.join(cities_to_scan)}")
+                for city_norm_name in cities_to_scan:
+                    city_specific_config = scan_config.copy()
+                    # Le scraper utilise le nom normalisé pour trouver l'ID dans son mapping
+                    city_specific_config['location'] = city_norm_name
+                    
+                    logger.info(f"--- Scanning city: {city_norm_name} ---")
+                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found)
+                    time.sleep(2) # Pause entre les villes
+
             logger.info("Scheduled scan finished.")
         finally:
             if not self.offline_mode:

@@ -10,9 +10,10 @@ from .utils import calculate_distance
 logger = logging.getLogger(__name__)
 
 class FacebookScraper:
-    def __init__(self, city_coordinates, city_mapping, config: ScraperConfig = None):
+    def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None):
         self.city_coordinates = city_coordinates
         self.city_mapping = city_mapping
+        self.allowed_cities = allowed_cities or []
         self.config = config or ScraperConfig()
         
         self.playwright = None
@@ -146,6 +147,15 @@ class FacebookScraper:
         except Exception as e:
             logger.warning(f"Erreur filtre prix: {e}")
 
+    def is_city_allowed(self, city_name):
+        """Vérifie si une ville est dans la liste blanche (insensible à la casse/accents)."""
+        if not city_name: return False
+        norm_name = ListingParser.normalize_city_name(city_name)
+        for allowed in self.allowed_cities:
+            if ListingParser.normalize_city_name(allowed) == norm_name:
+                return True
+        return False
+
     def scan_marketplace(self, scan_config, on_deal_found):
         self._ensure_session()
         
@@ -220,14 +230,25 @@ class FacebookScraper:
                 spec_loc = card_info['location']
                 img_url = card_info['imageUrl']
 
+                # --- LOGIQUE DE FILTRAGE MISE À JOUR ---
                 is_too_far = False
-                if target_coords:
+                
+                # 1. Si la ville est dans la liste blanche, on accepte d'office
+                if self.is_city_allowed(spec_loc):
+                    logger.info(f"   ✅ Ville autorisée détectée: {spec_loc}")
+                
+                # 2. Sinon, on applique le filtre de distance classique
+                elif target_coords:
                     spec_coords = self.city_coordinates.get(ListingParser.normalize_city_name(spec_loc))
                     if spec_coords:
                         dist = calculate_distance(target_coords['lat'], target_coords['lng'], spec_coords['lat'], spec_coords['lng'])
                         if dist > distance * 1.1:
                             logger.info(f"   ⏩ [Pré-filtre] Ignoré: {spec_loc} ({dist:.1f}km)")
                             is_too_far = True
+                    else:
+                        # Si on ne connait pas les coords de la ville de l'annonce, on est prudent
+                        # Mais si on n'a pas trouvé la ville dans allowed_cities, c'est peut-être une ville inconnue
+                        pass
 
                 if is_too_far:
                     consecutive_bad += 1
@@ -253,7 +274,11 @@ class FacebookScraper:
                     
                     coords = details['coordinates']
                     
-                    if coords and target_coords:
+                    # Vérification GPS finale
+                    # Si la ville était autorisée par nom, on ignore la distance GPS aussi ?
+                    # Oui, pour être cohérent avec la demande "si une annonce a le nom de la ville on l'accepte d'office sans regarder le radius"
+                    
+                    if not self.is_city_allowed(spec_loc) and coords and target_coords:
                         dist = calculate_distance(target_coords['lat'], target_coords['lng'], coords['lat'], coords['lng'])
                         if dist > distance * 1.1:
                             logger.info(f"   ⏩ [GPS] Trop loin ({dist:.1f}km)")

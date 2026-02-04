@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
+import { useCitiesContext } from '../context/CitiesContext';
 
 // Sous-composant pour la section de recherche Facebook
-const FacebookSearchSection = ({ cities }) => {
+const FacebookSearchSection = () => {
   const {
     scanConfig, setScanConfig, saveConfig,
     handleScanSpecificUrl, isScanningUrl
@@ -20,22 +21,12 @@ const FacebookSearchSection = ({ cities }) => {
       
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[9px] font-bold text-slate-400 uppercase">Lieu</label>
-          <select
-            value={scanConfig.location}
-            onChange={(e) => setScanConfig({...scanConfig, location: e.target.value})}
-            onBlur={() => saveConfig({ scanConfig })}
-            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="" disabled>Choisir une ville</option>
-            {cities.map(city => (
-              <option key={city.id} value={city.name}>{city.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
           <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
           <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
+        </div>
+        <div>
+          <label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label>
+          <input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({...scanConfig, max_ads: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
         </div>
       </div>
 
@@ -50,15 +41,9 @@ const FacebookSearchSection = ({ cities }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label>
-          <input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({...scanConfig, max_ads: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
-        </div>
-        <div>
-          <label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label>
-          <input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({...scanConfig, frequency: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
-        </div>
+      <div>
+        <label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label>
+        <input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({...scanConfig, frequency: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />
       </div>
       
       <div>
@@ -90,50 +75,77 @@ const FacebookSearchSection = ({ cities }) => {
 };
 
 // Sous-composant pour la gestion des villes
-const CityManagementSection = ({ cities, handleDeleteCity, newCityName, setNewCityName, newCityId, setNewCityId, handleAddCity }) => (
-  <div className="pt-4 border-t border-slate-100">
-    <label className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Villes Autorisées</label>
-    
-    <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
-      {cities.map(city => (
-        <div key={city.id} className="flex items-center justify-between bg-slate-50 p-2 rounded-lg text-xs">
-          <div>
-            <span className="font-bold block">{city.name}</span>
-            <span className="text-[9px] text-slate-400 font-mono">{city.id}</span>
-          </div>
-          <button onClick={() => handleDeleteCity(city.id)} className="text-rose-400 hover:text-rose-600 p-1">
-            <Trash2 size={14} />
-          </button>
-        </div>
-      ))}
-      {cities.length === 0 && <p className="text-[10px] text-slate-400 italic">Aucune ville configurée.</p>}
-    </div>
+const CityManagementSection = () => {
+  const { cities, handleToggleScannable } = useCitiesContext();
+  const [searchTerm, setSearchTerm] = useState('');
 
-    <div className="flex gap-2">
-      <input 
-        type="text" 
-        placeholder="Nom (ex: Montreal)" 
-        value={newCityName}
-        onChange={(e) => setNewCityName(e.target.value)}
-        className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px]"
-      />
-      <input 
-        type="text" 
-        placeholder="ID Facebook" 
-        value={newCityId}
-        onChange={(e) => setNewCityId(e.target.value)}
-        className="w-1/2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px]"
-      />
+  const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
+  
+  const suggestions = useMemo(() => {
+    if (!searchTerm) return [];
+    return cities.filter(c => 
+      !c.isScannable && 
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      c.id // On ne peut ajouter que les villes qui ont un ID Facebook
+    );
+  }, [searchTerm, cities]);
+
+  const addCityToWhitelist = (city) => {
+    // On utilise docId pour l'update
+    handleToggleScannable(city.docId, false); 
+    setSearchTerm('');
+  };
+
+  const removeCityFromWhitelist = (city) => {
+    // On utilise docId pour l'update
+    handleToggleScannable(city.docId, true);
+  };
+
+  return (
+    <div className="pt-4 border-t border-slate-100">
+      <label className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Villes à Scanner</label>
+      
+      {/* cytiListUI: Affiche les villes sélectionnées */}
+      <div className="space-y-2 mb-3">
+        {scannableCities.map(city => (
+          // Utilisation de docId comme clé unique
+          <div key={city.docId} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg text-xs border border-blue-100">
+            <span className="font-bold text-blue-700">{city.name}</span>
+            <button onClick={() => removeCityFromWhitelist(city)} className="text-blue-400 hover:text-rose-600 p-1">
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+        {scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2">Aucune ville sélectionnée pour le scan.</p>}
+      </div>
+
+      {/* Champ de recherche et suggestions */}
+      <div className="relative">
+        <input 
+          type="text"
+          placeholder="Rechercher une ville à ajouter..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+        />
+        {suggestions.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+            {suggestions.map(suggestion => (
+              // Utilisation de docId comme clé unique
+              <div 
+                key={suggestion.docId}
+                onClick={() => addCityToWhitelist(suggestion)}
+                className="p-2 text-xs hover:bg-blue-50 cursor-pointer"
+              >
+                {suggestion.name}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
-    <button
-      onClick={handleAddCity}
-      disabled={!newCityName || !newCityId}
-      className="w-full mt-2 bg-blue-50 text-blue-600 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-blue-100 disabled:opacity-50 flex items-center justify-center gap-1"
-    >
-      <Plus size={12} /> Ajouter Ville
-    </button>
-  </div>
-);
+  );
+};
 
 // Sous-composant pour la configuration de l'IA
 const AiConfigSection = () => {
@@ -215,15 +227,15 @@ const AiConfigSection = () => {
 };
 
 
-const ConfigPanel = ({ showConfig, ...cityProps }) => {
+const ConfigPanel = ({ showConfig }) => {
   if (!showConfig) return null;
 
   return (
     <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
       <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
       
-      <FacebookSearchSection cities={cityProps.cities} />
-      <CityManagementSection {...cityProps} />
+      <FacebookSearchSection />
+      <CityManagementSection />
       <AiConfigSection />
 
     </div>

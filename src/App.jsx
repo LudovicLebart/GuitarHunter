@@ -9,10 +9,10 @@ import {
 // Contexts
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
 import { DealsProvider, useDealsContext } from './context/DealsContext';
+import { CitiesProvider } from './context/CitiesContext';
 
 // Hooks
 import { useAuth } from './hooks/useAuth';
-import { useCities } from './hooks/useCities';
 import { useFilters } from './hooks/useFilters';
 
 // Components
@@ -36,17 +36,6 @@ const AppContent = () => {
     deals, loading, dbStatus,
     handleRejectDeal, handleRetryAnalysis, handleToggleFavorite
   } = useDealsContext();
-
-  // Note: useCities pourrait aussi être migré vers un contexte, mais pour l'instant on le garde ici
-  // et on le passera au ConfigPanel via contexte ou props. 
-  // Pour simplifier ConfigPanel, l'idéal serait que ConfigPanel utilise useCities lui-même ou un CitiesContext.
-  // Pour cet exercice, je vais laisser useCities ici et le passer à ConfigPanel, 
-  // mais ConfigPanel n'aura plus besoin de toutes les props de config.
-  
-  const {
-    cities, newCityName, setNewCityName,
-    newCityId, setNewCityId, handleAddCity, handleDeleteCity
-  } = useCities(user, setError);
 
   const {
     filteredDeals,
@@ -118,15 +107,7 @@ const AppContent = () => {
             </div>
           </div>
           
-          {/* ConfigPanel reçoit maintenant moins de props, car il consomme le contexte */}
-          <ConfigPanel 
-            showConfig={showConfig}
-            // Props liées aux villes (pas encore dans un contexte)
-            cities={cities} handleDeleteCity={handleDeleteCity}
-            newCityName={newCityName} setNewCityName={setNewCityName}
-            newCityId={newCityId} setNewCityId={setNewCityId}
-            handleAddCity={handleAddCity}
-          />
+          <ConfigPanel showConfig={showConfig} />
         </aside>
 
         <main className="lg:col-span-3 space-y-6">
@@ -192,7 +173,9 @@ const App = () => {
   return (
     <BotConfigProvider>
       <DealsProvider>
-        <AppContent />
+        <CitiesProvider>
+          <AppContent />
+        </CitiesProvider>
       </DealsProvider>
     </BotConfigProvider>
   );

@@ -107,7 +107,13 @@ export const toggleDealFavorite = async (dealId, currentStatus) => {
 
 export const onCitiesUpdate = (onUpdate, onError) => {
     return onSnapshot(citiesCollectionRef, (snapshot) => {
-        const citiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // CORRECTION ICI : On sépare docId (ID Firestore) et id (ID Facebook)
+        const citiesData = snapshot.docs.map(doc => ({
+            docId: doc.id, // L'ID unique du document Firestore
+            ...doc.data()  // Les données (qui contiennent le champ 'id' = ID Facebook)
+        }));
+        // Tri alphabétique par défaut
+        citiesData.sort((a, b) => a.name.localeCompare(b.name));
         onUpdate(citiesData);
     }, (error) => {
         console.error("Error listening to cities:", error);
@@ -116,23 +122,39 @@ export const onCitiesUpdate = (onUpdate, onError) => {
 };
 
 export const addCity = async (cityName, cityId) => {
+    console.log(`Attempting to add city: ${cityName} with ID: ${cityId}`);
     try {
         await addDoc(citiesCollectionRef, {
             name: cityName,
             id: cityId,
+            isScannable: false, // Par défaut non scannable
             createdAt: new Date()
         });
+        console.log("City added successfully");
     } catch (error) {
-        console.error("Error adding city:", error);
-        throw new Error("Erreur lors de l'ajout de la ville.");
+        console.error("Error adding city (FULL DETAILS):", error);
+        throw new Error(`Erreur lors de l'ajout de la ville: ${error.message}`);
     }
 };
 
-export const deleteCity = async (cityId) => {
+export const deleteCity = async (docId) => {
     try {
-        await deleteDoc(doc(citiesCollectionRef, cityId));
+        // On utilise docId ici
+        await deleteDoc(doc(citiesCollectionRef, docId));
     } catch (error) {
-        console.error(`Error deleting city ${cityId}:`, error);
+        console.error(`Error deleting city ${docId}:`, error);
         throw new Error("Erreur lors de la suppression de la ville.");
+    }
+};
+
+export const toggleCityScannable = async (docId, currentStatus) => {
+    try {
+        // On utilise docId ici
+        await updateDoc(doc(citiesCollectionRef, docId), {
+            isScannable: !currentStatus
+        });
+    } catch (error) {
+        console.error(`Error toggling scannable for city ${docId}:`, error);
+        throw new Error("Erreur lors de la mise à jour de la ville.");
     }
 };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { onCitiesUpdate, addCity, deleteCity } from '../services/firestoreService';
+import { onCitiesUpdate, addCity, deleteCity, toggleCityScannable } from '../services/firestoreService';
 
 export const useCities = (user, setError) => {
   const [cities, setCities] = useState([]);
@@ -9,15 +9,11 @@ export const useCities = (user, setError) => {
   useEffect(() => {
     if (!user) return;
 
-    const handleUpdate = (citiesData) => {
-      setCities(citiesData);
-    };
+    const unsubscribe = onCitiesUpdate(
+      (data) => setCities(data),
+      (err) => setError(err.message)
+    );
 
-    const handleError = (err) => {
-      setError(err.message);
-    };
-
-    const unsubscribe = onCitiesUpdate(handleUpdate, handleError);
     return () => unsubscribe();
   }, [user, setError]);
 
@@ -32,12 +28,22 @@ export const useCities = (user, setError) => {
     }
   }, [newCityName, newCityId, setError]);
 
-  const handleDeleteCity = useCallback(async (cityId) => {
-    try {
-      await deleteCity(cityId);
-    } catch (e) {
-      setError(e.message);
+  const handleDeleteCity = useCallback(async (id) => {
+    if (window.confirm('Voulez-vous vraiment supprimer cette ville ?')) {
+      try {
+        await deleteCity(id);
+      } catch (e) {
+        setError(e.message);
+      }
     }
+  }, [setError]);
+
+  const handleToggleScannable = useCallback(async (id, currentStatus) => {
+      try {
+          await toggleCityScannable(id, currentStatus);
+      } catch (e) {
+          setError(e.message);
+      }
   }, [setError]);
 
   return {
@@ -45,6 +51,7 @@ export const useCities = (user, setError) => {
     newCityName, setNewCityName,
     newCityId, setNewCityId,
     handleAddCity,
-    handleDeleteCity
+    handleDeleteCity,
+    handleToggleScannable
   };
 };

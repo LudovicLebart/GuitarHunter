@@ -2,15 +2,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // CORRECTION : Autorise l'accès à tout le dossier artifacts et ses enfants.
-    // Les règles précédentes empêchaient React de lire artifacts/{appId} et artifacts/{appId}/users/{userId}
-    match /artifacts/{document=**} {
+    // Règle globale permissive pour le développement
+    match /{document=**} {
       allow read, write: if true;
     }
 
-    // Sécurité par défaut : tout le reste est bloqué
-    match /{document=**} {
-      allow read, write: if false;
-    }
   }
 }
