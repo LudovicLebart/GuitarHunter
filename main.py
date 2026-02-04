@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 from config import *
 from backend.database import DatabaseService
 from backend.analyzer import DealAnalyzer
-from backend.scraper import FacebookScraper
+# Changement ici : import depuis le nouveau package
+from backend.scraping import FacebookScraper, ListingParser
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager, TaskScheduler
 
@@ -87,7 +88,7 @@ class GuitarHunterBot:
         if self.offline_mode: return
         docs = self.repo.get_cities()
         new_mapping = {
-            self.scraper._normalize_city_name(doc.to_dict()['name']): doc.to_dict()['id']
+            ListingParser.normalize_city_name(doc.to_dict()['name']): doc.to_dict()['id']
             for doc in docs if 'name' in doc.to_dict() and 'id' in doc.to_dict()
         }
         self.city_mapping = new_mapping
@@ -187,46 +188,54 @@ def monitor_retries(bot):
 
 def main_loop(bot):
     logger.info("--- Starting Main Loop ---")
-    bot.run_scan() # Run initial scan
+    
+    # Démarrage de la session Playwright
+    bot.scraper.start_session()
+    
+    try:
+        bot.run_scan() # Run initial scan
 
-    scheduler = TaskScheduler(
-        scan_func=bot.run_scan,
-        cleanup_func=bot.cleanup_sold_listings,
-        initial_frequency=bot.config_manager.get_valid_scan_frequency()
-    )
+        scheduler = TaskScheduler(
+            scan_func=bot.run_scan,
+            cleanup_func=bot.cleanup_sold_listings,
+            initial_frequency=bot.config_manager.get_valid_scan_frequency()
+        )
 
-    while True:
-        try:
-            scheduler.run_pending()
-            
-            sync_result = bot.sync_and_apply_config()
-            
-            if sync_result.specific_url:
-                logger.info(f"Received command to scan specific URL: {sync_result.specific_url}")
-                bot.scan_specific_url(sync_result.specific_url)
-
-            if sync_result.should_cleanup:
-                logger.info("Received command to force cleanup.")
-                bot.cleanup_sold_listings()
-                bot.repo.consume_command('forceCleanup')
-
-            if sync_result.should_reanalyze_all:
-                logger.info("Received command to force re-analyze all.")
-                bot.reanalyze_all_listings()
-                bot.repo.consume_command('forceReanalyzeAll')
+        while True:
+            try:
+                scheduler.run_pending()
                 
-            if sync_result.should_refresh:
-                logger.info("Received command to force refresh.")
-                bot.run_scan()
-                bot.repo.consume_command('forceRefresh')
+                sync_result = bot.sync_and_apply_config()
                 
-            if sync_result.new_scan_frequency is not None:
-                scheduler.update_scan_frequency(sync_result.new_scan_frequency)
+                if sync_result.specific_url:
+                    logger.info(f"Received command to scan specific URL: {sync_result.specific_url}")
+                    bot.scan_specific_url(sync_result.specific_url)
 
-            time.sleep(5)
-        except Exception as e:
-            logger.error(f"An error occurred in the main loop: {e}", exc_info=True)
-            time.sleep(15)
+                if sync_result.should_cleanup:
+                    logger.info("Received command to force cleanup.")
+                    bot.cleanup_sold_listings()
+                    bot.repo.consume_command('forceCleanup')
+
+                if sync_result.should_reanalyze_all:
+                    logger.info("Received command to force re-analyze all.")
+                    bot.reanalyze_all_listings()
+                    bot.repo.consume_command('forceReanalyzeAll')
+                    
+                if sync_result.should_refresh:
+                    logger.info("Received command to force refresh.")
+                    bot.run_scan()
+                    bot.repo.consume_command('forceRefresh')
+                    
+                if sync_result.new_scan_frequency is not None:
+                    scheduler.update_scan_frequency(sync_result.new_scan_frequency)
+
+                time.sleep(5)
+            except Exception as e:
+                logger.error(f"An error occurred in the main loop: {e}", exc_info=True)
+                time.sleep(15)
+    finally:
+        # Fermeture propre de la session Playwright
+        bot.scraper.close_session()
 
 if __name__ == "__main__":
     logger.info(f"Default prompt instruction loaded: {PROMPT_INSTRUCTION[:80]}...")
