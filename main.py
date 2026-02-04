@@ -37,6 +37,7 @@ class GuitarHunterBot:
             return
 
         self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET)
+        self.repo.update_bot_status('idle')
         self.analyzer = DealAnalyzer()
         self.scraper = FacebookScraper(CITY_COORDINATES, {})
         
