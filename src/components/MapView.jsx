@@ -117,7 +117,15 @@ const MapView = ({ deals, onDealSelect }) => {
     markersRef.current = [];
 
     deals.forEach(deal => {
-      const coords = getCoordinates(deal.location);
+      let coords;
+      // Priorité aux coordonnées GPS précises si elles existent
+      if (deal.latitude && deal.longitude) {
+        coords = { lat: deal.latitude, lng: deal.longitude };
+      } else {
+        // Sinon, fallback sur la localisation par nom de ville
+        coords = getCoordinates(deal.location);
+      }
+
       if (coords) {
         // Couleur du marqueur selon le verdict
         let markerColor = '#64748b'; // Slate (Default)
@@ -152,7 +160,7 @@ const MapView = ({ deals, onDealSelect }) => {
         markersRef.current.push(marker);
       }
     });
-  }, [map, deals, onDealSelect]);
+  }, [map, deals, onDeal-select]);
 
   return <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-200 overflow-hidden" />;
 };

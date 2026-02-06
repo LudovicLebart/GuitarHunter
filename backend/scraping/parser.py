@@ -28,7 +28,22 @@ class ListingParser:
     @staticmethod
     def normalize_city_name(name: str) -> str:
         if not name: return ""
+        # 1. Garder la partie avant la virgule et mettre en minuscule
         name = name.split(',')[0].strip().lower()
+        
+        # 2. Remplacer les tirets et points par des espaces pour uniformiser
+        name = name.replace('-', ' ').replace('.', ' ')
+        
+        # 3. Gérer les abréviations courantes (St -> Saint, Ste -> Sainte)
+        words = name.split()
+        fixed_words = []
+        for w in words:
+            if w == 'st': fixed_words.append('saint')
+            elif w == 'ste': fixed_words.append('sainte')
+            else: fixed_words.append(w)
+        name = " ".join(fixed_words)
+
+        # 4. Normalisation Unicode (accents)
         return unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode("utf-8")
 
     @staticmethod
