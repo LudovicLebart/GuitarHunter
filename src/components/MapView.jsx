@@ -160,7 +160,7 @@ const MapView = ({ deals, onDealSelect }) => {
         markersRef.current.push(marker);
       }
     });
-  }, [map, deals, onDeal-select]);
+  }, [map, deals, onDealSelect]);
 
   return <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-200 overflow-hidden" />;
 };

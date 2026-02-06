@@ -51,7 +51,9 @@ class ListingParser:
         """Extrait les infos de base depuis la carte de l'annonce dans la liste."""
         title = "Titre Inconnu"
         price = 0
-        spec_loc = location_filter
+        # Modification : Ne plus utiliser location_filter par défaut.
+        # Si la ville n'est pas trouvée sur la carte, on retourne None pour éviter les faux positifs.
+        spec_loc = None
         
         try:
             text = link_element.inner_text()

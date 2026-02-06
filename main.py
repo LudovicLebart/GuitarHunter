@@ -96,13 +96,13 @@ class GuitarHunterBot:
         
         for doc in docs:
             data = doc.to_dict()
-            # Une ville est scannable ET autorisée si elle a un ID et isScannable est True
-            if data.get('isScannable') and data.get('id') and 'name' in data:
-                city_name = data['name']
-                all_allowed_cities.append(city_name)
+            if 'name' in data:
+                all_allowed_cities.append(data['name'])
                 
-                norm_name = ListingParser.normalize_city_name(city_name)
-                scannable_cities[norm_name] = data['id']
+                # Une ville est scannable si elle a un ID et isScannable est True
+                if data.get('isScannable') and data.get('id'):
+                    norm_name = ListingParser.normalize_city_name(data['name'])
+                    scannable_cities[norm_name] = data['id']
 
         self.city_mapping = scannable_cities
         self.allowed_cities = all_allowed_cities
@@ -110,7 +110,7 @@ class GuitarHunterBot:
         self.scraper.city_mapping = scannable_cities
         self.scraper.allowed_cities = all_allowed_cities
         
-        logger.info(f"{len(scannable_cities)} scannable and allowed cities loaded: {', '.join(all_allowed_cities)}")
+        logger.info(f"{len(scannable_cities)} scannable cities loaded. {len(all_allowed_cities)} total allowed cities.")
 
     def handle_deal_found(self, listing_data):
         logger.info(f"Processing new deal: {listing_data['title']}")

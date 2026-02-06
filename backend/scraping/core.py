@@ -182,6 +182,12 @@ class FacebookScraper:
                 
                 # --- NEW, STRICT FILTERING LOGIC ---
                 spec_loc = card_info['location']
+                
+                # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
+                if not spec_loc:
+                    logger.info(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    continue
+
                 if not self.is_city_allowed(spec_loc):
                     logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
                     continue
