@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle } from 'lucide-react';
+import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
+import CollapsibleSection from './CollapsibleSection';
 
 // Sous-composant pour la section de recherche Facebook
 const FacebookSearchSection = () => {
@@ -14,11 +15,6 @@ const FacebookSearchSection = () => {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-blue-600 mb-2">
-        <Search size={14} />
-        <span className="text-[10px] font-black uppercase tracking-widest">Recherche Facebook</span>
-      </div>
-      
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label>
@@ -91,24 +87,19 @@ const CityManagementSection = () => {
   }, [searchTerm, cities]);
 
   const addCityToWhitelist = (city) => {
-    // On utilise docId pour l'update
     handleToggleScannable(city.docId, false); 
     setSearchTerm('');
   };
 
   const removeCityFromWhitelist = (city) => {
-    // On utilise docId pour l'update
     handleToggleScannable(city.docId, true);
   };
 
   return (
-    <div className="pt-4 border-t border-slate-100">
-      <label className="text-[9px] font-bold text-slate-400 uppercase block mb-2">Villes à Scanner</label>
-      
+    <div className="pt-2">
       {/* cytiListUI: Affiche les villes sélectionnées */}
       <div className="space-y-2 mb-3">
         {scannableCities.map(city => (
-          // Utilisation de docId comme clé unique
           <div key={city.docId} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg text-xs border border-blue-100">
             <span className="font-bold text-blue-700">{city.name}</span>
             <button onClick={() => removeCityFromWhitelist(city)} className="text-blue-400 hover:text-rose-600 p-1">
@@ -116,14 +107,14 @@ const CityManagementSection = () => {
             </button>
           </div>
         ))}
-        {scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2">Aucune ville sélectionnée pour le scan.</p>}
+        {scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2">Aucune ville sélectionnée.</p>}
       </div>
 
       {/* Champ de recherche et suggestions */}
       <div className="relative">
         <input 
           type="text"
-          placeholder="Rechercher une ville à ajouter..."
+          placeholder="Ajouter une ville..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
@@ -131,7 +122,6 @@ const CityManagementSection = () => {
         {suggestions.length > 0 && (
           <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
             {suggestions.map(suggestion => (
-              // Utilisation de docId comme clé unique
               <div 
                 key={suggestion.docId}
                 onClick={() => addCityToWhitelist(suggestion)}
@@ -157,70 +147,86 @@ const AiConfigSection = () => {
     saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll
   } = useBotConfigContext();
 
+  const handleTextChange = (setter, fieldName, value) => {
+    setter(value);
+  };
+
+  const handleBlur = (fieldName, value) => {
+      saveConfig({ [fieldName]: value });
+  };
+
   return (
-    <div className="space-y-3 pt-4 border-t border-slate-100">
+    <div className="space-y-4 pt-2">
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-purple-600">
-          <Sparkles size={14} />
-          <span className="text-[10px] font-black uppercase tracking-widest">Intelligence Artificielle</span>
-        </div>
+        <button
+            onClick={handleRelaunchAll}
+            disabled={isReanalyzingAll}
+            className={`flex-grow mr-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${isReanalyzingAll ? 'bg-purple-100 text-purple-600' : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'}`}
+        >
+            <BrainCircuit size={14} className={isReanalyzingAll ? "animate-pulse" : ""} />
+            {isReanalyzingAll ? 'Analyse...' : 'Relancer Analyses'}
+        </button>
+        
         <button 
           onClick={handleResetDefaults}
-          className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors"
-          title="Réinitialiser aux valeurs par défaut"
+          className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors px-2"
+          title="Réinitialiser"
         >
           <RotateCcw size={10} /> Reset
         </button>
       </div>
 
-      <button
-          onClick={handleRelaunchAll}
-          disabled={isReanalyzingAll}
-          className={`w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${isReanalyzingAll ? 'bg-purple-100 text-purple-600' : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'}`}
-      >
-          <BrainCircuit size={16} className={isReanalyzingAll ? "animate-pulse" : ""} />
-          {isReanalyzingAll ? 'Demande envoyée...' : 'Relancer TOUTES les analyses'}
-      </button>
+      <div className="space-y-4">
+        {/* Section Principale : Règles Métier */}
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Identité du Bot (Persona)</label>
+            <p className="text-[9px] text-slate-400 mb-2">Qui est l'IA ? (ex: "Tu es un expert luthier...")</p>
+            <textarea
+            value={prompt}
+            onChange={(e) => handleTextChange(setPrompt, 'prompt', e.target.value)}
+            onBlur={(e) => handleBlur('prompt', e.target.value)}
+            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all h-24 font-mono text-slate-600"
+            placeholder="Tu es un expert..."
+            />
+        </div>
 
-      <div>
-        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Gemini</label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onBlur={() => saveConfig({ prompt })}
-          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
-        />
-      </div>
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Règles de Verdict (Critères)</label>
+            <p className="text-[9px] text-slate-400 mb-2">Définissez quand une guitare est une "Pépite" ou un "Rejet".</p>
+            <textarea
+            value={verdictRules}
+            onChange={(e) => handleTextChange(setVerdictRules, 'verdictRules', e.target.value)}
+            onBlur={(e) => handleBlur('verdictRules', e.target.value)}
+            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all h-32 font-mono text-slate-600"
+            />
+        </div>
 
-      <div>
-        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Prompt Utilisateur (Template)</label>
-        <textarea
-          value={userPrompt}
-          onChange={(e) => setUserPrompt(e.target.value)}
-          onBlur={() => saveConfig({ userPrompt })}
-          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24 italic"
-          placeholder="Utilisez {title}, {price}, {description} comme placeholders."
-        />
-      </div>
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Style de Réponse</label>
+            <p className="text-[9px] text-slate-400 mb-2">Ton et format des explications.</p>
+            <textarea
+            value={reasoningInstruction}
+            onChange={(e) => handleTextChange(setReasoningInstruction, 'reasoningInstruction', e.target.value)}
+            onBlur={(e) => handleBlur('reasoningInstruction', e.target.value)}
+            className="w-full p-3 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all h-20 font-mono text-slate-600"
+            />
+        </div>
 
-      <div>
-        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Règles de Verdict</label>
-        <textarea
-          value={verdictRules}
-          onChange={(e) => setVerdictRules(e.target.value)}
-          onBlur={() => saveConfig({ verdictRules })}
-          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
-        />
-      </div>
-
-      <div>
-        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Instruction de Raisonnement</label>
-        <textarea
-          value={reasoningInstruction}
-          onChange={(e) => setReasoningInstruction(e.target.value)}
-          onBlur={() => saveConfig({ reasoningInstruction })}
-          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none transition-all h-24"
-        />
+        {/* Section Avancée Masquée */}
+        <CollapsibleSection title="Avancé">
+            <div className="space-y-4 pt-2">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Template Utilisateur</label>
+                    <p className="text-[9px] text-slate-400 mb-2">Structure du message envoyé à l'IA.</p>
+                    <textarea
+                    value={userPrompt}
+                    onChange={(e) => handleTextChange(setUserPrompt, 'userPrompt', e.target.value)}
+                    onBlur={(e) => handleBlur('userPrompt', e.target.value)}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-slate-400 outline-none transition-all h-24 font-mono text-slate-500"
+                    />
+                </div>
+            </div>
+        </CollapsibleSection>
       </div>
     </div>
   );
@@ -231,12 +237,20 @@ const ConfigPanel = ({ showConfig }) => {
   if (!showConfig) return null;
 
   return (
-    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300">
-      <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
+    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-2 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar">
+      <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 sticky top-0 bg-white pb-2 z-10 border-b border-slate-50 mb-2">Paramètres</h3>
       
-      <FacebookSearchSection />
-      <CityManagementSection />
-      <AiConfigSection />
+      <CollapsibleSection title="Recherche Facebook">
+        <FacebookSearchSection />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Villes & Zones">
+        <CityManagementSection />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="Intelligence Artificielle">
+        <AiConfigSection />
+      </CollapsibleSection>
 
     </div>
   );

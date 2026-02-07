@@ -81,9 +81,8 @@ class GuitarHunterBot:
         
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
         
-        if sync_result.config_changed:
-            if self.config_manager.user_prompt_template:
-                self.analyzer.update_prompt_template(self.config_manager.user_prompt_template)
+        # Note: Plus besoin de mettre à jour manuellement l'analyzer ici,
+        # car on lui passera la config complète lors de l'appel à analyze_deal.
         
         return sync_result
 
@@ -126,7 +125,10 @@ class GuitarHunterBot:
                     return
                 logger.info("Deal already exists but price has changed. Updating.")
 
-        analysis = self.analyzer.analyze_deal(listing_data)
+        # On passe la configuration actuelle (snapshot) à l'analyzer
+        current_config = self.config_manager.current_config_snapshot
+        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+        
         if not self.offline_mode:
             self.repo.save_deal(listing_data['id'], listing_data, analysis)
 
@@ -221,7 +223,9 @@ class GuitarHunterBot:
                 **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
             }
             
-            analysis = self.analyzer.analyze_deal(listing_data)
+            # On passe la config actuelle pour la réanalyse
+            current_config = self.config_manager.current_config_snapshot
+            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
             self.repo.save_deal(doc.id, listing_data, analysis)
 
     def reanalyze_all_listings(self):

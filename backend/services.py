@@ -19,16 +19,17 @@ class SyncResult:
     commands: List[Command] = field(default_factory=list)
     config_changed: bool = False
     new_scan_frequency: Optional[int] = None
+    full_config: Dict[str, Any] = field(default_factory=dict) # Ajout pour passer la config complète
 
 class ConfigManager:
     """Gère la configuration du bot et la synchronisation avec Firestore."""
     def __init__(self, repo, initial_scan_config):
         self.repo = repo
         self.scan_config = initial_scan_config.copy()
-        self.user_prompt_template = ""
         self.last_refresh_ts = 0
         self.last_cleanup_ts = 0
         self.last_reanalyze_ts = 0
+        self.current_config_snapshot = {} # Stocke la dernière config connue
 
     def sync_with_firestore(self, initial=False):
         """Synchronise la configuration et détecte les commandes."""
@@ -37,13 +38,8 @@ class ConfigManager:
             return SyncResult()
 
         result = SyncResult()
-
-        # Synchronisation du user prompt
-        new_template = self._join_if_list(config_data.get('userPrompt', ''))
-        if new_template and new_template != self.user_prompt_template:
-            self.user_prompt_template = new_template
-            result.config_changed = True
-            logger.info("User prompt template updated.")
+        result.full_config = config_data # On passe tout au bot pour l'Analyzer
+        self.current_config_snapshot = config_data
 
         # Synchronisation de la config de scan
         new_scan_config = config_data.get('scanConfig', {})
@@ -68,7 +64,6 @@ class ConfigManager:
         
         specific_url = config_data.get('scanSpecificUrl')
         if specific_url:
-            # Note: scanSpecificUrl n'est pas basé sur un timestamp mais sur la présence du champ
             result.commands.append(Command(type='SCAN_URL', payload=specific_url, firestore_field='scanSpecificUrl'))
 
         return result

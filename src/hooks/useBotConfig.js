@@ -10,10 +10,13 @@ import {
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
-const DEFAULT_PROMPT = promptsData.system_prompt;
-const DEFAULT_VERDICT_RULES = promptsData.verdict_rules;
-const DEFAULT_REASONING_INSTRUCTION = promptsData.reasoning_instruction;
-const DEFAULT_USER_PROMPT = promptsData.user_prompt;
+// Helper pour convertir les tableaux du JSON en string pour l'UI
+const joinIfList = (val) => Array.isArray(val) ? val.join('\n') : val;
+
+const DEFAULT_PROMPT = joinIfList(promptsData.system_prompt);
+const DEFAULT_VERDICT_RULES = joinIfList(promptsData.verdict_rules);
+const DEFAULT_REASONING_INSTRUCTION = joinIfList(promptsData.reasoning_instruction);
+const DEFAULT_USER_PROMPT = joinIfList(promptsData.user_prompt);
 
 export const useBotConfig = (user) => {
   const [configStatus, setConfigStatus] = useState({ status: 'pending', msg: 'En attente' });
@@ -41,10 +44,12 @@ export const useBotConfig = (user) => {
     const handleUpdate = (data) => {
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
       
-      if (data.prompt) setPrompt(data.prompt);
-      if (data.verdictRules) setVerdictRules(data.verdictRules);
-      if (data.reasoningInstruction) setReasoningInstruction(data.reasoningInstruction);
-      if (data.userPrompt) setUserPrompt(data.userPrompt);
+      // Conversion des données reçues (qui peuvent être des tableaux ou des strings) en strings pour les textareas
+      if (data.prompt) setPrompt(joinIfList(data.prompt));
+      if (data.verdictRules) setVerdictRules(joinIfList(data.verdictRules));
+      if (data.reasoningInstruction) setReasoningInstruction(joinIfList(data.reasoningInstruction));
+      if (data.userPrompt) setUserPrompt(joinIfList(data.userPrompt));
+      
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
       
       // Update bot status from Firestore
@@ -68,6 +73,7 @@ export const useBotConfig = (user) => {
 
   const saveConfig = useCallback(async (newVal) => {
     try {
+      // Pas besoin de reconvertir en tableau, le backend gère les strings avec des \n
       await updateUserConfig(newVal);
     } catch (e) { 
       setError(e.message); 
