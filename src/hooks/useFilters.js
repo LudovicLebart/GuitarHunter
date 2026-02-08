@@ -31,21 +31,34 @@ export const useFilters = (deals) => {
 
   // Filter Options
   const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY)], []);
+  
   const level2Options = useMemo(() => {
     if (level1Filter === 'ALL' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
     const node = GUITAR_TAXONOMY[level1Filter];
-    return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
+    // Si le noeud est un tableau (feuille directe), on retourne les éléments
+    if (Array.isArray(node)) return ['ALL', ...node];
+    // Sinon c'est un objet, on retourne ses clés
+    return ['ALL', ...Object.keys(node)];
   }, [level1Filter]);
+
   const level3Options = useMemo(() => {
     if (level2Filter === 'ALL' || level1Filter === 'ALL') return ['ALL'];
     const node1 = GUITAR_TAXONOMY[level1Filter];
-    if (!node1 || Array.isArray(node1)) return ['ALL'];
+    
+    // Si node1 est un tableau, il n'y a pas de niveau 3
+    if (Array.isArray(node1)) return ['ALL'];
+    
     const node2 = node1[level2Filter];
     if (!node2) return ['ALL'];
-    return ['ALL', ...(Array.isArray(node2) ? node2 : Object.keys(node2))];
+    
+    // Si node2 est un tableau, ce sont les options finales
+    if (Array.isArray(node2)) return ['ALL', ...node2];
+    
+    // Si c'est encore un objet (cas rare dans cette taxonomie mais possible), on prend les clés
+    return ['ALL', ...Object.keys(node2)];
   }, [level1Filter, level2Filter]);
 
-  // Reset sub-filters
+  // Reset sub-filters when parent changes
   useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); }, [level1Filter]);
   useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
 
@@ -57,25 +70,47 @@ export const useFilters = (deals) => {
       const status = deal.status;
       const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !analysis.reasoning;
 
+      // 1. Filtre par Type (Onglets)
       if (filterType === 'ERROR') return isError && status !== 'rejected';
       if (filterType === 'REJECTED') return status === 'rejected';
       if (filterType === 'FAVORITES') return deal.isFavorite;
+      
+      // Exclusion par défaut des rejetés et erreurs dans les autres vues
       if (status === 'rejected') return false;
       if (filterType !== 'ALL' && isError) return false;
 
       const matchesType = filterType === 'ALL' || verdict === filterType;
+      
+      // 2. Filtre par Recherche Texte
       const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
       
+      // 3. Filtre par Taxonomie (Cascading Selects)
       let matchesClassification = true;
       if (level1Filter !== 'ALL') {
-        const path = taxonomyPaths[analysis.classification];
-        if (!path) matchesClassification = false;
-        else {
+        const classification = analysis.classification;
+        const path = taxonomyPaths[classification];
+        
+        if (!path) {
+            // Si la classification n'est pas dans la taxonomie connue, on exclut
+            matchesClassification = false;
+        } else {
+          // Vérification Niveau 1
           if (path[0] !== level1Filter) matchesClassification = false;
-          if (matchesClassification && level2Filter !== 'ALL' && (path.length < 2 || path[1] !== level2Filter)) matchesClassification = false;
-          if (matchesClassification && level3Filter !== 'ALL' && (path.length < 3 || path[2] !== level3Filter)) matchesClassification = false;
+          
+          // Vérification Niveau 2
+          if (matchesClassification && level2Filter !== 'ALL') {
+             // Si le chemin est trop court, ça ne matche pas
+             if (path.length < 2 || path[1] !== level2Filter) matchesClassification = false;
+          }
+          
+          // Vérification Niveau 3
+          if (matchesClassification && level3Filter !== 'ALL') {
+             // Le niveau 3 doit correspondre exactement à la feuille ou au 3ème élément
+             if (path.length < 3 || path[2] !== level3Filter) matchesClassification = false;
+          }
         }
       }
+
       return matchesType && matchesSearch && matchesClassification;
     });
   }, [deals, filterType, searchQuery, level1Filter, level2Filter, level3Filter, taxonomyPaths]);
