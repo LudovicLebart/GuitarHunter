@@ -10,13 +10,32 @@ import {
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
-// Helper pour convertir les tableaux du JSON en string pour l'UI
-const joinIfList = (val) => Array.isArray(val) ? val.join('\n') : val;
+// Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
+const ensureArray = (val) => {
+  if (val === null || val === undefined) return [];
+  
+  // 1. Aplatir les tableaux imbriqués éventuels (gestion des cas limites)
+  const flatVal = Array.isArray(val) ? val.flat(Infinity) : [val];
+  
+  // 2. Traiter chaque élément pour découper les sauts de ligne
+  return flatVal
+    .flatMap(item => {
+        if (item === null || item === undefined) return [];
+        const str = String(item);
+        // Découpage robuste : 
+        // - Sauts de ligne échappés (\\n)
+        // - Sauts de ligne Windows (\r\n)
+        // - Sauts de ligne Mac/Linux (\r ou \n)
+        return str.split(/\\n|\r\n|\r|\n/);
+    })
+    .map(item => item.trim())
+    .filter(item => item !== ""); 
+};
 
-const DEFAULT_PROMPT = joinIfList(promptsData.system_prompt);
-const DEFAULT_VERDICT_RULES = joinIfList(promptsData.verdict_rules);
-const DEFAULT_REASONING_INSTRUCTION = joinIfList(promptsData.reasoning_instruction);
-const DEFAULT_USER_PROMPT = joinIfList(promptsData.user_prompt);
+const DEFAULT_PROMPT = ensureArray(promptsData.persona || promptsData.system_prompt);
+const DEFAULT_VERDICT_RULES = ensureArray(promptsData.verdict_rules);
+const DEFAULT_REASONING_INSTRUCTION = ensureArray(promptsData.reasoning_instruction);
+const DEFAULT_USER_PROMPT = ensureArray(promptsData.user_prompt);
 
 export const useBotConfig = (user) => {
   const [configStatus, setConfigStatus] = useState({ status: 'pending', msg: 'En attente' });
@@ -27,6 +46,7 @@ export const useBotConfig = (user) => {
   const [verdictRules, setVerdictRules] = useState(DEFAULT_VERDICT_RULES);
   const [reasoningInstruction, setReasoningInstruction] = useState(DEFAULT_REASONING_INSTRUCTION);
   const [userPrompt, setUserPrompt] = useState(DEFAULT_USER_PROMPT);
+  
   const [scanConfig, setScanConfig] = useState({
       max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
@@ -44,15 +64,14 @@ export const useBotConfig = (user) => {
     const handleUpdate = (data) => {
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
       
-      // Conversion des données reçues (qui peuvent être des tableaux ou des strings) en strings pour les textareas
-      if (data.prompt) setPrompt(joinIfList(data.prompt));
-      if (data.verdictRules) setVerdictRules(joinIfList(data.verdictRules));
-      if (data.reasoningInstruction) setReasoningInstruction(joinIfList(data.reasoningInstruction));
-      if (data.userPrompt) setUserPrompt(joinIfList(data.userPrompt));
+      // On applique le ensureArray renforcé sur toutes les données entrantes
+      if (data.prompt) setPrompt(ensureArray(data.prompt));
+      if (data.verdictRules) setVerdictRules(ensureArray(data.verdictRules));
+      if (data.reasoningInstruction) setReasoningInstruction(ensureArray(data.reasoningInstruction));
+      if (data.userPrompt) setUserPrompt(ensureArray(data.userPrompt));
       
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
       
-      // Update bot status from Firestore
       if (data.botStatus) setBotStatus(data.botStatus);
 
       if (data.scanError) {
@@ -73,7 +92,6 @@ export const useBotConfig = (user) => {
 
   const saveConfig = useCallback(async (newVal) => {
     try {
-      // Pas besoin de reconvertir en tableau, le backend gère les strings avec des \n
       await updateUserConfig(newVal);
     } catch (e) { 
       setError(e.message); 
@@ -119,15 +137,17 @@ export const useBotConfig = (user) => {
   const handleResetDefaults = useCallback(async () => {
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       const defaults = {
-        prompt: DEFAULT_PROMPT,
-        verdictRules: DEFAULT_VERDICT_RULES,
-        reasoningInstruction: DEFAULT_REASONING_INSTRUCTION,
-        userPrompt: DEFAULT_USER_PROMPT
+        prompt: ensureArray(promptsData.persona || promptsData.system_prompt),
+        verdictRules: ensureArray(promptsData.verdict_rules),
+        reasoningInstruction: ensureArray(promptsData.reasoning_instruction),
+        userPrompt: ensureArray(promptsData.user_prompt)
       };
-      setPrompt(DEFAULT_PROMPT);
-      setVerdictRules(DEFAULT_VERDICT_RULES);
-      setReasoningInstruction(DEFAULT_REASONING_INSTRUCTION);
-      setUserPrompt(DEFAULT_USER_PROMPT);
+      
+      setPrompt(defaults.prompt);
+      setVerdictRules(defaults.verdictRules);
+      setReasoningInstruction(defaults.reasoningInstruction);
+      setUserPrompt(defaults.userPrompt);
+
       try {
         await resetBotConfigToDefaults(defaults);
       } catch(e) {

@@ -19,7 +19,7 @@ class SyncResult:
     commands: List[Command] = field(default_factory=list)
     config_changed: bool = False
     new_scan_frequency: Optional[int] = None
-    full_config: Dict[str, Any] = field(default_factory=dict) # Ajout pour passer la config complète
+    full_config: Dict[str, Any] = field(default_factory=dict)
 
 class ConfigManager:
     """Gère la configuration du bot et la synchronisation avec Firestore."""
@@ -29,7 +29,7 @@ class ConfigManager:
         self.last_refresh_ts = 0
         self.last_cleanup_ts = 0
         self.last_reanalyze_ts = 0
-        self.current_config_snapshot = {} # Stocke la dernière config connue
+        self.current_config_snapshot = {} 
 
     def sync_with_firestore(self, initial=False):
         """Synchronise la configuration et détecte les commandes."""
@@ -38,7 +38,7 @@ class ConfigManager:
             return SyncResult()
 
         result = SyncResult()
-        result.full_config = config_data # On passe tout au bot pour l'Analyzer
+        result.full_config = config_data
         self.current_config_snapshot = config_data
 
         # Synchronisation de la config de scan
@@ -86,10 +86,6 @@ class ConfigManager:
             return freq if freq > 0 else 60
         except (ValueError, TypeError):
             return 60
-
-    @staticmethod
-    def _join_if_list(value):
-        return "\n".join(value) if isinstance(value, list) else value
 
 class TaskScheduler:
     """Gère la planification et l'exécution des tâches du bot."""

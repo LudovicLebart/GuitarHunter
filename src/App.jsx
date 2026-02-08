@@ -88,7 +88,7 @@ const AppContent = () => {
               <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
               <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
             </button>
-            <button onClick={() => setShowConfig(!showConfig)} className="p-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"><Settings size={20} /></button>
+            <button onClick={() => setShowConfig(!showConfig)} className={`p-2 rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
           </div>
         </div>
       </nav>
@@ -107,7 +107,7 @@ const AppContent = () => {
             </div>
           </div>
           
-          <ConfigPanel showConfig={showConfig} />
+          <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
         </aside>
 
         <main className="lg:col-span-3 space-y-6">
