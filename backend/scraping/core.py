@@ -12,7 +12,8 @@ class FacebookScraper:
     def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None):
         self.city_coordinates = city_coordinates
         self.city_mapping = city_mapping
-        self.allowed_cities = allowed_cities or []
+        # allowed_cities est supposé contenir des noms de villes déjà normalisés
+        self.allowed_cities = set(allowed_cities) if allowed_cities else set()
         self.config = config or ScraperConfig()
         
         self.playwright = None
@@ -108,15 +109,27 @@ class FacebookScraper:
     def is_city_allowed(self, city_name):
         """Vérifie si une ville est dans la liste blanche (insensible à la casse/accents)."""
         if not city_name: return False
+        
         norm_name = ListingParser.normalize_city_name(city_name)
-        for allowed in self.allowed_cities:
-            if ListingParser.normalize_city_name(allowed) == norm_name:
-                return True
+        
+        # Vérification directe dans le set (O(1)) car self.allowed_cities contient déjà des noms normalisés
+        if norm_name in self.allowed_cities:
+            return True
+            
+        # Fallback : vérification partielle si nécessaire (ex: "Montreal-Nord" vs "Montreal")
+        # Mais attention aux faux positifs. Pour l'instant, on reste strict.
+        
+        # Log pour debug si la ville est rejetée
+        # logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
-    def scan_marketplace(self, scan_config, on_deal_found):
+    def scan_marketplace(self, scan_config, on_deal_found, should_skip_callback=None):
         self._ensure_session()
         
+        # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
+        if hasattr(self, 'allowed_cities') and isinstance(self.allowed_cities, list):
+             self.allowed_cities = set(self.allowed_cities)
+
         search_query = scan_config['search_query']
         location = scan_config['location']
         min_price = scan_config['min_price']
@@ -185,17 +198,23 @@ class FacebookScraper:
                 
                 # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
                 if not spec_loc:
-                    logger.info(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    # logger.info(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
                     continue
 
                 if not self.is_city_allowed(spec_loc):
-                    logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    # logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
                     continue
                 # --- END OF NEW LOGIC ---
 
                 title = card_info['title']
                 price = card_info['price']
                 img_url = card_info['imageUrl']
+
+                # --- OPTIMIZATION: Check if we should skip this deal ---
+                if should_skip_callback and should_skip_callback(fb_id, price):
+                    logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
+                    continue
+                # --- END OPTIMIZATION ---
 
                 if price > 0 or "Gratuit" in title or "Free" in title:
                     logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")

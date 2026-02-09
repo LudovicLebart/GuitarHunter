@@ -30,6 +30,8 @@ offline_mode = db_service.offline_mode
 class GuitarHunterBot:
     def __init__(self, db_client, is_offline):
         self.offline_mode = is_offline
+        self.session_processed_ids = set() # Cache pour éviter les doublons durant un scan
+
         if self.offline_mode:
             logger.warning("Offline mode is enabled. Bot will not connect to Firestore.")
             self.analyzer = DealAnalyzer()
@@ -96,12 +98,15 @@ class GuitarHunterBot:
         for doc in docs:
             data = doc.to_dict()
             if 'name' in data:
-                all_allowed_cities.append(data['name'])
+                # On normalise directement ici pour éviter de le faire à chaque vérification
+                norm_name = ListingParser.normalize_city_name(data['name'])
                 
                 # Une ville est scannable si elle a un ID et isScannable est True
+                # MODIFICATION : On considère une ville comme "autorisée" (whitelist) UNIQUEMENT si elle est scannable.
+                # Cela exclut par défaut toutes les autres villes de la DB.
                 if data.get('isScannable') and data.get('id'):
-                    norm_name = ListingParser.normalize_city_name(data['name'])
                     scannable_cities[norm_name] = data['id']
+                    all_allowed_cities.append(norm_name)
 
         self.city_mapping = scannable_cities
         self.allowed_cities = all_allowed_cities
@@ -109,10 +114,42 @@ class GuitarHunterBot:
         self.scraper.city_mapping = scannable_cities
         self.scraper.allowed_cities = all_allowed_cities
         
-        logger.info(f"{len(scannable_cities)} scannable cities loaded. {len(all_allowed_cities)} total allowed cities.")
+        logger.info(f"{len(scannable_cities)} scannable cities loaded. {len(all_allowed_cities)} total allowed cities (whitelist).")
+
+    def should_skip_deal(self, deal_id, price):
+        """Vérifie si une annonce doit être ignorée (déjà traitée et inchangée)."""
+        # 1. Vérification rapide dans le cache de session (évite les doublons inter-villes immédiats)
+        if deal_id in self.session_processed_ids:
+            return True
+
+        if self.offline_mode: return False
+        
+        # 2. Vérification dans la base de données
+        existing_deal = self.repo.get_deal_by_id(deal_id)
+        if not existing_deal:
+            return False
+            
+        # Si l'annonce a été rejetée, on l'ignore
+        if existing_deal.get('status') == 'rejected':
+            # On l'ajoute au cache pour ne plus redemander à la DB lors de ce scan
+            self.session_processed_ids.add(deal_id)
+            return True
+            
+        # Si le prix est identique, on l'ignore (pas de mise à jour nécessaire)
+        try:
+            if int(existing_deal.get('price', -1)) == int(price):
+                self.session_processed_ids.add(deal_id)
+                return True
+        except (ValueError, TypeError):
+            pass
+            
+        return False
 
     def handle_deal_found(self, listing_data):
         logger.info(f"Processing new deal: {listing_data['title']}")
+        
+        # Ajout au cache de session pour éviter de le retraiter si on le recroise
+        self.session_processed_ids.add(listing_data['id'])
         
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
@@ -136,6 +173,9 @@ class GuitarHunterBot:
         if not self.offline_mode:
             self.repo.update_bot_status('scanning')
         
+        # Réinitialisation du cache de session au début d'un cycle de scan complet
+        self.session_processed_ids = set()
+        
         try:
             scan_config = self.config_manager.scan_config
             logger.info(f"Starting scheduled scan (frequency: {scan_config.get('frequency', 'N/A')} min)...")
@@ -154,7 +194,11 @@ class GuitarHunterBot:
                     city_specific_config['location'] = city_norm_name
                     
                     logger.info(f"--- Scanning city: {city_norm_name} ---")
-                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found)
+                    self.scraper.scan_marketplace(
+                        city_specific_config, 
+                        self.handle_deal_found,
+                        should_skip_callback=self.should_skip_deal
+                    )
                     time.sleep(2) # Pause entre les villes
 
             logger.info("Scheduled scan finished.")
