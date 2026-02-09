@@ -1,7 +1,7 @@
-name: Deploy Backend
+name: Deploy Guitare Hunter
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   deploy:
@@ -13,9 +13,7 @@ jobs:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci # Assure-toi que ce tag existe ou adapte-le
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -24,8 +22,17 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            mkdir -p ~/GuitareHunter
             cd ~/GuitareHunter
-            git pull origin main
+            # Si le dossier n'est pas un dépôt git, on le clone, sinon on pull
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              git pull origin main
+            fi
+            # Mise à jour de l'environnement Python
+            python3 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt
-            sudo systemctl restart guitare-hunter
+            # Redémarrage du service (si configuré)
+            sudo systemctl restart guitare-hunter || echo "Service non configuré"
