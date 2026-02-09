@@ -39,6 +39,5 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             python3 -m playwright install chromium
-            python3 -m playwright install-deps
             # Redémarrage du service (si configuré)
             sudo systemctl restart guitare-hunter || echo "Service non configuré"
