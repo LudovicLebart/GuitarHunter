@@ -7,6 +7,7 @@ const APP_ID = "c_5d118e719dbddbfc_index.html-217";
 const userDocRef = doc(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID);
 const dealsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'guitar_deals');
 const citiesCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'cities');
+const commandsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'commands');
 
 // --- Bot Configuration ---
 
@@ -156,5 +157,22 @@ export const toggleCityScannable = async (docId, currentStatus) => {
     } catch (error) {
         console.error(`Error toggling scannable for city ${docId}:`, error);
         throw new Error("Erreur lors de la mise à jour de la ville.");
+    }
+};
+
+// --- Commands ---
+
+export const addCommand = async (type, payload) => {
+    try {
+        await addDoc(commandsCollectionRef, {
+            type: type,
+            payload: payload,
+            status: 'pending',
+            createdAt: new Date()
+        });
+        console.log(`Command ${type} added successfully.`);
+    } catch (error) {
+        console.error(`Error adding command ${type}:`, error);
+        throw new Error("Erreur lors de l'envoi de la commande.");
     }
 };

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin, ArrowUp, ArrowDown, Maximize2, Minimize2 } from 'lucide-react';
+import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin, ArrowUp, ArrowDown, Maximize2, Minimize2, Save } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
+import { addCommand } from '../services/firestoreService'; // Import de addCommand
 import CollapsibleSection from './CollapsibleSection';
 
 // --- COMPOSANT ÉDITEUR DE LISTE ---
@@ -184,8 +185,16 @@ const FacebookSearchSection = () => {
 };
 
 const CityManagementSection = () => {
-  const { cities, handleToggleScannable } = useCitiesContext();
+  const { 
+    cities, handleToggleScannable,
+    newCityName, setNewCityName,
+    newCityId, setNewCityId,
+    handleAddCity
+  } = useCitiesContext();
+  
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   
@@ -199,17 +208,42 @@ const CityManagementSection = () => {
   }, [searchTerm, cities]);
 
   const addCityToWhitelist = (city) => {
-    handleToggleScannable(city.docId, false); 
+    handleToggleScannable(city.docId, false); // false car on toggle, donc si c'était false ça devient true
     setSearchTerm('');
   };
 
   const removeCityFromWhitelist = (city) => {
-    handleToggleScannable(city.docId, true);
+    handleToggleScannable(city.docId, true); // true car on toggle, donc si c'était true ça devient false
+  };
+
+  const handleSaveCity = async () => {
+      if (!newCityName) return;
+      setIsSubmitting(true);
+      try {
+          if (newCityId) {
+              // Ajout manuel avec ID
+              await handleAddCity();
+          } else {
+              // Ajout automatique via commande
+              await addCommand('ADD_CITY', newCityName);
+              setNewCityName('');
+              setNewCityId('');
+              alert(`Demande d'ajout pour "${newCityName}" envoyée. Le bot va chercher l'ID.`);
+          }
+          setShowAddForm(false);
+      } catch (e) {
+          console.error(e);
+          alert("Erreur lors de l'ajout de la ville.");
+      } finally {
+          setIsSubmitting(false);
+      }
   };
 
   return (
-    <div className="pt-2">
-      <div className="space-y-2 mb-3">
+    <div className="pt-2 space-y-4">
+      {/* Liste des villes actives */}
+      <div className="space-y-2">
+        <label className="text-[9px] font-bold text-slate-400 uppercase">Villes Scannées</label>
         {scannableCities.map(city => (
           <div key={city.docId} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg text-xs border border-blue-100">
             <span className="font-bold text-blue-700">{city.name}</span>
@@ -218,31 +252,78 @@ const CityManagementSection = () => {
             </button>
           </div>
         ))}
-        {scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2">Aucune ville sélectionnée.</p>}
+        {scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2 bg-slate-50 rounded-lg border border-dashed border-slate-200">Aucune ville active.</p>}
       </div>
 
+      {/* Recherche pour activer une ville existante */}
       <div className="relative">
-        <input 
-          type="text"
-          placeholder="Ajouter une ville..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-        />
-        {suggestions.length > 0 && (
-          <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-            {suggestions.map(suggestion => (
-              <div 
-                key={suggestion.docId}
-                onClick={() => addCityToWhitelist(suggestion)}
-                className="p-2 text-xs hover:bg-blue-50 cursor-pointer"
-              >
-                {suggestion.name}
-              </div>
-            ))}
-          </div>
-        )}
+        <label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">Activer une ville existante</label>
+        <div className="flex gap-2">
+            <div className="relative flex-grow">
+                <input 
+                type="text"
+                placeholder="Rechercher une ville..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
+                />
+                {suggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                    {suggestions.map(suggestion => (
+                    <div 
+                        key={suggestion.docId}
+                        onClick={() => addCityToWhitelist(suggestion)}
+                        className="p-2 text-xs hover:bg-blue-50 cursor-pointer"
+                    >
+                        {suggestion.name}
+                    </div>
+                    ))}
+                </div>
+                )}
+            </div>
+            <button 
+                onClick={() => setShowAddForm(!showAddForm)}
+                className={`p-2 rounded-lg border transition-colors ${showAddForm ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'}`}
+                title="Créer une nouvelle ville"
+            >
+                <Plus size={16} className={showAddForm ? "rotate-45 transition-transform" : "transition-transform"} />
+            </button>
+        </div>
       </div>
+
+      {/* Formulaire d'ajout de nouvelle ville */}
+      {showAddForm && (
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 animate-in slide-in-from-top-2">
+              <h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Ajouter une nouvelle ville</h4>
+              <div className="space-y-2">
+                  <input 
+                      type="text" 
+                      placeholder="Nom (ex: Sherbrooke)" 
+                      value={newCityName}
+                      onChange={(e) => setNewCityName(e.target.value)}
+                      className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                  />
+                  <input 
+                      type="text" 
+                      placeholder="ID Facebook (Optionnel)" 
+                      value={newCityId}
+                      onChange={(e) => setNewCityId(e.target.value)}
+                      className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+                  />
+                  <p className="text-[9px] text-slate-400">
+                      {newCityId ? "L'ID se trouve dans l'URL : facebook.com/marketplace/123456/" : "Laissez vide pour que le bot cherche l'ID automatiquement."}
+                  </p>
+                  <button 
+                      onClick={handleSaveCity}
+                      disabled={!newCityName || isSubmitting}
+                      className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                      {isSubmitting ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+                      {newCityId ? "Enregistrer" : "Chercher & Ajouter"}
+                  </button>
+              </div>
+          </div>
+      )}
     </div>
   );
 };

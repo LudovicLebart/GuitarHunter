@@ -2,6 +2,7 @@ import sys
 import time
 import threading
 import logging
+from firebase_admin import firestore
 
 # --- Logging Configuration ---
 logging.basicConfig(
@@ -283,6 +284,37 @@ class GuitarHunterBot:
             if not self.offline_mode:
                 self.repo.update_bot_status('idle')
 
+    def add_city_auto(self, city_name):
+        """Tente de trouver l'ID d'une ville et de l'ajouter à Firestore."""
+        if self.offline_mode: return
+        
+        logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
+        
+        # Import local pour éviter les cycles si nécessaire
+        from backend.scraping.city_finder import CityFinder
+        
+        # On utilise le scraper existant
+        city_id = CityFinder.find_city_id(self.scraper, city_name)
+        
+        if city_id:
+            logger.info(f"ID trouvé pour {city_name}: {city_id}. Ajout à Firestore...")
+            try:
+                # Ajout direct via le repo
+                self.repo.cities_ref.add({
+                    'name': city_name,
+                    'id': city_id,
+                    'isScannable': True, # On l'active par défaut car l'utilisateur vient de l'ajouter
+                    'createdAt': firestore.SERVER_TIMESTAMP
+                })
+                logger.info(f"Ville {city_name} ajoutée avec succès.")
+                return True
+            except Exception as e:
+                logger.error(f"Erreur lors de l'ajout de la ville {city_name}: {e}")
+                raise e # On relance pour que le handler de commande puisse marquer comme failed
+        else:
+            logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
+            raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
+
 def monitor_retries(bot):
     logger.info("Retry queue monitoring thread started.")
     while True:
@@ -304,7 +336,8 @@ def main_loop(bot):
         'REFRESH': lambda _: bot.run_scan(),
         'CLEANUP': lambda _: bot.cleanup_sold_listings(),
         'REANALYZE_ALL': lambda _: bot.reanalyze_all_listings(),
-        'SCAN_URL': lambda url: bot.scan_specific_url(url)
+        'SCAN_URL': lambda url: bot.scan_specific_url(url),
+        'ADD_CITY': lambda city_name: bot.add_city_auto(city_name)
     }
 
     try:
@@ -324,14 +357,28 @@ def main_loop(bot):
                 
                 # Traitement des commandes
                 for command in sync_result.commands:
-                    logger.info(f"Received command: {command.type}")
+                    logger.info(f"Received command: {command.type} (ID: {command.command_id})")
                     handler = command_handlers.get(command.type)
+                    
                     if handler:
-                        handler(command.payload)
-                        if command.firestore_field:
-                            bot.repo.consume_command(command.firestore_field)
+                        try:
+                            # Exécution de la commande
+                            handler(command.payload)
+                            
+                            # Gestion du statut de la commande
+                            if command.command_id:
+                                bot.repo.mark_command_completed(command.command_id)
+                            elif command.firestore_field:
+                                bot.repo.consume_command(command.firestore_field)
+                                
+                        except Exception as e:
+                            logger.error(f"Error executing command {command.type}: {e}", exc_info=True)
+                            if command.command_id:
+                                bot.repo.mark_command_failed(command.command_id, str(e))
                     else:
                         logger.warning(f"Unknown command type: {command.type}")
+                        if command.command_id:
+                            bot.repo.mark_command_failed(command.command_id, f"Unknown command type: {command.type}")
 
                 if sync_result.new_scan_frequency is not None:
                     scheduler.update_scan_frequency(sync_result.new_scan_frequency)

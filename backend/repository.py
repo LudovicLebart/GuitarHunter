@@ -19,6 +19,9 @@ class FirestoreRepository:
         self.collection_ref = self.user_ref.collection('guitar_deals')
         
         self.cities_ref = self.user_ref.collection('cities')
+        
+        # Nouvelle collection pour les commandes
+        self.commands_ref = self.user_ref.collection('commands')
 
     def ensure_initial_structure(self, initial_config):
         logger.info("Verifying Firestore structure...")
@@ -129,3 +132,36 @@ class FirestoreRepository:
             logger.info(f"Updated bot status to '{status}'.")
         except Exception as e:
             logger.error(f"Failed to update bot status to '{status}': {e}", exc_info=True)
+
+    # --- Command Collection Methods ---
+
+    def get_pending_commands(self):
+        """Récupère les commandes en attente depuis la collection 'commands'."""
+        try:
+            return self.commands_ref.where(filter=FieldFilter('status', '==', 'pending')).stream()
+        except Exception as e:
+            logger.error(f"Failed to get pending commands: {e}", exc_info=True)
+            return []
+
+    def mark_command_completed(self, command_id):
+        """Marque une commande comme terminée."""
+        try:
+            self.commands_ref.document(command_id).update({
+                'status': 'completed',
+                'completedAt': firestore.SERVER_TIMESTAMP
+            })
+            logger.info(f"Command '{command_id}' marked as completed.")
+        except Exception as e:
+            logger.error(f"Failed to mark command '{command_id}' as completed: {e}", exc_info=True)
+
+    def mark_command_failed(self, command_id, error_message):
+        """Marque une commande comme échouée."""
+        try:
+            self.commands_ref.document(command_id).update({
+                'status': 'failed',
+                'error': error_message,
+                'completedAt': firestore.SERVER_TIMESTAMP
+            })
+            logger.info(f"Command '{command_id}' marked as failed: {error_message}")
+        except Exception as e:
+            logger.error(f"Failed to mark command '{command_id}' as failed: {e}", exc_info=True)

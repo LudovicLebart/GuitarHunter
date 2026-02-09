@@ -11,7 +11,8 @@ class Command:
     """Représente une commande à exécuter par le bot."""
     type: str
     payload: Optional[Any] = None
-    firestore_field: Optional[str] = None
+    firestore_field: Optional[str] = None # Pour les commandes legacy (champs dans user doc)
+    command_id: Optional[str] = None      # Pour les commandes de la collection 'commands'
 
 @dataclass
 class SyncResult:
@@ -52,7 +53,7 @@ class ConfigManager:
             result.config_changed = True
             logger.info("Scan config updated.")
 
-        # Détection des commandes
+        # --- Commandes Legacy (Champs dans le document utilisateur) ---
         if self._check_command(config_data, 'forceRefresh', 'last_refresh_ts', initial):
             result.commands.append(Command(type='REFRESH', firestore_field='forceRefresh'))
             
@@ -65,6 +66,22 @@ class ConfigManager:
         specific_url = config_data.get('scanSpecificUrl')
         if specific_url:
             result.commands.append(Command(type='SCAN_URL', payload=specific_url, firestore_field='scanSpecificUrl'))
+
+        # --- Commandes Collection (Nouvelle Architecture) ---
+        # On ne vérifie pas les commandes lors de l'initialisation pour éviter de rejouer de vieilles commandes
+        if not initial:
+            pending_docs = self.repo.get_pending_commands()
+            for doc in pending_docs:
+                data = doc.to_dict()
+                cmd_type = data.get('type')
+                payload = data.get('payload')
+                
+                if cmd_type:
+                    result.commands.append(Command(
+                        type=cmd_type,
+                        payload=payload,
+                        command_id=doc.id
+                    ))
 
         return result
 
