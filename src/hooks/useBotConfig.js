@@ -36,6 +36,11 @@ const DEFAULT_PROMPT = ensureArray(promptsData.persona || promptsData.system_pro
 const DEFAULT_VERDICT_RULES = ensureArray(promptsData.verdict_rules);
 const DEFAULT_REASONING_INSTRUCTION = ensureArray(promptsData.reasoning_instruction);
 const DEFAULT_USER_PROMPT = ensureArray(promptsData.user_prompt);
+// Valeur par défaut temporaire pour le frontend, le vrai défaut est dans config.py
+const DEFAULT_EXCLUSION_KEYWORDS = [
+    "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum", 
+    "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
+];
 
 export const useBotConfig = (user) => {
   const [configStatus, setConfigStatus] = useState({ status: 'pending', msg: 'En attente' });
@@ -46,11 +51,12 @@ export const useBotConfig = (user) => {
   const [verdictRules, setVerdictRules] = useState(DEFAULT_VERDICT_RULES);
   const [reasoningInstruction, setReasoningInstruction] = useState(DEFAULT_REASONING_INSTRUCTION);
   const [userPrompt, setUserPrompt] = useState(DEFAULT_USER_PROMPT);
+  const [exclusionKeywords, setExclusionKeywords] = useState(DEFAULT_EXCLUSION_KEYWORDS); // Nouvel état
   
   const [scanConfig, setScanConfig] = useState({
       max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
-  const [geminiModel, setGeminiModel] = useState('gemini-2.0-flash'); // Nouveau state
+  const [geminiModel, setGeminiModel] = useState('gemini-2.0-flash');
 
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
@@ -70,9 +76,10 @@ export const useBotConfig = (user) => {
       if (data.verdictRules) setVerdictRules(ensureArray(data.verdictRules));
       if (data.reasoningInstruction) setReasoningInstruction(ensureArray(data.reasoningInstruction));
       if (data.userPrompt) setUserPrompt(ensureArray(data.userPrompt));
+      if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords)); // Mise à jour depuis Firestore
       
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
-      if (data.geminiModel) setGeminiModel(data.geminiModel); // Mise à jour du state
+      if (data.geminiModel) setGeminiModel(data.geminiModel);
       
       if (data.botStatus) setBotStatus(data.botStatus);
 
@@ -143,13 +150,15 @@ export const useBotConfig = (user) => {
         verdictRules: ensureArray(promptsData.verdict_rules),
         reasoningInstruction: ensureArray(promptsData.reasoning_instruction),
         userPrompt: ensureArray(promptsData.user_prompt),
-        geminiModel: 'gemini-2.0-flash' // Réinitialisation du modèle
+        exclusionKeywords: DEFAULT_EXCLUSION_KEYWORDS, // Reset de la blacklist
+        geminiModel: 'gemini-2.0-flash'
       };
       
       setPrompt(defaults.prompt);
       setVerdictRules(defaults.verdictRules);
       setReasoningInstruction(defaults.reasoningInstruction);
       setUserPrompt(defaults.userPrompt);
+      setExclusionKeywords(defaults.exclusionKeywords);
       setGeminiModel(defaults.geminiModel);
 
       try {
@@ -166,6 +175,7 @@ export const useBotConfig = (user) => {
     verdictRules, setVerdictRules,
     reasoningInstruction, setReasoningInstruction,
     userPrompt, setUserPrompt,
+    exclusionKeywords, setExclusionKeywords, // Export des nouveaux états
     scanConfig, setScanConfig,
     geminiModel, setGeminiModel,
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl,

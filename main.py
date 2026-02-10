@@ -74,6 +74,7 @@ class GuitarHunterBot:
             'verdictRules': DEFAULT_VERDICT_RULES,
             'reasoningInstruction': DEFAULT_REASONING_INSTRUCTION,
             'userPrompt': DEFAULT_USER_PROMPT,
+            'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS, # Ajout de la blacklist
             'scanConfig': initial_scan_config,
             'botStatus': 'idle'
         }
@@ -147,6 +148,34 @@ class GuitarHunterBot:
             
         return False
 
+    def _check_exclusion(self, listing_data, config):
+        """
+        Vérifie si l'annonce doit être exclue selon les mots-clés.
+        Retourne le mot-clé trouvé ou None.
+        """
+        exclusion_keywords = config.get('exclusionKeywords', DEFAULT_EXCLUSION_KEYWORDS)
+        
+        # Sécurité : s'assurer que c'est une liste
+        if isinstance(exclusion_keywords, str):
+             exclusion_keywords = [k.strip() for k in exclusion_keywords.split('\n') if k.strip()]
+        
+        if not exclusion_keywords:
+            return None
+
+        # Recherche dans le titre ET la description
+        title = listing_data.get('title', '')
+        description = listing_data.get('description', '')
+        
+        # Log de debug pour comprendre ce qui est scanné
+        # logger.info(f"Checking exclusion for: '{title}' against {len(exclusion_keywords)} keywords.")
+
+        text_to_check = (title + " " + description).lower()
+        
+        for keyword in exclusion_keywords:
+            if keyword.lower() in text_to_check:
+                return keyword
+        return None
+
     def handle_deal_found(self, listing_data):
         logger.info(f"Processing new deal: {listing_data['title']}")
         
@@ -166,6 +195,27 @@ class GuitarHunterBot:
 
         # On passe la configuration actuelle (snapshot) à l'analyzer
         current_config = self.config_manager.current_config_snapshot
+        
+        # --- DÉBUT DU PRÉ-FILTRAGE ---
+        found_keyword = self._check_exclusion(listing_data, current_config)
+        
+        if found_keyword:
+            logger.info(f"Deal rejected by pre-filter. Keyword found: '{found_keyword}' in '{listing_data['title']}'")
+            
+            # Création d'un résultat d'analyse "Rejeté" factice
+            rejection_analysis = {
+                "verdict": "rejected",
+                "score": 0,
+                "reason": f"REJET AUTOMATIQUE : Le mot-clé '{found_keyword}' a été détecté dans l'annonce.",
+                "model_used": "pre-filter"
+            }
+            
+            if not self.offline_mode:
+                self.repo.save_deal(listing_data['id'], listing_data, rejection_analysis)
+            
+            return # On arrête le traitement ici, pas d'appel à Gemini
+        # --- FIN DU PRÉ-FILTRAGE ---
+
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
         
         # Notification si c'est une pépite
@@ -274,6 +324,22 @@ class GuitarHunterBot:
             
             # On passe la config actuelle pour la réanalyse
             current_config = self.config_manager.current_config_snapshot
+            
+            # --- DÉBUT DU PRÉ-FILTRAGE (Ajouté aussi ici) ---
+            found_keyword = self._check_exclusion(listing_data, current_config)
+            
+            if found_keyword:
+                logger.info(f"Retry deal rejected by pre-filter. Keyword found: '{found_keyword}'")
+                rejection_analysis = {
+                    "verdict": "rejected",
+                    "score": 0,
+                    "reason": f"REJET AUTOMATIQUE : Le mot-clé '{found_keyword}' a été détecté dans l'annonce.",
+                    "model_used": "pre-filter"
+                }
+                self.repo.save_deal(doc.id, listing_data, rejection_analysis)
+                continue # On passe au suivant sans appeler Gemini
+            # --- FIN DU PRÉ-FILTRAGE ---
+
             analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
             self.repo.save_deal(doc.id, listing_data, analysis)
 

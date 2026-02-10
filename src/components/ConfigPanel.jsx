@@ -328,6 +328,28 @@ const CityManagementSection = () => {
   );
 };
 
+const ExclusionKeywordsSection = () => {
+  const {
+    exclusionKeywords, setExclusionKeywords,
+    saveConfig
+  } = useBotConfigContext();
+
+  return (
+    <div className="pt-2 space-y-4">
+      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+          <label className="text-[10px] font-bold text-rose-600 uppercase block mb-2">Mots-clés à Exclure</label>
+          <p className="text-[9px] text-slate-400 mb-3">Si le titre ou la description contient un de ces mots, l'annonce est rejetée sans analyse IA.</p>
+          <PromptListEditor 
+              items={exclusionKeywords} 
+              onChange={setExclusionKeywords} 
+              onSave={(val) => saveConfig({ exclusionKeywords: val })}
+              placeholder="Ex: Stagg, brisé, pour pièces..."
+          />
+      </div>
+    </div>
+  );
+};
+
 const AiConfigSection = () => {
   const {
     prompt, setPrompt,
@@ -447,6 +469,10 @@ const ConfigPanel = ({ showConfig, onClose }) => {
             <CityManagementSection />
         </CollapsibleSection>
 
+        <CollapsibleSection title="Filtres & Exclusion">
+            <ExclusionKeywordsSection />
+        </CollapsibleSection>
+
         <CollapsibleSection title="Intelligence Artificielle">
             <AiConfigSection />
         </CollapsibleSection>
@@ -463,6 +489,7 @@ const ConfigPanel = ({ showConfig, onClose }) => {
             <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Paramètres</h3>
             <CollapsibleSection title="Recherche Facebook"><FacebookSearchSection /></CollapsibleSection>
             <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
+            <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
             <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
         </div>
       );
