@@ -14,14 +14,18 @@ logger = logging.getLogger(__name__)
 # --- End Logging Configuration ---
 
 # --- IMPORT DE LA CONFIGURATION CENTRALISÉE ---
-from config import *
+from config import (
+    FIREBASE_KEY_PATH, APP_ID_TARGET, USER_ID_TARGET, CITY_COORDINATES,
+    PROMPT_INSTRUCTION, DEFAULT_VERDICT_RULES, DEFAULT_REASONING_INSTRUCTION,
+    DEFAULT_USER_PROMPT, DEFAULT_EXCLUSION_KEYWORDS
+)
 from backend.database import DatabaseService
 from backend.analyzer import DealAnalyzer
-# Changement ici : import depuis le nouveau package
 from backend.scraping import FacebookScraper, ListingParser
+from backend.scraping.city_finder import CityFinder
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager, TaskScheduler
-from backend.notifications import NotificationService # Import du service de notification
+from backend.notifications import NotificationService
 
 # --- INITIALISATION DE LA DB ---
 db_service = DatabaseService(FIREBASE_KEY_PATH)
@@ -85,39 +89,30 @@ class GuitarHunterBot:
         if self.offline_mode: return
         
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
-        
-        # Note: Plus besoin de mettre à jour manuellement l'analyzer ici,
-        # car on lui passera la config complète lors de l'appel à analyze_deal.
-        
         return sync_result
 
     def load_cities_from_firestore(self):
         if self.offline_mode: return
         docs = self.repo.get_cities()
         
-        scannable_cities = {}
-        all_allowed_cities = []
+        self.city_mapping = {}
+        self.allowed_cities = []
         
         for doc in docs:
             data = doc.to_dict()
-            if 'name' in data:
-                # On normalise directement ici pour éviter de le faire à chaque vérification
-                norm_name = ListingParser.normalize_city_name(data['name'])
-                
-                # Une ville est scannable si elle a un ID et isScannable est True
-                # MODIFICATION : On considère une ville comme "autorisée" (whitelist) UNIQUEMENT si elle est scannable.
-                # Cela exclut par défaut toutes les autres villes de la DB.
-                if data.get('isScannable') and data.get('id'):
-                    scannable_cities[norm_name] = data['id']
-                    all_allowed_cities.append(norm_name)
+            name = data.get('name')
+            city_id = data.get('id')
+            is_scannable = data.get('isScannable')
 
-        self.city_mapping = scannable_cities
-        self.allowed_cities = all_allowed_cities
+            if name and city_id and is_scannable:
+                norm_name = ListingParser.normalize_city_name(name)
+                self.city_mapping[norm_name] = city_id
+                self.allowed_cities.append(norm_name)
+
+        self.scraper.city_mapping = self.city_mapping
+        self.scraper.allowed_cities = self.allowed_cities
         
-        self.scraper.city_mapping = scannable_cities
-        self.scraper.allowed_cities = all_allowed_cities
-        
-        logger.info(f"{len(scannable_cities)} scannable cities loaded. {len(all_allowed_cities)} total allowed cities (whitelist).")
+        logger.info(f"{len(self.city_mapping)} scannable cities loaded. {len(self.allowed_cities)} total allowed cities (whitelist).")
 
     def should_skip_deal(self, deal_id, price):
         """Vérifie si une annonce doit être ignorée (déjà traitée et inchangée)."""
@@ -134,7 +129,6 @@ class GuitarHunterBot:
             
         # Si l'annonce a été rejetée, on l'ignore
         if existing_deal.get('status') == 'rejected':
-            # On l'ajoute au cache pour ne plus redemander à la DB lors de ce scan
             self.session_processed_ids.add(deal_id)
             return True
             
@@ -155,20 +149,14 @@ class GuitarHunterBot:
         """
         exclusion_keywords = config.get('exclusionKeywords', DEFAULT_EXCLUSION_KEYWORDS)
         
-        # Sécurité : s'assurer que c'est une liste
         if isinstance(exclusion_keywords, str):
              exclusion_keywords = [k.strip() for k in exclusion_keywords.split('\n') if k.strip()]
         
         if not exclusion_keywords:
             return None
 
-        # Recherche dans le titre ET la description
         title = listing_data.get('title', '')
         description = listing_data.get('description', '')
-        
-        # Log de debug pour comprendre ce qui est scanné
-        # logger.info(f"Checking exclusion for: '{title}' against {len(exclusion_keywords)} keywords.")
-
         text_to_check = (title + " " + description).lower()
         
         for keyword in exclusion_keywords:
@@ -176,10 +164,18 @@ class GuitarHunterBot:
                 return keyword
         return None
 
+    def _create_rejection_analysis(self, keyword):
+        """Crée un objet d'analyse pour un rejet automatique."""
+        return {
+            "verdict": "rejected",
+            "score": 0,
+            "reason": f"REJET AUTOMATIQUE : Le mot-clé '{keyword}' a été détecté dans l'annonce.",
+            "model_used": "pre-filter"
+        }
+
     def handle_deal_found(self, listing_data):
         logger.info(f"Processing new deal: {listing_data['title']}")
         
-        # Ajout au cache de session pour éviter de le retraiter si on le recroise
         self.session_processed_ids.add(listing_data['id'])
         
         if not self.offline_mode:
@@ -193,32 +189,21 @@ class GuitarHunterBot:
                     return
                 logger.info("Deal already exists but price has changed. Updating.")
 
-        # On passe la configuration actuelle (snapshot) à l'analyzer
         current_config = self.config_manager.current_config_snapshot
         
-        # --- DÉBUT DU PRÉ-FILTRAGE ---
+        # --- PRÉ-FILTRAGE ---
         found_keyword = self._check_exclusion(listing_data, current_config)
         
         if found_keyword:
             logger.info(f"Deal rejected by pre-filter. Keyword found: '{found_keyword}' in '{listing_data['title']}'")
-            
-            # Création d'un résultat d'analyse "Rejeté" factice
-            rejection_analysis = {
-                "verdict": "rejected",
-                "score": 0,
-                "reason": f"REJET AUTOMATIQUE : Le mot-clé '{found_keyword}' a été détecté dans l'annonce.",
-                "model_used": "pre-filter"
-            }
+            rejection_analysis = self._create_rejection_analysis(found_keyword)
             
             if not self.offline_mode:
                 self.repo.save_deal(listing_data['id'], listing_data, rejection_analysis)
-            
-            return # On arrête le traitement ici, pas d'appel à Gemini
-        # --- FIN DU PRÉ-FILTRAGE ---
+            return 
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
         
-        # Notification si c'est une pépite
         NotificationService.notify_deal(listing_data, analysis)
         
         if not self.offline_mode:
@@ -228,7 +213,6 @@ class GuitarHunterBot:
         if not self.offline_mode:
             self.repo.update_bot_status('scanning')
         
-        # Réinitialisation du cache de session au début d'un cycle de scan complet
         self.session_processed_ids = set()
         
         try:
@@ -245,7 +229,6 @@ class GuitarHunterBot:
                 logger.info(f"Scanning {len(cities_to_scan)} cities: {', '.join(cities_to_scan)}")
                 for city_norm_name in cities_to_scan:
                     city_specific_config = scan_config.copy()
-                    # Le scraper utilise le nom normalisé pour trouver l'ID dans son mapping
                     city_specific_config['location'] = city_norm_name
                     
                     logger.info(f"--- Scanning city: {city_norm_name} ---")
@@ -254,7 +237,7 @@ class GuitarHunterBot:
                         self.handle_deal_found,
                         should_skip_callback=self.should_skip_deal
                     )
-                    time.sleep(2) # Pause entre les villes
+                    time.sleep(2)
 
             logger.info("Scheduled scan finished.")
         finally:
@@ -322,23 +305,16 @@ class GuitarHunterBot:
                 **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
             }
             
-            # On passe la config actuelle pour la réanalyse
             current_config = self.config_manager.current_config_snapshot
             
-            # --- DÉBUT DU PRÉ-FILTRAGE (Ajouté aussi ici) ---
+            # --- PRÉ-FILTRAGE ---
             found_keyword = self._check_exclusion(listing_data, current_config)
             
             if found_keyword:
                 logger.info(f"Retry deal rejected by pre-filter. Keyword found: '{found_keyword}'")
-                rejection_analysis = {
-                    "verdict": "rejected",
-                    "score": 0,
-                    "reason": f"REJET AUTOMATIQUE : Le mot-clé '{found_keyword}' a été détecté dans l'annonce.",
-                    "model_used": "pre-filter"
-                }
+                rejection_analysis = self._create_rejection_analysis(found_keyword)
                 self.repo.save_deal(doc.id, listing_data, rejection_analysis)
-                continue # On passe au suivant sans appeler Gemini
-            # --- FIN DU PRÉ-FILTRAGE ---
+                continue 
 
             analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
             self.repo.save_deal(doc.id, listing_data, analysis)
@@ -360,27 +336,22 @@ class GuitarHunterBot:
         
         logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
         
-        # Import local pour éviter les cycles si nécessaire
-        from backend.scraping.city_finder import CityFinder
-        
-        # On utilise le scraper existant
         city_id = CityFinder.find_city_id(self.scraper, city_name)
         
         if city_id:
             logger.info(f"ID trouvé pour {city_name}: {city_id}. Ajout à Firestore...")
             try:
-                # Ajout direct via le repo
                 self.repo.cities_ref.add({
                     'name': city_name,
                     'id': city_id,
-                    'isScannable': True, # On l'active par défaut car l'utilisateur vient de l'ajouter
+                    'isScannable': True,
                     'createdAt': firestore.SERVER_TIMESTAMP
                 })
                 logger.info(f"Ville {city_name} ajoutée avec succès.")
                 return True
             except Exception as e:
                 logger.error(f"Erreur lors de l'ajout de la ville {city_name}: {e}")
-                raise e # On relance pour que le handler de commande puisse marquer comme failed
+                raise e 
         else:
             logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
             raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
@@ -398,10 +369,8 @@ def monitor_retries(bot):
 def main_loop(bot):
     logger.info("--- Starting Main Loop ---")
     
-    # Démarrage de la session Playwright
     bot.scraper.start_session()
     
-    # Command handlers mapping
     command_handlers = {
         'REFRESH': lambda _: bot.run_scan(),
         'CLEANUP': lambda _: bot.cleanup_sold_listings(),
@@ -411,8 +380,6 @@ def main_loop(bot):
     }
 
     try:
-        # bot.run_scan() # Run initial scan
-
         scheduler = TaskScheduler(
             scan_func=bot.run_scan,
             cleanup_func=bot.cleanup_sold_listings,
@@ -425,17 +392,14 @@ def main_loop(bot):
                 
                 sync_result = bot.sync_and_apply_config()
                 
-                # Traitement des commandes
                 for command in sync_result.commands:
                     logger.info(f"Received command: {command.type} (ID: {command.command_id})")
                     handler = command_handlers.get(command.type)
                     
                     if handler:
                         try:
-                            # Exécution de la commande
                             handler(command.payload)
                             
-                            # Gestion du statut de la commande
                             if command.command_id:
                                 bot.repo.mark_command_completed(command.command_id)
                             elif command.firestore_field:
@@ -458,7 +422,6 @@ def main_loop(bot):
                 logger.error(f"An error occurred in the main loop: {e}", exc_info=True)
                 time.sleep(15)
     finally:
-        # Fermeture propre de la session Playwright
         bot.scraper.close_session()
 
 if __name__ == "__main__":
