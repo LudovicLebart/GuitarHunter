@@ -34,7 +34,7 @@ const AppContent = () => {
 
   const {
     deals, loading, dbStatus,
-    handleRejectDeal, handleRetryAnalysis, handleToggleFavorite, handleDeleteDeal
+    handleRejectDeal, handleRetryAnalysis, handleForceExpertAnalysis, handleToggleFavorite, handleDeleteDeal
   } = useDealsContext();
 
   const {
@@ -129,6 +129,7 @@ const AppContent = () => {
                     key={deal.id} 
                     deal={deal} 
                     onRetry={handleRetryAnalysis} 
+                    onForceExpert={handleForceExpertAnalysis}
                     onReject={handleRejectDeal} 
                     onToggleFavorite={handleToggleFavorite}
                     onDelete={handleDeleteDeal}
@@ -156,6 +157,7 @@ const AppContent = () => {
         deal={selectedDeal}
         onClose={handleCloseModal}
         onRetry={handleRetryAnalysis}
+        onForceExpert={handleForceExpertAnalysis}
         onReject={handleRejectDeal}
         onToggleFavorite={handleToggleFavorite}
         onDelete={handleDeleteDeal}

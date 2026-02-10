@@ -1,12 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
 import CollapsibleSection from './CollapsibleSection';
 
-const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite, onDelete }) => {
+const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
+  const [isLongPress, setIsLongPress] = useState(false);
+  const timerRef = useRef(null);
 
   const handleShare = (e) => {
     e.preventDefault();
@@ -20,6 +22,25 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
 
   const modelName = deal.aiAnalysis?.model_used || 'Gemini Flash';
   const isExpertAnalysis = modelName.includes('2.5') || modelName.toLowerCase().includes('expert') || modelName.toLowerCase().includes('pro');
+
+  // Gestion de l'appui long
+  const handleButtonDown = () => {
+    setIsLongPress(false);
+    timerRef.current = setTimeout(() => {
+      setIsLongPress(true);
+      if (onForceExpert) onForceExpert(deal.id);
+    }, 800); // 800ms pour l'appui long
+  };
+
+  const handleButtonUp = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (!isLongPress) {
+      if (onRetry) onRetry(deal.id);
+    }
+  };
 
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
@@ -138,26 +159,33 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
                 <Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} />
             </button>
 
-            {/* Bouton Relancer Analyse / Expert */}
+            {/* Bouton Relancer Analyse / Expert (Appui Long) */}
             {deal.status !== 'rejected' && (
                 <button
-                    onClick={() => onRetry(deal.id)}
-                    disabled={deal.status === 'retry_analysis'}
-                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${
-                        deal.status === 'retry_analysis' 
+                    onMouseDown={handleButtonDown}
+                    onMouseUp={handleButtonUp}
+                    onMouseLeave={handleButtonUp}
+                    onTouchStart={handleButtonDown}
+                    onTouchEnd={handleButtonUp}
+                    disabled={deal.status === 'retry_analysis' || deal.status === 'retry_analysis_expert'}
+                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${
+                        deal.status?.startsWith('retry')
                             ? 'bg-amber-100 text-amber-600 cursor-wait' 
                             : isExpertAnalysis 
-                                ? 'bg-slate-100 text-slate-400 hover:text-amber-500' 
-                                : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'
+                                ? 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'
+                                : 'bg-slate-100 text-slate-400 hover:text-amber-500'
                     }`}
-                    title={isExpertAnalysis ? "Relancer l'analyse" : "Demander l'avis de l'Expert (Gemini 2.5)"}
+                    title={isExpertAnalysis ? "Relancer l'analyse" : "Clic: Relancer / Maintenir: Avis Expert"}
                 >
-                    {isExpertAnalysis ? (
-                        <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
+                    {deal.status?.startsWith('retry') ? (
+                        <RefreshCw size={14} className="animate-spin" />
                     ) : (
                         <>
-                            <BrainCircuit size={14} className={deal.status === 'retry_analysis' ? "animate-pulse" : ""} />
-                            <span className="hidden sm:inline">Avis Expert</span>
+                            {isExpertAnalysis ? <BrainCircuit size={14} /> : <RefreshCw size={14} />}
+                            {/* Indicateur visuel pour l'appui long */}
+                            {!isExpertAnalysis && (
+                                <span className="absolute bottom-0 left-0 h-0.5 bg-purple-500 transition-all duration-[800ms] ease-linear" style={{ width: isLongPress ? '100%' : '0%' }} />
+                            )}
                         </>
                     )}
                 </button>

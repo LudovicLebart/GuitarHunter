@@ -3,7 +3,8 @@ import {
   onDealsUpdate, 
   rejectDeal, 
   deleteDeal,
-  retryDealAnalysis, 
+  retryDealAnalysis,
+  forceExpertAnalysis,
   toggleDealFavorite 
 } from '../services/firestoreService';
 
@@ -57,6 +58,14 @@ export const useDeals = (user, setError) => {
     }
   }, [setError]);
 
+  const handleForceExpertAnalysis = useCallback(async (dealId) => {
+    try {
+      await forceExpertAnalysis(dealId);
+    } catch (e) {
+      setError(e.message);
+    }
+  }, [setError]);
+
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     try {
       await toggleDealFavorite(dealId, currentStatus);
@@ -72,6 +81,7 @@ export const useDeals = (user, setError) => {
     handleRejectDeal,
     handleDeleteDeal,
     handleRetryAnalysis,
+    handleForceExpertAnalysis,
     handleToggleFavorite
   };
 };

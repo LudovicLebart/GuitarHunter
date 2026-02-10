@@ -94,11 +94,24 @@ export const retryDealAnalysis = async (dealId) => {
     await updateDoc(getDealDocRef(dealId), {
       status: 'retry_analysis',
       'aiAnalysis.verdict': 'DEFAULT',
-      'aiAnalysis.reasoning': 'Analyse relancée...'
+      'aiAnalysis.reasoning': 'Analyse standard relancée...'
     });
   } catch (error) {
     console.error(`Error retrying analysis for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la demande de ré-analyse.");
+  }
+};
+
+export const forceExpertAnalysis = async (dealId) => {
+  try {
+    await updateDoc(getDealDocRef(dealId), {
+      status: 'retry_analysis_expert',
+      'aiAnalysis.verdict': 'DEFAULT',
+      'aiAnalysis.reasoning': 'Analyse expert demandée...'
+    });
+  } catch (error) {
+    console.error(`Error forcing expert analysis for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la demande d'analyse expert.");
   }
 };
 

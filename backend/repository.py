@@ -100,6 +100,13 @@ class FirestoreRepository:
             logger.error(f"Failed to get retry queue: {e}", exc_info=True)
             return []
 
+    def get_expert_retry_queue_listings(self):
+        try:
+            return self.collection_ref.where(filter=FieldFilter('status', '==', 'retry_analysis_expert')).stream()
+        except Exception as e:
+            logger.error(f"Failed to get expert retry queue: {e}", exc_info=True)
+            return []
+
     def mark_all_for_reanalysis(self):
         logger.info("Marking all active listings for re-analysis.")
         try:
