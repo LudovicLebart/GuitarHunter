@@ -57,13 +57,21 @@ export const FilterBar = ({
         {level1Filter !== 'ALL' && level2Options.length > 1 && (
           <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
             <option value="ALL">Sous-catégorie (Toutes)</option>
-            {level2Options.filter(o => o !== 'ALL').map(o => (<option key={o} value={o}>{o.replace(/_/g, ' ')}</option>))}
+            {level2Options.filter(o => o !== 'ALL').map(o => (
+                <option key={o} value={o}>
+                    {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+                </option>
+            ))}
           </select>
         )}
         {level2Filter !== 'ALL' && level3Options.length > 1 && (
           <select value={level3Filter} onChange={(e) => setLevel3Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
             <option value="ALL">Modèle (Tous)</option>
-            {level3Options.filter(o => o !== 'ALL').map(o => (<option key={o} value={o}>{o.replace(/_/g, ' ')}</option>))}
+            {level3Options.filter(o => o !== 'ALL').map(o => (
+                <option key={o} value={o}>
+                    {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+                </option>
+            ))}
           </select>
         )}
       </div>

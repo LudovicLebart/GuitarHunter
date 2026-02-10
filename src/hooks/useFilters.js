@@ -21,7 +21,10 @@ export const useFilters = (deals) => {
         });
       } else if (typeof node === 'object' && node !== null) {
         Object.keys(node).forEach(key => {
-          traverse(node[key], [...currentPath, key]);
+          const newPath = [...currentPath, key];
+          // CORRECTION : On enregistre aussi le chemin pour les catégories intermédiaires (ex: "Guitare Électrique")
+          paths[key] = newPath;
+          traverse(node[key], newPath);
         });
       }
     };
@@ -69,8 +72,10 @@ export const useFilters = (deals) => {
         FAVORITES: 0,
         REJECTED: 0,
         ERROR: 0,
-        // Taxonomy counts (Level 1 only for simplicity)
-        ...Object.keys(GUITAR_TAXONOMY).reduce((acc, key) => ({ ...acc, [key]: 0 }), {})
+        PEPITE: 0,
+        GOOD_DEAL: 0,
+        FAIR: 0,
+        BAD_DEAL: 0,
     };
 
     deals.forEach(deal => {
@@ -80,35 +85,55 @@ export const useFilters = (deals) => {
         const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !analysis.reasoning;
         const isRejected = status === 'rejected';
 
-        // Global counts
+        // 1. Compteurs Globaux (Onglets) - Indépendants du filtre actuel
         if (!isRejected) {
             c.ALL++;
             if (isError) {
                 c.ERROR++;
             } else {
-                // Compte dynamique par verdict (ex: PEPITE, GOOD_DEAL, etc.)
-                c[verdict] = (c[verdict] || 0) + 1;
+                let normalizedVerdict = verdict;
+                if (verdict === 'BONNE_AFFAIRE') normalizedVerdict = 'GOOD_DEAL';
+                if (verdict === 'PRIX_JUSTE') normalizedVerdict = 'FAIR';
+                if (verdict === 'TROP_CHER') normalizedVerdict = 'BAD_DEAL';
+                c[normalizedVerdict] = (c[normalizedVerdict] || 0) + 1;
             }
         }
         
         if (deal.isFavorite) c.FAVORITES++;
         if (isRejected) c.REJECTED++;
 
-        // Taxonomy counts (only for active deals)
-        if (!isRejected && !isError) {
+        // 2. Compteurs de Taxonomie - Dépendants du filtre actuel (filterType)
+        let matchesFilterType = false;
+        
+        if (filterType === 'ERROR') matchesFilterType = isError && !isRejected;
+        else if (filterType === 'REJECTED') matchesFilterType = isRejected;
+        else if (filterType === 'FAVORITES') matchesFilterType = deal.isFavorite;
+        else if (status === 'rejected') matchesFilterType = false;
+        else if (filterType !== 'ALL' && isError) matchesFilterType = false;
+        else {
+            let targetVerdict = filterType;
+            if (filterType === 'GOOD_DEAL') targetVerdict = 'BONNE_AFFAIRE';
+            
+            matchesFilterType = filterType === 'ALL' || verdict === filterType || verdict === targetVerdict || 
+                                (filterType === 'GOOD_DEAL' && verdict === 'BONNE_AFFAIRE') ||
+                                (filterType === 'FAIR' && verdict === 'PRIX_JUSTE') ||
+                                (filterType === 'BAD_DEAL' && verdict === 'TROP_CHER');
+        }
+
+        if (matchesFilterType) {
             const classification = analysis.classification;
             const path = taxonomyPaths[classification];
-            if (path && path.length > 0) {
-                const rootCategory = path[0];
-                if (c.hasOwnProperty(rootCategory)) {
-                    c[rootCategory]++;
-                }
+            
+            if (path && Array.isArray(path)) {
+                path.forEach(category => {
+                    c[category] = (c[category] || 0) + 1;
+                });
             }
         }
     });
 
     return c;
-  }, [deals, taxonomyPaths]);
+  }, [deals, taxonomyPaths, filterType]);
 
   // Filtered Deals
   const filteredDeals = useMemo(() => {
@@ -127,7 +152,14 @@ export const useFilters = (deals) => {
       if (status === 'rejected') return false;
       if (filterType !== 'ALL' && isError) return false;
 
-      const matchesType = filterType === 'ALL' || verdict === filterType;
+      // Mapping inverse pour le filtrage
+      let targetVerdict = filterType;
+      if (filterType === 'GOOD_DEAL') targetVerdict = 'BONNE_AFFAIRE';
+      
+      const matchesType = filterType === 'ALL' || verdict === filterType || verdict === targetVerdict || 
+                          (filterType === 'GOOD_DEAL' && verdict === 'BONNE_AFFAIRE') ||
+                          (filterType === 'FAIR' && verdict === 'PRIX_JUSTE') ||
+                          (filterType === 'BAD_DEAL' && verdict === 'TROP_CHER');
       
       // 2. Filtre par Recherche Texte
       const matchesSearch = deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
