@@ -324,7 +324,8 @@ class GuitarHunterBot:
                 self.repo.save_deal(doc.id, listing_data, rejection_analysis)
                 continue 
 
-            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+            # FORCE EXPERT = TRUE pour les réanalyses manuelles
+            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=True)
             self.repo.save_deal(doc.id, listing_data, analysis)
 
     def reanalyze_all_listings(self):

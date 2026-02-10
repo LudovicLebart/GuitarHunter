@@ -99,9 +99,10 @@ class DealAnalyzer:
             
         return f"{main_prompt_str}\n\n{details}"
 
-    def analyze_deal(self, listing_data, firestore_config=None):
+    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False):
         """
         Analyse une annonce en utilisant une stratégie de cascade (Funnel).
+        Si force_expert est True, on saute le Portier et on utilise directement l'Expert.
         """
         if firestore_config is None:
             firestore_config = {}
@@ -115,7 +116,7 @@ class DealAnalyzer:
         gatekeeper_instruction = analysis_config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
         expert_context_template = analysis_config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT)
 
-        logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')}")
+        logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
         images = []
         urls_to_process = listing_data.get('imageUrls', [])
@@ -130,42 +131,50 @@ class DealAnalyzer:
                 img = self._optimize_image(img)
                 images.append(img)
 
-        # --- ÉTAPE 1 : LE PORTIER ---
-        logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
-        
-        gatekeeper_model = self._get_model(gatekeeper_model_name)
-        if not gatekeeper_model:
-            return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible."}
-
         base_user_prompt = self._construct_user_prompt(listing_data, main_prompt)
-        gatekeeper_full_prompt = f"{base_user_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
         
-        try:
-            content = [gatekeeper_full_prompt]
-            content.extend(images)
-            
-            response = gatekeeper_model.generate_content(content)
-            result_json = json.loads(self._clean_json_response(response.text))
-            
-            status = result_json.get('status', 'UNKNOWN').upper()
-            reason = result_json.get('reason', 'Pas de raison fournie.')
-            
-            is_promising = status in ['PEPITE', 'GOOD_DEAL']
-            
-            logger.info(f"   👉 Verdict Portier : {status} ({reason})")
+        # Variables pour le contexte expert
+        status = "MANUAL_RETRY"
+        reason = "Analyse experte demandée manuellement."
 
-            if not is_promising:
-                return {
-                    "verdict": status,
-                    "reason": reason,
-                    "score": 0,
-                    "model_used": gatekeeper_model_name,
-                    "analysis": None
-                }
+        # --- ÉTAPE 1 : LE PORTIER (Seulement si pas forcé) ---
+        if not force_expert:
+            logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
+            
+            gatekeeper_model = self._get_model(gatekeeper_model_name)
+            if not gatekeeper_model:
+                return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible."}
 
-        except Exception as e:
-            logger.error(f"❌ Erreur Portier: {e}")
-            return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}"}
+            gatekeeper_full_prompt = f"{base_user_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
+            
+            try:
+                content = [gatekeeper_full_prompt]
+                content.extend(images)
+                
+                response = gatekeeper_model.generate_content(content)
+                result_json = json.loads(self._clean_json_response(response.text))
+                
+                status = result_json.get('status', 'UNKNOWN').upper()
+                reason = result_json.get('reason', 'Pas de raison fournie.')
+                
+                is_promising = status in ['PEPITE', 'GOOD_DEAL']
+                
+                logger.info(f"   👉 Verdict Portier : {status} ({reason})")
+
+                if not is_promising:
+                    return {
+                        "verdict": status,
+                        "reason": reason,
+                        "score": 0,
+                        "model_used": gatekeeper_model_name,
+                        "analysis": None
+                    }
+
+            except Exception as e:
+                logger.error(f"❌ Erreur Portier: {e}")
+                return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}"}
+        else:
+            logger.info("   ⏩ Portier sauté (Force Expert activé).")
 
         # --- ÉTAPE 2 : L'EXPERT ---
         logger.info(f"   🧠 Étape 2 : Expert ({expert_model_name}) - Analyse approfondie...")
@@ -176,7 +185,7 @@ class DealAnalyzer:
                 "verdict": status,
                 "reason": reason,
                 "model_used": f"{gatekeeper_model_name} (Expert failed)",
-                "analysis": "L'analyse détaillée a échoué, verdict basé sur le pré-filtrage."
+                "analysis": "L'analyse détaillée a échoué."
             }
 
         context_instruction = expert_context_template.format(status=status, reason=reason)

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2 } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
@@ -17,6 +17,9 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
       setTimeout(() => setCopied(false), 2000);
     });
   };
+
+  const modelName = deal.aiAnalysis?.model_used || 'Gemini Flash';
+  const isExpertAnalysis = modelName.includes('2.5') || modelName.toLowerCase().includes('expert') || modelName.toLowerCase().includes('pro');
 
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
@@ -68,11 +71,13 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
 
         {/* AI Insights */}
         <div className="relative mb-6">
-          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-100 rounded-full" />
+          <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-full ${isExpertAnalysis ? 'bg-purple-500' : 'bg-blue-100'}`} />
           <div className="pl-5 py-1">
-            <div className="flex items-center gap-1.5 text-blue-600 mb-2">
-              <Sparkles size={14} />
-              <span className="text-[10px] font-black uppercase tracking-widest">Analyse Gemini Flash</span>
+            <div className={`flex items-center gap-1.5 mb-2 ${isExpertAnalysis ? 'text-purple-600' : 'text-blue-600'}`}>
+              {isExpertAnalysis ? <BrainCircuit size={14} /> : <Sparkles size={14} />}
+              <span className="text-[10px] font-black uppercase tracking-widest">
+                {modelName}
+              </span>
             </div>
             
             <div className="mt-2">
@@ -133,15 +138,28 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
                 <Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} />
             </button>
 
-            {/* CORRECTIF: Bouton Relancer Analyse (toujours visible si non rejeté) */}
+            {/* Bouton Relancer Analyse / Expert */}
             {deal.status !== 'rejected' && (
                 <button
                     onClick={() => onRetry(deal.id)}
                     disabled={deal.status === 'retry_analysis'}
-                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.status === 'retry_analysis' ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
-                    title="Relancer l'analyse"
+                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${
+                        deal.status === 'retry_analysis' 
+                            ? 'bg-amber-100 text-amber-600 cursor-wait' 
+                            : isExpertAnalysis 
+                                ? 'bg-slate-100 text-slate-400 hover:text-amber-500' 
+                                : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'
+                    }`}
+                    title={isExpertAnalysis ? "Relancer l'analyse" : "Demander l'avis de l'Expert (Gemini 2.5)"}
                 >
-                    <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
+                    {isExpertAnalysis ? (
+                        <RefreshCw size={14} className={deal.status === 'retry_analysis' ? "animate-spin" : ""} />
+                    ) : (
+                        <>
+                            <BrainCircuit size={14} className={deal.status === 'retry_analysis' ? "animate-pulse" : ""} />
+                            <span className="hidden sm:inline">Avis Expert</span>
+                        </>
+                    )}
                 </button>
             )}
 
