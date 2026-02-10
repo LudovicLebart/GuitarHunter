@@ -46,11 +46,15 @@ except Exception as e:
     prompts_data = {}
 
 # --- CONSTANTES LEGACY (Pour compatibilité temporaire) ---
-# Ces valeurs sont chargées depuis prompts.json pour assurer la cohérence
 PROMPT_INSTRUCTION = prompts_data.get('persona', ["Legacy Prompt Placeholder"])
 DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
 DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
 DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])
+
+# --- NOUVELLES CONSTANTES POUR LA CASCADE ---
+DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
+DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
+DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
 
 # --- MOTS-CLÉS D'EXCLUSION (Marques & Autres) ---
 DEFAULT_EXCLUSION_KEYWORDS = [

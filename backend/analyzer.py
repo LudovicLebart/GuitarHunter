@@ -5,30 +5,28 @@ import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
-from config import GEMINI_API_KEY
-from .prompt_manager import PromptManager
+from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT
 
 logger = logging.getLogger(__name__)
 
 class DealAnalyzer:
     def __init__(self):
-        self.model = None
-        self.prompt_manager = PromptManager()
-        self.current_system_prompt_hash = None
-        self.current_model_name = None
-        self._init_gemini()
-
-    def _init_gemini(self, system_instruction=None, model_name='gemini-2.0-flash'):
-        """Initialise le modèle Gemini."""
+        self.models = {} # Cache pour les instances de modèles
         if GEMINI_API_KEY:
             genai.configure(api_key=GEMINI_API_KEY)
-            
-            try:
-                # Si pas d'instruction système fournie, on prend celle par défaut du fichier
-                if system_instruction is None:
-                    system_instruction = self.prompt_manager.get_system_prompt({})
+        else:
+            logger.warning("⚠️ Pas de clé API Gemini fournie.")
 
-                self.model = genai.GenerativeModel(
+    def _get_model(self, model_name, system_instruction=None):
+        """Récupère ou crée une instance de modèle Gemini."""
+        if not GEMINI_API_KEY:
+            return None
+
+        cache_key = (model_name, hash(str(system_instruction)))
+        
+        if cache_key not in self.models:
+            try:
+                model = genai.GenerativeModel(
                     model_name=model_name,
                     system_instruction=system_instruction,
                     generation_config={
@@ -36,24 +34,13 @@ class DealAnalyzer:
                         "temperature": 0.1
                     }
                 )
-                self.current_system_prompt_hash = hash(system_instruction)
-                self.current_model_name = model_name
-                logger.info(f"🤖 Modèle Gemini initialisé ({model_name}).")
+                self.models[cache_key] = model
+                logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
             except Exception as e:
                 logger.error(f"⚠️ Erreur init {model_name} : {e}")
-        else:
-            logger.warning("⚠️ Pas de clé API Gemini fournie.")
-
-    def _ensure_model_config(self, firestore_config):
-        """Vérifie si le prompt système ou le modèle a changé et réinitialise si nécessaire."""
-        new_system_prompt = self.prompt_manager.get_system_prompt(firestore_config)
-        new_model_name = firestore_config.get('geminiModel', 'gemini-2.0-flash')
+                return None
         
-        new_hash = hash(new_system_prompt)
-        
-        if self.current_system_prompt_hash != new_hash or self.current_model_name != new_model_name:
-            logger.info(f"🔄 Mise à jour de la config IA détectée (Modèle: {new_model_name}). Réinitialisation.")
-            self._init_gemini(system_instruction=new_system_prompt, model_name=new_model_name)
+        return self.models[cache_key]
 
     def download_image(self, url):
         """Télécharge l'image depuis l'URL et la convertit en objet PIL Image."""
@@ -85,31 +72,56 @@ class DealAnalyzer:
             logger.warning(f"⚠️ Erreur optimisation image : {e}")
             return img
 
+    def _clean_json_response(self, text_response):
+        """Nettoie la réponse brute de Gemini pour extraire le JSON."""
+        if text_response.startswith("```json"):
+            text_response = text_response[7:]
+        if text_response.startswith("```"):
+            text_response = text_response[3:]
+        if text_response.endswith("```"):
+            text_response = text_response[:-3]
+        return text_response.strip()
+
+    def _construct_user_prompt(self, listing_data, main_prompt_template):
+        """Construit le prompt utilisateur de base avec les détails de l'annonce."""
+        details = (
+            f"Détails de l'annonce :\n"
+            f"- Titre : {listing_data.get('title', 'N/A')}\n"
+            f"- Prix : {listing_data.get('price', 'N/A')}\n"
+            f"- Description : {listing_data.get('description', 'N/A')}\n"
+            f"- Localisation : {listing_data.get('location', 'N/A')}\n"
+        )
+        
+        if isinstance(main_prompt_template, list):
+            main_prompt_str = "\n".join(main_prompt_template)
+        else:
+            main_prompt_str = str(main_prompt_template)
+            
+        return f"{main_prompt_str}\n\n{details}"
+
     def analyze_deal(self, listing_data, firestore_config=None):
-        """Utilise Gemini pour évaluer si l'annonce est une bonne affaire."""
+        """
+        Analyse une annonce en utilisant une stratégie de cascade (Funnel).
+        """
         if firestore_config is None:
             firestore_config = {}
 
-        # Mise à jour dynamique du modèle si la config a changé
-        self._ensure_model_config(firestore_config)
+        analysis_config = firestore_config.get('analysisConfig', {})
+        
+        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-3-flash')
+        expert_model_name = analysis_config.get('expertModel', 'gemini-2.5-flash')
+        
+        main_prompt = analysis_config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT)
+        gatekeeper_instruction = analysis_config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
+        expert_context_template = analysis_config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT)
 
-        if not self.model:
-             logger.error("⚠️ Modèle Gemini non initialisé.")
-             return {
-                "verdict": "ERROR",
-                "estimated_value": listing_data.get('price', 0),
-                "reasoning": "Analyse IA impossible : Modèle non initialisé.",
-                "confidence": 0
-            }
+        logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')}")
 
-        logger.info(f"🤖 Analyse IA pour : {listing_data.get('title', 'Inconnu')}...")
-
-        # Téléchargement des images
         images = []
         urls_to_process = listing_data.get('imageUrls', [])
         if not urls_to_process and listing_data.get('imageUrl'):
             urls_to_process = [listing_data['imageUrl']]
-            
+        
         urls_to_process = urls_to_process[:8]
 
         for url in urls_to_process:
@@ -117,77 +129,87 @@ class DealAnalyzer:
             if img:
                 img = self._optimize_image(img)
                 images.append(img)
-        
-        # Construction du message utilisateur via PromptManager
-        user_message = self.prompt_manager.get_user_prompt(firestore_config, listing_data)
 
+        # --- ÉTAPE 1 : LE PORTIER ---
+        logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
+        
+        gatekeeper_model = self._get_model(gatekeeper_model_name)
+        if not gatekeeper_model:
+            return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible."}
+
+        base_user_prompt = self._construct_user_prompt(listing_data, main_prompt)
+        gatekeeper_full_prompt = f"{base_user_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
+        
         try:
-            content = [user_message]
+            content = [gatekeeper_full_prompt]
             content.extend(images)
             
-            if images:
-                logger.info(f"   📸 {len(images)} images incluses dans l'analyse.")
-            else:
-                logger.info("   ⚠️ Analyse texte uniquement (pas d'image valide).")
+            response = gatekeeper_model.generate_content(content)
+            result_json = json.loads(self._clean_json_response(response.text))
+            
+            status = result_json.get('status', 'UNKNOWN').upper()
+            reason = result_json.get('reason', 'Pas de raison fournie.')
+            
+            is_promising = status in ['PEPITE', 'GOOD_DEAL']
+            
+            logger.info(f"   👉 Verdict Portier : {status} ({reason})")
 
-            response = self.model.generate_content(content)
-            
-            text_response = response.text
-            if text_response.startswith("```json"):
-                text_response = text_response[7:]
-            if text_response.startswith("```"):
-                text_response = text_response[3:]
-            if text_response.endswith("```"):
-                text_response = text_response[:-3]
-            
-            text_response = text_response.strip()
-            
-            try:
-                result = json.loads(text_response)
-            except json.JSONDecodeError:
-                logger.warning(f"⚠️ Réponse non-JSON reçue : {text_response[:100]}...")
+            if not is_promising:
                 return {
-                    "verdict": "ERROR",
-                    "estimated_value": listing_data.get('price', 0),
-                    "reasoning": "Erreur format JSON: " + text_response[:200],
-                    "confidence": 0
+                    "verdict": status,
+                    "reason": reason,
+                    "score": 0,
+                    "model_used": gatekeeper_model_name,
+                    "analysis": None
                 }
+
+        except Exception as e:
+            logger.error(f"❌ Erreur Portier: {e}")
+            return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}"}
+
+        # --- ÉTAPE 2 : L'EXPERT ---
+        logger.info(f"   🧠 Étape 2 : Expert ({expert_model_name}) - Analyse approfondie...")
+        
+        expert_model = self._get_model(expert_model_name)
+        if not expert_model:
+             return {
+                "verdict": status,
+                "reason": reason,
+                "model_used": f"{gatekeeper_model_name} (Expert failed)",
+                "analysis": "L'analyse détaillée a échoué, verdict basé sur le pré-filtrage."
+            }
+
+        context_instruction = expert_context_template.format(status=status, reason=reason)
+        expert_full_prompt = f"{context_instruction}\n\n{base_user_prompt}"
+        
+        try:
+            content = [expert_full_prompt]
+            content.extend(images)
             
-            if isinstance(result, list):
-                if len(result) > 0:
-                    result = result[0]
-                else:
-                    return {
-                        "verdict": "ERROR",
-                        "estimated_value": listing_data.get('price', 0),
-                        "reasoning": "L'IA a renvoyé une liste vide.",
-                        "confidence": 0
-                    }
+            response = expert_model.generate_content(content)
+            expert_result = json.loads(self._clean_json_response(response.text))
             
-            if 'estimated_value' in result:
-                ev = result['estimated_value']
+            expert_result['model_used'] = expert_model_name
+            
+            if 'estimated_value' in expert_result:
+                ev = expert_result['estimated_value']
                 if isinstance(ev, str):
                     try:
                         nums = [float(n) for n in re.findall(r'\d+(?:\.\d+)?', ev.replace(',', '.'))]
                         if nums:
-                            result['estimated_value'] = int(sum(nums) / len(nums))
+                            expert_result['estimated_value'] = int(sum(nums) / len(nums))
                         else:
-                            result['estimated_value'] = 0
+                            expert_result['estimated_value'] = 0
                     except:
-                        result['estimated_value'] = 0
-
-            return result
+                        expert_result['estimated_value'] = 0
+            
+            return expert_result
 
         except Exception as e:
-            error_str = str(e)
-            if "403" in error_str and "leaked" in error_str:
-                logger.critical("❌ ERREUR CRITIQUE : CLÉ API GEMINI BLOQUÉE.")
-            else:
-                logger.error(f"❌ Erreur Gemini: {e}")
-
+            logger.error(f"❌ Erreur Expert: {e}")
             return {
-                "verdict": "ERROR",
-                "estimated_value": listing_data.get('price', 0),
-                "reasoning": f"Erreur d'analyse IA : {e}",
-                "confidence": 0
+                "verdict": status,
+                "reason": reason,
+                "model_used": f"{gatekeeper_model_name} (Expert Error)",
+                "analysis": f"Erreur lors de l'analyse détaillée : {e}"
             }

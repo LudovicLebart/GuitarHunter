@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 from config import (
     FIREBASE_KEY_PATH, APP_ID_TARGET, USER_ID_TARGET, CITY_COORDINATES,
     PROMPT_INSTRUCTION, DEFAULT_VERDICT_RULES, DEFAULT_REASONING_INSTRUCTION,
-    DEFAULT_USER_PROMPT, DEFAULT_EXCLUSION_KEYWORDS
+    DEFAULT_USER_PROMPT, DEFAULT_EXCLUSION_KEYWORDS,
+    DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT
 )
 from backend.database import DatabaseService
 from backend.analyzer import DealAnalyzer
@@ -74,13 +75,20 @@ class GuitarHunterBot:
     def _init_firestore_structure(self, initial_scan_config):
         """Assure que la structure de base de Firestore existe."""
         initial_config = {
-            'prompt': PROMPT_INSTRUCTION, # Legacy, à garder pour l'instant
-            'verdictRules': DEFAULT_VERDICT_RULES,
-            'reasoningInstruction': DEFAULT_REASONING_INSTRUCTION,
-            'userPrompt': DEFAULT_USER_PROMPT,
-            'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS, # Ajout de la blacklist
+            'prompt': PROMPT_INSTRUCTION, # Legacy
+            'verdictRules': DEFAULT_VERDICT_RULES, # Legacy
+            'reasoningInstruction': DEFAULT_REASONING_INSTRUCTION, # Legacy
+            'userPrompt': DEFAULT_USER_PROMPT, # Legacy
+            'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS,
             'scanConfig': initial_scan_config,
-            'botStatus': 'idle'
+            'botStatus': 'idle',
+            'analysisConfig': {
+                'gatekeeperModel': 'gemini-3-flash',
+                'expertModel': 'gemini-2.5-flash',
+                'mainAnalysisPrompt': DEFAULT_MAIN_PROMPT,
+                'gatekeeperVerbosityInstruction': DEFAULT_GATEKEEPER_INSTRUCTION,
+                'expertContextInstruction': DEFAULT_EXPERT_CONTEXT
+            }
         }
         self.repo.ensure_initial_structure(initial_config)
 
