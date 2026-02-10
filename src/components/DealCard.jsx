@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2 } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
 import CollapsibleSection from './CollapsibleSection';
 
-const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite }) => {
+const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
 
   const handleShare = (e) => {
@@ -154,6 +154,15 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onReject, onToggleFavo
                 <Ban size={14} />
               </button>
             )}
+
+            {/* Bouton Supprimer */}
+            <button
+                onClick={() => onDelete(deal.id)}
+                className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
+                title="Supprimer définitivement"
+            >
+                <Trash2 size={14} />
+            </button>
 
             {/* BOUTON PARTAGER */}
             <button

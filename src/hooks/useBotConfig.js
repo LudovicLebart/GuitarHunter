@@ -50,6 +50,7 @@ export const useBotConfig = (user) => {
   const [scanConfig, setScanConfig] = useState({
       max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
+  const [geminiModel, setGeminiModel] = useState('gemini-2.0-flash'); // Nouveau state
 
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
@@ -71,6 +72,7 @@ export const useBotConfig = (user) => {
       if (data.userPrompt) setUserPrompt(ensureArray(data.userPrompt));
       
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      if (data.geminiModel) setGeminiModel(data.geminiModel); // Mise à jour du state
       
       if (data.botStatus) setBotStatus(data.botStatus);
 
@@ -140,13 +142,15 @@ export const useBotConfig = (user) => {
         prompt: ensureArray(promptsData.persona || promptsData.system_prompt),
         verdictRules: ensureArray(promptsData.verdict_rules),
         reasoningInstruction: ensureArray(promptsData.reasoning_instruction),
-        userPrompt: ensureArray(promptsData.user_prompt)
+        userPrompt: ensureArray(promptsData.user_prompt),
+        geminiModel: 'gemini-2.0-flash' // Réinitialisation du modèle
       };
       
       setPrompt(defaults.prompt);
       setVerdictRules(defaults.verdictRules);
       setReasoningInstruction(defaults.reasoningInstruction);
       setUserPrompt(defaults.userPrompt);
+      setGeminiModel(defaults.geminiModel);
 
       try {
         await resetBotConfigToDefaults(defaults);
@@ -163,6 +167,7 @@ export const useBotConfig = (user) => {
     reasoningInstruction, setReasoningInstruction,
     userPrompt, setUserPrompt,
     scanConfig, setScanConfig,
+    geminiModel, setGeminiModel,
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl,
     saveConfig,
     handleManualRefresh, handleManualCleanup,

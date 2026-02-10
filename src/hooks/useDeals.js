@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   onDealsUpdate, 
   rejectDeal, 
+  deleteDeal,
   retryDealAnalysis, 
   toggleDealFavorite 
 } from '../services/firestoreService';
@@ -38,6 +39,16 @@ export const useDeals = (user, setError) => {
     }
   }, [setError]);
 
+  const handleDeleteDeal = useCallback(async (dealId) => {
+    if (window.confirm("Voulez-vous vraiment supprimer définitivement cette annonce ?")) {
+      try {
+        await deleteDeal(dealId);
+      } catch (e) {
+        setError(e.message);
+      }
+    }
+  }, [setError]);
+
   const handleRetryAnalysis = useCallback(async (dealId) => {
     try {
       await retryDealAnalysis(dealId);
@@ -59,6 +70,7 @@ export const useDeals = (user, setError) => {
     loading,
     dbStatus,
     handleRejectDeal,
+    handleDeleteDeal,
     handleRetryAnalysis,
     handleToggleFavorite
   };

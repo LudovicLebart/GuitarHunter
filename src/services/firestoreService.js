@@ -80,6 +80,15 @@ export const rejectDeal = async (dealId) => {
   }
 };
 
+export const deleteDeal = async (dealId) => {
+  try {
+    await deleteDoc(getDealDocRef(dealId));
+  } catch (error) {
+    console.error(`Error deleting deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la suppression de l'annonce.");
+  }
+};
+
 export const retryDealAnalysis = async (dealId) => {
   try {
     await updateDoc(getDealDocRef(dealId), {

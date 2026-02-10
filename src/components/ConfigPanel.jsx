@@ -333,6 +333,7 @@ const AiConfigSection = () => {
     prompt, setPrompt,
     verdictRules, setVerdictRules,
     reasoningInstruction, setReasoningInstruction,
+    geminiModel, setGeminiModel,
     saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll
   } = useBotConfigContext();
 
@@ -358,6 +359,21 @@ const AiConfigSection = () => {
       </div>
 
       <div className="space-y-6">
+        {/* Sélecteur de modèle Gemini */}
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Gemini</label>
+            <select 
+                value={geminiModel} 
+                onChange={(e) => setGeminiModel(e.target.value)} 
+                onBlur={() => saveConfig({ geminiModel })}
+                className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+            >
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Rapide)</option>
+                <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro (Puissant)</option>
+                <option value="gemini-1.0-pro">Gemini 1.0 Pro (Legacy)</option>
+            </select>
+        </div>
+
         {/* Section Principale : Règles Métier */}
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
             <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Identité du Bot (Persona)</label>

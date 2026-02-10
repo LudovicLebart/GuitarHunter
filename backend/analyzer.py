@@ -15,9 +15,10 @@ class DealAnalyzer:
         self.model = None
         self.prompt_manager = PromptManager()
         self.current_system_prompt_hash = None
+        self.current_model_name = None
         self._init_gemini()
 
-    def _init_gemini(self, system_instruction=None):
+    def _init_gemini(self, system_instruction=None, model_name='gemini-2.0-flash'):
         """Initialise le modèle Gemini."""
         if GEMINI_API_KEY:
             genai.configure(api_key=GEMINI_API_KEY)
@@ -28,7 +29,7 @@ class DealAnalyzer:
                     system_instruction = self.prompt_manager.get_system_prompt({})
 
                 self.model = genai.GenerativeModel(
-                    model_name='gemini-2.0-flash',
+                    model_name=model_name,
                     system_instruction=system_instruction,
                     generation_config={
                         "response_mime_type": "application/json",
@@ -36,20 +37,23 @@ class DealAnalyzer:
                     }
                 )
                 self.current_system_prompt_hash = hash(system_instruction)
-                logger.info("🤖 Modèle Gemini initialisé (gemini-2.0-flash).")
+                self.current_model_name = model_name
+                logger.info(f"🤖 Modèle Gemini initialisé ({model_name}).")
             except Exception as e:
-                logger.error(f"⚠️ Erreur init gemini-2.0-flash : {e}")
+                logger.error(f"⚠️ Erreur init {model_name} : {e}")
         else:
             logger.warning("⚠️ Pas de clé API Gemini fournie.")
 
     def _ensure_model_config(self, firestore_config):
-        """Vérifie si le prompt système a changé et réinitialise le modèle si nécessaire."""
+        """Vérifie si le prompt système ou le modèle a changé et réinitialise si nécessaire."""
         new_system_prompt = self.prompt_manager.get_system_prompt(firestore_config)
+        new_model_name = firestore_config.get('geminiModel', 'gemini-2.0-flash')
+        
         new_hash = hash(new_system_prompt)
         
-        if self.current_system_prompt_hash != new_hash:
-            logger.info("🔄 Mise à jour du System Prompt détectée. Réinitialisation du modèle.")
-            self._init_gemini(system_instruction=new_system_prompt)
+        if self.current_system_prompt_hash != new_hash or self.current_model_name != new_model_name:
+            logger.info(f"🔄 Mise à jour de la config IA détectée (Modèle: {new_model_name}). Réinitialisation.")
+            self._init_gemini(system_instruction=new_system_prompt, model_name=new_model_name)
 
     def download_image(self, url):
         """Télécharge l'image depuis l'URL et la convertit en objet PIL Image."""

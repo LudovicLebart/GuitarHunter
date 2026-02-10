@@ -34,7 +34,7 @@ const AppContent = () => {
 
   const {
     deals, loading, dbStatus,
-    handleRejectDeal, handleRetryAnalysis, handleToggleFavorite
+    handleRejectDeal, handleRetryAnalysis, handleToggleFavorite, handleDeleteDeal
   } = useDealsContext();
 
   const {
@@ -129,7 +129,14 @@ const AppContent = () => {
           ) : (
             <div className="grid grid-cols-1 gap-6">
               {filteredDeals.map((deal) => (
-                <DealCard key={deal.id} deal={deal} onRetry={handleRetryAnalysis} onReject={handleRejectDeal} onToggleFavorite={handleToggleFavorite} />
+                <DealCard 
+                    key={deal.id} 
+                    deal={deal} 
+                    onRetry={handleRetryAnalysis} 
+                    onReject={handleRejectDeal} 
+                    onToggleFavorite={handleToggleFavorite}
+                    onDelete={handleDeleteDeal} // Ajout de la prop
+                />
               ))}
             </div>
           )}
@@ -160,7 +167,14 @@ const AppContent = () => {
             <button onClick={handleCloseModal} className="bg-white text-slate-900 rounded-full p-2.5 shadow-2xl hover:bg-rose-500 hover:text-white transition-all"><XCircle size={20} /></button>
           </div>
           <div className="relative transition-transform duration-200 ease-out origin-top" style={{ transform: `scale(${zoomLevel})`, width: '100%', maxWidth: '60rem', padding: '1rem' }} onClick={(e) => e.stopPropagation()}>
-            <DealCard key={selectedDeal.id} deal={selectedDeal} onRetry={handleRetryAnalysis} onReject={handleRejectDeal} onToggleFavorite={handleToggleFavorite} />
+            <DealCard 
+                key={selectedDeal.id} 
+                deal={selectedDeal} 
+                onRetry={handleRetryAnalysis} 
+                onReject={handleRejectDeal} 
+                onToggleFavorite={handleToggleFavorite}
+                onDelete={handleDeleteDeal} // Ajout de la prop
+            />
           </div>
         </div>,
         document.body
