@@ -62,6 +62,54 @@ export const useFilters = (deals) => {
   useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); }, [level1Filter]);
   useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
 
+  // --- COUNTS CALCULATION ---
+  const counts = useMemo(() => {
+    const c = {
+        ALL: 0,
+        FAVORITES: 0,
+        REJECTED: 0,
+        ERROR: 0,
+        // Taxonomy counts (Level 1 only for simplicity)
+        ...Object.keys(GUITAR_TAXONOMY).reduce((acc, key) => ({ ...acc, [key]: 0 }), {})
+    };
+
+    deals.forEach(deal => {
+        const analysis = deal.aiAnalysis || {};
+        const verdict = analysis.verdict || 'PENDING';
+        const status = deal.status;
+        const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !analysis.reasoning;
+        const isRejected = status === 'rejected';
+
+        // Global counts
+        if (!isRejected) {
+            c.ALL++;
+            if (isError) {
+                c.ERROR++;
+            } else {
+                // Compte dynamique par verdict (ex: PEPITE, GOOD_DEAL, etc.)
+                c[verdict] = (c[verdict] || 0) + 1;
+            }
+        }
+        
+        if (deal.isFavorite) c.FAVORITES++;
+        if (isRejected) c.REJECTED++;
+
+        // Taxonomy counts (only for active deals)
+        if (!isRejected && !isError) {
+            const classification = analysis.classification;
+            const path = taxonomyPaths[classification];
+            if (path && path.length > 0) {
+                const rootCategory = path[0];
+                if (c.hasOwnProperty(rootCategory)) {
+                    c[rootCategory]++;
+                }
+            }
+        }
+    });
+
+    return c;
+  }, [deals, taxonomyPaths]);
+
   // Filtered Deals
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
@@ -125,5 +173,6 @@ export const useFilters = (deals) => {
     level1Options,
     level2Options,
     level3Options,
+    counts, // Export des compteurs
   };
 };

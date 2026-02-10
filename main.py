@@ -21,6 +21,7 @@ from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager, TaskScheduler
+from backend.notifications import NotificationService # Import du service de notification
 
 # --- INITIALISATION DE LA DB ---
 db_service = DatabaseService(FIREBASE_KEY_PATH)
@@ -166,6 +167,9 @@ class GuitarHunterBot:
         # On passe la configuration actuelle (snapshot) à l'analyzer
         current_config = self.config_manager.current_config_snapshot
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+        
+        # Notification si c'est une pépite
+        NotificationService.notify_deal(listing_data, analysis)
         
         if not self.offline_mode:
             self.repo.save_deal(listing_data['id'], listing_data, analysis)

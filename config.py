@@ -17,6 +17,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 USER_ID_TARGET = os.getenv("USER_ID_TARGET")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC") # Nouveau : Topic ntfy pour les notifications
 
 # Chemin vers la clé de service Firebase
 FIREBASE_KEY_PATH = "serviceAccountKey.json"
