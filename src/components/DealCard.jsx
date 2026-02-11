@@ -56,7 +56,7 @@ const ReanalysisMenu = ({ position, onRetry, onForceExpert, onClose, buttonRef }
 };
 
 
-const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
+const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
   const [isReanalysisMenuOpen, setIsReanalysisMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
@@ -190,6 +190,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
       </div>
     </div>
   );
-});
+};
 
 export default DealCard;

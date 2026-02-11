@@ -14,7 +14,6 @@ class DealAnalyzer:
         self.models = {} # Cache pour les instances de modèles
         if GEMINI_API_KEY:
             genai.configure(api_key=GEMINI_API_KEY)
-            # --- LOG DES MODÈLES DISPONIBLES ---
             try:
                 print("--- Listing Gemini Models (Raw Print) ---")
                 model_list = []
@@ -30,12 +29,10 @@ class DealAnalyzer:
             except Exception as e:
                 print(f"CRITICAL: Impossible de lister les modèles Gemini : {e}")
                 logger.critical(f"CRITICAL: Impossible de lister les modèles Gemini : {e}", exc_info=True)
-            # -----------------------------------
         else:
             logger.warning("⚠️ Pas de clé API Gemini fournie.")
 
     def _get_model(self, model_name, system_instruction=None):
-        """Récupère ou crée une instance de modèle Gemini."""
         if not GEMINI_API_KEY:
             return None
 
@@ -60,7 +57,6 @@ class DealAnalyzer:
         return self.models[cache_key]
 
     def download_image(self, url):
-        """Télécharge l'image depuis l'URL et la convertit en objet PIL Image."""
         try:
             if not url or "via.placeholder.com" in url:
                 return None
@@ -74,7 +70,6 @@ class DealAnalyzer:
             return None
 
     def _optimize_image(self, img, max_size=2048):
-        """Redimensionne et convertit l'image pour optimiser les tokens Gemini."""
         try:
             if img.size[0] > max_size or img.size[1] > max_size:
                 w_percent = (max_size / float(img.size[0]))
@@ -90,7 +85,6 @@ class DealAnalyzer:
             return img
 
     def _clean_json_response(self, text_response):
-        """Nettoie la réponse brute de Gemini pour extraire le JSON."""
         if text_response.startswith("```json"):
             text_response = text_response[7:]
         if text_response.startswith("```"):
@@ -100,7 +94,6 @@ class DealAnalyzer:
         return text_response.strip()
 
     def _construct_user_prompt(self, listing_data, main_prompt_template):
-        """Construit le prompt utilisateur de base avec les détails de l'annonce."""
         details = (
             f"Détails de l'annonce :\n"
             f"- Titre : {listing_data.get('title', 'N/A')}\n"
@@ -117,10 +110,6 @@ class DealAnalyzer:
         return f"{main_prompt_str}\n\n{details}"
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False):
-        """
-        Analyse une annonce en utilisant une stratégie de cascade (Funnel).
-        Si force_expert est True, on saute le Portier et on utilise directement l'Expert.
-        """
         if firestore_config is None:
             firestore_config = {}
 
@@ -150,11 +139,9 @@ class DealAnalyzer:
 
         base_user_prompt = self._construct_user_prompt(listing_data, main_prompt)
         
-        # Variables pour le contexte expert
         status = "MANUAL_RETRY"
         reason = "Analyse experte demandée manuellement."
 
-        # --- ÉTAPE 1 : LE PORTIER (Seulement si pas forcé) ---
         if not force_expert:
             logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
             
@@ -174,6 +161,10 @@ class DealAnalyzer:
                 status = result_json.get('status', 'UNKNOWN').upper()
                 reason = result_json.get('reason', 'Pas de raison fournie.')
                 
+                if status == 'UNKNOWN':
+                    status = 'REJECTED'
+                    logger.info(f"   ⚠️ Statut 'UNKNOWN' requalifié en 'REJECTED'.")
+
                 is_promising = status in ['PEPITE', 'GOOD_DEAL']
                 
                 logger.info(f"   👉 Verdict Portier : {status} ({reason})")
@@ -181,7 +172,7 @@ class DealAnalyzer:
                 if not is_promising:
                     return {
                         "verdict": status,
-                        "reason": reason,
+                        "reasoning": reason, # Clé standardisée
                         "score": 0,
                         "model_used": gatekeeper_model_name,
                         "analysis": None
@@ -193,14 +184,13 @@ class DealAnalyzer:
         else:
             logger.info("   ⏩ Portier sauté (Force Expert activé).")
 
-        # --- ÉTAPE 2 : L'EXPERT ---
         logger.info(f"   🧠 Étape 2 : Expert ({expert_model_name}) - Analyse approfondie...")
         
         expert_model = self._get_model(expert_model_name)
         if not expert_model:
              return {
                 "verdict": status,
-                "reason": reason,
+                "reasoning": reason, # Clé standardisée
                 "model_used": f"{gatekeeper_model_name} (Expert failed)",
                 "analysis": "L'analyse détaillée a échoué."
             }
@@ -235,7 +225,7 @@ class DealAnalyzer:
             logger.error(f"❌ Erreur Expert: {e}")
             return {
                 "verdict": status,
-                "reason": reason,
+                "reasoning": f"Erreur lors de l'analyse détaillée : {e}", # Clé standardisée
                 "model_used": f"{gatekeeper_model_name} (Expert Error)",
-                "analysis": f"Erreur lors de l'analyse détaillée : {e}"
+                "analysis": None
             }

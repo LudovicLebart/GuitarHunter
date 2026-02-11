@@ -20,7 +20,6 @@ class FirestoreRepository:
         
         self.cities_ref = self.user_ref.collection('cities')
         
-        # Nouvelle collection pour les commandes
         self.commands_ref = self.user_ref.collection('commands')
 
     def ensure_initial_structure(self, initial_config):
@@ -52,17 +51,35 @@ class FirestoreRepository:
             logger.error(f"Failed to get deal by ID '{deal_id}': {e}", exc_info=True)
             return None
 
-    def save_deal(self, deal_id, deal_data, analysis_data):
+    def create_new_deal(self, deal_id, deal_data, analysis_data):
+        """Crée un nouveau document pour une annonce."""
         try:
             status = "analyzed"
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
 
             data = {**deal_data, "aiAnalysis": analysis_data, "timestamp": firestore.SERVER_TIMESTAMP, "status": status}
-            self.collection_ref.document(deal_id).set(data, merge=True)
-            logger.info(f"Saved deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
+            self.collection_ref.document(deal_id).set(data)
+            logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
-            logger.error(f"Firestore save failed for deal '{deal_id}': {e}", exc_info=True)
+            logger.error(f"Firestore create failed for deal '{deal_id}': {e}", exc_info=True)
+
+    def update_deal_analysis(self, deal_id, analysis_data):
+        """Met à jour l'analyse d'une annonce existante."""
+        try:
+            status = "analyzed"
+            if analysis_data.get('verdict') == 'REJECTED':
+                status = "rejected"
+            
+            update_data = {
+                "aiAnalysis": analysis_data,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "status": status
+            }
+            self.collection_ref.document(deal_id).update(update_data)
+            logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
+        except Exception as e:
+            logger.error(f"Firestore update failed for deal '{deal_id}': {e}", exc_info=True)
 
     def update_deal_status(self, deal_id, status, error_message=None):
         """Met à jour uniquement le statut d'une annonce, avec un message d'erreur optionnel."""
@@ -75,7 +92,6 @@ class FirestoreRepository:
             logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
         except Exception as e:
             logger.error(f"Failed to update status for deal '{deal_id}': {e}", exc_info=True)
-
 
     def get_user_config(self):
         try:
@@ -106,20 +122,6 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Failed to delete listing '{listing_id}': {e}", exc_info=True)
 
-    def get_retry_queue_listings(self):
-        try:
-            return self.collection_ref.where(filter=FieldFilter('status', '==', 'retry_analysis')).stream()
-        except Exception as e:
-            logger.error(f"Failed to get retry queue: {e}", exc_info=True)
-            return []
-
-    def get_expert_retry_queue_listings(self):
-        try:
-            return self.collection_ref.where(filter=FieldFilter('status', '==', 'retry_analysis_expert')).stream()
-        except Exception as e:
-            logger.error(f"Failed to get expert retry queue: {e}", exc_info=True)
-            return []
-
     def mark_all_for_reanalysis(self):
         logger.info("Marking all active listings for re-analysis.")
         try:
@@ -138,7 +140,6 @@ class FirestoreRepository:
             return 0
             
     def consume_command(self, command_field):
-        """Atomically removes a command field from the user document."""
         try:
             self.user_ref.update({command_field: firestore.DELETE_FIELD})
             logger.info(f"Consumed command '{command_field}'.")
@@ -146,17 +147,13 @@ class FirestoreRepository:
             logger.error(f"Failed to consume command '{command_field}': {e}", exc_info=True)
 
     def update_bot_status(self, status):
-        """Updates the bot status in Firestore."""
         try:
             self.user_ref.update({'botStatus': status})
             logger.info(f"Updated bot status to '{status}'.")
         except Exception as e:
             logger.error(f"Failed to update bot status to '{status}': {e}", exc_info=True)
 
-    # --- Command Collection Methods ---
-
     def get_pending_commands(self):
-        """Récupère les commandes en attente depuis la collection 'commands'."""
         try:
             return self.commands_ref.where(filter=FieldFilter('status', '==', 'pending')).stream()
         except Exception as e:
@@ -164,7 +161,6 @@ class FirestoreRepository:
             return []
 
     def mark_command_completed(self, command_id):
-        """Marque une commande comme terminée."""
         try:
             self.commands_ref.document(command_id).update({
                 'status': 'completed',
@@ -175,7 +171,6 @@ class FirestoreRepository:
             logger.error(f"Failed to mark command '{command_id}' as completed: {e}", exc_info=True)
 
     def mark_command_failed(self, command_id, error_message):
-        """Marque une commande comme échouée."""
         try:
             self.commands_ref.document(command_id).update({
                 'status': 'failed',
@@ -185,3 +180,25 @@ class FirestoreRepository:
             logger.info(f"Command '{command_id}' marked as failed: {error_message}")
         except Exception as e:
             logger.error(f"Failed to mark command '{command_id}' as failed: {e}", exc_info=True)
+
+    def delete_all_logs(self):
+        docs = self.user_ref.collection('logs').limit(500).stream()
+        deleted_count = 0
+        
+        while True:
+            batch = self.db.batch()
+            doc_count_in_batch = 0
+            for doc in docs:
+                batch.delete(doc.reference)
+                doc_count_in_batch += 1
+            
+            if doc_count_in_batch == 0:
+                break
+            
+            batch.commit()
+            deleted_count += doc_count_in_batch
+            logger.info(f"Deleted {deleted_count} logs so far...")
+            
+            docs = self.user_ref.collection('logs').limit(500).stream()
+            
+        return deleted_count

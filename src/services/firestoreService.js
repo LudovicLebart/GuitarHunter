@@ -178,3 +178,7 @@ export const onCommandUpdate = (commandId, callback) => {
         console.error(`Error listening to command ${commandId}:`, error);
     });
 };
+
+export const requestClearLogs = () => {
+    return addCommand('CLEAR_LOGS', null);
+};

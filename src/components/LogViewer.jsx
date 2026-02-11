@@ -3,32 +3,26 @@ import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play } from 'lucide-r
 import { collection, query, limit, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
+import { requestClearLogs } from '../services/firestoreService';
 
 const LogViewer = ({ onClose }) => {
-  const { user } = useAuth(); // On garde user pour l'authentification, mais on n'utilise plus user.uid pour les logs
+  const { user } = useAuth();
   const [logs, setLogs] = useState([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const logsEndRef = useRef(null);
 
   useEffect(() => {
-    // On n'a plus besoin de user pour déterminer le chemin des logs,
-    // mais on s'assure que l'utilisateur est authentifié pour accéder aux logs.
     if (!user) return; 
     
     const appId = process.env.APP_ID_TARGET;
-    const userIdTarget = process.env.USER_ID_TARGET; // Récupération du USER_ID_TARGET
+    const userIdTarget = process.env.USER_ID_TARGET;
 
-    if (!appId) {
-        console.error("APP_ID_TARGET is not defined in environment variables.");
-        return;
-    }
-    if (!userIdTarget) {
-        console.error("USER_ID_TARGET is not defined in environment variables.");
+    if (!appId || !userIdTarget) {
+        console.error("APP_ID_TARGET or USER_ID_TARGET is not defined in environment variables.");
         return;
     }
     
-    // Utilisation de userIdTarget au lieu de user.uid
     const logsRef = collection(db, `artifacts/${appId}/users/${userIdTarget}/logs`);
     const q = query(logsRef, limit(100));
 
@@ -49,13 +43,19 @@ const LogViewer = ({ onClose }) => {
     });
 
     return () => unsubscribe();
-  }, [user, isPaused]); // Dépendance à user pour s'assurer que l'auth est prête
+  }, [user, isPaused]);
 
   useEffect(() => {
     if (!isPaused && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [logs, isPaused]);
+
+  const handleClearRemoteLogs = () => {
+    if (window.confirm("Voulez-vous vraiment supprimer TOUS les logs de la base de données ? Cette action est irréversible.")) {
+      requestClearLogs().catch(err => alert(`Erreur lors de la demande de suppression des logs: ${err.message}`));
+    }
+  };
 
   const getLevelColor = (level) => {
     switch (level) {
@@ -77,7 +77,8 @@ const LogViewer = ({ onClose }) => {
         <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><Terminal size={14} /><span>Server Logs</span></div>
         <div className="flex items-center gap-2">
           <button onClick={() => setIsPaused(!isPaused)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title={isPaused ? "Reprendre" : "Pause"}>{isPaused ? <Play size={14} /> : <Pause size={14} />}</button>
-          <button onClick={() => setLogs([])} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title="Effacer localement"><Trash2 size={14} /></button>
+          <button onClick={() => setLogs([])} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title="Effacer l'affichage local"><Trash2 size={14} /></button>
+          <button onClick={handleClearRemoteLogs} className="p-1 hover:bg-rose-800 rounded text-rose-400 hover:text-rose-200" title="Vider la base de données (distant)"><Trash2 size={14} /></button>
           <button onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">{isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
           <button onClick={onClose} className="p-1 hover:bg-rose-900 rounded text-slate-400 hover:text-rose-400"><X size={14} /></button>
         </div>

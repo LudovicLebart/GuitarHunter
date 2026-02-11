@@ -17,7 +17,6 @@ export const useDeals = (user, setError) => {
     if (!user) return;
 
     const handleUpdate = (dealsData, count) => {
-      // Force la création de nouveaux objets pour garantir le re-rendering des composants mémoïsés
       const newDeals = dealsData.map(d => ({ ...d }));
       setDeals(newDeals);
       setLoading(false);
@@ -53,6 +52,13 @@ export const useDeals = (user, setError) => {
   }, [setError]);
 
   const handleRetryAnalysis = useCallback(async (dealId) => {
+    setDeals(prevDeals =>
+      prevDeals.map(d =>
+        d.id === dealId
+          ? { ...d, status: 'analyzing', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } }
+          : d
+      )
+    );
     try {
       await retryDealAnalysis(dealId);
     } catch (e) {
@@ -61,6 +67,13 @@ export const useDeals = (user, setError) => {
   }, [setError]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId) => {
+    setDeals(prevDeals =>
+      prevDeals.map(d =>
+        d.id === dealId
+          ? { ...d, status: 'analyzing_expert', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } }
+          : d
+      )
+    );
     try {
       await forceExpertAnalysis(dealId);
     } catch (e) {

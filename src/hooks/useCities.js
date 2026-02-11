@@ -23,16 +23,16 @@ export const useCities = (user, setError) => {
     try {
       const commandDocRef = await requestAddCity(newCityName);
       
-      // Écouter le résultat de la commande
       const unsubscribe = onCommandUpdate(commandDocRef.id, (data) => {
           if (data.status === 'completed') {
               setNewCityName('');
               setIsAddingCity(false);
-              unsubscribe(); // Arrêter d'écouter
+              unsubscribe();
           } else if (data.status === 'failed') {
               setError(data.error || "Erreur lors de l'ajout de la ville.");
               setIsAddingCity(false);
-              unsubscribe(); // Arrêter d'écouter
+              setNewCityName(''); // Vider le champ aussi en cas d'échec
+              unsubscribe();
           }
       });
 
