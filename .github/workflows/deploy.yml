@@ -1,7 +1,7 @@
 name: Deploy Guitare Hunter
 on:
   push:
-    branches: [ master ]
+    branches: [ master, Dev ]
 
 jobs:
   deploy:

@@ -5,12 +5,8 @@ import logging
 from firebase_admin import firestore
 
 # --- Logging Configuration ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    stream=sys.stdout,
-)
-logger = logging.getLogger(__name__)
+# Nous allons configurer le logging plus bas, après l'initialisation de la DB
+# pour pouvoir utiliser le FirestoreHandler
 # --- End Logging Configuration ---
 
 # --- IMPORT DE LA CONFIGURATION CENTRALISÉE ---
@@ -33,6 +29,45 @@ db_service = DatabaseService(FIREBASE_KEY_PATH)
 db = db_service.db
 offline_mode = db_service.offline_mode
 # --- FIN DE L'INITIALISATION ---
+
+# --- FIRESTORE LOGGING HANDLER ---
+class FirestoreHandler(logging.Handler):
+    def __init__(self, db_client, app_id, user_id):
+        super().__init__()
+        self.db = db_client
+        self.logs_ref = self.db.collection('artifacts').document(app_id) \
+            .collection('users').document(user_id).collection('logs')
+        
+    def emit(self, record):
+        try:
+            log_entry = self.format(record)
+            self.logs_ref.add({
+                'message': log_entry,
+                'level': record.levelname,
+                'timestamp': firestore.SERVER_TIMESTAMP,
+                'createdAt': time.time() # Pour le tri/nettoyage facile
+            })
+            # Nettoyage asynchrone (très basique pour ne pas bloquer)
+            # Idéalement, cela devrait être fait par une Cloud Function ou un job séparé
+        except Exception:
+            self.handleError(record)
+
+# Configuration du logger principal
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Handler Console
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+
+# Handler Firestore (si pas offline)
+if not offline_mode:
+    firestore_handler = FirestoreHandler(db, APP_ID_TARGET, USER_ID_TARGET)
+    firestore_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(firestore_handler)
+
+# --- END LOGGING CONFIG ---
 
 class GuitarHunterBot:
     def __init__(self, db_client, is_offline):

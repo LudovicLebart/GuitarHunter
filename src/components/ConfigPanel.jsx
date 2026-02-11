@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin, ArrowUp, ArrowDown, Maximize2, Minimize2, Save } from 'lucide-react';
+import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin, ArrowUp, ArrowDown, Maximize2, Minimize2, Save, Terminal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
 import { addCommand } from '../services/firestoreService'; // Import de addCommand
 import CollapsibleSection from './CollapsibleSection';
+import LogViewer from './LogViewer';
 
 // --- COMPOSANT ÉDITEUR DE LISTE ---
 const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle instruction..." }) => {
@@ -436,6 +437,7 @@ const AiConfigSection = () => {
 
 const ConfigPanel = ({ showConfig, onClose }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
 
   if (!showConfig) return null;
 
@@ -444,6 +446,13 @@ const ConfigPanel = ({ showConfig, onClose }) => {
       <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white sticky top-0 z-20">
         <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
         <div className="flex items-center gap-2">
+            <button 
+                onClick={() => setShowLogs(!showLogs)} 
+                className={`p-1.5 rounded-lg transition-colors ${showLogs ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}
+                title="Voir les logs"
+            >
+                <Terminal size={16} />
+            </button>
             <button 
                 onClick={() => setIsExpanded(!isExpanded)} 
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors hidden lg:block"
@@ -477,6 +486,8 @@ const ConfigPanel = ({ showConfig, onClose }) => {
             <AiConfigSection />
         </CollapsibleSection>
       </div>
+
+      {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
     </div>
   );
 
@@ -491,6 +502,10 @@ const ConfigPanel = ({ showConfig, onClose }) => {
             <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
             <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
             <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
+            <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2">
+                <Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Voir Logs Serveur'}
+            </button>
+            {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
         </div>
       );
   }

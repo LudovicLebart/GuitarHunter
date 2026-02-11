@@ -32,7 +32,21 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const modelName = deal.aiAnalysis?.model_used || 'Gemini Flash';
+  const getModelName = (deal) => {
+    if (deal.status === 'analyzing' || deal.status?.startsWith('retry')) {
+      return 'Analyse en cours...';
+    }
+    if (deal.aiAnalysis?.model_used) {
+      return deal.aiAnalysis.model_used;
+    }
+    if (deal.status === 'analyzed' && !deal.aiAnalysis?.model_used) {
+      return 'Modèle non spécifié';
+    }
+    // Fallback pour les cas initiaux ou non couverts
+    return deal.aiAnalysis?.model_used || 'Analyse initiale';
+  };
+
+  const modelName = getModelName(deal);
   const isExpertAnalysis = modelName.includes('2.5') || modelName.toLowerCase().includes('expert') || modelName.toLowerCase().includes('pro');
 
   // Gestion de l'appui long
@@ -53,8 +67,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
     if (!showExpertOption) {
         if (onRetry) onRetry(deal.id);
     } else {
-        // Si le menu est ouvert, un clic sur le bouton principal le ferme ou lance le retry standard ?
-        // Disons qu'on lance le retry standard et on ferme
         if (onRetry) onRetry(deal.id);
         setShowExpertOption(false);
     }
@@ -70,14 +82,12 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
       {/* Image Section */}
       <div className="md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
-        {/* On force une hauteur minimale pour que le sticky fonctionne bien visuellement */}
         <div className="h-64 md:h-80 w-full">
             <ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} />
         </div>
         <div className="absolute top-4 left-4 z-10 pointer-events-none">
           <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
         </div>
-        {/* Overlay gradient */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
       </div>
 
@@ -174,7 +184,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Bouton Favori */}
             <button
                 onClick={() => onToggleFavorite(deal.id, deal.isFavorite)}
                 className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`}
@@ -183,7 +192,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
                 <Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} />
             </button>
 
-            {/* Bouton Relancer Analyse / Expert (Appui Long) */}
             {deal.status !== 'rejected' && (
                 <div className="relative" ref={containerRef}>
                     <button
@@ -193,9 +201,9 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
                         onTouchStart={handleButtonDown}
                         onTouchEnd={handleButtonUp}
                         onClick={handleRetryClick}
-                        disabled={deal.status === 'retry_analysis' || deal.status === 'retry_analysis_expert'}
+                        disabled={deal.status === 'retry_analysis' || deal.status === 'retry_analysis_expert' || deal.status === 'analyzing'}
                         className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${
-                            deal.status?.startsWith('retry')
+                            deal.status?.startsWith('retry') || deal.status === 'analyzing'
                                 ? 'bg-amber-100 text-amber-600 cursor-wait' 
                                 : isExpertAnalysis 
                                     ? 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'
@@ -203,19 +211,17 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
                         }`}
                         title="Clic: Relancer / Maintenir: Options Expert"
                     >
-                        {deal.status?.startsWith('retry') ? (
+                        {deal.status?.startsWith('retry') || deal.status === 'analyzing' ? (
                             <RefreshCw size={14} className="animate-spin" />
                         ) : (
                             <>
                                 {isExpertAnalysis ? <BrainCircuit size={14} /> : <RefreshCw size={14} />}
-                                {/* Indicateur visuel pour l'appui long */}
                                 <span className="absolute bottom-0 left-0 h-0.5 bg-purple-500 transition-all duration-[500ms] ease-linear" style={{ width: showExpertOption ? '100%' : '0%' }} />
                             </>
                         )}
                     </button>
 
-                    {/* Menu Expert (Apparaît sous le bouton) */}
-                    {showExpertOption && !deal.status?.startsWith('retry') && (
+                    {showExpertOption && !deal.status?.startsWith('retry') && !deal.status === 'analyzing' && (
                         <button
                             onClick={handleExpertClick}
                             className="absolute top-full left-0 mt-2 w-full flex items-center justify-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-purple-600 text-white shadow-xl animate-in slide-in-from-top-2 z-20 hover:bg-purple-700 transition-colors"
@@ -237,7 +243,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
               </button>
             )}
 
-            {/* Bouton Supprimer */}
             <button
                 onClick={() => onDelete(deal.id)}
                 className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm"
@@ -246,7 +251,6 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
                 <Trash2 size={14} />
             </button>
 
-            {/* BOUTON PARTAGER */}
             <button
                 onClick={handleShare}
                 className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${copied ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:text-blue-500'}`}
