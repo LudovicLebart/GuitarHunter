@@ -6,35 +6,46 @@ import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
 import CollapsibleSection from './CollapsibleSection';
 
-const ExpertMenu = ({ position, onExpertClick, onClose }) => {
+// Nouveau menu de réanalyse
+const ReanalysisMenu = ({ position, onRetry, onForceExpert, onClose, buttonRef }) => {
   const menuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Ignore les clics sur le bouton qui ouvre le menu
+      if (buttonRef.current && buttonRef.current.contains(event.target)) {
+        return;
+      }
       if (menuRef.current && !menuRef.current.contains(event.target)) {
         onClose();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
+  }, [onClose, buttonRef]);
 
   if (!position) return null;
 
   return createPortal(
-    <div 
+    <div
       ref={menuRef}
-      style={{ 
-        position: 'absolute', 
-        top: position.top - 60, // Positionne le menu au-dessus du bouton
-        left: position.left + (position.width / 2), 
+      style={{
+        position: 'absolute',
+        top: position.top + position.height + 8, // Positionne le menu en dessous du bouton
+        left: position.left + position.width / 2,
         transform: 'translateX(-50%)',
-        zIndex: 9999 
+        zIndex: 9999
       }}
-      className="animate-in slide-in-from-bottom-2 fade-in duration-200"
+      className="flex flex-col gap-2 animate-in slide-in-from-bottom-2 fade-in duration-200"
     >
-      <button 
-        onClick={(e) => { e.stopPropagation(); onExpertClick(); }}
+      <button
+        onClick={(e) => { e.stopPropagation(); onRetry(); }}
+        className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-amber-500 text-white shadow-xl hover:bg-amber-600 transition-colors whitespace-nowrap"
+      >
+        <RefreshCw size={14} /> Standard
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onForceExpert(); }}
         className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-purple-600 text-white shadow-xl hover:bg-purple-700 transition-colors whitespace-nowrap"
       >
         <BrainCircuit size={14} /> Expert
@@ -44,12 +55,12 @@ const ExpertMenu = ({ position, onExpertClick, onClose }) => {
   );
 };
 
+
 const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
-  const [showExpertOption, setShowExpertOption] = useState(false);
+  const [isReanalysisMenuOpen, setIsReanalysisMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
-  const timerRef = useRef(null);
-  const buttonRef = useRef(null);
+  const reanalysisButtonRef = useRef(null);
 
   const handleShare = (e) => {
     e.preventDefault();
@@ -78,31 +89,21 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
   const isExpertAnalysis = modelName.includes('pro') || modelName.includes('expert');
   const isAnalyzing = ['retry_analysis', 'retry_analysis_expert', 'analyzing'].includes(deal.status);
 
-  const handleButtonDown = () => {
-    timerRef.current = setTimeout(() => {
-      if (buttonRef.current) {
-        const rect = buttonRef.current.getBoundingClientRect();
-        setMenuPosition({
-          top: rect.top + window.scrollY,
-          left: rect.left + window.scrollX,
-          width: rect.width
-        });
-        setShowExpertOption(true);
-      }
-    }, 500);
-  };
-
-  const handleButtonUp = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  };
-
-  const handleRetryClick = () => {
-    if (!showExpertOption) {
-        if (onRetry) onRetry(deal.id);
-    } else {
-        if (onRetry) onRetry(deal.id);
-        setShowExpertOption(false);
+  const handleReanalysisButtonClick = () => {
+    if (reanalysisButtonRef.current) {
+      const rect = reanalysisButtonRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.top + window.scrollY,
+        left: rect.left + window.scrollX,
+        width: rect.width,
+        height: rect.height
+      });
     }
+    setIsReanalysisMenuOpen(prev => !prev);
+  };
+  
+  const closeMenu = () => {
+    setIsReanalysisMenuOpen(false);
   };
 
   return (
@@ -154,28 +155,28 @@ const DealCard = React.memo(({ deal, filterType, onRetry, onForceExpert, onRejec
             <button onClick={() => onToggleFavorite(deal.id, deal.isFavorite)} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`} title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}><Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} /></button>
             {deal.status !== 'rejected' && (
                 <>
-                    <button 
-                        ref={buttonRef}
-                        onMouseDown={handleButtonDown} 
-                        onMouseUp={handleButtonUp} 
-                        onMouseLeave={handleButtonUp} 
-                        onTouchStart={handleButtonDown} 
-                        onTouchEnd={handleButtonUp} 
-                        onClick={handleRetryClick} 
+                    <button
+                        ref={reanalysisButtonRef}
+                        onClick={handleReanalysisButtonClick}
                         disabled={isAnalyzing}
-                        className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : isExpertAnalysis ? 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`} 
-                        title="Clic: Relancer / Maintenir: Options Expert"
+                        className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
+                        title="Relancer l'analyse"
                     >
-                        {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<><RefreshCw size={14} /><span className="absolute bottom-0 left-0 h-0.5 bg-purple-500 transition-all duration-[500ms] ease-linear" style={{ width: showExpertOption ? '100%' : '0%' }} /></>)}
+                        {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
                     </button>
-                    {showExpertOption && (
-                        <ExpertMenu 
-                            position={menuPosition} 
-                            onExpertClick={() => {
-                                if (onForceExpert) onForceExpert(deal.id);
-                                setShowExpertOption(false);
+                    {isReanalysisMenuOpen && (
+                        <ReanalysisMenu
+                            position={menuPosition}
+                            buttonRef={reanalysisButtonRef}
+                            onRetry={() => {
+                                if (onRetry) onRetry(deal.id);
+                                closeMenu();
                             }}
-                            onClose={() => setShowExpertOption(false)}
+                            onForceExpert={() => {
+                                if (onForceExpert) onForceExpert(deal.id);
+                                closeMenu();
+                            }}
+                            onClose={closeMenu}
                         />
                     )}
                 </>

@@ -114,12 +114,10 @@ export const toggleDealFavorite = async (dealId, currentStatus) => {
 
 export const onCitiesUpdate = (onUpdate, onError) => {
     return onSnapshot(citiesCollectionRef, (snapshot) => {
-        // CORRECTION ICI : On sépare docId (ID Firestore) et id (ID Facebook)
         const citiesData = snapshot.docs.map(doc => ({
-            docId: doc.id, // L'ID unique du document Firestore
-            ...doc.data()  // Les données (qui contiennent le champ 'id' = ID Facebook)
+            docId: doc.id,
+            ...doc.data()
         }));
-        // Tri alphabétique par défaut
         citiesData.sort((a, b) => a.name.localeCompare(b.name));
         onUpdate(citiesData);
     }, (error) => {
@@ -128,25 +126,12 @@ export const onCitiesUpdate = (onUpdate, onError) => {
     });
 };
 
-export const addCity = async (cityName, cityId) => {
-    console.log(`Attempting to add city: ${cityName} with ID: ${cityId}`);
-    try {
-        await addDoc(citiesCollectionRef, {
-            name: cityName,
-            id: cityId,
-            isScannable: false, // Par défaut non scannable
-            createdAt: new Date()
-        });
-        console.log("City added successfully");
-    } catch (error) {
-        console.error("Error adding city (FULL DETAILS):", error);
-        throw new Error(`Erreur lors de l'ajout de la ville: ${error.message}`);
-    }
+export const requestAddCity = (cityName) => {
+    return addCommand('ADD_CITY', cityName);
 };
 
 export const deleteCity = async (docId) => {
     try {
-        // On utilise docId ici
         await deleteDoc(doc(citiesCollectionRef, docId));
     } catch (error) {
         console.error(`Error deleting city ${docId}:`, error);
@@ -156,7 +141,6 @@ export const deleteCity = async (docId) => {
 
 export const toggleCityScannable = async (docId, currentStatus) => {
     try {
-        // On utilise docId ici
         await updateDoc(doc(citiesCollectionRef, docId), {
             isScannable: !currentStatus
         });
@@ -170,15 +154,27 @@ export const toggleCityScannable = async (docId, currentStatus) => {
 
 export const addCommand = async (type, payload) => {
     try {
-        await addDoc(commandsCollectionRef, {
+        const docRef = await addDoc(commandsCollectionRef, {
             type: type,
             payload: payload,
             status: 'pending',
             createdAt: new Date()
         });
-        console.log(`Command ${type} added successfully.`);
+        console.log(`Command ${type} added with ID: ${docRef.id}.`);
+        return docRef;
     } catch (error) {
         console.error(`Error adding command ${type}:`, error);
         throw new Error("Erreur lors de l'envoi de la commande.");
     }
+};
+
+export const onCommandUpdate = (commandId, callback) => {
+    const commandDocRef = doc(commandsCollectionRef, commandId);
+    return onSnapshot(commandDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+            callback(docSnap.data());
+        }
+    }, (error) => {
+        console.error(`Error listening to command ${commandId}:`, error);
+    });
 };

@@ -92,8 +92,6 @@ class GuitarHunterBot:
         
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
         
-        self.city_mapping = {}
-        self.allowed_cities = []
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
@@ -127,22 +125,6 @@ class GuitarHunterBot:
         if self.offline_mode: return
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
         return sync_result
-
-    def load_cities_from_firestore(self):
-        if self.offline_mode: return
-        docs = self.repo.get_cities()
-        self.city_mapping = {}
-        self.allowed_cities = []
-        for doc in docs:
-            data = doc.to_dict()
-            name, city_id, is_scannable = data.get('name'), data.get('id'), data.get('isScannable')
-            if name and city_id and is_scannable:
-                norm_name = ListingParser.normalize_city_name(name)
-                self.city_mapping[norm_name] = city_id
-                self.allowed_cities.append(norm_name)
-        self.scraper.city_mapping = self.city_mapping
-        self.scraper.allowed_cities = self.allowed_cities
-        logger.info(f"{len(self.city_mapping)} villes scannables chargées.")
 
     def should_skip_deal(self, deal_id, price):
         if deal_id in self.session_processed_ids: return True
@@ -203,16 +185,30 @@ class GuitarHunterBot:
         try:
             scan_config = self.config_manager.scan_config
             logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
-            self.load_cities_from_firestore()
-            cities_to_scan = list(self.city_mapping.keys())
+            
+            cities_docs = self.repo.get_cities()
+            cities_to_scan = []
+            for doc in cities_docs:
+                data = doc.to_dict()
+                if data.get('isScannable') and data.get('name') and data.get('id'):
+                    cities_to_scan.append(data)
+
             if not cities_to_scan:
                 logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join(cities_to_scan)}")
-                for city_norm_name in cities_to_scan:
+                logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
+                for city_data in cities_to_scan:
+                    city_name = city_data['name']
+                    city_id = city_data['id']
+                    city_norm_name = ListingParser.normalize_city_name(city_name)
+                    
+                    # Configuration temporaire du scraper pour cette ville unique
+                    self.scraper.city_mapping = {city_norm_name: city_id}
+                    self.scraper.allowed_cities = [city_norm_name]
+
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
-                    logger.info(f"--- Scan de la ville : {city_norm_name} ---")
+                    logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
                     self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal)
                     time.sleep(2)
             logger.info("Scan planifié terminé.")
@@ -303,8 +299,19 @@ class GuitarHunterBot:
     def add_city_auto(self, city_name):
         if self.offline_mode: return
         logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
+        
+        existing_cities = self.repo.get_cities()
+        for doc in existing_cities:
+            data = doc.to_dict()
+            if data.get('name', '').lower() == city_name.lower():
+                raise Exception(f"La ville '{city_name}' existe déjà.")
+
         city_id = CityFinder.find_city_id(self.scraper, city_name)
         if city_id:
+            for doc in existing_cities:
+                if str(doc.to_dict().get('id')) == str(city_id):
+                     raise Exception(f"Une ville avec l'ID {city_id} existe déjà ({doc.to_dict().get('name')}).")
+
             logger.info(f"ID trouvé pour {city_name}: {city_id}. Ajout à Firestore...")
             try:
                 self.repo.cities_ref.add({'name': city_name, 'id': city_id, 'isScannable': True, 'createdAt': firestore.SERVER_TIMESTAMP})

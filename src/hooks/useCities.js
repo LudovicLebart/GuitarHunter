@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { onCitiesUpdate, addCity, deleteCity, toggleCityScannable } from '../services/firestoreService';
+import { onCitiesUpdate, requestAddCity, deleteCity, toggleCityScannable, onCommandUpdate } from '../services/firestoreService';
 
 export const useCities = (user, setError) => {
   const [cities, setCities] = useState([]);
   const [newCityName, setNewCityName] = useState('');
-  const [newCityId, setNewCityId] = useState('');
+  const [isAddingCity, setIsAddingCity] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -18,15 +18,29 @@ export const useCities = (user, setError) => {
   }, [user, setError]);
 
   const handleAddCity = useCallback(async () => {
-    if (!newCityName || !newCityId) return;
+    if (!newCityName) return;
+    setIsAddingCity(true);
     try {
-      await addCity(newCityName, newCityId);
-      setNewCityName('');
-      setNewCityId('');
+      const commandDocRef = await requestAddCity(newCityName);
+      
+      // Écouter le résultat de la commande
+      const unsubscribe = onCommandUpdate(commandDocRef.id, (data) => {
+          if (data.status === 'completed') {
+              setNewCityName('');
+              setIsAddingCity(false);
+              unsubscribe(); // Arrêter d'écouter
+          } else if (data.status === 'failed') {
+              setError(data.error || "Erreur lors de l'ajout de la ville.");
+              setIsAddingCity(false);
+              unsubscribe(); // Arrêter d'écouter
+          }
+      });
+
     } catch (e) {
       setError(e.message);
+      setIsAddingCity(false);
     }
-  }, [newCityName, newCityId, setError]);
+  }, [newCityName, setError]);
 
   const handleDeleteCity = useCallback(async (id) => {
     if (window.confirm('Voulez-vous vraiment supprimer cette ville ?')) {
@@ -49,7 +63,7 @@ export const useCities = (user, setError) => {
   return {
     cities,
     newCityName, setNewCityName,
-    newCityId, setNewCityId,
+    isAddingCity,
     handleAddCity,
     handleDeleteCity,
     handleToggleScannable
