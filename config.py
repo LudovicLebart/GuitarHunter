@@ -5,11 +5,7 @@ import json
 from dotenv import load_dotenv
 
 # --- CONFIGURATION GLOBALE ---
-
-# Ignorer les avertissements de dépréciation
 warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
-
-# Charger les variables d'environnement
 load_dotenv()
 
 # --- CLÉS API ET IDENTIFIANTS ---
@@ -17,10 +13,21 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 USER_ID_TARGET = os.getenv("USER_ID_TARGET")
-NTFY_TOPIC = os.getenv("NTFY_TOPIC") # Nouveau : Topic ntfy pour les notifications
+NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
-# Chemin vers la clé de service Firebase
 FIREBASE_KEY_PATH = "serviceAccountKey.json"
+
+# --- CONFIGURATION DES MODÈLES GEMINI ---
+GEMINI_MODELS = {
+    "available": [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro"
+    ],
+    "default_gatekeeper": "gemini-2.5-flash-lite",
+    "default_expert": "gemini-2.5-flash"
+}
 
 # --- VALIDATION AU DÉMARRAGE ---
 if not APP_ID_TARGET or not USER_ID_TARGET:
@@ -45,19 +52,19 @@ except Exception as e:
     print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
     prompts_data = {}
 
-# --- CONSTANTES LEGACY (Pour compatibilité temporaire) ---
-PROMPT_INSTRUCTION = prompts_data.get('persona', ["Legacy Prompt Placeholder"])
-DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
-DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
-DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])
-
 # --- NOUVELLES CONSTANTES POUR LA CASCADE ---
 DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
 DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
 DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
 
-# --- MOTS-CLÉS D'EXCLUSION (Marques & Autres) ---
+# --- MOTS-CLÉS D'EXCLUSION ---
 DEFAULT_EXCLUSION_KEYWORDS = [
     "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum", 
     "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ]
+
+# --- CONSTANTES LEGACY (Pour compatibilité) ---
+PROMPT_INSTRUCTION = prompts_data.get('persona', ["Legacy Prompt Placeholder"])
+DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
+DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
+DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])

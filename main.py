@@ -4,17 +4,12 @@ import threading
 import logging
 from firebase_admin import firestore
 
-# --- Logging Configuration ---
-# Nous allons configurer le logging plus bas, après l'initialisation de la DB
-# pour pouvoir utiliser le FirestoreHandler
-# --- End Logging Configuration ---
-
 # --- IMPORT DE LA CONFIGURATION CENTRALISÉE ---
 from config import (
     FIREBASE_KEY_PATH, APP_ID_TARGET, USER_ID_TARGET, CITY_COORDINATES,
-    PROMPT_INSTRUCTION, DEFAULT_VERDICT_RULES, DEFAULT_REASONING_INSTRUCTION,
-    DEFAULT_USER_PROMPT, DEFAULT_EXCLUSION_KEYWORDS,
-    DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT
+    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
+    DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
+    GEMINI_MODELS
 )
 from backend.database import DatabaseService
 from backend.analyzer import DealAnalyzer
@@ -24,58 +19,63 @@ from backend.repository import FirestoreRepository
 from backend.services import ConfigManager, TaskScheduler
 from backend.notifications import NotificationService
 
-# --- INITIALISATION DE LA DB ---
+# --- 1. INITIALISATION DE LA DB ---
 db_service = DatabaseService(FIREBASE_KEY_PATH)
 db = db_service.db
 offline_mode = db_service.offline_mode
-# --- FIN DE L'INITIALISATION ---
 
-# --- FIRESTORE LOGGING HANDLER ---
+# --- 2. CONFIGURATION DU LOGGING ---
 class FirestoreHandler(logging.Handler):
     def __init__(self, db_client, app_id, user_id):
         super().__init__()
+        if not db_client:
+            self.db = None
+            return
         self.db = db_client
         self.logs_ref = self.db.collection('artifacts').document(app_id) \
             .collection('users').document(user_id).collection('logs')
         
     def emit(self, record):
+        if not self.db:
+            return
         try:
             log_entry = self.format(record)
             self.logs_ref.add({
                 'message': log_entry,
                 'level': record.levelname,
                 'timestamp': firestore.SERVER_TIMESTAMP,
-                'createdAt': time.time() # Pour le tri/nettoyage facile
+                'createdAt': time.time()
             })
-            # Nettoyage asynchrone (très basique pour ne pas bloquer)
-            # Idéalement, cela devrait être fait par une Cloud Function ou un job séparé
         except Exception:
             self.handleError(record)
 
-# Configuration du logger principal
-logger = logging.getLogger(__name__)
+# Configure the root logger to capture logs from the entire application
+logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+logger.handlers = [] 
 
-# Handler Console
+# Console handler
 console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(console_handler)
 
-# Handler Firestore (si pas offline)
+# Firestore handler
 if not offline_mode:
     firestore_handler = FirestoreHandler(db, APP_ID_TARGET, USER_ID_TARGET)
-    firestore_handler.setFormatter(logging.Formatter('%(message)s'))
+    firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(firestore_handler)
+else:
+    logger.warning("Mode hors ligne, le logger Firestore n'est pas activé.")
 
-# --- END LOGGING CONFIG ---
 
+# --- 3. CLASSE PRINCIPALE DU BOT ---
 class GuitarHunterBot:
     def __init__(self, db_client, is_offline):
         self.offline_mode = is_offline
-        self.session_processed_ids = set() # Cache pour éviter les doublons durant un scan
+        self.session_processed_ids = set()
 
         if self.offline_mode:
-            logger.warning("Offline mode is enabled. Bot will not connect to Firestore.")
+            logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
             self.scraper = FacebookScraper(CITY_COORDINATES, {})
             return
@@ -93,11 +93,11 @@ class GuitarHunterBot:
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
         
         self.city_mapping = {}
-        self.allowed_cities = [] # Liste des noms de villes autorisées
+        self.allowed_cities = []
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
-        logger.info("--- Bot Configuration ---")
+        logger.info("--- Configuration du Bot Terminée ---")
         logger.info(f"APP ID: {APP_ID_TARGET}")
         logger.info(f"USER ID: {USER_ID_TARGET}")
         
@@ -108,306 +108,206 @@ class GuitarHunterBot:
         self.sync_and_apply_config(initial=True)
 
     def _init_firestore_structure(self, initial_scan_config):
-        """Assure que la structure de base de Firestore existe."""
         initial_config = {
-            'prompt': PROMPT_INSTRUCTION, # Legacy
-            'verdictRules': DEFAULT_VERDICT_RULES, # Legacy
-            'reasoningInstruction': DEFAULT_REASONING_INSTRUCTION, # Legacy
-            'userPrompt': DEFAULT_USER_PROMPT, # Legacy
             'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS,
             'scanConfig': initial_scan_config,
             'botStatus': 'idle',
             'analysisConfig': {
-                'gatekeeperModel': 'gemini-3-flash',
-                'expertModel': 'gemini-2.5-flash',
+                'gatekeeperModel': GEMINI_MODELS["default_gatekeeper"],
+                'expertModel': GEMINI_MODELS["default_expert"],
                 'mainAnalysisPrompt': DEFAULT_MAIN_PROMPT,
                 'gatekeeperVerbosityInstruction': DEFAULT_GATEKEEPER_INSTRUCTION,
                 'expertContextInstruction': DEFAULT_EXPERT_CONTEXT
-            }
+            },
+            'availableModels': GEMINI_MODELS["available"]
         }
         self.repo.ensure_initial_structure(initial_config)
 
     def sync_and_apply_config(self, initial=False):
-        """Synchronise la configuration et met à jour les composants dépendants."""
         if self.offline_mode: return
-        
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
         return sync_result
 
     def load_cities_from_firestore(self):
         if self.offline_mode: return
         docs = self.repo.get_cities()
-        
         self.city_mapping = {}
         self.allowed_cities = []
-        
         for doc in docs:
             data = doc.to_dict()
-            name = data.get('name')
-            city_id = data.get('id')
-            is_scannable = data.get('isScannable')
-
+            name, city_id, is_scannable = data.get('name'), data.get('id'), data.get('isScannable')
             if name and city_id and is_scannable:
                 norm_name = ListingParser.normalize_city_name(name)
                 self.city_mapping[norm_name] = city_id
                 self.allowed_cities.append(norm_name)
-
         self.scraper.city_mapping = self.city_mapping
         self.scraper.allowed_cities = self.allowed_cities
-        
-        logger.info(f"{len(self.city_mapping)} scannable cities loaded. {len(self.allowed_cities)} total allowed cities (whitelist).")
+        logger.info(f"{len(self.city_mapping)} villes scannables chargées.")
 
     def should_skip_deal(self, deal_id, price):
-        """Vérifie si une annonce doit être ignorée (déjà traitée et inchangée)."""
-        # 1. Vérification rapide dans le cache de session (évite les doublons inter-villes immédiats)
-        if deal_id in self.session_processed_ids:
-            return True
-
+        if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
-        
-        # 2. Vérification dans la base de données
         existing_deal = self.repo.get_deal_by_id(deal_id)
-        if not existing_deal:
-            return False
-            
-        # Si l'annonce a été rejetée, on l'ignore
+        if not existing_deal: return False
         if existing_deal.get('status') == 'rejected':
             self.session_processed_ids.add(deal_id)
             return True
-            
-        # Si le prix est identique, on l'ignore (pas de mise à jour nécessaire)
         try:
             if int(existing_deal.get('price', -1)) == int(price):
                 self.session_processed_ids.add(deal_id)
                 return True
-        except (ValueError, TypeError):
-            pass
-            
+        except (ValueError, TypeError): pass
         return False
 
     def _check_exclusion(self, listing_data, config):
-        """
-        Vérifie si l'annonce doit être exclue selon les mots-clés.
-        Retourne le mot-clé trouvé ou None.
-        """
         exclusion_keywords = config.get('exclusionKeywords', DEFAULT_EXCLUSION_KEYWORDS)
-        
         if isinstance(exclusion_keywords, str):
              exclusion_keywords = [k.strip() for k in exclusion_keywords.split('\n') if k.strip()]
-        
-        if not exclusion_keywords:
-            return None
-
-        title = listing_data.get('title', '')
-        description = listing_data.get('description', '')
-        text_to_check = (title + " " + description).lower()
-        
+        if not exclusion_keywords: return None
+        text_to_check = (listing_data.get('title', '') + " " + listing_data.get('description', '')).lower()
         for keyword in exclusion_keywords:
-            if keyword.lower() in text_to_check:
-                return keyword
+            if keyword.lower() in text_to_check: return keyword
         return None
 
     def _create_rejection_analysis(self, keyword):
-        """Crée un objet d'analyse pour un rejet automatique."""
-        return {
-            "verdict": "rejected",
-            "score": 0,
-            "reason": f"REJET AUTOMATIQUE : Le mot-clé '{keyword}' a été détecté dans l'annonce.",
-            "model_used": "pre-filter"
-        }
+        return {"verdict": "rejected", "score": 0, "reason": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
     def handle_deal_found(self, listing_data):
-        logger.info(f"Processing new deal: {listing_data['title']}")
-        
+        logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
         self.session_processed_ids.add(listing_data['id'])
-        
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
             if existing_deal:
                 if existing_deal.get('status') == 'rejected':
-                    logger.info("Deal already exists and was rejected. Skipping.")
+                    logger.info("Annonce déjà rejetée. Ignorée.")
                     return
                 if existing_deal.get('price') == listing_data['price']:
-                    logger.info("Deal already exists with same price. Skipping.")
+                    logger.info("Annonce déjà existante avec le même prix. Ignorée.")
                     return
-                logger.info("Deal already exists but price has changed. Updating.")
-
+                logger.info("Annonce existante mais prix différent. Mise à jour.")
         current_config = self.config_manager.current_config_snapshot
-        
-        # --- PRÉ-FILTRAGE ---
         found_keyword = self._check_exclusion(listing_data, current_config)
-        
         if found_keyword:
-            logger.info(f"Deal rejected by pre-filter. Keyword found: '{found_keyword}' in '{listing_data['title']}'")
+            logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
             rejection_analysis = self._create_rejection_analysis(found_keyword)
-            
-            if not self.offline_mode:
-                self.repo.save_deal(listing_data['id'], listing_data, rejection_analysis)
+            if not self.offline_mode: self.repo.save_deal(listing_data['id'], listing_data, rejection_analysis)
             return 
-
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
-        
         NotificationService.notify_deal(listing_data, analysis)
-        
-        if not self.offline_mode:
-            self.repo.save_deal(listing_data['id'], listing_data, analysis)
+        if not self.offline_mode: self.repo.save_deal(listing_data['id'], listing_data, analysis)
 
     def run_scan(self):
-        if not self.offline_mode:
-            self.repo.update_bot_status('scanning')
-        
+        if self.offline_mode: return
+        self.repo.update_bot_status('scanning')
         self.session_processed_ids = set()
-        
         try:
             scan_config = self.config_manager.scan_config
-            logger.info(f"Starting scheduled scan (frequency: {scan_config.get('frequency', 'N/A')} min)...")
-            
+            logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
             self.load_cities_from_firestore()
-            
             cities_to_scan = list(self.city_mapping.keys())
-            
             if not cities_to_scan:
-                logger.warning("No scannable cities configured. Scan will be skipped.")
+                logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                logger.info(f"Scanning {len(cities_to_scan)} cities: {', '.join(cities_to_scan)}")
+                logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join(cities_to_scan)}")
                 for city_norm_name in cities_to_scan:
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
-                    
-                    logger.info(f"--- Scanning city: {city_norm_name} ---")
-                    self.scraper.scan_marketplace(
-                        city_specific_config, 
-                        self.handle_deal_found,
-                        should_skip_callback=self.should_skip_deal
-                    )
+                    logger.info(f"--- Scan de la ville : {city_norm_name} ---")
+                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal)
                     time.sleep(2)
-
-            logger.info("Scheduled scan finished.")
+            logger.info("Scan planifié terminé.")
         finally:
-            if not self.offline_mode:
-                self.repo.update_bot_status('idle')
+            if not self.offline_mode: self.repo.update_bot_status('idle')
 
     def scan_specific_url(self, url):
-        if not self.offline_mode:
-            self.repo.update_bot_status('scanning_url')
-        
+        if self.offline_mode: return
+        self.repo.update_bot_status('scanning_url')
         try:
             self.scraper.scan_specific_url(url, self.handle_deal_found)
-            if not self.offline_mode:
-                self.repo.consume_command('scanSpecificUrl')
+            if not self.offline_mode: self.repo.consume_command('scanSpecificUrl')
         finally:
-            if not self.offline_mode:
-                self.repo.update_bot_status('idle')
+            if not self.offline_mode: self.repo.update_bot_status('idle')
 
     def cleanup_sold_listings(self):
         if self.offline_mode or self.is_cleaning: return
-        logger.info("Starting cleanup of sold listings...")
+        logger.info("Démarrage du nettoyage des annonces vendues...")
         threading.Thread(target=self._perform_cleanup, daemon=True).start()
 
     def _perform_cleanup(self):
         with self.cleanup_lock:
             self.is_cleaning = True
-            if not self.offline_mode:
-                self.repo.update_bot_status('cleaning')
-            
+            if not self.offline_mode: self.repo.update_bot_status('cleaning')
             try:
                 docs = self.repo.get_active_listings()
                 listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
-                
-                logger.info(f"Checking availability of {len(listings)} active listings.")
+                logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
                 deleted_count = 0
-                
                 for item in listings:
                     if not item['url']: continue
                     if not self.scraper.check_listing_availability(item['url']):
                         self.repo.delete_listing(item['id'])
                         deleted_count += 1
                     time.sleep(0.5)
-                
-                logger.info(f"Cleanup finished. {deleted_count} listings deleted.")
+                logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
             except Exception as e:
-                logger.error(f"An error occurred during cleanup: {e}", exc_info=True)
+                logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
             finally:
                 self.is_cleaning = False
-                if not self.offline_mode:
-                    self.repo.update_bot_status('idle')
+                if not self.offline_mode: self.repo.update_bot_status('idle')
 
-    def _process_single_retry(self, doc, force_expert):
-        """Traite une seule annonce de la file d'attente de réanalyse."""
-        data = doc.to_dict()
-        deal_id = doc.id
-        logger.info(f"Re-analyzing deal from retry queue: {data.get('title')} (Force Expert: {force_expert})")
+    def analyze_single_deal(self, payload):
+        deal_id = payload.get('dealId')
+        force_expert = payload.get('forceExpert', False)
 
+        if not deal_id:
+            raise ValueError("dealId manquant dans le payload de la commande ANALYZE_DEAL")
+
+        deal_data = self.repo.get_deal_by_id(deal_id)
+        if not deal_data:
+            raise FileNotFoundError(f"Annonce {deal_id} non trouvée pour l'analyse.")
+
+        logger.info(f"--- ANALYSE DÉMARRÉE pour {deal_data.get('title')} ---")
+        
         try:
-            listing_data = {
-                "title": data.get('title'), "price": data.get('price'),
-                "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-                "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
-                "link": data.get('link'), "id": deal_id,
-                **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-            }
-            
+            new_status = 'analyzing_expert' if force_expert else 'analyzing'
+            self.repo.update_deal_status(deal_id, new_status)
+
             current_config = self.config_manager.current_config_snapshot
             
-            # --- PRÉ-FILTRAGE ---
-            found_keyword = self._check_exclusion(listing_data, current_config)
-            
+            found_keyword = self._check_exclusion(deal_data, current_config)
             if found_keyword:
-                logger.info(f"Retry deal rejected by pre-filter. Keyword found: '{found_keyword}'")
+                logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
                 rejection_analysis = self._create_rejection_analysis(found_keyword)
-                self.repo.save_deal(deal_id, listing_data, rejection_analysis)
+                self.repo.save_deal(deal_id, deal_data, rejection_analysis)
                 return
 
-            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
-            self.repo.save_deal(deal_id, listing_data, analysis)
+            analysis_result = self.analyzer.analyze_deal(deal_data, firestore_config=current_config, force_expert=force_expert)
+            
+            self.repo.save_deal(deal_id, deal_data, analysis_result)
 
         except Exception as e:
-            logger.error(f"CRITICAL: Failed to re-analyze deal {deal_id}. Error: {e}", exc_info=True)
-            # En cas d'échec critique, on met à jour le statut pour éviter une boucle infinie.
+            logger.error(f"CRITIQUE: Échec de l'analyse de {deal_id}. Erreur: {e}", exc_info=True)
             self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
-
-
-    def process_retry_queue(self):
-        if self.offline_mode: return
-        
-        # 1. Traitement des réanalyses standards (Portier -> Expert)
-        standard_docs = self.repo.get_retry_queue_listings()
-        for doc in standard_docs:
-            self._process_single_retry(doc, force_expert=False)
-
-        # 2. Traitement des réanalyses expertes (Force Expert)
-        expert_docs = self.repo.get_expert_retry_queue_listings()
-        for doc in expert_docs:
-            self._process_single_retry(doc, force_expert=True)
+            raise
+        finally:
+            logger.info(f"--- ANALYSE TERMINÉE pour {deal_id} ---")
 
     def reanalyze_all_listings(self):
         if self.offline_mode: return
-        if not self.offline_mode:
-            self.repo.update_bot_status('reanalyzing_all')
-        
+        self.repo.update_bot_status('reanalyzing_all')
         try:
             self.repo.mark_all_for_reanalysis()
         finally:
-            if not self.offline_mode:
-                self.repo.update_bot_status('idle')
+            if not self.offline_mode: self.repo.update_bot_status('idle')
 
     def add_city_auto(self, city_name):
-        """Tente de trouver l'ID d'une ville et de l'ajouter à Firestore."""
         if self.offline_mode: return
-        
         logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
-        
         city_id = CityFinder.find_city_id(self.scraper, city_name)
-        
         if city_id:
             logger.info(f"ID trouvé pour {city_name}: {city_id}. Ajout à Firestore...")
             try:
-                self.repo.cities_ref.add({
-                    'name': city_name,
-                    'id': city_id,
-                    'isScannable': True,
-                    'createdAt': firestore.SERVER_TIMESTAMP
-                })
+                self.repo.cities_ref.add({'name': city_name, 'id': city_id, 'isScannable': True, 'createdAt': firestore.SERVER_TIMESTAMP})
                 logger.info(f"Ville {city_name} ajoutée avec succès.")
                 return True
             except Exception as e:
@@ -417,88 +317,60 @@ class GuitarHunterBot:
             logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
             raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
 
-def monitor_retries(bot):
-    logger.info("Retry queue monitoring thread started.")
-    while True:
-        try:
-            bot.process_retry_queue()
-            time.sleep(5)
-        except Exception as e:
-            logger.error(f"Error in retry monitoring thread: {e}", exc_info=True)
-            time.sleep(10)
-
 def main_loop(bot):
-    logger.info("--- Starting Main Loop ---")
-    
+    logger.info("--- Démarrage de la boucle principale ---")
     bot.scraper.start_session()
-    
     command_handlers = {
         'REFRESH': lambda _: bot.run_scan(),
         'CLEANUP': lambda _: bot.cleanup_sold_listings(),
         'REANALYZE_ALL': lambda _: bot.reanalyze_all_listings(),
         'SCAN_URL': lambda url: bot.scan_specific_url(url),
-        'ADD_CITY': lambda city_name: bot.add_city_auto(city_name)
+        'ADD_CITY': lambda city_name: bot.add_city_auto(city_name),
+        'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload)
     }
-
     try:
         scheduler = TaskScheduler(
             scan_func=bot.run_scan,
             cleanup_func=bot.cleanup_sold_listings,
             initial_frequency=bot.config_manager.get_valid_scan_frequency()
         )
-
         while True:
             try:
                 scheduler.run_pending()
-                
                 sync_result = bot.sync_and_apply_config()
-                
                 for command in sync_result.commands:
-                    logger.info(f"Received command: {command.type} (ID: {command.command_id})")
+                    logger.info(f"Commande reçue : {command.type} (ID: {command.command_id})")
                     handler = command_handlers.get(command.type)
-                    
                     if handler:
                         try:
                             handler(command.payload)
-                            
-                            if command.command_id:
-                                bot.repo.mark_command_completed(command.command_id)
-                            elif command.firestore_field:
-                                bot.repo.consume_command(command.firestore_field)
-                                
+                            if command.command_id: bot.repo.mark_command_completed(command.command_id)
+                            elif command.firestore_field: bot.repo.consume_command(command.firestore_field)
                         except Exception as e:
-                            logger.error(f"Error executing command {command.type}: {e}", exc_info=True)
-                            if command.command_id:
-                                bot.repo.mark_command_failed(command.command_id, str(e))
+                            logger.error(f"Erreur exécution commande {command.type}: {e}", exc_info=True)
+                            if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
                     else:
-                        logger.warning(f"Unknown command type: {command.type}")
-                        if command.command_id:
-                            bot.repo.mark_command_failed(command.command_id, f"Unknown command type: {command.type}")
-
+                        logger.warning(f"Type de commande inconnu : {command.type}")
+                        if command.command_id: bot.repo.mark_command_failed(command.command_id, f"Type de commande inconnu : {command.type}")
                 if sync_result.new_scan_frequency is not None:
                     scheduler.update_scan_frequency(sync_result.new_scan_frequency)
-
                 time.sleep(5)
             except Exception as e:
-                logger.error(f"An error occurred in the main loop: {e}", exc_info=True)
+                logger.error(f"Erreur dans la boucle principale : {e}", exc_info=True)
                 time.sleep(15)
     finally:
         bot.scraper.close_session()
 
 if __name__ == "__main__":
-    logger.info(f"Default prompt instruction loaded: {PROMPT_INSTRUCTION[:80]}...")
     bot = GuitarHunterBot(db, offline_mode)
-
     if bot.offline_mode:
-        logger.warning("Exiting due to offline mode.")
+        logger.warning("Sortie en raison du mode hors ligne.")
         sys.exit(1)
-    
-    threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
-    
+
     try:
         main_loop(bot)
     except KeyboardInterrupt:
-        logger.info("Keyboard interrupt received. Shutting down.")
+        logger.info("Interruption clavier reçue. Arrêt.")
     except Exception as e:
-        logger.critical(f"A critical error occurred that could not be handled: {e}", exc_info=True)
+        logger.critical(f"Erreur critique non gérée : {e}", exc_info=True)
         sys.exit(1)

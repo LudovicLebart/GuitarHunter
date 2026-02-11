@@ -17,7 +17,9 @@ export const useDeals = (user, setError) => {
     if (!user) return;
 
     const handleUpdate = (dealsData, count) => {
-      setDeals(dealsData);
+      // Force la création de nouveaux objets pour garantir le re-rendering des composants mémoïsés
+      const newDeals = dealsData.map(d => ({ ...d }));
+      setDeals(newDeals);
       setLoading(false);
       setDbStatus({ status: 'success', msg: `${count} annonces` });
     };

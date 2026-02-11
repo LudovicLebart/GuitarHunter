@@ -14,6 +14,23 @@ class DealAnalyzer:
         self.models = {} # Cache pour les instances de modèles
         if GEMINI_API_KEY:
             genai.configure(api_key=GEMINI_API_KEY)
+            # --- LOG DES MODÈLES DISPONIBLES ---
+            try:
+                print("--- Listing Gemini Models (Raw Print) ---")
+                model_list = []
+                for m in genai.list_models():
+                    if 'generateContent' in m.supported_generation_methods:
+                        model_list.append(f"ID: {m.name} | Display Name: {m.display_name}")
+                
+                print("\n".join(model_list))
+                logger.info("--- Modèles Gemini Disponibles ---")
+                logger.info("\n".join(model_list))
+                logger.info("----------------------------------")
+
+            except Exception as e:
+                print(f"CRITICAL: Impossible de lister les modèles Gemini : {e}")
+                logger.critical(f"CRITICAL: Impossible de lister les modèles Gemini : {e}", exc_info=True)
+            # -----------------------------------
         else:
             logger.warning("⚠️ Pas de clé API Gemini fournie.")
 
@@ -109,7 +126,7 @@ class DealAnalyzer:
 
         analysis_config = firestore_config.get('analysisConfig', {})
         
-        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-3-flash')
+        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
         expert_model_name = analysis_config.get('expertModel', 'gemini-2.5-flash')
         
         main_prompt = analysis_config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT)

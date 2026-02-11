@@ -145,11 +145,19 @@ const ExclusionKeywordsSection = () => {
 };
 
 const AiConfigSection = () => {
-  const { analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll } = useBotConfigContext();
+  const { analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll, availableModels } = useBotConfigContext();
   
   const handleAnalysisConfigChange = (field, value) => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
   };
+
+  // Fallback si la liste n'est pas encore chargée
+  const models = availableModels.length > 0 ? availableModels : [
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
+  ];
 
   return (
     <div className="space-y-4 pt-2">
@@ -163,15 +171,13 @@ const AiConfigSection = () => {
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Portier (Rapide)</label>
                 <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+                    {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
             </div>
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Expert (Puissant)</label>
                 <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                    {models.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
             </div>
         </div>

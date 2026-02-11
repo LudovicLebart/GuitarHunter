@@ -41,13 +41,18 @@ export const useBotConfig = (user) => {
       max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
   const [exclusionKeywords, setExclusionKeywords] = useState(DEFAULT_EXCLUSION_KEYWORDS);
+  
+  // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
-      gatekeeperModel: 'gemini-1.5-flash',
-      expertModel: 'gemini-1.5-pro',
+      gatekeeperModel: 'gemini-2.5-flash-lite',
+      expertModel: 'gemini-2.5-flash',
       mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
       gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
       expertContextInstruction: DEFAULT_EXPERT_CONTEXT
   });
+  
+  // Nouvel état pour stocker la liste des modèles disponibles reçue du backend
+  const [availableModels, setAvailableModels] = useState([]);
 
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
@@ -64,6 +69,11 @@ export const useBotConfig = (user) => {
       
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
+      
+      // Récupération des modèles disponibles
+      if (data.availableModels && Array.isArray(data.availableModels)) {
+          setAvailableModels(data.availableModels);
+      }
       
       // Fusionne la config d'analyse pour ne pas écraser les champs non gérés par l'UI
       if (data.analysisConfig) {
@@ -143,8 +153,8 @@ export const useBotConfig = (user) => {
       const defaults = {
         exclusionKeywords: DEFAULT_EXCLUSION_KEYWORDS,
         analysisConfig: {
-            gatekeeperModel: 'gemini-1.5-flash',
-            expertModel: 'gemini-1.5-pro',
+            gatekeeperModel: 'gemini-2.5-flash-lite',
+            expertModel: 'gemini-2.5-flash',
             mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
             gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
             expertContextInstruction: DEFAULT_EXPERT_CONTEXT
@@ -168,6 +178,7 @@ export const useBotConfig = (user) => {
     scanConfig, setScanConfig,
     exclusionKeywords, setExclusionKeywords,
     analysisConfig, setAnalysisConfig,
+    availableModels, // On expose la liste des modèles
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl,
     saveConfig,
     handleManualRefresh, handleManualCleanup,
