@@ -300,29 +300,37 @@ class GuitarHunterBot:
     def _process_single_retry(self, doc, force_expert):
         """Traite une seule annonce de la file d'attente de réanalyse."""
         data = doc.to_dict()
+        deal_id = doc.id
         logger.info(f"Re-analyzing deal from retry queue: {data.get('title')} (Force Expert: {force_expert})")
-        
-        listing_data = {
-            "title": data.get('title'), "price": data.get('price'),
-            "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-            "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
-            "link": data.get('link'), "id": doc.id,
-            **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-        }
-        
-        current_config = self.config_manager.current_config_snapshot
-        
-        # --- PRÉ-FILTRAGE ---
-        found_keyword = self._check_exclusion(listing_data, current_config)
-        
-        if found_keyword:
-            logger.info(f"Retry deal rejected by pre-filter. Keyword found: '{found_keyword}'")
-            rejection_analysis = self._create_rejection_analysis(found_keyword)
-            self.repo.save_deal(doc.id, listing_data, rejection_analysis)
-            return
 
-        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
-        self.repo.save_deal(doc.id, listing_data, analysis)
+        try:
+            listing_data = {
+                "title": data.get('title'), "price": data.get('price'),
+                "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
+                "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
+                "link": data.get('link'), "id": deal_id,
+                **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
+            }
+            
+            current_config = self.config_manager.current_config_snapshot
+            
+            # --- PRÉ-FILTRAGE ---
+            found_keyword = self._check_exclusion(listing_data, current_config)
+            
+            if found_keyword:
+                logger.info(f"Retry deal rejected by pre-filter. Keyword found: '{found_keyword}'")
+                rejection_analysis = self._create_rejection_analysis(found_keyword)
+                self.repo.save_deal(deal_id, listing_data, rejection_analysis)
+                return
+
+            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
+            self.repo.save_deal(deal_id, listing_data, analysis)
+
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to re-analyze deal {deal_id}. Error: {e}", exc_info=True)
+            # En cas d'échec critique, on met à jour le statut pour éviter une boucle infinie.
+            self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
+
 
     def process_retry_queue(self):
         if self.offline_mode: return

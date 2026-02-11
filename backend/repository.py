@@ -64,6 +64,19 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Firestore save failed for deal '{deal_id}': {e}", exc_info=True)
 
+    def update_deal_status(self, deal_id, status, error_message=None):
+        """Met à jour uniquement le statut d'une annonce, avec un message d'erreur optionnel."""
+        try:
+            update_data = {'status': status}
+            if error_message:
+                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'error': error_message, 'timestamp': firestore.SERVER_TIMESTAMP}])
+            
+            self.collection_ref.document(deal_id).update(update_data)
+            logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
+        except Exception as e:
+            logger.error(f"Failed to update status for deal '{deal_id}': {e}", exc_info=True)
+
+
     def get_user_config(self):
         try:
             doc = self.user_ref.get()
