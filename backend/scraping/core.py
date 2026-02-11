@@ -120,7 +120,7 @@ class FacebookScraper:
         # Mais attention aux faux positifs. Pour l'instant, on reste strict.
         
         # Log pour debug si la ville est rejetée
-        # logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
+        logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
     def scan_marketplace(self, scan_config, on_deal_found, should_skip_callback=None):
@@ -198,11 +198,11 @@ class FacebookScraper:
                 
                 # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
                 if not spec_loc:
-                    # logger.info(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    logger.debug(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
                     continue
 
                 if not self.is_city_allowed(spec_loc):
-                    # logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
                     continue
                 # --- END OF NEW LOGIC ---
 

@@ -143,7 +143,7 @@ class DealAnalyzer:
             
             gatekeeper_model = self._get_model(gatekeeper_model_name)
             if not gatekeeper_model:
-                return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible."}
+                return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible.", "model_used": gatekeeper_model_name}
 
             gatekeeper_full_prompt = f"{base_user_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
             
@@ -172,7 +172,7 @@ class DealAnalyzer:
 
             except Exception as e:
                 logger.error(f"❌ Erreur Portier: {e}")
-                return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}"}
+                return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}", "model_used": gatekeeper_model_name}
         else:
             logger.info("   ⏩ Portier sauté (Force Expert activé).")
 
