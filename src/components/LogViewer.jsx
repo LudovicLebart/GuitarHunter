@@ -14,10 +14,13 @@ const LogViewer = ({ onClose }) => {
   useEffect(() => {
     if (!user) return;
     
-    // NOTE: L'APP_ID est nécessaire ici. Il est défini dans config.py côté backend.
-    // Pour le frontend, nous devons l'obtenir. Soit en le hardcodant, soit via une config.
-    // Pour l'instant, je vais le hardcoder en supposant qu'il est stable.
-    const appId = "guitar-hunter-v1"; // À AJUSTER SI NÉCESSAIRE
+    // On récupère l'APP_ID depuis la configuration Vite (injectée depuis le .env)
+    const appId = process.env.APP_ID_TARGET;
+    
+    if (!appId) {
+        console.error("APP_ID_TARGET is not defined in environment variables.");
+        return;
+    }
     
     const logsRef = collection(db, `artifacts/${appId}/users/${user.uid}/logs`);
     const q = query(logsRef, orderBy('timestamp', 'desc'), limit(100));
