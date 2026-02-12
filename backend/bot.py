@@ -296,3 +296,46 @@ class GuitarHunterBot:
         except Exception as e:
             logger.error(f"Erreur lors de la suppression des logs: {e}", exc_info=True)
             raise
+
+    def analyze_single_deal(self, payload):
+        """Analyse une annonce spécifique à la demande."""
+        if self.offline_mode: return
+        
+        deal_id = payload.get('dealId')
+        force_expert = payload.get('forceExpert', False)
+        
+        if not deal_id:
+            logger.error("analyze_single_deal: dealId manquant dans le payload.")
+            return
+
+        logger.info(f"Demande d'analyse manuelle pour l'annonce {deal_id} (Force Expert: {force_expert})")
+        
+        deal_data = self.repo.get_deal_by_id(deal_id)
+        if not deal_data:
+            logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
+            return
+
+        # Reconstruction de listing_data pour l'analyseur
+        listing_data = {
+            "title": deal_data.get('title'),
+            "price": deal_data.get('price'),
+            "description": deal_data.get('description', ''),
+            "location": deal_data.get('location', 'Inconnue'),
+            "imageUrls": deal_data.get('imageUrls', []),
+            "imageUrl": deal_data.get('imageUrl'),
+            "link": deal_data.get('link'),
+            "id": deal_id,
+            **({'latitude': deal_data['latitude'], 'longitude': deal_data['longitude']} if 'latitude' in deal_data else {})
+        }
+
+        current_config = self.config_manager.current_config_snapshot
+        
+        # On ne vérifie pas l'exclusion ici car c'est une demande explicite de l'utilisateur
+        
+        try:
+            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
+            self.repo.update_deal_analysis(deal_id, analysis)
+            logger.info(f"Analyse manuelle terminée pour {deal_id}.")
+        except Exception as e:
+            logger.error(f"Erreur lors de l'analyse manuelle de {deal_id}: {e}", exc_info=True)
+            self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
