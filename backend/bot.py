@@ -169,6 +169,9 @@ class GuitarHunterBot:
             if not cities_to_scan:
                 logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
+                # On prépare la liste de TOUTES les villes autorisées (whitelist globale pour ce scan)
+                all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
+                
                 logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
                 for city_data in cities_to_scan:
                     city_name = city_data['name']
@@ -176,7 +179,8 @@ class GuitarHunterBot:
                     city_norm_name = ListingParser.normalize_city_name(city_name)
                     
                     self.scraper.city_mapping = {city_norm_name: city_id}
-                    self.scraper.allowed_cities = [city_norm_name]
+                    # On passe la liste complète des villes autorisées
+                    self.scraper.allowed_cities = all_allowed_cities_norm
 
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
