@@ -122,8 +122,13 @@ class DealAnalyzer:
         try:
             response = expert_model.generate_content([f"{context}\n\n{base_prompt}"] + images)
             expert_result = json.loads(self._clean_json_response(response.text))
-            expert_result['model_used'] = expert_model_name
-            return expert_result
+            
+            # On s'assure que le nom du modèle est bien dans le résultat final
+            final_result = {
+                "model_used": expert_model_name,
+                **expert_result
+            }
+            return final_result
         except Exception as e:
             logger.error(f"❌ Erreur Expert: {e}")
             return {"verdict": gatekeeper_status, "reasoning": f"L'analyse experte a échoué après un premier verdict de '{gatekeeper_status}'.\nErreur: {e}", "model_used": f"{gatekeeper_model_name} (Expert Error)"}
