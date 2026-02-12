@@ -2,8 +2,7 @@ import sys
 import time
 import logging
 
-# Print brut pour confirmer le démarrage immédiat
-print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---")
+print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
 from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
 from backend.database import DatabaseService
@@ -66,13 +65,14 @@ def main_loop(bot, firestore_handler):
         if firestore_handler:
             firestore_handler.close()
 
-if __name__ == "__main__":
-    print("DEBUG: Initialisation de la DB...")
+def main():
+    """Point d'entrée principal de l'application."""
+    print("DEBUG: Initialisation de la DB...", flush=True)
     db_service = DatabaseService(FIREBASE_KEY_PATH)
     db = db_service.db
     offline_mode = db_service.offline_mode
 
-    print("DEBUG: Configuration du logging...")
+    print("DEBUG: Configuration du logging...", flush=True)
     firestore_handler = setup_logging(db, APP_ID_TARGET, USER_ID_TARGET, offline_mode)
     
     logger = logging.getLogger(__name__)
@@ -82,15 +82,21 @@ if __name__ == "__main__":
         logger.warning("Le bot est en mode hors ligne. Sortie.")
         sys.exit(1)
 
+    exit_code = 0
     try:
-        print("DEBUG: Lancement du bot...")
+        print("DEBUG: Lancement du bot...", flush=True)
         bot = GuitarHunterBot(db, is_offline=offline_mode)
         main_loop(bot, firestore_handler)
     except KeyboardInterrupt:
         logger.info("Interruption clavier reçue. Arrêt du bot.")
     except Exception as e:
         logger.critical(f"Erreur critique non gérée au démarrage : {e}", exc_info=True)
+        exit_code = 1
     finally:
+        logger.info("Fermeture propre de l'application.")
         if firestore_handler:
             firestore_handler.close()
-        sys.exit(1)
+        sys.exit(exit_code)
+
+if __name__ == "__main__":
+    main()
