@@ -57,20 +57,12 @@ class DealAnalyzer:
         return match.group(1).strip() if match else text_response.strip()
 
     def _construct_user_prompt(self, listing_data, main_prompt_template, for_gatekeeper=False):
-        """Construit le prompt utilisateur. Si for_gatekeeper est True, retire les instructions de formatage JSON complexe."""
+        """Construit le prompt utilisateur."""
         
         prompt_lines = main_prompt_template if isinstance(main_prompt_template, list) else str(main_prompt_template).split('\n')
         
-        if for_gatekeeper:
-            # On filtre tout ce qui se trouve après "### FORMAT DE RÉPONSE JSON STRICT"
-            filtered_lines = []
-            for line in prompt_lines:
-                if "### FORMAT DE RÉPONSE JSON STRICT" in line:
-                    break
-                filtered_lines.append(line)
-            main_prompt_str = "\n".join(filtered_lines)
-        else:
-            main_prompt_str = "\n".join(prompt_lines)
+        # On envoie TOUJOURS le prompt complet, même au Portier, pour qu'il ait les définitions des verdicts.
+        main_prompt_str = "\n".join(prompt_lines)
 
         return (
             f"{main_prompt_str}\n\n"
@@ -105,10 +97,11 @@ class DealAnalyzer:
             if not gatekeeper_model:
                 return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible.", "model_used": gatekeeper_model_name}
             
-            # Prompt allégé pour le portier
+            # Prompt complet pour le portier aussi
             base_prompt_gatekeeper = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), for_gatekeeper=True)
             
             try:
+                # On ajoute l'instruction de concision à la fin pour forcer un JSON court
                 response = gatekeeper_model.generate_content([f"{base_prompt_gatekeeper}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)}"] + images)
                 result = json.loads(self._clean_json_response(response.text))
                 
@@ -126,12 +119,18 @@ class DealAnalyzer:
                 
                 logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
-                if gatekeeper_status not in ['PEPITE', 'GOOD_DEAL']:
+                # --- LOGIQUE DE FILTRAGE STRICTE ---
+                # Si le verdict est explicitement négatif, on arrête.
+                if gatekeeper_status in ['REJECTED', 'REJECTED (SERVICE)', 'BAD_DEAL']:
                     return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "model_used": gatekeeper_model_name}
+                
+                # Si c'est positif (PEPITE, GOOD_DEAL, FAIR) ou incertain, on passe à l'expert.
 
             except Exception as e:
                 logger.error(f"❌ Erreur Portier: {e}")
-                return {"verdict": "ERROR", "reasoning": f"Erreur Portier: {e}", "model_used": gatekeeper_model_name}
+                # En cas d'erreur technique du portier, on laisse passer à l'expert (fail-open)
+                gatekeeper_status = "ERROR_GATEKEEPER"
+                gatekeeper_reason = f"Le portier a planté : {e}"
         else:
             logger.info("   ⏩ Portier sauté (Force Expert activé).")
 
