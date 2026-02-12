@@ -1,8 +1,30 @@
 import sys
 import time
 import logging
+import os
 
-print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
+# --- FORCE UNBUFFERED STDOUT/STDERR ---
+# C'est crucial pour voir les logs en temps réel sur un serveur (Docker, Systemd, etc.)
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
+class Unbuffered(object):
+   def __init__(self, stream):
+       self.stream = stream
+   def write(self, data):
+       self.stream.write(data)
+       self.stream.flush()
+   def writelines(self, datas):
+       self.stream.writelines(datas)
+       self.stream.flush()
+   def __getattr__(self, attr):
+       return getattr(self.stream, attr)
+
+sys.stdout = Unbuffered(sys.stdout)
+sys.stderr = Unbuffered(sys.stderr)
+# --------------------------------------
+
+print("--- DÉMARRAGE DU SCRIPT MAIN.PY (UNBUFFERED) ---")
 
 from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
 from backend.database import DatabaseService
@@ -67,12 +89,12 @@ def main_loop(bot, firestore_handler):
 
 def main():
     """Point d'entrée principal de l'application."""
-    print("DEBUG: Initialisation de la DB...", flush=True)
+    print("DEBUG: Initialisation de la DB...")
     db_service = DatabaseService(FIREBASE_KEY_PATH)
     db = db_service.db
     offline_mode = db_service.offline_mode
 
-    print("DEBUG: Configuration du logging...", flush=True)
+    print("DEBUG: Configuration du logging...")
     firestore_handler = setup_logging(db, APP_ID_TARGET, USER_ID_TARGET, offline_mode)
     
     logger = logging.getLogger(__name__)
@@ -84,7 +106,7 @@ def main():
 
     exit_code = 0
     try:
-        print("DEBUG: Lancement du bot...", flush=True)
+        print("DEBUG: Lancement du bot...")
         bot = GuitarHunterBot(db, is_offline=offline_mode)
         main_loop(bot, firestore_handler)
     except KeyboardInterrupt:
