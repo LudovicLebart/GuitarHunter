@@ -9,7 +9,8 @@ class FirestoreHandler(logging.Handler):
         super().__init__()
         self.internal_logger = logging.getLogger('FirestoreHandlerInternal')
         self.internal_logger.propagate = False
-        console_handler = logging.StreamHandler(sys.stdout)
+        # Utilisation de sys.__stdout__ pour éviter les captures éventuelles
+        console_handler = logging.StreamHandler(sys.__stdout__)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - [FirestoreHandler] - %(levelname)s - %(message)s'))
         self.internal_logger.addHandler(console_handler)
         self.internal_logger.setLevel(logging.INFO)
@@ -87,19 +88,35 @@ class FirestoreHandler(logging.Handler):
         super().close()
 
 def setup_logging(db_client, app_id, user_id, is_offline):
+    # Print brut pour vérifier que la fonction est appelée
+    print("DEBUG: Initialisation du logging...")
+    
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
-    logger.handlers = [] 
-
-    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Nettoyage des handlers existants pour éviter les doublons
+    if logger.handlers:
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+    
+    # Configuration du handler console
+    # Utilisation de sys.__stdout__ pour garantir l'écriture dans la console réelle
+    console_handler = logging.StreamHandler(sys.__stdout__)
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(console_handler)
 
+    firestore_handler = None
     if not is_offline:
-        firestore_handler = FirestoreHandler(db_client, app_id, user_id)
-        firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
-        logger.addHandler(firestore_handler)
-        return firestore_handler
+        try:
+            firestore_handler = FirestoreHandler(db_client, app_id, user_id)
+            firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(firestore_handler)
+            print("DEBUG: Firestore logger activé.")
+        except Exception as e:
+            print(f"ERROR: Echec de l'initialisation du FirestoreHandler: {e}")
+            logging.error(f"Echec de l'initialisation du FirestoreHandler: {e}", exc_info=True)
     else:
         logging.warning("Mode hors ligne, le logger Firestore n'est pas activé.")
-        return None
+        print("DEBUG: Mode hors ligne.")
+
+    return firestore_handler

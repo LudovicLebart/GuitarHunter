@@ -2,6 +2,9 @@ import sys
 import time
 import logging
 
+# Print brut pour confirmer le démarrage immédiat
+print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---")
+
 from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
 from backend.database import DatabaseService
 from backend.bot import GuitarHunterBot
@@ -64,19 +67,23 @@ def main_loop(bot, firestore_handler):
             firestore_handler.close()
 
 if __name__ == "__main__":
+    print("DEBUG: Initialisation de la DB...")
     db_service = DatabaseService(FIREBASE_KEY_PATH)
     db = db_service.db
     offline_mode = db_service.offline_mode
 
+    print("DEBUG: Configuration du logging...")
     firestore_handler = setup_logging(db, APP_ID_TARGET, USER_ID_TARGET, offline_mode)
     
     logger = logging.getLogger(__name__)
+    logger.info("Logging initialisé avec succès.")
 
     if offline_mode:
         logger.warning("Le bot est en mode hors ligne. Sortie.")
         sys.exit(1)
 
     try:
+        print("DEBUG: Lancement du bot...")
         bot = GuitarHunterBot(db, is_offline=offline_mode)
         main_loop(bot, firestore_handler)
     except KeyboardInterrupt:
