@@ -122,6 +122,13 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Failed to delete listing '{listing_id}': {e}", exc_info=True)
 
+    def get_retry_queue_listings(self):
+        try:
+            return self.collection_ref.where(filter=FieldFilter('status', '==', 'retry_analysis')).stream()
+        except Exception as e:
+            logger.error(f"Failed to get retry queue: {e}", exc_info=True)
+            return []
+
     def mark_all_for_reanalysis(self):
         logger.info("Marking all active listings for re-analysis.")
         try:
