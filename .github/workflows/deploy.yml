@@ -28,11 +28,12 @@ jobs:
 
             mkdir -p ~/GuitareHunter
             cd ~/GuitareHunter
-            # Si le dossier n'est pas un dépôt git, on le clone, sinon on pull
+            # Si le dossier n'est pas un dépôt git, on le clone, sinon on force la mise à jour
             if [ ! -d ".git" ]; then
               git clone https://github.com/${{ github.repository }}.git .
             else
-              git pull origin master
+              git fetch origin master
+              git reset --hard origin/master
             fi
             # Mise à jour de l'environnement Python
             python3 -m venv venv
