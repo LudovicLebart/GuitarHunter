@@ -1,18 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Search, Guitar,
-  AlertTriangle, RefreshCw, XCircle,
-  Settings, Trash2
-} from 'lucide-react';
+import { Search, Guitar, AlertTriangle, RefreshCw, XCircle, Settings, Trash2 } from 'lucide-react';
 
-// Contexts
+// Contexts & Main Hook
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
 import { DealsProvider, useDealsContext } from './context/DealsContext';
 import { CitiesProvider } from './context/CitiesContext';
-
-// Hooks
 import { useAuth } from './hooks/useAuth';
-import { useFilters } from './hooks/useFilters';
 
 // Components
 import DebugStatus from './components/DebugStatus';
@@ -25,7 +18,6 @@ import DealModal from './components/DealModal';
 const AppContent = () => {
   const { user, authStatus } = useAuth();
   
-  // Consommation des contextes
   const {
     configStatus, error, setError,
     isRefreshing, isCleaning,
@@ -33,36 +25,27 @@ const AppContent = () => {
   } = useBotConfigContext();
 
   const {
-    deals, loading, dbStatus,
-    handleRejectDeal, handleRetryAnalysis, handleForceExpertAnalysis, handleToggleFavorite, handleDeleteDeal
+    loading, dbStatus,
+    filteredDeals,
+    filterProps,
+    dealActions
   } = useDealsContext();
 
-  const {
-    filteredDeals,
-    ...filterProps
-  } = useFilters(deals);
-
-  // UI States
   const [showConfig, setShowConfig] = useState(false);
   const [viewMode, setViewMode] = useState('LIST');
   const [selectedDeal, setSelectedDeal] = useState(null);
 
-  // Deep Linking
   useEffect(() => {
     if (loading) return;
     const params = new URLSearchParams(window.location.search);
     const dealId = params.get('dealId');
     if (dealId) {
-      const deal = deals.find(d => d.id === dealId);
-      if (deal) {
-        setSelectedDeal(deal);
-      }
+      const deal = filteredDeals.find(d => d.id === dealId);
+      if (deal) setSelectedDeal(deal);
     }
-  }, [loading, deals]);
+  }, [loading, filteredDeals]);
 
-  const handleCloseModal = useCallback(() => {
-    setSelectedDeal(null);
-  }, []);
+  const handleCloseModal = useCallback(() => setSelectedDeal(null), []);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
@@ -92,17 +75,13 @@ const AppContent = () => {
       <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
         <aside className="lg:col-span-1 space-y-6">
           <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Système</h3>
-              <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2 py-1 rounded-lg text-[9px] font-bold"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE</div>
-            </div>
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Système</h3>
             <div className="space-y-1">
               <DebugStatus label="Auth" status={authStatus.status} details={authStatus.msg} />
               <DebugStatus label="Engine" status={configStatus.status} details="Python Bot Connected" />
               <DebugStatus label="Database" status={dbStatus.status} details={dbStatus.msg} />
             </div>
           </div>
-          
           <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
         </aside>
 
@@ -128,11 +107,11 @@ const AppContent = () => {
                 <DealCard 
                     key={deal.id} 
                     deal={deal} 
-                    onRetry={handleRetryAnalysis} 
-                    onForceExpert={handleForceExpertAnalysis}
-                    onReject={handleRejectDeal} 
-                    onToggleFavorite={handleToggleFavorite}
-                    onDelete={handleDeleteDeal}
+                    onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
+                    onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
+                    onReject={() => dealActions.handleRejectDeal(deal.id)}
+                    onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
+                    onDelete={() => dealActions.handleDeleteDeal(deal.id)}
                 />
               ))}
             </div>
@@ -156,26 +135,24 @@ const AppContent = () => {
       <DealModal 
         deal={selectedDeal}
         onClose={handleCloseModal}
-        onRetry={handleRetryAnalysis}
-        onForceExpert={handleForceExpertAnalysis}
-        onReject={handleRejectDeal}
-        onToggleFavorite={handleToggleFavorite}
-        onDelete={handleDeleteDeal}
+        onRetry={() => dealActions.handleRetryAnalysis(selectedDeal.id)}
+        onForceExpert={() => dealActions.handleForceExpertAnalysis(selectedDeal.id)}
+        onReject={() => dealActions.handleRejectDeal(selectedDeal.id)}
+        onToggleFavorite={() => dealActions.handleToggleFavorite(selectedDeal.id, selectedDeal.isFavorite)}
+        onDelete={() => dealActions.handleDeleteDeal(selectedDeal.id)}
       />
     </div>
   );
 };
 
-const App = () => {
-  return (
-    <BotConfigProvider>
-      <DealsProvider>
-        <CitiesProvider>
-          <AppContent />
-        </CitiesProvider>
-      </DealsProvider>
-    </BotConfigProvider>
-  );
-};
+const App = () => (
+  <BotConfigProvider>
+    <DealsProvider>
+      <CitiesProvider>
+        <AppContent />
+      </CitiesProvider>
+    </DealsProvider>
+  </BotConfigProvider>
+);
 
 export default App;

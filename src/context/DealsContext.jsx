@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import { useDeals } from '../hooks/useDeals';
+import { useDealsManager } from '../hooks/useDealsManager';
 import { useAuth } from '../hooks/useAuth';
 import { useBotConfigContext } from './BotConfigContext';
 
@@ -7,11 +7,11 @@ const DealsContext = createContext(null);
 
 export const DealsProvider = ({ children }) => {
   const { user } = useAuth();
-  const { setError } = useBotConfigContext(); // On récupère setError du contexte de config
-  const dealsData = useDeals(user, setError);
+  const { setError } = useBotConfigContext();
+  const dealsManagerData = useDealsManager(user, setError);
 
   return (
-    <DealsContext.Provider value={dealsData}>
+    <DealsContext.Provider value={dealsManagerData}>
       {children}
     </DealsContext.Provider>
   );
