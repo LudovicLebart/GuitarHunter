@@ -2,7 +2,6 @@ import sys
 import time
 import logging
 
-# On retire la classe Unbuffered qui peut causer des conflits.
 # On utilisera flush=True dans les prints critiques.
 print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
