@@ -7,9 +7,9 @@ from firebase_admin import firestore
 class FirestoreHandler(logging.Handler):
     def __init__(self, db_client, app_id, user_id):
         super().__init__()
+        # On garde le logger interne mais on ajoute des prints de secours
         self.internal_logger = logging.getLogger('FirestoreHandlerInternal')
         self.internal_logger.propagate = False
-        # CORRECTION : Retour à sys.stdout pour compatibilité serveur
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - [FirestoreHandler] - %(levelname)s - %(message)s'))
         self.internal_logger.addHandler(console_handler)
@@ -17,7 +17,7 @@ class FirestoreHandler(logging.Handler):
 
         if not db_client:
             self.db = None
-            self.internal_logger.warning("Database client is not initialized. Handler will be disabled.")
+            print("DEBUG: FirestoreHandler - DB Client is None!", flush=True)
             return
         self.db = db_client
         self.logs_ref = self.db.collection('artifacts').document(app_id) \
@@ -29,7 +29,7 @@ class FirestoreHandler(logging.Handler):
         self.stop_event = threading.Event()
         self.flush_thread = threading.Thread(target=self._flush_loop, daemon=True)
         self.flush_thread.start()
-        self.internal_logger.info("Handler initialized and flush thread started.")
+        print("DEBUG: FirestoreHandler initialized and thread started.", flush=True)
 
     def emit(self, record):
         if not self.db:
@@ -44,15 +44,19 @@ class FirestoreHandler(logging.Handler):
             }
             with self.buffer_lock:
                 self.buffer.append(data)
-        except Exception:
+            # print(f"DEBUG: Log buffered: {record.levelname}", flush=True) # Trop verbeux, décommenter si nécessaire
+        except Exception as e:
+            print(f"ERROR: FirestoreHandler emit failed: {e}", flush=True)
             self.handleError(record)
 
     def _flush_loop(self):
+        print("DEBUG: Flush loop started.", flush=True)
         while not self.stop_event.is_set():
             try:
                 time.sleep(self.flush_interval)
                 self.flush()
             except Exception as e:
+                print(f"CRITICAL: Exception in flush loop: {e}", flush=True)
                 self.internal_logger.critical(f"Unhandled exception in flush loop: {e}", exc_info=True)
 
     def flush(self):
@@ -65,7 +69,7 @@ class FirestoreHandler(logging.Handler):
             self.buffer = []
         
         if logs_to_send:
-            self.internal_logger.info(f"Flushing {len(logs_to_send)} log(s) to Firestore.")
+            print(f"DEBUG: Flushing {len(logs_to_send)} logs to Firestore...", flush=True)
             batch_size = 450 
             for i in range(0, len(logs_to_send), batch_size):
                 batch = self.db.batch()
@@ -76,11 +80,13 @@ class FirestoreHandler(logging.Handler):
                 
                 try:
                     batch.commit()
+                    print("DEBUG: Batch commit successful.", flush=True)
                 except Exception as e:
+                    print(f"ERROR: Batch commit failed: {e}", flush=True)
                     self.internal_logger.error(f"Failed to flush logs to Firestore: {e}")
 
     def close(self):
-        self.internal_logger.info("Close called. Stopping flush thread and performing final flush.")
+        print("DEBUG: Closing FirestoreHandler...", flush=True)
         self.stop_event.set()
         if self.flush_thread.is_alive():
             self.flush_thread.join(timeout=1.0)
@@ -97,7 +103,6 @@ def setup_logging(db_client, app_id, user_id, is_offline):
         for handler in logger.handlers:
             logger.removeHandler(handler)
     
-    # CORRECTION : Retour à sys.stdout pour compatibilité serveur
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(console_handler)
@@ -108,7 +113,7 @@ def setup_logging(db_client, app_id, user_id, is_offline):
             firestore_handler = FirestoreHandler(db_client, app_id, user_id)
             firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
             logger.addHandler(firestore_handler)
-            print("DEBUG: Firestore logger activé.", flush=True)
+            print("DEBUG: Firestore logger ajouté au root logger.", flush=True)
         except Exception as e:
             print(f"ERROR: Echec de l'initialisation du FirestoreHandler: {e}", flush=True)
             logging.error(f"Echec de l'initialisation du FirestoreHandler: {e}", exc_info=True)
