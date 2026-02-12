@@ -92,14 +92,20 @@ class DealAnalyzer:
             
             try:
                 response = gatekeeper_model.generate_content([f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)}"] + images)
+                
+                # Log de la réponse brute pour débogage
+                # logger.info(f"DEBUG RAW RESPONSE: {response.text}") 
+
                 result = json.loads(self._clean_json_response(response.text))
                 
                 gatekeeper_status = result.get('status', 'UNKNOWN').upper()
                 gatekeeper_reason = result.get('reason', 'Pas de raison fournie.')
                 
                 if gatekeeper_status == 'UNKNOWN':
-                    gatekeeper_status = 'REJECTED'
-                    logger.info("   ⚠️ Statut 'UNKNOWN' requalifié en 'REJECTED'.")
+                    # MODIFICATION : On passe en ERROR au lieu de REJECTED pour investigation
+                    gatekeeper_status = 'ERROR'
+                    gatekeeper_reason = f"Réponse IA invalide (Status UNKNOWN). Réponse brute : {str(result)}"
+                    logger.warning(f"   ⚠️ Statut 'UNKNOWN' requalifié en 'ERROR'. Réponse : {result}")
                 
                 logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
@@ -123,7 +129,6 @@ class DealAnalyzer:
             response = expert_model.generate_content([f"{context}\n\n{base_prompt}"] + images)
             expert_result = json.loads(self._clean_json_response(response.text))
             
-            # On s'assure que le nom du modèle est bien dans le résultat final
             final_result = {
                 "model_used": expert_model_name,
                 **expert_result
