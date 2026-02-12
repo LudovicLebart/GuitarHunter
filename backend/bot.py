@@ -4,7 +4,7 @@ import logging
 from firebase_admin import firestore
 
 from config import (
-    APP_ID_TARGET, USER_ID_TARGET, CITY_COORDINATES,
+    APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
     GEMINI_MODELS
@@ -26,13 +26,13 @@ class GuitarHunterBot:
         if self.offline_mode:
             logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
-            self.scraper = FacebookScraper(CITY_COORDINATES, {})
+            self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
             return
 
         self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET)
         self.repo.update_bot_status('idle')
         self.analyzer = DealAnalyzer()
-        self.scraper = FacebookScraper(CITY_COORDINATES, {})
+        self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
         
         initial_scan_config = {
             "max_ads": 5, "frequency": 60, "location": "montreal",
@@ -48,9 +48,6 @@ class GuitarHunterBot:
         logger.info(f"APP ID: {APP_ID_TARGET}")
         logger.info(f"USER ID: {USER_ID_TARGET}")
         
-        if CITY_COORDINATES:
-             logger.info(f"{len(CITY_COORDINATES)} city coordinates loaded.")
-
         self._init_firestore_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
 
@@ -254,6 +251,42 @@ class GuitarHunterBot:
             self.repo.mark_all_for_reanalysis()
         finally:
             if not self.offline_mode: self.repo.update_bot_status('idle')
+
+    def process_retry_queue(self):
+        """Traite les annonces en attente de réanalyse."""
+        if self.offline_mode: return
+        
+        docs = self.repo.get_retry_queue_listings()
+        for doc in docs:
+            data = doc.to_dict()
+            logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
+            
+            # Reconstruction des données de l'annonce pour l'analyseur
+            listing_data = {
+                "title": data.get('title'), "price": data.get('price'),
+                "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
+                "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
+                "link": data.get('link'), "id": doc.id,
+                **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
+            }
+            
+            current_config = self.config_manager.current_config_snapshot
+            
+            # Pré-filtrage
+            found_keyword = self._check_exclusion(listing_data, current_config)
+            if found_keyword:
+                logger.info(f"Annonce rejetée par pré-filtrage lors de la réanalyse. Mot-clé : '{found_keyword}'")
+                rejection_analysis = self._create_rejection_analysis(found_keyword)
+                self.repo.update_deal_analysis(doc.id, rejection_analysis)
+                continue 
+
+            # Analyse
+            try:
+                analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+                self.repo.update_deal_analysis(doc.id, analysis)
+            except Exception as e:
+                logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
+                self.repo.update_deal_status(doc.id, 'analysis_failed', str(e))
 
     def add_city_auto(self, city_name):
         if self.offline_mode: return

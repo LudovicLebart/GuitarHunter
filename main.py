@@ -1,7 +1,9 @@
 import sys
 import time
 import logging
+import threading
 
+# On retire la classe Unbuffered qui peut causer des conflits.
 # On utilisera flush=True dans les prints critiques.
 print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
@@ -11,10 +13,25 @@ from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
 
+def monitor_retries(bot):
+    """Thread qui surveille et traite la file d'attente de réanalyse."""
+    logger = logging.getLogger(__name__)
+    logger.info("Thread de surveillance des réanalyses démarré.")
+    while True:
+        try:
+            bot.process_retry_queue()
+            time.sleep(5)
+        except Exception as e:
+            logger.error(f"Erreur dans le thread de réanalyse : {e}", exc_info=True)
+            time.sleep(10)
+
 def main_loop(bot, firestore_handler):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
     bot.scraper.start_session()
+    
+    # Démarrage du thread de surveillance des réanalyses
+    threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
     
     command_handlers = {
         'REFRESH': lambda _: bot.run_scan(),

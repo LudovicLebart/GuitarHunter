@@ -36,15 +36,6 @@ if not APP_ID_TARGET or not USER_ID_TARGET:
     print("❌ ERREUR: APP_ID_TARGET et USER_ID_TARGET doivent être définis dans le fichier .env")
     sys.exit(1)
 
-# --- CHARGEMENT DES DONNÉES GÉOGRAPHIQUES ---
-try:
-    with open(os.path.join(BASE_DIR, 'city_coordinates.json'), 'r', encoding='utf-8') as f:
-        CITY_COORDINATES = json.load(f)
-    print(f"✅ {len(CITY_COORDINATES)} coordonnées de villes chargées.")
-except Exception as e:
-    print(f"⚠️ ERREUR: Impossible de charger city_coordinates.json : {e}")
-    CITY_COORDINATES = {}
-
 # --- CHARGEMENT DES PROMPTS PAR DÉFAUT ---
 try:
     with open(os.path.join(BASE_DIR, 'prompts.json'), 'r', encoding='utf-8') as f:
