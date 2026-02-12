@@ -140,15 +140,31 @@ class GuitarHunterBot:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
     def run_scan(self):
-        if self.offline_mode: return
-        self.repo.update_bot_status('scanning')
+        if not self.offline_mode:
+            self.repo.update_bot_status('scanning')
+        
         self.session_processed_ids = set()
+        
         try:
             scan_config = self.config_manager.scan_config
             logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
             
             cities_docs = self.repo.get_cities()
-            cities_to_scan = [doc.to_dict() for doc in cities_docs if doc.to_dict().get('isScannable')]
+            
+            # DEBUG LOGS
+            all_cities = []
+            cities_to_scan = []
+            
+            for doc in cities_docs:
+                data = doc.to_dict()
+                name = data.get('name', 'Unknown')
+                is_scannable = data.get('isScannable', False)
+                all_cities.append(f"{name} (Scannable: {is_scannable})")
+                
+                if is_scannable:
+                    cities_to_scan.append(data)
+            
+            logger.info(f"Villes trouvées en DB ({len(all_cities)}): {', '.join(all_cities)}")
 
             if not cities_to_scan:
                 logger.warning("Aucune ville scannable configurée. Scan ignoré.")
@@ -169,11 +185,12 @@ class GuitarHunterBot:
                     time.sleep(2)
             logger.info("Scan planifié terminé.")
         finally:
-            if not self.offline_mode: self.repo.update_bot_status('idle')
+            if not self.offline_mode:
+                self.repo.update_bot_status('idle')
 
     def scan_specific_url(self, url):
-        if self.offline_mode: return
-        self.repo.update_bot_status('scanning_url')
+        if not self.offline_mode:
+            self.repo.update_bot_status('scanning_url')
         try:
             self.scraper.scan_specific_url(url, self.handle_deal_found)
             if not self.offline_mode: self.repo.consume_command('scanSpecificUrl')
@@ -207,51 +224,6 @@ class GuitarHunterBot:
                 self.is_cleaning = False
                 if not self.offline_mode: self.repo.update_bot_status('idle')
 
-    def analyze_single_deal(self, payload):
-        deal_id = payload.get('dealId')
-        force_expert = payload.get('forceExpert', False)
-
-        if not deal_id:
-            raise ValueError("dealId manquant dans le payload de la commande ANALYZE_DEAL")
-
-        deal_data = self.repo.get_deal_by_id(deal_id)
-        if not deal_data:
-            raise FileNotFoundError(f"Annonce {deal_id} non trouvée pour l'analyse.")
-
-        logger.info(f"--- ANALYSE DÉMARRÉE pour {deal_data.get('title')} ---")
-        
-        try:
-            new_status = 'analyzing_expert' if force_expert else 'analyzing'
-            self.repo.update_deal_status(deal_id, new_status)
-
-            current_config = self.config_manager.current_config_snapshot
-            
-            found_keyword = self._check_exclusion(deal_data, current_config)
-            if found_keyword:
-                logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
-                rejection_analysis = self._create_rejection_analysis(found_keyword)
-                self.repo.update_deal_analysis(deal_id, rejection_analysis)
-                return
-
-            analysis_result = self.analyzer.analyze_deal(deal_data, firestore_config=current_config, force_expert=force_expert)
-            
-            self.repo.update_deal_analysis(deal_id, analysis_result)
-
-        except Exception as e:
-            logger.error(f"CRITIQUE: Échec de l'analyse de {deal_id}. Erreur: {e}", exc_info=True)
-            self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
-            raise
-        finally:
-            logger.info(f"--- ANALYSE TERMINÉE pour {deal_id} ---")
-
-    def reanalyze_all_listings(self):
-        if self.offline_mode: return
-        self.repo.update_bot_status('reanalyzing_all')
-        try:
-            self.repo.mark_all_for_reanalysis()
-        finally:
-            if not self.offline_mode: self.repo.update_bot_status('idle')
-
     def process_retry_queue(self):
         """Traite les annonces en attente de réanalyse."""
         if self.offline_mode: return
@@ -261,7 +233,6 @@ class GuitarHunterBot:
             data = doc.to_dict()
             logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
             
-            # Reconstruction des données de l'annonce pour l'analyseur
             listing_data = {
                 "title": data.get('title'), "price": data.get('price'),
                 "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
@@ -272,7 +243,6 @@ class GuitarHunterBot:
             
             current_config = self.config_manager.current_config_snapshot
             
-            # Pré-filtrage
             found_keyword = self._check_exclusion(listing_data, current_config)
             if found_keyword:
                 logger.info(f"Annonce rejetée par pré-filtrage lors de la réanalyse. Mot-clé : '{found_keyword}'")
@@ -280,7 +250,6 @@ class GuitarHunterBot:
                 self.repo.update_deal_analysis(doc.id, rejection_analysis)
                 continue 
 
-            # Analyse
             try:
                 analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
                 self.repo.update_deal_analysis(doc.id, analysis)
