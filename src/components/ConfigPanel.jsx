@@ -192,6 +192,28 @@ const AiConfigSection = () => {
   );
 };
 
+const LogsConfigSection = () => {
+  const { logLimit, setLogLimit, saveConfig } = useBotConfigContext();
+  
+  return (
+    <div className="pt-2 space-y-4">
+      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Limite de Logs (Affichage)</label>
+          <p className="text-[9px] text-slate-400 mb-3">Nombre maximum de logs à afficher dans la visionneuse.</p>
+          <input 
+            type="number" 
+            value={logLimit} 
+            onChange={(e) => setLogLimit(Number(e.target.value))} 
+            onBlur={() => saveConfig({ logLimit: Number(logLimit) })} 
+            className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs" 
+            min="10" 
+            max="500"
+          />
+      </div>
+    </div>
+  );
+};
+
 const ConfigPanel = ({ showConfig, onClose }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -213,6 +235,7 @@ const ConfigPanel = ({ showConfig, onClose }) => {
         <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
         <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
         <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
+        <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
       </div>
       {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
     </div>
@@ -227,6 +250,7 @@ const ConfigPanel = ({ showConfig, onClose }) => {
             <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
             <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
             <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
+            <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
             <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2"><Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Voir Logs Serveur'}</button>
             {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
         </div>

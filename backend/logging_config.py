@@ -2,6 +2,7 @@ import sys
 import time
 import threading
 import logging
+import datetime
 from firebase_admin import firestore
 
 class FirestoreHandler(logging.Handler):
@@ -36,11 +37,16 @@ class FirestoreHandler(logging.Handler):
             return
         try:
             log_entry = self.format(record)
+            
+            # Calcul de la date d'expiration (TTL) : 3 jours par défaut
+            expire_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3)
+            
             data = {
                 'message': log_entry,
                 'level': record.levelname,
                 'timestamp': firestore.SERVER_TIMESTAMP,
-                'createdAt': time.time()
+                'createdAt': time.time(),
+                'expireAt': expire_at  # Champ pour le TTL Firestore
             }
             with self.buffer_lock:
                 self.buffer.append(data)

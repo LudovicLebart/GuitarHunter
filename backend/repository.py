@@ -21,6 +21,8 @@ class FirestoreRepository:
         self.cities_ref = self.user_ref.collection('cities')
         
         self.commands_ref = self.user_ref.collection('commands')
+        
+        self.logs_ref = self.user_ref.collection('logs')
 
     def ensure_initial_structure(self, initial_config):
         logger.info("Verifying Firestore structure...")
@@ -189,7 +191,7 @@ class FirestoreRepository:
             logger.error(f"Failed to mark command '{command_id}' as failed: {e}", exc_info=True)
 
     def delete_all_logs(self):
-        docs = self.user_ref.collection('logs').limit(500).stream()
+        docs = self.logs_ref.limit(500).stream()
         deleted_count = 0
         
         while True:
@@ -206,6 +208,6 @@ class FirestoreRepository:
             deleted_count += doc_count_in_batch
             logger.info(f"Deleted {deleted_count} logs so far...")
             
-            docs = self.user_ref.collection('logs').limit(500).stream()
+            docs = self.logs_ref.limit(500).stream()
             
         return deleted_count

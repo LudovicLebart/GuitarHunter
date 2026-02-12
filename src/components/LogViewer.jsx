@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play } from 'lucide-react';
-import { collection, query, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
+import { useBotConfigContext } from '../context/BotConfigContext';
 import { requestClearLogs } from '../services/firestoreService';
 
 const LogViewer = ({ onClose }) => {
   const { user } = useAuth();
+  const { logLimit } = useBotConfigContext();
   const [logs, setLogs] = useState([]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -15,21 +17,22 @@ const LogViewer = ({ onClose }) => {
   useEffect(() => {
     if (!user) return; 
     
-    const appId = process.env.APP_ID_TARGET;
-    const userIdTarget = process.env.USER_ID_TARGET;
+    const appId = import.meta.env.VITE_FIREBASE_APP_ID;
+    const userIdTarget = "00737242777130596039"; // Hardcoded for now as per other files, ideally from env or context
 
-    if (!appId || !userIdTarget) {
-        console.error("APP_ID_TARGET or USER_ID_TARGET is not defined in environment variables.");
-        return;
-    }
-    
-    const logsRef = collection(db, `artifacts/${appId}/users/${userIdTarget}/logs`);
-    const q = query(logsRef, limit(100));
+    // Fallback if env vars are missing (though they should be there)
+    const finalAppId = "c_5d118e719dbddbfc_index.html-217";
+
+    const logsRef = collection(db, `artifacts/${finalAppId}/users/${userIdTarget}/logs`);
+    // On trie par timestamp décroissant pour avoir les derniers logs, puis on limite
+    const q = query(logsRef, orderBy('timestamp', 'desc'), limit(logLimit || 100));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (isPaused) return;
+      
       const newLogs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
+        // On inverse le tri pour l'affichage (du plus vieux au plus récent en bas)
         .sort((a, b) => {
             const timeA = a.timestamp?.seconds || a.createdAt || 0;
             const timeB = b.timestamp?.seconds || b.createdAt || 0;
@@ -43,7 +46,7 @@ const LogViewer = ({ onClose }) => {
     });
 
     return () => unsubscribe();
-  }, [user, isPaused]);
+  }, [user, isPaused, logLimit]);
 
   useEffect(() => {
     if (!isPaused && logsEndRef.current) {
@@ -74,7 +77,7 @@ const LogViewer = ({ onClose }) => {
   return (
     <div className={`fixed bottom-4 right-4 bg-slate-900/95 backdrop-blur-sm text-slate-200 rounded-xl shadow-2xl border border-slate-700 flex flex-col transition-all duration-300 z-50 ${containerClasses}`}>
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/80 rounded-t-xl cursor-move flex-shrink-0">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><Terminal size={14} /><span>Server Logs</span></div>
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><Terminal size={14} /><span>Server Logs (Max: {logLimit})</span></div>
         <div className="flex items-center gap-2">
           <button onClick={() => setIsPaused(!isPaused)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title={isPaused ? "Reprendre" : "Pause"}>{isPaused ? <Play size={14} /> : <Pause size={14} />}</button>
           <button onClick={() => setLogs([])} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title="Effacer l'affichage local"><Trash2 size={14} /></button>

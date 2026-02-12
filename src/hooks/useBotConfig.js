@@ -54,6 +54,9 @@ export const useBotConfig = (user) => {
   // Nouvel état pour stocker la liste des modèles disponibles reçue du backend
   const [availableModels, setAvailableModels] = useState([]);
 
+  // Nouvel état pour la limite de logs
+  const [logLimit, setLogLimit] = useState(100);
+
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
   const isRefreshing = botStatus === 'scanning';
@@ -84,6 +87,10 @@ export const useBotConfig = (user) => {
           gatekeeperVerbosityInstruction: ensureArray(data.analysisConfig.gatekeeperVerbosityInstruction || prev.gatekeeperVerbosityInstruction),
           expertContextInstruction: ensureArray(data.analysisConfig.expertContextInstruction || prev.expertContextInstruction),
         }));
+      }
+
+      if (data.logLimit) {
+          setLogLimit(data.logLimit);
       }
       
       if (data.botStatus) setBotStatus(data.botStatus);
@@ -158,11 +165,13 @@ export const useBotConfig = (user) => {
             mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
             gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
             expertContextInstruction: DEFAULT_EXPERT_CONTEXT
-        }
+        },
+        logLimit: 100
       };
       
       setExclusionKeywords(defaults.exclusionKeywords);
       setAnalysisConfig(defaults.analysisConfig);
+      setLogLimit(defaults.logLimit);
 
       try {
         // On envoie l'objet complet pour écraser la config existante
@@ -179,6 +188,7 @@ export const useBotConfig = (user) => {
     exclusionKeywords, setExclusionKeywords,
     analysisConfig, setAnalysisConfig,
     availableModels, // On expose la liste des modèles
+    logLimit, setLogLimit, // On expose la limite de logs
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl,
     saveConfig,
     handleManualRefresh, handleManualCleanup,
