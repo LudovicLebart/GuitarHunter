@@ -56,8 +56,22 @@ class DealAnalyzer:
         match = re.search(r'```json\s*([\s\S]*?)\s*```', text_response)
         return match.group(1).strip() if match else text_response.strip()
 
-    def _construct_user_prompt(self, listing_data, main_prompt_template):
-        main_prompt_str = "\n".join(main_prompt_template) if isinstance(main_prompt_template, list) else str(main_prompt_template)
+    def _construct_user_prompt(self, listing_data, main_prompt_template, for_gatekeeper=False):
+        """Construit le prompt utilisateur. Si for_gatekeeper est True, retire les instructions de formatage JSON complexe."""
+        
+        prompt_lines = main_prompt_template if isinstance(main_prompt_template, list) else str(main_prompt_template).split('\n')
+        
+        if for_gatekeeper:
+            # On filtre tout ce qui se trouve après "### FORMAT DE RÉPONSE JSON STRICT"
+            filtered_lines = []
+            for line in prompt_lines:
+                if "### FORMAT DE RÉPONSE JSON STRICT" in line:
+                    break
+                filtered_lines.append(line)
+            main_prompt_str = "\n".join(filtered_lines)
+        else:
+            main_prompt_str = "\n".join(prompt_lines)
+
         return (
             f"{main_prompt_str}\n\n"
             f"Détails de l'annonce :\n"
@@ -80,7 +94,8 @@ class DealAnalyzer:
         image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
         images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
 
-        base_prompt = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT))
+        # Prompt complet pour l'expert
+        base_prompt_expert = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), for_gatekeeper=False)
         
         gatekeeper_status, gatekeeper_reason = "MANUAL_RETRY", "Analyse experte demandée manuellement."
 
@@ -90,19 +105,21 @@ class DealAnalyzer:
             if not gatekeeper_model:
                 return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible.", "model_used": gatekeeper_model_name}
             
+            # Prompt allégé pour le portier
+            base_prompt_gatekeeper = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), for_gatekeeper=True)
+            
             try:
-                response = gatekeeper_model.generate_content([f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)}"] + images)
-                
-                # Log de la réponse brute pour débogage
-                # logger.info(f"DEBUG RAW RESPONSE: {response.text}") 
-
+                response = gatekeeper_model.generate_content([f"{base_prompt_gatekeeper}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)}"] + images)
                 result = json.loads(self._clean_json_response(response.text))
                 
-                gatekeeper_status = result.get('status', 'UNKNOWN').upper()
-                gatekeeper_reason = result.get('reason', 'Pas de raison fournie.')
+                # Flexibilité : Accepter 'verdict' comme alias de 'status'
+                gatekeeper_status = result.get('status') or result.get('verdict') or 'UNKNOWN'
+                gatekeeper_status = gatekeeper_status.upper()
+                
+                # Flexibilité : Accepter 'reasoning' comme alias de 'reason'
+                gatekeeper_reason = result.get('reason') or result.get('reasoning') or 'Pas de raison fournie.'
                 
                 if gatekeeper_status == 'UNKNOWN':
-                    # MODIFICATION : On passe en ERROR au lieu de REJECTED pour investigation
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide (Status UNKNOWN). Réponse brute : {str(result)}"
                     logger.warning(f"   ⚠️ Statut 'UNKNOWN' requalifié en 'ERROR'. Réponse : {result}")
@@ -126,7 +143,7 @@ class DealAnalyzer:
         context = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT).format(status=gatekeeper_status, reason=gatekeeper_reason)
         
         try:
-            response = expert_model.generate_content([f"{context}\n\n{base_prompt}"] + images)
+            response = expert_model.generate_content([f"{context}\n\n{base_prompt_expert}"] + images)
             expert_result = json.loads(self._clean_json_response(response.text))
             
             final_result = {

@@ -153,34 +153,33 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
 
           <div className="flex items-center gap-2">
             <button onClick={() => onToggleFavorite(deal.id, deal.isFavorite)} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`} title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}><Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} /></button>
-            {deal.status !== 'rejected' && (
-                <>
-                    <button
-                        ref={reanalysisButtonRef}
-                        onClick={handleReanalysisButtonClick}
-                        disabled={isAnalyzing}
-                        className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
-                        title="Relancer l'analyse"
-                    >
-                        {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
-                    </button>
-                    {isReanalysisMenuOpen && (
-                        <ReanalysisMenu
-                            position={menuPosition}
-                            buttonRef={reanalysisButtonRef}
-                            onRetry={() => {
-                                if (onRetry) onRetry(deal.id);
-                                closeMenu();
-                            }}
-                            onForceExpert={() => {
-                                if (onForceExpert) onForceExpert(deal.id);
-                                closeMenu();
-                            }}
-                            onClose={closeMenu}
-                        />
-                    )}
-                </>
+            
+            {/* Bouton de réanalyse : Maintenant accessible même si rejeté */}
+            <button
+                ref={reanalysisButtonRef}
+                onClick={handleReanalysisButtonClick}
+                disabled={isAnalyzing}
+                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
+                title="Relancer l'analyse"
+            >
+                {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
+            </button>
+            {isReanalysisMenuOpen && (
+                <ReanalysisMenu
+                    position={menuPosition}
+                    buttonRef={reanalysisButtonRef}
+                    onRetry={() => {
+                        if (onRetry) onRetry(deal.id);
+                        closeMenu();
+                    }}
+                    onForceExpert={() => {
+                        if (onForceExpert) onForceExpert(deal.id);
+                        closeMenu();
+                    }}
+                    onClose={closeMenu}
+                />
             )}
+
             {deal.status !== 'rejected' && (<button onClick={() => onReject(deal.id)} className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Rejeter l'annonce"><Ban size={14} /></button>)}
             <button onClick={() => onDelete(deal.id)} className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Supprimer définitivement"><Trash2 size={14} /></button>
             <button onClick={handleShare} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${copied ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:text-blue-500'}`} title="Copier le lien de l'analyse">{copied ? <CheckCircle size={14} /> : <Share2 size={14} />}</button>
