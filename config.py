@@ -15,7 +15,9 @@ APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 USER_ID_TARGET = os.getenv("USER_ID_TARGET")
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
-FIREBASE_KEY_PATH = "serviceAccountKey.json"
+# CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "serviceAccountKey.json")
 
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 GEMINI_MODELS = {
@@ -36,7 +38,7 @@ if not APP_ID_TARGET or not USER_ID_TARGET:
 
 # --- CHARGEMENT DES DONNÉES GÉOGRAPHIQUES ---
 try:
-    with open('city_coordinates.json', 'r', encoding='utf-8') as f:
+    with open(os.path.join(BASE_DIR, 'city_coordinates.json'), 'r', encoding='utf-8') as f:
         CITY_COORDINATES = json.load(f)
     print(f"✅ {len(CITY_COORDINATES)} coordonnées de villes chargées.")
 except Exception as e:
@@ -45,7 +47,7 @@ except Exception as e:
 
 # --- CHARGEMENT DES PROMPTS PAR DÉFAUT ---
 try:
-    with open('prompts.json', 'r', encoding='utf-8') as f:
+    with open(os.path.join(BASE_DIR, 'prompts.json'), 'r', encoding='utf-8') as f:
         prompts_data = json.load(f)
     print("✅ Prompts par défaut chargés depuis prompts.json")
 except Exception as e:
