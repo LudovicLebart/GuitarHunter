@@ -14,7 +14,19 @@ const commandsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHO
 export const updateUserConfig = async (newConfig) => {
   try {
     console.log("Saving user config to Firestore:", newConfig);
-    await setDoc(userDocRef, newConfig, { merge: true });
+    
+    // Détection automatique : Si une clé contient un point, on utilise updateDoc (notation par chemin)
+    // Sinon on utilise setDoc avec merge (plus sûr pour créer le doc s'il n'existe pas)
+    const hasDotNotation = Object.keys(newConfig).some(key => key.includes('.'));
+
+    if (hasDotNotation) {
+        // updateDoc échoue si le document n'existe pas, mais ici on suppose qu'il existe
+        // car le bot l'initialise. C'est nécessaire pour supporter 'analysisConfig.mainAnalysisPrompt'
+        await updateDoc(userDocRef, newConfig);
+    } else {
+        await setDoc(userDocRef, newConfig, { merge: true });
+    }
+
     console.log("Config saved successfully.");
   } catch (error) {
     console.error("Error updating user config:", error);
