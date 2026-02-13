@@ -183,21 +183,52 @@
       }
     },
     "acoustique_acier": {
-      "formes_standard": [
-        "Dreadnought",
-        "Parlor",
-        "00 (Grand Concert)",
-        "000 / OM (Orchestra)",
-        "Grand Auditorium (GA)",
-        "Jumbo"
-      ],
-      "specialites": [
-        "12-Cordes",
-        "Resonateur (Dobro)",
-        "Manouche (Petite bouche/Grande bouche)",
-        "Baritone Acoustique",
-        "Travel / Baby"
-      ],
+      "formes_standard": {
+        "Dreadnought": [
+          "Dreadnought Standard",
+          "Slope Shoulder"
+        ],
+        "Parlor": [
+          "Parlor Standard",
+          "0 (Concert)"
+        ],
+        "Grand_Concert": [
+          "00 (Grand Concert)"
+        ],
+        "Orchestra": [
+          "000 / OM (Orchestra)",
+          "Auditorium"
+        ],
+        "Grand_Auditorium": [
+          "Grand Auditorium (GA)",
+          "Grand Symphony"
+        ],
+        "Jumbo": [
+          "Jumbo Standard",
+          "Super Jumbo"
+        ]
+      },
+      "specialites": {
+        "12_Cordes": [
+          "Dreadnought 12",
+          "Jumbo 12"
+        ],
+        "Resonateur": [
+          "Dobro",
+          "National Style"
+        ],
+        "Manouche": [
+          "Petite bouche",
+          "Grande bouche"
+        ],
+        "Baritone": [
+          "Baritone Acoustique"
+        ],
+        "Travel": [
+          "Baby / Mini",
+          "Backpacker"
+        ]
+      },
       "headless_acoustic": [
         "Journey Instruments",
         "Ciari",
