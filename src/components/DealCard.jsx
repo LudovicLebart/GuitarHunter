@@ -154,7 +154,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
         <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold"><Clock size={14} /><span className="uppercase tracking-widest">{deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}</span></div>
-            {deal.aiAnalysis?.confidence && (<div className="flex items-center gap-2"><div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence}%`}} /></div><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {deal.aiAnalysis.confidence}%</span></div>)}
+            {deal.aiAnalysis?.confidence && (<div className="flex items-center gap-2"><div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence * 100}%`}} /></div><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {Math.round(deal.aiAnalysis.confidence * 100)}%</span></div>)}
           </div>
 
           <div className="flex items-center gap-2">
