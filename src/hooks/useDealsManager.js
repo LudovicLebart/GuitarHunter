@@ -99,6 +99,28 @@ export const useDealsManager = (user, setError) => {
   useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); }, [level1Filter]);
   useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
 
+  // --- CALCUL DES COMPTEURS POUR LES FILTRES DE TYPE ---
+  // On calcule ces compteurs séparément pour qu'ils ne dépendent pas des filtres actifs
+  const typeCounts = useMemo(() => {
+    const c = {};
+    deals.forEach(deal => {
+        if (deal.status === 'rejected') return;
+        const classification = deal.aiAnalysis?.classification;
+        if (!classification) return;
+        
+        const path = taxonomyPaths[classification];
+        if (path) {
+            // Niveau 1
+            if (path[0]) c[path[0]] = (c[path[0]] || 0) + 1;
+            // Niveau 2
+            if (path[1]) c[path[1]] = (c[path[1]] || 0) + 1;
+            // Niveau 3
+            if (path[2]) c[path[2]] = (c[path[2]] || 0) + 1;
+        }
+    });
+    return c;
+  }, [deals, taxonomyPaths]);
+
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
       const analysis = deal.aiAnalysis || {};
@@ -149,8 +171,10 @@ export const useDealsManager = (user, setError) => {
         if (deal.isFavorite) initialCounts.FAVORITES++;
         if (deal.status === 'rejected') initialCounts.REJECTED++;
     });
-    return initialCounts;
-  }, [deals]);
+    
+    // On fusionne les compteurs de verdict avec les compteurs de type
+    return { ...initialCounts, ...typeCounts };
+  }, [deals, typeCounts]);
 
   return {
     deals,
