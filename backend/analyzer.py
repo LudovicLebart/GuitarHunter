@@ -139,7 +139,13 @@ class DealAnalyzer:
         if not expert_model:
             return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nL'analyse experte a échoué car le modèle expert n'était pas disponible.", "model_used": f"{gatekeeper_model_name} (Expert failed)"}
 
-        context = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT).format(status=gatekeeper_status, reason=gatekeeper_reason)
+        # --- CORRECTION DU BUG KEYERROR ---
+        # On passe à la fois 'reason' et 'reasoning' pour être compatible avec les deux versions du template.
+        context = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT).format(
+            status=gatekeeper_status, 
+            reason=gatekeeper_reason,
+            reasoning=gatekeeper_reason # Ajout de cette clé pour satisfaire le template {reasoning}
+        )
         
         try:
             response = expert_model.generate_content([f"{context}\n\n{base_prompt_expert}"] + images)
