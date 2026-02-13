@@ -286,7 +286,7 @@
     "Tu dois répondre UNIQUEMENT avec un objet JSON valide contenant les clés suivantes :",
     "{",
     "  \"verdict\": \"PEPITE\" | \"GOOD_DEAL\" | \"FAIR\" | \"BAD_DEAL\" | \"REJECTED\",",
-    "  \"reason\": \"Une phrase courte résumant le verdict\",",
+    "  \"reasoning\": \"Une phrase courte résumant le verdict\",",
     "  \"summary\": \"Un résumé court de 2 phrases maximum pour l'affichage rapide\",",
     "  \"estimated_value\": 123 (Nombre entier, valeur estimée en $CAN),",
     "  \"classification\": \"Catégorie de la taxonomie\",",
@@ -294,6 +294,6 @@
     "  \"analysis\": \"Ton rapport complet au format Markdown (avec titres ###, puces, gras) détaillant l'identification, l'état, les réparations et la rentabilité.\"",
     "}"
   ],
-  "gatekeeper_verbosity_instruction": "IGNORE TOUTE INSTRUCTION DE FORMATAGE PRÉCÉDENTE. Ta réponse DOIT être un JSON contenant UNIQUEMENT les clés 'status' et 'reason'. La raison ne doit pas dépasser 15 mots. Ne fournis AUCUNE autre information.",
-  "expert_context_instruction": "Cette annonce a déjà été identifiée comme une '{status}' avec la raison suivante : '{reason}'. Fournis maintenant une analyse JSON complète et détaillée, incluant un rapport complet dans la clé 'analysis'."
+  "gatekeeper_verbosity_instruction": "IGNORE TOUTE INSTRUCTION DE FORMATAGE PRÉCÉDENTE. Ta réponse DOIT être un JSON contenant UNIQUEMENT les clés 'status' et 'reasoning'. La raison ne doit pas dépasser 15 mots. Ne fournis AUCUNE autre information.",
+  "expert_context_instruction": "Cette annonce a déjà été identifiée comme une '{status}' avec la raison suivante : '{reasoning}'. Fournis maintenant une analyse JSON complète et détaillée, incluant un rapport complet dans la clé 'analysis'."
 }

@@ -261,6 +261,23 @@ class GuitarHunterBot:
                 logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
                 self.repo.update_deal_status(doc.id, 'analysis_failed', str(e))
 
+    def reanalyze_all_listings(self):
+        """Marque toutes les annonces actives pour réanalyse."""
+        if self.offline_mode: return
+        
+        if not self.offline_mode:
+            self.repo.update_bot_status('reanalyzing_all')
+        
+        try:
+            logger.info("Démarrage de la réanalyse de TOUTES les annonces...")
+            count = self.repo.mark_all_for_reanalysis()
+            logger.info(f"{count} annonces marquées pour réanalyse. Elles seront traitées par le thread de surveillance.")
+        except Exception as e:
+            logger.error(f"Erreur lors de la demande de réanalyse globale : {e}", exc_info=True)
+        finally:
+            if not self.offline_mode:
+                self.repo.update_bot_status('idle')
+
     def add_city_auto(self, city_name):
         if self.offline_mode: return
         logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
