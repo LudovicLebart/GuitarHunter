@@ -65,6 +65,7 @@ class GuitarHunterBot:
             },
             'availableModels': GEMINI_MODELS["available"]
         }
+        logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
         self.repo.ensure_initial_structure(initial_config)
 
     def sync_and_apply_config(self, initial=False):

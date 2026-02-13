@@ -68,6 +68,7 @@ export const useBotConfig = (user) => {
     if (!user) return;
 
     const handleUpdate = (data) => {
+      console.log("🔄 useBotConfig: Received update from Firestore", data);
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
       
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
@@ -80,6 +81,7 @@ export const useBotConfig = (user) => {
       
       // Fusionne la config d'analyse pour ne pas écraser les champs non gérés par l'UI
       if (data.analysisConfig) {
+        console.log("📝 Updating analysisConfig from Firestore data");
         setAnalysisConfig(prev => ({
           ...prev,
           ...data.analysisConfig,
@@ -103,6 +105,7 @@ export const useBotConfig = (user) => {
     };
 
     const handleError = (e) => {
+      console.error("❌ useBotConfig: Error receiving update", e);
       setConfigStatus({ status: 'error', msg: e.message });
     };
 
@@ -113,6 +116,7 @@ export const useBotConfig = (user) => {
 
   const saveConfig = useCallback(async (newVal) => {
     try {
+      console.log("💾 Saving config...", newVal);
       await updateUserConfig(newVal);
     } catch (e) { 
       setError(e.message); 

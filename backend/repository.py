@@ -32,7 +32,8 @@ class FirestoreRepository:
                 app_ref.set({'created_at': firestore.SERVER_TIMESTAMP, 'type': 'app_root'})
                 logger.info(f"Created root document for app: {self.app_id}")
 
-            if not self.user_ref.get().exists:
+            user_doc = self.user_ref.get()
+            if not user_doc.exists:
                 logger.info(f"User document for {self.user_id} not found. Creating with initial config.")
                 self.user_ref.set({
                     **initial_config,
@@ -41,7 +42,13 @@ class FirestoreRepository:
                     'botStatus': 'idle'
                 })
             else:
-                logger.info("User document already exists.")
+                logger.info("User document already exists. Config preserved.")
+                # DEBUG: Afficher la config actuelle pour vérifier si elle est écrasée
+                current_data = user_doc.to_dict()
+                analysis_config = current_data.get('analysisConfig', {})
+                prompt_len = len(analysis_config.get('mainAnalysisPrompt', []))
+                logger.info(f"DEBUG: Current config in Firestore - Prompt length: {prompt_len}")
+
         except Exception as e:
             logger.error(f"Failed to ensure Firestore structure: {e}", exc_info=True)
 

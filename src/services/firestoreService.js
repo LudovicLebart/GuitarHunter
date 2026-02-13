@@ -13,7 +13,9 @@ const commandsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHO
 
 export const updateUserConfig = async (newConfig) => {
   try {
+    console.log("Saving user config to Firestore:", newConfig);
     await setDoc(userDocRef, newConfig, { merge: true });
+    console.log("Config saved successfully.");
   } catch (error) {
     console.error("Error updating user config:", error);
     throw new Error("Erreur de sauvegarde de la configuration.");
@@ -41,10 +43,14 @@ export const resetBotConfigToDefaults = (defaults) => {
 };
 
 export const onBotConfigUpdate = (onUpdate, onError) => {
+  console.log("Setting up onSnapshot for bot config...");
   return onSnapshot(userDocRef, (docSnap) => {
     if (docSnap.exists()) {
-      onUpdate(docSnap.data());
+      const data = docSnap.data();
+      console.log("🔥 Firestore Update Received (Bot Config):", data);
+      onUpdate(data);
     } else {
+      console.warn("User document not found in Firestore.");
       onError({ message: "Dossier Python introuvable" });
     }
   }, (error) => {
