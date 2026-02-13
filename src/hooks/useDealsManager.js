@@ -8,6 +8,7 @@ import {
   toggleDealFavorite 
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
+import { VERDICTS } from '../constants';
 
 const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
 
@@ -103,7 +104,8 @@ export const useDealsManager = (user, setError) => {
       const analysis = deal.aiAnalysis || {};
       const verdict = analysis.verdict || 'PENDING';
       const status = deal.status;
-      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !analysis.reasoning;
+      
+      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!analysis.reasoning && verdict !== 'PENDING');
 
       if (filterType === 'ERROR') return isError && status !== 'rejected';
       if (filterType === 'REJECTED') return status === 'rejected';
@@ -111,8 +113,7 @@ export const useDealsManager = (user, setError) => {
       if (status === 'rejected') return false;
       if (filterType !== 'ALL' && isError) return false;
 
-      const targetVerdict = filterType === 'GOOD_DEAL' ? 'BONNE_AFFAIRE' : filterType;
-      const matchesType = filterType === 'ALL' || verdict === targetVerdict;
+      const matchesType = filterType === 'ALL' || verdict === filterType;
       
       const matchesSearch = !searchQuery || deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -129,22 +130,26 @@ export const useDealsManager = (user, setError) => {
   }, [deals, filterType, searchQuery, level1Filter, level2Filter, level3Filter, taxonomyPaths]);
   
   const counts = useMemo(() => {
-    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, PEPITE: 0, GOOD_DEAL: 0, FAIR: 0, BAD_DEAL: 0 };
+    const initialCounts = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0 };
+    Object.keys(VERDICTS).forEach(key => {
+      initialCounts[key] = 0;
+    });
+
     deals.forEach(deal => {
         const verdict = deal.aiAnalysis?.verdict || 'PENDING';
-        const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !deal.aiAnalysis.reasoning;
+        const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
+        
         if (deal.status !== 'rejected') {
-            c.ALL++;
-            if (isError) c.ERROR++;
-            else {
-                const normalizedVerdict = verdict === 'BONNE_AFFAIRE' ? 'GOOD_DEAL' : verdict === 'PRIX_JUSTE' ? 'FAIR' : verdict === 'TROP_CHER' ? 'BAD_DEAL' : verdict;
-                c[normalizedVerdict] = (c[normalizedVerdict] || 0) + 1;
+            initialCounts.ALL++;
+            if (isError) initialCounts.ERROR++;
+            else if (initialCounts.hasOwnProperty(verdict)) {
+                initialCounts[verdict]++;
             }
         }
-        if (deal.isFavorite) c.FAVORITES++;
-        if (deal.status === 'rejected') c.REJECTED++;
+        if (deal.isFavorite) initialCounts.FAVORITES++;
+        if (deal.status === 'rejected') initialCounts.REJECTED++;
     });
-    return c;
+    return initialCounts;
   }, [deals]);
 
   return {

@@ -133,14 +133,20 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           <div className="pl-5 py-1">
             <div className={`flex items-center gap-1.5 mb-2 ${isExpertAnalysis ? 'text-purple-600' : 'text-blue-600'}`}><Sparkles size={14} /><span className="text-[10px] font-black uppercase tracking-widest">{modelName}</span></div>
             <div className="mt-2">
-              {deal.aiAnalysis?.reasoning ? (() => {
-                  const reasoningText = deal.aiAnalysis.reasoning;
-                  const summaryMatch = reasoningText.match(/### RÉSUMÉ\n([\s\S]*?)(?=\n###|$)/);
-                  const summary = summaryMatch ? summaryMatch[1].trim() : reasoningText;
-                  const detailsMatch = reasoningText.match(/(### (?!RÉSUMÉ)[\s\S]*)/);
-                  const details = detailsMatch ? detailsMatch[1].trim() : null;
-                  return (<><SimpleMarkdown text={summary} />{details && (<CollapsibleSection title="Voir l'analyse détaillée"><SimpleMarkdown text={details} /></CollapsibleSection>)}</>);
-              })() : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
+              {/* --- LOGIQUE D'AFFICHAGE STANDARDISÉE --- */}
+              {deal.aiAnalysis?.summary ? (
+                  <>
+                    <SimpleMarkdown text={deal.aiAnalysis.summary} />
+                    {deal.aiAnalysis.analysis && (
+                        <CollapsibleSection title="Voir l'analyse détaillée">
+                            <SimpleMarkdown text={deal.aiAnalysis.analysis} />
+                        </CollapsibleSection>
+                    )}
+                  </>
+              ) : deal.aiAnalysis?.reasoning ? (
+                  // Fallback pour les annonces qui n'ont qu'un 'reasoning'
+                  <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
+              ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
             </div>
           </div>
         </div>
