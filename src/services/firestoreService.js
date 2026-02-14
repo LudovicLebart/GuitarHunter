@@ -9,23 +9,33 @@ const dealsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_U
 const citiesCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'cities');
 const commandsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'commands');
 
+// --- Helper: Unflatten dot notation to nested objects ---
+const unflatten = (data) => {
+    if (Object(data) !== data || Array.isArray(data)) return data;
+    const result = {};
+    for (const p in data) {
+        let cur = result, prop = "", parts = p.split(".");
+        for (let i = 0; i < parts.length; i++) {
+            let idx = !isNaN(parseInt(parts[i]));
+            cur = cur[prop] || (cur[prop] = (idx ? [] : {}));
+            prop = parts[i];
+        }
+        cur[prop] = data[p];
+    }
+    return result[""] || result;
+};
+
 // --- Bot Configuration ---
 
 export const updateUserConfig = async (newConfig) => {
   try {
     console.log("Saving user config to Firestore:", newConfig);
     
-    // Détection automatique : Si une clé contient un point, on utilise updateDoc (notation par chemin)
-    // Sinon on utilise setDoc avec merge (plus sûr pour créer le doc s'il n'existe pas)
-    const hasDotNotation = Object.keys(newConfig).some(key => key.includes('.'));
+    // Conversion de la notation par points (ex: 'analysisConfig.model') en objets imbriqués
+    // et utilisation de setDoc avec merge pour garantir la création des champs parents si manquants.
+    const expandedConfig = unflatten(newConfig);
 
-    if (hasDotNotation) {
-        // updateDoc échoue si le document n'existe pas, mais ici on suppose qu'il existe
-        // car le bot l'initialise. C'est nécessaire pour supporter 'analysisConfig.mainAnalysisPrompt'
-        await updateDoc(userDocRef, newConfig);
-    } else {
-        await setDoc(userDocRef, newConfig, { merge: true });
-    }
+    await setDoc(userDocRef, expandedConfig, { merge: true });
 
     console.log("Config saved successfully.");
   } catch (error) {

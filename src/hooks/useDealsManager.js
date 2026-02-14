@@ -12,6 +12,9 @@ import { VERDICTS } from '../constants';
 
 const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
 
+// Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces)
+const normalize = (str) => str ? str.toLowerCase().replace(/\s+/g, '').trim() : '';
+
 export const useDealsManager = (user, setError) => {
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,15 +67,20 @@ export const useDealsManager = (user, setError) => {
     try { await toggleDealFavorite(dealId, currentStatus); } catch (e) { setError(e.message); }
   }, [setError]);
 
+  // Construction de la map de chemins normalisés pour la recherche rapide
   const taxonomyPaths = useMemo(() => {
     const paths = {};
     const traverse = (node, currentPath) => {
       if (Array.isArray(node)) {
-        node.forEach(item => { paths[item] = [...currentPath, item]; });
+        node.forEach(item => { 
+            // On stocke le chemin complet pour la clé normalisée
+            paths[normalize(item)] = [...currentPath, item]; 
+        });
       } else if (typeof node === 'object' && node !== null) {
         Object.keys(node).forEach(key => {
           const newPath = [...currentPath, key];
-          paths[key] = newPath;
+          // On stocke aussi pour les clés intermédiaires (catégories)
+          paths[normalize(key)] = newPath;
           traverse(node[key], newPath);
         });
       }
@@ -81,14 +89,16 @@ export const useDealsManager = (user, setError) => {
     return paths;
   }, []);
 
-  const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY)], []);
+  const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY), 'OTHER'], []);
+  
   const level2Options = useMemo(() => {
-    if (level1Filter === 'ALL' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
+    if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
     const node = GUITAR_TAXONOMY[level1Filter];
     return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
   }, [level1Filter]);
+  
   const level3Options = useMemo(() => {
-    if (level2Filter === 'ALL' || level1Filter === 'ALL') return ['ALL'];
+    if (level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
     const node1 = GUITAR_TAXONOMY[level1Filter];
     if (Array.isArray(node1)) return ['ALL'];
     const node2 = node1[level2Filter];
@@ -100,15 +110,17 @@ export const useDealsManager = (user, setError) => {
   useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
 
   // --- CALCUL DES COMPTEURS POUR LES FILTRES DE TYPE ---
-  // On calcule ces compteurs séparément pour qu'ils ne dépendent pas des filtres actifs
   const typeCounts = useMemo(() => {
-    const c = {};
+    const c = { OTHER: 0 };
     deals.forEach(deal => {
         if (deal.status === 'rejected') return;
         const classification = deal.aiAnalysis?.classification;
-        if (!classification) return;
+        if (!classification) {
+            c.OTHER++;
+            return;
+        }
         
-        const path = taxonomyPaths[classification];
+        const path = taxonomyPaths[normalize(classification)];
         if (path) {
             // Niveau 1
             if (path[0]) c[path[0]] = (c[path[0]] || 0) + 1;
@@ -116,6 +128,9 @@ export const useDealsManager = (user, setError) => {
             if (path[1]) c[path[1]] = (c[path[1]] || 0) + 1;
             // Niveau 3
             if (path[2]) c[path[2]] = (c[path[2]] || 0) + 1;
+        } else {
+            // Si la classification existe mais n'est pas dans la taxonomie connue
+            c.OTHER++;
         }
     });
     return c;
@@ -136,15 +151,22 @@ export const useDealsManager = (user, setError) => {
       if (filterType !== 'ALL' && isError) return false;
 
       const matchesType = filterType === 'ALL' || verdict === filterType;
-      
       const matchesSearch = !searchQuery || deal.title?.toLowerCase().includes(searchQuery.toLowerCase());
 
       let matchesClassification = true;
+      const classification = analysis.classification;
+      const path = classification ? taxonomyPaths[normalize(classification)] : null;
+
       if (level1Filter !== 'ALL') {
-        const path = taxonomyPaths[analysis.classification];
-        if (!path || path[0] !== level1Filter) matchesClassification = false;
-        if (matchesClassification && level2Filter !== 'ALL' && (path.length < 2 || path[1] !== level2Filter)) matchesClassification = false;
-        if (matchesClassification && level3Filter !== 'ALL' && (path.length < 3 || path[2] !== level3Filter)) matchesClassification = false;
+        if (level1Filter === 'OTHER') {
+            // Si on filtre sur "Autre", on garde ceux qui n'ont pas de chemin connu
+            if (path) matchesClassification = false;
+        } else {
+            // Sinon on vérifie le chemin
+            if (!path || path[0] !== level1Filter) matchesClassification = false;
+            if (matchesClassification && level2Filter !== 'ALL' && (path.length < 2 || path[1] !== level2Filter)) matchesClassification = false;
+            if (matchesClassification && level3Filter !== 'ALL' && (path.length < 3 || path[2] !== level3Filter)) matchesClassification = false;
+        }
       }
 
       return matchesType && matchesSearch && matchesClassification;
@@ -172,7 +194,6 @@ export const useDealsManager = (user, setError) => {
         if (deal.status === 'rejected') initialCounts.REJECTED++;
     });
     
-    // On fusionne les compteurs de verdict avec les compteurs de type
     return { ...initialCounts, ...typeCounts };
   }, [deals, typeCounts]);
 
