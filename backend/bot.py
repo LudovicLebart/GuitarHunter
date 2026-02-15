@@ -211,6 +211,12 @@ class GuitarHunterBot:
         with self.cleanup_lock:
             self.is_cleaning = True
             if not self.offline_mode: self.repo.update_bot_status('cleaning')
+            
+            # --- ISOLATION PLAYWRIGHT ---
+            # On crée une nouvelle instance de scraper dédiée à ce thread
+            # pour éviter le conflit "greenlet.error" avec le thread principal.
+            temp_scraper = FacebookScraper({}, {})
+            
             try:
                 docs = self.repo.get_active_listings()
                 listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
@@ -218,7 +224,8 @@ class GuitarHunterBot:
                 deleted_count = 0
                 for item in listings:
                     if not item['url']: continue
-                    if not self.scraper.check_listing_availability(item['url']):
+                    # On utilise le scraper temporaire
+                    if not temp_scraper.check_listing_availability(item['url']):
                         self.repo.delete_listing(item['id'])
                         deleted_count += 1
                     time.sleep(0.5)
@@ -226,6 +233,12 @@ class GuitarHunterBot:
             except Exception as e:
                 logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
             finally:
+                # On s'assure de fermer proprement le navigateur temporaire
+                try:
+                    temp_scraper.close_session()
+                except Exception as e:
+                    logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
+
                 self.is_cleaning = False
                 if not self.offline_mode: self.repo.update_bot_status('idle')
 
