@@ -141,7 +141,13 @@ class DealAnalyzer:
 
         # --- CORRECTION DU BUG KEYERROR ---
         # On passe à la fois 'reason' et 'reasoning' pour être compatible avec les deux versions du template.
-        context = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT).format(
+        
+        # Correction: S'assurer que expertContextInstruction est une string
+        expert_context_raw = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT)
+        if isinstance(expert_context_raw, list):
+            expert_context_raw = "\n".join(expert_context_raw)
+        
+        context = expert_context_raw.format(
             status=gatekeeper_status, 
             reason=gatekeeper_reason,
             reasoning=gatekeeper_reason # Ajout de cette clé pour satisfaire le template {reasoning}

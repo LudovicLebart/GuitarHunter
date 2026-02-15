@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -95,7 +96,8 @@ class FirestoreRepository:
         try:
             update_data = {'status': status}
             if error_message:
-                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'error': error_message, 'timestamp': firestore.SERVER_TIMESTAMP}])
+                # Utilisation de datetime.now() au lieu de SERVER_TIMESTAMP pour ArrayUnion
+                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'error': error_message, 'timestamp': datetime.now()}])
             
             self.collection_ref.document(deal_id).update(update_data)
             logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
