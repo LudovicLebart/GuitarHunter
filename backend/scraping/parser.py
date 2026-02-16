@@ -48,6 +48,44 @@ class ListingParser:
         return unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode("utf-8")
 
     @staticmethod
+    def extract_price_from_text(text: str) -> int:
+        """
+        Extrait le premier prix valide trouvé dans une chaîne de caractères.
+        Gère les cas comme "240 C$280 C$" (retourne 240) ou "$240" (retourne 240).
+        Retourne 0 si "Free"/"Gratuit" ou si aucun prix n'est trouvé.
+        """
+        if not text: return 0
+        
+        if "Free" in text or "Gratuit" in text:
+            return 0
+            
+        # Stratégie 1 : Chercher un nombre AVANT le symbole (ex: 240 C$280 C$)
+        # C'est la priorité pour gérer les prix révisés où le nouveau prix est souvent premier.
+        match = re.search(r'(\d+(?:[\s.,]\d+)*)\s*(?:C?\$|€|£)', text)
+        if match:
+            digits_str = ''.join(filter(str.isdigit, match.group(1)))
+            if digits_str:
+                return int(digits_str)
+        
+        # Stratégie 2 : Chercher un nombre APRES le symbole (ex: $240)
+        match = re.search(r'(?:C?\$|€|£)\s*(\d+(?:[\s.,]\d+)*)', text)
+        if match:
+            digits_str = ''.join(filter(str.isdigit, match.group(1)))
+            if digits_str:
+                return int(digits_str)
+                
+        # Stratégie 3 (Fallback) : Le premier nombre trouvé sur la ligne
+        # Attention: peut capturer des années ou autres chiffres si pas de symbole
+        # On ne l'utilise que si on est sûr que la ligne contient un prix (vérifié par l'appelant)
+        match = re.search(r'(\d+(?:[\s.,]\d+)*)', text)
+        if match:
+            digits_str = ''.join(filter(str.isdigit, match.group(1)))
+            if digits_str:
+                return int(digits_str)
+                
+        return 0
+
+    @staticmethod
     def parse_listing_card(link_element: Locator, location_filter: str) -> Dict[str, Any]:
         """Extrait les infos de base depuis la carte de l'annonce dans la liste."""
         title = "Titre Inconnu"
@@ -56,9 +94,6 @@ class ListingParser:
         
         try:
             text = link_element.inner_text()
-            # DEBUG PRINT BRUT
-            print(f"DEBUG PARSER (PRINT) - Raw text: {repr(text)}", flush=True)
-            
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             
             img = link_element.locator("img").first
@@ -75,45 +110,22 @@ class ListingParser:
                         title = l
                         break
             
-            price_found = False
             for l in lines:
                 if any(c in l for c in ['$', '€', '£', 'Free', 'Gratuit']):
-                    print(f"DEBUG PARSER (PRINT) - Processing price line: {repr(l)}", flush=True)
+                    extracted_price = ListingParser.extract_price_from_text(l)
+                    # On considère que si on a trouvé un prix (même 0 si gratuit), c'est bon.
+                    # Mais attention, extract_price retourne 0 si échec.
+                    # On doit distinguer 0 (gratuit) de 0 (échec).
+                    # Simplification : Si "Free"/"Gratuit" est dans la ligne, extract retourne 0, c'est valide.
+                    # Si pas de mot gratuit et pas de chiffre, extract retourne 0.
                     
-                    if "Free" in l or "Gratuit" in l:
-                        price = 0
-                        price_found = True
+                    # Pour être sûr, on vérifie si la ligne contient des chiffres ou mots clés
+                    has_digits = any(c.isdigit() for c in l)
+                    is_free = "Free" in l or "Gratuit" in l
+                    
+                    if has_digits or is_free:
+                        price = extracted_price
                         break
-                    
-                    # Stratégie 1 : Chercher un nombre AVANT le symbole (ex: 240 C$280 C$)
-                    match = re.search(r'(\d+(?:[\s.,]\d+)*)\s*(?:C?\$|€|£)', l)
-                    if match:
-                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
-                        if digits_str:
-                            price = int(digits_str)
-                            print(f"DEBUG PARSER (PRINT) - Strategy 1 found: {price}", flush=True)
-                            price_found = True
-                            break
-                    
-                    # Stratégie 2 : Chercher un nombre APRES le symbole (ex: $240)
-                    match = re.search(r'(?:C?\$|€|£)\s*(\d+(?:[\s.,]\d+)*)', l)
-                    if match:
-                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
-                        if digits_str:
-                            price = int(digits_str)
-                            print(f"DEBUG PARSER (PRINT) - Strategy 2 found: {price}", flush=True)
-                            price_found = True
-                            break
-                            
-                    # Stratégie 3 (Fallback) : Le premier nombre trouvé sur la ligne
-                    match = re.search(r'(\d+(?:[\s.,]\d+)*)', l)
-                    if match:
-                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
-                        if digits_str:
-                            price = int(digits_str)
-                            print(f"DEBUG PARSER (PRINT) - Strategy 3 found: {price}", flush=True)
-                            price_found = True
-                            break
             
             if len(lines) >= 3:
                 pot_loc = lines[-1]
