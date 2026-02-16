@@ -56,8 +56,8 @@ class ListingParser:
         
         try:
             text = link_element.inner_text()
-            # DEBUG LOG
-            # logger.info(f"DEBUG PARSER - Raw text: {repr(text)}")
+            # DEBUG PRINT BRUT
+            print(f"DEBUG PARSER (PRINT) - Raw text: {repr(text)}", flush=True)
             
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             
@@ -78,8 +78,7 @@ class ListingParser:
             price_found = False
             for l in lines:
                 if any(c in l for c in ['$', '€', '£', 'Free', 'Gratuit']):
-                    # DEBUG LOG
-                    # logger.info(f"DEBUG PARSER - Processing price line: {repr(l)}")
+                    print(f"DEBUG PARSER (PRINT) - Processing price line: {repr(l)}", flush=True)
                     
                     if "Free" in l or "Gratuit" in l:
                         price = 0
@@ -92,7 +91,7 @@ class ListingParser:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
-                            # logger.info(f"DEBUG PARSER - Strategy 1 found: {price}")
+                            print(f"DEBUG PARSER (PRINT) - Strategy 1 found: {price}", flush=True)
                             price_found = True
                             break
                     
@@ -102,7 +101,7 @@ class ListingParser:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
-                            # logger.info(f"DEBUG PARSER - Strategy 2 found: {price}")
+                            print(f"DEBUG PARSER (PRINT) - Strategy 2 found: {price}", flush=True)
                             price_found = True
                             break
                             
@@ -112,7 +111,7 @@ class ListingParser:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
-                            # logger.info(f"DEBUG PARSER - Strategy 3 found: {price}")
+                            print(f"DEBUG PARSER (PRINT) - Strategy 3 found: {price}", flush=True)
                             price_found = True
                             break
             

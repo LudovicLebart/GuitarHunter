@@ -1,9 +1,12 @@
 import time
 import urllib.parse
 import logging
+import importlib
 from playwright.sync_api import sync_playwright, Page
 
 from .config import ScraperConfig
+# On importe le module parser complet pour pouvoir le recharger
+from . import parser as parser_module
 from .parser import ListingParser
 
 logger = logging.getLogger(__name__)
@@ -126,6 +129,11 @@ class FacebookScraper:
     def scan_marketplace(self, scan_config, on_deal_found, should_skip_callback=None):
         self._ensure_session()
         
+        # --- HOT RELOAD DU PARSER (DEBUG) ---
+        importlib.reload(parser_module)
+        # On met à jour la référence locale à ListingParser
+        ListingParserRef = parser_module.ListingParser
+        
         # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
         if hasattr(self, 'allowed_cities') and isinstance(self.allowed_cities, list):
              self.allowed_cities = set(self.allowed_cities)
@@ -138,7 +146,7 @@ class FacebookScraper:
 
         logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
         
-        norm_loc = ListingParser.normalize_city_name(location)
+        norm_loc = ListingParserRef.normalize_city_name(location)
         city_id = self.city_mapping.get(norm_loc)
         if not city_id:
             if location.isdigit(): city_id = location
@@ -188,10 +196,10 @@ class FacebookScraper:
                 if clean_link in seen: continue
                 seen.add(clean_link)
                 
-                fb_id = ListingParser.extract_facebook_id(clean_link)
+                fb_id = ListingParserRef.extract_facebook_id(clean_link)
                 if not fb_id: continue
 
-                card_info = ListingParser.parse_listing_card(link, location)
+                card_info = ListingParserRef.parse_listing_card(link, location)
                 
                 # --- NEW, STRICT FILTERING LOGIC ---
                 spec_loc = card_info['location']
@@ -227,7 +235,7 @@ class FacebookScraper:
                         except: pass
                         time.sleep(2)
                         
-                        details = ListingParser.parse_details_page(details_page, title, location)
+                        details = ListingParserRef.parse_details_page(details_page, title, location)
                     finally:
                         details_page.close()
                     
@@ -257,15 +265,20 @@ class FacebookScraper:
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()
+        
+        # --- HOT RELOAD DU PARSER (DEBUG) ---
+        importlib.reload(parser_module)
+        ListingParserRef = parser_module.ListingParser
+        
         logger.info(f"\n🔗 Scan URL: {url}")
-        fb_id = ListingParser.extract_facebook_id(url)
+        fb_id = ListingParserRef.extract_facebook_id(url)
         
         page = self.context.new_page()
         try:
             page.goto(url, timeout=self.config.timeout_navigation)
             
             if not fb_id:
-                fb_id = ListingParser.extract_facebook_id(page.url)
+                fb_id = ListingParserRef.extract_facebook_id(page.url)
             
             if not fb_id:
                 logger.error("❌ ID introuvable.")
@@ -284,16 +297,23 @@ class FacebookScraper:
                 og_title = page.locator('meta[property="og:title"]').get_attribute('content')
                 if og_title: title = og_title.split(' - ')[0]
                 
+                # --- LOGIQUE DE PRIX POUR SCAN_URL (SIMPLIFIÉE MAIS ROBUSTE) ---
+                # On essaie de trouver le prix dans le texte visible
                 p_txt = page.locator('div[role="main"] span', has_text="$").first.inner_text()
-                digits = ''.join(filter(str.isdigit, p_txt))
-                if digits: price = int(digits)
+                
+                # On réutilise la logique robuste du parser si possible, sinon fallback
+                # Ici on va essayer de parser p_txt avec la même regex que ListingParser
+                match = re.search(r'(\d+(?:[\s.,]\d+)*)', p_txt)
+                if match:
+                     digits = ''.join(filter(str.isdigit, match.group(1)))
+                     if digits: price = int(digits)
                 
                 l_txt = page.locator('div[role="main"] span', has_text="·").first.inner_text()
                 location = l_txt.split('·')[0].strip()
             except: pass
 
             clean_link = page.url.split('?')[0]
-            details = ListingParser.parse_details_page(page, title, location)
+            details = ListingParserRef.parse_details_page(page, title, location)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],
