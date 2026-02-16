@@ -1,5 +1,6 @@
 import unicodedata
 import re
+import time
 import logging
 from typing import Optional, Dict, Any
 from playwright.sync_api import Page, Locator
@@ -75,10 +76,18 @@ class ListingParser:
             
             for l in lines:
                 if any(c in l for c in ['$', '€', '£', 'Free', 'Gratuit']):
-                    digits = ''.join(filter(str.isdigit, l))
-                    if digits: price = int(digits)
-                    elif "Free" in l or "Gratuit" in l: price = 0
-                    break
+                    if "Free" in l or "Gratuit" in l:
+                        price = 0
+                        break
+                    
+                    # Fix pour les prix révisés (ex: "350 C$650 C$") -> On prend le premier
+                    # Regex: Capture une séquence de chiffres, potentiellement séparés par espace/point/virgule
+                    match = re.search(r'(\d+(?:[\s.,]\d+)*)', l)
+                    if match:
+                        digits = ''.join(filter(str.isdigit, match.group(1)))
+                        if digits:
+                            price = int(digits)
+                            break
             
             if len(lines) >= 3:
                 pot_loc = lines[-1]
