@@ -80,21 +80,33 @@ class ListingParser:
                         price_found = True
                         break
                     
-                    # Nouvelle logique robuste:
-                    # Sépare la chaîne par les lettres/symboles pour isoler les nombres.
-                    # Ex: "350 C$650" -> ['350 ', '650']
-                    # Ex: "$350" -> ['', '350']
-                    parts = re.split(r'[a-zA-Z$€£]+', l)
-                    for part in parts:
-                        # Prend le premier segment qui contient des chiffres
-                        digits = ''.join(filter(str.isdigit, part))
-                        if digits:
-                            price = int(digits)
+                    # Stratégie 1 : Chercher un nombre AVANT le symbole (ex: 240 C$280 C$)
+                    # C'est la priorité pour gérer les prix révisés où le nouveau prix est souvent premier.
+                    match = re.search(r'(\d+(?:[\s.,]\d+)*)\s*(?:C?\$|€|£)', l)
+                    if match:
+                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
+                        if digits_str:
+                            price = int(digits_str)
                             price_found = True
-                            break  # Sort de la boucle des segments
+                            break
                     
-                    if price_found:
-                        break  # Sort de la boucle des lignes
+                    # Stratégie 2 : Chercher un nombre APRES le symbole (ex: $240)
+                    match = re.search(r'(?:C?\$|€|£)\s*(\d+(?:[\s.,]\d+)*)', l)
+                    if match:
+                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
+                        if digits_str:
+                            price = int(digits_str)
+                            price_found = True
+                            break
+                            
+                    # Stratégie 3 (Fallback) : Le premier nombre trouvé sur la ligne
+                    match = re.search(r'(\d+(?:[\s.,]\d+)*)', l)
+                    if match:
+                        digits_str = ''.join(filter(str.isdigit, match.group(1)))
+                        if digits_str:
+                            price = int(digits_str)
+                            price_found = True
+                            break
             
             if len(lines) >= 3:
                 pot_loc = lines[-1]
