@@ -52,8 +52,6 @@ class ListingParser:
         """Extrait les infos de base depuis la carte de l'annonce dans la liste."""
         title = "Titre Inconnu"
         price = 0
-        # Modification : Ne plus utiliser location_filter par défaut.
-        # Si la ville n'est pas trouvée sur la carte, on retourne None pour éviter les faux positifs.
         spec_loc = None
         
         try:
@@ -74,20 +72,29 @@ class ListingParser:
                         title = l
                         break
             
+            price_found = False
             for l in lines:
                 if any(c in l for c in ['$', '€', '£', 'Free', 'Gratuit']):
                     if "Free" in l or "Gratuit" in l:
                         price = 0
+                        price_found = True
                         break
                     
-                    # Fix pour les prix révisés (ex: "350 C$650 C$") -> On prend le premier
-                    # Regex: Capture une séquence de chiffres, potentiellement séparés par espace/point/virgule
-                    match = re.search(r'(\d+(?:[\s.,]\d+)*)', l)
-                    if match:
-                        digits = ''.join(filter(str.isdigit, match.group(1)))
+                    # Nouvelle logique robuste:
+                    # Sépare la chaîne par les lettres/symboles pour isoler les nombres.
+                    # Ex: "350 C$650" -> ['350 ', '650']
+                    # Ex: "$350" -> ['', '350']
+                    parts = re.split(r'[a-zA-Z$€£]+', l)
+                    for part in parts:
+                        # Prend le premier segment qui contient des chiffres
+                        digits = ''.join(filter(str.isdigit, part))
                         if digits:
                             price = int(digits)
-                            break
+                            price_found = True
+                            break  # Sort de la boucle des segments
+                    
+                    if price_found:
+                        break  # Sort de la boucle des lignes
             
             if len(lines) >= 3:
                 pot_loc = lines[-1]
