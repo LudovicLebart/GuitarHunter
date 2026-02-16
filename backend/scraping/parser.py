@@ -56,6 +56,9 @@ class ListingParser:
         
         try:
             text = link_element.inner_text()
+            # DEBUG LOG
+            # logger.info(f"DEBUG PARSER - Raw text: {repr(text)}")
+            
             lines = [l.strip() for l in text.split('\n') if l.strip()]
             
             img = link_element.locator("img").first
@@ -75,18 +78,21 @@ class ListingParser:
             price_found = False
             for l in lines:
                 if any(c in l for c in ['$', '€', '£', 'Free', 'Gratuit']):
+                    # DEBUG LOG
+                    # logger.info(f"DEBUG PARSER - Processing price line: {repr(l)}")
+                    
                     if "Free" in l or "Gratuit" in l:
                         price = 0
                         price_found = True
                         break
                     
                     # Stratégie 1 : Chercher un nombre AVANT le symbole (ex: 240 C$280 C$)
-                    # C'est la priorité pour gérer les prix révisés où le nouveau prix est souvent premier.
                     match = re.search(r'(\d+(?:[\s.,]\d+)*)\s*(?:C?\$|€|£)', l)
                     if match:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
+                            # logger.info(f"DEBUG PARSER - Strategy 1 found: {price}")
                             price_found = True
                             break
                     
@@ -96,6 +102,7 @@ class ListingParser:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
+                            # logger.info(f"DEBUG PARSER - Strategy 2 found: {price}")
                             price_found = True
                             break
                             
@@ -105,6 +112,7 @@ class ListingParser:
                         digits_str = ''.join(filter(str.isdigit, match.group(1)))
                         if digits_str:
                             price = int(digits_str)
+                            # logger.info(f"DEBUG PARSER - Strategy 3 found: {price}")
                             price_found = True
                             break
             
