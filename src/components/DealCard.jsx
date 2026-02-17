@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Wrench, Briefcase } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
@@ -88,6 +88,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   const modelName = getModelName(deal);
   const isExpertAnalysis = modelName.includes('pro') || modelName.includes('expert');
   const isAnalyzing = ['retry_analysis', 'retry_analysis_expert', 'analyzing'].includes(deal.status);
+  const specs = deal.aiAnalysis?.specs || {};
 
   const handleReanalysisButtonClick = () => {
     if (reanalysisButtonRef.current) {
@@ -123,8 +124,23 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           </div>
           <div className="text-right flex flex-col items-end">
             <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl"><span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span><span className="text-2xl font-black tabular-nums">{deal.price} $</span></div>
-            {deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (<div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg"><TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$</div>)}
-            {deal.aiAnalysis?.estimated_value_after_repair > 0 && deal.status !== 'rejected' && (<div className="mt-1 text-purple-600 flex items-center gap-1 font-bold text-xs bg-purple-50 px-2 py-1 rounded-lg"><Activity size={12} /> Val. Revente: {deal.aiAnalysis.estimated_value_after_repair}$</div>)}
+            
+            {/* NOUVEAUX KPI */}
+            {specs.profit_margin > 0 && deal.status !== 'rejected' && (
+                <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                    <TrendingUp size={12} /> Marge Est: +{specs.profit_margin}$
+                </div>
+            )}
+            {specs.net_cost && specs.net_cost < deal.price && deal.status !== 'rejected' && (
+                <div className="mt-1 text-indigo-600 flex items-center gap-1 font-bold text-xs bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100">
+                    <Briefcase size={12} /> Coût Net: {specs.net_cost}$
+                </div>
+            )}
+            {specs.repair_complexity && specs.repair_complexity !== 'LOW' && deal.status !== 'rejected' && (
+                <div className="mt-1 text-amber-600 flex items-center gap-1 font-bold text-xs bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                    <Wrench size={12} /> Répa: {specs.repair_complexity}
+                </div>
+            )}
           </div>
         </div>
 

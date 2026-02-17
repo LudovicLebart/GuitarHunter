@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Guitar, AlertTriangle, RefreshCw, XCircle, Settings, Trash2 } from 'lucide-react';
+import { Search, Guitar, AlertTriangle, RefreshCw, XCircle, Settings, Trash2, Radar, ShoppingBag, Archive } from 'lucide-react';
 
 // Contexts & Main Hook
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
@@ -14,6 +14,36 @@ import DealCard from './components/DealCard';
 import MapView from './components/MapView';
 import { FilterBar } from './components/FilterBar';
 import DealModal from './components/DealModal';
+import CollapsibleSection from './components/CollapsibleSection';
+
+// Section Component
+const DealSection = ({ title, icon: Icon, deals, dealActions, defaultOpen = true, colorClass = "text-slate-800" }) => {
+    if (!deals || deals.length === 0) return null;
+
+    return (
+        <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4 px-2">
+                <div className={`p-2 rounded-lg ${colorClass} bg-opacity-10`}>
+                    <Icon size={20} className={colorClass} />
+                </div>
+                <h2 className={`text-lg font-black uppercase tracking-widest ${colorClass}`}>{title} ({deals.length})</h2>
+            </div>
+            <div className="grid grid-cols-1 gap-6">
+                {deals.map((deal) => (
+                    <DealCard 
+                        key={deal.id} 
+                        deal={deal} 
+                        onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
+                        onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
+                        onReject={() => dealActions.handleRejectDeal(deal.id)}
+                        onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
+                        onDelete={() => dealActions.handleDeleteDeal(deal.id)}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+};
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
@@ -34,6 +64,29 @@ const AppContent = () => {
   const [showConfig, setShowConfig] = useState(false);
   const [viewMode, setViewMode] = useState('LIST');
   const [selectedDeal, setSelectedDeal] = useState(null);
+
+  // Grouping Logic
+  const groupedDeals = React.useMemo(() => {
+      const groups = {
+          RADAR: [],
+          MARKET: [],
+          NOISE: []
+      };
+
+      filteredDeals.forEach(deal => {
+          const verdict = deal.aiAnalysis?.verdict;
+          // Mapping manuel si le verdict n'est pas dans les constantes (ex: anciens verdicts)
+          if (['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN'].includes(verdict)) {
+              groups.RADAR.push(deal);
+          } else if (['COLLECTION', 'GOOD_DEAL', 'FAIR'].includes(verdict)) {
+              groups.MARKET.push(deal);
+          } else {
+              // BAD_DEAL, REJECTED_*, INCOMPLETE_DATA, ERROR, DEFAULT
+              groups.NOISE.push(deal);
+          }
+      });
+      return groups;
+  }, [filteredDeals]);
 
   useEffect(() => {
     if (loading) return;
@@ -102,18 +155,49 @@ const AppContent = () => {
           ) : viewMode === 'MAP' ? (
              <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
           ) : (
-            <div className="grid grid-cols-1 gap-6">
-              {filteredDeals.map((deal) => (
-                <DealCard 
-                    key={deal.id} 
-                    deal={deal} 
-                    onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
-                    onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
-                    onReject={() => dealActions.handleRejectDeal(deal.id)}
-                    onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
-                    onDelete={() => dealActions.handleDeleteDeal(deal.id)}
-                />
-              ))}
+            <div className="space-y-12">
+                {/* Section RADAR (Priorité Haute) */}
+                {groupedDeals.RADAR.length > 0 && (
+                    <DealSection 
+                        title="Radar Opportunités" 
+                        icon={Radar} 
+                        deals={groupedDeals.RADAR} 
+                        dealActions={dealActions}
+                        colorClass="text-emerald-600"
+                    />
+                )}
+
+                {/* Section MARKET (Priorité Moyenne) */}
+                {groupedDeals.MARKET.length > 0 && (
+                    <DealSection 
+                        title="Marché Standard" 
+                        icon={ShoppingBag} 
+                        deals={groupedDeals.MARKET} 
+                        dealActions={dealActions}
+                        colorClass="text-blue-600"
+                    />
+                )}
+
+                {/* Section NOISE (Priorité Basse - Souvent cachée ou en bas) */}
+                {groupedDeals.NOISE.length > 0 && (
+                    <div className="opacity-60 hover:opacity-100 transition-opacity">
+                        <CollapsibleSection title={`Archives & Bruit (${groupedDeals.NOISE.length})`} defaultOpen={false}>
+                             <div className="grid grid-cols-1 gap-6 mt-4">
+                                {groupedDeals.NOISE.map((deal) => (
+                                    <DealCard 
+                                        key={deal.id} 
+                                        deal={deal} 
+                                        onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
+                                        onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
+                                        onReject={() => dealActions.handleRejectDeal(deal.id)}
+                                        onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
+                                        onDelete={() => dealActions.handleDeleteDeal(deal.id)}
+                                    />
+                                ))}
+                            </div>
+                        </CollapsibleSection>
+                    </div>
+                )}
             </div>
           )}
         </main>

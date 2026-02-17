@@ -132,10 +132,11 @@ class DealAnalyzer:
 
                 # --- LOGIQUE DE FILTRAGE STRICTE ---
                 # Si le verdict est explicitement négatif, on arrête.
-                if gatekeeper_status in ['REJECTED', 'REJECTED (SERVICE)', 'BAD_DEAL']:
+                # Mise à jour pour inclure les nouveaux verdicts négatifs
+                if gatekeeper_status in ['REJECTED', 'REJECTED_SERVICE', 'REJECTED_ITEM', 'BAD_DEAL']:
                     return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "model_used": gatekeeper_model_name}
                 
-                # Si c'est positif (PEPITE, GOOD_DEAL, FAIR) ou incertain, on passe à l'expert.
+                # Si c'est positif (PEPITE, GOOD_DEAL, FAIR, CASE_WIN, FAST_FLIP, LUTHIER_PROJ) ou incertain, on passe à l'expert.
 
             except Exception as e:
                 logger.error(f"❌ Erreur Portier: {e}")
