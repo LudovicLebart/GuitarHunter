@@ -55,8 +55,14 @@ DEFAULT_EXCLUSION_KEYWORDS = [
     "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ]
 
-# --- CONSTANTES LEGACY (Pour compatibilité si nécessaire, mais analyzer.py utilise DEFAULT_PROMPTS) ---
-DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', []) # Sera vide maintenant
+# --- CONSTANTES LEGACY (Restaurées pour compatibilité UI/Reset) ---
+DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
 DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
 DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
 DEFAULT_TAXONOMY = prompts_data.get('taxonomy_guitares', {})
+
+# --- CONSTANTES MODULAIRES (Pour compatibilité si nécessaire) ---
+PROMPT_INSTRUCTION = prompts_data.get('persona', [])
+DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
+DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
+DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])
