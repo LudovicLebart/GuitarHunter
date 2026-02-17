@@ -72,13 +72,18 @@ class DealAnalyzer:
             return str(content)
 
         # Remplacement des placeholders
-        prompt = system_structure.format(
-            persona=format_section('persona'),
-            taxonomy=format_section('taxonomy_guitares'),
-            verdict_rules=format_section('verdict_rules'),
-            reasoning_instruction=format_section('reasoning_instruction'),
-            json_output_format=format_section('json_output_format')
-        )
+        try:
+            prompt = system_structure.format(
+                persona=format_section('persona'),
+                taxonomy=format_section('taxonomy_guitares'),
+                verdict_rules=format_section('verdict_rules'),
+                reasoning_instruction=format_section('reasoning_instruction'),
+                json_output_format=format_section('json_output_format')
+            )
+        except KeyError as e:
+            logger.error(f"Erreur de formatage du prompt : clé manquante {e}")
+            # Fallback basique si le template est cassé
+            prompt = "Analyse cette guitare."
 
         # Ajout des détails de l'annonce
         user_prompt_template = "\n".join(prompts.get('user_prompt', []))
@@ -95,11 +100,14 @@ class DealAnalyzer:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
         # Utilise la config de Firestore ou les prompts par défaut
-        prompts = {**DEFAULT_PROMPTS, **(firestore_config or {})}
+        # On s'assure que DEFAULT_PROMPTS est bien un dictionnaire
+        prompts = DEFAULT_PROMPTS.copy()
+        if firestore_config:
+             prompts.update(firestore_config)
         
         analysis_config = prompts.get('analysisConfig', {})
-        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-1.5-flash-latest')
-        expert_model_name = analysis_config.get('expertModel', 'gemini-1.5-pro-latest')
+        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
+        expert_model_name = analysis_config.get('expertModel', 'gemini-2.5-flash')
         
         logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
@@ -148,7 +156,10 @@ class DealAnalyzer:
         if not expert_model:
             return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nL'analyse experte a échoué car le modèle expert n'était pas disponible.", "model_used": f"{gatekeeper_model_name} (Expert failed)"}
 
-        expert_context_instruction = "\n".join(prompts.get('expert_context_instruction', []))
+        expert_context_instruction = prompts.get('expert_context_instruction', "")
+        if isinstance(expert_context_instruction, list):
+             expert_context_instruction = "\n".join(expert_context_instruction)
+
         context = expert_context_instruction.format(status=gatekeeper_status, reasoning=gatekeeper_reason)
         
         expert_prompt = f"{context}\n\n{base_prompt}"
