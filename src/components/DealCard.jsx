@@ -1,24 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Wrench, Briefcase } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Wrench, Briefcase, Tag, ShieldCheck } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
 import CollapsibleSection from './CollapsibleSection';
 
-// Nouveau menu de réanalyse
+// Menu de réanalyse (pas de changements ici)
 const ReanalysisMenu = ({ position, onRetry, onForceExpert, onClose, buttonRef }) => {
   const menuRef = useRef(null);
-
   useEffect(() => {
     const handleClickOutside = (event) => {
-      // Ignore les clics sur le bouton qui ouvre le menu
-      if (buttonRef.current && buttonRef.current.contains(event.target)) {
-        return;
-      }
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        onClose();
-      }
+      if (buttonRef.current && buttonRef.current.contains(event.target)) return;
+      if (menuRef.current && !menuRef.current.contains(event.target)) onClose();
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -29,34 +23,18 @@ const ReanalysisMenu = ({ position, onRetry, onForceExpert, onClose, buttonRef }
   return createPortal(
     <div
       ref={menuRef}
-      style={{
-        position: 'absolute',
-        top: position.top + position.height + 8, // Positionne le menu en dessous du bouton
-        left: position.left + position.width / 2,
-        transform: 'translateX(-50%)',
-        zIndex: 9999
-      }}
+      style={{ position: 'absolute', top: position.top + position.height + 8, left: position.left + position.width / 2, transform: 'translateX(-50%)', zIndex: 9999 }}
       className="flex flex-col gap-2 animate-in slide-in-from-bottom-2 fade-in duration-200"
     >
-      <button
-        onClick={(e) => { e.stopPropagation(); onRetry(); }}
-        className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-amber-500 text-white shadow-xl hover:bg-amber-600 transition-colors whitespace-nowrap"
-      >
-        <RefreshCw size={14} /> Standard
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onForceExpert(); }}
-        className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-purple-600 text-white shadow-xl hover:bg-purple-700 transition-colors whitespace-nowrap"
-      >
-        <BrainCircuit size={14} /> Expert
-      </button>
+      <button onClick={(e) => { e.stopPropagation(); onRetry(); }} className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-amber-500 text-white shadow-xl hover:bg-amber-600 transition-colors whitespace-nowrap"><RefreshCw size={14} /> Standard</button>
+      <button onClick={(e) => { e.stopPropagation(); onForceExpert(); }} className="flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-widest bg-purple-600 text-white shadow-xl hover:bg-purple-700 transition-colors whitespace-nowrap"><BrainCircuit size={14} /> Expert</button>
     </div>,
     document.body
   );
 };
 
 
-const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
   const [isReanalysisMenuOpen, setIsReanalysisMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
@@ -73,15 +51,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   };
 
   const getModelName = (deal) => {
-    if (['analyzing', 'retry_analysis', 'retry_analysis_expert'].includes(deal.status)) {
-      return 'Analyse en cours...';
-    }
-    if (deal.aiAnalysis?.model_used) {
-      return deal.aiAnalysis.model_used;
-    }
-    if (deal.status === 'analyzed' && !deal.aiAnalysis?.model_used) {
-      return 'Modèle non spécifié';
-    }
+    if (['analyzing', 'retry_analysis', 'retry_analysis_expert'].includes(deal.status)) return 'Analyse en cours...';
     return deal.aiAnalysis?.model_used || 'Analyse initiale';
   };
 
@@ -93,19 +63,12 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   const handleReanalysisButtonClick = () => {
     if (reanalysisButtonRef.current) {
       const rect = reanalysisButtonRef.current.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.top + window.scrollY,
-        left: rect.left + window.scrollX,
-        width: rect.width,
-        height: rect.height
-      });
+      setMenuPosition({ top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height });
     }
     setIsReanalysisMenuOpen(prev => !prev);
   };
   
-  const closeMenu = () => {
-    setIsReanalysisMenuOpen(false);
-  };
+  const closeMenu = () => setIsReanalysisMenuOpen(false);
 
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
@@ -122,25 +85,22 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
             <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
             {deal.aiAnalysis?.classification && (<div className="mt-2 flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
           </div>
-          <div className="text-right flex flex-col items-end">
-            <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl"><span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span><span className="text-2xl font-black tabular-nums">{deal.price} $</span></div>
+          <div className="text-right flex flex-col items-end shrink-0">
+            {/* --- NOUVEL AFFICHAGE DES PRIX --- */}
+            <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl mb-2"><span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span><span className="text-2xl font-black tabular-nums">{deal.price} $</span></div>
             
-            {/* NOUVEAUX KPI */}
-            {specs.profit_margin > 0 && deal.status !== 'rejected' && (
-                <div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
-                    <TrendingUp size={12} /> Marge Est: +{specs.profit_margin}$
-                </div>
-            )}
-            {specs.net_cost && specs.net_cost < deal.price && deal.status !== 'rejected' && (
-                <div className="mt-1 text-indigo-600 flex items-center gap-1 font-bold text-xs bg-indigo-50 px-2 py-1 rounded-lg border border-indigo-100">
-                    <Briefcase size={12} /> Coût Net: {specs.net_cost}$
-                </div>
-            )}
-            {specs.repair_complexity && specs.repair_complexity !== 'LOW' && deal.status !== 'rejected' && (
-                <div className="mt-1 text-amber-600 flex items-center gap-1 font-bold text-xs bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
-                    <Wrench size={12} /> Répa: {specs.repair_complexity}
-                </div>
-            )}
+            <div className="space-y-1 text-xs font-bold text-right">
+                {deal.aiAnalysis?.estimated_value > 0 && (
+                    <div className="flex items-center justify-end gap-1.5 text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                        <Tag size={12} /> <span>Val. en l'état: {deal.aiAnalysis.estimated_value}$</span>
+                    </div>
+                )}
+                {specs.resale_potential > 0 && (
+                    <div className="flex items-center justify-end gap-1.5 text-purple-600 bg-purple-50 px-2 py-1 rounded-lg border border-purple-100">
+                        <ShieldCheck size={12} /> <span>Val. après répa: {specs.resale_potential}$</span>
+                    </div>
+                )}
+            </div>
           </div>
         </div>
 
@@ -149,18 +109,12 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           <div className="pl-5 py-1">
             <div className={`flex items-center gap-1.5 mb-2 ${isExpertAnalysis ? 'text-purple-600' : 'text-blue-600'}`}><Sparkles size={14} /><span className="text-[10px] font-black uppercase tracking-widest">{modelName}</span></div>
             <div className="mt-2">
-              {/* --- LOGIQUE D'AFFICHAGE STANDARDISÉE --- */}
               {deal.aiAnalysis?.summary ? (
                   <>
                     <SimpleMarkdown text={deal.aiAnalysis.summary} />
-                    {deal.aiAnalysis.analysis && (
-                        <CollapsibleSection title="Voir l'analyse détaillée">
-                            <SimpleMarkdown text={deal.aiAnalysis.analysis} />
-                        </CollapsibleSection>
-                    )}
+                    {deal.aiAnalysis.analysis && (<CollapsibleSection title="Voir l'analyse détaillée"><SimpleMarkdown text={deal.aiAnalysis.analysis} /></CollapsibleSection>)}
                   </>
               ) : deal.aiAnalysis?.reasoning ? (
-                  // Fallback pour les annonces qui n'ont qu'un 'reasoning'
                   <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
               ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
             </div>
@@ -176,31 +130,10 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           <div className="flex items-center gap-2">
             <button onClick={() => onToggleFavorite(deal.id, deal.isFavorite)} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`} title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}><Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} /></button>
             
-            {/* Bouton de réanalyse : Maintenant accessible même si rejeté */}
-            <button
-                ref={reanalysisButtonRef}
-                onClick={handleReanalysisButtonClick}
-                disabled={isAnalyzing}
-                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
-                title="Relancer l'analyse"
-            >
+            <button ref={reanalysisButtonRef} onClick={handleReanalysisButtonClick} disabled={isAnalyzing} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`} title="Relancer l'analyse">
                 {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
             </button>
-            {isReanalysisMenuOpen && (
-                <ReanalysisMenu
-                    position={menuPosition}
-                    buttonRef={reanalysisButtonRef}
-                    onRetry={() => {
-                        if (onRetry) onRetry(deal.id);
-                        closeMenu();
-                    }}
-                    onForceExpert={() => {
-                        if (onForceExpert) onForceExpert(deal.id);
-                        closeMenu();
-                    }}
-                    onClose={closeMenu}
-                />
-            )}
+            {isReanalysisMenuOpen && (<ReanalysisMenu position={menuPosition} buttonRef={reanalysisButtonRef} onRetry={() => { if (onRetry) onRetry(deal.id); closeMenu(); }} onForceExpert={() => { if (onForceExpert) onForceExpert(deal.id); closeMenu(); }} onClose={closeMenu} />)}
 
             {deal.status !== 'rejected' && (<button onClick={() => onReject(deal.id)} className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Rejeter l'annonce"><Ban size={14} /></button>)}
             <button onClick={() => onDelete(deal.id)} className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Supprimer définitivement"><Trash2 size={14} /></button>
