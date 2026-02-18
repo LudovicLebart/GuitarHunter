@@ -8,8 +8,9 @@ import {
   toggleDealFavorite 
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
-import { VERDICTS } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS } from '../constants';
 
+const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
 
 // Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces, SANS ACCENTS)
@@ -127,7 +128,11 @@ export const useDealsManager = (user, setError) => {
       if (currentFilterType === 'FAVORITES') return deal.isFavorite;
       if (currentFilterType !== 'ALL' && isError) return false;
       
-      return currentFilterType === 'ALL' || verdict === currentFilterType;
+      // Si le filtre est ALL, on accepte tout sauf les erreurs (sauf si on veut voir les erreurs dans ALL ?)
+      // Généralement ALL montre tout ce qui est valide.
+      if (currentFilterType === 'ALL') return !isError;
+
+      return verdict === currentFilterType;
   }, []);
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
@@ -182,11 +187,11 @@ export const useDealsManager = (user, setError) => {
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE)
   const verdictCounts = useMemo(() => {
     const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0 };
-    Object.keys(VERDICTS).forEach(key => c[key] = 0);
+    // Initialiser tous les compteurs de verdicts possibles
+    Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
-        // Cas spécial : REJECTED compte tous les rejetés, indépendamment des filtres de type (souvent souhaité)
-        // Ou alors on veut filtrer les rejetés par recherche ? Pour l'instant on garde simple.
+        // Cas spécial : REJECTED compte tous les rejetés
         if (deal.status === 'rejected') {
             c.REJECTED++;
             return;
@@ -198,10 +203,13 @@ export const useDealsManager = (user, setError) => {
         const verdict = deal.aiAnalysis?.verdict || 'PENDING';
         const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
         
-        c.ALL++;
-        if (isError) c.ERROR++;
-        else if (c.hasOwnProperty(verdict)) {
-            c[verdict]++;
+        if (isError) {
+            c.ERROR++;
+        } else {
+            c.ALL++; // ALL compte tous les verdicts valides
+            if (c.hasOwnProperty(verdict)) {
+                c[verdict]++;
+            }
         }
         if (deal.isFavorite) c.FAVORITES++;
     });
@@ -212,7 +220,12 @@ export const useDealsManager = (user, setError) => {
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
         if (filterType === 'REJECTED') return deal.status === 'rejected';
-        return matchesVerdictFilter(deal, filterType) && matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+        
+        // Pour les autres filtres, on combine verdict et type
+        const verdictMatch = matchesVerdictFilter(deal, filterType);
+        const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+        
+        return verdictMatch && typeMatch;
     });
   }, [deals, filterType, level1Filter, level2Filter, level3Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
   

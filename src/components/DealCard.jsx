@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
@@ -106,6 +106,12 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
     setIsReanalysisMenuOpen(false);
   };
 
+  // --- NOUVEAUX CHAMPS CALCULÉS ---
+  const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
+  const netCost = deal.aiAnalysis?.net_guitar_cost;
+  const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
+  const isLuthierProject = deal.aiAnalysis?.verdict === 'LUTHIER_PROJ';
+
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
       <div className="md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
@@ -119,12 +125,33 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           <div>
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1"><MapPin size={10} /> {deal.location || 'Québec'}</div>
             <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
-            {deal.aiAnalysis?.classification && (<div className="mt-2 flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
+            
+            <div className="flex flex-wrap gap-2 mt-2">
+                {deal.aiAnalysis?.classification && (<div className="flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
+                {isLuthierProject && (<div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-xs font-bold"><Hammer size={12} /><span>Travaux Requis</span></div>)}
+            </div>
           </div>
-          <div className="text-right flex flex-col items-end">
+          
+          <div className="text-right flex flex-col items-end gap-1">
             <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl"><span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span><span className="text-2xl font-black tabular-nums">{deal.price} $</span></div>
-            {deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (<div className="mt-2 text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg"><TrendingUp size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$</div>)}
-            {deal.aiAnalysis?.estimated_value_after_repair > 0 && deal.status !== 'rejected' && (<div className="mt-1 text-purple-600 flex items-center gap-1 font-bold text-xs bg-purple-50 px-2 py-1 rounded-lg"><Activity size={12} /> Val. Revente: {deal.aiAnalysis.estimated_value_after_repair}$</div>)}
+            
+            {/* --- NOUVEAUX INDICATEURS FINANCIERS --- */}
+            {grossMargin > 0 && deal.status !== 'rejected' && (
+                <div className="text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
+                    <TrendingUp size={12} /> Marge Est.: +{grossMargin}$
+                </div>
+            )}
+            
+            {netCost !== undefined && netCost < parseInt(deal.price) && deal.status !== 'rejected' && (
+                <div className="text-sky-600 flex items-center gap-1 font-bold text-xs bg-sky-50 px-2 py-1 rounded-lg border border-sky-100">
+                    <DollarSign size={12} /> Coût Net: {netCost}$
+                </div>
+            )}
+
+            {/* Fallback pour les anciennes annonces ou affichage complémentaire */}
+            {!grossMargin && deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (<div className="text-slate-500 flex items-center gap-1 font-bold text-xs bg-slate-50 px-2 py-1 rounded-lg"><Activity size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$</div>)}
+            
+            {resalePotential > 0 && deal.status !== 'rejected' && !grossMargin && (<div className="text-purple-600 flex items-center gap-1 font-bold text-xs bg-purple-50 px-2 py-1 rounded-lg"><Activity size={12} /> Potentiel: {resalePotential}$</div>)}
           </div>
         </div>
 

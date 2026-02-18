@@ -87,9 +87,6 @@ class DealAnalyzer:
         expert_model_name = config.get('expertModel', 'gemini-2.5-flash')
         
         # Récupération de la taxonomie (soit depuis Firestore si dispo, sinon par défaut)
-        # Note: Firestore stocke souvent la config complète, mais si 'taxonomy_guitares' n'est pas dans 'analysisConfig', on prend le défaut.
-        # Dans prompts.json, 'taxonomy_guitares' est au niveau racine, pas dans 'analysisConfig'.
-        # On va donc utiliser DEFAULT_TAXONOMY par défaut.
         taxonomy = DEFAULT_TAXONOMY
         
         logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
@@ -130,12 +127,18 @@ class DealAnalyzer:
                 
                 logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
-                # --- LOGIQUE DE FILTRAGE STRICTE ---
+                # --- LOGIQUE DE FILTRAGE STRICTE (MISE À JOUR v2) ---
                 # Si le verdict est explicitement négatif, on arrête.
-                if gatekeeper_status in ['REJECTED', 'REJECTED (SERVICE)', 'BAD_DEAL']:
+                # Nouveaux verdicts de rejet : BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA
+                rejection_verdicts = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA']
+                
+                # Rétrocompatibilité avec les anciens verdicts de rejet au cas où
+                legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
+                
+                if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
                     return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "model_used": gatekeeper_model_name}
                 
-                # Si c'est positif (PEPITE, GOOD_DEAL, FAIR) ou incertain, on passe à l'expert.
+                # Si c'est positif (PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION) ou incertain, on passe à l'expert.
 
             except Exception as e:
                 logger.error(f"❌ Erreur Portier: {e}")
@@ -150,9 +153,6 @@ class DealAnalyzer:
         if not expert_model:
             return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nL'analyse experte a échoué car le modèle expert n'était pas disponible.", "model_used": f"{gatekeeper_model_name} (Expert failed)"}
 
-        # --- CORRECTION DU BUG KEYERROR ---
-        # On passe à la fois 'reason' et 'reasoning' pour être compatible avec les deux versions du template.
-        
         # Correction: S'assurer que expertContextInstruction est une string
         expert_context_raw = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT)
         if isinstance(expert_context_raw, list):

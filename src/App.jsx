@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Guitar, AlertTriangle, RefreshCw, XCircle, Settings, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Guitar, AlertTriangle, RefreshCw, XCircle, Settings, Trash2, Target, ShoppingBag, Archive } from 'lucide-react';
 
 // Contexts & Main Hook
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
@@ -14,6 +14,10 @@ import DealCard from './components/DealCard';
 import MapView from './components/MapView';
 import { FilterBar } from './components/FilterBar';
 import DealModal from './components/DealModal';
+import SectionGroup from './components/SectionGroup'; // Nouveau composant
+
+// Constantes pour les groupes
+import { RADAR_GROUP, MARKET_GROUP, ARCHIVE_GROUP } from './constants';
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
@@ -46,6 +50,38 @@ const AppContent = () => {
   }, [loading, filteredDeals]);
 
   const handleCloseModal = useCallback(() => setSelectedDeal(null), []);
+
+  // --- NOUVELLE LOGIQUE DE GROUPEMENT ---
+  const { radarDeals, marketDeals, archiveDeals } = useMemo(() => {
+    const radar = [];
+    const market = [];
+    const archive = [];
+
+    filteredDeals.forEach(deal => {
+      const verdict = deal.aiAnalysis?.verdict || 'DEFAULT';
+      if (RADAR_GROUP.includes(verdict)) {
+        radar.push(deal);
+      } else if (MARKET_GROUP.includes(verdict)) {
+        market.push(deal);
+      } else { // Tout le reste, y compris les erreurs et les rejets, va dans les archives
+        archive.push(deal);
+      }
+    });
+
+    return { radarDeals: radar, marketDeals: market, archiveDeals: archive };
+  }, [filteredDeals]);
+
+  const renderDeal = (deal) => (
+    <DealCard 
+        key={deal.id} 
+        deal={deal} 
+        onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
+        onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
+        onReject={() => dealActions.handleRejectDeal(deal.id)}
+        onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
+        onDelete={() => dealActions.handleDeleteDeal(deal.id)}
+    />
+  );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
@@ -102,18 +138,18 @@ const AppContent = () => {
           ) : viewMode === 'MAP' ? (
              <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
           ) : (
-            <div className="grid grid-cols-1 gap-6">
-              {filteredDeals.map((deal) => (
-                <DealCard 
-                    key={deal.id} 
-                    deal={deal} 
-                    onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
-                    onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
-                    onReject={() => dealActions.handleRejectDeal(deal.id)}
-                    onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
-                    onDelete={() => dealActions.handleDeleteDeal(deal.id)}
-                />
-              ))}
+            <div>
+              <SectionGroup title="Radar" count={radarDeals.length} icon={Target} colorClass="text-emerald-500" defaultOpen={true}>
+                {radarDeals.map(renderDeal)}
+              </SectionGroup>
+              
+              <SectionGroup title="Marché" count={marketDeals.length} icon={ShoppingBag} colorClass="text-blue-500" defaultOpen={radarDeals.length === 0}>
+                {marketDeals.map(renderDeal)}
+              </SectionGroup>
+
+              <SectionGroup title="Archives & Bruit" count={archiveDeals.length} icon={Archive} colorClass="text-slate-500" defaultOpen={false}>
+                {archiveDeals.map(renderDeal)}
+              </SectionGroup>
             </div>
           )}
         </main>
