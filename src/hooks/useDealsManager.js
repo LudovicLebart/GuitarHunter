@@ -8,7 +8,7 @@ import {
   toggleDealFavorite 
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
-import { NEW_VERDICTS, LEGACY_VERDICTS } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP } from '../constants';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
@@ -125,14 +125,22 @@ export const useDealsManager = (user, setError) => {
 
       if (currentFilterType === 'ERROR') return isError;
       if (currentFilterType === 'REJECTED') return false; // Les rejetés sont gérés à part
-      if (currentFilterType === 'FAVORITES') return deal.isFavorite;
-      if (currentFilterType !== 'ALL' && isError) return false;
       
-      // Si le filtre est ALL, on accepte tout sauf les erreurs (sauf si on veut voir les erreurs dans ALL ?)
-      // Généralement ALL montre tout ce qui est valide.
-      if (currentFilterType === 'ALL') return !isError;
+      // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
+      if (currentFilterType === 'FAVORITES') return deal.isFavorite;
+      
+      // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
+      if (currentFilterType === verdict) return true;
 
-      return verdict === currentFilterType;
+      // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
+      if (currentFilterType === 'ALL') {
+          if (isError) return false;
+          // EXCLUSION DU BRUIT : Si le verdict est dans le groupe ARCHIVE, on le cache de la vue ALL
+          if (ARCHIVE_GROUP.includes(verdict)) return false;
+          return true;
+      }
+
+      return false;
   }, []);
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
@@ -206,7 +214,11 @@ export const useDealsManager = (user, setError) => {
         if (isError) {
             c.ERROR++;
         } else {
-            c.ALL++; // ALL compte tous les verdicts valides
+            // Le compteur ALL ne doit compter que ce qui est visible dans ALL (donc pas le bruit)
+            if (!ARCHIVE_GROUP.includes(verdict)) {
+                c.ALL++; 
+            }
+
             if (c.hasOwnProperty(verdict)) {
                 c[verdict]++;
             }

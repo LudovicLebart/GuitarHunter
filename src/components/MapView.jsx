@@ -1,6 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import CITY_COORDINATES from '../../city_coordinates.json';
 
+// Mapping des couleurs pour Google Maps (Hexadécimal requis)
+const VERDICT_COLORS = {
+  // V2
+  PEPITE: '#facc15',       // Yellow 400
+  FAST_FLIP: '#10b981',    // Emerald 500
+  LUTHIER_PROJ: '#f97316', // Orange 500
+  CASE_WIN: '#0ea5e9',     // Sky 500
+  COLLECTION: '#3b82f6',   // Blue 500
+  BAD_DEAL: '#f43f5e',     // Rose 500
+  REJECTED_ITEM: '#475569', // Slate 600
+  REJECTED_SERVICE: '#475569', // Slate 600
+  INCOMPLETE_DATA: '#94a3b8', // Slate 400
+  
+  // Legacy
+  GOOD_DEAL: '#10b981',    // Emerald 500
+  FAIR: '#3b82f6',         // Blue 500
+  REJECTED: '#475569',     // Slate 600
+  
+  // Default
+  DEFAULT: '#64748b'       // Slate 500
+};
+
 const MapView = ({ deals, onDealSelect }) => {
   const mapRef = useRef(null);
   const [map, setMap] = useState(null);
@@ -128,11 +150,8 @@ const MapView = ({ deals, onDealSelect }) => {
 
       if (coords) {
         // Couleur du marqueur selon le verdict
-        let markerColor = '#64748b'; // Slate (Default)
-        if (deal.aiAnalysis?.verdict === 'PEPITE') markerColor = '#facc15'; // Yellow
-        else if (deal.aiAnalysis?.verdict === 'GOOD_DEAL') markerColor = '#10b981'; // Emerald
-        else if (deal.aiAnalysis?.verdict === 'FAIR') markerColor = '#3b82f6'; // Blue
-        else if (deal.aiAnalysis?.verdict === 'BAD_DEAL') markerColor = '#f43f5e'; // Rose
+        const verdict = deal.aiAnalysis?.verdict || 'DEFAULT';
+        const markerColor = VERDICT_COLORS[verdict] || VERDICT_COLORS.DEFAULT;
 
         // Création d'une icône SVG personnalisée
         const svgMarker = {
