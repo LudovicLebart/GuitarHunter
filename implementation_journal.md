@@ -1,70 +1,58 @@
-# Journal d'Implémentation : Refonte Classification & UI "Expert"
+# Journal d'Implémentation - Classification Granulaire v2
 
-## Objectif
-Passer d'une classification binaire (Bon/Mauvais) à une classification granulaire orientée "Business" (Pépite, Flip, Projet, Casier) avec une UI hiérarchisée, tout en restaurant la modularité du prompt pour la personnalisation.
+Ce document suit l'implémentation des nouvelles règles de classification et des modifications de l'interface utilisateur.
 
-## État du Projet
-- [x] Phase 1 : Ingénierie du Prompt (Cerveau) - **Terminée**
-- [x] Phase 2 : Adaptation Backend (Données) - **Terminée**
-- [ ] Phase 3 : Logique Frontend (Filtrage)
-- [x] Phase 4 : Interface Utilisateur (Affichage) - **Partiellement terminée**
+## Phase 1 : Mise à jour de la Logique de l'IA (Backend) - [TERMINÉ]
 
----
+### Étape 1.1 : Refonte des instructions de l'IA dans `prompts.json`
+*   **Statut :** ✅ Terminé
+*   **Actions effectuées :**
+    1.  Remplacement de `verdict_rules` par la nouvelle grille à 9 niveaux (`PEPITE`, `FAST_FLIP`, `LUTHIER_PROJ`, `CASE_WIN`, `COLLECTION`, `BAD_DEAL`, `REJECTED_ITEM`, `REJECTED_SERVICE`, `INCOMPLETE_DATA`).
+    2.  Mise à jour de `main_analysis_prompt` pour demander les calculs financiers (`estimated_case_value`, `net_guitar_cost`, `resale_potential`, `estimated_gross_margin`).
+    3.  Mise à jour du schéma JSON attendu.
 
-## Plan d'Action Détaillé (Version Corrigée)
+### Étape 1.2 : Adaptation du "Portier" (Gatekeeper)
+*   **Statut :** ✅ Terminé
+*   **Actions effectuées :**
+    1.  Modification de `backend/analyzer.py` pour inclure les nouveaux verdicts de rejet dans la logique de filtrage (`BAD_DEAL`, `REJECTED_ITEM`, `REJECTED_SERVICE`, `INCOMPLETE_DATA`).
+    2.  Ajout d'une sécurité pour rejeter tout verdict commençant par "REJECTED".
 
-### Phase 1 : Ingénierie du Prompt (prompts.json) - **Mise à jour**
-Restauration de la modularité du prompt et intégration des nouvelles règles.
+## Phase 2 : Fondations Frontend - [TERMINÉ]
 
-1.  **Restaurer la Structure Modulaire de `prompts.json`** :
-    *   Conserver les clés modulaires existantes : `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `taxonomy_guitares`, `gatekeeper_verbosity_instruction`, `expert_context_instruction`.
-    *   **Supprimer la clé `main_analysis_prompt`** car elle est redondante et source de confusion.
-    *   **Ajouter une nouvelle clé `json_output_format`** qui définit la structure JSON exacte attendue, y compris le bloc `specs` avec `case_value`, `net_cost`, `resale_potential`, `profit_margin`, `repair_complexity`.
-    *   **Mettre à jour le contenu** des clés modulaires (`persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`) pour être concis et refléter les nouvelles exigences (directives de calcul, nouveaux verdicts).
-    *   **Mettre à jour `system_structure`** pour utiliser des placeholders pour toutes ces parties modulaires, y compris `{json_output_format}`.
-    *   **Statut : Terminé.**
+### Étape 2.1 : Configuration des Verdicts
+*   **Statut :** ✅ Terminé
+*   **Actions effectuées :**
+    1.  Mise à jour de `src/constants.js` avec les définitions complètes (Couleurs, Icônes, Libellés) pour les 9 nouveaux verdicts.
+    2.  Conservation des anciens verdicts (`GOOD_DEAL`, `FAIR`, etc.) pour la rétrocompatibilité.
+    3.  Définition des groupes d'affichage (`RADAR_GROUP`, `MARKET_GROUP`, `ARCHIVE_GROUP`).
 
-### Phase 2 : Adaptation Backend (backend/analyzer.py) - **Mise à jour**
-Adapter le `DealAnalyzer` pour assembler le prompt dynamiquement et gérer le nouveau format.
+## Phase 3 : Interface Utilisateur (UI/UX) - [TERMINÉ]
 
-1.  **Modifier `DealAnalyzer.__init__`** :
-    *   Charger toutes les parties modulaires du prompt (`persona`, `verdict_rules`, etc.) et le template `system_structure` depuis `prompts.json` (ou depuis `firestore_config` si elles y sont stockées).
-2.  **Refactoriser `_construct_user_prompt`** :
-    *   Cette méthode prendra désormais toutes les parties modulaires et le template `system_structure`.
-    *   Elle assemblera dynamiquement la chaîne de prompt finale en remplaçant les placeholders dans `system_structure` par le contenu des parties modulaires.
-    *   S'assurer que `gatekeeper_verbosity_instruction` et `expert_context_instruction` sont appliquées correctement comme ajouts finaux au prompt assemblé, garantissant leur effet de concision.
-3.  **Vérification `_clean_json_response`** : S'assurer que la méthode gère correctement le nouveau format JSON avec le bloc `specs`.
-    *   **Statut : Terminé.**
+### Étape 3.1 : Mise à jour de la Carte d'Annonce (DealCard)
+*   **Statut :** ✅ Terminé
+*   **Actions effectuées :**
+    1.  Modification de `src/components/DealCard.jsx` pour afficher :
+        *   **Badge Marge :** `estimated_gross_margin` (Vert).
+        *   **Coût Net :** `net_guitar_cost` (Bleu).
+        *   **Icône Luthier :** 🛠️ pour `LUTHIER_PROJ`.
+    2.  Intégration des nouveaux champs dans l'interface existante.
 
-### Phase 3 : Logique Frontend (src/hooks/useDealsManager.js) - **Inchangée pour l'instant**
-La logique de filtrage et de comptage devrait déjà être compatible avec les nouveaux verdicts.
+### Étape 3.2 : Restructuration de la Vue Principale (App.jsx)
+*   **Statut :** ✅ Terminé
+*   **Actions effectuées :**
+    1.  Création du composant `src/components/SectionGroup.jsx` pour gérer les sections pliables.
+    2.  Refonte de `src/App.jsx` pour trier les annonces en 3 sections dynamiques :
+        *   **Radar (Focus) :** Opportunités (Pépites, Flips, Projets).
+        *   **Marché (Secondaire) :** Prix justes et Collections.
+        *   **Archives (Bruit) :** Rejets et Erreurs.
 
-1.  **Créer les Groupes de Température** :
-    *   `RADAR` : [PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN]
-    *   `MARKET` : [COLLECTION, GOOD_DEAL, FAIR]
-    *   `NOISE` : [BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA, ERROR, DEFAULT]
-2.  **Mettre à jour `useDealsManager`** :
-    *   Modifier `matchesVerdictFilter` pour supporter ces groupes.
-    *   Ajouter une propriété `temperature` à chaque deal pour faciliter le rendu. (Cette étape sera affinée lors de la phase 4 si nécessaire).
+## Phase 4 : Validation et Nettoyage - [EN COURS]
 
-### Phase 4 : Interface Utilisateur (src/App.jsx & components) - **Mise à jour**
-Afficher les données riches et les nouvelles valeurs.
-
-1.  **Mettre à jour `DealCard.jsx`** :
-    *   Afficher le badge "Marge" (ex: "+250$").
-    *   Afficher l'icône "Luthier" si `repair_complexity` > LOW.
-    *   Afficher le "Prix Net" (Prix - Étui).
-    *   **Ajouter l'affichage de la "Valeur de revente en l'état" (`estimated_value`) et de la "Valeur après restauration" (`specs.resale_potential`).**
-    *   **Statut : Terminé.**
-2.  **Refondre `App.jsx`** :
-    *   Remplacer la grille unique par 3 sections (Accordéons ou Sections fixes).
-    *   Section "Radar" toujours ouverte.
-    *   Section "Marché" repliable.
-    *   Section "Bruit" en bas, repliée par défaut.
+*   **Objectif :** Vérifier le bon fonctionnement en conditions réelles.
+*   **Actions à venir :**
+    1.  Lancer l'application et vérifier l'affichage des anciennes annonces (Rétrocompatibilité).
+    2.  Scanner une nouvelle URL ou forcer une réanalyse pour tester la nouvelle logique IA.
+    3.  Vérifier que les annonces se classent bien dans les bonnes sections (Radar vs Marché vs Archives).
 
 ---
-
-## Scripts de Test à Générer (À la demande)
-
-1.  `scripts/inject_mock_deals.py` : Pour injecter des fausses annonces correspondant aux nouveaux verdicts (une PEPITE, un CASE_WIN, un BAD_DEAL) directement dans Firestore afin de développer l'UI sans attendre de vrais scans.
-2.  `tests/test_prompt_logic.py` : Pour valider que le prompt assemblé et le `DealAnalyzer` fonctionnent comme prévu avec les nouvelles règles et le format JSON.
+**Statut Global :** Implémentation du code terminée. Prêt pour les tests utilisateurs.

@@ -8,8 +8,9 @@ import {
   toggleDealFavorite 
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
-import { VERDICTS } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP } from '../constants';
 
+const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
 
 // Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces, SANS ACCENTS)
@@ -124,10 +125,22 @@ export const useDealsManager = (user, setError) => {
 
       if (currentFilterType === 'ERROR') return isError;
       if (currentFilterType === 'REJECTED') return false; // Les rejetés sont gérés à part
-      if (currentFilterType === 'FAVORITES') return deal.isFavorite;
-      if (currentFilterType !== 'ALL' && isError) return false;
       
-      return currentFilterType === 'ALL' || verdict === currentFilterType;
+      // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
+      if (currentFilterType === 'FAVORITES') return deal.isFavorite;
+      
+      // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
+      if (currentFilterType === verdict) return true;
+
+      // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
+      if (currentFilterType === 'ALL') {
+          if (isError) return false;
+          // EXCLUSION DU BRUIT : Si le verdict est dans le groupe ARCHIVE, on le cache de la vue ALL
+          if (ARCHIVE_GROUP.includes(verdict)) return false;
+          return true;
+      }
+
+      return false;
   }, []);
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
@@ -182,11 +195,11 @@ export const useDealsManager = (user, setError) => {
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE)
   const verdictCounts = useMemo(() => {
     const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0 };
-    Object.keys(VERDICTS).forEach(key => c[key] = 0);
+    // Initialiser tous les compteurs de verdicts possibles
+    Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
-        // Cas spécial : REJECTED compte tous les rejetés, indépendamment des filtres de type (souvent souhaité)
-        // Ou alors on veut filtrer les rejetés par recherche ? Pour l'instant on garde simple.
+        // Cas spécial : REJECTED compte tous les rejetés
         if (deal.status === 'rejected') {
             c.REJECTED++;
             return;
@@ -198,10 +211,17 @@ export const useDealsManager = (user, setError) => {
         const verdict = deal.aiAnalysis?.verdict || 'PENDING';
         const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
         
-        c.ALL++;
-        if (isError) c.ERROR++;
-        else if (c.hasOwnProperty(verdict)) {
-            c[verdict]++;
+        if (isError) {
+            c.ERROR++;
+        } else {
+            // Le compteur ALL ne doit compter que ce qui est visible dans ALL (donc pas le bruit)
+            if (!ARCHIVE_GROUP.includes(verdict)) {
+                c.ALL++; 
+            }
+
+            if (c.hasOwnProperty(verdict)) {
+                c[verdict]++;
+            }
         }
         if (deal.isFavorite) c.FAVORITES++;
     });
@@ -212,7 +232,12 @@ export const useDealsManager = (user, setError) => {
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
         if (filterType === 'REJECTED') return deal.status === 'rejected';
-        return matchesVerdictFilter(deal, filterType) && matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+        
+        // Pour les autres filtres, on combine verdict et type
+        const verdictMatch = matchesVerdictFilter(deal, filterType);
+        const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+        
+        return verdictMatch && typeMatch;
     });
   }, [deals, filterType, level1Filter, level2Filter, level3Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
   

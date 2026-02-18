@@ -1,154 +1,113 @@
-import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Zap, Wrench, Briefcase, Archive } from 'lucide-react';
+import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package } from 'lucide-react';
 
-export const VERDICTS = {
-  // --- OPPORTUNITÉS (RADAR) ---
+// --- NOUVELLE GRILLE DE CLASSIFICATION (V2) ---
+export const NEW_VERDICTS = {
+  // Opportunités
   PEPITE: {
     id: 'PEPITE',
-    label: 'Pépite !',
+    label: 'Pépite',
     pluralLabel: 'Pépites',
     color: 'bg-yellow-400',
-    textColor: 'text-yellow-700',
-    bgColor: 'bg-yellow-50',
-    icon: Gem,
-    group: 'RADAR'
+    icon: Gem
   },
   FAST_FLIP: {
     id: 'FAST_FLIP',
     label: 'Fast Flip',
     pluralLabel: 'Fast Flips',
     color: 'bg-emerald-500',
-    textColor: 'text-emerald-700',
-    bgColor: 'bg-emerald-50',
-    icon: Zap,
-    group: 'RADAR'
+    icon: Sparkles
   },
   LUTHIER_PROJ: {
     id: 'LUTHIER_PROJ',
     label: 'Projet Luthier',
     pluralLabel: 'Projets Luthier',
-    color: 'bg-purple-500',
-    textColor: 'text-purple-700',
-    bgColor: 'bg-purple-50',
-    icon: Wrench,
-    group: 'RADAR'
+    color: 'bg-orange-500',
+    icon: Hammer
   },
   CASE_WIN: {
     id: 'CASE_WIN',
-    label: 'Règle de l\'Étui',
-    pluralLabel: 'Règle de l\'Étui',
-    color: 'bg-indigo-500',
-    textColor: 'text-indigo-700',
-    bgColor: 'bg-indigo-50',
-    icon: Briefcase,
-    group: 'RADAR'
+    label: 'Étui "Gratuit"',
+    pluralLabel: 'Case Wins',
+    color: 'bg-sky-500',
+    icon: Briefcase
   },
-  
-  // --- NEUTRES (MARKET) ---
+  // Neutre
   COLLECTION: {
     id: 'COLLECTION',
-    label: 'Collection / Fair',
-    pluralLabel: 'Collection / Fair',
+    label: 'Collection',
+    pluralLabel: 'Collection',
     color: 'bg-blue-500',
-    textColor: 'text-blue-700',
-    bgColor: 'bg-blue-50',
-    icon: CheckCircle,
-    group: 'MARKET'
+    icon: Package
   },
-  // Legacy support
+  // Bruit
+  BAD_DEAL: {
+    id: 'BAD_DEAL',
+    label: 'Trop Cher',
+    pluralLabel: 'Trop Cher',
+    color: 'bg-rose-500',
+    icon: AlertTriangle
+  },
+  REJECTED_ITEM: {
+    id: 'REJECTED_ITEM',
+    label: 'Item Rejeté',
+    pluralLabel: 'Items Rejetés',
+    color: 'bg-slate-600',
+    icon: Ban
+  },
+  REJECTED_SERVICE: {
+    id: 'REJECTED_SERVICE',
+    label: 'Service Rejeté',
+    pluralLabel: 'Services Rejetés',
+    color: 'bg-slate-600',
+    icon: UserX
+  },
+  INCOMPLETE_DATA: {
+    id: 'INCOMPLETE_DATA',
+    label: 'Données Manquantes',
+    pluralLabel: 'Données Manquantes',
+    color: 'bg-slate-400',
+    icon: Search
+  }
+};
+
+// --- ANCIENS VERDICTS (POUR RÉTROCOMPATIBILITÉ) ---
+export const LEGACY_VERDICTS = {
   GOOD_DEAL: {
     id: 'GOOD_DEAL',
     label: 'Bonne Affaire',
     pluralLabel: 'Bonnes Affaires',
     color: 'bg-emerald-500',
-    textColor: 'text-emerald-700',
-    bgColor: 'bg-emerald-50',
-    icon: Sparkles,
-    group: 'MARKET'
+    icon: Sparkles
   },
   FAIR: {
     id: 'FAIR',
     label: 'Prix Correct',
     pluralLabel: 'Prix Juste',
     color: 'bg-blue-500',
-    textColor: 'text-blue-700',
-    bgColor: 'bg-blue-50',
-    icon: CheckCircle,
-    group: 'MARKET'
+    icon: CheckCircle
   },
-
-  // --- BRUIT (NOISE) ---
-  BAD_DEAL: {
-    id: 'BAD_DEAL',
-    label: 'Trop Cher',
-    pluralLabel: 'Trop Cher',
-    color: 'bg-rose-500',
-    textColor: 'text-rose-700',
-    bgColor: 'bg-rose-50',
-    icon: AlertTriangle,
-    group: 'NOISE'
-  },
-  REJECTED_ITEM: {
-    id: 'REJECTED_ITEM',
-    label: 'Rejet (Objet)',
-    pluralLabel: 'Rejets (Objet)',
-    color: 'bg-slate-600',
-    textColor: 'text-slate-700',
-    bgColor: 'bg-slate-100',
-    icon: Ban,
-    group: 'NOISE'
-  },
-  REJECTED_SERVICE: {
-    id: 'REJECTED_SERVICE',
-    label: 'Rejet (Service)',
-    pluralLabel: 'Rejets (Service)',
-    color: 'bg-slate-600',
-    textColor: 'text-slate-700',
-    bgColor: 'bg-slate-100',
-    icon: Ban,
-    group: 'NOISE'
-  },
-  INCOMPLETE_DATA: {
-    id: 'INCOMPLETE_DATA',
-    label: 'Données Incomplètes',
-    pluralLabel: 'Données Incomplètes',
-    color: 'bg-slate-400',
-    textColor: 'text-slate-600',
-    bgColor: 'bg-slate-100',
-    icon: Archive,
-    group: 'NOISE'
-  },
-  // Legacy support
   REJECTED: {
     id: 'REJECTED',
     label: 'Rejeté',
     pluralLabel: 'Rejetées',
     color: 'bg-slate-600',
-    textColor: 'text-slate-700',
-    bgColor: 'bg-slate-100',
-    icon: Ban,
-    group: 'NOISE'
+    icon: Ban
   },
 };
 
+// --- FILTRES SPÉCIAUX ---
 export const SPECIAL_FILTERS = {
-  ALL: {
-    id: 'ALL',
-    label: 'Toutes',
-    icon: List
-  },
-  FAVORITES: {
-    id: 'FAVORITES',
-    label: 'Favoris',
-    icon: Star
-  },
-  ERROR: {
-    id: 'ERROR',
-    label: 'Erreurs',
-    icon: XCircle
-  },
+  ALL: { id: 'ALL', label: 'Toutes', icon: List },
+  FAVORITES: { id: 'FAVORITES', label: 'Favoris', icon: Star },
+  ERROR: { id: 'ERROR', label: 'Erreurs', icon: XCircle },
 };
 
-// Ordre d'affichage des filtres (Legacy, utilisé par FilterBar si non groupé)
+// --- GROUPES POUR L'AFFICHAGE "TEMPÉRATURE" ---
+export const RADAR_GROUP = ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'];
+export const MARKET_GROUP = ['COLLECTION', 'BAD_DEAL', 'FAIR'];
+export const ARCHIVE_GROUP = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED'];
+
+// --- ORDRE D'AFFICHAGE DES FILTRES DANS LA BARRE ---
 export const FILTER_ORDER = [
   'ALL',
   'FAVORITES',
@@ -162,16 +121,15 @@ export const FILTER_ORDER = [
   'ERROR'
 ];
 
-// Combinaison pour un accès facile
+// --- CONFIGURATION GLOBALE POUR ACCÈS FACILE ---
 export const ALL_FILTERS_CONFIG = {
-  ...VERDICTS,
+  ...NEW_VERDICTS,
+  ...LEGACY_VERDICTS,
   ...SPECIAL_FILTERS,
   DEFAULT: {
       id: 'DEFAULT',
       label: 'Analyse...',
       color: 'bg-slate-400',
-      textColor: 'text-slate-600',
-      bgColor: 'bg-slate-100',
       icon: RefreshCw
   }
 };

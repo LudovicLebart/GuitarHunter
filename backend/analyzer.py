@@ -5,7 +5,7 @@ import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
-from config import GEMINI_API_KEY, DEFAULT_PROMPTS
+from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY
 
 logger = logging.getLogger(__name__)
 
@@ -56,66 +56,46 @@ class DealAnalyzer:
         match = re.search(r'```json\s*([\s\S]*?)\s*```', text_response)
         return match.group(1).strip() if match else text_response.strip()
 
-    def _construct_user_prompt(self, listing_data, prompts):
-        """
-        Assemble dynamiquement le prompt à partir des parties modulaires.
-        """
-        system_structure = "\n".join(prompts.get('system_structure', []))
+    def _construct_user_prompt(self, listing_data, main_prompt_template, taxonomy_data, for_gatekeeper=False):
+        """Construit le prompt utilisateur."""
         
-        # Helper pour formater les sections
-        def format_section(key):
-            content = prompts.get(key, "")
-            if isinstance(content, list):
-                return "\n".join(content)
-            if isinstance(content, dict):
-                return json.dumps(content, indent=2, ensure_ascii=False)
-            return str(content)
+        prompt_lines = main_prompt_template if isinstance(main_prompt_template, list) else str(main_prompt_template).split('\n')
+        
+        # On envoie TOUJOURS le prompt complet, même au Portier, pour qu'il ait les définitions des verdicts.
+        main_prompt_str = "\n".join(prompt_lines)
 
-        # Remplacement des placeholders
-        try:
-            prompt = system_structure.format(
-                persona=format_section('persona'),
-                taxonomy=format_section('taxonomy_guitares'),
-                verdict_rules=format_section('verdict_rules'),
-                reasoning_instruction=format_section('reasoning_instruction'),
-                json_output_format=format_section('json_output_format')
-            )
-        except KeyError as e:
-            logger.error(f"Erreur de formatage du prompt : clé manquante {e}")
-            # Fallback basique si le template est cassé
-            prompt = "Analyse cette guitare."
+        # Injection de la taxonomie
+        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False)
 
-        # Ajout des détails de l'annonce
-        user_prompt_template = "\n".join(prompts.get('user_prompt', []))
-        final_prompt = prompt + "\n\n" + user_prompt_template.format(
-            title=listing_data.get('title', 'N/A'),
-            price=listing_data.get('price', 'N/A'),
-            description=listing_data.get('description', 'N/A')
+        return (
+            f"{main_prompt_str}\n\n"
+            f"### TAXONOMIE DE RÉFÉRENCE\n"
+            f"{taxonomy_str}\n\n"
+            f"Détails de l'annonce :\n"
+            f"- Titre : {listing_data.get('title', 'N/A')}\n"
+            f"- Prix : {listing_data.get('price', 'N/A')}\n"
+            f"- Description : {listing_data.get('description', 'N/A')}\n"
+            f"- Localisation : {listing_data.get('location', 'N/A')}\n"
         )
-        
-        return final_prompt
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False):
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
-        # Utilise la config de Firestore ou les prompts par défaut
-        # On s'assure que DEFAULT_PROMPTS est bien un dictionnaire
-        prompts = DEFAULT_PROMPTS.copy()
-        if firestore_config:
-             prompts.update(firestore_config)
+        config = firestore_config.get('analysisConfig', {})
+        gatekeeper_model_name = config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
+        expert_model_name = config.get('expertModel', 'gemini-2.5-flash')
         
-        analysis_config = prompts.get('analysisConfig', {})
-        gatekeeper_model_name = analysis_config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
-        expert_model_name = analysis_config.get('expertModel', 'gemini-2.5-flash')
+        # Récupération de la taxonomie (soit depuis Firestore si dispo, sinon par défaut)
+        taxonomy = DEFAULT_TAXONOMY
         
         logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
         image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
         images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
 
-        # Construction du prompt de base (identique pour les deux modèles)
-        base_prompt = self._construct_user_prompt(listing_data, prompts)
+        # Prompt complet pour l'expert
+        base_prompt_expert = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, for_gatekeeper=False)
         
         gatekeeper_status, gatekeeper_reason = "MANUAL_RETRY", "Analyse experte demandée manuellement."
 
@@ -125,27 +105,44 @@ class DealAnalyzer:
             if not gatekeeper_model:
                 return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible.", "model_used": gatekeeper_model_name}
             
-            # Ajout de l'instruction de concision pour le portier
-            gatekeeper_prompt = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{prompts.get('gatekeeper_verbosity_instruction', '')}"
+            # Prompt complet pour le portier aussi
+            base_prompt_gatekeeper = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, for_gatekeeper=True)
             
             try:
-                response = gatekeeper_model.generate_content([gatekeeper_prompt] + images)
+                # On ajoute l'instruction de concision à la fin pour forcer un JSON court
+                response = gatekeeper_model.generate_content([f"{base_prompt_gatekeeper}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)}"] + images)
                 result = json.loads(self._clean_json_response(response.text))
                 
-                gatekeeper_status = (result.get('status') or result.get('verdict') or 'UNKNOWN').upper()
+                # Flexibilité : Accepter 'verdict' comme alias de 'status'
+                gatekeeper_status = result.get('status') or result.get('verdict') or 'UNKNOWN'
+                gatekeeper_status = gatekeeper_status.upper()
+                
+                # Flexibilité : Accepter 'reasoning' comme alias de 'reason'
                 gatekeeper_reason = result.get('reason') or result.get('reasoning') or 'Pas de raison fournie.'
                 
                 if gatekeeper_status == 'UNKNOWN':
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide (Status UNKNOWN). Réponse brute : {str(result)}"
+                    logger.warning(f"   ⚠️ Statut 'UNKNOWN' requalifié en 'ERROR'. Réponse : {result}")
                 
                 logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
-                if gatekeeper_status in ['REJECTED_ITEM', 'REJECTED_SERVICE', 'BAD_DEAL', 'INCOMPLETE_DATA']:
+                # --- LOGIQUE DE FILTRAGE STRICTE (MISE À JOUR v2) ---
+                # Si le verdict est explicitement négatif, on arrête.
+                # Nouveaux verdicts de rejet : BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA
+                rejection_verdicts = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA']
+                
+                # Rétrocompatibilité avec les anciens verdicts de rejet au cas où
+                legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
+                
+                if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
                     return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "model_used": gatekeeper_model_name}
+                
+                # Si c'est positif (PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION) ou incertain, on passe à l'expert.
 
             except Exception as e:
                 logger.error(f"❌ Erreur Portier: {e}")
+                # En cas d'erreur technique du portier, on laisse passer à l'expert (fail-open)
                 gatekeeper_status = "ERROR_GATEKEEPER"
                 gatekeeper_reason = f"Le portier a planté : {e}"
         else:
@@ -156,19 +153,26 @@ class DealAnalyzer:
         if not expert_model:
             return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nL'analyse experte a échoué car le modèle expert n'était pas disponible.", "model_used": f"{gatekeeper_model_name} (Expert failed)"}
 
-        expert_context_instruction = prompts.get('expert_context_instruction', "")
-        if isinstance(expert_context_instruction, list):
-             expert_context_instruction = "\n".join(expert_context_instruction)
-
-        context = expert_context_instruction.format(status=gatekeeper_status, reasoning=gatekeeper_reason)
+        # Correction: S'assurer que expertContextInstruction est une string
+        expert_context_raw = config.get('expertContextInstruction', DEFAULT_EXPERT_CONTEXT)
+        if isinstance(expert_context_raw, list):
+            expert_context_raw = "\n".join(expert_context_raw)
         
-        expert_prompt = f"{context}\n\n{base_prompt}"
+        context = expert_context_raw.format(
+            status=gatekeeper_status, 
+            reason=gatekeeper_reason,
+            reasoning=gatekeeper_reason # Ajout de cette clé pour satisfaire le template {reasoning}
+        )
         
         try:
-            response = expert_model.generate_content([expert_prompt] + images)
+            response = expert_model.generate_content([f"{context}\n\n{base_prompt_expert}"] + images)
             expert_result = json.loads(self._clean_json_response(response.text))
             
-            return {"model_used": expert_model_name, **expert_result}
+            final_result = {
+                "model_used": expert_model_name,
+                **expert_result
+            }
+            return final_result
         except Exception as e:
             logger.error(f"❌ Erreur Expert: {e}")
             return {"verdict": gatekeeper_status, "reasoning": f"L'analyse experte a échoué après un premier verdict de '{gatekeeper_status}'.\nErreur: {e}", "model_used": f"{gatekeeper_model_name} (Expert Error)"}
