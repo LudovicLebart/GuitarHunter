@@ -1,8 +1,8 @@
 import { doc, setDoc, deleteField, onSnapshot, collection, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
-const PYTHON_USER_ID = "00737242777130596039";
-const APP_ID = "c_5d118e719dbddbfc_index.html-217";
+const PYTHON_USER_ID = process.env.USER_ID_TARGET;
+const APP_ID = process.env.APP_ID_TARGET;
 
 const userDocRef = doc(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID);
 const dealsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHON_USER_ID, 'guitar_deals');
@@ -11,18 +11,18 @@ const commandsCollectionRef = collection(db, 'artifacts', APP_ID, 'users', PYTHO
 
 // --- Helper: Unflatten dot notation to nested objects ---
 const unflatten = (data) => {
-    if (Object(data) !== data || Array.isArray(data)) return data;
-    const result = {};
-    for (const p in data) {
-        let cur = result, prop = "", parts = p.split(".");
-        for (let i = 0; i < parts.length; i++) {
-            let idx = !isNaN(parseInt(parts[i]));
-            cur = cur[prop] || (cur[prop] = (idx ? [] : {}));
-            prop = parts[i];
-        }
-        cur[prop] = data[p];
+  if (Object(data) !== data || Array.isArray(data)) return data;
+  const result = {};
+  for (const p in data) {
+    let cur = result, prop = "", parts = p.split(".");
+    for (let i = 0; i < parts.length; i++) {
+      let idx = !isNaN(parseInt(parts[i]));
+      cur = cur[prop] || (cur[prop] = (idx ? [] : {}));
+      prop = parts[i];
     }
-    return result[""] || result;
+    cur[prop] = data[p];
+  }
+  return result[""] || result;
 };
 
 // --- Bot Configuration ---
@@ -153,72 +153,72 @@ export const toggleDealFavorite = async (dealId, currentStatus) => {
 // --- Cities ---
 
 export const onCitiesUpdate = (onUpdate, onError) => {
-    return onSnapshot(citiesCollectionRef, (snapshot) => {
-        const citiesData = snapshot.docs.map(doc => ({
-            docId: doc.id,
-            ...doc.data()
-        }));
-        citiesData.sort((a, b) => a.name.localeCompare(b.name));
-        onUpdate(citiesData);
-    }, (error) => {
-        console.error("Error listening to cities:", error);
-        onError(error);
-    });
+  return onSnapshot(citiesCollectionRef, (snapshot) => {
+    const citiesData = snapshot.docs.map(doc => ({
+      docId: doc.id,
+      ...doc.data()
+    }));
+    citiesData.sort((a, b) => a.name.localeCompare(b.name));
+    onUpdate(citiesData);
+  }, (error) => {
+    console.error("Error listening to cities:", error);
+    onError(error);
+  });
 };
 
 export const requestAddCity = (cityName) => {
-    return addCommand('ADD_CITY', cityName);
+  return addCommand('ADD_CITY', cityName);
 };
 
 export const deleteCity = async (docId) => {
-    try {
-        await deleteDoc(doc(citiesCollectionRef, docId));
-    } catch (error) {
-        console.error(`Error deleting city ${docId}:`, error);
-        throw new Error("Erreur lors de la suppression de la ville.");
-    }
+  try {
+    await deleteDoc(doc(citiesCollectionRef, docId));
+  } catch (error) {
+    console.error(`Error deleting city ${docId}:`, error);
+    throw new Error("Erreur lors de la suppression de la ville.");
+  }
 };
 
 export const toggleCityScannable = async (docId, currentStatus) => {
-    try {
-        await updateDoc(doc(citiesCollectionRef, docId), {
-            isScannable: !currentStatus
-        });
-    } catch (error) {
-        console.error(`Error toggling scannable for city ${docId}:`, error);
-        throw new Error("Erreur lors de la mise à jour de la ville.");
-    }
+  try {
+    await updateDoc(doc(citiesCollectionRef, docId), {
+      isScannable: !currentStatus
+    });
+  } catch (error) {
+    console.error(`Error toggling scannable for city ${docId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de la ville.");
+  }
 };
 
 // --- Commands ---
 
 export const addCommand = async (type, payload) => {
-    try {
-        const docRef = await addDoc(commandsCollectionRef, {
-            type: type,
-            payload: payload,
-            status: 'pending',
-            createdAt: new Date()
-        });
-        console.log(`Command ${type} added with ID: ${docRef.id}.`);
-        return docRef;
-    } catch (error) {
-        console.error(`Error adding command ${type}:`, error);
-        throw new Error("Erreur lors de l'envoi de la commande.");
-    }
+  try {
+    const docRef = await addDoc(commandsCollectionRef, {
+      type: type,
+      payload: payload,
+      status: 'pending',
+      createdAt: new Date()
+    });
+    console.log(`Command ${type} added with ID: ${docRef.id}.`);
+    return docRef;
+  } catch (error) {
+    console.error(`Error adding command ${type}:`, error);
+    throw new Error("Erreur lors de l'envoi de la commande.");
+  }
 };
 
 export const onCommandUpdate = (commandId, callback) => {
-    const commandDocRef = doc(commandsCollectionRef, commandId);
-    return onSnapshot(commandDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-            callback(docSnap.data());
-        }
-    }, (error) => {
-        console.error(`Error listening to command ${commandId}:`, error);
-    });
+  const commandDocRef = doc(commandsCollectionRef, commandId);
+  return onSnapshot(commandDocRef, (docSnap) => {
+    if (docSnap.exists()) {
+      callback(docSnap.data());
+    }
+  }, (error) => {
+    console.error(`Error listening to command ${commandId}:`, error);
+  });
 };
 
 export const requestClearLogs = () => {
-    return addCommand('CLEAR_LOGS', null);
+  return addCommand('CLEAR_LOGS', null);
 };

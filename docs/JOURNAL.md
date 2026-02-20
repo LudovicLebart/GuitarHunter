@@ -4,6 +4,49 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 20/02/2026** (Session 13)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de la Configuration / Préparation au Déploiement
+
+#### 📝 Description des Changements
+
+1.  **Uniformisation de la gestion des IDs dans le Frontend :**
+    - **Problème :** Les constantes `PYTHON_USER_ID` et `APP_ID` étaient codées en dur dans `src/services/firestoreService.js`, créant une redondance avec les variables d'environnement déjà présentes dans `.env` et configurées dans `vite.config.js`.
+    - **Solution :** Remplacement des valeurs en dur par `process.env.USER_ID_TARGET` et `process.env.APP_ID_TARGET`.
+    - **Bénéfice :** La configuration est désormais centralisée dans le fichier `.env`, facilitant le déploiement et la maintenance.
+
+#### 🤔 Raisonnement
+
+- Le passage aux variables d'environnement est une bonne pratique indispensable avant un déploiement, assurant que le code reste agnostique de l'environnement et que les identifiants clés peuvent être gérés de manière sécurisée et centralisée.
+
+---
+
+### **Date: 20/02/2026** (Session 12)
+
+**Auteur:** Assistant AI
+
+**Type:** Correction de Bugs (Priorité Haute)
+
+#### 📝 Description des Changements
+
+1.  **Fix Bug #1 — Classifications "Autre" (Frontend + Backend) :**
+    - **Problème :** L'IA inventait des libellés libres (ex: "Fender Stratocaster") qui ne correspondaient pas exactement aux clés de la taxonomie (ex: "Stratocaster"). La fonction `normalize` ne permettait pas de trouver ces classifications.
+    - **Solution :**
+        - Rendu l'instruction de classification plus stricte dans `prompts.json` (demande la valeur exacte d'une feuille de la taxonomie).
+        - Ajout d'une fonction `findPathFuzzy` dans `useDealsManager.js` pour tolérer les variations (recherche par sous-chaîne normalisée).
+
+2.  **Fix Bug #2 — Compteurs de filtres incorrects (Frontend) :**
+    - **Problème :** La boucle de comptage dans `useDealsManager.js` n'incrémentait que les 3 premiers niveaux (`path[0]`, `path[1]`, `path[2]`). Sur une taxonomie à 4 niveaux, la feuille finale n'était jamais comptée, affichant des badges erronés.
+    - **Solution :** Remplacement des affectations dures par une boucle `path.forEach(segment => ...)` pour incrémenter dynamiquement tous les niveaux du chemin de la taxonomie.
+
+#### 🤔 Raisonnement
+
+- Ces deux bugs impactaient fortement l'expérience utilisateur (mauvais comptage, difficulté à filtrer les guitares). En durcissant le backend (prompt) tout en assouplissant le frontend (fuzzy match), on maximise les chances que la classification fonctionne même sur les anciennes annonces.
+
+---
+
 ### **Date: 20/02/2026** (Session 11)
 
 **Auteur:** Assistant AI

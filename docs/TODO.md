@@ -12,11 +12,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [ ] **Corriger le bug relatif aux classifications de Taxonomie**
-    - *Détails :* Incohérences dans la classification des guitares. À investiguer dans `backend/analyzer.py` et les prompts. Lié à l'item "Taxonomie non éditable" (voir section IA).
-
-- [ ] **Corriger le bug de compte des Guitares par taxonomie et vérifier les filtres**
-    - *Détails :* Les compteurs dans la barre de filtres (ex: "Fender (3)") ne correspondent pas à la réalité. Vérifier la logique de comptage dans `src/hooks/useDealsManager.js`.
+*(Aucun bug critique actuellement)*
 
 ---
 

@@ -323,7 +323,7 @@
     "  \"net_guitar_cost\": 100 (Prix demandé - Valeur étui),",
     "  \"resale_potential\": 300 (Valeur estimée après restauration en $CAN),",
     "  \"estimated_gross_margin\": 150 (Potentiel de revente - Prix demandé),",
-    "  \"classification\": \"Catégorie de la taxonomie\",",
+    "  \"classification\": \"VALEUR EXACTE d'une feuille de la TAXONOMIE DE RÉFÉRENCE ci-dessus (ex: 'Stratocaster', 'Jazz Bass (J)', 'Dreadnought Standard'). Copier-coller le libellé exact, NE PAS inventer ni reformuler.\",",
     "  \"confidence\": 0.9 (Score de confiance entre 0 et 1),",
     "  \"analysis\": \"Ton rapport complet au format Markdown (avec titres ###, puces, gras) détaillant l'analyse financière et technique.\"",
     "}"
