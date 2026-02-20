@@ -16,41 +16,41 @@ const ensureArray = (val) => {
   const flatVal = Array.isArray(val) ? val.flat(Infinity) : [val];
   return flatVal
     .flatMap(item => {
-        if (item === null || item === undefined) return [];
-        const str = String(item);
-        return str.split(/\\n|\r\n|\r|\n/);
+      if (item === null || item === undefined) return [];
+      const str = String(item);
+      return str.split(/\\n|\r\n|\r|\n/);
     })
     .map(item => item.trim())
-    .filter(item => item !== ""); 
+    .filter(item => item !== "");
 };
 
 const DEFAULT_MAIN_PROMPT = ensureArray(promptsData.main_analysis_prompt);
 const DEFAULT_GATEKEEPER_INSTRUCTION = ensureArray(promptsData.gatekeeper_verbosity_instruction);
 const DEFAULT_EXPERT_CONTEXT = ensureArray(promptsData.expert_context_instruction);
 const DEFAULT_EXCLUSION_KEYWORDS = [
-    "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum", 
-    "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
+  "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum",
+  "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ];
 
 export const useBotConfig = (user) => {
   const [configStatus, setConfigStatus] = useState({ status: 'pending', msg: 'En attente' });
   const [error, setError] = useState(null);
-  
+
   // --- NOUVELLE GESTION DE LA CONFIGURATION ---
   const [scanConfig, setScanConfig] = useState({
-      max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
+    max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
   const [exclusionKeywords, setExclusionKeywords] = useState(DEFAULT_EXCLUSION_KEYWORDS);
-  
+
   // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
-      gatekeeperModel: 'gemini-2.5-flash-lite',
-      expertModel: 'gemini-2.5-flash',
-      mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
-      gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-      expertContextInstruction: DEFAULT_EXPERT_CONTEXT
+    gatekeeperModel: 'gemini-2.5-flash-lite',
+    expertModel: 'gemini-2.5-flash',
+    mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
+    gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
+    expertContextInstruction: DEFAULT_EXPERT_CONTEXT
   });
-  
+
   // Nouvel état pour stocker la liste des modèles disponibles reçue du backend
   const [availableModels, setAvailableModels] = useState([]);
 
@@ -70,15 +70,15 @@ export const useBotConfig = (user) => {
     const handleUpdate = (data) => {
       console.log("🔄 useBotConfig: Received update from Firestore", data);
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
-      
+
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
-      
+
       // Récupération des modèles disponibles
       if (data.availableModels && Array.isArray(data.availableModels)) {
-          setAvailableModels(data.availableModels);
+        setAvailableModels(data.availableModels);
       }
-      
+
       // Fusionne la config d'analyse pour ne pas écraser les champs non gérés par l'UI
       if (data.analysisConfig) {
         console.log("📝 Updating analysisConfig from Firestore data");
@@ -92,15 +92,15 @@ export const useBotConfig = (user) => {
       }
 
       if (data.logLimit) {
-          setLogLimit(data.logLimit);
+        setLogLimit(data.logLimit);
       }
-      
+
       if (data.botStatus) setBotStatus(data.botStatus);
 
       if (data.scanError) {
         setError(data.scanError);
       } else if (error && error.startsWith("Ville")) {
-         setError(null);
+        setError(null);
       }
     };
 
@@ -118,8 +118,8 @@ export const useBotConfig = (user) => {
     try {
       console.log("💾 Saving config...", newVal);
       await updateUserConfig(newVal);
-    } catch (e) { 
-      setError(e.message); 
+    } catch (e) {
+      setError(e.message);
     }
   }, []);
 
@@ -141,11 +141,11 @@ export const useBotConfig = (user) => {
 
   const handleRelaunchAll = useCallback(async () => {
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment relancer l'analyse IA pour TOUTES les annonces ?")) {
-        try {
-            await triggerRelaunchAll();
-        } catch (e) {
-            setError(e.message);
-        }
+      try {
+        await triggerRelaunchAll();
+      } catch (e) {
+        setError(e.message);
+      }
     }
   }, []);
 
@@ -161,26 +161,30 @@ export const useBotConfig = (user) => {
 
   const handleResetDefaults = useCallback(async () => {
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
-      const defaults = {
-        exclusionKeywords: DEFAULT_EXCLUSION_KEYWORDS,
-        analysisConfig: {
-            gatekeeperModel: 'gemini-2.5-flash-lite',
-            expertModel: 'gemini-2.5-flash',
-            mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
-            gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-            expertContextInstruction: DEFAULT_EXPERT_CONTEXT
-        },
-        logLimit: 100
+      const defaultAnalysis = {
+        gatekeeperModel: 'gemini-2.5-flash-lite',
+        expertModel: 'gemini-2.5-flash',
+        mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
+        gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
+        expertContextInstruction: DEFAULT_EXPERT_CONTEXT
       };
-      
-      setExclusionKeywords(defaults.exclusionKeywords);
-      setAnalysisConfig(defaults.analysisConfig);
-      setLogLimit(defaults.logLimit);
+
+      setExclusionKeywords(DEFAULT_EXCLUSION_KEYWORDS);
+      setAnalysisConfig(defaultAnalysis);
+      setLogLimit(100);
 
       try {
-        // On envoie l'objet complet pour écraser la config existante
-        await updateUserConfig(defaults);
-      } catch(e) {
+        await updateUserConfig({
+          exclusionKeywords: DEFAULT_EXCLUSION_KEYWORDS,
+          'analysisConfig.gatekeeperModel': defaultAnalysis.gatekeeperModel,
+          'analysisConfig.expertModel': defaultAnalysis.expertModel,
+          'analysisConfig.mainAnalysisPrompt': defaultAnalysis.mainAnalysisPrompt,
+          'analysisConfig.gatekeeperVerbosityInstruction': defaultAnalysis.gatekeeperVerbosityInstruction,
+          'analysisConfig.expertContextInstruction': defaultAnalysis.expertContextInstruction,
+          logLimit: 100
+        });
+      } catch (e) {
+        console.error("Erreur lors du reset:", e);
         setError(e.message);
       }
     }
