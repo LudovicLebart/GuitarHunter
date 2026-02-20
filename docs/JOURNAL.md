@@ -4,6 +4,29 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 20/02/2026** (Session 14)
+
+**Auteur:** Assistant AI
+
+**Type:** Audit Complet du Projet (Full Stack)
+
+#### 📝 Description des Changements
+
+1.  **Analyse globale des flux de données et de l'architecture :**
+    - Réalisation d'un audit de bas en haut (Scrapers -> Core Logic -> IA -> Base de données -> Frontend).
+    - Mise à jour de `docs/TODO.md` avec de nouvelles priorités de pointe (dette technique cachée).
+    - Mise à jour de `docs/ARCHITECTURE.md` pour refléter la situation réelle des flux de commandes.
+
+2.  **Identifications Clés (Dette Technique ajoutée au TODO) :**
+    - **Architecture de Commandes Hybride :** Le backend écoute à la fois des champs horodatés sur `users/{id}` (legacy) et des documents dans la collection `commands` (nouveau). Cela crée une complexité inutile.
+    - **Logique de Rejet Hardcodée :** Le composant `DealAnalyzer` filtre les annonces en lisant en dur une liste de "verdicts de rejet" (`BAD_DEAL`, `REJECTED_ITEM`, etc.). Si la taxonomie en frontend/prompts évolue, le backend devient aveugle sans mise à jour du code source.
+    - **Fragilité du Scraper :** La détection d'une annonce vendue sur Playwright se fie à une expression exacte ("Cette annonce n’est plus disponible"), ce qui est très cassable.
+
+#### 🤔 Raisonnement
+
+- Il est vital de de temps à autre "dézoomer" de la résolution de bugs isolés pour analyser les tendances de l'architecture. Ces découvertes empêchent qu'un simple changement de configuration (ex: renommage d'un statut dans l'UI) ne fasse tomber tout le backend silencieusement.
+
+---
 ### **Date: 20/02/2026** (Session 13)
 
 **Auteur:** Assistant AI
