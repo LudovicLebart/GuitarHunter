@@ -87,9 +87,6 @@ Ce système permet de modifier le comportement de l'IA sans redéployer le code,
 | `src/hooks/useBotConfig.js` | Charge les défauts, synchronise avec Firestore, expose l'état | ✅ Actif |
 | `src/services/firestoreService.js` | Couche de persistence Firestore (`updateUserConfig`) | ✅ Actif |
 | `src/components/ConfigPanel.jsx` | Éditeur de prompts UI (composant `PromptListEditor`) | ✅ Actif |
-| `backend/prompt_manager.py` | Classe `PromptManager` (assemblage de prompts à 5 blocs) | ⚠️ **Orphelin — Non utilisé** |
-| `prompts.json` → clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `system_structure` | Blocs de l'ancienne architecture modulaire | ⚠️ **Obsolètes — Non lus** |
-| `config.py` → constantes `PROMPT_INSTRUCTION`, `DEFAULT_VERDICT_RULES`, `DEFAULT_REASONING_INSTRUCTION`, `DEFAULT_USER_PROMPT` | Constantes legacy de l'ancienne architecture | ⚠️ **Obsolètes — Non utilisées** |
 
 ---
 
@@ -154,19 +151,17 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 
 ---
 
-### 4.5 Code Mort et Dette Technique
+### 4.5 Dette Technique Restante (Architecture)
 
--  **`backend/prompt_manager.py`** : La classe `PromptManager` (architecture "5 blocs" : `persona`, `verdict_rules`, `reasoning_instruction`, `taxonomy`, `json_format`) a été remplacée par le prompt monolithique `main_analysis_prompt`. Elle n'est **instanciée nulle part** dans le code actif.
--  **`prompts.json`** : Les clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, et `system_structure` sont chargées dans `config.py` en tant que **constantes legacy** mais ne sont plus injectées dans aucune analyse.
 -  **Taxonomie non éditable** : `DEFAULT_TAXONOMY` est chargée depuis `prompts.json` au démarrage de Python et est toujours **injectée en dur** dans `analyzer.py`. Elle n'est pas exposée dans l'interface de configuration et ne peut pas être modifiée via Firestore.
+-  **Logique de rejet en dur** : Le composant `DealAnalyzer` vérifie les verdicts du portier avec des chaînes de caractères `if gatekeeper_status in ['BAD_DEAL', ...]`.
 
 ---
 
 ### 4.6 Avantages & Risques
 
-- **(+) Flexibilité :** Modification du comportement de l'IA sans redéploiement du backend.
+- **(+) Flexibilité :** Modification du comportement de l'IA (et ajout d'exemples Few-Shot) sans redéploiement du backend.
 - **(+) Robustesse :** Double fallback (Frontend statique + Backend statique) garantit que l'IA ne reste jamais sans prompt.
-- **(+) Éditeur Ligne par Ligne :** Le composant `PromptListEditor` permet une édition intuitive (ajout, suppression, réordonancement de lignes).
-- **(-) Risque de Casse :** L'utilisateur peut supprimer les instructions de format JSON critiques dans `mainAnalysisPrompt`, rendant les réponses de l'IA non parsables. Aucune validation n'est en place.
+- **(+) Éditeur Ligne par Ligne :** Le composant `PromptListEditor` permet une édition intuitive.
+- **(-) Risque de Casse :** L'utilisateur peut supprimer les instructions de format JSON critiques dans `mainAnalysisPrompt`, rendant les réponses de l'IA non parsables.
 - **(-) Taxonomie non éditable :** La taxonomie (liste des types de guitares) est statique et non modifiable via l'interface.
-- **(-) Code mort :** `PromptManager` et les clés obsolètes de `prompts.json` augmentent la complexité perçue sans apporter de valeur.

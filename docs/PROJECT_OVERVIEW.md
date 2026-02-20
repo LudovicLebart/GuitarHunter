@@ -25,6 +25,7 @@ Guitar Hunter AI est une application automatisée conçue pour surveiller, analy
 3. **Analyse IA:**
    - **Portier (Gatekeeper):** Modèle rapide (Gemini Flash-Lite) pour filtrer le "bruit" et les erreurs.
    - **Expert:** Modèle puissant (Gemini Pro/Flash) pour une estimation financière détaillée si le Portier valide.
+   - **Guidance IA:** Utilisation de *Few-Shot Prompting* (exemples injectés) et de *Chain-of-Thought* (raisonnement forcé avant le verdict final) pour garantir la fiabilité des analyses JSON.
 4. **Stockage:** Les résultats sont poussés dans Firestore (`guitar_deals`).
 5. **Affichage:** Le Frontend écoute Firestore en temps réel et affiche les résultats sous forme de cartes interactives.
 6. **Actions:** L'utilisateur interagit (Favori, Rejet, Réanalyse) via le Frontend, qui écrit des commandes dans Firestore (`commands`), écoutées par le Backend.
