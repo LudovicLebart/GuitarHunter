@@ -50,6 +50,7 @@ DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
 DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
 DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
 DEFAULT_TAXONOMY = prompts_data.get('taxonomy_guitares', {})
+DEFAULT_FEW_SHOT_EXAMPLES = prompts_data.get('few_shot_examples', [])
 
 # --- MOTS-CLÉS D'EXCLUSION ---
 DEFAULT_EXCLUSION_KEYWORDS = [
