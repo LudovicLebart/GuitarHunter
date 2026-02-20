@@ -46,6 +46,65 @@ const ReanalysisMenu = ({ onRetry, onForceExpert, onClose, buttonRef }) => {
   );
 };
 
+// Composant interne pour l'affichage du prix et des détails financiers
+const PriceDisplay = ({ deal, showFinanceDetails, setShowFinanceDetails }) => {
+    const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
+    const netCost = deal.aiAnalysis?.net_guitar_cost;
+    const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
+    const estimatedValue = deal.aiAnalysis?.estimated_value;
+    const repairCost = netCost !== undefined ? netCost - parseInt(deal.price) : 0;
+
+    return (
+        <div className="flex flex-col items-start text-left gap-1 shrink-0 w-full">
+            <div 
+                className="flex items-center gap-1 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-xl cursor-pointer w-fit"
+                onClick={() => setShowFinanceDetails(!showFinanceDetails)}
+            >
+                <span className="text-lg font-black tabular-nums">{deal.price} $</span>
+                <ChevronDown size={14} className={`transition-transform text-slate-400 ${showFinanceDetails ? 'rotate-180' : ''}`} />
+            </div>
+
+            {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
+            <div className="flex flex-col gap-1 text-xs font-bold mt-1 text-slate-500 w-full">
+                {estimatedValue > 0 && (
+                    <div className="flex items-center gap-1">
+                        <Activity size={12} className="shrink-0" /> <span className="truncate">Val: <span className="font-black">{estimatedValue}$</span></span>
+                    </div>
+                )}
+                {resalePotential > 0 && (
+                    <div className="flex items-center gap-1 text-purple-600">
+                        <TrendingUp size={12} className="shrink-0" /> <span className="truncate">Max: <span className="font-black">{resalePotential}$</span></span>
+                    </div>
+                )}
+            </div>
+
+            {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
+            {showFinanceDetails && (
+                <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2 z-20 relative">
+                    {netCost !== undefined && (
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net</span>
+                            <span className="font-black text-sky-600">{netCost}$</span>
+                        </div>
+                    )}
+                    {repairCost > 0 && (
+                         <div className="flex justify-between items-center text-xs pl-4">
+                            <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Répar.</span>
+                            <span className="font-bold text-orange-500">{repairCost}$</span>
+                        </div>
+                    )}
+                    {grossMargin !== undefined && (
+                        <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                            <span className="flex items-center gap-1"><Calculator size={14} /> Marge</span>
+                            <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
   const [copied, setCopied] = useState(false);
@@ -89,18 +148,25 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
     setIsReanalysisMenuOpen(false);
   };
 
-  // --- NOUVEAUX CHAMPS CALCULÉS ---
-  const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
-  const netCost = deal.aiAnalysis?.net_guitar_cost;
-  const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
   const isLuthierProject = deal.aiAnalysis?.verdict === 'LUTHIER_PROJ';
-  const estimatedValue = deal.aiAnalysis?.estimated_value;
-  const repairCost = netCost - parseInt(deal.price);
 
 
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
-      <div className="md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
+      
+      {/* --- MOBILE HEADER (Image + Prix) --- */}
+      <div className="md:hidden w-full flex p-4 pb-0 gap-4">
+        <div className="w-1/2 h-40 shrink-0 relative bg-slate-100 rounded-2xl overflow-hidden">
+            <div className="h-full w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
+            <div className="absolute top-2 left-2 z-10 pointer-events-none scale-75 origin-top-left"><VerdictBadge verdict={deal.aiAnalysis?.verdict} /></div>
+        </div>
+        <div className="flex-1 pt-1 min-w-0">
+             <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
+        </div>
+      </div>
+
+      {/* --- DESKTOP SIDEBAR (Image Sticky) --- */}
+      <div className="hidden md:block md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
         <div className="h-64 md:h-80 w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
         <div className="absolute top-4 left-4 z-10 pointer-events-none"><VerdictBadge verdict={deal.aiAnalysis?.verdict} /></div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
@@ -108,63 +174,22 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
 
       <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none">
         <div className="flex flex-col gap-4 mb-2">
+          
+          {/* --- DESKTOP PRICE (Au-dessus du titre) --- */}
+          <div className="hidden md:block">
+            <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
+          </div>
+
           <div className="flex-1">
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1"><MapPin size={10} /> {deal.location || 'Québec'}</div>
-            <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
+            <h2 className="text-xl md:text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
             
             <div className="flex flex-wrap gap-2 mt-2">
                 {deal.aiAnalysis?.classification && (<div className="flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
                 {isLuthierProject && (<div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-xs font-bold"><Hammer size={12} /><span>Travaux Requis</span></div>)}
             </div>
           </div>
-          
-          <div className="flex flex-col items-start text-left gap-1 shrink-0">
-            <div 
-                className="flex items-center gap-1 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-xl cursor-pointer"
-                onClick={() => setShowFinanceDetails(!showFinanceDetails)}
-            >
-                <span className="text-lg font-black tabular-nums">{deal.price} $</span>
-                <ChevronDown size={14} className={`transition-transform text-slate-400 ${showFinanceDetails ? 'rotate-180' : ''}`} />
-            </div>
 
-            {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
-            <div className="flex items-center gap-3 text-xs font-bold mt-1 text-slate-500">
-                {estimatedValue > 0 && (
-                    <div className="flex items-center gap-1">
-                        <Activity size={12} /> Val. Actuelle: <span className="font-black">{estimatedValue}$</span>
-                    </div>
-                )}
-                {resalePotential > 0 && (
-                    <div className="flex items-center gap-1 text-purple-600">
-                        <TrendingUp size={12} /> Potentiel Max: <span className="font-black">{resalePotential}$</span>
-                    </div>
-                )}
-            </div>
-
-            {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
-            {showFinanceDetails && (
-                <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2">
-                    {netCost !== undefined && (
-                        <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net Est.</span>
-                            <span className="font-black text-sky-600">{netCost}$</span>
-                        </div>
-                    )}
-                    {repairCost > 0 && (
-                         <div className="flex justify-between items-center text-xs pl-4">
-                            <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Dont réparations</span>
-                            <span className="font-bold text-orange-500">{repairCost}$</span>
-                        </div>
-                    )}
-                    {grossMargin !== undefined && (
-                        <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                            <span className="flex items-center gap-1"><Calculator size={14} /> Marge Brute Est.</span>
-                            <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
         </div>
 
         <div className="relative mb-6">

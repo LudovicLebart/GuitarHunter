@@ -4,6 +4,53 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 24/05/2024** (Session 9)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Ajustement de la largeur de l'image sur mobile:**
+    - **Problème:** La largeur de l'image sur mobile (`w-32`) était trop étroite.
+    - **Solution:** La largeur du conteneur de l'image est passée à `w-1/2` (50% de la largeur de la carte), offrant un meilleur équilibre visuel avec le bloc de prix qui occupe les 50% restants.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- Cet ajustement répond à la demande de donner plus d'importance à l'image sur mobile, tout en conservant une disposition en deux colonnes compacte.
+
+---
+
+### **Date: 24/05/2024** (Session 8)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Refonte de la structure de la `DealCard` (Mobile First):**
+    - **Problème:** La disposition précédente ne satisfaisait pas les besoins spécifiques de l'affichage mobile (image complète, compacité) et desktop (hiérarchie claire).
+    - **Solution:** Une approche "Mobile First" avec deux structures distinctes a été implémentée :
+        - **Mobile (`md:hidden`):** Un en-tête compact affiche l'image (largeur fixe `w-32`) et le bloc de prix côte à côte. Le titre et les détails suivent en dessous.
+        - **Desktop (`hidden md:block`):** La disposition classique en deux colonnes est conservée, avec l'image "sticky" à gauche. Dans la colonne de droite, le bloc de prix est positionné au-dessus du titre pour une meilleure hiérarchie.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+2.  **Création du composant `PriceDisplay`:**
+    - **Action:** La logique d'affichage du prix et du menu déroulant financier a été extraite dans un sous-composant `PriceDisplay`. Cela permet de l'utiliser à deux endroits différents dans le code (header mobile et colonne desktop) sans dupliquer la logique complexe.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+3.  **Retour à l'affichage complet des images:**
+    - **Action:** Annulation du changement `object-cover` dans `ImageGallery.jsx`. Les images sont de nouveau affichées en entier (`object-contain`) pour ne perdre aucun détail de l'instrument.
+
+#### 🤔 Raisonnement
+
+- Cette solution hybride offre le meilleur des deux mondes : une expérience mobile optimisée pour la densité d'information et une expérience desktop riche et structurée. L'extraction du composant `PriceDisplay` maintient le code propre et maintenable malgré la duplication structurelle.
+
+---
+
 ### **Date: 24/05/2024** (Session 6)
 
 **Auteur:** Assistant AI

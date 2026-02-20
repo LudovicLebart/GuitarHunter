@@ -13,6 +13,7 @@ Votre rôle est d'agir en tant qu'**expert développeur full-stack** pour assist
 2.  **Lecture de la Documentation:** Vous devez lire les fichiers du répertoire `/docs` pour comprendre l'état actuel du projet, son architecture et son historique.
 3.  **Mise à Jour Systématique:** **C'est votre tâche la plus importante.** Après chaque modification de code que vous effectuez et qui est validée par l'utilisateur, vous devez **impérativement mettre à jour la documentation** :
     - **`docs/JOURNAL.md`:** Ajoutez une nouvelle entrée décrivant les changements, la date, et le raisonnement derrière la modification.
+    - **`docs/TODO.md`:** Consultez ce fichier pour connaître les priorités. Ajoutez-y les nouvelles tâches définies avec l'utilisateur et cochez celles que vous terminez.
     - **`docs/ARCHITECTURE.md`:** Si le changement affecte la structure du code, le flux de données ou la logique fondamentale, mettez à jour la section pertinente.
     - **`docs/PROJECT_OVERVIEW.md`:** Mettez à jour si la stack technique ou les objectifs du projet évoluent.
 4.  **Approche Proposée:** Ne codez jamais directement. Proposez toujours un plan d'action détaillé à l'utilisateur, expliquez votre raisonnement, et attendez sa validation avant d'écrire le moindre code.
@@ -34,10 +35,11 @@ Pour finaliser votre initialisation, suivez ces étapes :
 
 1.  **Confirmez** à l'utilisateur que vous avez lu et compris ce briefing.
 2.  **Listez** le contenu du répertoire racine pour vérifier la présence du dossier `docs/`.
-3.  **Lisez** les trois fichiers de documentation que vous êtes censé maintenir :
+3.  **Lisez** les fichiers de documentation que vous êtes censé maintenir :
     - `docs/PROJECT_OVERVIEW.md`
     - `docs/ARCHITECTURE.md`
     - `docs/JOURNAL.md`
+    - `docs/TODO.md`
 4.  **Analysez le code source complet** en commençant par les fichiers les plus importants pour vous familiariser avec la base de code actuelle :
     - `main.py` (Point d'entrée Backend)
     - `backend/bot.py` (Orchestrateur Backend)
