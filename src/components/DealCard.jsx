@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign, ChevronDown, Calculator } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
@@ -61,6 +61,8 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   const [isReanalysisMenuOpen, setIsReanalysisMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const reanalysisButtonRef = useRef(null);
+  const [showFinanceDetails, setShowFinanceDetails] = useState(false);
+
 
   const handleShare = (e) => {
     e.preventDefault();
@@ -73,7 +75,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   };
 
   const getModelName = (deal) => {
-    if (['analyzing', 'retry_analysis', 'retry_analysis_expert'].includes(deal.status)) {
+    if (['analyzing', 'retry_analysis', 'retry_analysis_expert', 'analyzing_expert'].includes(deal.status)) {
       return 'Analyse en cours...';
     }
     if (deal.aiAnalysis?.model_used) {
@@ -87,7 +89,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
 
   const modelName = getModelName(deal);
   const isExpertAnalysis = modelName.includes('pro') || modelName.includes('expert');
-  const isAnalyzing = ['retry_analysis', 'retry_analysis_expert', 'analyzing'].includes(deal.status);
+  const isAnalyzing = ['retry_analysis', 'retry_analysis_expert', 'analyzing', 'analyzing_expert'].includes(deal.status);
 
   const handleReanalysisButtonClick = () => {
     if (reanalysisButtonRef.current) {
@@ -111,6 +113,9 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   const netCost = deal.aiAnalysis?.net_guitar_cost;
   const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
   const isLuthierProject = deal.aiAnalysis?.verdict === 'LUTHIER_PROJ';
+  const estimatedValue = deal.aiAnalysis?.estimated_value;
+  const repairCost = netCost - parseInt(deal.price);
+
 
   return (
     <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
@@ -132,27 +137,61 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
             </div>
           </div>
           
-          <div className="text-right flex flex-col items-end gap-1">
-            <div className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl"><span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span><span className="text-2xl font-black tabular-nums">{deal.price} $</span></div>
-            
-            {/* --- NOUVEAUX INDICATEURS FINANCIERS --- */}
-            {grossMargin > 0 && deal.status !== 'rejected' && (
-                <div className="text-emerald-600 flex items-center gap-1 font-bold text-xs bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-100">
-                    <TrendingUp size={12} /> Marge Est.: +{grossMargin}$
+          <div className="text-right flex flex-col items-end gap-1 shrink-0">
+            <div className="flex items-center gap-2">
+                <div 
+                    className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl cursor-pointer"
+                    onClick={() => setShowFinanceDetails(!showFinanceDetails)}
+                >
+                    <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
+                    <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
                 </div>
-            )}
-            
-            {netCost !== undefined && netCost < parseInt(deal.price) && deal.status !== 'rejected' && (
-                <div className="text-sky-600 flex items-center gap-1 font-bold text-xs bg-sky-50 px-2 py-1 rounded-lg border border-sky-100">
-                    <DollarSign size={12} /> Coût Net: {netCost}$
-                </div>
-            )}
+                <button 
+                    onClick={() => setShowFinanceDetails(!showFinanceDetails)} 
+                    className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors"
+                >
+                    <ChevronDown size={16} className={`transition-transform ${showFinanceDetails ? 'rotate-180' : ''}`} />
+                </button>
+            </div>
 
-            {/* Fallback pour les anciennes annonces ou affichage complémentaire */}
-            {!grossMargin && deal.aiAnalysis?.estimated_value && deal.status !== 'rejected' && (<div className="text-slate-500 flex items-center gap-1 font-bold text-xs bg-slate-50 px-2 py-1 rounded-lg"><Activity size={12} /> Val. Est: {deal.aiAnalysis.estimated_value}$</div>)}
-            
-            {resalePotential > 0 && deal.status !== 'rejected' && !grossMargin && (<div className="text-purple-600 flex items-center gap-1 font-bold text-xs bg-purple-50 px-2 py-1 rounded-lg"><Activity size={12} /> Potentiel: {resalePotential}$</div>)}
-          </div>
+            {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
+            <div className="flex items-center gap-3 text-xs font-bold mt-1 text-slate-500">
+                {estimatedValue > 0 && (
+                    <div className="flex items-center gap-1">
+                        <Activity size={12} /> Val. Actuelle: <span className="font-black">{estimatedValue}$</span>
+                    </div>
+                )}
+                {resalePotential > 0 && (
+                    <div className="flex items-center gap-1 text-purple-600">
+                        <TrendingUp size={12} /> Potentiel Max: <span className="font-black">{resalePotential}$</span>
+                    </div>
+                )}
+            </div>
+
+            {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
+            {showFinanceDetails && (
+                <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2">
+                    {netCost !== undefined && (
+                        <div className="flex justify-between items-center text-xs">
+                            <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net Est.</span>
+                            <span className="font-black text-sky-600">{netCost}$</span>
+                        </div>
+                    )}
+                    {repairCost > 0 && (
+                         <div className="flex justify-between items-center text-xs pl-4">
+                            <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Dont réparations</span>
+                            <span className="font-bold text-orange-500">{repairCost}$</span>
+                        </div>
+                    )}
+                    {grossMargin !== undefined && (
+                        <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                            <span className="flex items-center gap-1"><Calculator size={14} /> Marge Brute Est.</span>
+                            <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
         </div>
 
         <div className="relative mb-6">
