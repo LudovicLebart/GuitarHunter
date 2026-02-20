@@ -4,6 +4,22 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 20/02/2026** (Session 14 - Suite 2)
+
+**Auteur:** Assistant AI
+
+**Type:** Correction de Bug (Frontend / Firestore)
+
+#### 📝 Description des Changements
+- **Fix Bug #3 — Le bouton "Reset" corrompait Firestore :**
+    - **Problème :** Bien que la sauvegarde champ par champ ait été corrigée hier (utilisation de la notation par point `updateDoc` avec `analysisConfig.mainAnalysisPrompt`), la fonction `handleResetDefaults` envoyait encore l'objet imbriqué entier `{ analysisConfig: { ... } }`. Cela entraînait un fallback de `firestoreService` sur l'ancienne méthode `setDoc` qui écrasait silencieusement la racine du document.
+    - **Solution :** Refonte de `handleResetDefaults` dans `useBotConfig.js` pour construire un objet plat utilisant la notation par point avant de l'envoyer à `updateUserConfig`. La réinitialisation utilise désormais la même méthode d'écriture chirurgicale que les sauvegardes manuelles.
+
+#### 🤔 Raisonnement
+Cette asymétrie entre la sauvegarde ligne-par-ligne et la réinitialisation globale était un reste de l'ancienne architecture. Maintenant, toutes les opérations de mise à jour utilisent systématiquement la notation par point de Firestore pour garantir l'intégrité des autres données du document.
+
+---
+
 ### **Date: 20/02/2026** (Session 14 - Suite)
 
 **Auteur:** Assistant AI
