@@ -4,6 +4,21 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 20/02/2026** (Session 14 - Suite)
+
+**Auteur:** Assistant AI
+
+**Type:** Nettoyage de Dette Technique
+
+#### 📝 Description des Changements
+- **Suppression du code mort :** Le fichier `backend/prompt_manager.py`, qui contenait l'ancienne architecture de prompts à 5 blocs inutilisée, a été retiré du projet (via `git rm`).
+- **Nettoyage des configurations obsolètes :** Les anciennes clés (`persona`, `verdict_rules`, `system_structure`, etc.) ont été supprimées de `prompts.json` et de `config.py` pour alléger le code et éviter toute confusion future.
+
+#### 🤔 Raisonnement
+Le projet évolue avec succès vers un système d'analyse IA en cascade et paramétrable. Supprimer le code inactif (le vieux `PromptManager` monolithique) et nettoyer les résidus dans les configurations garantit que l'architecture reste claire et facile à comprendre pour les futures itérations.
+
+---
+
 ### **Date: 20/02/2026** (Session 14)
 
 **Auteur:** Assistant AI

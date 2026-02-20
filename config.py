@@ -45,9 +45,12 @@ except Exception as e:
     print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
     prompts_data = {}
 
-# --- EXPORTATION DES DONNÉES BRUTES ---
-# C'est ce dictionnaire qui sera utilisé par analyzer.py pour l'assemblage dynamique
-DEFAULT_PROMPTS = prompts_data
+# --- NOUVELLES CONSTANTES POUR LA CASCADE ---
+DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
+DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
+DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
+DEFAULT_TAXONOMY = prompts_data.get('taxonomy_guitares', {})
+DEFAULT_FEW_SHOT_EXAMPLES = prompts_data.get('few_shot_examples', [])
 
 # --- MOTS-CLÉS D'EXCLUSION ---
 DEFAULT_EXCLUSION_KEYWORDS = [
@@ -55,14 +58,4 @@ DEFAULT_EXCLUSION_KEYWORDS = [
     "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ]
 
-# --- CONSTANTES LEGACY (Restaurées pour compatibilité UI/Reset) ---
-DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
-DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
-DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
-DEFAULT_TAXONOMY = prompts_data.get('taxonomy_guitares', {})
 
-# --- CONSTANTES MODULAIRES (Pour compatibilité si nécessaire) ---
-PROMPT_INSTRUCTION = prompts_data.get('persona', [])
-DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
-DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
-DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])

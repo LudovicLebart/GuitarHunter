@@ -5,7 +5,7 @@ import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
-from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY
+from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY, DEFAULT_FEW_SHOT_EXAMPLES
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,18 @@ class DealAnalyzer:
         match = re.search(r'```json\s*([\s\S]*?)\s*```', text_response)
         return match.group(1).strip() if match else text_response.strip()
 
-    def _construct_user_prompt(self, listing_data, main_prompt_template, taxonomy_data, for_gatekeeper=False):
+    def _construct_user_prompt(self, listing_data, main_prompt_template, taxonomy_data, few_shot_examples=None, for_gatekeeper=False):
         """Construit le prompt utilisateur."""
         
         prompt_lines = main_prompt_template if isinstance(main_prompt_template, list) else str(main_prompt_template).split('\n')
         
         # On envoie TOUJOURS le prompt complet, même au Portier, pour qu'il ait les définitions des verdicts.
         main_prompt_str = "\n".join(prompt_lines)
+        
+        examples_str = ""
+        if few_shot_examples:
+            examples_lines = few_shot_examples if isinstance(few_shot_examples, list) else str(few_shot_examples).split('\n')
+            examples_str = "\n".join(examples_lines) + "\n\n"
 
         # Injection de la taxonomie
         taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False)
@@ -71,6 +76,7 @@ class DealAnalyzer:
             f"{main_prompt_str}\n\n"
             f"### TAXONOMIE DE RÉFÉRENCE\n"
             f"{taxonomy_str}\n\n"
+            f"{examples_str}"
             f"Détails de l'annonce :\n"
             f"- Titre : {listing_data.get('title', 'N/A')}\n"
             f"- Prix : {listing_data.get('price', 'N/A')}\n"
@@ -88,6 +94,7 @@ class DealAnalyzer:
         
         # Récupération de la taxonomie (soit depuis Firestore si dispo, sinon par défaut)
         taxonomy = DEFAULT_TAXONOMY
+        few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
         
         logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
@@ -95,7 +102,7 @@ class DealAnalyzer:
         images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
 
         # Prompt complet pour l'expert
-        base_prompt_expert = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, for_gatekeeper=False)
+        base_prompt_expert = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples=few_shot_examples, for_gatekeeper=False)
         
         gatekeeper_status, gatekeeper_reason = "MANUAL_RETRY", "Analyse experte demandée manuellement."
 
@@ -106,7 +113,7 @@ class DealAnalyzer:
                 return {"verdict": "ERROR", "reasoning": "Modèle Portier non disponible.", "model_used": gatekeeper_model_name}
             
             # Prompt complet pour le portier aussi
-            base_prompt_gatekeeper = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, for_gatekeeper=True)
+            base_prompt_gatekeeper = self._construct_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples=few_shot_examples, for_gatekeeper=True)
             
             try:
                 # On ajoute l'instruction de concision à la fin pour forcer un JSON court
