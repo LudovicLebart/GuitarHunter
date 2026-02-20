@@ -32,8 +32,8 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **Responsabilité unique:** Analyser une annonce.
 - **`analyze_deal(listing_data, force_expert=False)`:**
   - **Cascade d'analyse:**
-    1. **Portier (Gatekeeper):** Un modèle Gemini rapide et peu coûteux est appelé en premier pour rejeter le "bruit" (services, annonces non pertinentes).
-    2. **Expert:** Si le portier valide l'annonce (ou si `force_expert=True`), un modèle plus puissant est appelé pour une analyse financière détaillée (estimation de valeur, coût de réparation, marge, etc.).
+    1. **Portier (Gatekeeper):** Un modèle Gemini rapide et peu coûteux est appelé en premier. **IMPORTANT :** Il reçoit le même prompt complet que l'Expert (taxonomie, critères) car il doit effectuer une analyse visuelle fine pour détecter les contrefaçons (ex: Chibson) et filtrer le bruit. Son rôle est de trancher rapidement mais intelligemment.
+    2. **Expert:** Si le portier valide l'annonce (ou si `force_expert=True`), un modèle plus puissant est appelé pour valider le verdict du Portier et fournir une analyse financière détaillée (estimation de valeur, coût de réparation, marge, etc.).
   - **Gestion des images:** Télécharge, optimise et envoie les images à Gemini Vision.
   - **Formatage:** Construit le prompt utilisateur et s'attend à recevoir une réponse JSON structurée.
 
@@ -67,3 +67,41 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   - Affiche les résultats de l'analyse IA (`deal.aiAnalysis`).
   - Contient un module financier interactif pour afficher les estimations de valeur, de coût et de marge.
   - Les boutons d'action (Rejeter, Réanalyser) appellent les fonctions passées en props, qui remontent jusqu'à `useDealsManager` puis `firestoreService`.
+
+## 4. 🧠 Système de Prompts Dynamiques
+
+Le système permet de modifier le comportement de l'IA sans redéployer le code, grâce à une synchronisation via Firestore.
+
+### Sources de Données
+1.  **`prompts.json` (Statique):** Contient les prompts par défaut, la taxonomie des guitares et les instructions de formatage. C'est la configuration "usine".
+2.  **Firestore `users/{userID}` (Dynamique):** Contient les surcharges de configuration définies par l'utilisateur via l'interface.
+
+### Flux de Modification
+1.  **Édition:** L'utilisateur modifie les prompts dans le `ConfigPanel` du frontend.
+2.  **Sauvegarde:** Les modifications sont envoyées à Firestore (`updateUserConfig`).
+3.  **Consommation:**
+    - Le backend récupère la configuration Firestore avant chaque analyse.
+    - Il fusionne les valeurs dynamiques avec les valeurs par défaut (si nécessaire).
+    - Il construit le prompt final en assemblant : `Main Prompt` + `Taxonomie` + `Données Annonce` + `Instructions Spécifiques` (Portier ou Expert).
+
+### Structure du Prompt Assemblé
+Le prompt envoyé à Gemini est construit dynamiquement dans `backend/analyzer.py` :
+```python
+[Main Analysis Prompt (Configurable)]
++
+### TAXONOMIE DE RÉFÉRENCE
+[JSON Taxonomie (Statique pour l'instant)]
++
+Détails de l'annonce :
+- Titre : ...
+- Prix : ...
+...
++
+[Instruction Spécifique (Portier ou Expert)]
+```
+
+### Avantages & Inconvénients
+- **(+) Flexibilité:** Permet d'itérer rapidement sur le "Prompt Engineering".
+- **(+) Robustesse:** Fallback automatique sur `prompts.json` si Firestore est vide.
+- **(-) Risque:** L'utilisateur peut casser l'IA en supprimant des instructions de formatage JSON critiques.
+- **(-) Taxonomie:** La taxonomie est actuellement statique dans le code backend et ne peut pas être modifiée via l'interface.

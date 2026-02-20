@@ -23,9 +23,27 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Revoir l'affichage du bloc de prix**
     - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. L'objectif est d'avoir un affichage clair, compact et informatif qui s'adapte parfaitement au mobile et au desktop.
 
+## 🧠 Système de Prompts & IA
+
+- [ ] **Inverser la logique JSON (Chain of Thought)**
+    - *Détails :* Modifier le format de réponse JSON attendu pour demander les étapes de raisonnement (identification, état, calculs) *avant* le verdict final. Cela améliorera la cohérence des décisions de l'IA.
+
+- [ ] **Implémenter le "Few-Shot Prompting"**
+    - *Détails :* Ajouter une section `examples` dans `prompts.json` contenant 2-3 exemples concrets d'analyses réussies (une vraie Gibson, une fausse, une bonne affaire, une mauvaise) pour guider le modèle.
+
+- [ ] **Forcer l'Analyse Visuelle Explicite**
+    - *Détails :* Ajouter une étape obligatoire dans le JSON de réponse : `"visual_inspection"`. L'IA devra décrire le logo, la forme de la tête et les détails visibles *avant* de rendre son verdict, pour mieux détecter les contrefaçons.
+
+- [ ] **Rendre la Taxonomie modifiable via l'interface**
+    - *Détails :* Actuellement, la taxonomie est chargée statiquement depuis `prompts.json`. Il faudrait permettre de l'éditer dans le `ConfigPanel` et de la stocker dans Firestore, comme les autres prompts.
+
+- [ ] **Ajouter une validation des prompts**
+    - *Détails :* L'éditeur de prompts ne vérifie pas si l'utilisateur a cassé la structure JSON attendue. Ajouter un avertissement ou un mécanisme de "reset to default" par section serait utile.
+
 ## 🚀 Améliorations Futures
 
-- [ ] (Espace réservé pour les futures fonctionnalités)
+- [ ] **Système de Feedback (Apprentissage)** : Stocker les rejets manuels avec leur motif pour affiner les futurs prompts ou fine-tuner un modèle.
+- [ ] **Injection Dynamique de la Taxonomie** : N'envoyer à l'Expert que la branche de la taxonomie pertinente (identifiée par le Portier) pour économiser des tokens.
 
 ---
 
@@ -34,3 +52,4 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Création de la structure de documentation (`docs/`).
 - [x] Mise en place du `AI_BRIEFING.md`.
 - [x] Refonte responsive de la `DealCard` (Mobile First).
+- [x] Analyse approfondie du système de prompts dynamiques.
