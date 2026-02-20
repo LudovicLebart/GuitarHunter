@@ -58,8 +58,4 @@ DEFAULT_EXCLUSION_KEYWORDS = [
     "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ]
 
-# --- CONSTANTES LEGACY (Pour compatibilité) ---
-PROMPT_INSTRUCTION = prompts_data.get('persona', ["Legacy Prompt Placeholder"])
-DEFAULT_VERDICT_RULES = prompts_data.get('verdict_rules', [])
-DEFAULT_REASONING_INSTRUCTION = prompts_data.get('reasoning_instruction', [])
-DEFAULT_USER_PROMPT = prompts_data.get('user_prompt', [])
+

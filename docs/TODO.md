@@ -18,10 +18,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
-- [ ] **Supprimer le code mort — `backend/prompt_manager.py`**
+- [x] **Supprimer le code mort — `backend/prompt_manager.py`**
     - *Détails :* La classe `PromptManager` (architecture "5 blocs") est un orphelin non instancié nulle part dans le code actif. Elle peut être supprimée sans impact.
 
-- [ ] **Nettoyer les clés obsolètes de `prompts.json` et `config.py`**
+- [x] **Nettoyer les clés obsolètes de `prompts.json` et `config.py`**
     - *Détails :* Les clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `system_structure` dans `prompts.json` et leurs constantes associées dans `config.py` (`PROMPT_INSTRUCTION`, `DEFAULT_VERDICT_RULES`, etc.) ne sont plus utilisées. Les supprimer allégera le code et évitera la confusion.
 
 - [ ] **Extraire la logique de rejet en dur dans `analyzer.py`**
