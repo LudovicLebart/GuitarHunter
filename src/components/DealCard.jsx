@@ -126,8 +126,8 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
       </div>
 
       <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none">
-        <div className="flex justify-between items-start gap-4 mb-2">
-          <div>
+        <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4 mb-2">
+          <div className="flex-1">
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1"><MapPin size={10} /> {deal.location || 'Québec'}</div>
             <h2 className="text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
             
@@ -137,14 +137,13 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
             </div>
           </div>
           
-          <div className="text-right flex flex-col items-end gap-1 shrink-0">
+          <div className="flex flex-col items-start md:items-end text-left md:text-right gap-1 shrink-0">
             <div className="flex items-center gap-2">
                 <div 
-                    className="bg-slate-900 text-white px-4 py-2 rounded-2xl shadow-xl cursor-pointer"
+                    className="bg-slate-900 text-white px-3 py-1.5 rounded-2xl shadow-xl cursor-pointer"
                     onClick={() => setShowFinanceDetails(!showFinanceDetails)}
                 >
-                    <span className="block text-[8px] font-black uppercase text-slate-400 tracking-tighter">Prix Demandé</span>
-                    <span className="text-2xl font-black tabular-nums">{deal.price} $</span>
+                    <span className="text-xl font-black tabular-nums">{deal.price} $</span>
                 </div>
                 <button 
                     onClick={() => setShowFinanceDetails(!showFinanceDetails)} 

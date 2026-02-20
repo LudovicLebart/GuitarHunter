@@ -4,7 +4,37 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
-### **Date: 24/05/2024**
+### **Date: 24/05/2024** (Session 2)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration du Design Responsive (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Amélioration de l'affichage de la `DealCard` sur mobile:**
+    - **Problème:** Sur les écrans de petite taille, le bloc contenant les informations financières (`Prix`, `Valeur Estimée`, etc.) ne passait pas à la ligne et débordait de la carte, rendant l'interface inutilisable.
+    - **Solution:** La structure de l'en-tête de la carte a été rendue "responsive" :
+        - Sur les écrans `md` et plus, le titre et le bloc financier sont côte à côte.
+        - Sur les petits écrans (mobile), le bloc financier passe automatiquement sous le titre, utilisant toute la largeur disponible et évitant tout dépassement.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+2.  **Simplification de l'affichage du prix:**
+    - **Problème:** Pour gagner de la place sur mobile, l'affichage du prix pouvait être plus compact.
+    - **Solution:**
+        - La mention "Prix Demandé" a été supprimée.
+        - La taille de la police du prix a été réduite (`text-xl` au lieu de `text-2xl`).
+        - Le padding du conteneur du prix a été ajusté.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- Ces changements sont cruciaux pour l'utilisabilité de l'application sur des appareils mobiles. Ils suivent les principes du "responsive design" en adaptant la disposition du contenu à la taille de l'écran.
+- La simplification du prix contribue à une interface plus épurée et directe.
+
+---
+
+### **Date: 24/05/2024** (Session 1)
 
 **Auteur:** Assistant AI
 
