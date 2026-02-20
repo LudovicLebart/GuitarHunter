@@ -4,6 +4,86 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 24/05/2024** (Session 6)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Uniformisation de l'affichage du bloc prix:**
+    - **Problème:** Le bloc de prix pouvait encore dépasser de la carte sur certains écrans d'ordinateur lorsque le titre était long et que l'affichage était en mode "ligne" (côte à côte).
+    - **Solution:** L'affichage a été uniformisé pour être identique sur mobile et desktop. Le bloc de prix est désormais **toujours** positionné en dessous du titre et aligné à gauche. Cela garantit qu'il dispose toujours de toute la largeur nécessaire et élimine tout risque de dépassement.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- La cohérence de l'interface est primordiale. En adoptant une disposition verticale unique, on simplifie la maintenance et on s'assure que le contenu critique (le prix et les détails financiers) est toujours lisible, quelle que soit la contrainte d'espace horizontal.
+
+---
+
+### **Date: 24/05/2024** (Session 5)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Ajustement de la taille du bouton de prix:**
+    - **Problème:** Le bouton de prix, bien que fonctionnel, pouvait être rendu plus compact pour un meilleur équilibre visuel.
+    - **Solution:** Plusieurs micro-ajustements ont été effectués : réduction du `padding`, de la taille de la police, de la taille de l'icône, de l'espacement interne et du rayon de la bordure.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- Ce changement est un raffinement stylistique visant à perfectionner l'équilibre et l'harmonie des composants de l'interface.
+
+---
+
+### **Date: 24/05/2024** (Session 4)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Fusion du Bouton de Prix et du Toggle d'Expansion:**
+    - **Problème:** Le bouton affichant le prix et le bouton pour déplier les détails financiers étaient deux éléments séparés, ce qui était moins intuitif et prenait plus de place.
+    - **Solution:** Les deux éléments ont été fusionnés en un seul composant interactif. Le bouton de prix contient maintenant le montant et l'icône "chevron". L'ensemble du bloc est cliquable pour afficher/masquer les détails financiers.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- Cette modification améliore l'expérience utilisateur en créant un point d'interaction unique et clair, ce qui est un standard de design d'interface.
+- Elle permet également un gain d'espace marginal mais appréciable sur les petits écrans.
+
+---
+
+### **Date: 24/05/2024** (Session 3)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'interface utilisateur (UI/UX)
+
+#### 📝 Description des Changements
+
+1.  **Refonte du Menu de Réanalyse:**
+    - **Problème:** Le menu de réanalyse (Standard/Expert) était "détaché" de la carte lors du défilement (scroll) car il utilisait un `Portal`. De plus, il était trop volumineux avec du texte inutile.
+    - **Solution:**
+        - **Ancrage:** Le menu est maintenant rendu directement dans le DOM de la carte, positionné en absolu par rapport au bouton de réanalyse. Il suit donc parfaitement le défilelement de la page.
+        - **Design Compact:** Le texte a été supprimé au profit d'icônes (`RefreshCw` et `BrainCircuit`) avec des info-bulles (`title`). Le menu est beaucoup plus discret et s'intègre mieux à l'interface.
+    - **Fichiers modifiés:** `src/components/DealCard.jsx`
+
+#### 🤔 Raisonnement
+
+- L'utilisation de `Portal` pour des menus contextuels liés à des éléments scrollables est souvent problématique sans une gestion complexe de la position. L'ancrage direct via CSS (`position: absolute`) est une solution plus robuste et plus simple ici.
+- La réduction de la taille du menu améliore l'expérience utilisateur, en particulier sur mobile où l'espace est limité.
+
+---
+
 ### **Date: 24/05/2024** (Session 2)
 
 **Auteur:** Assistant AI
