@@ -30,12 +30,24 @@ const unflatten = (data) => {
 export const updateUserConfig = async (newConfig) => {
   try {
     console.log("Saving user config to Firestore:", newConfig);
-    
-    // Conversion de la notation par points (ex: 'analysisConfig.model') en objets imbriqués
-    // et utilisation de setDoc avec merge pour garantir la création des champs parents si manquants.
-    const expandedConfig = unflatten(newConfig);
 
-    await setDoc(userDocRef, expandedConfig, { merge: true });
+    // CORRECTION BUG : setDoc + merge:true ne merge qu'au niveau RACINE du document.
+    // Si on passe { analysisConfig: { mainAnalysisPrompt: [...] } }, il REMPLACE
+    // l'intégralité du sous-objet analysisConfig, effaçant gatekeeperModel, expertModel, etc.
+    //
+    // Solution : détecter la notation par points (ex: 'analysisConfig.mainAnalysisPrompt').
+    //   - Dot-notation → updateDoc : écriture chirurgicale, ne touche pas les champs frères.
+    //   - Objet complet (Reset) → setDoc + merge : remplace les champs racine voulus.
+    const hasDotNotation = Object.keys(newConfig).some(k => k.includes('.'));
+
+    if (hasDotNotation) {
+      // Écriture ciblée d'un seul champ imbriqué (ex: saveConfig depuis ConfigPanel)
+      await updateDoc(userDocRef, newConfig);
+    } else {
+      // Écriture complète d'un objet de config (ex: handleResetDefaults)
+      const expandedConfig = unflatten(newConfig);
+      await setDoc(userDocRef, expandedConfig, { merge: true });
+    }
 
     console.log("Config saved successfully.");
   } catch (error) {
