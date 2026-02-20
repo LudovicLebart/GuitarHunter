@@ -7,8 +7,8 @@ Ce document détaille le fonctionnement interne du projet.
 Le projet utilise une architecture où **Firestore n'est pas seulement une base de données, mais un bus d'événements et de commandes**.
 
 - **`guitar_deals` (Collection):** Contient toutes les annonces. Le frontend écoute cette collection en temps réel.
-- **`commands` (Collection):** Le frontend écrit des documents ici pour demander des actions au backend (ex: `ANALYZE_DEAL`). Le backend écoute cette collection, traite la commande, puis la supprime ou la marque comme complétée.
-- **`users/{userID}` (Document):** Contient la configuration du bot (fréquence de scan, prompts, etc.). Le backend et le frontend lisent et écrivent ici pour se synchroniser.
+- **`commands` (Collection):** Le frontend écrit des documents ici pour demander des actions au backend (ex: `ANALYZE_DEAL`). Le backend écoute cette collection, traite la commande, puis la supprime ou la marque comme complétée. **(Nouvelle Architecture)**
+- **`users/{userID}` (Document):** Contient la configuration du bot. De plus, sert historiquement de bus de commandes pour des actions comme `forceRefresh` ou `scanSpecificUrl` en modifiant des champs avec un timestamp. **(Architecture Legacy - Dette Technique)**
 
 ## 2. 🐍 Backend (Python)
 
@@ -32,8 +32,9 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **Responsabilité unique:** Analyser une annonce.
 - **`analyze_deal(listing_data, force_expert=False)`:**
   - **Cascade d'analyse:**
-    1. **Portier (Gatekeeper):** Un modèle Gemini rapide et peu coûteux est appelé en premier. **IMPORTANT :** Il reçoit le même prompt complet que l'Expert (taxonomie, critères) car il doit effectuer une analyse visuelle fine pour détecter les contrefaçons (ex: Chibson) et filtrer le bruit. Son rôle est de trancher rapidement mais intelligemment.
-    2. **Expert:** Si le portier valide l'annonce (ou si `force_expert=True`), un modèle plus puissant est appelé pour valider le verdict du Portier et fournir une analyse financière détaillée (estimation de valeur, coût de réparation, marge, etc.).
+    1. **Portier (Gatekeeper):** Un modèle Gemini rapide et peu coûteux est appelé en premier. Son rôle est de filtrer le bruit.
+       - *Dette Technique :* La vérification du verdict (ex: `gatekeeper_status in ['BAD_DEAL', 'REJECTED_ITEM', ...]`) est actuellement codée en dur dans `analyzer.py`, rendant le backend fragile si la configuration des verdicts évolue.
+    2. **Expert:** Si le portier valide l'annonce (ou si `force_expert=True`), un modèle plus puissant est appelé pour valider le verdict du Portier et fournir une analyse financière.
   - **Gestion des images:** Télécharge, optimise et envoie les images à Gemini Vision.
   - **Formatage:** Construit le prompt utilisateur et s'attend à recevoir une réponse JSON structurée.
 
@@ -57,7 +58,8 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
-- **`retryDealAnalysis(dealId)` / `forceExpertAnalysis(dealId)`:** N'appellent pas une API HTTP. À la place, elles **créent un nouveau document** dans la collection `commands` de Firestore. Le backend, qui écoute cette collection, se chargera du reste.
+- **`retryDealAnalysis(dealId)` / `forceExpertAnalysis(dealId)`:** Créent un nouveau document dans la collection `commands` (Nouvelle Architecture).
+- **`triggerManualRefresh()` / `triggerManualCleanup()`:** Modifient les champs de timestamps sur le document `users/{id}` pour déclencher des actions backend (Architecture Legacy).
 
 ### `src/components/DealCard.jsx`
 - **Composant clé:** Affiche une seule annonce.
