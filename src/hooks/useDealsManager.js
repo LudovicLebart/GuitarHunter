@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
-  onDealsUpdate, 
-  rejectDeal, 
+import {
+  onDealsUpdate,
+  rejectDeal,
   deleteDeal,
   retryDealAnalysis,
   forceExpertAnalysis,
-  toggleDealFavorite 
+  toggleDealFavorite
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP } from '../constants';
@@ -20,6 +20,16 @@ const normalize = (str) => {
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlève les accents
     .toLowerCase()
     .replace(/[^a-z0-9]/g, ''); // Ne garde que alphanumérique
+};
+
+// Recherche floue : retourne le path si une clé normalisée de la taxonomie est contenue dans la string
+const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
+  for (const [key, path] of Object.entries(taxonomyPaths)) {
+    if (normalizedSearchStr.includes(key)) {
+      return path;
+    }
+  }
+  return null;
 };
 
 export const useDealsManager = (user, setError) => {
@@ -79,8 +89,8 @@ export const useDealsManager = (user, setError) => {
     const paths = {};
     const traverse = (node, currentPath) => {
       if (Array.isArray(node)) {
-        node.forEach(item => { 
-            paths[normalize(item)] = [...currentPath, item]; 
+        node.forEach(item => {
+          paths[normalize(item)] = [...currentPath, item];
         });
       } else if (typeof node === 'object' && node !== null) {
         Object.keys(node).forEach(key => {
@@ -95,13 +105,13 @@ export const useDealsManager = (user, setError) => {
   }, []);
 
   const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY), 'OTHER'], []);
-  
+
   const level2Options = useMemo(() => {
     if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
     const node = GUITAR_TAXONOMY[level1Filter];
     return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
   }, [level1Filter]);
-  
+
   const level3Options = useMemo(() => {
     if (level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
     const node1 = GUITAR_TAXONOMY[level1Filter];
@@ -118,76 +128,84 @@ export const useDealsManager = (user, setError) => {
 
   // 1. Helper pour vérifier si un deal correspond au filtre de VERDICT
   const matchesVerdictFilter = useCallback((deal, currentFilterType) => {
-      if (deal.status === 'rejected') return false;
-      const analysis = deal.aiAnalysis || {};
-      const verdict = analysis.verdict || 'PENDING';
-      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!analysis.reasoning && verdict !== 'PENDING');
+    if (deal.status === 'rejected') return false;
+    const analysis = deal.aiAnalysis || {};
+    const verdict = analysis.verdict || 'PENDING';
+    const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!analysis.reasoning && verdict !== 'PENDING');
 
-      if (currentFilterType === 'ERROR') return isError;
-      if (currentFilterType === 'REJECTED') return false; // Les rejetés sont gérés à part
-      
-      // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
-      if (currentFilterType === 'FAVORITES') return deal.isFavorite;
-      
-      // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
-      if (currentFilterType === verdict) return true;
+    if (currentFilterType === 'ERROR') return isError;
+    if (currentFilterType === 'REJECTED') return false; // Les rejetés sont gérés à part
 
-      // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
-      if (currentFilterType === 'ALL') {
-          if (isError) return false;
-          // EXCLUSION DU BRUIT : Si le verdict est dans le groupe ARCHIVE, on le cache de la vue ALL
-          if (ARCHIVE_GROUP.includes(verdict)) return false;
-          return true;
-      }
+    // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
+    if (currentFilterType === 'FAVORITES') return deal.isFavorite;
 
-      return false;
+    // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
+    if (currentFilterType === verdict) return true;
+
+    // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
+    if (currentFilterType === 'ALL') {
+      if (isError) return false;
+      // EXCLUSION DU BRUIT : Si le verdict est dans le groupe ARCHIVE, on le cache de la vue ALL
+      if (ARCHIVE_GROUP.includes(verdict)) return false;
+      return true;
+    }
+
+    return false;
   }, []);
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
   const matchesTypeFilter = useCallback((deal, l1, l2, l3, search) => {
-      if (deal.status === 'rejected') return false;
-      
-      // Recherche textuelle
-      if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (deal.status === 'rejected') return false;
 
-      // Classification
-      const analysis = deal.aiAnalysis || {};
-      const classification = analysis.classification;
-      const path = classification ? taxonomyPaths[normalize(classification)] : null;
+    // Recherche textuelle
+    if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
 
-      if (l1 !== 'ALL') {
-        if (l1 === 'OTHER') {
-            if (path) return false; // Si c'est classé, ce n'est pas OTHER
-        } else {
-            if (!path || path[0] !== l1) return false;
-            if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
-            if (l3 !== 'ALL' && (path.length < 3 || path[2] !== l3)) return false;
-        }
+    // Classification
+    const analysis = deal.aiAnalysis || {};
+    const classification = analysis.classification;
+    const normalizedClass = normalize(classification);
+    let path = classification ? taxonomyPaths[normalizedClass] : null;
+    if (!path && classification) {
+      path = findPathFuzzy(normalizedClass, taxonomyPaths);
+    }
+
+    if (l1 !== 'ALL') {
+      if (l1 === 'OTHER') {
+        if (path) return false; // Si c'est classé, ce n'est pas OTHER
+      } else {
+        if (!path || path[0] !== l1) return false;
+        if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
+        if (l3 !== 'ALL' && (path.length < 3 || path[2] !== l3)) return false;
       }
-      return true;
+    }
+    return true;
   }, [taxonomyPaths]);
 
   // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT)
   const typeCounts = useMemo(() => {
     const c = { OTHER: 0 };
     deals.forEach(deal => {
-        // On n'inclut que les deals qui passent le filtre de verdict actuel
-        if (!matchesVerdictFilter(deal, filterType)) return;
+      // On n'inclut que les deals qui passent le filtre de verdict actuel
+      if (!matchesVerdictFilter(deal, filterType)) return;
 
-        const classification = deal.aiAnalysis?.classification;
-        if (!classification) {
-            c.OTHER++;
-            return;
-        }
-        
-        const path = taxonomyPaths[normalize(classification)];
-        if (path) {
-            if (path[0]) c[path[0]] = (c[path[0]] || 0) + 1;
-            if (path[1]) c[path[1]] = (c[path[1]] || 0) + 1;
-            if (path[2]) c[path[2]] = (c[path[2]] || 0) + 1;
-        } else {
-            c.OTHER++;
-        }
+      const classification = deal.aiAnalysis?.classification;
+      if (!classification) {
+        c.OTHER++;
+        return;
+      }
+
+      let path = taxonomyPaths[normalize(classification)];
+      if (!path) {
+        path = findPathFuzzy(normalize(classification), taxonomyPaths);
+      }
+
+      if (path) {
+        path.forEach(segment => {
+          if (segment) c[segment] = (c[segment] || 0) + 1;
+        });
+      } else {
+        c.OTHER++;
+      }
     });
     return c;
   }, [deals, filterType, matchesVerdictFilter, taxonomyPaths]);
@@ -199,31 +217,31 @@ export const useDealsManager = (user, setError) => {
     Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
-        // Cas spécial : REJECTED compte tous les rejetés
-        if (deal.status === 'rejected') {
-            c.REJECTED++;
-            return;
+      // Cas spécial : REJECTED compte tous les rejetés
+      if (deal.status === 'rejected') {
+        c.REJECTED++;
+        return;
+      }
+
+      // On n'inclut que les deals qui passent les filtres de type actuels
+      if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery)) return;
+
+      const verdict = deal.aiAnalysis?.verdict || 'PENDING';
+      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
+
+      if (isError) {
+        c.ERROR++;
+      } else {
+        // Le compteur ALL ne doit compter que ce qui est visible dans ALL (donc pas le bruit)
+        if (!ARCHIVE_GROUP.includes(verdict)) {
+          c.ALL++;
         }
 
-        // On n'inclut que les deals qui passent les filtres de type actuels
-        if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery)) return;
-
-        const verdict = deal.aiAnalysis?.verdict || 'PENDING';
-        const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
-        
-        if (isError) {
-            c.ERROR++;
-        } else {
-            // Le compteur ALL ne doit compter que ce qui est visible dans ALL (donc pas le bruit)
-            if (!ARCHIVE_GROUP.includes(verdict)) {
-                c.ALL++; 
-            }
-
-            if (c.hasOwnProperty(verdict)) {
-                c[verdict]++;
-            }
+        if (c.hasOwnProperty(verdict)) {
+          c[verdict]++;
         }
-        if (deal.isFavorite) c.FAVORITES++;
+      }
+      if (deal.isFavorite) c.FAVORITES++;
     });
     return c;
   }, [deals, level1Filter, level2Filter, level3Filter, searchQuery, matchesTypeFilter]);
@@ -231,16 +249,16 @@ export const useDealsManager = (user, setError) => {
   // 5. Liste finale filtrée (Intersection des deux filtres)
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
-        if (filterType === 'REJECTED') return deal.status === 'rejected';
-        
-        // Pour les autres filtres, on combine verdict et type
-        const verdictMatch = matchesVerdictFilter(deal, filterType);
-        const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
-        
-        return verdictMatch && typeMatch;
+      if (filterType === 'REJECTED') return deal.status === 'rejected';
+
+      // Pour les autres filtres, on combine verdict et type
+      const verdictMatch = matchesVerdictFilter(deal, filterType);
+      const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+
+      return verdictMatch && typeMatch;
     });
   }, [deals, filterType, level1Filter, level2Filter, level3Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
-  
+
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
   return {
