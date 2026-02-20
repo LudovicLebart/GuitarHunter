@@ -11,7 +11,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ---
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
-
+ 
 *(Aucun bug critique actuellement)*
 
 ---
@@ -63,14 +63,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ### 🟢 Qualité des Analyses IA
 
-- [ ] **Forcer l'Analyse Visuelle Explicite (Clé `visual_inspection`)**
-    - *Détails :* Ajouter une étape obligatoire dans le JSON de réponse : `"visual_inspection"`. L'IA devra décrire le logo, la forme de la tête et les détails visibles *avant* de rendre son verdict, pour mieux détecter les contrefaçons (Chibson, etc.).
-
-- [ ] **Inverser la logique JSON (Chain of Thought)**
-    - *Détails :* Modifier le format de réponse JSON pour demander les étapes de raisonnement (identification, état, calculs financiers) *avant* le champ `verdict`. Améliore la cohérence et réduit les hallucinations.
-
-- [ ] **Implémenter le "Few-Shot Prompting"**
-    - *Détails :* Ajouter une section `examples` dans `prompts.json` avec 2-3 exemples concrets d'analyses réussies (une vraie Gibson, une contrefaçon, une bonne affaire, une mauvaise) pour ancrer le comportement du modèle.
+*(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
 
 ---
 
