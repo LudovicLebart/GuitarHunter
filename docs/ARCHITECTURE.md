@@ -41,6 +41,12 @@ Le backend est un "worker" persistant qui tourne en boucle.
 ### `backend/scraping/`
 - **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces.
 
+### `backend/resources/` (Nouveau)
+- **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
+
+### `backend/config/` (Nouveau)
+- **`serviceAccountKey.json`:** Clé de service Firebase pour l'authentification du backend. (Non versionné)
+
 ## 3. ⚛️ Frontend (React)
 
 Le frontend est une Single Page Application (SPA) conçue pour être très réactive.

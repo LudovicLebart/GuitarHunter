@@ -4,6 +4,25 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 22/02/2026** (Session 15 - Après-midi)
+
+**Auteur:** Assistant AI
+
+**Type:** Nettoyage & Organisation du Projet
+
+#### 📝 Description des Changements
+- **Dépollution de la racine :** Suppression des scripts de diagnostic et de setup obsolètes (`diagnose_firestore.py`, `populate_cities.py`, `test_notification.py`, `verify_setup.py`) et de l'ancien journal (`implementation_journal.md`).
+- **Restructuration des fichiers de configuration :**
+    - Création de `backend/resources/` et déplacement de `city_coordinates.json`.
+    - Création de `firebase/` et déplacement de `firestore.rules`.
+    - Création de `backend/config/` et déplacement de `serviceAccountKey.json`.
+- **Mise à jour des références :** Correction des chemins d'accès dans `config.py` (backend), `src/components/MapView.jsx` (frontend) et `tests/check_baseline.py`.
+
+#### 🤔 Raisonnement
+Une racine propre facilite la navigation dans le projet et sépare clairement les fichiers de configuration, les ressources de données et le code source. La mise à jour des imports garantit que les deux environnements (Python et React) continuent de fonctionner sans interruption.
+
+---
+
 ### **Date: 22/02/2026** (Session 15 - Matin)
 
 **Auteur:** Assistant AI
