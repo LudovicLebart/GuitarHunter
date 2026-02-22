@@ -1,4 +1,4 @@
-import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package } from 'lucide-react';
+import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package, Tag } from 'lucide-react';
 
 // --- NOUVELLE GRILLE DE CLASSIFICATION (V2) ---
 export const NEW_VERDICTS = {
@@ -100,12 +100,13 @@ export const SPECIAL_FILTERS = {
   ALL: { id: 'ALL', label: 'Toutes', icon: List },
   FAVORITES: { id: 'FAVORITES', label: 'Favoris', icon: Star },
   ERROR: { id: 'ERROR', label: 'Erreurs', icon: XCircle },
+  SOLD: { id: 'SOLD', label: 'Vendues', icon: Tag }
 };
 
 // --- GROUPES POUR L'AFFICHAGE "TEMPÉRATURE" ---
 export const RADAR_GROUP = ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'];
 export const MARKET_GROUP = ['COLLECTION', 'BAD_DEAL', 'FAIR'];
-export const ARCHIVE_GROUP = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED'];
+export const ARCHIVE_GROUP = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD'];
 
 // --- ORDRE D'AFFICHAGE DES FILTRES DANS LA BARRE ---
 export const FILTER_ORDER = [
@@ -118,6 +119,7 @@ export const FILTER_ORDER = [
   'COLLECTION',
   'BAD_DEAL',
   'REJECTED_ITEM',
+  'SOLD',
   'ERROR'
 ];
 
@@ -127,9 +129,9 @@ export const ALL_FILTERS_CONFIG = {
   ...LEGACY_VERDICTS,
   ...SPECIAL_FILTERS,
   DEFAULT: {
-      id: 'DEFAULT',
-      label: 'Analyse...',
-      color: 'bg-slate-400',
-      icon: RefreshCw
+    id: 'DEFAULT',
+    label: 'Analyse...',
+    color: 'bg-slate-400',
+    icon: RefreshCw
   }
 };

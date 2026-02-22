@@ -134,7 +134,11 @@ export const useDealsManager = (user, setError) => {
     const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!analysis.reasoning && verdict !== 'PENDING');
 
     if (currentFilterType === 'ERROR') return isError;
-    if (currentFilterType === 'REJECTED') return false; // Les rejetés sont gérés à part
+    if (currentFilterType === 'REJECTED') return false;
+    if (currentFilterType === 'SOLD') return deal.status === 'sold';
+
+    // Si l'annonce est vendue et qu'on n'est pas dans le filtre SOLD, on cache (sauf favoris)
+    if (deal.status === 'sold' && currentFilterType !== 'FAVORITES') return false;
 
     // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
     if (currentFilterType === 'FAVORITES') return deal.isFavorite;
@@ -156,6 +160,8 @@ export const useDealsManager = (user, setError) => {
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
   const matchesTypeFilter = useCallback((deal, l1, l2, l3, search) => {
     if (deal.status === 'rejected') return false;
+    // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
+
 
     // Recherche textuelle
     if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
@@ -223,6 +229,12 @@ export const useDealsManager = (user, setError) => {
         return;
       }
 
+      if (deal.status === 'sold') {
+        c.SOLD++;
+        // On ne sort pas car on veut quand même compter sold dans FAVORITES si c'est le cas
+      }
+
+
       // On n'inclut que les deals qui passent les filtres de type actuels
       if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery)) return;
 
@@ -250,6 +262,8 @@ export const useDealsManager = (user, setError) => {
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
       if (filterType === 'REJECTED') return deal.status === 'rejected';
+      if (filterType === 'SOLD') return deal.status === 'sold';
+
 
       // Pour les autres filtres, on combine verdict et type
       const verdictMatch = matchesVerdictFilter(deal, filterType);

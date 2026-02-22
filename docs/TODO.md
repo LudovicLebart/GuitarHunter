@@ -11,8 +11,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ---
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
- 
-*(Aucun bug critique actuellement)*
+
+- [ ] **Refonte du nettoyage des annonces vendues :**
+    - [ ] Modifier le `Hard Delete` en `Soft Delete` (statut `sold`) pour garder l'historique.
+    - [ ] Renforcer le scraper `check_listing_availability` (détection des redirections Facebook, 404, et mot-clé "Vendu" sur la page).
+    - [ ] Gérer l'affichage des annonces `sold` dans l'interface (badge visuel).
 
 ---
 
