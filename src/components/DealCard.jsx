@@ -48,61 +48,61 @@ const ReanalysisMenu = ({ onRetry, onForceExpert, onClose, buttonRef }) => {
 
 // Composant interne pour l'affichage du prix et des détails financiers
 const PriceDisplay = ({ deal, showFinanceDetails, setShowFinanceDetails }) => {
-    const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
-    const netCost = deal.aiAnalysis?.net_guitar_cost;
-    const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
-    const estimatedValue = deal.aiAnalysis?.estimated_value;
-    const repairCost = netCost !== undefined ? netCost - parseInt(deal.price) : 0;
+  const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
+  const netCost = deal.aiAnalysis?.net_guitar_cost;
+  const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
+  const estimatedValue = deal.aiAnalysis?.estimated_value;
+  const repairCost = netCost !== undefined ? netCost - parseInt(deal.price) : 0;
 
-    return (
-        <div className="flex flex-col items-start text-left gap-1 shrink-0 w-full">
-            <div 
-                className="flex items-center gap-1 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-xl cursor-pointer w-fit"
-                onClick={() => setShowFinanceDetails(!showFinanceDetails)}
-            >
-                <span className="text-lg font-black tabular-nums">{deal.price} $</span>
-                <ChevronDown size={14} className={`transition-transform text-slate-400 ${showFinanceDetails ? 'rotate-180' : ''}`} />
+  return (
+    <div className="flex flex-col items-start text-left gap-1 shrink-0 w-full">
+      <div
+        className="flex items-center gap-1 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-xl cursor-pointer w-fit"
+        onClick={() => setShowFinanceDetails(!showFinanceDetails)}
+      >
+        <span className="text-lg font-black tabular-nums">{deal.price} $</span>
+        <ChevronDown size={14} className={`transition-transform text-slate-400 ${showFinanceDetails ? 'rotate-180' : ''}`} />
+      </div>
+
+      {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
+      <div className="flex flex-col gap-1 text-xs font-bold mt-1 text-slate-500 w-full">
+        {estimatedValue > 0 && (
+          <div className="flex items-center gap-1">
+            <Activity size={12} className="shrink-0" /> <span className="truncate">Val: <span className="font-black">{estimatedValue}$</span></span>
+          </div>
+        )}
+        {resalePotential > 0 && (
+          <div className="flex items-center gap-1 text-purple-600">
+            <TrendingUp size={12} className="shrink-0" /> <span className="truncate">Max: <span className="font-black">{resalePotential}$</span></span>
+          </div>
+        )}
+      </div>
+
+      {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
+      {showFinanceDetails && (
+        <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2 z-20 relative">
+          {netCost !== undefined && (
+            <div className="flex justify-between items-center text-xs">
+              <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net</span>
+              <span className="font-black text-sky-600">{netCost}$</span>
             </div>
-
-            {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
-            <div className="flex flex-col gap-1 text-xs font-bold mt-1 text-slate-500 w-full">
-                {estimatedValue > 0 && (
-                    <div className="flex items-center gap-1">
-                        <Activity size={12} className="shrink-0" /> <span className="truncate">Val: <span className="font-black">{estimatedValue}$</span></span>
-                    </div>
-                )}
-                {resalePotential > 0 && (
-                    <div className="flex items-center gap-1 text-purple-600">
-                        <TrendingUp size={12} className="shrink-0" /> <span className="truncate">Max: <span className="font-black">{resalePotential}$</span></span>
-                    </div>
-                )}
+          )}
+          {repairCost > 0 && (
+            <div className="flex justify-between items-center text-xs pl-4">
+              <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Répar.</span>
+              <span className="font-bold text-orange-500">{repairCost}$</span>
             </div>
-
-            {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
-            {showFinanceDetails && (
-                <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2 z-20 relative">
-                    {netCost !== undefined && (
-                        <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net</span>
-                            <span className="font-black text-sky-600">{netCost}$</span>
-                        </div>
-                    )}
-                    {repairCost > 0 && (
-                         <div className="flex justify-between items-center text-xs pl-4">
-                            <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Répar.</span>
-                            <span className="font-bold text-orange-500">{repairCost}$</span>
-                        </div>
-                    )}
-                    {grossMargin !== undefined && (
-                        <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                            <span className="flex items-center gap-1"><Calculator size={14} /> Marge</span>
-                            <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
-                        </div>
-                    )}
-                </div>
-            )}
+          )}
+          {grossMargin !== undefined && (
+            <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+              <span className="flex items-center gap-1"><Calculator size={14} /> Marge</span>
+              <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
+            </div>
+          )}
         </div>
-    );
+      )}
+    </div>
+  );
 };
 
 
@@ -143,7 +143,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
   const handleReanalysisButtonClick = () => {
     setIsReanalysisMenuOpen(prev => !prev);
   };
-  
+
   const closeMenu = () => {
     setIsReanalysisMenuOpen(false);
   };
@@ -152,29 +152,35 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
 
 
   return (
-    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' ? 'opacity-50' : ''}`}>
-      
+    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' || deal.status === 'sold' ? 'opacity-60' : ''}`}>
+
       {/* --- MOBILE HEADER (Image + Prix) --- */}
       <div className="md:hidden w-full flex p-4 pb-0 gap-4">
         <div className="w-1/2 h-40 shrink-0 relative bg-slate-100 rounded-2xl overflow-hidden">
-            <div className="h-full w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
-            <div className="absolute top-2 left-2 z-10 pointer-events-none scale-75 origin-top-left"><VerdictBadge verdict={deal.aiAnalysis?.verdict} /></div>
+          <div className="h-full w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
+          <div className="absolute top-2 left-2 z-10 pointer-events-none scale-75 origin-top-left flex flex-col gap-2">
+            <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
+            {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><Tag size={10} /> Vendu</div>}
+          </div>
         </div>
         <div className="flex-1 pt-1 min-w-0">
-             <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
+          <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
         </div>
       </div>
 
       {/* --- DESKTOP SIDEBAR (Image Sticky) --- */}
       <div className="hidden md:block md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
         <div className="h-64 md:h-80 w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
-        <div className="absolute top-4 left-4 z-10 pointer-events-none"><VerdictBadge verdict={deal.aiAnalysis?.verdict} /></div>
+        <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
+          <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
+          {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-3 py-1.5 rounded-xl text-xs font-black uppercase flex items-center gap-1 shadow-lg animate-in zoom-in-95"><Tag size={14} /> Vendu / Indisponible</div>}
+        </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
       </div>
 
       <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none">
         <div className="flex flex-col gap-4 mb-2">
-          
+
           {/* --- DESKTOP PRICE (Au-dessus du titre) --- */}
           <div className="hidden md:block">
             <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
@@ -183,10 +189,11 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
           <div className="flex-1">
             <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1"><MapPin size={10} /> {deal.location || 'Québec'}</div>
             <h2 className="text-xl md:text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
-            
+
             <div className="flex flex-wrap gap-2 mt-2">
-                {deal.aiAnalysis?.classification && (<div className="flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
-                {isLuthierProject && (<div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-xs font-bold"><Hammer size={12} /><span>Travaux Requis</span></div>)}
+              {deal.aiAnalysis?.classification && (<div className="flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
+              {isLuthierProject && (<div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-xs font-bold"><Hammer size={12} /><span>Travaux Requis</span></div>)}
+              {deal.status === 'sold' && (<div className="flex items-center gap-2 text-slate-600 bg-slate-100 px-3 py-1 rounded-full text-xs font-bold"><Tag size={12} /><span>Vendu</span></div>)}
             </div>
           </div>
 
@@ -199,17 +206,17 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
             <div className="mt-2">
               {/* --- LOGIQUE D'AFFICHAGE STANDARDISÉE --- */}
               {deal.aiAnalysis?.summary ? (
-                  <>
-                    <SimpleMarkdown text={deal.aiAnalysis.summary} />
-                    {deal.aiAnalysis.analysis && (
-                        <CollapsibleSection title="Voir l'analyse détaillée">
-                            <SimpleMarkdown text={deal.aiAnalysis.analysis} />
-                        </CollapsibleSection>
-                    )}
-                  </>
+                <>
+                  <SimpleMarkdown text={deal.aiAnalysis.summary} />
+                  {deal.aiAnalysis.analysis && (
+                    <CollapsibleSection title="Voir l'analyse détaillée">
+                      <SimpleMarkdown text={deal.aiAnalysis.analysis} />
+                    </CollapsibleSection>
+                  )}
+                </>
               ) : deal.aiAnalysis?.reasoning ? (
-                  // Fallback pour les annonces qui n'ont qu'un 'reasoning'
-                  <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
+                // Fallback pour les annonces qui n'ont qu'un 'reasoning'
+                <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
               ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
             </div>
           </div>
@@ -218,40 +225,40 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
         <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold"><Clock size={14} /><span className="uppercase tracking-widest">{deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}</span></div>
-            {deal.aiAnalysis?.confidence && (<div className="flex items-center gap-2"><div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{width: `${deal.aiAnalysis.confidence * 100}%`}} /></div><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {Math.round(deal.aiAnalysis.confidence * 100)}%</span></div>)}
+            {deal.aiAnalysis?.confidence && (<div className="flex items-center gap-2"><div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${deal.aiAnalysis.confidence * 100}%` }} /></div><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {Math.round(deal.aiAnalysis.confidence * 100)}%</span></div>)}
           </div>
 
           <div className="flex items-center gap-2">
             <button onClick={() => onToggleFavorite(deal.id, deal.isFavorite)} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`} title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}><Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} /></button>
-            
+
             {/* Bouton de réanalyse : Maintenant accessible même si rejeté */}
             <div className="relative">
-                <button
-                    ref={reanalysisButtonRef}
-                    onClick={handleReanalysisButtonClick}
-                    disabled={isAnalyzing}
-                    className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
-                    title="Relancer l'analyse"
-                >
-                    {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
-                </button>
-                {isReanalysisMenuOpen && (
-                    <ReanalysisMenu
-                        buttonRef={reanalysisButtonRef}
-                        onRetry={() => {
-                            if (onRetry) onRetry(deal.id);
-                            closeMenu();
-                        }}
-                        onForceExpert={() => {
-                            if (onForceExpert) onForceExpert(deal.id);
-                            closeMenu();
-                        }}
-                        onClose={closeMenu}
-                    />
-                )}
+              <button
+                ref={reanalysisButtonRef}
+                onClick={handleReanalysisButtonClick}
+                disabled={isAnalyzing}
+                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
+                title="Relancer l'analyse"
+              >
+                {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
+              </button>
+              {isReanalysisMenuOpen && (
+                <ReanalysisMenu
+                  buttonRef={reanalysisButtonRef}
+                  onRetry={() => {
+                    if (onRetry) onRetry(deal.id);
+                    closeMenu();
+                  }}
+                  onForceExpert={() => {
+                    if (onForceExpert) onForceExpert(deal.id);
+                    closeMenu();
+                  }}
+                  onClose={closeMenu}
+                />
+              )}
             </div>
 
-            {deal.status !== 'rejected' && (<button onClick={() => onReject(deal.id)} className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Rejeter l'annonce"><Ban size={14} /></button>)}
+            {deal.status !== 'rejected' && deal.status !== 'sold' && (<button onClick={() => onReject(deal.id)} className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Rejeter l'annonce"><Ban size={14} /></button>)}
             <button onClick={() => onDelete(deal.id)} className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Supprimer définitivement"><Trash2 size={14} /></button>
             <button onClick={handleShare} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${copied ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:text-blue-500'}`} title="Copier le lien de l'analyse">{copied ? <CheckCircle size={14} /> : <Share2 size={14} />}</button>
             <a href={deal.link} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm">Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" /></a>

@@ -4,6 +4,26 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 22/02/2026** (Session 15 - Matin)
+
+**Auteur:** Assistant AI
+
+**Type:** Analyse Technique & Audit de Données
+
+#### 📝 Description des Changements
+- **Audit de la base de données (Le mystère des annonces invisibles) :**
+    - **Problème :** L'utilisateur a remarqué un écart de ~300 annonces entre le total Firestore (486) et les annonces visibles (84 + 91).
+    - **Investigation :** Création de scripts d'audit (`inspect_db_stats.py`, `inspect_rejection_reasons.py`) pour analyser les documents `status: 'rejected'`.
+    - **Découverte :** 287 annonces portent le verdict `REJECTED` (ancienne nomenclature v1). 20 proviennent du pré-filtre Javascript, le reste (267) provient des modèles Gemini (anciennes analyses).
+    - **Cause de l'invisibilité :** Le frontend (`matchesVerdictFilter`) masque totalement les documents ayant un statut global `rejected`. Dans la nomenclature v2, le "bruit" est classé `REJECTED_ITEM` avec un statut global `analyzed`, ce qui les rend comptabilisables dans l'UI alors que la v1 les annihilait visuellement.
+- **Analyse du système de nettoyage (Sold Listings) :**
+    - Documentation du fonctionnement de `cleanup_sold_listings`. Identification de la fragilité de la détection (basée sur du texte strict) et du risque de perte d'historique dû au "Hard Delete".
+
+#### 🤔 Raisonnement
+Il est crucial de conserver l'historique des ventes pour de futures statistiques (Price History / Velocity). Le passage au "Soft Delete" est validé comme prochaine étape majeure.
+
+---
+
 ### **Date: 20/02/2026** (Session 14 - Suite 2)
 
 **Auteur:** Assistant AI

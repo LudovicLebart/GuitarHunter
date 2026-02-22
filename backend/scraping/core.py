@@ -323,10 +323,48 @@ class FacebookScraper:
         is_available = True
         page = self.context.new_page()
         try:
-            page.goto(url, timeout=15000)
-            sold = page.locator('span:has-text("Cette annonce n’est plus disponible"), span:has-text("This listing is no longer available")')
-            if sold.count() > 0: is_available = False
-        except: pass
+            # On retire les paramètres de tracking pour la vérification de l'URL brute
+            clean_url = url.split('?')[0]
+            logger.info(f"   🔍 Vérification disponibilité: {clean_url}")
+            
+            response = page.goto(clean_url, timeout=20000)
+            
+            # 1. Vérification du code HTTP (si Facebook renvoie 404/410)
+            if response and response.status in [404, 410]:
+                logger.info(f"   🚫 Annonce supprimée (HTTP {response.status})")
+                return False
+
+            # 2. Vérification des redirections
+            # Facebook redirige vers /marketplace/ (accueil) quand l'item est totalement supprimé
+            if "/marketplace/item/" not in page.url:
+                logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                return False
+
+            # 3. Recherche des marqueurs textuels "Sold" / "Vendu"
+            # On cherche dans le conteneur principal pour éviter les faux positifs type "Vendu par [Nom]"
+            main_container = page.locator('div[role="main"]')
+            
+            unavailable_markers = [
+                'span:has-text("Cette annonce n’est plus disponible")',
+                'span:has-text("This listing is no longer available")',
+                # On cherche spécifiquement "Vendu" ou "Sold" en début de bloc ou isolé (souvent un badge)
+                'span:has-text("Vendu")',
+                'span:has-text("Sold")'
+            ]
+            
+            for marker in unavailable_markers:
+                # On utilise count car is_visible peut freezer sur certains éléments cachés de FB
+                if page.locator(marker).count() > 0:
+                    # Double check pour éviter "Vendu par..." : le tag de vente est souvent seul dans un span
+                    element_text = page.locator(marker).first.inner_text().strip()
+                    if element_text in ["Vendu", "Sold", "Cette annonce n’est plus disponible", "This listing is no longer available"]:
+                        logger.info(f"   🚫 Marqueur de vente trouvé: '{element_text}'")
+                        return False
+
+        except Exception as e:
+            logger.warning(f"   ⚠️ Erreur durant le check availability: {e}")
+            # En cas d'erreur (timeout), on préfère garder l'annonce (optimiste)
+            return True
         finally:
             page.close()
         return is_available

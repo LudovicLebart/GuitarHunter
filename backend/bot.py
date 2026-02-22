@@ -226,7 +226,8 @@ class GuitarHunterBot:
                     if not item['url']: continue
                     # On utilise le scraper temporaire
                     if not temp_scraper.check_listing_availability(item['url']):
-                        self.repo.delete_listing(item['id'])
+                        logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
+                        self.repo.update_deal_status(item['id'], 'sold', 'Annonce indisponible ou vendue (détecté par le bot)')
                         deleted_count += 1
                     time.sleep(0.5)
                 logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
