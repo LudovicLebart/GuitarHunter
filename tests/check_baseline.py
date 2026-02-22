@@ -28,18 +28,18 @@ def run_checks():
         USER_ID_TARGET = os.getenv("USER_ID_TARGET")
 
         if GEMINI_API_KEY and "..." not in GEMINI_API_KEY:
-            print("  ✅ Clé API Gemini trouvée.")
+            print("  [OK] Clé API Gemini trouvée.")
         else:
-            print("  ❌ ERREUR: GEMINI_API_KEY est manquante ou invalide dans .env")
+            print("  [ERROR] GEMINI_API_KEY est manquante ou invalide dans .env")
             all_ok = False
 
         if APP_ID_TARGET and USER_ID_TARGET:
-            print(f"  ✅ APP_ID_TARGET ({APP_ID_TARGET}) et USER_ID_TARGET ({USER_ID_TARGET}) trouvés.")
+            print(f"  [OK] APP_ID_TARGET ({APP_ID_TARGET}) et USER_ID_TARGET ({USER_ID_TARGET}) trouvés.")
         else:
-            print("  ❌ ERREUR: APP_ID_TARGET ou USER_ID_TARGET manquant dans .env")
+            print("  [ERROR] APP_ID_TARGET ou USER_ID_TARGET manquant dans .env")
             all_ok = False
     except Exception as e:
-        print(f"  ❌ ERREUR critique lors du chargement de .env: {e}")
+        print(f"  [ERROR] critique lors du chargement de .env: {e}")
         all_ok = False
         return False
 
@@ -50,18 +50,18 @@ def run_checks():
             genai.configure(api_key=GEMINI_API_KEY)
             # Note: Le modèle est juste pour tester l'init, pas pour générer du contenu ici.
             model = genai.GenerativeModel(model_name='gemini-2.0-flash')
-            print("  ✅ Initialisation de Gemini réussie.")
+            print("  [OK] Initialisation de Gemini réussie.")
         except Exception as e:
-            print(f"  ❌ ERREUR: Impossible d'initialiser Gemini: {e}")
+            print(f"  [ERROR] Impossible d'initialiser Gemini: {e}")
             all_ok = False
     else:
-        print("  ⚠️ ATTENTION: Pas de clé API Gemini, test sauté.")
+        print("  [WARN] Pas de clé API Gemini, test sauté.")
         all_ok = False
 
     # --- 3. Initialisation de Firebase ---
     print("\n[3/4] Vérification de l'initialisation de Firebase...")
     # --- Utiliser un chemin absolu pour la clé Firebase ---
-    FIREBASE_KEY_PATH = os.path.join(ROOT_DIR, "serviceAccountKey.json")
+    FIREBASE_KEY_PATH = os.path.join(ROOT_DIR, "backend", "config", "serviceAccountKey.json")
     db = None
     if not firebase_admin._apps:
         try:
@@ -69,29 +69,29 @@ def run_checks():
                 cred = credentials.Certificate(FIREBASE_KEY_PATH)
                 firebase_admin.initialize_app(cred)
                 db = firestore.client()
-                print("  ✅ Initialisation de Firebase réussie.")
+                print("  [OK] Initialisation de Firebase réussie.")
                 
                 try:
                     list(db.collections())
-                    print("  ✅ Accès en lecture à la base de données confirmé.")
+                    print("  [OK] Accès en lecture à la base de données confirmé.")
                 except Exception as e:
-                    print(f"  ❌ ERREUR PERMISSIONS: {e}")
+                    print(f"  [ERROR] PERMISSIONS: {e}")
                     all_ok = False
             else:
-                print(f"  ❌ ERREUR: Fichier {FIREBASE_KEY_PATH} introuvable.")
+                print(f"  [ERROR] Fichier {FIREBASE_KEY_PATH} introuvable.")
                 print("  👉 Assurez-vous que votre fichier de clé de service Firebase est à la racine du projet.")
                 all_ok = False
         except Exception as e:
-            print(f"  ❌ ERREUR critique Firebase: {e}")
+            print(f"  [ERROR] critique Firebase: {e}")
             all_ok = False
     else:
-        print("  ✅ Firebase déjà initialisé.")
+        print("  [OK] Firebase déjà initialisé.")
         db = firestore.client()
         try:
             list(db.collections())
-            print("  ✅ Accès en lecture à la base de données confirmé.")
+            print("  [OK] Accès en lecture à la base de données confirmé.")
         except Exception as e:
-            print(f"  ❌ ERREUR PERMISSIONS: {e}")
+            print(f"  [ERROR] PERMISSIONS: {e}")
             all_ok = False
 
     # --- 4. Chargement des fichiers de configuration locaux ---
@@ -100,33 +100,33 @@ def run_checks():
         # --- Utiliser un chemin absolu pour les JSON ---
         with open(os.path.join(ROOT_DIR, 'prompts.json'), 'r', encoding='utf-8') as f:
             prompts_data = json.load(f)
-            if 'system_prompt' in prompts_data:
-                print("  ✅ `prompts.json` chargé avec succès.")
+            if 'main_analysis_prompt' in prompts_data:
+                print("  [OK] `prompts.json` chargé avec succès.")
             else:
-                print("  ❌ ERREUR: `prompts.json` semble invalide (clé 'system_prompt' manquante).")
+                print("  [ERROR] `prompts.json` semble invalide.")
                 all_ok = False
     except Exception as e:
-        print(f"  ❌ ERREUR: Impossible de charger `prompts.json`: {e}")
+        print(f"  [ERROR] Impossible de charger `prompts.json`: {e}")
         all_ok = False
 
     try:
-        with open(os.path.join(ROOT_DIR, 'city_coordinates.json'), 'r', encoding='utf-8') as f:
+        with open(os.path.join(ROOT_DIR, 'backend', 'resources', 'city_coordinates.json'), 'r', encoding='utf-8') as f:
             cities_data = json.load(f)
             if 'montreal' in cities_data:
-                print("  ✅ `city_coordinates.json` chargé avec succès.")
+                print("  [OK] `city_coordinates.json` chargé avec succès.")
             else:
-                print("  ❌ ERREUR: `city_coordinates.json` semble invalide (clé 'montreal' manquante).")
+                print("  [ERROR] `city_coordinates.json` semble invalide (clé 'montreal' manquante).")
                 all_ok = False
     except Exception as e:
-        print(f"  ❌ ERREUR: Impossible de charger `city_coordinates.json`: {e}")
+        print(f"  [ERROR] Impossible de charger `city_coordinates.json`: {e}")
         all_ok = False
 
     # --- Résultat final ---
     print("\n--- FIN DES TESTS ---")
     if all_ok:
-        print("✅ Tous les tests de base ont réussi. L'environnement semble sain.")
+        print("[OK] Tous les tests de base ont réussi. L'environnement semble sain.")
     else:
-        print("❌ Des erreurs ont été détectées. Veuillez corriger les problèmes ci-dessus avant de continuer.")
+        print("[ERROR] Des erreurs ont été détectées. Veuillez corriger les problèmes ci-dessus avant de continuer.")
     
     return all_ok
 

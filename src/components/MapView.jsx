@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import CITY_COORDINATES from '../../city_coordinates.json';
+import CITY_COORDINATES from '../../backend/resources/city_coordinates.json';
 
 // Mapping des couleurs pour Google Maps (Hexadécimal requis)
 const VERDICT_COLORS = {
@@ -13,12 +13,12 @@ const VERDICT_COLORS = {
   REJECTED_ITEM: '#475569', // Slate 600
   REJECTED_SERVICE: '#475569', // Slate 600
   INCOMPLETE_DATA: '#94a3b8', // Slate 400
-  
+
   // Legacy
   GOOD_DEAL: '#10b981',    // Emerald 500
   FAIR: '#3b82f6',         // Blue 500
   REJECTED: '#475569',     // Slate 600
-  
+
   // Default
   DEFAULT: '#64748b'       // Slate 500
 };
@@ -32,17 +32,17 @@ const MapView = ({ deals, onDealSelect }) => {
   // Fonction pour obtenir les coordonnées d'une ville (avec jitter)
   const getCoordinates = (location) => {
     if (!location) return null;
-    
+
     // Nettoyage du nom de la ville (ex: "Laval, QC" -> "laval")
     const cleanLoc = location.toLowerCase().split(',')[0].trim();
-    
+
     // Recherche dans le dictionnaire
     let coords = CITY_COORDINATES[cleanLoc];
-    
+
     // Si pas trouvé, on essaie de trouver une correspondance partielle
     if (!coords) {
-        const key = Object.keys(CITY_COORDINATES).find(k => cleanLoc.includes(k));
-        if (key) coords = CITY_COORDINATES[key];
+      const key = Object.keys(CITY_COORDINATES).find(k => cleanLoc.includes(k));
+      if (key) coords = CITY_COORDINATES[key];
     }
 
     // Fallback sur Montréal si inconnu
@@ -50,7 +50,7 @@ const MapView = ({ deals, onDealSelect }) => {
 
     // Ajout d'un "jitter" (décalage aléatoire) pour éviter la superposition exacte
     // +/- 0.01 degrés correspond à environ +/- 1km
-    const jitter = 0.02; 
+    const jitter = 0.02;
     return {
       lat: coords.lat + (Math.random() - 0.5) * jitter,
       lng: coords.lng + (Math.random() - 0.5) * jitter
@@ -70,7 +70,7 @@ const MapView = ({ deals, onDealSelect }) => {
     if (existingScript) {
       // Si le script existe mais window.google n'est pas encore là, on attend
       if (!window.initMap) {
-         window.initMap = () => setIsApiLoaded(true);
+        window.initMap = () => setIsApiLoaded(true);
       }
       return;
     }
@@ -87,11 +87,11 @@ const MapView = ({ deals, onDealSelect }) => {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&callback=initMap&v=weekly`;
     script.async = true;
     script.defer = true;
-    
+
     window.initMap = () => {
-       setIsApiLoaded(true);
+      setIsApiLoaded(true);
     };
-    
+
     document.head.appendChild(script);
 
     return () => {
@@ -107,21 +107,21 @@ const MapView = ({ deals, onDealSelect }) => {
         center: { lat: 45.5017, lng: -73.5673 }, // Montréal par défaut
         zoom: 9,
         styles: [
-            {
-                "featureType": "all",
-                "elementType": "geometry",
-                "stylers": [{ "color": "#f5f5f5" }]
-            },
-            {
-                "featureType": "water",
-                "elementType": "geometry",
-                "stylers": [{ "color": "#c9c9c9" }]
-            },
-            {
-                "featureType": "water",
-                "elementType": "labels.text.fill",
-                "stylers": [{ "color": "#9e9e9e" }]
-            }
+          {
+            "featureType": "all",
+            "elementType": "geometry",
+            "stylers": [{ "color": "#f5f5f5" }]
+          },
+          {
+            "featureType": "water",
+            "elementType": "geometry",
+            "stylers": [{ "color": "#c9c9c9" }]
+          },
+          {
+            "featureType": "water",
+            "elementType": "labels.text.fill",
+            "stylers": [{ "color": "#9e9e9e" }]
+          }
         ],
         disableDefaultUI: true,
         zoomControl: true,
@@ -155,14 +155,14 @@ const MapView = ({ deals, onDealSelect }) => {
 
         // Création d'une icône SVG personnalisée
         const svgMarker = {
-            path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
-            fillColor: markerColor,
-            fillOpacity: 1,
-            strokeWeight: 1,
-            strokeColor: "#ffffff",
-            rotation: 0,
-            scale: 1.5,
-            anchor: new window.google.maps.Point(12, 22),
+          path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+          fillColor: markerColor,
+          fillOpacity: 1,
+          strokeWeight: 1,
+          strokeColor: "#ffffff",
+          rotation: 0,
+          scale: 1.5,
+          anchor: new window.google.maps.Point(12, 22),
         };
 
         const marker = new window.google.maps.Marker({

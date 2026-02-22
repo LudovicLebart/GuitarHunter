@@ -86,3 +86,4 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Mise en place du `AI_BRIEFING.md`.
 - [x] Refonte responsive de la `DealCard` (Mobile First).
 - [x] Analyse approfondie du système de prompts dynamiques (`docs/ARCHITECTURE.md` Section 4 mise à jour, Session 10).
+- [x] Nettoyage et restructuration de la racine du projet (Session 15).

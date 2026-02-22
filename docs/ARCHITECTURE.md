@@ -6,7 +6,7 @@ Ce document détaille le fonctionnement interne du projet.
 
 Le projet utilise une architecture où **Firestore n'est pas seulement une base de données, mais un bus d'événements et de commandes**.
 
-- **`guitar_deals` (Collection):** Contient toutes les annonces. Le frontend écoute cette collection en temps réel.
+- **`guitar_deals` (Collection):** Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
 - **`commands` (Collection):** Le frontend écrit des documents ici pour demander des actions au backend (ex: `ANALYZE_DEAL`). Le backend écoute cette collection, traite la commande, puis la supprime ou la marque comme complétée. **(Nouvelle Architecture)**
 - **`users/{userID}` (Document):** Contient la configuration du bot. De plus, sert historiquement de bus de commandes pour des actions comme `forceRefresh` ou `scanSpecificUrl` en modifiant des champs avec un timestamp. **(Architecture Legacy - Dette Technique)**
 
@@ -40,6 +40,12 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/scraping/`
 - **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces.
+
+### `backend/resources/` (Nouveau)
+- **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
+
+### `backend/config/` (Nouveau)
+- **`serviceAccountKey.json`:** Clé de service Firebase pour l'authentification du backend. (Non versionné)
 
 ## 3. ⚛️ Frontend (React)
 

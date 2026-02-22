@@ -17,7 +17,7 @@ NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
 # CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "serviceAccountKey.json")
+FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "backend", "config", "serviceAccountKey.json")
 
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 GEMINI_MODELS = {
