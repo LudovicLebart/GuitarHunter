@@ -25,7 +25,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Nettoyer les clés obsolètes de `prompts.json` et `config.py`**
     - *Détails :* Les clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `system_structure` dans `prompts.json` et leurs constantes associées dans `config.py` (`PROMPT_INSTRUCTION`, `DEFAULT_VERDICT_RULES`, etc.) ne sont plus utilisées. Les supprimer allégera le code et évitera la confusion.
 
-- [ ] **Migrer les commandes "legacy" vers la collection `commands`**
+- [x] **Migrer les commandes "legacy" vers la collection `commands`**
     - *Détails :* Certaines commandes (Refresh, Cleanup, Reanalyze All, Scan URL) fonctionnent encore en modifiant des champs dans le document `users/{id}` (`forceRefresh`, `scanSpecificUrl`), tandis que d'autres (Analyze Deal, Clear Logs) utilisent la nouvelle collection Firestore `commands`. Il faut unifier l'architecture autour de la collection `commands` pour faciliter la traçabilité.
 
 - [ ] **Rendre la vérification de disponibilité du scraper plus robuste**

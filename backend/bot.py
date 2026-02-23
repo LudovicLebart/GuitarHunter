@@ -198,7 +198,6 @@ class GuitarHunterBot:
             self.repo.update_bot_status('scanning_url')
         try:
             self.scraper.scan_specific_url(url, self.handle_deal_found)
-            if not self.offline_mode: self.repo.consume_command('scanSpecificUrl')
         finally:
             if not self.offline_mode: self.repo.update_bot_status('idle')
 

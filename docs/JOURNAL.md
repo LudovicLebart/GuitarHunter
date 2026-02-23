@@ -11,6 +11,23 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 23/02/2026** (Session 17)
+
+**Auteur:** Assistant AI
+
+**Type:** Refonte Système (Commandes & Base de données)
+
+#### 📝 Description des Changements
+- **Migration des "Legacy Commands" vers la collection `commands` :**
+    - Modification du Frontend (`src/services/firestoreService.js`) pour que les actions manuelles (Refresh, Cleanup, Reanalyze All, Scan URL) créent des documents dans la collection `commands` au lieu de modifier des champs d'horodatage sur la racine du document utilisateur.
+    - Simplification du Backend (`backend/services.py` & `backend/bot.py`) : Le `ConfigManager` a été épuré de toute la logique complexe de vérification d'horodatage. La boucle principale (`main.py`) gère désormais de manière unifiée toutes les commandes entrantes (avec statut `pending`, `completed`, `failed`).
+    - Nettoyage du Backend (`backend/repository.py`) : L'ancienne méthode `consume_command` qui supprimait les champs du document utilisateur a été supprimée suite à la nouvelle architecture.
+
+#### 🤔 Raisonnement
+Cette unification de l'architecture autour de la collection `commands` facilite grandement la traçabilité. Auparavant, le bot devait surveiller 4 champs (`forceRefresh`, `forceCleanup`, `forceReanalyzeAll`, `scanSpecificUrl`) greffés sur le document utilisateur. Maintenant, chaque commande, quelle que soit sa nature, suit un flux de vie identique (création → attente → traitement → terminé/erreur), ce qui rend le système beaucoup plus robuste et prévisible.
+
+---
+
 ### **Date: 23/02/2026** (Session 16)
 
 **Auteur:** Assistant AI
