@@ -65,6 +65,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
 
+- [ ] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
+    - *Plan de travail :* [`docs/FUNNEL_PLAN.md`](./FUNNEL_PLAN.md) — à retravailler avant implémentation.
+    - *Objectif :* Ajouter un Tier 2 (Analyste Flash, condensé + 4 scores numériques) et un Tier 3 (Expert Pro, déclenché conditionnellement) pour optimiser la consommation de tokens et la précision des analyses à haut potentiel.
+    - *Fichiers impactés :* `backend/analyzer.py`, `prompts.json`, `config.py`.
+
 ---
 
 ## 🚀 Améliorations Futures
