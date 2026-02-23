@@ -62,7 +62,6 @@ def main_loop(bot, firestore_handler):
                             try:
                                 handler(command.payload)
                                 if command.command_id: bot.repo.mark_command_completed(command.command_id)
-                                elif command.firestore_field: bot.repo.consume_command(command.firestore_field)
                             except Exception as e:
                                 logger.error(f"Erreur exécution commande {command.type}: {e}", exc_info=True)
                                 if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))

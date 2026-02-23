@@ -11,7 +11,6 @@ class Command:
     """Représente une commande à exécuter par le bot."""
     type: str
     payload: Optional[Any] = None
-    firestore_field: Optional[str] = None # Pour les commandes legacy (champs dans user doc)
     command_id: Optional[str] = None      # Pour les commandes de la collection 'commands'
 
 @dataclass
@@ -27,9 +26,6 @@ class ConfigManager:
     def __init__(self, repo, initial_scan_config):
         self.repo = repo
         self.scan_config = initial_scan_config.copy()
-        self.last_refresh_ts = 0
-        self.last_cleanup_ts = 0
-        self.last_reanalyze_ts = 0
         self.current_config_snapshot = {} 
 
     def sync_with_firestore(self, initial=False):
@@ -53,20 +49,6 @@ class ConfigManager:
             result.config_changed = True
             logger.info("Scan config updated.")
 
-        # --- Commandes Legacy (Champs dans le document utilisateur) ---
-        if self._check_command(config_data, 'forceRefresh', 'last_refresh_ts', initial):
-            result.commands.append(Command(type='REFRESH', firestore_field='forceRefresh'))
-            
-        if self._check_command(config_data, 'forceCleanup', 'last_cleanup_ts', initial):
-            result.commands.append(Command(type='CLEANUP', firestore_field='forceCleanup'))
-            
-        if self._check_command(config_data, 'forceReanalyzeAll', 'last_reanalyze_ts', initial):
-            result.commands.append(Command(type='REANALYZE_ALL', firestore_field='forceReanalyzeAll'))
-        
-        specific_url = config_data.get('scanSpecificUrl')
-        if specific_url:
-            result.commands.append(Command(type='SCAN_URL', payload=specific_url, firestore_field='scanSpecificUrl'))
-
         # --- Commandes Collection (Nouvelle Architecture) ---
         # On ne vérifie pas les commandes lors de l'initialisation pour éviter de rejouer de vieilles commandes
         if not initial:
@@ -84,17 +66,6 @@ class ConfigManager:
                     ))
 
         return result
-
-    def _check_command(self, config_data, key, ts_attr, initial):
-        """Vérifie si une commande a été déclenchée via son timestamp."""
-        timestamp = config_data.get(key, 0)
-        last_ts = getattr(self, ts_attr)
-        if not initial and timestamp != last_ts:
-            setattr(self, ts_attr, timestamp)
-            return True
-        elif initial:
-            setattr(self, ts_attr, timestamp)
-        return False
     
     def get_valid_scan_frequency(self):
         """Valide et retourne la fréquence de scan."""

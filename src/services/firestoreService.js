@@ -57,19 +57,19 @@ export const updateUserConfig = async (newConfig) => {
 };
 
 export const triggerManualRefresh = () => {
-  return updateUserConfig({ forceRefresh: Date.now(), scanError: deleteField() });
+  return addCommand('REFRESH', null);
 };
 
 export const triggerManualCleanup = () => {
-  return updateUserConfig({ forceCleanup: Date.now() });
+  return addCommand('CLEANUP', null);
 };
 
 export const triggerRelaunchAll = () => {
-  return updateUserConfig({ forceReanalyzeAll: Date.now() });
+  return addCommand('REANALYZE_ALL', null);
 };
 
 export const triggerScanSpecificUrl = (url) => {
-  return updateUserConfig({ scanSpecificUrl: url });
+  return addCommand('SCAN_URL', url);
 };
 
 export const resetBotConfigToDefaults = (defaults) => {

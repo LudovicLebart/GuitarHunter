@@ -157,13 +157,6 @@ class FirestoreRepository:
             logger.error(f"Failed to mark listings for re-analysis: {e}", exc_info=True)
             return 0
             
-    def consume_command(self, command_field):
-        try:
-            self.user_ref.update({command_field: firestore.DELETE_FIELD})
-            logger.info(f"Consumed command '{command_field}'.")
-        except Exception as e:
-            logger.error(f"Failed to consume command '{command_field}': {e}", exc_info=True)
-
     def update_bot_status(self, status):
         try:
             self.user_ref.update({'botStatus': status})
