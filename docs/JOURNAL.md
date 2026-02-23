@@ -1,6 +1,27 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Assainissement du titre de la notification (suppression des sauts de ligne `\n`) pour éviter des erreurs HTTP `Invalid header value` lors de l'envoi à `ntfy.sh`.
+[2026-02-22] [PRO] Action : Modification de `src/App.jsx` → Résultat : Le lecteur récupère désormais l'ID d'annonce via le lien `deals` complet (et plus `filteredDeals`), évitant que la carte ne s'ouvre pas si l'annonce est archivée/filtrée.
+[2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Le lien cliquable des notifications `ntfy` renvoie désormais vers la carte du deal sur le frontend (`?dealId=...`) au lieu de l'annonce Facebook FB.
+
 Ce journal suit les changements majeurs, les décisions d'architecture et les nouvelles fonctionnalités.
+
+---
+
+### **Date: 22/02/2026** (Session 15 - Soir)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'Architecture & Résolution de Dette Technique
+
+#### 📝 Description des Changements
+- **Externalisation des verdicts de rejet (Coupe-circuit) :**
+    - La liste des verdicts provoquant l'arrêt immédiat de l'analyse (`BAD_DEAL`, `REJECTED_ITEM`...) a été retirée du code Python (`backend/analyzer.py`).
+    - Elle est désormais stockée dans `prompts.json` par défaut et gérée dynamiquement via Firestore (`analysisConfig.rejectionVerdicts`).
+    - Ajout d'une interface d'édition (liste de textes) dans `ConfigPanel.jsx` (section "Intelligence Artificielle").
+
+#### 🤔 Raisonnement
+Cette modification résout une dette technique identifiée. Auparavant, si la taxonomie des verdicts venait à évoluer, le backend devait être recompilé. Maintenant, l'utilisateur a un contrôle total sur les conditions de "coupe-circuit" directement depuis l'interface web, rendant le système de filtrage (Portier) 100% piloté par les données.
 
 ---
 

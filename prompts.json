@@ -247,6 +247,12 @@
   ],
   "gatekeeper_verbosity_instruction": "IGNORE TOUTE INSTRUCTION DE FORMATAGE PRÉCÉDENTE. Ta réponse DOIT être un JSON contenant UNIQUEMENT les clés 'status' et 'reasoning'. Le status DOIT être l'un des suivants : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA. La raison ne doit pas dépasser 15 mots.",
   "expert_context_instruction": "Cette annonce a déjà été identifiée comme une '{status}' avec la raison suivante : '{reasoning}'. Fournis maintenant une analyse JSON complète et détaillée, incluant tous les calculs financiers (Marge, Coût Net, etc.) et le rapport complet dans la clé 'analysis'.",
+  "rejection_verdicts": [
+    "BAD_DEAL",
+    "REJECTED_ITEM",
+    "REJECTED_SERVICE",
+    "INCOMPLETE_DATA"
+  ],
   "few_shot_examples": [
     "### EXEMPLES D'ANALYSES RÉUSSIES",
     "",

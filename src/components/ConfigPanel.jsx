@@ -10,25 +10,25 @@ import LogViewer from './LogViewer';
 // --- COMPOSANT ÉDITEUR DE LISTE ---
 const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle instruction..." }) => {
   const safeItems = useMemo(() => Array.isArray(items) ? items : [], [items]);
-  
+
   useEffect(() => {
     const needsSplit = safeItems.some(item => typeof item === 'string' && (item.includes('\n') || item.includes('\\n')));
     if (needsSplit) {
-        const splitItems = safeItems.flatMap(item => (typeof item !== 'string') ? item : item.split(/\\n|\r?\n/));
-        const cleanItems = splitItems.map(i => i ? i.trim() : "").filter(i => i !== "");
-        if (JSON.stringify(cleanItems) !== JSON.stringify(safeItems)) {
-             onChange(cleanItems);
-        }
+      const splitItems = safeItems.flatMap(item => (typeof item !== 'string') ? item : item.split(/\\n|\r?\n/));
+      const cleanItems = splitItems.map(i => i ? i.trim() : "").filter(i => i !== "");
+      if (JSON.stringify(cleanItems) !== JSON.stringify(safeItems)) {
+        onChange(cleanItems);
+      }
     }
   }, [safeItems, onChange]);
 
   const handleChange = (index, value) => {
     const newItems = [...safeItems];
     if (value.includes('\n')) {
-        const lines = value.split(/\r?\n/);
-        newItems.splice(index, 1, ...lines);
+      const lines = value.split(/\r?\n/);
+      newItems.splice(index, 1, ...lines);
     } else {
-        newItems[index] = value;
+      newItems[index] = value;
     }
     onChange(newItems);
   };
@@ -36,7 +36,7 @@ const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle ins
   const handleBlur = () => {
     const cleanItems = safeItems.filter(item => item && item.trim() !== "");
     if (JSON.stringify(cleanItems) !== JSON.stringify(safeItems)) {
-        onChange(cleanItems);
+      onChange(cleanItems);
     }
     onSave(cleanItems);
   };
@@ -89,15 +89,15 @@ const FacebookSearchSection = () => {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label><input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({...scanConfig, distance: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label><input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({...scanConfig, max_ads: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label><input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label><input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({ ...scanConfig, max_ads: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label><input type="number" value={scanConfig.min_price} onChange={(e) => setScanConfig({...scanConfig, min_price: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label><input type="number" value={scanConfig.max_price} onChange={(e) => setScanConfig({...scanConfig, max_price: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label><input type="number" value={scanConfig.min_price} onChange={(e) => setScanConfig({ ...scanConfig, min_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label><input type="number" value={scanConfig.max_price} onChange={(e) => setScanConfig({ ...scanConfig, max_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
       </div>
-      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({...scanConfig, frequency: Number(e.target.value)})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({...scanConfig, search_query: e.target.value})} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
       <div className="pt-3 border-t border-slate-100"><label className="text-[9px] font-bold text-slate-400 uppercase">Scan d'URL Spécifique</label><div className="flex gap-2 mt-1"><input type="text" placeholder="Coller l'URL de l'annonce Facebook..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /><button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 disabled:bg-slate-300 flex items-center justify-center">{isScanningUrl ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}</button></div></div>
     </div>
   );
@@ -112,8 +112,8 @@ const CityManagementSection = () => {
   const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
   const handleSaveCity = async () => {
-      if (!newCityName || isAddingCity) return;
-      await handleAddCity();
+    if (!newCityName || isAddingCity) return;
+    await handleAddCity();
   };
   return (
     <div className="pt-2 space-y-4">
@@ -129,9 +129,9 @@ const ExclusionKeywordsSection = () => {
   return (
     <div className="pt-2 space-y-4">
       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <label className="text-[10px] font-bold text-rose-600 uppercase block mb-2">Mots-clés à Exclure</label>
-          <p className="text-[9px] text-slate-400 mb-3">Si le titre ou la description contient un de ces mots, l'annonce est rejetée sans analyse IA.</p>
-          <PromptListEditor items={exclusionKeywords} onChange={setExclusionKeywords} onSave={(val) => saveConfig({ exclusionKeywords: val })} placeholder="Ex: Stagg, brisé, pour pièces..." />
+        <label className="text-[10px] font-bold text-rose-600 uppercase block mb-2">Mots-clés à Exclure</label>
+        <p className="text-[9px] text-slate-400 mb-3">Si le titre ou la description contient un de ces mots, l'annonce est rejetée sans analyse IA.</p>
+        <PromptListEditor items={exclusionKeywords} onChange={setExclusionKeywords} onSave={(val) => saveConfig({ exclusionKeywords: val })} placeholder="Ex: Stagg, brisé, pour pièces..." />
       </div>
     </div>
   );
@@ -139,17 +139,17 @@ const ExclusionKeywordsSection = () => {
 
 const AiConfigSection = () => {
   const { analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll, availableModels } = useBotConfigContext();
-  
+
   const handleAnalysisConfigChange = (field, value) => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
   };
 
   // Fallback si la liste n'est pas encore chargée
   const models = availableModels.length > 0 ? availableModels : [
-      "gemini-2.5-flash-lite",
-      "gemini-2.5-flash",
-      "gemini-1.5-flash",
-      "gemini-1.5-pro"
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro"
   ];
 
   return (
@@ -161,31 +161,36 @@ const AiConfigSection = () => {
 
       <div className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Portier (Rapide)</label>
-                <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
-                    {models.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-            </div>
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Expert (Puissant)</label>
-                <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
-                    {models.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-            </div>
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Portier (Rapide)</label>
+            <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Expert (Puissant)</label>
+            <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
+              {models.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Prompt Principal (Portier & Expert)</label>
-            <PromptListEditor items={analysisConfig.mainAnalysisPrompt} onChange={(val) => handleAnalysisConfigChange('mainAnalysisPrompt', val)} onSave={(val) => saveConfig({ 'analysisConfig.mainAnalysisPrompt': val })} placeholder="Ex: Tu es un expert en guitares..." />
+          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Prompt Principal (Portier & Expert)</label>
+          <PromptListEditor items={analysisConfig.mainAnalysisPrompt} onChange={(val) => handleAnalysisConfigChange('mainAnalysisPrompt', val)} onSave={(val) => saveConfig({ 'analysisConfig.mainAnalysisPrompt': val })} placeholder="Ex: Tu es un expert en guitares..." />
         </div>
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Instruction de concision (Portier)</label>
-            <PromptListEditor items={analysisConfig.gatekeeperVerbosityInstruction} onChange={(val) => handleAnalysisConfigChange('gatekeeperVerbosityInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.gatekeeperVerbosityInstruction': val })} placeholder="Ex: Sois bref..." />
+          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Instruction de concision (Portier)</label>
+          <PromptListEditor items={analysisConfig.gatekeeperVerbosityInstruction} onChange={(val) => handleAnalysisConfigChange('gatekeeperVerbosityInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.gatekeeperVerbosityInstruction': val })} placeholder="Ex: Sois bref..." />
         </div>
         <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Contexte pour l'Expert</label>
-            <PromptListEditor items={analysisConfig.expertContextInstruction} onChange={(val) => handleAnalysisConfigChange('expertContextInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.expertContextInstruction': val })} placeholder="Ex: Le portier a dit..." />
+          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Contexte pour l'Expert</label>
+          <PromptListEditor items={analysisConfig.expertContextInstruction} onChange={(val) => handleAnalysisConfigChange('expertContextInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.expertContextInstruction': val })} placeholder="Ex: Le portier a dit..." />
+        </div>
+        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 border-l-4 border-l-rose-500">
+          <label className="text-[10px] font-bold text-rose-600 uppercase block mb-1">Verdicts de Rejet (Coupe-circuit)</label>
+          <p className="text-[9px] text-slate-400 mb-3">Si le Portier renvoie un de ces statuts EXACTS, l'annonce est rejetée et l'Expert n'est pas appelé (ex: BAD_DEAL, REJECTED_ITEM).</p>
+          <PromptListEditor items={analysisConfig.rejectionVerdicts} onChange={(val) => handleAnalysisConfigChange('rejectionVerdicts', val)} onSave={(val) => saveConfig({ 'analysisConfig.rejectionVerdicts': val })} placeholder="Ajouter un verdict (ex: BAD_DEAL)" />
         </div>
       </div>
     </div>
@@ -194,21 +199,21 @@ const AiConfigSection = () => {
 
 const LogsConfigSection = () => {
   const { logLimit, setLogLimit, saveConfig } = useBotConfigContext();
-  
+
   return (
     <div className="pt-2 space-y-4">
       <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Limite de Logs (Affichage)</label>
-          <p className="text-[9px] text-slate-400 mb-3">Nombre maximum de logs à afficher dans la visionneuse.</p>
-          <input 
-            type="number" 
-            value={logLimit} 
-            onChange={(e) => setLogLimit(Number(e.target.value))} 
-            onBlur={() => saveConfig({ logLimit: Number(logLimit) })} 
-            className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs" 
-            min="10" 
-            max="500"
-          />
+        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Limite de Logs (Affichage)</label>
+        <p className="text-[9px] text-slate-400 mb-3">Nombre maximum de logs à afficher dans la visionneuse.</p>
+        <input
+          type="number"
+          value={logLimit}
+          onChange={(e) => setLogLimit(Number(e.target.value))}
+          onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
+          className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
+          min="10"
+          max="500"
+        />
       </div>
     </div>
   );
@@ -225,9 +230,9 @@ const ConfigPanel = ({ showConfig, onClose }) => {
       <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white sticky top-0 z-20">
         <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
         <div className="flex items-center gap-2">
-            <button onClick={() => setShowLogs(!showLogs)} className={`p-1.5 rounded-lg transition-colors ${showLogs ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`} title="Voir les logs"><Terminal size={16} /></button>
-            <button onClick={() => setIsExpanded(!isExpanded)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors hidden lg:block" title={isExpanded ? "Réduire" : "Agrandir"}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
-            <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><X size={18} /></button>
+          <button onClick={() => setShowLogs(!showLogs)} className={`p-1.5 rounded-lg transition-colors ${showLogs ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`} title="Voir les logs"><Terminal size={16} /></button>
+          <button onClick={() => setIsExpanded(!isExpanded)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors hidden lg:block" title={isExpanded ? "Réduire" : "Agrandir"}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><X size={18} /></button>
         </div>
       </div>
       <div className="flex-grow overflow-y-auto custom-scrollbar p-5 space-y-2">
@@ -242,27 +247,27 @@ const ConfigPanel = ({ showConfig, onClose }) => {
   );
 
   if (window.innerWidth < 1024) {
-      return (
-        <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-2 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar relative">
-            <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-rose-600"><X size={18} /></button>
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Paramètres</h3>
-            <CollapsibleSection title="Recherche Facebook"><FacebookSearchSection /></CollapsibleSection>
-            <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
-            <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
-            <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
-            <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
-            <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2"><Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Voir Logs Serveur'}</button>
-            {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
-        </div>
-      );
+    return (
+      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-2 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-rose-600"><X size={18} /></button>
+        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Paramètres</h3>
+        <CollapsibleSection title="Recherche Facebook"><FacebookSearchSection /></CollapsibleSection>
+        <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
+        <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
+        <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
+        <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
+        <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2"><Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Voir Logs Serveur'}</button>
+        {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
+      </div>
+    );
   }
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end pointer-events-none">
-        <div className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto transition-opacity opacity-100" onClick={onClose} />
-        <div className="relative z-10 pointer-events-auto h-full animate-in slide-in-from-right duration-300 flex">
-            {panelContent}
-        </div>
+      <div className="absolute inset-0 bg-black/20 backdrop-blur-sm pointer-events-auto transition-opacity opacity-100" onClick={onClose} />
+      <div className="relative z-10 pointer-events-auto h-full animate-in slide-in-from-right duration-300 flex">
+        {panelContent}
+      </div>
     </div>,
     document.body
   );

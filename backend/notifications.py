@@ -13,8 +13,9 @@ class NotificationService:
             return
 
         url = f"https://ntfy.sh/{NTFY_TOPIC}"
+        safe_title = title.replace('\n', ' ').replace('\r', ' ')
         headers = {
-            "Title": title.encode('utf-8'),
+            "Title": safe_title.encode('utf-8'),
             "Priority": priority,
         }
         
@@ -68,5 +69,5 @@ class NotificationService:
             message=message,
             priority=priority,
             tags=tags,
-            click_url=deal_data.get('link')
+            click_url=f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_data.get('id')}"
         )

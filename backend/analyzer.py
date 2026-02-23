@@ -5,7 +5,7 @@ import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
-from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY, DEFAULT_FEW_SHOT_EXAMPLES
+from config import GEMINI_API_KEY, DEFAULT_MAIN_PROMPT, DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY, DEFAULT_FEW_SHOT_EXAMPLES, DEFAULT_REJECTION_VERDICTS
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +136,7 @@ class DealAnalyzer:
 
                 # --- LOGIQUE DE FILTRAGE STRICTE (MISE À JOUR v2) ---
                 # Si le verdict est explicitement négatif, on arrête.
-                # Nouveaux verdicts de rejet : BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA
-                rejection_verdicts = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA']
+                rejection_verdicts = config.get('rejectionVerdicts', DEFAULT_REJECTION_VERDICTS)
                 
                 # Rétrocompatibilité avec les anciens verdicts de rejet au cas où
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
