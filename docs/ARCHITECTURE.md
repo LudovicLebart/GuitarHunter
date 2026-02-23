@@ -144,6 +144,7 @@ L'utilisateur peut modifier les 3 prompts suivants via le **ConfigPanel** (ongle
 | `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) | Portier + Expert |
 | `analysisConfig.gatekeeperVerbosityInstruction` | Instruction de concision ajoutée à la fin du prompt du Portier | Portier uniquement |
 | `analysisConfig.expertContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) | Expert uniquement |
+| `analysisConfig.rejectionVerdicts` | Liste stricte des verdicts provoquant un arrêt immédiat de l'analyse | Portier uniquement |
 
 Les modifications sont **sauvegardées automatiquement au `onBlur`** de chaque champ, sans bouton de validation explicite.
 
@@ -160,7 +161,6 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 ### 4.5 Dette Technique Restante (Architecture)
 
 -  **Taxonomie non éditable** : `DEFAULT_TAXONOMY` est chargée depuis `prompts.json` au démarrage de Python et est toujours **injectée en dur** dans `analyzer.py`. Elle n'est pas exposée dans l'interface de configuration et ne peut pas être modifiée via Firestore.
--  **Logique de rejet en dur** : Le composant `DealAnalyzer` vérifie les verdicts du portier avec des chaînes de caractères `if gatekeeper_status in ['BAD_DEAL', ...]`.
 
 ---
 

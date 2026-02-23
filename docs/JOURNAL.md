@@ -8,6 +8,23 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+### **Date: 22/02/2026** (Session 15 - Soir)
+
+**Auteur:** Assistant AI
+
+**Type:** Amélioration de l'Architecture & Résolution de Dette Technique
+
+#### 📝 Description des Changements
+- **Externalisation des verdicts de rejet (Coupe-circuit) :**
+    - La liste des verdicts provoquant l'arrêt immédiat de l'analyse (`BAD_DEAL`, `REJECTED_ITEM`...) a été retirée du code Python (`backend/analyzer.py`).
+    - Elle est désormais stockée dans `prompts.json` par défaut et gérée dynamiquement via Firestore (`analysisConfig.rejectionVerdicts`).
+    - Ajout d'une interface d'édition (liste de textes) dans `ConfigPanel.jsx` (section "Intelligence Artificielle").
+
+#### 🤔 Raisonnement
+Cette modification résout une dette technique identifiée. Auparavant, si la taxonomie des verdicts venait à évoluer, le backend devait être recompilé. Maintenant, l'utilisateur a un contrôle total sur les conditions de "coupe-circuit" directement depuis l'interface web, rendant le système de filtrage (Portier) 100% piloté par les données.
+
+---
+
 ### **Date: 22/02/2026** (Session 15 - Après-midi)
 
 **Auteur:** Assistant AI

@@ -27,6 +27,7 @@ const ensureArray = (val) => {
 const DEFAULT_MAIN_PROMPT = ensureArray(promptsData.main_analysis_prompt);
 const DEFAULT_GATEKEEPER_INSTRUCTION = ensureArray(promptsData.gatekeeper_verbosity_instruction);
 const DEFAULT_EXPERT_CONTEXT = ensureArray(promptsData.expert_context_instruction);
+const DEFAULT_REJECTION_VERDICTS = ensureArray(promptsData.rejection_verdicts || ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA"]);
 const DEFAULT_EXCLUSION_KEYWORDS = [
   "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum",
   "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
@@ -48,7 +49,8 @@ export const useBotConfig = (user) => {
     expertModel: 'gemini-2.5-flash',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-    expertContextInstruction: DEFAULT_EXPERT_CONTEXT
+    expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
+    rejectionVerdicts: DEFAULT_REJECTION_VERDICTS
   });
 
   // Nouvel état pour stocker la liste des modèles disponibles reçue du backend
@@ -88,6 +90,7 @@ export const useBotConfig = (user) => {
           mainAnalysisPrompt: ensureArray(data.analysisConfig.mainAnalysisPrompt || prev.mainAnalysisPrompt),
           gatekeeperVerbosityInstruction: ensureArray(data.analysisConfig.gatekeeperVerbosityInstruction || prev.gatekeeperVerbosityInstruction),
           expertContextInstruction: ensureArray(data.analysisConfig.expertContextInstruction || prev.expertContextInstruction),
+          rejectionVerdicts: ensureArray(data.analysisConfig.rejectionVerdicts || prev.rejectionVerdicts),
         }));
       }
 
@@ -166,7 +169,8 @@ export const useBotConfig = (user) => {
         expertModel: 'gemini-2.5-flash',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-        expertContextInstruction: DEFAULT_EXPERT_CONTEXT
+        expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
+        rejectionVerdicts: DEFAULT_REJECTION_VERDICTS
       };
 
       setExclusionKeywords(DEFAULT_EXCLUSION_KEYWORDS);
@@ -181,6 +185,7 @@ export const useBotConfig = (user) => {
           'analysisConfig.mainAnalysisPrompt': defaultAnalysis.mainAnalysisPrompt,
           'analysisConfig.gatekeeperVerbosityInstruction': defaultAnalysis.gatekeeperVerbosityInstruction,
           'analysisConfig.expertContextInstruction': defaultAnalysis.expertContextInstruction,
+          'analysisConfig.rejectionVerdicts': defaultAnalysis.rejectionVerdicts,
           logLimit: 100
         });
       } catch (e) {

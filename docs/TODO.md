@@ -27,9 +27,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Nettoyer les clés obsolètes de `prompts.json` et `config.py`**
     - *Détails :* Les clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `system_structure` dans `prompts.json` et leurs constantes associées dans `config.py` (`PROMPT_INSTRUCTION`, `DEFAULT_VERDICT_RULES`, etc.) ne sont plus utilisées. Les supprimer allégera le code et évitera la confusion.
 
-- [ ] **Extraire la logique de rejet en dur dans `analyzer.py`**
-    - *Détails :* Actuellement, la condition `gatekeeper_status in ['BAD_DEAL', 'REJECTED_ITEM', ...]` est codée en dur. Si la taxonomie des verdicts change dans la config, le backend cassera. Rendre cette liste dynamique (ex: synchronisée via Firestore ou déduite du prompt).
-
 - [ ] **Migrer les commandes "legacy" vers la collection `commands`**
     - *Détails :* Certaines commandes (Refresh, Cleanup, Reanalyze All, Scan URL) fonctionnent encore en modifiant des champs dans le document `users/{id}` (`forceRefresh`, `scanSpecificUrl`), tandis que d'autres (Analyze Deal, Clear Logs) utilisent la nouvelle collection Firestore `commands`. Il faut unifier l'architecture autour de la collection `commands` pour faciliter la traçabilité.
 
@@ -87,3 +84,4 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Refonte responsive de la `DealCard` (Mobile First).
 - [x] Analyse approfondie du système de prompts dynamiques (`docs/ARCHITECTURE.md` Section 4 mise à jour, Session 10).
 - [x] Nettoyage et restructuration de la racine du projet (Session 15).
+- [x] Externalisation des verdicts de rejet de `analyzer.py` vers configuration dynamique via Firestore/UI (Session 15).

@@ -51,6 +51,7 @@ DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruct
 DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_context_instruction', "")
 DEFAULT_TAXONOMY = prompts_data.get('taxonomy_guitares', {})
 DEFAULT_FEW_SHOT_EXAMPLES = prompts_data.get('few_shot_examples', [])
+DEFAULT_REJECTION_VERDICTS = prompts_data.get('rejection_verdicts', ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA"])
 
 # --- MOTS-CLÉS D'EXCLUSION ---
 DEFAULT_EXCLUSION_KEYWORDS = [
