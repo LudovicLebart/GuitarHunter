@@ -21,7 +21,7 @@ import { RADAR_GROUP, MARKET_GROUP, ARCHIVE_GROUP } from './constants';
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
-  
+
   const {
     configStatus, error, setError,
     isRefreshing, isCleaning,
@@ -30,6 +30,7 @@ const AppContent = () => {
 
   const {
     loading, dbStatus,
+    deals, // On ajoute deals brut
     filteredDeals,
     filterProps,
     dealActions
@@ -44,10 +45,10 @@ const AppContent = () => {
     const params = new URLSearchParams(window.location.search);
     const dealId = params.get('dealId');
     if (dealId) {
-      const deal = filteredDeals.find(d => d.id === dealId);
+      const deal = deals.find(d => d.id === dealId);
       if (deal) setSelectedDeal(deal);
     }
-  }, [loading, filteredDeals]);
+  }, [loading, deals]);
 
   const handleCloseModal = useCallback(() => setSelectedDeal(null), []);
 
@@ -72,14 +73,14 @@ const AppContent = () => {
   }, [filteredDeals]);
 
   const renderDeal = (deal) => (
-    <DealCard 
-        key={deal.id} 
-        deal={deal} 
-        onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
-        onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
-        onReject={() => dealActions.handleRejectDeal(deal.id)}
-        onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
-        onDelete={() => dealActions.handleDeleteDeal(deal.id)}
+    <DealCard
+      key={deal.id}
+      deal={deal}
+      onRetry={() => dealActions.handleRetryAnalysis(deal.id)}
+      onForceExpert={() => dealActions.handleForceExpertAnalysis(deal.id)}
+      onReject={() => dealActions.handleRejectDeal(deal.id)}
+      onToggleFavorite={() => dealActions.handleToggleFavorite(deal.id, deal.isFavorite)}
+      onDelete={() => dealActions.handleDeleteDeal(deal.id)}
     />
   );
 
@@ -136,13 +137,13 @@ const AppContent = () => {
               <p className="text-slate-400 text-xs mt-1">Ajustez vos filtres ou lancez un scan manuel</p>
             </div>
           ) : viewMode === 'MAP' ? (
-             <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
+            <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
           ) : (
             <div>
               <SectionGroup title="Radar" count={radarDeals.length} icon={Target} colorClass="text-emerald-500" defaultOpen={true}>
                 {radarDeals.map(renderDeal)}
               </SectionGroup>
-              
+
               <SectionGroup title="Marché" count={marketDeals.length} icon={ShoppingBag} colorClass="text-blue-500" defaultOpen={radarDeals.length === 0}>
                 {marketDeals.map(renderDeal)}
               </SectionGroup>
@@ -168,7 +169,7 @@ const AppContent = () => {
         </div>
       )}
 
-      <DealModal 
+      <DealModal
         deal={selectedDeal}
         onClose={handleCloseModal}
         onRetry={() => dealActions.handleRetryAnalysis(selectedDeal.id)}
