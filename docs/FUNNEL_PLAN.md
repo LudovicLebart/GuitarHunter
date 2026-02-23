@@ -55,13 +55,13 @@ Voici à quoi ressemble la sortie exacte pour l'annonce réelle **"Vintage Super
 
 ### 5 Nouveaux Indices Numériques (0–10)
 
-| Champ JSON | Description | Usage |
-|---|---|---|
-| `deal_score` | Attractivité globale (prix vs marge) | Tri frontend + déclencheur Pro |
-| `authenticity_score` | Probabilité authenticité (10=certifié, 1=contrefaçon) | Déclencheur Pro + badge UI |
-| `condition_score` | État visuel estimé (10=neuf, 1=épave) | Affichage étoiles UI |
-| `liquidity_score` | Facilité de revente rapide (10=bestseller, 1=niche) | Aide à la décision |
-| `restoration_interest_score` | Richesse pédagogique/challenge (10=neck reset+frettage, 1=nettoyage) | Détection des "projets jackpot" |
+| Champ JSON | Description | Usage | Rubrique Indicative |
+|---|---|---|---|
+| `deal_score` | Attractivité globale | Déclencheur Pro | **1-3:** Nulle/Cher \| **4-5:** Prix Marché \| **6-7:** Flip ($150-250 margin) \| **8-10:** Pépite ($300+) |
+| `authenticity_score` | Probabilité authenticité | Déclencheur Pro | **10:** Certifié \| **8-9:** Sûr \| **5-7:** Douteux (Modif?) \| **1-4:** Contrefaçon probable |
+| `condition_score` | État visuel estimé | UI | **10:** Neuf/Mint \| **7-9:** Bon \| **4-6:** Moyen (Coups) \| **1-3:** Épave/Relic naturel |
+| `liquidity_score` | Facilité de revente | Aide décision | **10:** Gibson/Fender Standard \| **5:** Marque niche \| **1:** Instrument d'étude basique |
+| `restoration_interest_score` | Richesse pédagogique | **Projet Jackpot** | **1-2:** Clean/Setup \| **3-5:** Élec/Trussrod \| **6-8:** Fretwork/Structure \| **9-10:** Neck Reset/Break |
 
 ---
 
@@ -73,12 +73,18 @@ Le modèle Pro est coûteux, il n'est déclenché que si **AU MOINS UNE** de ces
 |---|---|---|
 | Score attractivité fort | `deal_score >= 8` | Très forte opportunité financière |
 | **Combo Jackpot (Marge + Défi)** | `deal_score >= 6` **ET** `restoration_interest_score >= 7` | Opportunité financière ET projet de lutherie très instructif |
-| Authenticité douteuse | `authenticity_score <= 5` | Risque légal/financier à valider |
+| Authenticité douteuse | `authenticity_score <= 7` | Levée de doute systématique (Risque contrefaçon) |
 | Confiance faible | `confidence < 0.75` | L'Analyste (Flash) avoue ses doutes |
-| Prix élevé | `prix extrait > 1000$` | Ticket d'entrée élevé, double vérification requise |
+| **Investissement Intelligent** | `prix > 1000$` **ET** `deal_score >= 4` | Double vérification requise sur gros budget si potentiel ok |
+| Verdict Critique | `verdict == "COLLECTION"` | Valeur historique/originalité à certifier |
 | Auto-signalement | `pro_analysis_required: true` | Décision explicite et souveraine de l'Analyste |
 
 Quand déclenché : l'Expert Pro reçoit le JSON compact de l'Analyste en contexte et produit une analyse **complète et détaillée**, remplaçant les données.
+
+### Autorité et Réévaluation (Override)
+Le système suit une hiérarchie d'autorité ascendante. Un modèle de Tier supérieur peut **systématiquement contredire et écraser** le verdict d'un Tier inférieur :
+1. **Tier 2 > Tier 1** : L'Analyste peut valider une annonce que le Portier jugeait suspecte.
+2. **Tier 3 > Tier 2 & 1** : L'Expert Pro a l'autorité finale. Si une analyse manuelle est forcée sur une annonce rejetée, ou si l'Expert détecte une erreur de l'Analyste (ex: mauvaise identification du pays de fabrication), son verdict prévaut.
 
 ---
 
@@ -138,10 +144,10 @@ DEFAULT_PRO_AUTH_SCORE_THRESHOLD  = 5
 
 ## Questions Ouvertes / Points à Affiner
 
-- [ ] Les seuils de déclenchement (prix 1000$, deal_score 7, etc.) sont-ils les bons ?
-- [ ] Faut-il exposer les seuils dans le ConfigPanel du frontend ?
-- [ ] Le format puce pour `analysis` est-il suffisamment détaillé ?
-- [ ] Ajouter `FAST_FLIP` comme verdict déclencheur du Tier 3 ?
+- [x] Les seuils de déclenchement (prix 1000$, deal_score 4, etc.) sont-ils les bons ? -> **Validé : Seuil intelligent Prix + Score.**
+- [ ] Faut-il exposer les seuils dans le ConfigPanel du frontend ? -> *À voir lors de l'implémentation UI.*
+- [x] Le format puce pour `analysis` est-il suffisamment détaillé ? -> **Oui, format compact Tier 2.**
+- [x] Ajouter `FAST_FLIP` comme verdict déclencheur du Tier 3 ? -> **Non, déclenchement par score uniquement pour préserver les coûts.**
 
 ---
 
