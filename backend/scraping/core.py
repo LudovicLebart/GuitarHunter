@@ -327,7 +327,8 @@ class FacebookScraper:
             clean_url = url.split('?')[0]
             logger.info(f"   🔍 Vérification disponibilité: {clean_url}")
             
-            response = page.goto(clean_url, timeout=20000)
+            # Augmentation du timeout pour la navigation
+            response = page.goto(clean_url, timeout=30000, wait_until="domcontentloaded")
             
             # 1. Vérification du code HTTP (si Facebook renvoie 404/410)
             if response and response.status in [404, 410]:
@@ -340,26 +341,38 @@ class FacebookScraper:
                 logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
                 return False
 
-            # 3. Recherche des marqueurs textuels "Sold" / "Vendu"
-            # On cherche dans le conteneur principal pour éviter les faux positifs type "Vendu par [Nom]"
-            main_container = page.locator('div[role="main"]')
+            # 3. Attente courte pour laisser l'interface se stabiliser
+            time.sleep(2)
+
+            # 4. Recherche des marqueurs textuels "Sold" / "Vendu"
+            # On cherche dans le conteneur principal et spécifiquement les spans
             
             unavailable_markers = [
-                'span:has-text("Cette annonce n’est plus disponible")',
-                'span:has-text("This listing is no longer available")',
-                # On cherche spécifiquement "Vendu" ou "Sold" en début de bloc ou isolé (souvent un badge)
-                'span:has-text("Vendu")',
-                'span:has-text("Sold")'
+                'Cette annonce n’est plus disponible',
+                'This listing is no longer available',
+                'Vendu',
+                'Sold'
             ]
             
-            for marker in unavailable_markers:
-                # On utilise count car is_visible peut freezer sur certains éléments cachés de FB
-                if page.locator(marker).count() > 0:
-                    # Double check pour éviter "Vendu par..." : le tag de vente est souvent seul dans un span
-                    element_text = page.locator(marker).first.inner_text().strip()
-                    if element_text in ["Vendu", "Sold", "Cette annonce n’est plus disponible", "This listing is no longer available"]:
-                        logger.info(f"   🚫 Marqueur de vente trouvé: '{element_text}'")
-                        return False
+            # On utilise une évaluation JS pour chercher le texte exact dans les éléments visibles
+            # C'est plus robuste que les sélecteurs CSS qui peuvent changer
+            found_marker = page.evaluate(f"""() => {{
+                const markers = {unavailable_markers};
+                const elements = document.querySelectorAll('span, div[role="button"], div[role="main"] div');
+                for (const el of elements) {{
+                    const text = el.innerText.trim();
+                    if (markers.includes(text)) {{
+                        // Vérifie si l'élément est vraiment visible
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) return text;
+                    }}
+                }}
+                return null;
+            }}""")
+
+            if found_marker:
+                logger.info(f"   🚫 Marqueur d'indisponibilité trouvé: '{found_marker}'")
+                return False
 
         except Exception as e:
             logger.warning(f"   ⚠️ Erreur durant le check availability: {e}")
