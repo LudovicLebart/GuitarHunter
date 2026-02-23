@@ -218,7 +218,7 @@ export const useDealsManager = (user, setError) => {
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE)
   const verdictCounts = useMemo(() => {
-    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0 };
+    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0 };
     // Initialiser tous les compteurs de verdicts possibles
     Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
@@ -229,11 +229,12 @@ export const useDealsManager = (user, setError) => {
         return;
       }
 
+      // Cas spécial : SOLD compte TOUTES les annonces vendues, indépendamment des autres filtres
       if (deal.status === 'sold') {
         c.SOLD++;
-        // On ne sort pas car on veut quand même compter sold dans FAVORITES si c'est le cas
+        if (deal.isFavorite) c.FAVORITES++; // Compter aussi dans les favoris si applicable
+        return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
-
 
       // On n'inclut que les deals qui passent les filtres de type actuels
       if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery)) return;

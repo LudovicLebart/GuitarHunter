@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign, ChevronDown, Calculator } from 'lucide-react';
+import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign, ChevronDown, Calculator, Tag } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import SimpleMarkdown from './SimpleMarkdown';
@@ -130,6 +130,9 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
     if (deal.aiAnalysis?.model_used) {
       return deal.aiAnalysis.model_used;
     }
+    if (deal.status === 'sold' && !deal.aiAnalysis?.verdict) {
+      return 'Non Analysé (Vendu)';
+    }
     if (deal.status === 'analyzed' && !deal.aiAnalysis?.model_used) {
       return 'Modèle non spécifié';
     }
@@ -159,7 +162,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
         <div className="w-1/2 h-40 shrink-0 relative bg-slate-100 rounded-2xl overflow-hidden">
           <div className="h-full w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
           <div className="absolute top-2 left-2 z-10 pointer-events-none scale-75 origin-top-left flex flex-col gap-2">
-            <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
+            <VerdictBadge verdict={deal.aiAnalysis?.verdict} status={deal.status} />
             {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><Tag size={10} /> Vendu</div>}
           </div>
         </div>
@@ -172,7 +175,7 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
       <div className="hidden md:block md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
         <div className="h-64 md:h-80 w-full"><ImageGallery images={deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
         <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
-          <VerdictBadge verdict={deal.aiAnalysis?.verdict} />
+          <VerdictBadge verdict={deal.aiAnalysis?.verdict} status={deal.status} />
           {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-3 py-1.5 rounded-xl text-xs font-black uppercase flex items-center gap-1 shadow-lg animate-in zoom-in-95"><Tag size={14} /> Vendu / Indisponible</div>}
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
@@ -214,9 +217,8 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
                     </CollapsibleSection>
                   )}
                 </>
-              ) : deal.aiAnalysis?.reasoning ? (
-                // Fallback pour les annonces qui n'ont qu'un 'reasoning'
-                <SimpleMarkdown text={deal.aiAnalysis.reasoning} />
+              ) : deal.status === 'sold' ? (
+                <p className="text-slate-400 italic text-sm">Cette annonce a été vendue ou supprimée avant la fin de l'analyse.</p>
               ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
             </div>
           </div>

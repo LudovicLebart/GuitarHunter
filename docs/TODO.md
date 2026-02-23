@@ -12,10 +12,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [ ] **Refonte du nettoyage des annonces vendues :**
-    - [ ] Modifier le `Hard Delete` en `Soft Delete` (statut `sold`) pour garder l'historique.
-    - [ ] Renforcer le scraper `check_listing_availability` (détection des redirections Facebook, 404, et mot-clé "Vendu" sur la page).
-    - [ ] Gérer l'affichage des annonces `sold` dans l'interface (badge visuel).
+- [ ] **Problème de la double connexion API (Feature future) :**
+    - *Détails :* À lister si le besoin s'en fait sentir.
 
 ---
 
@@ -65,6 +63,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
 
+- [ ] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
+    - *Plan de travail :* [`docs/FUNNEL_PLAN.md`](./FUNNEL_PLAN.md) — **Finalisé et validé (Session 16).**
+    - *Objectif :* Ajouter un Tier 2 (Analyste Flash, condensé + 5 scores numériques) et un Tier 3 (Expert Pro, déclenché par seuils intelligents Score + Prix) pour optimiser la consommation de tokens et la précision des analyses.
+    - *Fichiers impactés :* `backend/analyzer.py`, `prompts.json`, `config.py`.
+
 ---
 
 ## 🚀 Améliorations Futures
@@ -84,4 +87,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Refonte responsive de la `DealCard` (Mobile First).
 - [x] Analyse approfondie du système de prompts dynamiques (`docs/ARCHITECTURE.md` Section 4 mise à jour, Session 10).
 - [x] Nettoyage et restructuration de la racine du projet (Session 15).
+- [x] Get user validation 🚦 [/] Validé
+- [/] Update documentation (JOURNAL, TODO, ARCHITECTURE) 🚦 [/] En cours
 - [x] Externalisation des verdicts de rejet de `analyzer.py` vers configuration dynamique via Firestore/UI (Session 15).
+- [x] Refonte du système de nettoyage des annonces vendues (Soft Delete, Scraper robuste JS DOM, Badges UI) (Session 16).

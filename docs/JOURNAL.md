@@ -1,10 +1,35 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-23] [FLASH] Action : Conception de l'entonnoir d'analyse à 3 niveaux et création de `docs/FUNNEL_PLAN.md` → Résultat : Stratégie validée pour réduire les coûts (Tier 2 compact) tout en augmentant la profondeur (Tier 3 Expert Pro conditionnel). Introduction de 5 scores numériques et d'une logique de déclenchement "Jackpot" (Marge + Défi).
+[2026-02-23] [FLASH] Action : Création de `backend/scripts/fetch_deal.py` → Résultat : Outil fonctionnel pour inspecter les annonces réelles dans la structure Firestore imbriquée (`artifacts/{app}/users/{user}/...`).
+[2026-02-23] [FLASH] Action : Mise à jour de `docs/ARCHITECTURE.md` → Résultat : Documentation de la structure multi-tenant de la base de données.
 [2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Assainissement du titre de la notification (suppression des sauts de ligne `\n`) pour éviter des erreurs HTTP `Invalid header value` lors de l'envoi à `ntfy.sh`.
 [2026-02-22] [PRO] Action : Modification de `src/App.jsx` → Résultat : Le lecteur récupère désormais l'ID d'annonce via le lien `deals` complet (et plus `filteredDeals`), évitant que la carte ne s'ouvre pas si l'annonce est archivée/filtrée.
 [2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Le lien cliquable des notifications `ntfy` renvoie désormais vers la carte du deal sur le frontend (`?dealId=...`) au lieu de l'annonce Facebook FB.
 
 Ce journal suit les changements majeurs, les décisions d'architecture et les nouvelles fonctionnalités.
+
+---
+
+### **Date: 23/02/2026** (Session 16)
+
+**Auteur:** Assistant AI
+
+**Type:** Refonte Système (Scraping & Frontend)
+
+#### 📝 Description des Changements
+- **Robustesse du Scraper Playwright :**
+    - Modification de `check_listing_availability` dans `backend/scraping/core.py` pour utiliser l'évaluation JavaScript native du DOM (`page.evaluate`). La détection des marqueurs "Vendu", "Sold" ou "plus disponible" ne repose plus sur des cibles CSS volatiles, mais scanne les textes rendus et visibles du `div[role="main"]`.
+    - Timeout de navigation augmenté à 30 secondes pour compenser la lenteur applicative de Facebook sans déclencher de "faux positifs" de suppressions.
+- **Sauvegarde de l'Historique (Soft Delete) :**
+    - La fonction de nettoyage `cleanup_sold_listings` bascule exclusivement sur le taggage Firestore avec `status: 'sold'`, abandonnant le comportement `Hard Delete` non-désiré.
+- **Transparence de l'UI Frontend (`DealCard.jsx` & Filtrage) :**
+    - L'état `sold` réduit désormais l'opacité visuelle de l'annonce et applique un badge contextuel bloquant.
+    - Correction du "Fantôme d'Analyse" : Les annonces liquidées avant qu'une IA ne rende un verdict (`DEFAULT`) ne tentent plus d'afficher "Analyse en cours..." mais explicitement "Non Analysé (Vendu)".
+    - Correction du badge Compteur (`SOLD`) dans la barre de filtre pour comptabiliser les annonces vendues sans qu'elles ne soient exclues prématurément par l'absence d'une classe d'instruments.
+
+#### 🤔 Raisonnement
+Le cycle complet de vie d'une annonce doit garantir zéro perte de données. Les annonces vendues constituent une mine d'or pour évaluer le "Velocity Pricing" d'un luthier ou d'un revendeur. En préservant ces documents Firestore de façon élégante, l'application mûrit vers une plateforme d'analyse de marché long terme, et non plus un simple scanner éphémère.
 
 ---
 
