@@ -14,8 +14,8 @@ Les actions asynchrones sont stockées dans la sous-collection `commands` pour �
 - **Structure type** :
   ```json
   {
-    "type": "REFRESH" | "ADD_CITY" | "ANALYZE_DEAL" | "CLEAR_LOGS" | "STOP_BOT",
-    "payload": "Données spécifiques (ex: nom de ville, ID de l'annonce, null pour STOP_BOT)",
+    "type": "REFRESH" | "ADD_CITY" | "ANALYZE_DEAL" | "CLEAR_LOGS" | "STOP_BOT" | "STOP_SCAN" | "START_BOT",
+    "payload": "Données spécifiques (ex: nom de ville, ID de l'annonce, null pour les arrêts)",
     "status": "pending",
     "createdAt": "Timestamp"
   }

@@ -65,6 +65,7 @@ export const useBotConfig = (user) => {
   const isCleaning = botStatus === 'cleaning';
   const isReanalyzingAll = botStatus === 'reanalyzing_all';
   const isScanningUrl = botStatus === 'scanning_url';
+  const isPaused = botStatus === 'paused';
 
   useEffect(() => {
     if (!user) return;
@@ -200,9 +201,10 @@ export const useBotConfig = (user) => {
     scanConfig, setScanConfig,
     exclusionKeywords, setExclusionKeywords,
     analysisConfig, setAnalysisConfig,
-    availableModels, // On expose la liste des modèles
-    logLimit, setLogLimit, // On expose la limite de logs
-    isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl,
+    availableModels,
+    logLimit, setLogLimit,
+    botStatus, // Exposé pour affichage dynamique du statut
+    isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused,
     saveConfig,
     handleManualRefresh, handleManualCleanup,
     handleRelaunchAll, handleScanSpecificUrl,

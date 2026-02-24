@@ -25,7 +25,20 @@ def monitor_retries(bot):
             logger.error(f"Erreur dans le thread de réanalyse : {e}", exc_info=True)
             time.sleep(10)
 
-def main_loop(bot, firestore_handler, stop_event):
+def _trigger_stop_scan(scan_stop_event):
+    """Active le scan_stop_event et le remet à zéro après 3 secondes dans un thread daemon."""
+    logger = logging.getLogger(__name__)
+    logger.info("⏹️ Commande STOP_SCAN reçue. Interruption du scan en cours...")
+    scan_stop_event.set()
+    def _reset():
+        time.sleep(3)
+        scan_stop_event.clear()
+        logger.info("⏹️ scan_stop_event remis à zéro. Le bot peut relancer un scan.")
+    threading.Thread(target=_reset, daemon=True).start()
+
+PAUSE_DURATION_SECONDS = 12 * 3600  # 12 heures
+
+def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
     bot.scraper.start_session()
@@ -42,6 +55,8 @@ def main_loop(bot, firestore_handler, stop_event):
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),
+        'STOP_SCAN': lambda _: _trigger_stop_scan(scan_stop_event),
+        'START_BOT': lambda _: start_event.set(),
     }
     
     try:
@@ -77,9 +92,22 @@ def main_loop(bot, firestore_handler, stop_event):
 
                 # Vérification de l'arrêt demandé
                 if stop_event.is_set():
-                    logger.info("🛑 Commande STOP_BOT reçue. Arrêt propre en cours...")
-                    bot.repo.update_bot_status('stopped')
-                    break
+                    logger.info("⏸️ Commande STOP_BOT reçue. Mise en pause pour 12h max...")
+                    bot.repo.update_bot_status('paused')
+                    
+                    waited = 0
+                    while waited < PAUSE_DURATION_SECONDS:
+                        if start_event.wait(timeout=1):
+                            logger.info("▶️ Commande START_BOT reçue. Reprise immédiate.")
+                            break
+                        waited += 1
+                    else:
+                        logger.info("⏰ Pause de 12h écoulée. Reprise automatique.")
+                    
+                    stop_event.clear()
+                    start_event.clear()
+                    bot.repo.update_bot_status('idle')
+                    logger.info("✅ Bot de retour en état idle.")
 
             except Exception as e:
                 logger.error(f"Erreur dans la boucle principale : {e}", exc_info=True)
@@ -110,10 +138,12 @@ def main():
     exit_code = 0
     try:
         print("DEBUG: Lancement du bot...", flush=True)
-        # Event pour arrêt propre via commande STOP_BOT
+        # Events pour pilotage asynchrone du bot
         stop_event = threading.Event()
-        bot = GuitarHunterBot(db, is_offline=offline_mode, stop_event=stop_event)
-        main_loop(bot, firestore_handler, stop_event)
+        start_event = threading.Event()
+        scan_stop_event = threading.Event()
+        bot = GuitarHunterBot(db, is_offline=offline_mode, stop_event=stop_event, scan_stop_event=scan_stop_event)
+        main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event)
     except KeyboardInterrupt:
         logger.info("Interruption clavier reçue. Arrêt du bot.")
     except Exception as e:

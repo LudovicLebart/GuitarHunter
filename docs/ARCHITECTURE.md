@@ -11,8 +11,10 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
-  - **`STOP_BOT` :** Commande spéciale qui lève un `threading.Event` (`stop_event`) dans `main.py` pour provoquer un arrêt propre de la boucle principale. Cet événement est propagé jusqu'aux boucles internes du scraper (`FacebookScraper`) pour permettre une interruption immédiate du processus de scan ou de nettoyage, avant que le bot ne mette son statut à `stopped` et ne quitte.
+- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`, `STOP_SCAN`, `START_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+  - **`STOP_BOT` :** Commande qui déclenche une pause de 12h interruptible dans `main.py`. Utilise `stop_event` pour interrompre le travail en cours et change le statut du bot en `paused`.
+  - **`STOP_SCAN` :** Utilise un `scan_stop_event` dédié pour interrompre uniquement le scraping Playwright sans mettre le bot en pause prolongée.
+  - **`START_BOT` :** Utilise un `start_event` pour interrompre immédiatement la pause de 12h du bot et le remettre en état `idle`.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. Les anciens déclencheurs par champs de timestamp (`forceRefresh`, etc.) ont été migrés vers la collection `commands` (Session 17).
 
 ## 2. 🐍 Backend (Python)
@@ -80,6 +82,9 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
 - **Actions des Boutons (Refresh, Cleanup, etc.) :** Toutes les actions créent désormais un document dans la collection `commands` via `addCommand(type, payload)`.
+
+### `src/components/BotControls.jsx`
+- **Contrôle et Statut:** Regroupe l'indicateur de statut du bot (`idle`, `scanning`, `paused`, `stopped`) et les boutons de pilotage à distance (`STOP_BOT`, `STOP_SCAN`, `START_BOT`). Intégré dans le panneau latéral "Système".
 
 ### `src/components/DealCard.jsx`
 - **Composant clé:** Affiche une seule annonce.

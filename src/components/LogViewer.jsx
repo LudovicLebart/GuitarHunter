@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play, Power } from 'lucide-react';
+import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play } from 'lucide-react';
 import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { useBotConfigContext } from '../context/BotConfigContext';
-import { requestClearLogs, triggerStopBot } from '../services/firestoreService';
+import { requestClearLogs } from '../services/firestoreService';
 
 const LogViewer = ({ onClose }) => {
   const { user } = useAuth();
@@ -59,12 +59,6 @@ const LogViewer = ({ onClose }) => {
     }
   };
 
-  const handleStopBot = () => {
-    if (window.confirm("⛔ Arrêter le serveur bot ? Il faudra le redémarrer manuellement sur le serveur.")) {
-      triggerStopBot().catch(err => alert(`Erreur lors de l'envoi de la commande Stop: ${err.message}`));
-    }
-  };
-
   const getLevelColor = (level) => {
     switch (level) {
       case 'INFO': return 'text-blue-400';
@@ -82,12 +76,14 @@ const LogViewer = ({ onClose }) => {
   return (
     <div className={`fixed bottom-4 right-4 bg-slate-900/95 backdrop-blur-sm text-slate-200 rounded-xl shadow-2xl border border-slate-700 flex flex-col transition-all duration-300 z-50 ${containerClasses}`}>
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/80 rounded-t-xl cursor-move flex-shrink-0">
-        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400"><Terminal size={14} /><span>Server Logs (Max: {logLimit})</span></div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+          <Terminal size={14} />
+          <span>Server Logs (Max: {logLimit})</span>
+        </div>
+        <div className="flex items-center gap-1">
           <button onClick={() => setIsPaused(!isPaused)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title={isPaused ? "Reprendre" : "Pause"}>{isPaused ? <Play size={14} /> : <Pause size={14} />}</button>
           <button onClick={() => setLogs([])} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title="Effacer l'affichage local"><Trash2 size={14} /></button>
           <button onClick={handleClearRemoteLogs} className="p-1 hover:bg-rose-800 rounded text-rose-400 hover:text-rose-200" title="Vider la base de données (distant)"><Trash2 size={14} /></button>
-          <button onClick={handleStopBot} className="p-1 hover:bg-orange-800 rounded text-orange-400 hover:text-orange-200" title="Arrêter le bot (serveur)"><Power size={14} /></button>
           <button onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">{isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
           <button onClick={onClose} className="p-1 hover:bg-rose-900 rounded text-slate-400 hover:text-rose-400"><X size={14} /></button>
         </div>

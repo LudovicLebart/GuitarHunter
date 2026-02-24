@@ -15,6 +15,7 @@ import MapView from './components/MapView';
 import { FilterBar } from './components/FilterBar';
 import DealModal from './components/DealModal';
 import SectionGroup from './components/SectionGroup'; // Nouveau composant
+import BotControls from './components/BotControls'; // NOUVEAU
 
 // Constantes pour les groupes
 import { RADAR_GROUP, MARKET_GROUP, ARCHIVE_GROUP } from './constants';
@@ -96,15 +97,15 @@ const AppContent = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleManualCleanup} disabled={isCleaning} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isCleaning ? 'bg-slate-100 text-slate-400' : 'bg-amber-50 text-amber-600 hover:bg-amber-100 shadow-sm border border-amber-100'}`}>
+            <button onClick={handleManualCleanup} disabled={isCleaning} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isCleaning ? 'bg-slate-100 text-slate-400' : 'bg-amber-50 text-amber-600 hover:bg-amber-100 shadow-sm border border-amber-100'}`}>
               <Trash2 size={14} className={isCleaning ? "animate-bounce" : ""} />
               <span className="hidden sm:inline">{isCleaning ? 'Vérification...' : 'Vérifier Stocks'}</span>
             </button>
-            <button onClick={handleManualRefresh} disabled={isRefreshing} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100'}`}>
+            <button onClick={handleManualRefresh} disabled={isRefreshing} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100'}`}>
               <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
               <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
             </button>
-            <button onClick={() => setShowConfig(!showConfig)} className={`p-2 rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
+            <button onClick={() => setShowConfig(!showConfig)} className={`p-2 h-10 w-10 flex items-center justify-center rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
           </div>
         </div>
       </nav>
@@ -115,7 +116,7 @@ const AppContent = () => {
             <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Système</h3>
             <div className="space-y-1">
               <DebugStatus label="Auth" status={authStatus.status} details={authStatus.msg} />
-              <DebugStatus label="Engine" status={configStatus.status} details="Python Bot Connected" />
+              <BotControls />
               <DebugStatus label="Database" status={dbStatus.status} details={dbStatus.msg} />
             </div>
           </div>

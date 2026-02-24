@@ -136,3 +136,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Création d'un outil de migration et audit de structure Firestore (Session 21).
 - [x] Correction du rejet systématique des étuis/housses par le Portier et le Coupe-Circuit (Session 23).
 - [x] Standardisation des instructions de verbosité (`gatekeeper`, `analyst`, `expert_pro`) en format `array of strings` pour l'éditeur UI (Session 23).
+- [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
+- [x] Refonte UI : Composant `<BotControls />` dans le panneau Système (Session 26).

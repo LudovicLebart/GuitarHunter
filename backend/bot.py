@@ -19,8 +19,9 @@ from backend.notifications import NotificationService
 logger = logging.getLogger(__name__)
 
 class GuitarHunterBot:
-    def __init__(self, db_client, is_offline, stop_event=None):
+    def __init__(self, db_client, is_offline, stop_event=None, scan_stop_event=None):
         self.stop_event = stop_event
+        self.scan_stop_event = scan_stop_event
         self.offline_mode = is_offline
         self.session_processed_ids = set()
 
@@ -142,9 +143,17 @@ class GuitarHunterBot:
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
-    def run_scan(self):
+    def _is_stop_requested(self):
+        """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
         if self.stop_event and self.stop_event.is_set():
-            logger.info("🛑 run_scan ignoré car le bot est arrêté.")
+            return True
+        if self.scan_stop_event and self.scan_stop_event.is_set():
+            return True
+        return False
+
+    def run_scan(self):
+        if self._is_stop_requested():
+            logger.info("🛑 run_scan ignoré car un arrêt est en cours.")
             return
 
         if not self.offline_mode:
@@ -192,10 +201,10 @@ class GuitarHunterBot:
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
                     logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
-                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal, stop_event=self.stop_event)
+                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
                     
-                    if self.stop_event and self.stop_event.is_set():
-                        logger.info("🛑 Interruption de la boucle des villes (STOP_BOT).")
+                    if self._is_stop_requested():
+                        logger.info("🛑 Interruption de la boucle des villes.")
                         break
                         
                     time.sleep(2)
@@ -233,8 +242,8 @@ class GuitarHunterBot:
                 logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
                 deleted_count = 0
                 for item in listings:
-                    if self.stop_event and self.stop_event.is_set():
-                        logger.info("🛑 Nettoyage interrompu (STOP_BOT).")
+                    if self._is_stop_requested():
+                        logger.info("🛑 Nettoyage interrompu.")
                         break
                         
                     if not item['url']: continue
@@ -263,8 +272,8 @@ class GuitarHunterBot:
         
         docs = self.repo.get_retry_queue_listings()
         for doc in docs:
-            if self.stop_event and self.stop_event.is_set():
-                logger.info("🛑 File d'attente interrompue (STOP_BOT).")
+            if self._is_stop_requested():
+                logger.info("🛑 File d'attente interrompue.")
                 break
                 
             data = doc.to_dict()
