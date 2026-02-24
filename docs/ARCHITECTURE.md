@@ -11,7 +11,8 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+  - **`STOP_BOT` :** Commande spéciale qui lève un `threading.Event` dans `main.py` pour provoquer un arrêt propre de la boucle principale. Le bot met son statut à `stopped` avant de quitter.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. Les anciens déclencheurs par champs de timestamp (`forceRefresh`, etc.) ont été migrés vers la collection `commands` (Session 17).
 
 ## 2. 🐍 Backend (Python)
@@ -33,14 +34,23 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).
 
 ### `backend/analyzer.py` (`DealAnalyzer`)
-- **Responsabilité unique:** Analyser une annonce.
-- **`analyze_deal(listing_data, force_expert=False)`:**
-  - **Cascade d'analyse:**
-    1. **Portier (Gatekeeper):** Un modèle Gemini rapide et peu coûteux est appelé en premier. Son rôle est de filtrer le bruit.
-       - *Dette Technique :* La vérification du verdict (ex: `gatekeeper_status in ['BAD_DEAL', 'REJECTED_ITEM', ...]`) est actuellement codée en dur dans `analyzer.py`, rendant le backend fragile si la configuration des verdicts évolue.
-    2. **Expert:** Si le portier valide l'annonce (ou si `force_expert=True`), un modèle plus puissant est appelé pour valider le verdict du Portier et fournir une analyse financière.
-  - **Gestion des images:** Télécharge, optimise et envoie les images à Gemini Vision.
-  - **Formatage:** Construit le prompt utilisateur et s'attend à recevoir une réponse JSON structurée.
+- **Responsabilité unique:** Analyser une annonce en cascade.
+- **`_call_gemini_json(model_name, content_parts)`:** Méthode utilitaire DRY. Centralise l'appel Gemini, le parsing JSON et la gestion d'erreur. Utilisée par les 3 Tiers.
+- **`_construct_base_user_prompt()`:** Construit le prompt de base (taxonomie + détails + few-shot) **une seule fois** par analyse.
+- **`analyze_deal(listing_data, firestore_config, force_expert=False)` — Cascade 3-Tiers :**
+  1. **Tier 1 — Portier (`gemini-2.5-flash-lite`) :** Filtre rapide/peu coûteux. Rejette bruit et services. Produit un verdict statut simple (`PEPITE`, `BAD_DEAL`, etc.). Si rejet → fin immédiate.
+  2. **Tier 2 — Analyste (`gemini-2.5-flash`) :** Si T1 passe, analyse structurée avec 5 scores numériques (`deal_score`, `authenticity_score`, `condition_score`, `liquidity_score`, `restoration_interest_score`). Format compacté (puces).
+  3. **Carrefour Logique :** Évalue les scores du T2 et le prix extrait via `ListingParser.extract_price_from_text`. Déclenche le T3 si :
+     - Prix > 1000€ ET deal_score >= 4
+     - deal_score >= 8
+     - Combo : deal_score >= 6 ET restoration_interest_score >= 7
+     - authenticity_score <= 7 (doute d'authenticité)
+     - confidence < 0.75
+     - verdict == 'COLLECTION'
+     - `force_expert=True` (demande manuelle)
+  4. **Tier 3 — Expert Pro (`gemini-2.5-pro`) [Conditionnel] :** Analyse exhaustive avec rapport Markdown complet. Écrase le résultat du T2. En cas d'échec : fallback sur le T2.
+  - Le champ `model_used` retrace le chemin complet (ex: `"gemini-2.5-flash-lite -> gemini-2.5-flash -> gemini-2.5-pro"`).
+  - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
 
 ### `backend/scraping/`
 - **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces.

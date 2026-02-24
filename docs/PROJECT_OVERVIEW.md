@@ -23,12 +23,12 @@ Guitar Hunter AI est une application automatisée conçue pour surveiller, analy
 1. **Scraping:** Le Bot Python scanne Marketplace selon des critères définis (Ville, Prix, Mots-clés).
 2. **Filtrage:** Un premier filtrage local élimine les doublons et les exclusions.
 3. **Analyse IA:**
-   - **Portier (Gatekeeper):** Modèle rapide (Gemini Flash-Lite) pour filtrer le "bruit" et les erreurs.
-   - **Expert:** Modèle puissant (Gemini Pro/Flash) pour une estimation financière détaillée si le Portier valide.
-   - **Guidance IA:** Utilisation de *Few-Shot Prompting* (exemples injectés) et de *Chain-of-Thought* (raisonnement forcé avant le verdict final) pour garantir la fiabilité des analyses JSON.
+   - **Portier (Gatekeeper) :** Modèle ultra-rapide (Gemini Flash-Lite) pour filtrer le "bruit" (versions, services, arnaques).
+   - **Analyste :** Modèle rapide (Gemini Flash) pour structurer les données et attribuer 5 scores critiques (Deal, Authenticité, État, Liquidité, Intérêt Restauration).
+   - **Expert Pro :** Modèle haute-précision (Gemini Pro) déclenché conditionnellement (prix élevé, anomalie de score, verdict 'COLLECTION') pour une expertise chirurgicale.
 4. **Stockage:** Les résultats sont poussés dans Firestore (`guitar_deals`).
 5. **Affichage:** Le Frontend écoute Firestore en temps réel et affiche les résultats sous forme de cartes interactives.
-6. **Actions:** L'utilisateur interagit (Favori, Rejet, Réanalyse) via le Frontend, qui écrit des commandes dans Firestore (`commands`), écoutées par le Backend.
+6. **Actions:** L'utilisateur interagit (Favori, Rejet, Réanalyse, Stop Bot) via le Frontend, qui écrit des commandes dans Firestore (`commands`), écoutées par le Backend.
 
 ## 📂 Structure des Dossiers Clés
 - `/src`: Code source Frontend (React).

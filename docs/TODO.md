@@ -63,8 +63,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
 
-- [ ] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
+- [x] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
     - *Plan de travail :* [`docs/FUNNEL_PLAN.md`](./FUNNEL_PLAN.md) — **Finalisé et validé (Session 16).**
+    - *Plan d'implémentation :* (Session 21)
+        - [x] Ajout seuils de déclenchement dans `config.py`
+        - [x] Ajout format compact (5 scores) dans `prompts.json`
+        - [x] Refactor DRY de `analyze_deal` dans `backend/analyzer.py` (Mutualisation `_call_gemini_json`)
+        - [x] Intégration appel `ListingParser.extract_price_from_text`
     - *Objectif :* Ajouter un Tier 2 (Analyste Flash, condensé + 5 scores numériques) et un Tier 3 (Expert Pro, déclenché par seuils intelligents Score + Prix) pour optimiser la consommation de tokens et la précision des analyses.
     - *Fichiers impactés :* `backend/analyzer.py`, `prompts.json`, `config.py`.
 
@@ -108,3 +113,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Update documentation (JOURNAL, TODO, ARCHITECTURE) 🚦 [/] Terminé (Session 20)
 - [x] Externalisation des verdicts de rejet de `analyzer.py` vers configuration dynamique via Firestore/UI (Session 15).
 - [x] Refonte du système de nettoyage des annonces vendues (Soft Delete, Scraper robuste JS DOM, Badges UI) (Session 16).
+- [x] Implémentation du Funnel 3-Tiers (Optimisation Expert Pro) (Session 21).
+- [x] Ajout d'une commande d'arrêt à distance (`STOP_BOT`) via Firestore et UI (Session 21).
+- [x] Création d'un outil de migration et audit de structure Firestore (Session 21).

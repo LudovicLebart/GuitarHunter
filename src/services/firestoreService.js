@@ -222,3 +222,7 @@ export const onCommandUpdate = (commandId, callback) => {
 export const requestClearLogs = () => {
   return addCommand('CLEAR_LOGS', null);
 };
+
+export const triggerStopBot = () => {
+  return addCommand('STOP_BOT', null);
+};

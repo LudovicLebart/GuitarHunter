@@ -299,7 +299,12 @@
     "  \"net_item_cost\": 100,",
     "  \"resale_potential\": 300,",
     "  \"estimated_gross_margin\": 150,",
-    "  \"analysis\": \"Rapport Markdown complet.\",",
+    "  \"analysis\": \"Rapport Markdown complet ou format puce selon l'instruction.\",",
+    "  \"deal_score\": 7,  // OBLIGATOIRE: Attractivité / Prix (0-10)",
+    "  \"authenticity_score\": 9,  // OBLIGATOIRE: Fiabilité / Contrefaçon (0-10)",
+    "  \"condition_score\": 5,  // OBLIGATOIRE: État visuel sans l'usure naturelle volontaire (0-10)",
+    "  \"liquidity_score\": 8,  // OBLIGATOIRE: Demande sur ce modèle exact (0-10)",
+    "  \"restoration_interest_score\": 4,  // OBLIGATOIRE: Intérêt luthier/réparateur (0-10)",
     "  \"confidence\": 0.9,",
     "  \"verdict\": \"VALUE\",",
     "  \"reasoning\": \"Bref résumé.\",",
@@ -307,7 +312,8 @@
     "}"
   ],
   "gatekeeper_verbosity_instruction": "Tu es le premier filtre (Le Portier). Ta mission est de lire l'annonce et de décider de son potentiel BRUT. Si c'est un accessoire nul, un service ou une arnaque, rejette-la. Si c'est une guitare ou un ampli intéressant, identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }.",
-  "expert_context_instruction": "Tu es l'Expert (Modèle Haute-Précision). Le Portier a identifié cette annonce comme '{status}' car: '{reasoning}'. Ta mission est de produire l'analyse technique et financière définitive. Sois extrêmement précis sur les calculs (Marge, Ancillary Value) et l'inspection visuelle. Rapport complet en Markdown attendu dans 'analysis'.",
+  "analyst_verbosity_instruction": "Tu es l'Analyste (Modèle Rapide). Ta mission est de structurer les données et d'évaluer l'annonce selon 5 critères de 0 à 10. IMPORTANT: Dans le champ 'analysis', NE RÉDIGE PAS UN LONG TEXTE. Rédige UNIQUEMENT une liste à puces stricte (Format: ### VERDICT | Confiance : X% \\n- 🔍 **Visuel :**... \\n- 💰 **Financier :**... \\n- 🔧 **Travaux :**... \\n- ⚠️ **Risques :**...). Assure-toi de fournir le JSON complet avec TOUS les champs numériques.",
+  "expert_pro_context_instruction": "Tu es l'Expert Pro (Modèle Haute-Précision - Tier 3). Le Portier et l'Analyste ont précédemment identifié cette annonce comme '{status}' pour le motif : '{reasoning}'. Cette annonce t'est soumise car ses scores ou son prix élevé requièrent une assurance qualité suprême (Risk Management). Ta mission est de reprendre à zéro l'analyse : vérifie l'authenticité chirurgicalement, corrige les calculs de marge si erronés, et produis le JSON final. Dans le champ 'analysis', rédige un rapport Markdown EXHAUSTIF justifiant économiquement et techniquement ton évaluation.",
   "rejection_verdicts": [
     "BAD_DEAL",
     "REJECTED_ITEM",
