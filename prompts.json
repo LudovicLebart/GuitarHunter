@@ -1,252 +1,313 @@
 {
-  "taxonomy_guitares": {
-    "electrique": {
-      "solid_body": {
-        "S_Style": [
-          "Stratocaster",
-          "Silver Sky",
-          "Pacifica",
-          "S-Type Standard"
-        ],
-        "Super_Strat": [
-          "RG/S/SA (Ibanez)",
-          "Dinky/Soloist (Jackson)",
-          "M/H Series (ESP/LTD)",
-          "HSS Modern",
-          "Charvel DK"
-        ],
-        "T_Style": [
-          "Telecaster",
-          "ASAT (G&L)",
-          "Tele-Deluxe (Dual HH)",
-          "Cabronita"
-        ],
-        "Single_Cut": [
-          "Les Paul",
-          "Eclipse (EC)",
-          "Singlecut (PRS)",
-          "LP Junior/Special (P90)"
-        ],
-        "Double_Cut": [
-          "SG",
-          "Viper (ESP)",
-          "Custom 24/22 (PRS)",
-          "Santana Shape"
-        ],
-        "Offset": [
-          "Jazzmaster",
-          "Jaguar",
-          "Mustang",
-          "Firebird",
-          "Jagmaster",
-          "Meteora"
-        ],
-        "Extreme_Shape": [
-          "Explorer",
-          "Flying V",
-          "Kelly (KE)",
-          "Rhoads (RR)",
-          "Warrior (WR)",
-          "Iceman",
-          "Mockingbird",
-          "Warlock",
-          "ML (Dean)",
-          "Razorback"
-        ],
-        "Headless_Solid": [
-          "Strandberg Boden",
-          "Steinberger Spirit",
-          "Kiesel Vader",
-          "EART Headless"
-        ],
-        "Extended_Range": [
-          "7-Strings",
-          "8-Strings",
-          "Baritone Electric",
-          "Multi-scale / Fanned Fret"
+  "taxonomy_master": {
+    "guitare": {
+      "electrique": {
+        "solid_body": {
+          "S_Style": [
+            "Stratocaster",
+            "Silver Sky",
+            "Pacifica",
+            "S-Type Standard"
+          ],
+          "Super_Strat": [
+            "RG/S/SA (Ibanez)",
+            "Dinky/Soloist (Jackson)",
+            "M/H Series (ESP/LTD)",
+            "HSS Modern",
+            "Charvel DK"
+          ],
+          "T_Style": [
+            "Telecaster",
+            "ASAT (G&L)",
+            "Tele-Deluxe (Dual HH)",
+            "Cabronita"
+          ],
+          "Single_Cut": [
+            "Les Paul",
+            "Eclipse (EC)",
+            "Singlecut (PRS)",
+            "LP Junior/Special (P90)"
+          ],
+          "Double_Cut": [
+            "SG",
+            "Viper (ESP)",
+            "Custom 24/22 (PRS)",
+            "Santana Shape"
+          ],
+          "Offset": [
+            "Jazzmaster",
+            "Jaguar",
+            "Mustang",
+            "Firebird",
+            "Jagmaster",
+            "Meteora"
+          ],
+          "Extreme_Shape": [
+            "Explorer",
+            "Flying V",
+            "Kelly (KE)",
+            "Rhoads (RR)",
+            "Warrior (WR)",
+            "Iceman",
+            "Mockingbird",
+            "Warlock",
+            "ML (Dean)",
+            "Razorback"
+          ],
+          "Headless_Solid": [
+            "Strandberg Boden",
+            "Steinberger Spirit",
+            "Kiesel Vader",
+            "EART Headless"
+          ],
+          "Extended_Range": [
+            "7-Strings",
+            "8-Strings",
+            "Baritone Electric",
+            "Multi-scale / Fanned Fret"
+          ]
+        },
+        "semi_hollow_1_2_caisse": {
+          "ES_Style": [
+            "335 (Double Cut)",
+            "339 (Small Body)",
+            "Starcaster",
+            "Sheraton/Riviera"
+          ],
+          "Thinline": [
+            "Telecaster Thinline",
+            "Offset Thinline",
+            "Semi-Hollow PRS"
+          ],
+          "Single_Cut_Semi": [
+            "Gretsch Electromatic (Semi)",
+            "Duesenberg Style"
+          ]
+        },
+        "hollow_body_full_caisse": {
+          "Jazz_Box": [
+            "L5 style (Profonde)",
+            "Emperor",
+            "Joe Pass",
+            "Archtop Acoustique"
+          ],
+          "Thin_Hollow_1_4_caisse": [
+            "Casino / ES-330 (Full Hollow mince)",
+            "Gretsch 6120 / Hollow"
+          ],
+          "Headless_Hollow": [
+            "Strandberg Sälen (Chambered)"
+          ]
+        }
+      },
+      "acoustique_acier": {
+        "formes_standard": {
+          "Dreadnought": [
+            "Dreadnought Standard",
+            "Slope Shoulder"
+          ],
+          "Parlor": [
+            "Parlor Standard",
+            "0 (Concert)"
+          ],
+          "Grand_Concert": [
+            "00 (Grand Concert)"
+          ],
+          "Orchestra": [
+            "000 / OM (Orchestra)",
+            "Auditorium"
+          ],
+          "Grand_Auditorium": [
+            "Grand Auditorium (GA)",
+            "Grand Symphony"
+          ],
+          "Jumbo": [
+            "Jumbo Standard",
+            "Super Jumbo"
+          ]
+        },
+        "specialites": {
+          "12_Cordes": [
+            "Dreadnought 12",
+            "Jumbo 12"
+          ],
+          "Resonateur": [
+            "Dobro",
+            "National Style"
+          ],
+          "Manouche": [
+            "Petite bouche",
+            "Grande bouche"
+          ],
+          "Baritone": [
+            "Baritone Acoustique"
+          ],
+          "Travel": [
+            "Baby / Mini",
+            "Backpacker"
+          ]
+        },
+        "headless_acoustic": [
+          "Journey Instruments",
+          "Ciari",
+          "Enya Carbon Headless"
         ]
       },
-      "semi_hollow_1_2_caisse": {
-        "ES_Style": [
-          "335 (Double Cut)",
-          "339 (Small Body)",
-          "Starcaster",
-          "Sheraton/Riviera"
+      "electro_acoustique": {
+        "standard": [
+          "Dreadnought Cutaway",
+          "Auditorium CE",
+          "Jumbo w/ Preamp"
         ],
-        "Thinline": [
-          "Telecaster Thinline",
-          "Offset Thinline",
-          "Semi-Hollow PRS"
-        ],
-        "Single_Cut_Semi": [
-          "Gretsch Electromatic (Semi)",
-          "Duesenberg Style"
+        "hybride_slim": [
+          "Acoustasonic (Fender)",
+          "Thinline Acoustic (T5z)",
+          "Stage Guitar (Cordes acier)"
         ]
       },
-      "hollow_body_full_caisse": {
-        "Jazz_Box": [
-          "L5 style (Profonde)",
-          "Emperor",
-          "Joe Pass",
-          "Archtop Acoustique"
+      "classique_nylon": {
+        "types": [
+          "Classique Standard",
+          "Flamenca (Cypress/Sycamore)",
+          "Crossover (Manche fin/Rayon)",
+          "Requinto",
+          "7-Cordes Nylon"
         ],
-        "Thin_Hollow_1_4_caisse": [
-          "Casino / ES-330 (Full Hollow mince)",
-          "Gretsch 6120 / Hollow"
+        "modern": [
+          "Silent Guitar (SLG)",
+          "Stage Nylon (Multiac/Godin)",
+          "Headless Nylon"
+        ]
+      },
+      "basse": {
+        "solid_body": [
+          "Precision Bass (P)",
+          "Jazz Bass (J)",
+          "PJ Configuration",
+          "Stingray (H/HH)",
+          "Modern Soapbar (BTB/SR)",
+          "Singlecut Bass"
         ],
-        "Headless_Hollow": [
-          "Strandberg Sälen (Chambered)"
+        "headless_bass": [
+          "Ibanez EHB",
+          "Steinberger XL/L",
+          "Kiesel Osiris Bass"
+        ],
+        "specialites": [
+          "Basse Acoustique",
+          "Basse Semi-Hollow (Viola/Violin)",
+          "Basse Fretless",
+          "Basse 5/6+ cordes",
+          "U-Bass (Ukulele Bass)"
         ]
       }
     },
-    "acoustique_acier": {
-      "formes_standard": {
-        "Dreadnought": [
-          "Dreadnought Standard",
-          "Slope Shoulder"
+    "amplificateur": {
+      "lampes": {
+        "Combo_Lampes": [
+          "Fender Style",
+          "Marshall Style",
+          "Vox Style",
+          "High-Gain Style",
+          "Boutique"
         ],
-        "Parlor": [
-          "Parlor Standard",
-          "0 (Concert)"
+        "Tete_Ampli_Lampes": [
+          "Plexi / Vintage",
+          "Modern High-Gain",
+          "Compact / Lunchbox"
         ],
-        "Grand_Concert": [
-          "00 (Grand Concert)"
-        ],
-        "Orchestra": [
-          "000 / OM (Orchestra)",
-          "Auditorium"
-        ],
-        "Grand_Auditorium": [
-          "Grand Auditorium (GA)",
-          "Grand Symphony"
-        ],
-        "Jumbo": [
-          "Jumbo Standard",
-          "Super Jumbo"
+        "Cabinet_Haut_Parleur": [
+          "1x12",
+          "2x12",
+          "4x12",
+          "Heritage / Vintage Spk"
         ]
       },
-      "specialites": {
-        "12_Cordes": [
-          "Dreadnought 12",
-          "Jumbo 12"
+      "transistor_numerique": {
+        "Modelisation_Moderne": [
+          "Boss Katana",
+          "Yamaha THR",
+          "Positive Grid Spark",
+          "Line 6 Catalyst"
         ],
-        "Resonateur": [
-          "Dobro",
-          "National Style"
+        "Combo_Transistor": [
+          "Fender Frontman / Champion",
+          "Boss Katana (Solid State)",
+          "Orange Crush"
         ],
-        "Manouche": [
-          "Petite bouche",
-          "Grande bouche"
-        ],
-        "Baritone": [
-          "Baritone Acoustique"
-        ],
-        "Travel": [
-          "Baby / Mini",
-          "Backpacker"
+        "Acoustique_Vocal": [
+          "Fishman Loudbox",
+          "AER",
+          "Boss Singer"
         ]
-      },
-      "headless_acoustic": [
-        "Journey Instruments",
-        "Ciari",
-        "Enya Carbon Headless"
-      ]
+      }
     },
-    "electro_acoustique": {
-      "standard": [
-        "Dreadnought Cutaway",
-        "Auditorium CE",
-        "Jumbo w/ Preamp"
-      ],
-      "hybride_slim": [
-        "Acoustasonic (Fender)",
-        "Thinline Acoustic (T5z)",
-        "Stage Guitar (Cordes acier)"
-      ]
-    },
-    "classique_nylon": {
-      "types": [
-        "Classique Standard",
-        "Flamenca (Cypress/Sycamore)",
-        "Crossover (Manche fin/Rayon)",
-        "Requinto",
-        "7-Cordes Nylon"
-      ],
-      "modern": [
-        "Silent Guitar (SLG)",
-        "Stage Nylon (Multiac/Godin)",
-        "Headless Nylon"
-      ]
-    },
-    "basse": {
-      "solid_body": [
-        "Precision Bass (P)",
-        "Jazz Bass (J)",
-        "PJ Configuration",
-        "Stingray (H/HH)",
-        "Modern Soapbar (BTB/SR)",
-        "Singlecut Bass"
-      ],
-      "headless_bass": [
-        "Ibanez EHB",
-        "Steinberger XL/L",
-        "Kiesel Osiris Bass"
-      ],
-      "specialites": [
-        "Basse Acoustique",
-        "Basse Semi-Hollow (Viola/Violin)",
-        "Basse Fretless",
-        "Basse 5/6+ cordes",
-        "U-Bass (Ukulele Bass)"
-      ]
+    "accessoire_etui": {
+      "protection": {
+        "Etui_Rigide": [
+          "Guitare Electrique",
+          "Guitare Acoustique",
+          "Basse",
+          "Vintage / Original Case"
+        ],
+        "Housse_Souple": [
+          "Gigbag Standard",
+          "Luxe / Reinforced",
+          "Mono / Gator Pro"
+        ],
+        "Flight_Case": [
+          "ATA Road Case"
+        ]
+      }
     }
   },
   "main_analysis_prompt": [
-    "Tu es un Maître Luthier et un expert en achat-revente de guitares.",
-    "Ton objectif est de déterminer la RENTABILITÉ de cette annonce.",
+    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un accessoire bas de gamme (gigbag fin seul), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS MODERNES (Katana, THR, Spark) SONT ACCEPTÉS (VALEUR DE REVENTE RAPIDE).",
     "",
-    "--- TES OBJECTIFS (SUIS CET ORDRE PRÉCIS) ---",
-    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un accessoire seul, un jouet (Guitar Hero), ou une marque de mauvaise qualité (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête.",
-    "",
-    "1. **IDENTIFICATION & COTE (SHERLOCK HOLMES)** :",
-    "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles (logo, forme de la tête, chevalet) avec le texte. Cherche les 'bricolages maison' et les défauts (fissures au talon, frettes usées).",
-    "   - **Identification Précise** : Identifie le modèle exact, son niveau de gamme (Player, Standard, Custom Shop) et son pays d'origine (MIM, MIA, MIJ...).",
-    "   - **Classification** : Assigne la catégorie la plus précise de la taxonomie fournie.",
+    "1. **IDENTIFICATION & COTE (L'OEIL DU MAÎTRE)** :",
+    "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles avec le texte. Pour les guitares : logo, tête, chevalet. Pour les amplis : état du Tolex, panneau de contrôle, lampes visibles, haut-parleur.",
+    "   - **Identification Précise** : Identifie le modèle exact et sa gamme.",
+    "   - **Classification** : Assigne la catégorie la plus précise de la TAXONOMY_MASTER. Si c'est un ampli, cherche le style (Fender Style, UK Style, etc.).",
     "",
     "2. **CALCULS FINANCIERS (OBLIGATOIRES)** :",
-    "   - Estime la valeur de l'étui/housse ($CAN).",
-    "   - Calcule le **Coût Net de la Guitare** (Prix - Valeur Étui).",
-    "   - Estime la **Valeur Marchande Actuelle** (ce qu'elle vaut 'tel quel').",
-    "   - Estime le **Potentiel de Revente** (après travaux/nettoyage).",
-    "   - Calcule la **Marge Brute Estimée** (Potentiel de Revente - Prix Demandé).",
+    "   - **Valeur Accessoire (ancillary_value)** : Estime la valeur de ce qui accompagne l'objet principal (Étui rigide pour guitare, Housse luxe pour ampli, Footswitch, HP de remplacement).",
+    "   - **Coût Net (net_item_cost)** : (Prix Demandé - Valeur Accessoire).",
+    "   - **Valeur Marchande (estimated_value)** : Ce que l'objet vaut 'tel quel'.",
+    "   - **Potentiel de Revente (resale_potential)** : Valeur maximale après un passage à l'atelier (nettoyage, réglage, changement de lampes, etc.).",
+    "   - **Marge Brut (estimated_gross_margin)** : (resale_potential - Prix Demandé).",
     "",
-    "3. **PLAN DE BATAILLE (Luthier)** :",
-    "   - Liste les travaux nécessaires pour atteindre le potentiel de revente.",
-    "   - Estime la difficulté (Facile / Moyen / Difficile).",
+    "3. **PLAN DE BATAILLE** :",
+    "   - Liste les interventions nécessaires (ex: 'Recapage de l'alim', 'Polissage des frettes', 'Simple nettoyage').",
+    "   - Estime la difficulté technique.",
     "",
-    "4. **VERDICT & RAPPORT** :",
-    "   - Choisis UN verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA.",
-    "   - Rédige le rapport complet dans la clé 'analysis' en suivant le format Markdown demandé.",
+    "4. **VERDICT** :",
+    "   - PEPITE: Marge > 30% et modèle iconique.",
+    "   - FAST_FLIP: Liquidité énorme (ex: Boss Katana à bas prix).",
+    "   - LUTHIER_PROJ: Gros potentiel mais nécessite expertise technique.",
+    "   - CASE_WIN: La valeur de l'accessoire (étui vintage) justifie à elle seule l'achat.",
+    "   - COLLECTION: Rare, valeur stable ou montante.",
+    "   - BAD_DEAL: Prix trop haut ou arnaque.",
+    "   - REJECTED_ITEM: Hors sujet ou qualité trop médiocre. REJECTED_SERVICE: Services uniquement.",
     "",
     "### FORMAT DE RÉPONSE JSON STRICT",
-    "Tu dois répondre UNIQUEMENT avec un objet JSON valide contenant les clés suivantes :",
+    "Tu dois répondre UNIQUEMENT avec un objet JSON valide :",
     "{",
-    "  \"visual_inspection\": \"Description détaillée du logo, de la forme de la tête, du chevalet, et des défauts visibles. Obligatoire avant de statuer pour détecter les contrefaçons.\",",
-    "  \"classification\": \"VALEUR EXACTE d'une feuille de la TAXONOMIE DE RÉFÉRENCE ci-dessus (ex: 'Stratocaster', 'Jazz Bass (J)', 'Dreadnought Standard'). Copier-coller le libellé exact, NE PAS inventer ni reformuler.\",",
-    "  \"estimated_value\": 123 (Valeur marchande actuelle en $CAN),",
-    "  \"estimated_case_value\": 50 (Valeur estimée de l'étui en $CAN),",
-    "  \"net_guitar_cost\": 100 (Prix demandé - Valeur étui),",
-    "  \"resale_potential\": 300 (Valeur estimée après restauration en $CAN),",
-    "  \"estimated_gross_margin\": 150 (Potentiel de revente - Prix demandé),",
-    "  \"analysis\": \"Ton rapport complet au format Markdown (avec titres ###, puces, gras) détaillant l'analyse financière et technique.\",",
-    "  \"confidence\": 0.9 (Score de confiance entre 0 et 1),",
-    "  \"verdict\": \"PEPITE\" | \"FAST_FLIP\" | \"LUTHIER_PROJ\" | \"CASE_WIN\" | \"COLLECTION\" | \"BAD_DEAL\" | \"REJECTED_ITEM\" | \"REJECTED_SERVICE\" | \"INCOMPLETE_DATA\",",
-    "  \"reasoning\": \"Une phrase courte résumant le verdict final\",",
-    "  \"summary\": \"Un résumé court de 2 phrases maximum pour l'affichage rapide\"",
+    "  \"visual_inspection\": \"Analyse technique de l'état visible.\",",
+    "  \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER.\",",
+    "  \"estimated_value\": 123,",
+    "  \"ancillary_value\": 50,  // Valeur étui, footswitch, etc.",
+    "  \"net_item_cost\": 100,",
+    "  \"resale_potential\": 300,",
+    "  \"estimated_gross_margin\": 150,",
+    "  \"analysis\": \"Rapport Markdown complet.\",",
+    "  \"confidence\": 0.9,",
+    "  \"verdict\": \"VALUE\",",
+    "  \"reasoning\": \"Bref résumé.\",",
+    "  \"summary\": \"Résumé court (2 phrases).\"",
     "}"
   ],
-  "gatekeeper_verbosity_instruction": "IGNORE TOUTE INSTRUCTION DE FORMATAGE PRÉCÉDENTE. Ta réponse DOIT être un JSON contenant UNIQUEMENT les clés 'status' et 'reasoning'. Le status DOIT être l'un des suivants : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE, INCOMPLETE_DATA. La raison ne doit pas dépasser 15 mots.",
-  "expert_context_instruction": "Cette annonce a déjà été identifiée comme une '{status}' avec la raison suivante : '{reasoning}'. Fournis maintenant une analyse JSON complète et détaillée, incluant tous les calculs financiers (Marge, Coût Net, etc.) et le rapport complet dans la clé 'analysis'.",
+  "gatekeeper_verbosity_instruction": "Tu es le premier filtre (Le Portier). Ta mission est de lire l'annonce et de décider de son potentiel BRUT. Si c'est un accessoire nul, un service ou une arnaque, rejette-la. Si c'est une guitare ou un ampli intéressant, identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }.",
+  "expert_context_instruction": "Tu es l'Expert (Modèle Haute-Précision). Le Portier a identifié cette annonce comme '{status}' car: '{reasoning}'. Ta mission est de produire l'analyse technique et financière définitive. Sois extrêmement précis sur les calculs (Marge, Ancillary Value) et l'inspection visuelle. Rapport complet en Markdown attendu dans 'analysis'.",
   "rejection_verdicts": [
     "BAD_DEAL",
     "REJECTED_ITEM",

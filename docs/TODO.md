@@ -70,6 +70,17 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 📊 Statistiques & Dashboard
+
+- [ ] **Mettre en place le moteur de statistiques (Impact Tier 3)**
+    - *Plan de travail :* [`docs/STATS_REFLEXION.md`](./STATS_REFLEXION.md)
+    - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
+    - *Sous-tâches :* 
+        - [ ] Créer une fonction d'agrégation côté Backend ou Cloud Function.
+        - [ ] Concevoir les composants graphiques sur le Frontend (Charts).
+
+---
+
 ## 🚀 Améliorations Futures
 
 - [ ] **Injection Dynamique de la Taxonomie (Optimisation tokens)**
@@ -77,6 +88,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [ ] **Système de Feedback (Apprentissage)**
     - *Détails :* Stocker les rejets manuels avec leur motif pour constituer un dataset permettant d'affiner les futurs prompts ou de fine-tuner un modèle.
+
+- [ ] **Expansion du Scope (Amps & Étuis) — Luthier-Centric**
+    - *Plan de travail :* [`brain/implementation_plan.md`](../.gemini/antigravity/brain/1d3a056c-c92e-4244-83d4-139947813fff/implementation_plan.md)
+    - *Objectif :* Intégrer les amplificateurs et les étuis dans la taxonomie et l'analyse IA sans perdre le persona "Maître Luthier". Valoriser la liquidité des amplis modernes et l'apport de valeur des housses/étuis pour le "flipping".
+    - *Fichiers impactés :* `prompts.json`, `analyzer.py`, `useDealsManager.js`.
 
 ---
 
