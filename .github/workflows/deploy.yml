@@ -1,3 +1,4 @@
+# v1.0.1 - GitHub Secrets Automation
 name: Deploy Guitare Hunter
 on:
   push:
