@@ -25,13 +25,10 @@ def monitor_retries(bot):
             logger.error(f"Erreur dans le thread de réanalyse : {e}", exc_info=True)
             time.sleep(10)
 
-def main_loop(bot, firestore_handler):
+def main_loop(bot, firestore_handler, stop_event):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
     bot.scraper.start_session()
-    
-    # Event pour arrêt propre via commande STOP_BOT
-    stop_event = threading.Event()
     
     # Démarrage du thread de surveillance des réanalyses
     threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
@@ -113,8 +110,10 @@ def main():
     exit_code = 0
     try:
         print("DEBUG: Lancement du bot...", flush=True)
-        bot = GuitarHunterBot(db, is_offline=offline_mode)
-        main_loop(bot, firestore_handler)
+        # Event pour arrêt propre via commande STOP_BOT
+        stop_event = threading.Event()
+        bot = GuitarHunterBot(db, is_offline=offline_mode, stop_event=stop_event)
+        main_loop(bot, firestore_handler, stop_event)
     except KeyboardInterrupt:
         logger.info("Interruption clavier reçue. Arrêt du bot.")
     except Exception as e:

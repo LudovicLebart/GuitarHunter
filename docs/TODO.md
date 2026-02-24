@@ -12,6 +12,21 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Bug : "Delete All Logs" ne fonctionne pas**
+    - *Détails :* [CORRIGÉ] Problème d'IDs codés en dur dans le frontend (`LogViewer.jsx`). Utilisation des variables d'environnement (`VITE_APP_ID_TARGET`, `VITE_USER_ID_TARGET`).
+
+- [x] **Bug : "Stop Bot" ne fonctionne pas**
+    - *Détails :* [CORRIGÉ] La commande ne coupait pas les boucles synchrones de scraping. Injection d'un `threading.Event` (`stop_event`) propagé dans `main.py`, `bot.py` et les boucles de `FacebookScraper` (`scan_marketplace`, `_perform_cleanup`) pour un arrêt quasi-immédiat.
+
+- [ ] **Feature : Arrêter le scan en cours (sans tuer le bot)**
+    - *Détails :* Ajouter une commande `STOP_SCAN` distincte de `STOP_BOT`. Elle interrompt le scraping Playwright en cours mais laisse le bot actif et prêt à recevoir de nouvelles commandes (ex: REFRESH, ANALYZE_DEAL). Utile pour annuler un scan trop long sans redémarrer le processus.
+
+- [ ] **Feature : Ajouter un bouton "Start Bot"**
+    - *Détails :* Une fois le bot arrêté via `STOP_BOT`, il n'existe pas de moyen de le redémarrer depuis l'UI. Envisager une commande `START_BOT` ou un mécanisme de relance.
+
+- [ ] **Clarifier le statut "Engine — Python Bot Connected"**
+    - *Détails :* Le label "Engine" est ambigu. Il devrait clairement indiquer si le bot Python est **actif et en train de tourner** (scanning) ou simplement **connecté à Firestore mais idle**. Revoir le libellé et la logique de statut (`idle`, `scanning`, `stopped`).
+
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
 
