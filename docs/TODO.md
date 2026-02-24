@@ -15,6 +15,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Bug : "Delete All Logs" ne fonctionne pas**
     - *Détails :* [CORRIGÉ] Problème d'IDs codés en dur dans le frontend (`LogViewer.jsx`). Utilisation des variables d'environnement (`VITE_APP_ID_TARGET`, `VITE_USER_ID_TARGET`).
 
+- [x] **Bug : Redémarrage automatique du bot lors du push (Branch handling)**
+    - *Détails :* [CORRIGÉ] Le workflow `deploy.yml` forçait un reset sur `master` et avait une erreur de casse sur `dev`. Corrigé avec `${{ github.ref_name }}` et logs détaillés (Session 24).
+
 - [x] **Bug : "Stop Bot" ne fonctionne pas**
     - *Détails :* [CORRIGÉ] La commande ne coupait pas les boucles synchrones de scraping. Injection d'un `threading.Event` (`stop_event`) propagé dans `main.py`, `bot.py` et les boucles de `FacebookScraper` (`scan_marketplace`, `_perform_cleanup`) pour un arrêt quasi-immédiat.
 
