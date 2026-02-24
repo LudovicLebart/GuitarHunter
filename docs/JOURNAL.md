@@ -8,6 +8,7 @@
 [2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Assainissement du titre de la notification (suppression des sauts de ligne `\n`) pour éviter des erreurs HTTP `Invalid header value` lors de l'envoi à `ntfy.sh`.
 [2026-02-22] [PRO] Action : Modification de `src/App.jsx` → Résultat : Le lecteur récupère désormais l'ID d'annonce via le lien `deals` complet (et plus `filteredDeals`), évitant que la carte ne s'ouvre pas si l'annonce est archivée/filtrée.
 [2026-02-22] [PRO] Action : Modification de `backend/notifications.py` → Résultat : Le lien cliquable des notifications `ntfy` renvoie désormais vers la carte du deal sur le frontend (`?dealId=...`) au lieu de l'annonce Facebook FB.
+[2026-02-23] [FLASH] Action : Audit final et synchronisation des branches → Résultat : Documentation (Journal, Todo, Architecture, Data Flow) auditée et synchronisée. Fusion de la branche `dev` vers `master` et push remote.
 
 Ce journal suit les changements majeurs, les décisions d'architecture et les nouvelles fonctionnalités.
 
