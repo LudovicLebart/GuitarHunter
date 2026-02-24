@@ -13,6 +13,43 @@ Ce journal suit les changements majeurs, les décisions d'architecture et les no
 
 ---
 
+---
+
+### **Date: 23/02/2026** (Session 19)
+
+**Auteur:** Assistant AI
+
+**Type:** Optimisation IA (Entonnoir v2)
+
+#### 📝 Description des Changements
+- **Raffinage des déclencheurs Tier 3 (Expert Pro) :**
+    - Couplage intelligent du prix et du score : le passage à l'Expert Pro pour les objets > 1000$ ne se fait que si le `deal_score` est >= 4 (évite d'analyser en profondeur des objets chers mais inintéressants).
+    - Durcissement des contrôles d'authenticité : déclenchement systématique de l'Expert si `authenticity_score` <= 7.
+    - Ajout d'un déclencheur spécifique pour les verdicts `COLLECTION`.
+- **Mise à jour de `docs/FUNNEL_PLAN.md` :** Documentation complète de la logique de cascade.
+
+#### 🤔 Raisonnement
+L'objectif est d'économiser les appels au modèle Pro (plus coûteux) en s'assurant qu'il n'intervient que sur des annonces ayant un réel potentiel ou présentant un risque technique/historique nécessitant une haute précision.
+
+---
+
+### **Date: 23/02/2026** (Session 18)
+
+**Auteur:** Assistant AI
+
+**Type:** Optimisation IA (Scores & Pédagogie)
+
+#### 📝 Description des Changements
+- **Enrichissement du Tier 2 (Analyste) :**
+    - Introduction d'un système de notation sur 10 pour 5 indices : `deal_score`, `authenticity_score`, `condition_score`, `liquidity_score`, et `restoration_interest_score`.
+    - Ajout du `restoration_interest_score` : Ce score évalue la valeur "pédagogique" ou le défi technique d'un projet de lutherie, permettant d'identifier des "Pépites de restauration" même si la marge financière pure est moindre.
+- **Logique "Jackpot" :** Création d'un déclencheur Expert Pro si `deal_score` >= 6 ET `restoration_interest_score` >= 7.
+
+#### 🤔 Raisonnement
+Le projet "Guitar Hunter" n'est pas qu'une question de profit immédiat, c'est aussi un projet luthier-centric. Valoriser l'intérêt technique des réparations permet de ne pas rater des instruments rares ou complexes qui enrichissent l'expertise du Maître Luthier.
+
+---
+
 ### **Date: 23/02/2026** (Session 17)
 
 **Auteur:** Assistant AI
@@ -249,7 +286,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 9)
+### **Date: 23/02/2026** (Session 9)
 
 **Auteur:** Assistant AI
 
@@ -268,7 +305,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 8)
+### **Date: 23/02/2026** (Session 8)
 
 **Auteur:** Assistant AI
 
@@ -296,7 +333,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 6)
+### **Date: 23/02/2026** (Session 6)
 
 **Auteur:** Assistant AI
 
@@ -315,7 +352,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 5)
+### **Date: 23/02/2026** (Session 5)
 
 **Auteur:** Assistant AI
 
@@ -334,7 +371,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 4)
+### **Date: 23/02/2026** (Session 4)
 
 **Auteur:** Assistant AI
 
@@ -354,7 +391,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 3)
+### **Date: 23/02/2026** (Session 3)
 
 **Auteur:** Assistant AI
 
@@ -376,7 +413,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 2)
+### **Date: 23/02/2026** (Session 2)
 
 **Auteur:** Assistant AI
 
@@ -406,7 +443,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-### **Date: 24/05/2024** (Session 1)
+### **Date: 23/02/2026** (Session 1)
 
 **Auteur:** Assistant AI
 
@@ -431,5 +468,21 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 - La refonte du module financier a pour but de fournir à l'utilisateur un contexte complet sur **pourquoi** une annonce est jugée bonne ou mauvaise, même après qu'elle ait été rejetée.
 - La correction du bug de réanalyse améliore le retour visuel pour l'utilisateur, confirmant que son action a bien été prise en compte.
+
+---
+
+### Session 20 : Expansion du Scope - Étape 1 (Amps & Étuis)
+
+#### ✅ Objectif : Passer d'un système "Tout-Guitare" à un système Multi-Catégorie Luthier-Centric.
+
+- **Refonte de la Taxonomie** : Migration de `taxonomy_guitares` vers `taxonomy_master`.
+- **Nouveaux Produits** : Intégration des `amplificateurs` (Lampes, Transistors, Modélisation) et des `accessoires_etuis` (Rigides, Housses souples).
+- **Persona Luthier** : Mise à jour des prompts pour évaluer les amplis (état des lampes, transformateurs) et valoriser l'apport financier des housses/étuis pour le flipping.
+- **Synchronisation Full-Stack** : Mise à jour de `config.py` et `useDealsManager.js` pour supporter dynamiquement la nouvelle structure.
+
+#### 🤔 Raisonnement
+
+- L'expansion permet de capturer des opportunités de "Fast Flip" (ex: Boss Katana) et de maximiser la valeur des packs guitare+étui.
+- Le maintien du persona **Maître Luthier** assure une analyse technique rigoureuse, même sur des objets non-luthier classiques comme les amplis numériques.
 
 ---
