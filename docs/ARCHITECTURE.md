@@ -155,10 +155,14 @@ L'utilisateur peut modifier les 3 prompts suivants via le **ConfigPanel** (ongle
 
 | Clé Firestore | Description | Utilisé par |
 |---|---|---|
-| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) | Portier + Expert |
-| `analysisConfig.gatekeeperVerbosityInstruction` | Instruction de concision ajoutée à la fin du prompt du Portier | Portier uniquement |
-| `analysisConfig.expertContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) | Expert uniquement |
+| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings** | Portier + Expert |
+| `analysisConfig.gatekeeperVerbosityInstruction` | Instruction du Portier (filtre initial, liste des catégories acceptées) — **Array de strings** | Portier uniquement |
+| `analysisConfig.analystVerbosityInstruction` | Instruction de l'Analyste (format puce compact + 5 scores) — **Array de strings** | Analyste uniquement |
+| `analysisConfig.expertProContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) — **Array de strings** | Expert Pro uniquement |
 | `analysisConfig.rejectionVerdicts` | Liste stricte des verdicts provoquant un arrêt immédiat de l'analyse | Portier uniquement |
+
+> [!NOTE]
+> Toutes les instructions de verbosité sont stockées en **`array of strings`** (une chaîne par phrase) pour permettre une édition ligne par ligne dans le `ConfigPanel`. Le backend (`analyzer.py`) les joint par `\n` avant de les envoyer à Gemini.
 
 Les modifications sont **sauvegardées automatiquement au `onBlur`** de chaque champ, sans bouton de validation explicite.
 

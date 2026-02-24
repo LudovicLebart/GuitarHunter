@@ -262,7 +262,7 @@
     }
   },
   "main_analysis_prompt": [
-    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un accessoire bas de gamme (gigbag fin seul), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS MODERNES (Katana, THR, Spark) SONT ACCEPTÉS (VALEUR DE REVENTE RAPIDE).",
+    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS, ÉTUIS ET HOUSSES (même simples) SONT TOUS ACCEPTÉS POUR ANALYSE.",
     "",
     "1. **IDENTIFICATION & COTE (L'OEIL DU MAÎTRE)** :",
     "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles avec le texte. Pour les guitares : logo, tête, chevalet. Pour les amplis : état du Tolex, panneau de contrôle, lampes visibles, haut-parleur.",
@@ -311,9 +311,27 @@
     "  \"summary\": \"Résumé court (2 phrases).\"",
     "}"
   ],
-  "gatekeeper_verbosity_instruction": "Tu es le premier filtre (Le Portier). Ta mission est de lire l'annonce et de décider de son potentiel BRUT. Si c'est un accessoire nul, un service ou une arnaque, rejette-la. Si c'est une guitare ou un ampli intéressant, identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }.",
-  "analyst_verbosity_instruction": "Tu es l'Analyste (Modèle Rapide). Ta mission est de structurer les données et d'évaluer l'annonce selon 5 critères de 0 à 10. IMPORTANT: Dans le champ 'analysis', NE RÉDIGE PAS UN LONG TEXTE. Rédige UNIQUEMENT une liste à puces stricte (Format: ### VERDICT | Confiance : X% \\n- 🔍 **Visuel :**... \\n- 💰 **Financier :**... \\n- 🔧 **Travaux :**... \\n- ⚠️ **Risques :**...). Assure-toi de fournir le JSON complet avec TOUS les champs numériques.",
-  "expert_pro_context_instruction": "Tu es l'Expert Pro (Modèle Haute-Précision - Tier 3). Le Portier et l'Analyste ont précédemment identifié cette annonce comme '{status}' pour le motif : '{reasoning}'. Cette annonce t'est soumise car ses scores ou son prix élevé requièrent une assurance qualité suprême (Risk Management). Ta mission est de reprendre à zéro l'analyse : vérifie l'authenticité chirurgicalement, corrige les calculs de marge si erronés, et produis le JSON final. Dans le champ 'analysis', rédige un rapport Markdown EXHAUSTIF justifiant économiquement et techniquement ton évaluation.",
+  "gatekeeper_verbosity_instruction": [
+    "Tu es le premier filtre (Le Portier).",
+    "Ta mission est de lire l'annonce et de décider de son potentiel BRUT.",
+    "Si c'est un service ou une arnaque, rejette-la.",
+    "Si c'est une guitare, un ampli, un étui ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL.",
+    "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }."
+  ],
+  "analyst_verbosity_instruction": [
+    "Tu es l'Analyste (Modèle Rapide).",
+    "Ta mission est de structurer les données et d'évaluer l'annonce selon 5 critères de 0 à 10.",
+    "IMPORTANT: Dans le champ 'analysis', NE RÉDIGE PAS UN LONG TEXTE.",
+    "Rédige UNIQUEMENT une liste à puces stricte (Format: ### VERDICT | Confiance : X% \\n- 🔍 **Visuel :**... \\n- 💰 **Financier :**... \\n- 🔧 **Travaux :**... \\n- ⚠️ **Risques :**...).",
+    "Assure-toi de fournir le JSON complet avec TOUS les champs numériques."
+  ],
+  "expert_pro_context_instruction": [
+    "Tu es l'Expert Pro (Modèle Haute-Précision - Tier 3).",
+    "Le Portier et l'Analyste ont précédemment identifié cette annonce comme '{status}' pour le motif : '{reasoning}'.",
+    "Cette annonce t'est soumise car ses scores ou son prix élevé requièrent une assurance qualité suprême (Risk Management).",
+    "Ta mission est de reprendre à zéro l'analyse : vérifie l'authenticité chirurgicalement, corrige les calculs de marge si erronés, et produis le JSON final.",
+    "Dans le champ 'analysis', rédige un rapport Markdown EXHAUSTIF justifiant économiquement et techniquement ton évaluation."
+  ],
   "rejection_verdicts": [
     "BAD_DEAL",
     "REJECTED_ITEM",
