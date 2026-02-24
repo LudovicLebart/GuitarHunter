@@ -11,7 +11,7 @@ import promptsData from '../../prompts.json';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP } from '../constants';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
-const GUITAR_TAXONOMY = promptsData.taxonomy_guitares || {};
+const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
 
 // Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces, SANS ACCENTS)
 const normalize = (str) => {
@@ -100,21 +100,21 @@ export const useDealsManager = (user, setError) => {
         });
       }
     };
-    traverse(GUITAR_TAXONOMY, []);
+    traverse(MASTER_TAXONOMY, []);
     return paths;
   }, []);
 
-  const level1Options = useMemo(() => ['ALL', ...Object.keys(GUITAR_TAXONOMY), 'OTHER'], []);
+  const level1Options = useMemo(() => ['ALL', ...Object.keys(MASTER_TAXONOMY), 'OTHER'], []);
 
   const level2Options = useMemo(() => {
-    if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !GUITAR_TAXONOMY[level1Filter]) return ['ALL'];
-    const node = GUITAR_TAXONOMY[level1Filter];
+    if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !MASTER_TAXONOMY[level1Filter]) return ['ALL'];
+    const node = MASTER_TAXONOMY[level1Filter];
     return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
   }, [level1Filter]);
 
   const level3Options = useMemo(() => {
     if (level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
-    const node1 = GUITAR_TAXONOMY[level1Filter];
+    const node1 = MASTER_TAXONOMY[level1Filter];
     if (Array.isArray(node1)) return ['ALL'];
     const node2 = node1[level2Filter];
     if (!node2 || Array.isArray(node2)) return ['ALL'];

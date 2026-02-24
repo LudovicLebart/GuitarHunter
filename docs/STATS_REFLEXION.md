@@ -1,0 +1,36 @@
+# Réflexion : Statistiques & KPIs (Impact Tier 3)
+
+L'introduction de l'entonnoir d'analyse à 3 niveaux (Portier, Analyste, Expert) et des scores granulaires (0-10) ouvre de nouvelles perspectives pour le Dashboard.
+
+## 1. Le Tunnel de Conversion (Funnel Analytics)
+Ce graphique permet de visualiser l'efficacité du filtrage.
+- **Volume Brut :** Nombre total d'annonces scrapées.
+- **Filtrage Portier (Tier 1) :** % d'annonces rejetées immédiatement (bruit).
+- **Potentiel Identifié (Tier 2) :** Volume traité par l'Analyste.
+- **Le "Haut du Panier" (Tier 3) :** Volume ayant déclenché l'Expert Pro (les dossiers "Jackpot" ou "Haute-Fidélité").
+
+## 2. Indicateurs Financiers (Predictions vs Réalité)
+Basé sur les champs `net_guitar_cost` et `estimated_gross_margin`.
+- **Marge Potentielle Totale :** Somme des marges estimées sur les deals `active` avec un `deal_score > 7`.
+- **ROI Moyen Estimé :** Ratio Marge / Coût par catégorie de guitare.
+- **Corrélation Prix/Score :** Identifier les "Sweet Spots" (ex: "Où se trouvent les guitares entre 500$ et 1000$ avec un score > 8 ?").
+
+## 3. Analyse Qualitative (Les 5 Scores)
+Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
+- **Radar Chart "Profil de Marché" :** Moyenne des 5 scores sur l'ensemble du flux (Authenticité, État, Liquidité, Deal, Restauration).
+- **Segmentation "Projets vs Flipping" :**
+    - Volume de `LUTHIER_PROJ` (Restoration score élevé).
+    - Volume de `PEPITE/FAST_FLIP` (Liquidity & Deal score élevés).
+
+## 4. Performance & Vitesse (Rotation)
+- **Time-to-Sold :** Temps écoulé entre l'entrée en base et le passage au statut `sold`.
+- **Véracité IA :** % d'annonces `sold` qui avaient un `deal_score > 7` (Validation de la pertinence de l'IA).
+
+## 5. Géographie des Opportunités
+- **Heatmap :** Répartition des "Pépites" par ville/secteur scrapé pour optimiser le rayon de recherche.
+
+---
+
+> [!IMPORTANT]
+> **Influence du Tier 3 :** L'Expert Pro apporte une "Certification" des données. 
+> Une statistique basée sur une analyse Tier 3 aura un indice de confiance bien plus élevé qu'une stat Tier 2. Le Dashboard pourrait afficher des badges "Certifié Expert" sur les KPIs financiers les plus critiques.
