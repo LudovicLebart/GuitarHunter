@@ -33,8 +33,8 @@ Voici à quoi ressemble la sortie exacte pour l'annonce réelle **"Vintage Super
   "classification": "Parlor Standard",
   
   "estimated_value": 350,
-  "estimated_case_value": 0,
-  "net_guitar_cost": 120,
+  "ancillary_value": 0,  // Généralisé (auparavant estimated_case_value)
+  "net_item_cost": 120,    // Généralisé (auparavant net_guitar_cost)
   "resale_potential": 350,
   "estimated_gross_margin": 230,
   
@@ -60,7 +60,7 @@ Voici à quoi ressemble la sortie exacte pour l'annonce réelle **"Vintage Super
 | `deal_score` | Attractivité globale | Déclencheur Pro | **1-3:** Nulle/Cher \| **4-5:** Prix Marché \| **6-7:** Flip ($150-250 margin) \| **8-10:** Pépite ($300+) |
 | `authenticity_score` | Probabilité authenticité | Déclencheur Pro | **10:** Certifié \| **8-9:** Sûr \| **5-7:** Douteux (Modif?) \| **1-4:** Contrefaçon probable |
 | `condition_score` | État visuel estimé | UI | **10:** Neuf/Mint \| **7-9:** Bon \| **4-6:** Moyen (Coups) \| **1-3:** Épave/Relic naturel |
-| `liquidity_score` | Facilité de revente | Aide décision | **10:** Gibson/Fender Standard \| **5:** Marque niche \| **1:** Instrument d'étude basique |
+| `liquidity_score` | Facilité de revente | Aide décision | **10:** Gibson Standard / Boss Katana \| **5:** Marque niche \| **1:** Instrument ou amp d'étude basique |
 | `restoration_interest_score` | Richesse pédagogique | **Projet Jackpot** | **1-2:** Clean/Setup \| **3-5:** Élec/Trussrod \| **6-8:** Fretwork/Structure \| **9-10:** Neck Reset/Break |
 
 ---

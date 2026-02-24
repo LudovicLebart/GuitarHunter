@@ -89,21 +89,22 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Système de Feedback (Apprentissage)**
     - *Détails :* Stocker les rejets manuels avec leur motif pour constituer un dataset permettant d'affiner les futurs prompts ou de fine-tuner un modèle.
 
-- [ ] **Expansion du Scope (Amps & Étuis) — Luthier-Centric**
-    - *Plan de travail :* [`brain/implementation_plan.md`](../.gemini/antigravity/brain/1d3a056c-c92e-4244-83d4-139947813fff/implementation_plan.md)
-    - *Objectif :* Intégrer les amplificateurs et les étuis dans la taxonomie et l'analyse IA sans perdre le persona "Maître Luthier". Valoriser la liquidité des amplis modernes et l'apport de valeur des housses/étuis pour le "flipping".
-    - *Fichiers impactés :* `prompts.json`, `analyzer.py`, `useDealsManager.js`.
+- [ ] **Expansion du Scope (Amps & Étuis)**
+    - [x] **Étape 1 : Refonte de la Taxonomie & Persona (Terminé)**
+    - [ ] Étape 2 : Implémentation du Funnel 3-Tiers (Optimisation Expert Pro)
+    - [ ] Étape 3 : Polissage UI et labels financiers dynamiques.
 
 ---
 
 ## ✅ Terminé
 
+- [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
 - [x] Création de la structure de documentation (`docs/`).
 - [x] Mise en place du `AI_BRIEFING.md`.
 - [x] Refonte responsive de la `DealCard` (Mobile First).
 - [x] Analyse approfondie du système de prompts dynamiques (`docs/ARCHITECTURE.md` Section 4 mise à jour, Session 10).
 - [x] Nettoyage et restructuration de la racine du projet (Session 15).
 - [x] Get user validation 🚦 [/] Validé
-- [/] Update documentation (JOURNAL, TODO, ARCHITECTURE) 🚦 [/] En cours
+- [x] Update documentation (JOURNAL, TODO, ARCHITECTURE) 🚦 [/] Terminé (Session 20)
 - [x] Externalisation des verdicts de rejet de `analyzer.py` vers configuration dynamique via Firestore/UI (Session 15).
 - [x] Refonte du système de nettoyage des annonces vendues (Soft Delete, Scraper robuste JS DOM, Badges UI) (Session 16).

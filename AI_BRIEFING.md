@@ -15,7 +15,7 @@ La résolution d'une tâche doit IMPÉRATIVEMENT suivre cet ordre. Tu ne peux pa
 
 - **Étape 1 (Le Plan) :** Analyse la demande et propose un plan d'action technique étape par étape (quels fichiers, quelles fonctions, quelle logique). NE CODE RIEN. Attends l'accord de l'utilisateur.
 - **Étape 2 (Le Code) :** Une fois le plan validé, génère les diffs de code. Attends que l'utilisateur teste. NE METS PAS À JOUR LA DOC.
-- **Étape 3 (La Documentation) :** UNIQUEMENT APRÈS validation du fonctionnement par l'utilisateur ("C'est bon", "Validé"), mets à jour `docs/JOURNAL.md`, `docs/TODO.md` et l'architecture.
+- **Étape 3 (La Documentation) :** UNIQUEMENT APRÈS validation du fonctionnement par l'utilisateur ("C'est bon", "Validé"), mets à jour `docs/JOURNAL.md`, `docs/TODO.md`, `docs/ARCHITECTURE.md`, `docs/DATA_FLOW.md`, et tout autre document nécessaire.
 Format du journal : `[DATE] [MODÈLE] Action effectuée → Résultat`.
 ⚠️ INTERDICTION ABSOLUE : N'utilise jamais de commandes Terminal/CLI (comme `echo`, `sed` ou `cat`) pour mettre à jour la documentation. Tu dois modifier le fichier directement avec tes outils d'édition.
 

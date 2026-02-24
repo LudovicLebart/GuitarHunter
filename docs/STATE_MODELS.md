@@ -72,6 +72,13 @@ interface Deal {
     
     /** Nom du modèle IA ayant produit le résultat final */
     model_used?: string; // Optionnel
+
+    /** Indices numériques (0-10) ajoutés en Session 18 */
+    deal_score?: number;
+    authenticity_score?: number;
+    condition_score?: number;
+    liquidity_score?: number;
+    restoration_interest_score?: number;
   };
 
   /** Horodatage de dernière mise à jour */
@@ -83,3 +90,4 @@ interface Deal {
 - **Timestamp** : Objet Firestore contenant `seconds` et `nanoseconds`.
 - **Status (Deal)** : Le statut `analyzing` et `analyzing_expert` est souvent positionné de manière éphémère par le Frontend juste avant d'envoyer la commande `ANALYZE_DEAL`.
 - **Verdict** : Les verdicts "Legacy" (ex: `REJECTED`, `GOOD_DEAL`) peuvent encore exister dans la base mais sont progressivement remplacés par la nouvelle nomenclature.
+- **Terminology Shift** : Suite à l'expansion aux amplis et étuis (Session 20), le système utilise désormais `ancillary_value` (auparavant `estimated_case_value`) et `net_item_cost` (auparavant `net_guitar_cost`) pour refléter une approche multi-produit.

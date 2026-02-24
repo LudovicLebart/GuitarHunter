@@ -30,6 +30,7 @@ Le script `main.py` surveille Firestore et délègue les tâches à `backend/bot
   - Met à jour son statut : `bot.repo.update_bot_status('scanning' | 'idle' | ...)`.
 
 ## 4. Structure des résultats (Collection `guitar_deals`)
+*Note : Malgré le nom historique `guitar_deals`, cette collection stocke désormais tous les types d'équipements (Guitares, Amplis, Étuis).*
 Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firestore.
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}`
 - **Étapes de création** :

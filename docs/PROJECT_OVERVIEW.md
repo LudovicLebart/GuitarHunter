@@ -1,7 +1,7 @@
 # Guitar Hunter AI - Vue d'ensemble du Projet
 
 ## 🎯 Objectif
-Guitar Hunter AI est une application automatisée conçue pour surveiller, analyser et évaluer les annonces de guitares sur Facebook Marketplace en temps réel. Son but est d'identifier les "bonnes affaires" (sous-évaluées, potentiel de revente, projets de lutherie) grâce à une analyse par Intelligence Artificielle (Google Gemini).
+Guitar Hunter AI est une application automatisée conçue pour surveiller, analyser et évaluer les annonces d'équipements de musique (Guitares, Amplis, Étuis) sur Facebook Marketplace en temps réel. Son but est d'identifier les "bonnes affaires" (sous-évaluées, potentiel de revente, projets de lutherie) grâce à une analyse par Intelligence Artificielle (Google Gemini) pilotée par une expertise de Maître Luthier.
 
 ## 🛠 Stack Technique
 

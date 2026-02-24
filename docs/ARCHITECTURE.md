@@ -11,8 +11,8 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander des actions au backend (ex: `ANALYZE_DEAL`). Le backend écoute cette collection, traite la commande, puis la supprime ou la marque comme complétée. **(Nouvelle Architecture)**
-- **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. De plus, sert historiquement de bus de commandes pour des actions comme `forceRefresh` ou `scanSpecificUrl` en modifiant des champs avec un timestamp. **(Architecture Legacy - Dette Technique)**
+- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+- **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. Les anciens déclencheurs par champs de timestamp (`forceRefresh`, etc.) ont été migrés vers la collection `commands` (Session 17).
 
 ## 2. 🐍 Backend (Python)
 
@@ -68,8 +68,8 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
-- **`retryDealAnalysis(dealId)` / `forceExpertAnalysis(dealId)`:** Créent un nouveau document dans la collection `commands` (Nouvelle Architecture).
-- **`triggerManualRefresh()` / `triggerManualCleanup()`:** Modifient les champs de timestamps sur le document `users/{id}` pour déclencher des actions backend (Architecture Legacy).
+- **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
+- **Actions des Boutons (Refresh, Cleanup, etc.) :** Toutes les actions créent désormais un document dans la collection `commands` via `addCommand(type, payload)`.
 
 ### `src/components/DealCard.jsx`
 - **Composant clé:** Affiche une seule annonce.
@@ -108,7 +108,7 @@ prompts.json
        ├─ DEFAULT_MAIN_PROMPT      ← prompts.json["main_analysis_prompt"]
        ├─ DEFAULT_GATEKEEPER_INSTRUCTION ← prompts.json["gatekeeper_verbosity_instruction"]
        ├─ DEFAULT_EXPERT_CONTEXT   ← prompts.json["expert_context_instruction"]
-       └─ DEFAULT_TAXONOMY         ← prompts.json["taxonomy_guitares"]
+       └─ DEFAULT_TAXONOMY         ← prompts.json["taxonomy_master"]
 
 Firestore users/{id} (analysisConfig)
   └─ ConfigManager.sync_with_firestore()
@@ -165,6 +165,7 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 ### 4.5 Dette Technique Restante (Architecture)
 
 -  **Taxonomie non éditable** : `DEFAULT_TAXONOMY` est chargée depuis `prompts.json` au démarrage de Python et est toujours **injectée en dur** dans `analyzer.py`. Elle n'est pas exposée dans l'interface de configuration et ne peut pas être modifiée via Firestore.
+-  **Terminologie financière** : Le système migre vers des termes génériques (`ancillary_value` au lieu de `estimated_case_value`) pour supporter les amplis (footswitches, haut-parleurs) et les accessoires. Les anciens noms de champs restent supportés pour la compatibilité UI.
 
 ---
 
@@ -174,4 +175,4 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 - **(+) Robustesse :** Double fallback (Frontend statique + Backend statique) garantit que l'IA ne reste jamais sans prompt.
 - **(+) Éditeur Ligne par Ligne :** Le composant `PromptListEditor` permet une édition intuitive.
 - **(-) Risque de Casse :** L'utilisateur peut supprimer les instructions de format JSON critiques dans `mainAnalysisPrompt`, rendant les réponses de l'IA non parsables.
-- **(-) Taxonomie non éditable :** La taxonomie (liste des types de guitares) est statique et non modifiable via l'interface.
+- **(-) Taxonomie non éditable :** La taxonomie (liste des types d'objets : guitares, amplis, étuis) est statique et non modifiable via l'interface.
