@@ -14,8 +14,8 @@ Les actions asynchrones sont stockées dans la sous-collection `commands` pour �
 - **Structure type** :
   ```json
   {
-    "type": "REFRESH" | "ADD_CITY" | "ANALYZE_DEAL" | "CLEAR_LOGS",
-    "payload": "Données spécifiques (ex: nom de ville, ID de l'annonce)",
+    "type": "REFRESH" | "ADD_CITY" | "ANALYZE_DEAL" | "CLEAR_LOGS" | "STOP_BOT",
+    "payload": "Données spécifiques (ex: nom de ville, ID de l'annonce, null pour STOP_BOT)",
     "status": "pending",
     "createdAt": "Timestamp"
   }
@@ -43,7 +43,17 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "title": "String",
     "price": "Number",
     "status": "active" | "rejected" | "sold",
-    "aiAnalysis": { "verdict": "...", "reasoning": "..." },
+    "aiAnalysis": { 
+       "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | ...,
+       "reasoning": "Markdown text",
+       "deal_score": 0-10,
+       "authenticity_score": 0-10,
+       "condition_score": 0-10,
+       "liquidity_score": 0-10,
+       "restoration_interest_score": 0-10,
+       "model_used": "Chain of models used",
+       "tier3_trigger": "Reason why Expert Pro was called (optional)"
+    },
     "link": "URL",
     "timestamp": "ServerTimestamp"
   }

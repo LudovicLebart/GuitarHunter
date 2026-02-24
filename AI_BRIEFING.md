@@ -10,6 +10,10 @@
   - **Notifications :** ntfy.sh
 - **Flux de données synthétisé :** Le bot Backend (Python) scrape les données d'annonces sur Facebook via Playwright. Les annonces brutes sont traitées et évaluées par Google Gemini pour l'extraction de métadonnées et la détection d'opportunités. Les résultats sont synchronisés sur Firebase Firestore. Le Frontend (React/Vite) récupère et affiche les annonces depuis Firestore et peut émettre des commandes (ex: REFRESH, CLEANUP, SCAN_URL) traitées de manière asynchrone par la boucle de monitoring du bot. Des notifications push sont envoyées via ntfy.
 
+⚠️ Obligation ABSOLUE : 
+Lecture de tous les fichiers contenus dans `docs/`
+
+
 ## Section 2 — Le Cycle de Développement (Protocole Strict en 3 Étapes)
 La résolution d'une tâche doit IMPÉRATIVEMENT suivre cet ordre. Tu ne peux pas passer à l'étape suivante sans la validation explicite de l'utilisateur.
 

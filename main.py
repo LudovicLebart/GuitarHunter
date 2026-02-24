@@ -30,6 +30,9 @@ def main_loop(bot, firestore_handler):
     logger.info("--- Démarrage de la boucle principale ---")
     bot.scraper.start_session()
     
+    # Event pour arrêt propre via commande STOP_BOT
+    stop_event = threading.Event()
+    
     # Démarrage du thread de surveillance des réanalyses
     threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
     
@@ -40,7 +43,8 @@ def main_loop(bot, firestore_handler):
         'SCAN_URL': lambda url: bot.scan_specific_url(url),
         'ADD_CITY': lambda city_name: bot.add_city_auto(city_name),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
-        'CLEAR_LOGS': lambda _: bot.clear_logs()
+        'CLEAR_LOGS': lambda _: bot.clear_logs(),
+        'STOP_BOT': lambda _: stop_event.set(),
     }
     
     try:
@@ -73,6 +77,13 @@ def main_loop(bot, firestore_handler):
                         scheduler.update_scan_frequency(sync_result.new_scan_frequency)
                 
                 time.sleep(5)
+
+                # Vérification de l'arrêt demandé
+                if stop_event.is_set():
+                    logger.info("🛑 Commande STOP_BOT reçue. Arrêt propre en cours...")
+                    bot.repo.update_bot_status('stopped')
+                    break
+
             except Exception as e:
                 logger.error(f"Erreur dans la boucle principale : {e}", exc_info=True)
                 time.sleep(15)

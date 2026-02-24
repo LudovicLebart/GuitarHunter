@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-24] [FLASH] Session 21 (suite) : Correctif TypeError prix int → cast `str()` dans `analyzer.py` avant `extract_price_from_text`. Création de `backend/scripts/migrate_firestore_prompts.py` (audit racine + injection clés Tier2/3 + nettoyage obsolètes, mode `--dry-run`). Ajout commande `STOP_BOT` : handler `threading.Event` dans `main.py`, `triggerStopBot()` dans `firestoreService.js`, bouton Power dans `LogViewer.jsx`.
+
 [2026-02-24] [FLASH] Session 21 : Implémentation du Funnel 3-Tiers + Refacto DRY → `analyzer.py` restructuré avec `_call_gemini_json` (mutualisation des appels API), prompt de base construit une seule fois. Cascade T1 (Flash-Lite) → T2 (Flash, format compact + 5 scores) → Carrefour Logique → T3 (Pro, conditionnel). Seuils ajoutés dans `config.py`. Nouvelles instructions `analyst_verbosity_instruction` et `expert_pro_context_instruction` ajoutées dans `prompts.json` et init Firestore (`bot.py`). 4 rondes de vérification, 4 bugs corrigés. Push `dev`.
 
 [2026-02-23] [FLASH] Réflexion Statistiques → Conceptualisation des KPIs basés sur les scores du Tier 2/3 et archivage dans `docs/STATS_REFLEXION.md`.

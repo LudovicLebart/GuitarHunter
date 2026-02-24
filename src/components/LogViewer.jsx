@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play } from 'lucide-react';
+import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play, Power } from 'lucide-react';
 import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { useBotConfigContext } from '../context/BotConfigContext';
-import { requestClearLogs } from '../services/firestoreService';
+import { requestClearLogs, triggerStopBot } from '../services/firestoreService';
 
 const LogViewer = ({ onClose }) => {
   const { user } = useAuth();
@@ -15,8 +15,8 @@ const LogViewer = ({ onClose }) => {
   const logsEndRef = useRef(null);
 
   useEffect(() => {
-    if (!user) return; 
-    
+    if (!user) return;
+
     const appId = import.meta.env.VITE_FIREBASE_APP_ID;
     const userIdTarget = "00737242777130596039"; // Hardcoded for now as per other files, ideally from env or context
 
@@ -29,16 +29,16 @@ const LogViewer = ({ onClose }) => {
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       if (isPaused) return;
-      
+
       const newLogs = snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         // On inverse le tri pour l'affichage (du plus vieux au plus récent en bas)
         .sort((a, b) => {
-            const timeA = a.timestamp?.seconds || a.createdAt || 0;
-            const timeB = b.timestamp?.seconds || b.createdAt || 0;
-            return timeA - timeB;
+          const timeA = a.timestamp?.seconds || a.createdAt || 0;
+          const timeB = b.timestamp?.seconds || b.createdAt || 0;
+          return timeA - timeB;
         });
-      
+
       setLogs(newLogs);
     }, (error) => {
       console.error("Error fetching logs: ", error);
@@ -60,6 +60,12 @@ const LogViewer = ({ onClose }) => {
     }
   };
 
+  const handleStopBot = () => {
+    if (window.confirm("⛔ Arrêter le serveur bot ? Il faudra le redémarrer manuellement sur le serveur.")) {
+      triggerStopBot().catch(err => alert(`Erreur lors de l'envoi de la commande Stop: ${err.message}`));
+    }
+  };
+
   const getLevelColor = (level) => {
     switch (level) {
       case 'INFO': return 'text-blue-400';
@@ -70,8 +76,8 @@ const LogViewer = ({ onClose }) => {
     }
   };
 
-  const containerClasses = isExpanded 
-    ? 'w-[90vw] h-[80vh] max-w-[1200px] max-h-[900px]' 
+  const containerClasses = isExpanded
+    ? 'w-[90vw] h-[80vh] max-w-[1200px] max-h-[900px]'
     : 'w-[450px] h-[350px]';
 
   return (
@@ -82,6 +88,7 @@ const LogViewer = ({ onClose }) => {
           <button onClick={() => setIsPaused(!isPaused)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title={isPaused ? "Reprendre" : "Pause"}>{isPaused ? <Play size={14} /> : <Pause size={14} />}</button>
           <button onClick={() => setLogs([])} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white" title="Effacer l'affichage local"><Trash2 size={14} /></button>
           <button onClick={handleClearRemoteLogs} className="p-1 hover:bg-rose-800 rounded text-rose-400 hover:text-rose-200" title="Vider la base de données (distant)"><Trash2 size={14} /></button>
+          <button onClick={handleStopBot} className="p-1 hover:bg-orange-800 rounded text-orange-400 hover:text-orange-200" title="Arrêter le bot (serveur)"><Power size={14} /></button>
           <button onClick={() => setIsExpanded(!isExpanded)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">{isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}</button>
           <button onClick={onClose} className="p-1 hover:bg-rose-900 rounded text-slate-400 hover:text-rose-400"><X size={14} /></button>
         </div>

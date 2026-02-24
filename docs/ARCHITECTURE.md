@@ -11,7 +11,8 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
+  - **`STOP_BOT` :** Commande spéciale qui lève un `threading.Event` dans `main.py` pour provoquer un arrêt propre de la boucle principale. Le bot met son statut à `stopped` avant de quitter.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. Les anciens déclencheurs par champs de timestamp (`forceRefresh`, etc.) ont été migrés vers la collection `commands` (Session 17).
 
 ## 2. 🐍 Backend (Python)
