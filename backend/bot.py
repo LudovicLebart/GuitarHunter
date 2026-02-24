@@ -6,7 +6,7 @@ from firebase_admin import firestore
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
-    DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
+    DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
     GEMINI_MODELS
 )
 from backend.analyzer import DealAnalyzer
@@ -58,10 +58,11 @@ class GuitarHunterBot:
             'botStatus': 'idle',
             'analysisConfig': {
                 'gatekeeperModel': GEMINI_MODELS["default_gatekeeper"],
-                'expertModel': GEMINI_MODELS["default_expert"],
+                'expertModel': GEMINI_MODELS["default_expert"],  # Clé legacy (lue par le frontend)
                 'mainAnalysisPrompt': DEFAULT_MAIN_PROMPT,
                 'gatekeeperVerbosityInstruction': DEFAULT_GATEKEEPER_INSTRUCTION,
-                'expertContextInstruction': DEFAULT_EXPERT_CONTEXT
+                'analystVerbosityInstruction': DEFAULT_ANALYST_INSTRUCTION,
+                'expertProContextInstruction': DEFAULT_EXPERT_CONTEXT,
             },
             'availableModels': GEMINI_MODELS["available"]
         }

@@ -63,8 +63,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
 
-- [ ] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
+- [/] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
     - *Plan de travail :* [`docs/FUNNEL_PLAN.md`](./FUNNEL_PLAN.md) — **Finalisé et validé (Session 16).**
+    - *Plan d'implémentation :* (Session 21)
+        - [x] Ajout seuils de déclenchement dans `config.py`
+        - [x] Ajout format compact (5 scores) dans `prompts.json`
+        - [x] Refactor DRY de `analyze_deal` dans `backend/analyzer.py` (Mutualisation `_call_gemini_json`)
+        - [x] Intégration appel `ListingParser.extract_price_from_text`
     - *Objectif :* Ajouter un Tier 2 (Analyste Flash, condensé + 5 scores numériques) et un Tier 3 (Expert Pro, déclenché par seuils intelligents Score + Prix) pour optimiser la consommation de tokens et la précision des analyses.
     - *Fichiers impactés :* `backend/analyzer.py`, `prompts.json`, `config.py`.
 
