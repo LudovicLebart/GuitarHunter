@@ -116,3 +116,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Implémentation du Funnel 3-Tiers (Optimisation Expert Pro) (Session 21).
 - [x] Ajout d'une commande d'arrêt à distance (`STOP_BOT`) via Firestore et UI (Session 21).
 - [x] Création d'un outil de migration et audit de structure Firestore (Session 21).
+- [x] Correction du rejet systématique des étuis/housses par le Portier et le Coupe-Circuit (Session 23).
+- [x] Standardisation des instructions de verbosité (`gatekeeper`, `analyst`, `expert_pro`) en format `array of strings` pour l'éditeur UI (Session 23).

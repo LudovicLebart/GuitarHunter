@@ -143,6 +143,8 @@ class DealAnalyzer:
             logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
             model_chain.append(gatekeeper_model_name)
             gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
+            if isinstance(gatekeeper_instruction, list):
+                gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
             
             result_t1, err_t1 = self._call_gemini_json(gatekeeper_model_name, [full_prompt_t1] + images)
@@ -173,6 +175,8 @@ class DealAnalyzer:
         logger.info(f"   🔍 Étape 2 : Analyste ({analyst_model_name}) - Structuration & Scores...")
         model_chain.append(analyst_model_name)
         analyst_instruction = config.get('analystVerbosityInstruction', DEFAULT_ANALYST_INSTRUCTION)
+        if isinstance(analyst_instruction, list):
+            analyst_instruction = "\n".join(analyst_instruction)
         full_prompt_t2 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE ANALYSTE ---\n{analyst_instruction}"
         
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images)
