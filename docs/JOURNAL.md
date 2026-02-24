@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-24] [FLASH] Session 26 (Bug Report) : Identification d'un problème de pérennité des images. Les URLs Facebook CDN expirent (paramètre `oe` dans l'URL). Les annonces valides perdent leur visibilité visuelle après quelques jours. Ajout au `TODO.md`.
+
 [2026-02-24] [PRO] Session 26 : Amélioration du Pilotage du Bot (Commandes Avancées & UI). (Action 1) Ajout de la commande `STOP_SCAN` avec `scan_stop_event` indépendant pour interrompre un scraping sans tuer le bot. (Action 2) Refonte sémantique de `STOP_BOT` : le bot entre dans une boucle de pause de 12h (interruptible) au lieu de s'éteindre totalement. (Action 3) Ajout de `START_BOT` pour réveiller le bot instantanément de sa pause. (Action 4) Extraction et refonte de l'interface des contrôles : création du composant `<BotControls />` hybride avec indicateur de statut dynamique intégré dans le panneau latéral "Système".
 
 [2026-02-24] [FLASH] Session 25 : Correction "Mode Hors Ligne" du Bot. Automatisation du déploiement des fichiers ignorés par Git via GitHub Secrets (`DOT_ENV` et `FIREBASE_SERVICE_ACCOUNT_KEY`). Mise à jour de `deploy.yml` pour recréer dynamiquement `.env` à la racine et `serviceAccountKey.json` dans `backend/config/` sur le serveur.

@@ -12,6 +12,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [ ] **Bug : Liens d'images Facebook expirés ("URL signature expired")**
+    - *Détails :* Les liens CDN de Facebook (`scontent.fbcdn.net`) sont temporaires et signés. Sur les annonces stockées depuis plusieurs jours, les images ne s'affichent plus dans l'UI alors qu'elles sont toujours sur FB.
+    - *Pistes :* Nécessite un mécanisme de rafraîchissement des URLs d'images (re-scraping léger) ou une mise à jour lors de l'ouverture d'un deal si l'URL est détectée comme expirée.
+
 - [x] **Bug : "Delete All Logs" ne fonctionne pas**
     - *Détails :* [CORRIGÉ] Problème d'IDs codés en dur dans le frontend (`LogViewer.jsx`). Utilisation des variables d'environnement (`VITE_APP_ID_TARGET`, `VITE_USER_ID_TARGET`).
 
