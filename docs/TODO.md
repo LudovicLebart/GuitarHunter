@@ -14,7 +14,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [ ] **Bug : Liens d'images Facebook expirés ("URL signature expired")**
     - *Détails :* Les liens CDN de Facebook (`scontent.fbcdn.net`) sont temporaires et signés. Sur les annonces stockées depuis plusieurs jours, les images ne s'affichent plus dans l'UI alors qu'elles sont toujours sur FB.
-    - *Pistes :* Nécessite un mécanisme de rafraîchissement des URLs d'images (re-scraping léger) ou une mise à jour lors de l'ouverture d'un deal si l'URL est détectée comme expirée.
+    - *Pistes :* Nécessite un mécanisme de stockage pérenne. 4 Options :
+        - **Option 1 (Recommandée) : Firebase Storage.** Le bot télécharge et héberge les bonnes images sur Firebase (gratuit jusqu'à 5Go, optimisé par compression/filtrage).
+        - **Option 2 : Re-Scraping Dynamique.** Le bot revisite la page FB si l'image casse (Coûteux, et l'image est perdue si l'annonce FB est vendue entre-temps).
+        - **Option 3 : Base64 dans Firestore.** Lourd et limite Firestore (1Mo max). Écarté.
+        - **Option 4 : Auto-Hébergement sur Serveur Ubuntu.** Espace illimité, mais requiert que le serveur expose les images via un lien **HTTPS public** (nom de domaine + SSL) à cause du *Mixed Content* de GitHub Pages. En attente de vérification technique de l'infrastructure de l'utilisateur.
 
 - [x] **Bug : "Delete All Logs" ne fonctionne pas**
     - *Détails :* [CORRIGÉ] Problème d'IDs codés en dur dans le frontend (`LogViewer.jsx`). Utilisation des variables d'environnement (`VITE_APP_ID_TARGET`, `VITE_USER_ID_TARGET`).
