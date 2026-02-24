@@ -400,6 +400,31 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
+### **Date: 24/02/2026** (Session 4)
+
+**Auteur:** Assistant AI
+
+**Type:** Correction de bugs (Priorité Haute)
+
+#### 📝 Description des Changements
+
+1.  **Correction de la commande `STOP_BOT` (Backend):**
+    - **Problème:** La commande `STOP_BOT` via l'interface UI (ou Firestore) passait le statut du bot à `stopped` mais le programme Python continuait son scan ou nettoyage en cours (boucles synchrones Playwright/Firebase longues).
+    - **Solution:** J'ai passé l'instance `threading.Event()` (`stop_event`) depuis `main.py` jusque dans `GuitarHunterBot` (`bot.py`) et `FacebookScraper` (`core.py`). Des vérifications `if self.stop_event.is_set(): return/break` ont été ajoutées dans les points stratégiques des boucles de défilement (`page.mouse.wheel`), d'analyse d'annonces, de nettoyage des vendues (`cleanup_sold_listings`) et des réanalyses en attente.
+    - **Fichiers modifiés:** `main.py`, `backend/bot.py`, `backend/scraping/core.py`.
+
+2.  **Correction de la suppression des logs côté client (Frontend):**
+    - **Problème:** Le bouton "Vider la base de données" du `LogViewer.jsx` ne produisait aucun effet. Les logs écoutés correspondaient à un "userIdTarget" et un "appId" codés en dur (`00737242777130596039`, `c_5d118e71...`). 
+    - **Solution:** Standardisation via des variables d'environnement. Ajout de `VITE_APP_ID_TARGET` et `VITE_USER_ID_TARGET` dans `.env` côté React, de façon à ce que le `LogViewer` se base dynamiquement sur la même configuration ciblée que le Backend Python et Firebase.
+    - **Fichiers modifiés:** `src/components/LogViewer.jsx`, `.env`.
+
+#### 🤔 Raisonnement
+
+- **Stop Bot réactif :** Pour que "l'arrêt d'urgence" fonctionne, il fallait sortir le code d'une simple vérification entre deux cycles du scheduler (ancienne méthode) et propager un kill-switch asynchrone jusque dans les boucles de scraping internes. L'objet `threading.Event()` est parfait pour ça, agissant comme un drapeau partagé et thread-safe.
+- **Dette Technique (Logs) :** Le code frontend pour les logs était resté sur un ancien jet de POC où je développais avec mes propres IDs personnels (Session 1 à 5). La standardisation avec `.env` aligne le `LogViewer` sur le reste de l'application.
+
+---
+
 ### **Date: 23/02/2026** (Session 3)
 
 **Auteur:** Assistant AI

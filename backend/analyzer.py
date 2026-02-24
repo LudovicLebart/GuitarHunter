@@ -242,6 +242,7 @@ class DealAnalyzer:
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
+            logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
             
         else:

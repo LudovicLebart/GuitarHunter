@@ -18,10 +18,9 @@ const LogViewer = ({ onClose }) => {
     if (!user) return;
 
     const appId = import.meta.env.VITE_FIREBASE_APP_ID;
-    const userIdTarget = "00737242777130596039"; // Hardcoded for now as per other files, ideally from env or context
 
-    // Fallback if env vars are missing (though they should be there)
-    const finalAppId = "c_5d118e719dbddbfc_index.html-217";
+    const finalAppId = import.meta.env.VITE_APP_ID_TARGET;
+    const userIdTarget = import.meta.env.VITE_USER_ID_TARGET;
 
     const logsRef = collection(db, `artifacts/${finalAppId}/users/${userIdTarget}/logs`);
     // On trie par timestamp décroissant pour avoir les derniers logs, puis on limite

@@ -123,7 +123,7 @@ class FacebookScraper:
         logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
-    def scan_marketplace(self, scan_config, on_deal_found, should_skip_callback=None):
+    def scan_marketplace(self, scan_config, on_deal_found, should_skip_callback=None, stop_event=None):
         self._ensure_session()
         
         # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
@@ -138,6 +138,10 @@ class FacebookScraper:
 
         logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
         
+        if stop_event and stop_event.is_set():
+            logger.info("🛑 Scan annulé avant de démarrer (STOP_BOT).")
+            return
+            
         norm_loc = ListingParser.normalize_city_name(location)
         city_id = self.city_mapping.get(norm_loc)
         if not city_id:
@@ -168,6 +172,9 @@ class FacebookScraper:
 
             logger.info("   📜 Défilement...")
             for _ in range(self.config.scroll_iterations):
+                if stop_event and stop_event.is_set():
+                    logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
+                    return
                 page.mouse.wheel(0, 1000)
                 time.sleep(2)
 
@@ -179,6 +186,10 @@ class FacebookScraper:
             
             for link in listings:
                 if count >= max_ads: break
+                
+                if stop_event and stop_event.is_set():
+                    logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
+                    return
                 
                 href = link.get_attribute("href")
                 if not href: continue
