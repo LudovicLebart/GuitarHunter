@@ -188,7 +188,7 @@ class DealAnalyzer:
         verdict = result_t2.get('verdict', '')
         
         # Extraction du prix
-        numeric_price = ListingParser.extract_price_from_text(listing_data.get('price', ''))
+        numeric_price = ListingParser.extract_price_from_text(str(listing_data.get('price', '') or ''))
         
         logger.info(f"   📊 Scores T2 -> Deal: {deal_score} | Auth: {auth_score} | Resto: {resto_score} | Conf: {confidence} | Prix: {numeric_price}")
 
