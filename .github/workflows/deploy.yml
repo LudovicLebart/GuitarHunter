@@ -22,6 +22,28 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            mkdir -p ~/GuitareHunter
+            cd ~/GuitareHunter
+
+            # Création/Mise à jour du fichier .env à partir du secret GitHub
+            echo "--- Configuration .env ---"
+            if [ -z "${{ secrets.DOT_ENV }}" ]; then
+              echo "⚠️ Secret DOT_ENV manquant dans GitHub."
+            else
+              echo "${{ secrets.DOT_ENV }}" > .env
+              echo "✅ Fichier .env mis à jour."
+            fi
+
+            # Création/Mise à jour de la clé Firebase
+            echo "--- Configuration Firebase ---"
+            mkdir -p backend/config
+            if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}" ]; then
+              echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant."
+            else
+              echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}' > backend/config/serviceAccountKey.json
+              echo "✅ Clé Firebase mise à jour."
+            fi
+
             # Installation des dépendances système pour l'affichage virtuel
             echo "--- System Setup ---"
             sudo apt-get update
