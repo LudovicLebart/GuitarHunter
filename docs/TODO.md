@@ -79,6 +79,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Correction: Simplification de la taxonomie (etui_housse) et rejet strict des autres accessoires (ex: pédales, stands).
 - [x] Correction: Ajout du 4ème niveau de tri dans FilterBar et affichage des rejets (Session 28).
 - [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
 - [x] Création de la structure de documentation (`docs/`).

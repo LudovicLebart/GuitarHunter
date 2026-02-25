@@ -242,27 +242,25 @@
         ]
       }
     },
-    "accessoire_etui": {
-      "protection": {
-        "Etui_Rigide": [
-          "Guitare Electrique",
-          "Guitare Acoustique",
-          "Basse",
-          "Vintage / Original Case"
-        ],
-        "Housse_Souple": [
-          "Gigbag Standard",
-          "Luxe / Reinforced",
-          "Mono / Gator Pro"
-        ],
-        "Flight_Case": [
-          "ATA Road Case"
-        ]
-      }
+    "etui_housse": {
+      "Etui_Rigide": [
+        "Guitare Electrique",
+        "Guitare Acoustique",
+        "Basse",
+        "Vintage / Original Case"
+      ],
+      "Housse_Souple": [
+        "Gigbag Standard",
+        "Luxe / Reinforced",
+        "Mono / Gator Pro"
+      ],
+      "Flight_Case": [
+        "ATA Road Case"
+      ]
     }
   },
   "main_analysis_prompt": [
-    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS, ÉTUIS ET HOUSSES (même simples) SONT TOUS ACCEPTÉS POUR ANALYSE.",
+    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS, ÉTUIS RIGIDES ET HOUSSES SONT ACCEPTÉS. TOUT AUTRE ACCESSOIRE (pédales, supports, micros, pièces) DOIT ÊTRE REJETÉ avec le verdict REJECTED_ITEM.",
     "",
     "1. **IDENTIFICATION & COTE (L'OEIL DU MAÎTRE)** :",
     "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles avec le texte. Pour les guitares : logo, tête, chevalet. Pour les amplis : état du Tolex, panneau de contrôle, lampes visibles, haut-parleur.",
@@ -315,7 +313,7 @@
     "Tu es le premier filtre (Le Portier).",
     "Ta mission est de lire l'annonce et de décider de son potentiel BRUT.",
     "Si c'est un service ou une arnaque, rejette-la.",
-    "Si c'est une guitare, un ampli, un étui ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL.",
+    "Si c'est une guitare, un ampli, un étui rigide ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. REJETTE STRICTEMENT (REJECTED_ITEM) tout accessoire qui n'est pas un étui ou une housse (ex: pédales, supports, micros, cordes).",
     "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }."
   ],
   "analyst_verbosity_instruction": [
