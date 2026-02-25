@@ -37,16 +37,20 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}`
 - **Étapes de création** :
   1. `bot.handle_deal_found(listing_data)`
-  2. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
-  3. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)`.
+  2. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
+  3. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
+  4. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté.
 - **Format de donnée type** :
   ```json
   {
     "title": "String",
     "price": "Number",
-    "status": "active" | "rejected" | "sold",
+    "status": "analyzed" | "rejected" | "sold",
+    "imageUrls": ["URL CDN Facebook (temporaire)"],
+    "storageImageUrls": ["URL Firebase Storage (pérenne)"],
     "aiAnalysis": { 
-       "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | ...,
+       "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | "REJECTED_ITEM" | ...,
+       "classification": "Valeur de taxonomy_master (ex: guitare.acoustique.folk)",
        "reasoning": "Markdown text",
        "deal_score": 0-10,
        "authenticity_score": 0-10,
