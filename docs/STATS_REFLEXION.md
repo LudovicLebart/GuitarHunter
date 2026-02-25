@@ -31,6 +31,23 @@ Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
 
 ---
 
+## 6. Nouveaux Prérequis de Données (Backend)
+Pour alimenter ce dashboard en production, le backend Python devra être étendu pour récolter/générer les métadonnées suivantes :
+
+- **`soldAt` (Timestamp) :**
+  - **Besoin :** Indispensable pour calculer la "Vitesse de Rotation" (Time-to-Sold).
+  - **Où :** Lors du passage au statut `sold` dans `cleanup_sold_listings`.
+- **`brand` (String) :**
+  - **Besoin :** Permettre le filtrage et le classement par marque (ex: "Top 5 marges par marque").
+  - **Où :** À extraire explicitement par Gemini dans le JSON de l'Analyste (Tier 2).
+- **`age_hours` (Number) ou `publishedAt` (Timestamp) :**
+  - **Besoin :** Détecter les "Cold Deals" (annonces anciennes qui ont l'air bonnes sur le papier mais qui sont invendables en réalité).
+  - **Où :** Estimation textuelle demandée à Gemini ou scraping de la date Facebook (plus complexe).
+- **`discount_index` (Number) :**
+  - **Besoin :** Calcul simplifié : `(Prix Demandé - Valeur Estimée) / Valeur Estimée`. Représente la décote immédiate ressentie.
+
+---
+
 > [!IMPORTANT]
 > **Influence du Tier 3 :** L'Expert Pro apporte une "Certification" des données. 
-> Une statistique basée sur une analyse Tier 3 aura un indice de confiance bien plus élevé qu'une stat Tier 2. Le Dashboard pourrait afficher des badges "Certifié Expert" sur les KPIs financiers les plus critiques.
+> Une statistique basée sur une analyse Tier 3 aura un indice de confiance bien plus élevé qu'une stat Tier 2. Le Dashboard affichera des badges "Certifié Expert" sur les KPIs financiers les plus critiques.

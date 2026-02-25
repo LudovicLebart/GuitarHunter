@@ -346,7 +346,8 @@ const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, c
                 </div>
 
                 {/* Scrollable body */}
-                <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6">
+                {/* Scrollable body */}
+                <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6 scrollbar-dark">
 
                     {/* ── Taxonomy Tree (Inline Accordion) ── */}
                     <FilterGroup label="Type d'instrument" defaultOpen={true}>

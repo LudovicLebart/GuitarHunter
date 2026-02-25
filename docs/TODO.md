@@ -54,22 +54,27 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🎨 Interface Utilisateur (UI/UX) - Priorités Structurelles et Ergonomiques
 
-- [x] **Prototype Mockup V2 (Dark Mode Complet, Filtres, Map)** *(Achevé, validé en attente de prod)*
-    - *Détails :* Composants créés : `MockupDealCard`, `MockupNavbar`, `MockupFilterDrawer` (cascade rectifiée avec comptage taxonomique fonctionnel et sans redondances), `MockupDashboard` (split-screen avec Map View mobile responsive et verdicts dropdown). Accessible via bouton violet "Mockup V2" dans la Navbar. Indicateurs système du bot rendus responsive pour ne jamais disparaître sur petit écran.
-- [ ] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(appliquer à la production)*
-    - *Détails :* Supprimer la colonne latérale permanente gauche. Déplacer `<BotControls />` dans la Navbar. Permettre à la grille d'annonces de prendre 100% de la largeur.
-- [ ] **Refonte de la barre de filtrage → Drawer en production**
-    - *Détails :* Appliquer le pattern `MockupFilterDrawer` (volet coulissant avec taxonomie 4 niveaux en cascade dynamique) à la vraie `FilterBar.jsx`.
-- [ ] **Refonte du Mobile : Images Full-Width (DealCard en production)**
-    - *Détails :* Appliquer le layout Stack Vertical (image `aspect-video` pleine largeur) proposé dans `MockupDealCard` à la vraie `DealCard.jsx`.
-- [ ] **Nettoyage Architecture IA & Boutons (DealCard en production)**
-    - *Détails :* Cacher les modèles LLM sous un Tooltip. Bloc "Confiance" collé au raisonnement. Normaliser les majuscules. Logo FB seul. Hit-zones 44px+.
-- [ ] **Lisibilité Financière : Badge Marge sur vue liste**
-    - *Détails :* Afficher la "Marge Estimée" (badge vert `+100$`) directement sur chaque `DealCard` de la liste, comme implémenté dans le mockup.
-- [x] **Filtre Drawer : Ajouter 4ème niveau de profondeur (cascade)** *(mockup)*
-    - *Détails :* `MockupFilterDrawer` dispose désormais d'une cascade complète à 4 niveaux via `TAXONOMY_TREE`. Tous les groupes sont repliés par défaut. Chaque niveau s'ouvre automatiquement dès qu'un parent est sélectionné et réinitialise les enfants.
-- [ ] **Développer un Mode Sombre (Dark Mode) en production**
-    - *Détails :* Créer un vrai système de thème (variable CSS ou `ThemeContext`) pour basculer entre Light (actuel) et Dark (proposé dans le mockup).
+- [x] **Prototype Mockup V2 (Phase d'Exploration Completée)**
+    - *Détails :* Mockup complet avec Dark Mode, Map Split-Screen, et Filtres en cascade. Validé en Session 29-31.
+    - [x] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(Ok en Mockup)*
+    - [x] **Lisibilité Financière : Badge Marge sur vue liste** *(Ok en Mockup)*
+    - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup)*
+    - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
+- [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
+- [ ] **Dark Scrollbar pour les Filtres (Mockup)**
+    - *Détails :* Appliquer un style sombre à la scrollbar du drawer de filtres.
+
+- [ ] **🚀 Migration vers Production (Prochaine Étape)**
+    - [ ] **Appliquer le Pattern Drawer & Cascade à la production**
+        - *Détails :* Porter la logique de `MockupFilterDrawer` vers `FilterBar.jsx`.
+    - [ ] **Fusionner le layout MockupDealCard avec DealCard.jsx**
+        - *Détails :* Intégrer les images full-width, le badge marge et le nettoyage IA.
+    - [ ] **Démanteler l'Aside Desktop en production**
+        - *Détails :* Déplacer `<BotControls />` dans la Navbar.
+    - [ ] **Système de Thème (Dark Mode) global**
+        - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
+    - [ ] **Dashboard Analytics & Statistiques**
+        - *Détails :* Implémenter le moteur de stats (`docs/STATS_REFLEXION.md`).
 - [ ] **Créer un Panneau de Statistiques (Dashboard Analytics)**
     - *Détails :* Afficher les KPIs comme le Tunnel de Conversion et un Radar Chart des 5 scores Gemini.
 - [ ] **Revoir l'affichage du bloc de prix**

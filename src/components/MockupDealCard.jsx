@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, ChevronDown, ChevronUp } from 'lucide-react';
+import ImageGallery from './ImageGallery';
 
 const VERDICT_CONFIG = {
     PEPITE: { label: 'Pépite', bg: 'bg-yellow-500', text: 'text-yellow-900', icon: Gem },
@@ -25,20 +26,19 @@ const MockupDealCard = ({ deal }) => {
     return (
         <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group">
 
-            {/* Image */}
-            <div className="relative w-full aspect-video overflow-hidden">
-                <img
-                    src={deal.image}
-                    alt={deal.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
+            {/* Image Gallery Container */}
+            <div className="relative w-full h-[350px] sm:h-[400px] bg-slate-950 overflow-hidden flex items-center justify-center">
+                <div className="h-full w-full">
+                    <ImageGallery images={deal.imageUrls || [deal.image || '']} title={deal.title} />
+                </div>
+
                 {/* Verdict Badge */}
-                <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
+                <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg z-10 ${vc.text}`}>
                     <VIcon size={12} />
                     {vc.label}
                 </div>
                 {/* Price Badge */}
-                <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-3 py-1.5 rounded-xl text-base font-black shadow-lg">
+                <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-3 py-1.5 rounded-xl text-base font-black shadow-lg z-10 pointer-events-none">
                     {deal.price}$
                 </div>
             </div>
@@ -95,9 +95,9 @@ const MockupDealCard = ({ deal }) => {
                             </div>
                         </button>
                         {expanded && (
-                            <p className="px-3 pb-3 text-[11px] text-slate-300 leading-relaxed border-t border-slate-800 pt-2">
+                            <div className="px-3 pb-3 text-[11px] text-slate-300 leading-relaxed border-t border-slate-800 pt-2 whitespace-pre-wrap font-mono">
                                 {deal.reasoning}
-                            </p>
+                            </div>
                         )}
                     </div>
                 )}

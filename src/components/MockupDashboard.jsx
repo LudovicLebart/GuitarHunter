@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon } from 'lucide-react';
+import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity } from 'lucide-react';
 import MockupNavbar from './MockupNavbar';
 import MockupDealCard from './MockupDealCard';
 import MockupFilterDrawer from './MockupFilterDrawer';
+import MockupStatsView from './MockupStatsView';
 import ConfigPanel from './ConfigPanel';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG } from '../constants';
 
@@ -15,72 +16,103 @@ const FAKE_DEALS = [
         title: "AMPLI DE GUITARE CRATE DANS MONT-ST-HILAIRE, QC",
         price: 50, estValue: 150, margin: 100,
         location: "Mont-St-Hilaire, QC", taxonomy: "Acoustique_Vocal", classification: 'electrique.ampli_electrique.combo', type: 'electrique',
-        image: "https://images.unsplash.com/photo-1564186763535-ebb964f9715e?auto=format&fit=crop&q=80&w=800",
-        confidence: 92, reasoning: "Ampli Crate CA30D à 50$. Un simple nettoyage permettra de le revendre entre 130-150$. Faible risque, profit rapide.",
-        models: "GEMINI-2.5-FLASH-LITE → GEMINI-2.5-FLASH", date: "Il y a 8 min",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1519782483849-cbe3387eb7f1?auto=format&fit=crop&q=80&w=600&h=800", // Amp verticalish
+            "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 92,
+        reasoning: "• 💰 Prix demandé : 50 $ CAD\n• 💡 Valeur marché : ~150 $ CAD (Crate CA30D occasion)\n• 📈 Marge Potentielle : 100 $ CAD\n• 🎯 Authenticité (9/10) : Ampli entrée de gamme, rarement contrefait.\n• 🛠️ État (7/10) : Semble poussiéreux, usure normale.\n• 💨 Liquidité (8/10) : Ampli acoustique pas cher, part très vite pour débutants.\n\nVerdict : Excellent point d'entrée pour un quick-flip après un simple nettoyage des potards.",
+        models: "gemini-2.5-flash-lite → gemini-2.5-flash", date: "Il y a 8 min",
     },
     {
         id: '2', verdict: 'PEPITE',
         title: "GIBSON LES PAUL STUDIO 1996 AVEC ÉTUI",
         price: 680, estValue: 1200, margin: 520,
         location: "Montréal, QC", taxonomy: "Électrique", classification: 'electrique.solid_body.les_paul_style.gibson', type: 'electrique',
-        image: "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?auto=format&fit=crop&q=80&w=800",
-        confidence: 97, reasoning: "Gibson Les Paul Studio 1996 avec micros SD. Bonne condition, électronique originale. Valeur marché 1100-1200$.",
-        models: "GEMINI-2.5-FLASH → GEMINI-2.5-PRO", date: "Il y a 22 min",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1605020420620-20c943cc4669?auto=format&fit=crop&q=80&w=600&h=800", // LP vertical
+            "https://images.unsplash.com/photo-1549488344-c687eec86751?auto=format&fit=crop&q=80&w=600&h=800",
+            "https://images.unsplash.com/photo-1510915361894-db8b60106cb1?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 97,
+        reasoning: "## RAPPORT D'EXPERTISE (TIER 3)\n- **Authenticité (9/10)** : Tête, logo, bridge (Nashville TOM) conformes aux specs de 1996.\n- **État (8/10)** : Finition Wine Red, quelques pocs mineurs (buckle rash standard).\n- **Prix/Valeur (10/10)** : 680$ avec le hardcase brun intérieur rose original (qui vaut 150$ seul). Prix exceptionnel.\n- **Potentiel Marge (9/10)** : Se revendra facilement 1100-1200$ sans aucun effort.\n**Décision finale** : Pépite absolue. Contacter immédiatement.",
+        models: "gemini-2.5-flash → gemini-2.5-pro", date: "Il y a 22 min",
     },
     {
         id: '3', verdict: 'LUTHIER_PROJ',
         title: "STRATOCASTER SQUIER MANCHE FISSURÉ - PROJET",
         price: 85, estValue: 280, margin: 195,
         location: "Laval, QC", taxonomy: "Électrique", classification: 'electrique.solid_body.strat_style.squier', type: 'electrique',
-        image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&q=80&w=800",
-        confidence: 79, reasoning: "Squier Strat avec fissure au manche. Corps et mécaniques impeccables. Remplacement du manche (~50$) → revente facile à 280$.",
-        models: "GEMINI-2.5-FLASH-LITE → GEMINI-2.5-FLASH", date: "Il y a 45 min",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1550291652-6ea9114a47b1?auto=format&fit=crop&q=80&w=600&h=800",
+            "https://images.unsplash.com/photo-1604547990520-a7d08f49a888?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 79,
+        reasoning: "• 💰 Prix : 85$\n• 💡 Valeur après travaux : ~280$\n• 🛠️ Intérêt Restauration (8/10) : Corps Standard Series des années 2000 (bois massif). Fissure au talon du manche.\n• 📈 Marge Estimée : Remplacement manche (~60$), reste ~135$ de marge.\nParfaitement adapté pour un assemblage partcaster ou un training de lutherie.",
+        models: "gemini-2.5-flash-lite → gemini-2.5-flash", date: "Il y a 45 min",
     },
     {
         id: '4', verdict: 'CASE_WIN',
-        title: "SETUP COMPLET GUITARE ACOUSTIQUE AVEC CASE TWEED VINTAGE",
-        price: 120, estValue: null, margin: null,
+        title: "GUITARE CLASSIQUE INCONNUE DANS BEL ÉTUI",
+        price: 60, estValue: 120, margin: 60,
         location: "Brossard, QC", taxonomy: "Acoustique_Vocal", classification: 'accessoire.etui.etui_rigide', type: 'accessoire',
-        image: "https://images.unsplash.com/photo-1516924962500-2b4b3b99ea02?auto=format&fit=crop&q=80&w=800",
-        confidence: 85, reasoning: "L'étui Tweed américain vintage vaut lui seul 90-120$. La guitare est un bonus gratuit.",
-        models: "GEMINI-2.5-FLASH", date: "Il y a 1h12",
+        imageUrls: [
+            "https://plus.unsplash.com/premium_photo-1681406994511-925208ebcb73?auto=format&fit=crop&q=80&w=600&h=800",
+            "https://images.unsplash.com/photo-1558299834-8c83e206000c?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 85,
+        reasoning: "• 🎯 Authenticité (N/A) : Guitare copie asiatique sans valeur (plywood).\n• 💼 Accessoire (9/10) : L'étui sur les photos 2 et 3 est un étui rigide vintage style TKL des années 80.\n• 📈 Marge Potentielle : La guitare vaut 0$, mais l'étui seul se vend entre 80$ et 120$.\nAchat justifié uniquement pour conserver/revendre l'étui.",
+        models: "gemini-2.5-flash", date: "Il y a 1h12",
     },
     {
         id: '5', verdict: 'COLLECTION',
-        title: "TAKAMINE EG523SC ELECTRO-ACOUSTIQUE NATUREL",
+        title: "TAKAMINE EG523SC ELECTRO-ACOUSTIQUE",
         price: 450, estValue: 550, margin: 100,
         location: "Longueuil, QC", taxonomy: "Acoustique_Vocal", classification: 'acoustique.electro_acoustique.folk_electro', type: 'acoustique',
-        image: "https://images.unsplash.com/photo-1525201548942-d8732f6617a0?auto=format&fit=crop&q=80&w=800",
-        confidence: 71, reasoning: "Takamine de qualité, excellent état. Prix légèrement sous le marché mais sans grande marge.",
-        models: "GEMINI-2.5-FLASH", date: "Il y a 2h",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1516924962500-2b4b3b99ea02?auto=format&fit=crop&q=80&w=600&h=800",
+            "https://images.unsplash.com/photo-1525201548942-d8732f6617a0?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 71,
+        reasoning: "• 💰 Prix demandé : 450 $ CAD\n• 💡 Valeur marché : ~550 $ CAD\n• 🎯 Authenticité (9/10)\n• 💨 Liquidité (6/10) : Modèle Jumbo, clientèle un peu plus restreinte.\nPrix au marché de l'occasion particulier. Bonne guitare mais marge insuffisante pour un flip (bloquera de la trésorerie). Convient à un joueur personnel.",
+        models: "gemini-2.5-flash", date: "Il y a 2h",
     },
     {
         id: '6', verdict: 'FAST_FLIP',
         title: "BASSE FENDER PLAYER JAZZ BASS SUNBURST",
         price: 480, estValue: 750, margin: 270,
         location: "Verdun, QC", taxonomy: "Basse", classification: 'basse.basse_electrique.jazz_bass.fender', type: 'basse',
-        image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&q=80&w=800",
-        confidence: 88, reasoning: "Fender Player Jazz Bass Sunburst, très demandée. Bon état général. Prix bien sous la valeur marché.",
-        models: "GEMINI-2.5-FLASH-LITE → GEMINI-2.5-FLASH", date: "Il y a 3h30",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&q=80&w=600&h=800",
+            "https://images.unsplash.com/photo-1514649923863-ceaf75b7ec00?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 88,
+        reasoning: "• 💰 Prix demandé : 480 $ CAD\n• 💡 Valeur marché : ~750 $ CAD\n• 🎯 Authenticité (8/10) : Tête et logo conformes à la série Player (MIM).\n• 💨 Liquidité (10/10) : Instrument extrêmement liquide.\nMarge de ~270$. À acheter rapidement, pas de surprise majeure.",
+        models: "gemini-2.5-flash-lite → gemini-2.5-flash", date: "Il y a 3h30",
     },
     {
         id: '7', verdict: 'BAD_DEAL',
         title: "EPIPHONE LES PAUL STANDARD TRES BON ETAT",
         price: 750, estValue: 450, margin: -300,
         location: "Repentigny, QC", taxonomy: "Électrique", classification: 'electrique.solid_body.les_paul_style.epiphone', type: 'electrique',
-        image: "https://images.unsplash.com/photo-1545231027-637d2f6210f8?auto=format&fit=crop&q=80&w=800",
-        confidence: 94, reasoning: "Epiphone LP Standard. Surévalué à 750$. La valeur marchande réelle est ~400-450$. À ignorer.",
-        models: "GEMINI-2.5-FLASH", date: "Il y a 5h",
+        imageUrls: [
+            "https://images.unsplash.com/photo-1562080006-251f284c2dd7?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 94,
+        reasoning: "• 💰 Prix demandé : 750 $ CAD\n• 💡 Valeur marché : ~450 $ CAD\n• 🚨 ALERTE : Le vendeur demande le prix d'une guitare neuve + taxes pour une occasion standard.\nAucune discussion possible, perte sèche de trésorerie garantie.",
+        models: "gemini-2.5-flash", date: "Il y a 5h",
     },
     {
-        id: '8', verdict: 'FAST_FLIP',
-        title: "MARSHALL MG15G AMPLI COMBO PARFAIT ETAT",
-        price: 65, estValue: 130, margin: 65,
-        location: "Saint-Hyacinthe, QC", taxonomy: "Électrique", classification: 'electrique.ampli_electrique.combo', type: 'electrique',
-        image: "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&q=80&w=800",
-        confidence: 80, reasoning: "Marshall MG15G à 65$, état parfait. Se revend facilement entre 120-140$. Quick flip sans effort.",
-        models: "GEMINI-2.5-FLASH-LITE", date: "Il y a 6h",
+        id: '8', verdict: 'REJECTED_ITEM',
+        title: "MÉDIATORS DUNLOP JAZZ III",
+        price: 5, estValue: null, margin: null,
+        location: "Saint-Hyacinthe, QC", taxonomy: "Autre", classification: 'accessoire', type: 'accessoire',
+        imageUrls: [
+            "https://images.unsplash.com/photo-1627993325603-c0d10e53e414?auto=format&fit=crop&q=80&w=600&h=800"
+        ],
+        confidence: 99,
+        reasoning: "REJET PORTIER TIER 1: Accessoire mineur ou consommable (Médiators). Hors scope luthier/revendeur.",
+        models: "gemini-2.5-flash-lite", date: "Il y a 6h",
     },
 ];
 
@@ -356,6 +388,9 @@ const MockupDashboard = ({ onClose }) => {
                     <div className="flex bg-slate-800 p-1 rounded-xl shrink-0 h-10 border border-slate-700">
                         <button onClick={() => setViewMode('LIST')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'LIST' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><List size={16} /></button>
                         <button onClick={() => setViewMode('MAP')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'MAP' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><MapIcon size={16} /></button>
+                        <button onClick={() => setViewMode('STATS')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'STATS' ? 'bg-slate-700 shadow-sm text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}>
+                            <Activity size={16} />
+                        </button>
                     </div>
                 </div>
 
@@ -369,7 +404,9 @@ const MockupDashboard = ({ onClose }) => {
                     ) : null}
                 </p>
 
-                {viewMode === 'MAP' ? (
+                {viewMode === 'STATS' ? (
+                    <MockupStatsView deals={filtered} />
+                ) : viewMode === 'MAP' ? (
                     <MockupMapView deals={filtered} />
                 ) : (
                     <>
