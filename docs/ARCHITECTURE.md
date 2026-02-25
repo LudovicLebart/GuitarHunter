@@ -107,6 +107,9 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   - Contient un module financier interactif pour afficher les estimations de valeur, de coût et de marge.
   - Les boutons d'action (Rejeter, Réanalyser) appellent les fonctions passées en props, qui remontent jusqu'à `useDealsManager` puis `firestoreService`.
 
+### `src/components/MockupDashboard.jsx` (et associés V2)
+- **Prototype SaaS (Mockup V2) :** Composants de prévisualisation (Dark Mode, layout pleine largeur, filtres en tiroir, split-screen Map). Ils sont branchés sur les **véritables hooks de données** (`useDealsManager`, `useBotConfig`) mais sont encapsulés à part (`MockupFilterDrawer`, `MockupNavbar`, `MockupDealCard`) pour tester les nouvelles recommandations ergonomiques sans casser la V1 en production. Accessible via `App.jsx`.
+
 ## 4. 🧠 Système de Prompts Dynamiques
 
 Ce système permet de modifier le comportement de l'IA sans redéployer le code, grâce à une synchronisation via Firestore comme couche de configuration dynamique. L'analyse approfondie du code a révélé une architecture à deux vitesses, avec plusieurs couches de code actif et du code obsolète.

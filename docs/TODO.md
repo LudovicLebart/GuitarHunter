@@ -54,8 +54,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🎨 Interface Utilisateur (UI/UX) - Priorités Structurelles et Ergonomiques
 
-- [x] **Prototype Mockup V2 (Dark Mode Complet)** *(Mockup fait, pas encore appliqué à la production)*
-    - *Détails :* Composants créés : `MockupDealCard`, `MockupNavbar`, `MockupFilterDrawer`, `MockupDashboard`. Accessible via bouton violet "Mockup V2" dans la Navbar.
+- [x] **Prototype Mockup V2 (Dark Mode Complet, Filtres, Map)** *(Achevé, validé en attente de prod)*
+    - *Détails :* Composants créés : `MockupDealCard`, `MockupNavbar`, `MockupFilterDrawer` (cascade rectifiée avec comptage taxonomique fonctionnel et sans redondances), `MockupDashboard` (split-screen avec Map View mobile responsive et verdicts dropdown). Accessible via bouton violet "Mockup V2" dans la Navbar. Indicateurs système du bot rendus responsive pour ne jamais disparaître sur petit écran.
 - [ ] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(appliquer à la production)*
     - *Détails :* Supprimer la colonne latérale permanente gauche. Déplacer `<BotControls />` dans la Navbar. Permettre à la grille d'annonces de prendre 100% de la largeur.
 - [ ] **Refonte de la barre de filtrage → Drawer en production**
@@ -108,6 +108,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).
 - [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).
 - [x] Session 29 : Purge automatique hebdomadaire des images rejetées (TaskScheduler).
 - [x] Correction: Simplification de la taxonomie (etui_housse) et rejet strict des autres accessoires (ex: pédales, stands).
