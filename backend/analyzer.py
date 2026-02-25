@@ -165,7 +165,8 @@ class DealAnalyzer:
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "model_used": " -> ".join(model_chain)}
+                    gatekeeper_classification = result_t1.get('classification')
+                    return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "classification": gatekeeper_classification, "model_used": " -> ".join(model_chain)}
         else:
             logger.info("   ⏩ Portier sauté (Force Expert).")
 

@@ -314,7 +314,7 @@
     "Ta mission est de lire l'annonce et de décider de son potentiel BRUT.",
     "Si c'est un service ou une arnaque, rejette-la.",
     "Si c'est une guitare, un ampli, un étui rigide ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. REJETTE STRICTEMENT (REJECTED_ITEM) tout accessoire qui n'est pas un étui ou une housse (ex: pédales, supports, micros, cordes).",
-    "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\" }."
+    "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\", \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER ou NULL si inconnu\" }."
   ],
   "analyst_verbosity_instruction": [
     "Tu es l'Analyste (Modèle Rapide).",
