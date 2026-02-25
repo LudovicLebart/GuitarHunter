@@ -31,6 +31,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Bug : Commandes manuelles (Rescan, URL) qui démarrent "tardivement"** *(Corrigé Session 28)*
     - Les commandes `REFRESH`, `REANALYZE_ALL` et `SCAN_URL` s'exécutent désormais dans des threads `daemon` séparés dans `main_loop` pour ne pas bloquer le séquenceur `scheduler.run_pending()`.
 
+- [x] **Brancher la purge lifecycle au scheduler** *(Corrigé Session 29)*
+    - `bot.purge_rejected_images()` ajouté comme `purge_func=` dans `TaskScheduler` (`services.py`). Job hebdomadaire déclenché automatiquement au démarrage du bot.
+
+- [ ] **Vérifier les règles Firebase Storage**
+    - *Détails :* Confirmer que les blobs uploadés via `blob.make_public()` sont bien accessibles publiquement. Vérifier dans la console Firebase → Storage → Rules que les lectures publiques sont autorisées.
+
+- [/] **Lancer la migration réelle des images** *(en cours)*
+    - *Détails :* Migration en cours via `run.bat migrate --real`. Dry-run corrigé (ne lance plus Playwright inutilement).
+
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
 
