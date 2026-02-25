@@ -27,7 +27,7 @@ Le script `main.py` surveille Firestore et délègue les tâches à `backend/bot
 - **Dispatching** : `command_handlers` dans `main.py` associe le `type` de commande à une méthode de `GuitarHunterBot`.
 - **Traitement** : Le bot exécute l'action (scan Facebook, appel API Gemini, nettoyage), puis :
   - Marque la commande comme complétée : `bot.repo.mark_command_completed(command_id)`.
-  - Met à jour son statut : `bot.repo.update_bot_status('scanning' | 'idle' | ...)`.
+  - Met à jour son statut : `bot.repo.update_bot_status('scanning' | 'idle' | 'paused' | 'stopped')`.
 
 ## 4. Structure des résultats (Collection `guitar_deals`)
 *Note : Malgré le nom historique `guitar_deals`, cette collection stocke désormais tous les types d'équipements (Guitares, Amplis, Étuis).*

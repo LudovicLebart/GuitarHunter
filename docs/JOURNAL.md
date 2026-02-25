@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-24] [PRO] Session 27 : Robustesse de la détection d'indisponibilité du scraper (`check_listing_availability`). Passage d'une vérification textuelle stricte à une analyse Regex (insensible à la casse, mots entiers `\b`) incluant le français et l'anglais ("vendu", "sold", "expired"). Ajout de l'inspection des attributs ARIA et vérification stricte de la visibilité CSS (`display: none`, `opacity: 0`) vis `window.getComputedStyle` pour éliminer les faux positifs (éléments cachés ou mots partiels comme "revendu").
+
 [2026-02-24] [FLASH] Session 26 (Bug Report) : Identification d'un problème de pérennité des images. Les URLs Facebook CDN expirent (paramètre `oe` dans l'URL). Les annonces valides perdent leur visibilité visuelle après quelques jours. Ajout au `TODO.md`.
 
 [2026-02-24] [PRO] Session 26 : Amélioration du Pilotage du Bot (Commandes Avancées & UI). (Action 1) Ajout de la commande `STOP_SCAN` avec `scan_stop_event` indépendant pour interrompre un scraping sans tuer le bot. (Action 2) Refonte sémantique de `STOP_BOT` : le bot entre dans une boucle de pause de 12h (interruptible) au lieu de s'éteindre totalement. (Action 3) Ajout de `START_BOT` pour réveiller le bot instantanément de sa pause. (Action 4) Extraction et refonte de l'interface des contrôles : création du composant `<BotControls />` hybride avec indicateur de statut dynamique intégré dans le panneau latéral "Système".

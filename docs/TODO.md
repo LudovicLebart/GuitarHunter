@@ -20,24 +20,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
         - **Option 3 : Base64 dans Firestore.** Lourd et limite Firestore (1Mo max). Écarté.
         - **Option 4 : Auto-Hébergement sur Serveur Ubuntu.** Espace illimité, mais requiert que le serveur expose les images via un lien **HTTPS public** (nom de domaine + SSL) à cause du *Mixed Content* de GitHub Pages. En attente de vérification technique de l'infrastructure de l'utilisateur.
 
-- [x] **Bug : "Delete All Logs" ne fonctionne pas**
-    - *Détails :* [CORRIGÉ] Problème d'IDs codés en dur dans le frontend (`LogViewer.jsx`). Utilisation des variables d'environnement (`VITE_APP_ID_TARGET`, `VITE_USER_ID_TARGET`).
-
-- [x] **Bug : Redémarrage automatique du bot lors du push (Branch handling)**
-    - *Détails :* [CORRIGÉ] Le workflow `deploy.yml` forçait un reset sur `master` et avait une erreur de casse sur `dev`. Corrigé avec `${{ github.ref_name }}` et logs détaillés (Session 24).
-
-- [x] **Bug : "Stop Bot" ne fonctionne pas**
-    - *Détails :* [CORRIGÉ] La commande ne coupait pas les boucles synchrones de scraping. Injection d'un `threading.Event` (`stop_event`) propagé dans `main.py`, `bot.py` et les boucles de `FacebookScraper` (`scan_marketplace`, `_perform_cleanup`) pour un arrêt quasi-immédiat.
-
-- [ ] **Feature : Arrêter le scan en cours (sans tuer le bot)**
-    - *Détails :* Ajouter une commande `STOP_SCAN` distincte de `STOP_BOT`. Elle interrompt le scraping Playwright en cours mais laisse le bot actif et prêt à recevoir de nouvelles commandes (ex: REFRESH, ANALYZE_DEAL). Utile pour annuler un scan trop long sans redémarrer le processus.
-
-- [ ] **Feature : Ajouter un bouton "Start Bot"**
-    - *Détails :* Une fois le bot arrêté via `STOP_BOT`, il n'existe pas de moyen de le redémarrer depuis l'UI. Envisager une commande `START_BOT` ou un mécanisme de relance.
-
-- [ ] **Clarifier le statut "Engine — Python Bot Connected"**
-    - *Détails :* Le label "Engine" est ambigu. Il devrait clairement indiquer si le bot Python est **actif et en train de tourner** (scanning) ou simplement **connecté à Firestore mais idle**. Revoir le libellé et la logique de statut (`idle`, `scanning`, `stopped`).
-
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
 
@@ -45,17 +27,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
-- [x] **Supprimer le code mort — `backend/prompt_manager.py`**
-    - *Détails :* La classe `PromptManager` (architecture "5 blocs") est un orphelin non instancié nulle part dans le code actif. Elle peut être supprimée sans impact.
-
-- [x] **Nettoyer les clés obsolètes de `prompts.json` et `config.py`**
-    - *Détails :* Les clés `persona`, `verdict_rules`, `reasoning_instruction`, `user_prompt`, `system_structure` dans `prompts.json` et leurs constantes associées dans `config.py` (`PROMPT_INSTRUCTION`, `DEFAULT_VERDICT_RULES`, etc.) ne sont plus utilisées. Les supprimer allégera le code et évitera la confusion.
-
-- [x] **Migrer les commandes "legacy" vers la collection `commands`**
-    - *Détails :* Certaines commandes (Refresh, Cleanup, Reanalyze All, Scan URL) fonctionnent encore en modifiant des champs dans le document `users/{id}` (`forceRefresh`, `scanSpecificUrl`), tandis que d'autres (Analyze Deal, Clear Logs) utilisent la nouvelle collection Firestore `commands`. Il faut unifier l'architecture autour de la collection `commands` pour faciliter la traçabilité.
-
-- [ ] **Rendre la vérification de disponibilité du scraper plus robuste**
-    - *Détails :* La fonction `check_listing_availability` dans `backend/scraping/core.py` cherche le texte exact "Cette annonce n’est plus disponible". C'est fragile et sujet aux changements d'interface ou de langue de Facebook.
+- [ ] **Problème à documenter...**
+    - *Détails :* ...
 
 ---
 
@@ -65,7 +38,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. Objectif : affichage clair, compact et informatif sur mobile et desktop.
 
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
-    - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles. *(Note: le bug de corruption causé par l'onBlur est corrigé — Session 11. Cet item reste pertinent pour l'UX.)*
+    - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
 
 ---
 
@@ -75,29 +48,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [ ] **Ajouter une validation des prompts avant sauvegarde**
     - *Détails :* L'éditeur ne vérifie pas si l'utilisateur a cassé la structure JSON attendue dans `mainAnalysisPrompt`. Implémenter une détection de la présence du bloc `### FORMAT DE RÉPONSE JSON STRICT` et afficher un avertissement si absent. Ajouter un bouton "Réinitialiser cette section" par prompt.
-    - *Risque actuel :* Un prompt cassé rend toutes les analyses de l'IA non parsables silencieusement.
 
 ### 🟡 Architecture des Prompts
 
 - [ ] **Découper `mainAnalysisPrompt` en sections éditables indépendantes**
-    - *Détails :* Le prompt principal est actuellement un bloc monolithique. Le structurer en sous-sections indépendantes dans Firestore et dans l'UI : `Persona & Objectifs`, `Règles de Verdicts`, `Format JSON`. Permet une édition chirurgicale sans risque de tout casser. C'est le retour à l'architecture "5 blocs" de `PromptManager`, mais correctement branchée cette fois.
+    - *Détails :* Le prompt principal est actuellement un bloc monolithique. Le structurer en sous-sections indépendantes dans Firestore et dans l'UI : `Persona & Objectifs`, `Règles de Verdicts`, `Format JSON`. Permet une édition chirurgicale sans risque de tout casser.
 
 - [ ] **Rendre la Taxonomie modifiable via l'interface**
-    - *Détails :* `DEFAULT_TAXONOMY` est chargée statiquement depuis `prompts.json` au démarrage de Python. Stocker `taxonomy_guitares` dans Firestore sous `analysisConfig.taxonomy` et l'injecter dynamiquement dans `analyzer.py`. Exposed dans le `ConfigPanel` avec un éditeur JSON dédié.
-
-### 🟢 Qualité des Analyses IA
-
-*(Les améliorations de qualité telles que l'analyse visuelle, le Chain-of-Thought et le Few-Shot ont été implémentées et fusionnées avec succès).*
-
-- [x] **Entonnoir d'analyse en 3 niveaux (Portier → Analyste → Expert Pro)**
-    - *Plan de travail :* [`docs/FUNNEL_PLAN.md`](./FUNNEL_PLAN.md) — **Finalisé et validé (Session 16).**
-    - *Plan d'implémentation :* (Session 21)
-        - [x] Ajout seuils de déclenchement dans `config.py`
-        - [x] Ajout format compact (5 scores) dans `prompts.json`
-        - [x] Refactor DRY de `analyze_deal` dans `backend/analyzer.py` (Mutualisation `_call_gemini_json`)
-        - [x] Intégration appel `ListingParser.extract_price_from_text`
-    - *Objectif :* Ajouter un Tier 2 (Analyste Flash, condensé + 5 scores numériques) et un Tier 3 (Expert Pro, déclenché par seuils intelligents Score + Prix) pour optimiser la consommation de tokens et la précision des analyses.
-    - *Fichiers impactés :* `backend/analyzer.py`, `prompts.json`, `config.py`.
+    - *Détails :* Stocker `taxonomy_master` dans Firestore et l'injecter dynamiquement dans `analyzer.py`. Exposed dans le `ConfigPanel` avec un éditeur JSON dédié.
 
 ---
 
@@ -106,24 +64,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Mettre en place le moteur de statistiques (Impact Tier 3)**
     - *Plan de travail :* [`docs/STATS_REFLEXION.md`](./STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
-    - *Sous-tâches :* 
-        - [ ] Créer une fonction d'agrégation côté Backend ou Cloud Function.
-        - [ ] Concevoir les composants graphiques sur le Frontend (Charts).
-
----
-
-## 🚀 Améliorations Futures
-
-- [ ] **Injection Dynamique de la Taxonomie (Optimisation tokens)**
-    - *Détails :* N'envoyer à l'Expert que la branche de la taxonomie pertinente (identifiée par le Portier) plutôt que la taxonomie complète. Économise des tokens et améliore la précision.
-
-- [ ] **Système de Feedback (Apprentissage)**
-    - *Détails :* Stocker les rejets manuels avec leur motif pour constituer un dataset permettant d'affiner les futurs prompts ou de fine-tuner un modèle.
-
-- [ ] **Expansion du Scope (Amps & Étuis)**
-    - [x] **Étape 1 : Refonte de la Taxonomie & Persona (Terminé)**
-    - [ ] Étape 2 : Implémentation du Funnel 3-Tiers (Optimisation Expert Pro)
-    - [ ] Étape 3 : Polissage UI et labels financiers dynamiques.
 
 ---
 
@@ -133,16 +73,19 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Création de la structure de documentation (`docs/`).
 - [x] Mise en place du `AI_BRIEFING.md`.
 - [x] Refonte responsive de la `DealCard` (Mobile First).
-- [x] Analyse approfondie du système de prompts dynamiques (`docs/ARCHITECTURE.md` Section 4 mise à jour, Session 10).
+- [x] Analyse approfondie du système de prompts dynamiques (Session 10).
 - [x] Nettoyage et restructuration de la racine du projet (Session 15).
-- [x] Get user validation 🚦 [/] Validé
-- [x] Update documentation (JOURNAL, TODO, ARCHITECTURE) 🚦 [/] Terminé (Session 20)
-- [x] Externalisation des verdicts de rejet de `analyzer.py` vers configuration dynamique via Firestore/UI (Session 15).
-- [x] Refonte du système de nettoyage des annonces vendues (Soft Delete, Scraper robuste JS DOM, Badges UI) (Session 16).
+- [x] Externalisation des verdicts de rejet (Session 15).
+- [x] Refonte du système de nettoyage des annonces vendues (Soft Delete) (Session 16).
 - [x] Implémentation du Funnel 3-Tiers (Optimisation Expert Pro) (Session 21).
-- [x] Ajout d'une commande d'arrêt à distance (`STOP_BOT`) via Firestore et UI (Session 21).
-- [x] Création d'un outil de migration et audit de structure Firestore (Session 21).
-- [x] Correction du rejet systématique des étuis/housses par le Portier et le Coupe-Circuit (Session 23).
-- [x] Standardisation des instructions de verbosité (`gatekeeper`, `analyst`, `expert_pro`) en format `array of strings` pour l'éditeur UI (Session 23).
+- [x] "Delete All Logs" : Correction IDs codés en dur (Session 21).
+- [x] "Stop Bot" : Injection de `threading.Event` pour arrêt immédiat (Session 21/26).
+- [x] Création d'un outil de migration et audit Firestore (Session 21).
+- [x] Résolution du conflit de casse Git (`Dev` vs `dev`) (Session 22).
+- [x] Correction du rejet systématique des étuis/housses (Session 23).
+- [x] Standardisation des instructions de verbosité en format `array of strings` (Session 23).
+- [x] Déploiement : Correction du redémarrage automatique et gestion des branches (Session 24).
+- [x] Correction "Mode Hors Ligne" : Automatisation via GitHub Secrets (.env & Firebase Key) (Session 25).
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
-- [x] Refonte UI : Composant `<BotControls />` dans le panneau Système (Session 26).
+- [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
+- [x] Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper (Session 27).
