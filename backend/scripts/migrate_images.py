@@ -116,6 +116,13 @@ def migrate(dry_run=False):
         # 3. Test de validité du premier lien
         first_url = image_urls[0]
         if not is_url_valid(first_url):
+            if dry_run:
+                # En dry-run : on note l'annonce comme "à re-scraper" sans lancer Playwright
+                logger.info(f"   [DRY-RUN] URL expirée — re-scraperait et uploaderait pour {deal_id}.")
+                rescraped += 1
+                uploaded += 1
+                continue
+            # En mode réel uniquement : on re-scrape via Playwright
             logger.info("   ❌ URL expirée. Tentative de re-scraping...")
             fresh_urls = rescrape_image_urls(scraper, data.get('link'))
             if fresh_urls:
