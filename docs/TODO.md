@@ -12,10 +12,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [ ] **Bug : Liens d'images Facebook expirés ("URL signature expired")**
-    - *Détails :* Les liens CDN de Facebook (`scontent.fbcdn.net`) sont temporaires et signés. Sur les annonces stockées depuis plusieurs jours, les images ne s'affichent plus dans l'UI.
-    - *Analyse :* Solution validée = **Firebase Storage**. 
-    - *Plan détaillé :* [Voir analyse et plan technique complet](file:///c:/MES_DOSSIERS/Python_projects/GuitarHunter/docs/ANALYSIS_IMAGE_EXPIRATION.md) ou dans l'artefact `implementation_plan.md`.
+- [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
+    - Stockage pérenne via Firebase Storage. Upload systématique lors de chaque `handle_deal_found`.
+    - Politique de cycle de vie : purge des images des deals rejetés après 30 jours (`IMAGE_RETENTION_REJECTED_DAYS`).
+    - Script de migration one-shot : `backend/scripts/migrate_images.py`.
+    - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
 
 - [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
     - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.

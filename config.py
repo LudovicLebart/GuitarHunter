@@ -18,6 +18,11 @@ NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 # CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "backend", "config", "serviceAccountKey.json")
+FIREBASE_STORAGE_BUCKET = os.getenv("VITE_FIREBASE_STORAGE_BUCKET", "guitarehunter-d6e35.firebasestorage.app")
+
+# --- POLITIQUE DE CYCLE DE VIE DES IMAGES ---
+# Nombre de jours après lequel les images des annonces rejetées sont purgées de Firebase Storage.
+IMAGE_RETENTION_REJECTED_DAYS = int(os.getenv("IMAGE_RETENTION_REJECTED_DAYS", 30))
 
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 GEMINI_MODELS = {

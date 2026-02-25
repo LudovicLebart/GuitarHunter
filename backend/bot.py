@@ -7,7 +7,7 @@ from config import (
     APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
-    GEMINI_MODELS
+    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS
 )
 from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
@@ -19,7 +19,7 @@ from backend.notifications import NotificationService
 logger = logging.getLogger(__name__)
 
 class GuitarHunterBot:
-    def __init__(self, db_client, is_offline, stop_event=None, scan_stop_event=None):
+    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
         self.offline_mode = is_offline
@@ -36,7 +36,7 @@ class GuitarHunterBot:
             self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
             return
 
-        self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET)
+        self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET, bucket=storage_bucket)
         self.set_status('idle')
         self.analyzer = DealAnalyzer()
         self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
@@ -174,6 +174,13 @@ class GuitarHunterBot:
         NotificationService.notify_deal(listing_data, analysis)
         
         if not self.offline_mode:
+            # Upload des images dans Firebase Storage avant la sauvegarde
+            image_urls = listing_data.get('imageUrls') or ([listing_data.get('imageUrl')] if listing_data.get('imageUrl') else [])
+            if image_urls:
+                stable_urls = self.repo.upload_images_to_storage(image_urls, listing_data['id'])
+                if stable_urls:
+                    listing_data['storageImageUrls'] = stable_urls
+            
             if is_update:
                 self.repo.update_deal_analysis(listing_data['id'], analysis)
             else:
@@ -447,3 +454,13 @@ class GuitarHunterBot:
         except Exception as e:
             logger.error(f"Erreur lors de l'analyse manuelle de {deal_id}: {e}", exc_info=True)
             self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
+
+    def purge_rejected_images(self):
+        """Politique de cycle de vie : purge les images des deals rejetés anciens."""
+        if self.offline_mode: return
+        logger.info(f"--- Démarrage de la purge des images (rétention: {IMAGE_RETENTION_REJECTED_DAYS}j) ---")
+        try:
+            count = self.repo.purge_rejected_images(retention_days=IMAGE_RETENTION_REJECTED_DAYS)
+            logger.info(f"--- Purge terminée : {count} image(s) supprimée(s). ---")
+        except Exception as e:
+            logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)

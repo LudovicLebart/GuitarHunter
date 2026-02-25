@@ -7,7 +7,7 @@ import threading
 # On utilisera flush=True dans les prints critiques.
 print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
-from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
+from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
@@ -164,7 +164,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
 def main():
     """Point d'entrée principal de l'application."""
     print("DEBUG: Initialisation de la DB...", flush=True)
-    db_service = DatabaseService(FIREBASE_KEY_PATH)
+    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
     db = db_service.db
     offline_mode = db_service.offline_mode
 
@@ -185,7 +185,7 @@ def main():
         stop_event = threading.Event()
         start_event = threading.Event()
         scan_stop_event = threading.Event()
-        bot = GuitarHunterBot(db, is_offline=offline_mode, stop_event=stop_event, scan_stop_event=scan_stop_event)
+        bot = GuitarHunterBot(db, db_service.bucket, is_offline=offline_mode, stop_event=stop_event, scan_stop_event=scan_stop_event)
         main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event)
     except KeyboardInterrupt:
         logger.info("Interruption clavier reçue. Arrêt du bot.")
