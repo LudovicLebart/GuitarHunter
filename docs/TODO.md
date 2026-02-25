@@ -20,6 +20,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
         - **Option 3 : Base64 dans Firestore.** Lourd et limite Firestore (1Mo max). Écarté.
         - **Option 4 : Auto-Hébergement sur Serveur Ubuntu.** Espace illimité, mais requiert que le serveur expose les images via un lien **HTTPS public** (nom de domaine + SSL) à cause du *Mixed Content* de GitHub Pages. En attente de vérification technique de l'infrastructure de l'utilisateur.
 
+- [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
+    - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
+    - Tout commande actionnable interrompt la pause.
+
+- [x] **Bug : "Delete All Logs" ne fonctionne pas** *(Corrigé Session 28)*
+    - `delete_all_logs` dans `repository.py` réécrite avec `list()` pour forcer la consommation du stream Firestore.
+
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
 

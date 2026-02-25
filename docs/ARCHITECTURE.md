@@ -14,7 +14,7 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 - **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`, `STOP_SCAN`, `START_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée.
   - **`STOP_BOT` :** Commande qui déclenche un état de "Sommeil" (pause de 12h interruptible) dans `main.py`. Utilise `stop_event` pour interrompre le travail en cours et change le statut du bot en `paused`. Le bot ne s'éteint plus totalement mais attend un réveil ou l'expiration du délai.
   - **`STOP_SCAN` :** Interrompt uniquement le cycle de scraping Playwright en cours via un `scan_stop_event` dédié. Le bot reste actif et prêt pour d'autres commandes (ex: Refresh, Reanalyse).
-  - **`START_BOT` :** Réveil immédiat. Interrompt la boucle de pause de 12h du bot et le remet en état `idle` (prêt à scanner).
+  - **`START_BOT` :** Réveil immédiat. Interrompt la boucle de pause via `start_event`. Note : toute autre commande actionnable (`REFRESH`, `SCAN_URL`, `CLEANUP`, `CLEAR_LOGS`, etc.) reçue pendant la pause réveille également le bot automatiquement (sondage Firestore toutes les 5s) et est exécutée immédiatement après le réveil.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration et le statut dynamique du bot (`botStatus`: `idle`, `scanning`, `paused`, `stopped`).
 
 ## 2. 🐍 Backend (Python)

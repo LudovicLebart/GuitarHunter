@@ -96,18 +96,47 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                     bot.repo.update_bot_status('paused')
                     
                     waited = 0
+                    wake_commands = []  # Commandes reçues pendant la pause à exécuter après réveil
+                    POLL_INTERVAL = 5  # Interroge Firestore toutes les 5 secondes
+
                     while waited < PAUSE_DURATION_SECONDS:
-                        if start_event.wait(timeout=1):
+                        # Vérifie d'abord le START_BOT (événement rapide)
+                        if start_event.wait(timeout=POLL_INTERVAL):
                             logger.info("▶️ Commande START_BOT reçue. Reprise immédiate.")
                             break
-                        waited += 1
+                        waited += POLL_INTERVAL
+
+                        # Interrogation de Firestore pour des commandes actionnables pendant la pause
+                        try:
+                            sync_result = bot.sync_and_apply_config()
+                            if sync_result and sync_result.commands:
+                                # Filtre les commandes qui ne sont pas STOP_BOT (déjà actif) ni START_BOT (géré via start_event)
+                                actionable = [c for c in sync_result.commands if c.type not in ('STOP_BOT', 'START_BOT')]
+                                if actionable:
+                                    logger.info(f"▶️ Commande reçue pendant la pause ({actionable[0].type}). Réveil du bot.")
+                                    wake_commands = actionable  # On les exécutera après le réveil
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Erreur sondage Firestore pendant la pause : {e}")
                     else:
                         logger.info("⏰ Pause de 12h écoulée. Reprise automatique.")
-                    
+
                     stop_event.clear()
                     start_event.clear()
                     bot.repo.update_bot_status('idle')
                     logger.info("✅ Bot de retour en état idle.")
+
+                    # Traitement des commandes reçues pendant la pause
+                    for command in wake_commands:
+                        logger.info(f"Traitement de la commande reçue pendant la pause : {command.type} (ID: {command.command_id})")
+                        handler = command_handlers.get(command.type)
+                        if handler:
+                            try:
+                                handler(command.payload)
+                                if command.command_id: bot.repo.mark_command_completed(command.command_id)
+                            except Exception as e:
+                                logger.error(f"Erreur exécution commande post-pause {command.type}: {e}", exc_info=True)
+                                if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
 
             except Exception as e:
                 logger.error(f"Erreur dans la boucle principale : {e}", exc_info=True)

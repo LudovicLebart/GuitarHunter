@@ -193,23 +193,31 @@ class FirestoreRepository:
             logger.error(f"Failed to mark command '{command_id}' as failed: {e}", exc_info=True)
 
     def delete_all_logs(self):
-        docs = self.logs_ref.limit(500).stream()
         deleted_count = 0
-        
-        while True:
+        max_iterations = 100  # Sécurité : max 100 * 500 = 50,000 logs
+        iterations = 0
+
+        logger.info("Démarrage de la suppression de tous les logs...")
+
+        while iterations < max_iterations:
+            iterations += 1
+            # On force la consommation du stream dans une liste avant de traiter
+            docs = list(self.logs_ref.limit(500).stream())
+
+            if not docs:
+                logger.info(f"Aucun log supplémentaire trouvé. Arrêt de la boucle (itération {iterations}).")
+                break
+
             batch = self.db.batch()
-            doc_count_in_batch = 0
             for doc in docs:
                 batch.delete(doc.reference)
-                doc_count_in_batch += 1
-            
-            if doc_count_in_batch == 0:
-                break
-            
-            batch.commit()
-            deleted_count += doc_count_in_batch
-            logger.info(f"Deleted {deleted_count} logs so far...")
-            
-            docs = self.logs_ref.limit(500).stream()
-            
+
+            try:
+                batch.commit()
+                deleted_count += len(docs)
+                logger.info(f"Batch supprimé : {len(docs)} logs. Total supprimé : {deleted_count}")
+            except Exception as e:
+                logger.error(f"Erreur lors du commit du batch de suppression des logs : {e}", exc_info=True)
+                raise
+
         return deleted_count

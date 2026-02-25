@@ -1,5 +1,9 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-24] [PRO] Session 28 : Réparation de deux bugs. (Bug 1) Réveil du bot en pause : La boucle d'attente dans `main.py` ne sondait pas Firestore, rendant le bot sourd à toute commande (REFRESH, SCAN_URL, etc.) sauf START_BOT. Correction : ajout d'un sondage Firestore toutes les 5s avec `bot.sync_and_apply_config()`. Toute commande actionnable interrompt maintenant la pause et est traitée immédiatement après le réveil. (Bug 2) Suppression des logs : Réécriture de `delete_all_logs` dans `repository.py` pour utiliser `list()` afin de forcer la consommation du stream Firestore avant chaque batch, ajout d'un garde-fou `max_iterations` et de logs de diagnostic améliorés.
+
+[2026-02-24] [FLASH] Session 28 : Signalement d'un bug de réveil du bot. Ajout au `TODO.md` : le bot en pause (`paused`) ignore la commande `REFRESH` (Rescan All) mais réagit au `SCAN_URL`.
+
 [2026-02-24] [PRO] Session 27 : Robustesse de la détection d'indisponibilité du scraper (`check_listing_availability`). Passage d'une vérification textuelle stricte à une analyse Regex (insensible à la casse, mots entiers `\b`) incluant le français et l'anglais ("vendu", "sold", "expired"). Ajout de l'inspection des attributs ARIA et vérification stricte de la visibilité CSS (`display: none`, `opacity: 0`) vis `window.getComputedStyle` pour éliminer les faux positifs (éléments cachés ou mots partiels comme "revendu").
 
 [2026-02-24] [FLASH] Session 26 (Bug Report) : Identification d'un problème de pérennité des images. Les URLs Facebook CDN expirent (paramètre `oe` dans l'URL). Les annonces valides perdent leur visibilité visuelle après quelques jours. Ajout au `TODO.md`.
