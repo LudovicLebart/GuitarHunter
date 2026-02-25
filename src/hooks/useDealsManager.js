@@ -42,6 +42,7 @@ export const useDealsManager = (user, setError) => {
   const [level1Filter, setLevel1Filter] = useState('ALL');
   const [level2Filter, setLevel2Filter] = useState('ALL');
   const [level3Filter, setLevel3Filter] = useState('ALL');
+  const [level4Filter, setLevel4Filter] = useState('ALL');
 
   useEffect(() => {
     if (!user) return;
@@ -121,8 +122,20 @@ export const useDealsManager = (user, setError) => {
     return ['ALL', ...Object.keys(node2)];
   }, [level1Filter, level2Filter]);
 
-  useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); }, [level1Filter]);
-  useEffect(() => { setLevel3Filter('ALL'); }, [level2Filter]);
+  const level4Options = useMemo(() => {
+    if (level3Filter === 'ALL' || level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
+    const node1 = MASTER_TAXONOMY[level1Filter];
+    if (!node1 || Array.isArray(node1)) return ['ALL'];
+    const node2 = node1[level2Filter];
+    if (!node2 || Array.isArray(node2)) return ['ALL'];
+    const node3 = node2[level3Filter];
+    if (!node3 || Array.isArray(node3)) return ['ALL'];
+    return ['ALL', ...Object.keys(node3)];
+  }, [level1Filter, level2Filter, level3Filter]);
+
+  useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level1Filter]);
+  useEffect(() => { setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level2Filter]);
+  useEffect(() => { setLevel4Filter('ALL'); }, [level3Filter]);
 
   // --- LOGIQUE DE FILTRAGE ET COMPTAGE DYNAMIQUE ---
 
@@ -158,7 +171,7 @@ export const useDealsManager = (user, setError) => {
   }, []);
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
-  const matchesTypeFilter = useCallback((deal, l1, l2, l3, search) => {
+  const matchesTypeFilter = useCallback((deal, l1, l2, l3, l4, search) => {
     if (deal.status === 'rejected') return false;
     // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
 
@@ -182,6 +195,7 @@ export const useDealsManager = (user, setError) => {
         if (!path || path[0] !== l1) return false;
         if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
         if (l3 !== 'ALL' && (path.length < 3 || path[2] !== l3)) return false;
+        if (l4 !== 'ALL' && (path.length < 4 || path[3] !== l4)) return false;
       }
     }
     return true;
@@ -237,7 +251,7 @@ export const useDealsManager = (user, setError) => {
       }
 
       // On n'inclut que les deals qui passent les filtres de type actuels
-      if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery)) return;
+      if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
@@ -257,7 +271,7 @@ export const useDealsManager = (user, setError) => {
       if (deal.isFavorite) c.FAVORITES++;
     });
     return c;
-  }, [deals, level1Filter, level2Filter, level3Filter, searchQuery, matchesTypeFilter]);
+  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesTypeFilter]);
 
   // 5. Liste finale filtrée (Intersection des deux filtres)
   const filteredDeals = useMemo(() => {
@@ -268,11 +282,11 @@ export const useDealsManager = (user, setError) => {
 
       // Pour les autres filtres, on combine verdict et type
       const verdictMatch = matchesVerdictFilter(deal, filterType);
-      const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, searchQuery);
+      const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery);
 
       return verdictMatch && typeMatch;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
+  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
 
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
@@ -288,9 +302,11 @@ export const useDealsManager = (user, setError) => {
       level1Filter, setLevel1Filter,
       level2Filter, setLevel2Filter,
       level3Filter, setLevel3Filter,
+      level4Filter, setLevel4Filter,
       level1Options,
       level2Options,
       level3Options,
+      level4Options,
       counts,
     },
     dealActions: {

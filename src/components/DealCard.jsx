@@ -217,6 +217,10 @@ const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggle
                     </CollapsibleSection>
                   )}
                 </>
+              ) : deal.aiAnalysis?.reasoning ? (
+                <p className="text-slate-700 text-sm font-medium">{deal.aiAnalysis.reasoning}</p>
+              ) : deal.status === 'rejected' ? (
+                <p className="text-slate-400 italic text-sm">Annonce rejetée par l'intelligence artificielle.</p>
               ) : deal.status === 'sold' ? (
                 <p className="text-slate-400 italic text-sm">Cette annonce a été vendue ou supprimée avant la fin de l'analyse.</p>
               ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}

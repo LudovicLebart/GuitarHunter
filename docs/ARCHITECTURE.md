@@ -73,10 +73,11 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **`DealsProvider`:** Fournit les données et les actions relatives aux annonces.
 
 ### `src/hooks/useDealsManager.js`
-- **Hook central:** C'est le cerveau du frontend.
+- **Hook central:** C'est le cerveau du frontend pour le tri et l'affichage.
   1. **`onDealsUpdate()`:** S'abonne aux changements de la collection `guitar_deals` dans Firestore.
   2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
-  3. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui, lorsqu'elles sont appelées, interagissent avec `firestoreService`.
+  3. **Système de tri:** Gère les filtres par statut et la taxonomie dynamique sur 4 niveaux de profondeur (`level1Filter` à `level4Filter` et recherche textuelle).
+  4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
 
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.

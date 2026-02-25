@@ -79,6 +79,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Correction: Ajout du 4ème niveau de tri dans FilterBar et affichage des rejets (Session 28).
 - [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
 - [x] Création de la structure de documentation (`docs/`).
 - [x] Mise en place du `AI_BRIEFING.md`.
