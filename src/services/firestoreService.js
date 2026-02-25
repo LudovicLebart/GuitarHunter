@@ -226,3 +226,11 @@ export const requestClearLogs = () => {
 export const triggerStopBot = () => {
   return addCommand('STOP_BOT', null);
 };
+
+export const triggerStopScan = () => {
+  return addCommand('STOP_SCAN', null);
+};
+
+export const triggerStartBot = () => {
+  return addCommand('START_BOT', null);
+};

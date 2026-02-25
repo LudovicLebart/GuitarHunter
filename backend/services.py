@@ -77,9 +77,10 @@ class ConfigManager:
 
 class TaskScheduler:
     """Gère la planification et l'exécution des tâches du bot."""
-    def __init__(self, scan_func: Callable, cleanup_func: Callable, initial_frequency: int):
+    def __init__(self, scan_func: Callable, cleanup_func: Callable, initial_frequency: int, purge_func: Optional[Callable] = None):
         self.scan_func = scan_func
         self.cleanup_func = cleanup_func
+        self.purge_func = purge_func
         self.scan_frequency = initial_frequency
         self._setup_schedules()
 
@@ -88,6 +89,9 @@ class TaskScheduler:
         logger.info(f"Scheduling scan every {self.scan_frequency} minutes.")
         schedule.every(self.scan_frequency).minutes.do(self.scan_func).tag('scan')
         schedule.every(24).hours.do(self.cleanup_func)
+        if self.purge_func:
+            schedule.every().week.do(self.purge_func)
+            logger.info("Purge lifecycle des images planifiée hebdomadairement.")
 
     def run_pending(self):
         """Exécute les tâches en attente."""

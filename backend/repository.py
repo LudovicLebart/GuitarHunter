@@ -1,17 +1,20 @@
+import uuid
 import logging
-from datetime import datetime
+import requests
+from datetime import datetime, timezone, timedelta
 from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 logger = logging.getLogger(__name__)
 
 class FirestoreRepository:
-    def __init__(self, db, app_id, user_id):
+    def __init__(self, db, app_id, user_id, bucket=None):
         if not db:
             raise ValueError("Database client is not initialized.")
         self.db = db
         self.app_id = app_id
         self.user_id = user_id
+        self._bucket = bucket
 
         # Firestore References
         self.user_ref = self.db.collection('artifacts').document(self.app_id) \
@@ -193,23 +196,116 @@ class FirestoreRepository:
             logger.error(f"Failed to mark command '{command_id}' as failed: {e}", exc_info=True)
 
     def delete_all_logs(self):
-        docs = self.logs_ref.limit(500).stream()
         deleted_count = 0
-        
-        while True:
+        max_iterations = 100  # Sécurité : max 100 * 500 = 50,000 logs
+        iterations = 0
+
+        logger.info("Démarrage de la suppression de tous les logs...")
+
+        while iterations < max_iterations:
+            iterations += 1
+            # On force la consommation du stream dans une liste avant de traiter
+            docs = list(self.logs_ref.limit(500).stream())
+
+            if not docs:
+                logger.info(f"Aucun log supplémentaire trouvé. Arrêt de la boucle (itération {iterations}).")
+                break
+
             batch = self.db.batch()
-            doc_count_in_batch = 0
             for doc in docs:
                 batch.delete(doc.reference)
-                doc_count_in_batch += 1
-            
-            if doc_count_in_batch == 0:
-                break
-            
-            batch.commit()
-            deleted_count += doc_count_in_batch
-            logger.info(f"Deleted {deleted_count} logs so far...")
-            
-            docs = self.logs_ref.limit(500).stream()
-            
+
+            try:
+                batch.commit()
+                deleted_count += len(docs)
+                logger.info(f"Batch supprimé : {len(docs)} logs. Total supprimé : {deleted_count}")
+            except Exception as e:
+                logger.error(f"Erreur lors du commit du batch de suppression des logs : {e}", exc_info=True)
+                raise
         return deleted_count
+
+    def upload_images_to_storage(self, image_urls, deal_id):
+        """
+        Télécharge les images depuis leurs URLs d'origine et les stocke
+        de manière pérenne dans Firebase Storage.
+        Retourne la liste des URLs Firebase stables.
+        """
+        if not self._bucket:
+            return []
+        
+        stable_urls = []
+        for i, url in enumerate(image_urls):
+            if not url:
+                continue
+            try:
+                response = requests.get(url, timeout=10)
+                if response.status_code != 200:
+                    logger.warning(f"Image {i+1}/{len(image_urls)} non téléchargeable (HTTP {response.status_code}) pour deal {deal_id}.")
+                    continue
+                
+                blob_path = f"deals/{deal_id}/{i}_{uuid.uuid4().hex[:8]}.jpg"
+                blob = self._bucket.blob(blob_path)
+                blob.upload_from_string(response.content, content_type='image/jpeg')
+                blob.make_public()
+                stable_urls.append(blob.public_url)
+                logger.info(f"   ☁️ Image {i+1} uploadée pour deal {deal_id}: {blob_path}")
+            except Exception as e:
+                logger.warning(f"Erreur upload image {i+1} pour deal {deal_id}: {e}")
+        
+        return stable_urls
+
+    def purge_rejected_images(self, retention_days=30, rejection_verdicts=None):
+        """
+        Politique de cycle de vie : supprime les images Firebase Storage
+        des deals dont le verdict est un rejet et dont le timestamp est
+        plus ancien que `retention_days` jours.
+        
+        Cible les verdicts de rejet (ex: BAD_DEAL, REJECTED_ITEM, REJECTED_SERVICE)
+        qui ont status `analyzed` (rejets modernes) ET le legacy status `rejected`.
+        """
+        if not self._bucket:
+            logger.warning("purge_rejected_images: Pas de bucket Storage configuré.")
+            return 0
+
+        # Verdicts de rejet par défaut si aucun fourni
+        if rejection_verdicts is None:
+            rejection_verdicts = ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA", "REJECTED"]
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        purged_count = 0
+
+        try:
+            # Requête sur le champ imbriqué aiAnalysis.verdict
+            # Firestore supporte les champs imbriqués avec FieldFilter
+            docs = self.collection_ref.where(
+                filter=FieldFilter('aiAnalysis.verdict', 'in', rejection_verdicts)
+            ).stream()
+
+            for doc in docs:
+                data = doc.to_dict()
+                # Utilisation du timestamp Firestore
+                ts = data.get('timestamp')
+                if not ts:
+                    continue
+                
+                # Convertir le timestamp Firestore (aware) pour pouvoir comparer
+                if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+
+                if ts <= cutoff:
+                    # Suppression de tous les blobs pour ce deal
+                    prefix = f"deals/{doc.id}/"
+                    blobs = list(self._bucket.list_blobs(prefix=prefix))
+                    if blobs:
+                        for blob in blobs:
+                            blob.delete()
+                        # Nettoyage du champ dans Firestore
+                        doc.reference.update({'storageImageUrls': firestore.DELETE_FIELD})
+                        purged_count += len(blobs)
+                        logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {doc.id} (ancien de {retention_days}j+).")
+        except Exception as e:
+            logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
+
+        logger.info(f"Purge lifecycle terminée. {purged_count} image(s) supprimée(s).")
+        return purged_count
+

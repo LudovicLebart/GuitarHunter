@@ -1,7 +1,8 @@
+# v1.0.1 - GitHub Secrets Automation
 name: Deploy Guitare Hunter
 on:
   push:
-    branches: [ master, Dev ]
+    branches: [ master, dev ]
 
 jobs:
   deploy:
@@ -22,23 +23,62 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            mkdir -p ~/GuitareHunter
+            cd ~/GuitareHunter
+
+            # Création/Mise à jour du fichier .env à partir du secret GitHub
+            echo "--- Configuration .env ---"
+            if [ -z "${{ secrets.DOT_ENV }}" ]; then
+              echo "⚠️ Secret DOT_ENV manquant dans GitHub."
+            else
+              echo "${{ secrets.DOT_ENV }}" > .env
+              echo "✅ Fichier .env mis à jour."
+            fi
+
+            # Création/Mise à jour de la clé Firebase
+            echo "--- Configuration Firebase ---"
+            mkdir -p backend/config
+            if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}" ]; then
+              echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant."
+            else
+              echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}' > backend/config/serviceAccountKey.json
+              echo "✅ Clé Firebase mise à jour."
+            fi
+
             # Installation des dépendances système pour l'affichage virtuel
+            echo "--- System Setup ---"
             sudo apt-get update
             sudo apt-get install -y xvfb
 
             mkdir -p ~/GuitareHunter
             cd ~/GuitareHunter
+            
+            echo "--- Git Update ---"
             # Si le dossier n'est pas un dépôt git, on le clone, sinon on force la mise à jour
             if [ ! -d ".git" ]; then
+              echo "Repository not found, cloning..."
               git clone https://github.com/${{ github.repository }}.git .
             else
-              git fetch origin master
-              git reset --hard origin/master
+              echo "Updating branch: ${{ github.ref_name }}"
+              git fetch origin ${{ github.ref_name }}
+              git reset --hard origin/${{ github.ref_name }}
             fi
-            # Mise à jour de l'environnement Python
-            python3 -m venv venv
+
+            echo "--- Python Environment ---"
+            python3 -m venv venv || echo "Venv already exists or failed to create"
             source venv/bin/activate
+            echo "Installing requirements..."
             pip install -r requirements.txt
+            echo "Installing Playwright browsers..."
             python3 -m playwright install chromium
-            # Redémarrage du service (si configuré)
-            sudo systemctl restart guitare-hunter || echo "Service non configuré"
+
+            echo "--- Service Restart ---"
+            echo "Restarting service: guitare-hunter"
+            # On utilise sudo -n pour s'assurer qu'on ne reste pas bloqué sur un prompt de mot de passe
+            if sudo -n systemctl restart guitare-hunter; then
+              echo "✅ Service guitare-hunter restarté avec succès"
+            else
+              echo "❌ ÉCHEC du redémarrage du service."
+              echo "Vérifiez : 1. Si le service existe (systemctl status guitare-hunter)"
+              echo "Vérifiez : 2. Si l'utilisateur a les droits sudo SANS mot de passe pour cette commande."
+            fi

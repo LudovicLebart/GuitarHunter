@@ -11,25 +11,29 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée. **(Architecture Actuelle)**
-  - **`STOP_BOT` :** Commande spéciale qui lève un `threading.Event` (`stop_event`) dans `main.py` pour provoquer un arrêt propre de la boucle principale. Cet événement est propagé jusqu'aux boucles internes du scraper (`FacebookScraper`) pour permettre une interruption immédiate du processus de scan ou de nettoyage, avant que le bot ne mette son statut à `stopped` et ne quitte.
-- **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration du bot. Les anciens déclencheurs par champs de timestamp (`forceRefresh`, etc.) ont été migrés vers la collection `commands` (Session 17).
+- **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`, `STOP_SCAN`, `START_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée.
+  - **`STOP_BOT` :** Commande qui déclenche un état de "Sommeil" (pause de 12h interruptible) dans `main.py`. Utilise `stop_event` pour interrompre le travail en cours et change le statut du bot en `paused`. Le bot ne s'éteint plus totalement mais attend un réveil ou l'expiration du délai.
+  - **`STOP_SCAN` :** Interrompt uniquement le cycle de scraping Playwright en cours via un `scan_stop_event` dédié. Le bot reste actif et prêt pour d'autres commandes (ex: Refresh, Reanalyse).
+  - **`START_BOT` :** Réveil immédiat. Interrompt la boucle de pause via `start_event`. Note : toute autre commande actionnable (`REFRESH`, `SCAN_URL`, `CLEANUP`, `CLEAR_LOGS`, etc.) reçue pendant la pause réveille également le bot automatiquement (sondage Firestore toutes les 5s) et est exécutée immédiatement après le réveil.
+- **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration et le statut dynamique du bot (`botStatus`: `idle`, `scanning`, `paused`, `stopped`).
 
 ## 2. 🐍 Backend (Python)
 
 Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `main.py`
-- **Point d'entrée:** Initialise le `GuitarHunterBot`.
+- **Point d'entrée:** Initialise le `GuitarHunterBot` et le `DatabaseService` (Firestore + Firebase Storage).
 - **Boucle principale:**
   1. Vérifie les commandes dans Firestore (`sync_and_apply_config`).
   2. Exécute les tâches planifiées (scan, nettoyage) via `TaskScheduler`.
   3. Gère un `command_handlers` pour router les commandes Firestore vers les bonnes méthodes du bot.
+- **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
 
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
-- **`run_scan()`:** Déclenche le scraping des villes configurées.
-- **`handle_deal_found()`:** Callback appelé par le scraper pour chaque annonce trouvée. C'est ici que l'appel à l'analyseur est fait.
+- **Gestionnaire d'état robuste:** Utilise un accès concurrent sécurisé via `threading.Lock()` et `set_status()` pour gérer l'étiquetage du `botStatus` en fonction des threads actifs (ex: `_active_tasks`), empêchant les processus asynchrones d'écraser prématurément des états prioritaires comme `scanning`.
+- **`run_scan()`:** Déclenche le scraping des villes configurées. Régulé par le `scheduler`.
+- **`handle_deal_found()`:** Callback appelé par le scraper pour chaque annonce trouvée. Orchestre : (1) upload des images vers Firebase Storage (`repo.upload_images_to_storage()`), (2) injection de `storageImageUrls` dans les données, (3) appel à l'analyseur IA, (4) sauvegarde dans Firestore.
 - **`analyze_single_deal(payload)`:** Méthode spécifique pour traiter une commande de réanalyse (`ANALYZE_DEAL`). Elle récupère l'annonce et appelle `analyzer.analyze_deal`.
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).
 
@@ -58,8 +62,17 @@ Le backend est un "worker" persistant qui tourne en boucle.
 ### `backend/resources/` (Nouveau)
 - **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
 
+### `backend/database.py` (`DatabaseService`)
+- **Connexion Firebase :** Initialise à la fois **Firestore** et **Firebase Storage** via `firebase_admin.initialize_app(cred, {'storageBucket': ...})`.
+- **`self.bucket`:** Objet bucket Storage passé au `FirestoreRepository` pour les opérations d'images.
+
 ### `backend/config/` (Nouveau)
 - **`serviceAccountKey.json`:** Clé de service Firebase pour l'authentification du backend. (Non versionné)
+
+### 🗄️ Firebase Storage
+- **Upload** (`repository.upload_images_to_storage()`) : Télécharge les images depuis leurs URLs CDN Facebook et les stocke dans `deals/{deal_id}/{i}_{uuid}.jpg`. Retourne des URLs publiques pérennes.
+- **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est &gt; `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
+- **Script de migration** (`backend/scripts/migrate_images.py`) : Script one-shot pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage.
 
 ## 3. ⚛️ Frontend (React)
 
@@ -70,16 +83,20 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **`DealsProvider`:** Fournit les données et les actions relatives aux annonces.
 
 ### `src/hooks/useDealsManager.js`
-- **Hook central:** C'est le cerveau du frontend.
+- **Hook central:** C'est le cerveau du frontend pour le tri et l'affichage.
   1. **`onDealsUpdate()`:** S'abonne aux changements de la collection `guitar_deals` dans Firestore.
   2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
-  3. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui, lorsqu'elles sont appelées, interagissent avec `firestoreService`.
+  3. **Système de tri:** Gère les filtres par statut et la taxonomie dynamique sur 4 niveaux de profondeur (`level1Filter` à `level4Filter` et recherche textuelle).
+  4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
 
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
 - **Actions des Boutons (Refresh, Cleanup, etc.) :** Toutes les actions créent désormais un document dans la collection `commands` via `addCommand(type, payload)`.
+
+### `src/components/BotControls.jsx`
+- **Contrôle et Statut:** Regroupe l'indicateur de statut du bot (`idle`, `scanning`, `paused`, `stopped`) et les boutons de pilotage à distance (`STOP_BOT`, `STOP_SCAN`, `START_BOT`). Intégré dans le panneau latéral "Système".
 
 ### `src/components/DealCard.jsx`
 - **Composant clé:** Affiche une seule annonce.

@@ -352,30 +352,53 @@ class FacebookScraper:
                 logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
                 return False
 
-            # 3. Attente courte pour laisser l'interface se stabiliser
-            time.sleep(2)
-
-            # 4. Recherche des marqueurs textuels "Sold" / "Vendu"
-            # On cherche dans le conteneur principal et spécifiquement les spans
+            import json
+            # 4. Recherche des marqueurs d'indisponibilité (Regex + Case-Insensitive)
+            # On cherche dans le texte visible et les attributs ARIA (plus stables)
             
-            unavailable_markers = [
-                'Cette annonce n’est plus disponible',
-                'This listing is no longer available',
-                'Vendu',
-                'Sold'
+            # Utilisation de frontières de mots (\b) pour éviter les faux positifs 
+            # ex: "soldering iron" ne doit pas matcher "sold"
+            # ex: "revendu" ne doit pas matcher "^vendu$"
+            unavailable_patterns = [
+                r"annonce n.est plus disponible",
+                r"listing is no longer available",
+                r"^(?:est )?vendu\s*!?$",       # Strict: "vendu", "est vendu", "vendu!"
+                r"^(?:is )?sold\s*!?$",         # Strict: "sold", "is sold", "sold!"
+                r"plus disponible",
+                r"out of stock",
+                r"^expired$",
+                r"^expirée$"
             ]
             
-            # On utilise une évaluation JS pour chercher le texte exact dans les éléments visibles
-            # C'est plus robuste que les sélecteurs CSS qui peuvent changer
+            # Sécurisation du passage des patterns Python vers JS
+            patterns_json = json.dumps(unavailable_patterns)
+            
+            # Injection des patterns dans l'évaluation JS avec vérification stricte de visibilité
             found_marker = page.evaluate(f"""() => {{
-                const markers = {unavailable_markers};
-                const elements = document.querySelectorAll('span, div[role="button"], div[role="main"] div');
+                const patterns = {patterns_json}.map(p => new RegExp(p, 'i'));
+                
+                // On limite la recherche aux éléments qui sont typiquement des badges ou statuts (pas la description entière)
+                const elements = document.querySelectorAll('span, div[role="button"], h1, h2');
                 for (const el of elements) {{
                     const text = el.innerText.trim();
-                    if (markers.includes(text)) {{
-                        // Vérifie si l'élément est vraiment visible
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) return text;
+                    const ariaLabel = el.getAttribute('aria-label') || '';
+                    
+                    if (!text && !ariaLabel) continue;
+
+                    // Vérification de visibilité réelle (display: none, visibility: hidden, opacity: 0)
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {{
+                        continue;
+                    }}
+
+                    // La taille du rectangle peut être 0 si l'élément est dans un conteneur caché
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) continue;
+
+                    for (const regex of patterns) {{
+                        if (regex.test(text) || regex.test(ariaLabel)) {{
+                            return text || ariaLabel;
+                        }}
                     }}
                 }}
                 return null;

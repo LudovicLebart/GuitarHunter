@@ -9,12 +9,14 @@ export const FilterBar = ({
   level1Filter, setLevel1Filter,
   level2Filter, setLevel2Filter,
   level3Filter, setLevel3Filter,
+  level4Filter, setLevel4Filter,
   level1Options,
   level2Options,
   level3Options,
+  level4Options,
   counts = {}
 }) => {
-  
+
   const getCount = (key) => counts[key] || 0;
 
   return (
@@ -29,42 +31,42 @@ export const FilterBar = ({
       </div>
       <div className="flex items-center gap-2 overflow-x-auto pb-1 w-full lg:w-auto">
         {FILTER_ORDER.map((key) => {
-            const config = ALL_FILTERS_CONFIG[key];
-            if (!config) return null;
-            
-            const count = getCount(key);
-            const label = config.pluralLabel || config.label;
-            const Icon = config.icon;
+          const config = ALL_FILTERS_CONFIG[key];
+          if (!config) return null;
 
-            return (
-                <button key={key} onClick={() => setFilterType(key)} className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${filterType === key ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                    {Icon && <Icon size={12} />}
-                    <span>{label}</span>
-                    {count > 0 && (
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${filterType === key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                            {count}
-                        </span>
-                    )}
-                </button>
-            );
+          const count = getCount(key);
+          const label = config.pluralLabel || config.label;
+          const Icon = config.icon;
+
+          return (
+            <button key={key} onClick={() => setFilterType(key)} className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${filterType === key ? 'bg-blue-600 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+              {Icon && <Icon size={12} />}
+              <span>{label}</span>
+              {count > 0 && (
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${filterType === key ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
         })}
       </div>
       <div className="w-full flex flex-wrap gap-2">
         <select value={level1Filter} onChange={(e) => setLevel1Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all">
           <option value="ALL">Type (Tous)</option>
           {level1Options.filter(o => o !== 'ALL').map(o => (
-              <option key={o} value={o}>
-                  {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
-              </option>
+            <option key={o} value={o}>
+              {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+            </option>
           ))}
         </select>
         {level1Filter !== 'ALL' && level2Options.length > 1 && (
           <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
             <option value="ALL">Sous-catégorie (Toutes)</option>
             {level2Options.filter(o => o !== 'ALL').map(o => (
-                <option key={o} value={o}>
-                    {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
-                </option>
+              <option key={o} value={o}>
+                {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+              </option>
             ))}
           </select>
         )}
@@ -72,9 +74,19 @@ export const FilterBar = ({
           <select value={level3Filter} onChange={(e) => setLevel3Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
             <option value="ALL">Modèle (Tous)</option>
             {level3Options.filter(o => o !== 'ALL').map(o => (
-                <option key={o} value={o}>
-                    {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
-                </option>
+              <option key={o} value={o}>
+                {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+              </option>
+            ))}
+          </select>
+        )}
+        {level3Filter !== 'ALL' && level4Options?.length > 1 && (
+          <select value={level4Filter} onChange={(e) => setLevel4Filter(e.target.value)} className="p-2.5 bg-slate-50 border border-slate-100 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all animate-in fade-in slide-in-from-left-2">
+            <option value="ALL">Détail (Tous)</option>
+            {level4Options.filter(o => o !== 'ALL').map(o => (
+              <option key={o} value={o}>
+                {o.replace(/_/g, ' ')} {counts[o] > 0 ? `(${counts[o]})` : ''}
+              </option>
             ))}
           </select>
         )}

@@ -10,7 +10,7 @@ Les commandes sont créées par le Frontend pour demander des actions asynchrone
 ```typescript
 interface Command {
   /** Type de l'action à exécuter */
-  type: 'REFRESH' | 'CLEANUP' | 'REANALYZE_ALL' | 'SCAN_URL' | 'ADD_CITY' | 'ANALYZE_DEAL' | 'CLEAR_LOGS' | 'STOP_BOT';
+  type: 'REFRESH' | 'CLEANUP' | 'REANALYZE_ALL' | 'SCAN_URL' | 'ADD_CITY' | 'ANALYZE_DEAL' | 'CLEAR_LOGS' | 'STOP_BOT' | 'STOP_SCAN' | 'START_BOT';
   
   /** Données nécessaires à la commande (dépend du type) */
   payload: any | null; 
