@@ -16,6 +16,7 @@ import { FilterBar } from './components/FilterBar';
 import DealModal from './components/DealModal';
 import SectionGroup from './components/SectionGroup'; // Nouveau composant
 import BotControls from './components/BotControls'; // NOUVEAU
+import MockupDashboard from './components/MockupDashboard'; // MOCKUP PREVIEW
 
 // Constantes pour les groupes
 import { RADAR_GROUP, MARKET_GROUP, ARCHIVE_GROUP } from './constants';
@@ -38,6 +39,7 @@ const AppContent = () => {
   } = useDealsContext();
 
   const [showConfig, setShowConfig] = useState(false);
+  const [showMockup, setShowMockup] = useState(false); // MOCKUP TOGGLE
   const [viewMode, setViewMode] = useState('LIST');
   const [selectedDeal, setSelectedDeal] = useState(null);
 
@@ -106,57 +108,65 @@ const AppContent = () => {
               <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
             </button>
             <button onClick={() => setShowConfig(!showConfig)} className={`p-2 h-10 w-10 flex items-center justify-center rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
+            {/* BOUTON MOCKUP V2 */}
+            <button onClick={() => setShowMockup(!showMockup)} className={`px-3 p-2 h-10 flex items-center justify-center rounded-xl text-xs font-bold transition-colors ${showMockup ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}>
+              Mockup V2
+            </button>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <aside className="lg:col-span-1 space-y-6">
-          <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
-            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Système</h3>
-            <div className="space-y-1">
-              <DebugStatus label="Auth" status={authStatus.status} details={authStatus.msg} />
-              <BotControls />
-              <DebugStatus label="Database" status={dbStatus.status} details={dbStatus.msg} />
+      {/* Full-screen Mockup V2 — takes over entire layout */}
+      {showMockup ? (
+        <MockupDashboard onClose={() => setShowMockup(false)} />
+      ) : (
+        <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-4 gap-8">
+          <aside className="lg:col-span-1 space-y-6">
+            <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Système</h3>
+              <div className="space-y-1">
+                <DebugStatus label="Auth" status={authStatus.status} details={authStatus.msg} />
+                <BotControls />
+                <DebugStatus label="Database" status={dbStatus.status} details={dbStatus.msg} />
+              </div>
             </div>
-          </div>
-          <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
-        </aside>
+            <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
+          </aside>
 
-        <main className="lg:col-span-3 space-y-6">
-          <FilterBar {...filterProps} viewMode={viewMode} setViewMode={setViewMode} />
+          <main className="lg:col-span-3 space-y-6">
+            <FilterBar {...filterProps} viewMode={viewMode} setViewMode={setViewMode} />
 
-          {loading ? (
-            <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200">
-              <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
-              <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
-            </div>
-          ) : filteredDeals.length === 0 ? (
-            <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-dashed border-slate-200">
-              <div className="bg-slate-50 p-6 rounded-full mb-4"><Search className="text-slate-200" size={48} /></div>
-              <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight italic">Aucun trésor trouvé</h3>
-              <p className="text-slate-400 text-xs mt-1">Ajustez vos filtres ou lancez un scan manuel</p>
-            </div>
-          ) : viewMode === 'MAP' ? (
-            <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
-          ) : (
-            <div>
-              <SectionGroup title="Radar" count={radarDeals.length} icon={Target} colorClass="text-emerald-500" defaultOpen={true}>
-                {radarDeals.map(renderDeal)}
-              </SectionGroup>
+            {loading ? (
+              <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-slate-200">
+                <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
+                <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
+              </div>
+            ) : filteredDeals.length === 0 ? (
+              <div className="py-20 flex flex-col items-center justify-center bg-white rounded-3xl border border-dashed border-slate-200">
+                <div className="bg-slate-50 p-6 rounded-full mb-4"><Search className="text-slate-200" size={48} /></div>
+                <h3 className="text-lg font-black text-slate-400 uppercase tracking-tight italic">Aucun trésor trouvé</h3>
+                <p className="text-slate-400 text-xs mt-1">Ajustez vos filtres ou lancez un scan manuel</p>
+              </div>
+            ) : viewMode === 'MAP' ? (
+              <MapView deals={filteredDeals} onDealSelect={setSelectedDeal} />
+            ) : (
+              <div>
+                <SectionGroup title="Radar" count={radarDeals.length} icon={Target} colorClass="text-emerald-500" defaultOpen={true}>
+                  {radarDeals.map(renderDeal)}
+                </SectionGroup>
 
-              <SectionGroup title="Marché" count={marketDeals.length} icon={ShoppingBag} colorClass="text-blue-500" defaultOpen={radarDeals.length === 0}>
-                {marketDeals.map(renderDeal)}
-              </SectionGroup>
+                <SectionGroup title="Marché" count={marketDeals.length} icon={ShoppingBag} colorClass="text-blue-500" defaultOpen={radarDeals.length === 0}>
+                  {marketDeals.map(renderDeal)}
+                </SectionGroup>
 
-              <SectionGroup title="Archives & Bruit" count={archiveDeals.length} icon={Archive} colorClass="text-slate-500" defaultOpen={false}>
-                {archiveDeals.map(renderDeal)}
-              </SectionGroup>
-            </div>
-          )}
-        </main>
-      </div>
-
+                <SectionGroup title="Archives & Bruit" count={archiveDeals.length} icon={Archive} colorClass="text-slate-500" defaultOpen={false}>
+                  {archiveDeals.map(renderDeal)}
+                </SectionGroup>
+              </div>
+            )}
+          </main>
+        </div>
+      )}
       {error && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10">
           <div className="bg-rose-600 text-white px-6 py-4 rounded-2xl shadow-2xl shadow-rose-200 flex items-center gap-4">

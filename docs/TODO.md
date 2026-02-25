@@ -34,11 +34,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Brancher la purge lifecycle au scheduler** *(Corrigé Session 29)*
     - `bot.purge_rejected_images()` ajouté comme `purge_func=` dans `TaskScheduler` (`services.py`). Job hebdomadaire déclenché automatiquement au démarrage du bot.
 
-- [ ] **Vérifier les règles Firebase Storage**
+- [x] **Vérifier les règles Firebase Storage** *(Fait)*
     - *Détails :* Confirmer que les blobs uploadés via `blob.make_public()` sont bien accessibles publiquement. Vérifier dans la console Firebase → Storage → Rules que les lectures publiques sont autorisées.
 
-- [/] **Lancer la migration réelle des images** *(en cours)*
-    - *Détails :* Migration en cours via `run.bat migrate --real`. Dry-run corrigé (ne lance plus Playwright inutilement).
+- [/] **Lancer la migration réelle des images** *(En cours)*
+    - *Détails :* Migration lancée via `run.bat migrate --real`. Dry-run corrigé.
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -52,11 +52,28 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
-## 🎨 Interface Utilisateur (UI/UX)
+## 🎨 Interface Utilisateur (UI/UX) - Priorités Structurelles et Ergonomiques
 
+- [x] **Prototype Mockup V2 (Dark Mode Complet)** *(Mockup fait, pas encore appliqué à la production)*
+    - *Détails :* Composants créés : `MockupDealCard`, `MockupNavbar`, `MockupFilterDrawer`, `MockupDashboard`. Accessible via bouton violet "Mockup V2" dans la Navbar.
+- [ ] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(appliquer à la production)*
+    - *Détails :* Supprimer la colonne latérale permanente gauche. Déplacer `<BotControls />` dans la Navbar. Permettre à la grille d'annonces de prendre 100% de la largeur.
+- [ ] **Refonte de la barre de filtrage → Drawer en production**
+    - *Détails :* Appliquer le pattern `MockupFilterDrawer` (volet coulissant avec taxonomie 4 niveaux en cascade dynamique) à la vraie `FilterBar.jsx`.
+- [ ] **Refonte du Mobile : Images Full-Width (DealCard en production)**
+    - *Détails :* Appliquer le layout Stack Vertical (image `aspect-video` pleine largeur) proposé dans `MockupDealCard` à la vraie `DealCard.jsx`.
+- [ ] **Nettoyage Architecture IA & Boutons (DealCard en production)**
+    - *Détails :* Cacher les modèles LLM sous un Tooltip. Bloc "Confiance" collé au raisonnement. Normaliser les majuscules. Logo FB seul. Hit-zones 44px+.
+- [ ] **Lisibilité Financière : Badge Marge sur vue liste**
+    - *Détails :* Afficher la "Marge Estimée" (badge vert `+100$`) directement sur chaque `DealCard` de la liste, comme implémenté dans le mockup.
+- [x] **Filtre Drawer : Ajouter 4ème niveau de profondeur (cascade)** *(mockup)*
+    - *Détails :* `MockupFilterDrawer` dispose désormais d'une cascade complète à 4 niveaux via `TAXONOMY_TREE`. Tous les groupes sont repliés par défaut. Chaque niveau s'ouvre automatiquement dès qu'un parent est sélectionné et réinitialise les enfants.
+- [ ] **Développer un Mode Sombre (Dark Mode) en production**
+    - *Détails :* Créer un vrai système de thème (variable CSS ou `ThemeContext`) pour basculer entre Light (actuel) et Dark (proposé dans le mockup).
+- [ ] **Créer un Panneau de Statistiques (Dashboard Analytics)**
+    - *Détails :* Afficher les KPIs comme le Tunnel de Conversion et un Radar Chart des 5 scores Gemini.
 - [ ] **Revoir l'affichage du bloc de prix**
     - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. Objectif : affichage clair, compact et informatif sur mobile et desktop.
-
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
 
@@ -67,7 +84,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ### 🔴 Fiabilité de l'Éditeur de Prompts
 
 - [ ] **Ajouter une validation des prompts avant sauvegarde**
-    - *Détails :* L'éditeur ne vérifie pas si l'utilisateur a cassé la structure JSON attendue dans `mainAnalysisPrompt`. Implémenter une détection de la présence du bloc `### FORMAT DE RÉPONSE JSON STRICT` et afficher un avertissement si absent. Ajouter un bouton "Réinitialiser cette section" par prompt.
+    - *Détails :* L'éditeur ne vérifie pas si l'utilisateur a cassé la structure JSON attendue dans `mainAnalysisPrompt`. Implémenter une détection de la présence du bloc `### FORMAT DE RÉPONSE JSON STRICT` et afficher un avertissement si absent.
+- [ ] **Ajouter un bouton "Réinitialiser cette section" par prompt**
+    - *Détails :* Permettre de revenir aux valeurs par défaut de `prompts.json` individuellement.
 
 ### 🟡 Architecture des Prompts
 
@@ -89,6 +108,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).
+- [x] Session 29 : Purge automatique hebdomadaire des images rejetées (TaskScheduler).
 - [x] Correction: Simplification de la taxonomie (etui_housse) et rejet strict des autres accessoires (ex: pédales, stands).
 - [x] Correction: Ajout du 4ème niveau de tri dans FilterBar et affichage des rejets (Session 28).
 - [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
