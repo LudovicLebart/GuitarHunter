@@ -75,12 +75,26 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                         logger.info(f"Commande reçue : {command.type} (ID: {command.command_id})")
                         handler = command_handlers.get(command.type)
                         if handler:
-                            try:
-                                handler(command.payload)
-                                if command.command_id: bot.repo.mark_command_completed(command.command_id)
-                            except Exception as e:
-                                logger.error(f"Erreur exécution commande {command.type}: {e}", exc_info=True)
-                                if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
+                            # Définition d'une fonction wrapper pour exécuter la commande asynchronement
+                            def execute_command_async(h, p, cid, ctype):
+                                try:
+                                    h(p)
+                                    if cid: bot.repo.mark_command_completed(cid)
+                                except Exception as e:
+                                    logger.error(f"Erreur exécution asynchrone commande {ctype}: {e}", exc_info=True)
+                                    if cid: bot.repo.mark_command_failed(cid, str(e))
+
+                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL']:
+                                logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
+                                threading.Thread(target=execute_command_async, args=(handler, command.payload, command.command_id, command.type), daemon=True).start()
+                            else:
+                                # Exécution synchrone pour les commandes rapides/vitales (STOP_BOT, CLEAR_LOGS...)
+                                try:
+                                    handler(command.payload)
+                                    if command.command_id: bot.repo.mark_command_completed(command.command_id)
+                                except Exception as e:
+                                    logger.error(f"Erreur exécution synchrone commande {command.type}: {e}", exc_info=True)
+                                    if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
                         else:
                             logger.warning(f"Type de commande inconnu : {command.type}")
                             if command.command_id: bot.repo.mark_command_failed(command.command_id, f"Type de commande inconnu : {command.type}")
@@ -93,7 +107,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                 # Vérification de l'arrêt demandé
                 if stop_event.is_set():
                     logger.info("⏸️ Commande STOP_BOT reçue. Mise en pause pour 12h max...")
-                    bot.repo.update_bot_status('paused')
+                    bot.set_status('paused', task_name='paused')
                     
                     waited = 0
                     wake_commands = []  # Commandes reçues pendant la pause à exécuter après réveil
@@ -123,9 +137,9 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
 
                     stop_event.clear()
                     start_event.clear()
-                    bot.repo.update_bot_status('idle')
+                    bot.set_status('idle', task_name='paused')
                     logger.info("✅ Bot de retour en état idle.")
-
+                    
                     # Traitement des commandes reçues pendant la pause
                     for command in wake_commands:
                         logger.info(f"Traitement de la commande reçue pendant la pause : {command.type} (ID: {command.command_id})")

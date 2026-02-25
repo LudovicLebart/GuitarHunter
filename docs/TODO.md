@@ -13,19 +13,22 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [ ] **Bug : Liens d'images Facebook expirés ("URL signature expired")**
-    - *Détails :* Les liens CDN de Facebook (`scontent.fbcdn.net`) sont temporaires et signés. Sur les annonces stockées depuis plusieurs jours, les images ne s'affichent plus dans l'UI alors qu'elles sont toujours sur FB.
-    - *Pistes :* Nécessite un mécanisme de stockage pérenne. 4 Options :
-        - **Option 1 (Recommandée) : Firebase Storage.** Le bot télécharge et héberge les bonnes images sur Firebase (gratuit jusqu'à 5Go, optimisé par compression/filtrage).
-        - **Option 2 : Re-Scraping Dynamique.** Le bot revisite la page FB si l'image casse (Coûteux, et l'image est perdue si l'annonce FB est vendue entre-temps).
-        - **Option 3 : Base64 dans Firestore.** Lourd et limite Firestore (1Mo max). Écarté.
-        - **Option 4 : Auto-Hébergement sur Serveur Ubuntu.** Espace illimité, mais requiert que le serveur expose les images via un lien **HTTPS public** (nom de domaine + SSL) à cause du *Mixed Content* de GitHub Pages. En attente de vérification technique de l'infrastructure de l'utilisateur.
+    - *Détails :* Les liens CDN de Facebook (`scontent.fbcdn.net`) sont temporaires et signés. Sur les annonces stockées depuis plusieurs jours, les images ne s'affichent plus dans l'UI.
+    - *Analyse :* Solution validée = **Firebase Storage**. 
+    - *Plan détaillé :* [Voir analyse et plan technique complet](file:///c:/MES_DOSSIERS/Python_projects/GuitarHunter/docs/ANALYSIS_IMAGE_EXPIRATION.md) ou dans l'artefact `implementation_plan.md`.
 
 - [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
     - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
-    - Tout commande actionnable interrompt la pause.
+    - Toute commande d'action, et notamment les commandes manuelles asynchrones (REFRESH, SCAN_URL), interrompt la pause.
 
 - [x] **Bug : "Delete All Logs" ne fonctionne pas** *(Corrigé Session 28)*
     - `delete_all_logs` dans `repository.py` réécrite avec `list()` pour forcer la consommation du stream Firestore.
+
+- [x] **Bug : Statut "En attente" pendant le Scraping** *(Corrigé Session 28)*
+    - Implémentation de `set_status()` avec `threading.Lock()` et `_active_tasks` dans `GuitarHunterBot` pour gérer les conflits de threads (ex: `run_scan` vs `cleanup_sold_listings`).
+
+- [x] **Bug : Commandes manuelles (Rescan, URL) qui démarrent "tardivement"** *(Corrigé Session 28)*
+    - Les commandes `REFRESH`, `REANALYZE_ALL` et `SCAN_URL` s'exécutent désormais dans des threads `daemon` séparés dans `main_loop` pour ne pas bloquer le séquenceur `scheduler.run_pending()`.
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.

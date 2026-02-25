@@ -30,7 +30,8 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
-- **`run_scan()`:** Déclenche le scraping des villes configurées.
+- **Gestionnaire d'état robuste:** Utilise un accès concurrent sécurisé via `threading.Lock()` et `set_status()` pour gérer l'étiquetage du `botStatus` en fonction des threads actifs (ex: `_active_tasks`), empêchant les processus asynchrones d'écraser prématurément des états prioritaires comme `scanning`.
+- **`run_scan()`:** Déclenche le scraping des villes configurées. Régulé par le `scheduler`.
 - **`handle_deal_found()`:** Callback appelé par le scraper pour chaque annonce trouvée. C'est ici que l'appel à l'analyseur est fait.
 - **`analyze_single_deal(payload)`:** Méthode spécifique pour traiter une commande de réanalyse (`ANALYZE_DEAL`). Elle récupère l'annonce et appelle `analyzer.analyze_deal`.
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).

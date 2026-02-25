@@ -25,9 +25,11 @@ Les actions asynchrones sont stockées dans la sous-collection `commands` pour �
 Le script `main.py` surveille Firestore et délègue les tâches à `backend/bot.py`.
 - **Mécanisme d'écoute** : Boucle principale dans `main.py` qui appelle `bot.sync_and_apply_config()`.
 - **Dispatching** : `command_handlers` dans `main.py` associe le `type` de commande à une méthode de `GuitarHunterBot`.
+- **Exécution Asynchrone** : Les commandes longues (ex: `REFRESH`, `REANALYZE_ALL`, `SCAN_URL`) sont lancées dans des threads séparés pour ne pas bloquer les autres opérations ni le séquenceur principal (`scheduler`).
+- **Exécution Synchrone** : Les commandes immédiates ou vitales (ex: `STOP_BOT`, `CLEAR_LOGS`) sont exécutées directement dans la boucle.
 - **Traitement** : Le bot exécute l'action (scan Facebook, appel API Gemini, nettoyage), puis :
   - Marque la commande comme complétée : `bot.repo.mark_command_completed(command_id)`.
-  - Met à jour son statut : `bot.repo.update_bot_status('scanning' | 'idle' | 'paused' | 'stopped')`.
+  - Met à jour son statut de façon concurrente via une méthode verrouillée : `bot.set_status('scanning' | 'idle' | 'paused' | 'stopped', task_name='...')`, garantissant l'intégrité de l'affichage UI même avec de multiples threads actifs.
 
 ## 4. Structure des résultats (Collection `guitar_deals`)
 *Note : Malgré le nom historique `guitar_deals`, cette collection stocke désormais tous les types d'équipements (Guitares, Amplis, Étuis).*
