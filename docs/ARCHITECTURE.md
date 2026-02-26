@@ -107,8 +107,19 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   - Contient un module financier interactif pour afficher les estimations de valeur, de coût et de marge.
   - Les boutons d'action (Rejeter, Réanalyser) appellent les fonctions passées en props, qui remontent jusqu'à `useDealsManager` puis `firestoreService`.
 
+### `src/components/MapView.jsx`
+- **Cartographie Google Maps :** Intègre la logique des marqueurs et des InfoWindows.
+- **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
+- **Logique de Navigation :** Sur mobile, le premier clic ouvre la bulle d'info. Le second clic sur la bulle ouvre l'annonce complète en bas d'écran (overlay).
+
 ### `src/components/MockupDashboard.jsx` (et associés V2)
-- **Prototype SaaS (Mockup V2) :** Composants de prévisualisation (Dark Mode, layout pleine largeur, filtres en tiroir, split-screen Map). Ils sont branchés sur les **véritables hooks de données** (`useDealsManager`, `useBotConfig`) mais sont encapsulés à part (`MockupFilterDrawer`, `MockupNavbar`, `MockupDealCard`) pour tester les nouvelles recommandations ergonomiques sans casser la V1 en production. Accessible via `App.jsx`.
+- **Prototype SaaS (Mockup V2) :** Composants de prévisualisation (Dark Mode, layout pleine largeur, filtres en tiroir, split-screen Map).
+- **Overlay Mobile :** Implémentation d'un système d'overlay (`absolute inset-0`) pour l'annonce sélectionnée sur mobile, couvrant la carte au lieu de la compresser pour une lecture optimale.
+
+### `src/components/MockupDealCard.jsx`
+- **Composant Deal V2 :** Version "SaaS" de la carte d'annonce.
+- **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
+- **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
 
 ## 4. 🧠 Système de Prompts Dynamiques
 

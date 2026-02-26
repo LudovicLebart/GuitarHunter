@@ -53,7 +53,7 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-2 h-10 px-4 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 rounded-xl text-sm font-bold text-slate-200 transition-all shadow-sm"
             >
-                <div>
+                <div className="whitespace-nowrap">
                     <span className="text-slate-400 font-normal mr-1.5 hidden sm:inline">Statut :</span>
                     <span>{currentLabel}</span>
                 </div>
@@ -63,7 +63,7 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full left-0 sm:right-0 mt-2 w-full sm:w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 py-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute top-full left-0 sm:right-0 mt-2 w-56 sm:w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 py-2 animate-in fade-in slide-in-from-top-2">
                         {OPTIONS.map((opt, i) => {
                             if (opt.divider) return <div key={`div-${i}`} className="h-px bg-slate-800 my-1 mx-2" />;
                             const count = counts[opt.id] || 0;
@@ -75,11 +75,11 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
                                     onClick={() => { onSelect(opt.id); setIsOpen(false); }}
                                     className={`w-full flex items-center justify-between px-4 py-2 text-xs transition-colors hover:bg-slate-800 ${isActive ? 'text-white font-bold bg-blue-600/10' : 'text-slate-400 font-medium'}`}
                                 >
-                                    <div className="flex items-center gap-2">
-                                        {isActive ? <Check size={14} className="text-blue-500" /> : <div className="w-3.5" />}
-                                        <span>{opt.label}</span>
+                                    <div className="flex items-center gap-2 whitespace-nowrap">
+                                        {isActive ? <Check size={14} className="text-blue-500 shrink-0" /> : <div className="w-3.5 shrink-0" />}
+                                        <span className="truncate">{opt.label}</span>
                                     </div>
-                                    <span className={`font-mono ${isActive ? 'text-blue-400' : 'text-slate-600 bg-slate-950 px-1.5 py-0.5 rounded-md'}`}>
+                                    <span className={`shrink-0 font-mono ml-2 ${isActive ? 'text-blue-400' : 'text-slate-600 bg-slate-950 px-1.5 py-0.5 rounded-md'}`}>
                                         {count}
                                     </span>
                                 </button>
@@ -103,23 +103,28 @@ const MockupMapView = ({ deals, renderDealCard }) => {
     const selectedDeal = deals.find(d => d.id === selectedDealId);
 
     return (
-        <div className="flex flex-col lg:flex-row gap-6 h-[70vh] min-h-[500px]">
-            {/* Real Map filling the left space */}
-            <div className="flex-1 rounded-3xl overflow-hidden relative flex flex-col shadow-inner border border-slate-800">
-                <MapView deals={deals} onDealSelect={(deal) => setSelectedDealId(deal.id)} />
+        <div className="flex flex-col lg:flex-row gap-6 h-[70vh] min-h-[500px] relative">
+            {/* Real Map filling the whole space */}
+            <div className="flex-1 rounded-3xl overflow-hidden relative flex flex-col shadow-inner border border-slate-800 w-full h-full">
+                <MapView deals={deals} onDealSelect={(deal) => setSelectedDealId(deal.id)} selectedDealId={selectedDealId} />
             </div>
 
-            {/* Selected Deal Sidebar (Desktop) or Overlay (Mobile) */}
+            {/* Selected Deal Sidebar (Desktop) or Full Overlay (Mobile) */}
             {selectedDeal && (
-                <div className="w-full lg:w-96 shrink-0 animate-in slide-in-from-right-8 fade-in flex flex-col pt-2 lg:pt-0">
-                    <div className="flex items-center justify-between mb-2 lg:hidden px-1">
+                <div className="
+                    lg:relative lg:w-96 lg:h-full lg:flex-col lg:pb-0 
+                    absolute inset-0 z-10 w-full h-full flex flex-col pt-2 lg:pt-0 
+                    bg-slate-950/95 lg:bg-transparent backdrop-blur-md lg:backdrop-blur-none rounded-3xl lg:rounded-none
+                    animate-in slide-in-from-bottom-8 lg:slide-in-from-right-8 fade-in lg:shadow-none
+                ">
+                    <div className="flex items-center justify-between mb-2 lg:hidden px-4 pt-2">
                         <span className="text-sm font-bold text-slate-300">Détails de l'annonce</span>
                         <button onClick={() => setSelectedDealId(null)} className="p-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
                             <X size={16} />
                         </button>
                     </div>
                     {/* Dark wrapper for the card to fit V2 theme */}
-                    <div className="h-full overflow-y-auto scrollbar-dark">
+                    <div className="h-full overflow-y-auto scrollbar-dark px-4 pb-4 lg:px-0 lg:pb-0">
                         {renderDealCard(selectedDeal)}
                     </div>
                 </div>

@@ -73,3 +73,8 @@ Le Frontend utilise les capacités temps-réel de Firestore pour refléter les c
   - `onBotConfigUpdate` : Écoute les changements du document utilisateur (statut du bot, erreurs, config globale).
   - `onCitiesUpdate` : Écoute la liste des villes.
 - **Résultat** : L'UI React réagit instantanément dès que Python écrit dans Firestore.
+
+## 6. Flux d'Interactions UI (Exemple : Cartographie)
+1. **Survol/Clic Marqueur** → `MapView` déclenche l'affichage de l'InfoWindow locale (Data issues du `deal` associé).
+2. **Clic InfoWindow** → `MapView` appelle `onSelectDeal(deal)`.
+3. **Changement d'état** → `MockupDashboard` reçoit le nouveau `selectedDeal` et déclenche l'affichage (Overlay sur Mobile, Sidebar sur Desktop).

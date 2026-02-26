@@ -71,16 +71,19 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* `MockupDashboard` branché sur `useDealsContext` (données réelles Firestore). `MockupDealCard` câblé sur le vrai modèle `aiAnalysis` (verdict, reasoning, model_used, deal_score, estimated_value) et sur les vraies actions (favori, rejet, suppression, ré-analyse, lien Facebook). Vue MAP remplacée par le vrai `MapView.jsx`. Filtres (`filterType`, `level1-4Filter`, `searchQuery`) synchronisés avec `useDealsManager`. V1 intacte.
 - [ ] **Bug Mockup V2 : Filtres inopérants**
     - *Détails :* Les entrées "Condition Estimée" et "Fourchettes de Prix" ne fonctionnent pas dans les filtres du Mockup V2.
-- [ ] **Refonte UI Mobile : Corrections majeures**
+- [x] **Refonte UI Mobile : Corrections majeures** *(Complété Session 34)*
     - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
+    - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
+    - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
+    - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
 - [ ] **Système de Thème (Dark Mode) global**
     - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
 - [ ] **Dashboard Analytics & Statistiques**
     - *Détails :* Implémenter le moteur de stats (`docs/STATS_REFLEXION.md`).
 - [ ] **Créer un Panneau de Statistiques (Dashboard Analytics)**
     - *Détails :* Afficher les KPIs comme le Tunnel de Conversion et un Radar Chart des 5 scores Gemini.
-- [ ] **Revoir l'affichage du bloc de prix**
-    - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. Objectif : affichage clair, compact et informatif sur mobile et desktop.
+- [x] **Revoir l'affichage du bloc de prix / Actions** *(Complété Session 34)*
+    - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
 
@@ -96,8 +99,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ### 🗺️ Cartographie (Mockup V2)
 
-- [ ] **Améliorer l'interaction avec les Pins**
-    - *Détails :* Au clic sur un pin, ouvrir une mini-popup (type tooltip) avec une photo et les infos minimales. Un deuxième clic sur cette popup ouvre l'annonce dans le split frame (barre latérale) comme c'est le cas actuellement.
+- [x] **Améliorer l'interaction avec les Pins** *(Complété Session 34)*
+    - *Détails :* InfoWindows enrichies (Dark Theme), miniatures, score IA. Gestion différencée Hover (PC) / Click (Mobile).
 
 ---
 

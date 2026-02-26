@@ -38,6 +38,92 @@ const formatRelativeDate = (timestamp) => {
 const MockupDealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
+    const [showRescanMenu, setShowRescanMenu] = useState(false);
+    const [showModalRescanMenu, setShowModalRescanMenu] = useState(false);
+
+    const renderActionButtons = (isModal = false) => {
+        const menuOpen = isModal ? showModalRescanMenu : showRescanMenu;
+        const setMenuOpen = isModal ? setShowModalRescanMenu : setShowRescanMenu;
+
+        return (
+            <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Favori */}
+                <button
+                    onClick={onToggleFavorite}
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
+                    title="Favori"
+                >
+                    <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                </button>
+                {/* Ré-analyser Dropdown */}
+                <div
+                    className="relative"
+                    onMouseEnter={() => setMenuOpen(true)}
+                    onMouseLeave={() => setMenuOpen(false)}
+                >
+                    <button
+                        onClick={() => setMenuOpen(!menuOpen)}
+                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
+                        title="Ré-analyser"
+                    >
+                        <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                    </button>
+
+                    {menuOpen && (
+                        <div className={`absolute ${isModal ? 'top-full mt-2' : 'bottom-full mb-2'} left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150`}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRetry(); }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                            >
+                                <Sparkles size={14} className="text-blue-400" />
+                                Scan Standard
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onForceExpert(); }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                            >
+                                <Gem size={14} className="text-purple-400" />
+                                Luthier Expert
+                            </button>
+                        </div>
+                    )}
+                </div>
+                {/* Rejeter */}
+                <button
+                    onClick={onReject}
+                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 border border-slate-700/50 transition-all"
+                    title="Rejeter"
+                >
+                    <XCircle size={18} className="sm:w-4 sm:h-4" />
+                </button>
+                {/* Supprimer */}
+                <button
+                    onClick={onDelete}
+                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
+                    title="Supprimer"
+                >
+                    <Trash2 size={18} className="sm:w-4 sm:h-4" />
+                </button>
+                <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+                {/* Facebook */}
+                {deal.link ? (
+                    <a
+                        href={deal.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
+                        title="Voir sur Facebook"
+                    >
+                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                    </a>
+                ) : (
+                    <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
+                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                    </button>
+                )}
+            </div>
+        );
+    };
 
     // ── Map real deal model to UI fields ──────────────────────
     const ai = deal.aiAnalysis || {};
@@ -156,14 +242,39 @@ const MockupDealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavori
                         >
                             <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
                         </button>
-                        {/* Ré-analyser */}
-                        <button
-                            onClick={onRetry}
-                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
-                            title="Ré-analyser"
+                        {/* Ré-analyser Dropdown */}
+                        <div
+                            className="relative"
+                            onMouseEnter={() => setShowRescanMenu(true)}
+                            onMouseLeave={() => setShowRescanMenu(false)}
                         >
-                            <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
-                        </button>
+                            <button
+                                onClick={() => setShowRescanMenu(!showRescanMenu)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
+                                title="Ré-analyser"
+                            >
+                                <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                            </button>
+
+                            {showRescanMenu && (
+                                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onRetry(); }}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                    >
+                                        <Sparkles size={14} className="text-blue-400" />
+                                        Scan Standard
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onForceExpert(); }}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                                    >
+                                        <Gem size={14} className="text-purple-400" />
+                                        Luthier Expert
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                         {/* Rejeter */}
                         <button
                             onClick={onReject}
@@ -208,37 +319,21 @@ const MockupDealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavori
 
                     <div className="relative w-full max-w-5xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 pointer-events-auto">
                         {/* Modal Header */}
-                        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
                             <div>
                                 <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
                                     Rapport d'Expertise IA
                                 </h2>
-                                <h3 className="text-sm text-slate-400 truncate max-w-[200px] sm:max-w-md">
+                                <h3 className="text-sm text-slate-400 truncate max-w-[250px] sm:max-w-md">
                                     {toTitleCase(deal.title || '')}
                                 </h3>
                             </div>
-                            <div className="flex items-center gap-2">
-                                {deal.link && (
-                                    <a
-                                        href={deal.link}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="hidden sm:flex items-center gap-1.5 px-3 py-2 bg-blue-700 hover:bg-blue-600 text-white text-xs font-bold rounded-xl transition-colors border border-blue-600"
-                                        title="Voir l'annonce originale"
-                                    >
-                                        <ExternalLink size={14} /> Voir l'annonce
-                                    </a>
-                                )}
-                                <button
-                                    onClick={onToggleFavorite}
-                                    className={`w-10 h-10 flex items-center justify-center rounded-full transition-all border ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 border-slate-700/50'}`}
-                                    title="Favori"
-                                >
-                                    <Heart size={20} fill={deal.isFavorite ? 'currentColor' : 'none'} />
-                                </button>
+                            <div className="flex items-center justify-end gap-2 self-end sm:self-auto">
+                                {renderActionButtons(true)}
+                                <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
                                 <button
                                     onClick={() => setShowAnalysisModal(false)}
-                                    className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full transition-colors border border-slate-700/50 shrink-0"
+                                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors border border-slate-700/50 shrink-0"
                                 >
                                     <X size={20} />
                                 </button>
