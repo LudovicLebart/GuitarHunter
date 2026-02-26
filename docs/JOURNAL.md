@@ -624,3 +624,12 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 - La Navbar doit être capable de déborder (overflow visible) pour ses menus contextuels, tout en restant `sticky`.
 
 ---
+
+[2026-02-26] [FLASH] Action effectuée → Bugfix ConfigPanel : Suppression d'un double `return` et de blocs syntaxiques redondants bloquant le build Vite.
+
+### Session 40 : Correction Syntaxique Critique
+
+- **Correction `ExclusionKeywordsSection`** : Suppression du code dupliqué par erreur lors du précédent push. Le composant `ConfigPanel.jsx` est désormais syntaxiquement correct.
+- **Vérification** : Le build Vite ne doit plus lever l'erreur `The character "}" is not valid inside a JSX element`.
+
+---
