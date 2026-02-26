@@ -20,6 +20,7 @@ import time
 import argparse
 import requests
 import logging
+import random
 
 # Chemin vers la racine du projet
 sys.path.insert(0, '.')
@@ -59,6 +60,8 @@ def rescrape_image_urls(scraper, listing_url):
         captured.append(data)
     
     try:
+        # Add Jitter before hitting FB
+        time.sleep(random.uniform(2.0, 5.0))
         logger.info(f"   🔄 Re-scraping de la page FB : {listing_url[:60]}...")
         scraper.scan_specific_url(listing_url, capture_listing)
         if captured:
@@ -92,6 +95,8 @@ def migrate(dry_run=False):
     logger.info(f"📦 {total} annonces trouvées.")
 
     skipped = uploaded = failed = rescraped = 0
+    scrapes_in_current_session = 0
+    ROTATION_THRESHOLD = 15  # Re-create browser every X scrapes
 
     for i, doc in enumerate(all_docs, 1):
         data = doc.to_dict()
@@ -123,14 +128,27 @@ def migrate(dry_run=False):
                 uploaded += 1
                 continue
             # En mode réel uniquement : on re-scrape via Playwright
+            
+            # --- ROTATION DU CONTEXTE PLAYWRIGHT ---
+            if scrapes_in_current_session >= ROTATION_THRESHOLD:
+                logger.info(f"   🔄 Rotation de session atteinte ({ROTATION_THRESHOLD} scrapes). Redémarrage du navigateur...")
+                try: scraper.close_session()
+                except: pass
+                # Clean initialization will happen on next ensure_session inside scan_specific_url
+                scrapes_in_current_session = 0
+                time.sleep(random.uniform(5.0, 10.0)) # Pause longer between sessions
+
             logger.info("   ❌ URL expirée. Tentative de re-scraping...")
             fresh_urls = rescrape_image_urls(scraper, data.get('link'))
+            
             if fresh_urls:
                 image_urls = fresh_urls
                 rescraped += 1
+                scrapes_in_current_session += 1
             else:
-                logger.warning("   ❌ Re-scraping sans résultat. Skip.")
+                logger.warning("   ❌ Re-scraping sans résultat. URL bloquée ou expirée.")
                 failed += 1
+                scrapes_in_current_session += 1
                 continue
 
         # 4. Upload dans Firebase Storage

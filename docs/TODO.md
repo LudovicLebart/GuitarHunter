@@ -12,11 +12,19 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
+    - Utilisation de chemins hiérarchiques complets (`dot-notation`) comme clés de comptage.
+    - Mise à jour de `useDealsManager.js` et `FilterDrawer.jsx` pour gérer la récursion par path.
+
 - [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
     - Stockage pérenne via Firebase Storage. Upload systématique lors de chaque `handle_deal_found`.
     - Politique de cycle de vie : purge des images des deals rejetés après 30 jours (`IMAGE_RETENTION_REJECTED_DAYS`).
     - Script de migration one-shot : `backend/scripts/migrate_images.py`.
     - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
+
+- [x] **Bug : Interruption du Script de Rescraping d'Images par Facebook (Anti-botting)** *(Corrigé Session 35)*
+    - *Détails :* Playwright est détecté par Facebook lors du rescraping massif des images. 
+    - *Solution :* Implémentation de mesures **Stealth** (User-Agent/Viewport aléatoires, flags anti-detection), détection active de blocage, **Rotation de Session** (toutes les 15 requêtes) et **Jitter** aléatoire.
 
 - [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
     - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
@@ -34,11 +42,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Brancher la purge lifecycle au scheduler** *(Corrigé Session 29)*
     - `bot.purge_rejected_images()` ajouté comme `purge_func=` dans `TaskScheduler` (`services.py`). Job hebdomadaire déclenché automatiquement au démarrage du bot.
 
-- [ ] **Vérifier les règles Firebase Storage**
+- [x] **Vérifier les règles Firebase Storage** *(Fait)*
     - *Détails :* Confirmer que les blobs uploadés via `blob.make_public()` sont bien accessibles publiquement. Vérifier dans la console Firebase → Storage → Rules que les lectures publiques sont autorisées.
 
-- [/] **Lancer la migration réelle des images** *(en cours)*
-    - *Détails :* Migration en cours via `run.bat migrate --real`. Dry-run corrigé (ne lance plus Playwright inutilement).
+- [x] **Lancer la migration réelle des images** *(Fait Session 29 — migrate --real)*
+
+- [ ] **Feature : Extraire la Date de Mise en Ligne**
+    - *Détails :* Étudier la faisabilité d'extraire la date/heure de publication originelle de l'annonce sur Facebook Marketplace lors du scraping (nécessite possiblement une analyse plus profonde du DOM ou de l'API locale).
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -52,13 +62,55 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
-## 🎨 Interface Utilisateur (UI/UX)
+## 🎨 Interface Utilisateur (UI/UX) - Priorités Structurelles et Ergonomiques
 
-- [ ] **Revoir l'affichage du bloc de prix**
-    - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. Objectif : affichage clair, compact et informatif sur mobile et desktop.
+- [x] **Prototype Mockup V2 (Phase d'Exploration Completée)**
+    - *Détails :* Mockup complet avec Dark Mode, Map Split-Screen, et Filtres en cascade. Validé en Session 29-31.
+    - [x] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(Ok en Mockup)*
+    - [x] **Lisibilité Financière : Badge Marge sur vue liste** *(Ok en Mockup)*
+    - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup)*
+    - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
+- [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
+- [x] **Dark Scrollbar pour les Filtres (Mockup)**
+    - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
 
+- [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 36)*
+    - *Détails :* La V2 est désormais l'interface par défaut. Les composants "Mockup" ont été renommés en noms standards (`Dashboard`, `DealCard`, `Navbar`, `FilterDrawer`, `StatsView`). Les anciens fichiers V1 (`FilterBar`, `SectionGroup`, `DealModal`, `BotControls`, `DebugStatus`) ont été supprimés. `App.jsx` a été simplifié pour monter directement le `Dashboard`.
+- [x] **Bug Mockup V2 : Filtres inopérants** *(Câblé en Session 32)*
+- [x] **Refonte UI Mobile : Corrections majeures** *(Complété Session 34)*
+    - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
+    - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
+    - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
+    - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
+- [x] **Système de Thème (Dark Mode) global** *(Intégré dans le Mockup)*
+- [/] **Dashboard Analytics & Statistiques** *(Moteur de calcul intégré — `MockupStatsView.jsx`)*
+    - *Détails :* Le "moteur" de stats est fonctionnel au sein du composant, utilisant les données réelles de Firestore.
+- [x] **Créer un Panneau de Statistiques (Dashboard Analytics)**
+    - [x] Afficher les KPIs financiers (Marges, Scores, Volumes).
+    - [x] Implémenter le Tunnel de Conversion (Funnel) 3-Tiers.
+    - [x] Implémenter le Radar Chart des 5 scores Gemini (recharts).
+    - [x] Distribution par Marque (fallback textuel en attendant extraction `brand` backend).
+- [x] **Revoir l'affichage du bloc de prix / Actions** *(Complété Session 34)*
+    - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
+- [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38)*
+    - *Détails :* Aligner l'esthétique du panneau de configuration (prompts, villes, etc.) sur la nouvelle charte graphique V2 (Dark Mode, Slate/Blue palette, coins arrondis, typographie).
+
+- [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
+    - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
+
+### 🪟 Modale d'Analyse IA (Mockup V2)
+
+- [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*
+    - *Détails :* L'utilisateur peut désormais marquer une annonce en favori directement depuis la vue détaillée (modale) de la carte.
+
+---
+
+### 🗺️ Cartographie (Mockup V2)
+
+- [x] **Améliorer l'interaction avec les Pins** *(Complété Session 34)*
+    - *Détails :* InfoWindows enrichies (Dark Theme), miniatures, score IA. Gestion différencée Hover (PC) / Click (Mobile).
 
 ---
 
@@ -67,7 +119,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ### 🔴 Fiabilité de l'Éditeur de Prompts
 
 - [ ] **Ajouter une validation des prompts avant sauvegarde**
-    - *Détails :* L'éditeur ne vérifie pas si l'utilisateur a cassé la structure JSON attendue dans `mainAnalysisPrompt`. Implémenter une détection de la présence du bloc `### FORMAT DE RÉPONSE JSON STRICT` et afficher un avertissement si absent. Ajouter un bouton "Réinitialiser cette section" par prompt.
+    - *Détails :* L'éditeur ne vérifie pas si l'utilisateur a cassé la structure JSON attendue dans `mainAnalysisPrompt`. Implémenter une détection de la présence du bloc `### FORMAT DE RÉPONSE JSON STRICT` et afficher un avertissement si absent.
+- [ ] **Ajouter un bouton "Réinitialiser cette section" par prompt**
+    - *Détails :* Permettre de revenir aux valeurs par défaut de `prompts.json` individuellement.
 
 ### 🟡 Architecture des Prompts
 
@@ -89,6 +143,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
+- [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).
+- [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).
+- [x] Session 29 : Purge automatique hebdomadaire des images rejetées (TaskScheduler).
 - [x] Correction: Simplification de la taxonomie (etui_housse) et rejet strict des autres accessoires (ex: pédales, stands).
 - [x] Correction: Ajout du 4ème niveau de tri dans FilterBar et affichage des rejets (Session 28).
 - [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
@@ -110,4 +168,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Correction "Mode Hors Ligne" : Automatisation via GitHub Secrets (.env & Firebase Key) (Session 25).
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
 - [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
-- [x] Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper (Session 27).
+- [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
+- [x] Session 39 : Polissage UI V2 (Suppression scrollbar native, Fix clipping Navbar).

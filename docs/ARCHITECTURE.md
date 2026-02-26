@@ -57,7 +57,12 @@ Le backend est un "worker" persistant qui tourne en boucle.
   - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
 
 ### `backend/scraping/`
-- **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces.
+- **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 
+    - **Note d'architecture (Thread-Safety)** : L'instance `FacebookScraper` n'est plus globale au bot. Pour éviter les erreurs `greenlet.error` (Cannot switch to a different thread) de l'API synchrone de Playwright lors des commandes en arrière-plan (ex: `REFRESH`, `SCAN_URL`), un `temp_scraper` est instancié localement au sein de chaque thread worker et fermé immédiatement après usage.
+    - **Protection Anti-Bot (Stealth Mode)** : Pour éviter le bannissement ou les redirections vers /login, le scraper intègre désormais :
+        - **Randomisation** : Liste tournante de User-Agents modernes et viewports (résolutions d'écran) aléatoires à chaque démarrage.
+        - **Flags de Furtivité** : Utilisation d'arguments Chromium spécifiques pour masquer le pilotage automatisé (`--disable-blink-features=AutomationControlled`).
+        - **Détection Active** : Surveillance des redirections vers les pages de login ou Captcha, entraînant un arrêt propre de la session.
 
 ### `backend/resources/` (Nouveau)
 - **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
@@ -72,7 +77,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 ### 🗄️ Firebase Storage
 - **Upload** (`repository.upload_images_to_storage()`) : Télécharge les images depuis leurs URLs CDN Facebook et les stocke dans `deals/{deal_id}/{i}_{uuid}.jpg`. Retourne des URLs publiques pérennes.
 - **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est &gt; `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
-- **Script de migration** (`backend/scripts/migrate_images.py`) : Script one-shot pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage.
+- **Script de migration** (`backend/scripts/migrate_images.py`) : Script pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage. Intègre la **Rotation de Session** (redémarrage du navigateur toutes les 15 annonces) et le **Jitter** (délais aléatoires) pour contrer l'anti-botting de Facebook lors d'opérations massives.
 
 ## 3. ⚛️ Frontend (React)
 
@@ -86,7 +91,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Hook central:** C'est le cerveau du frontend pour le tri et l'affichage.
   1. **`onDealsUpdate()`:** S'abonne aux changements de la collection `guitar_deals` dans Firestore.
   2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
-  3. **Système de tri:** Gère les filtres par statut et la taxonomie dynamique sur 4 niveaux de profondeur (`level1Filter` à `level4Filter` et recherche textuelle).
+  3. **Système de tri hiérarchique :** Gère les filtres dynamiques sur 4 niveaux. Utilise des **chemins complets (dot-notation)** pour les clés de comptage (`typeCounts`) et la résolution des taxonomies, évitant ainsi les collisions entre catégories homonymes (ex: "Solid Body" sous Guitare vs Basse).
   4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
 
 ### `src/services/firestoreService.js`
@@ -106,6 +111,23 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   - Affiche les résultats de l'analyse IA (`deal.aiAnalysis`).
   - Contient un module financier interactif pour afficher les estimations de valeur, de coût et de marge.
   - Les boutons d'action (Rejeter, Réanalyser) appellent les fonctions passées en props, qui remontent jusqu'à `useDealsManager` puis `firestoreService`.
+
+### `src/components/MapView.jsx`
+- **Cartographie Google Maps :** Intègre la logique des marqueurs et des InfoWindows.
+- **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
+- **Logique de Navigation :** Sur mobile, le premier clic ouvre la bulle d'info. Le second clic sur la bulle ouvre l'annonce complète en bas d'écran (overlay).
+
+### `src/components/Dashboard.jsx` (Tableau de Bord V2)
+- **Interface Principale :** Regroupe la Navbar, le Tiroir de Filtres, et les différentes vues (Liste, Carte, Stats).
+- **Overlay Mobile :** Implémentation d'un système d'overlay (`absolute inset-0`) pour l'annonce sélectionnée sur mobile, couvrant la carte au lieu de la compresser pour une lecture optimale.
+- **Tableau de Bord de Statistiques (`StatsView.jsx`) :** Composant agrégeant les données de Firestore.
+    - Calcule dynamiquement le Tunnel de Conversion (Funnel) et les KPIs financiers (Marge nette latente, Score moyen, Marge par pépite) sur l'inventaire en cours.
+    - Utilise `recharts` pour visualiser un **Radar Chart** du profil moyen IA (5 scores) et un **Bar Chart** pour la distribution du Top 5 des Marques.
+
+### `src/components/DealCard.jsx`
+- **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
+- **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
+- **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
 
 ## 4. 🧠 Système de Prompts Dynamiques
 
@@ -172,7 +194,7 @@ L'utilisateur peut modifier les 3 prompts suivants via le **ConfigPanel** (ongle
 
 | Clé Firestore | Description | Utilisé par |
 |---|---|---|
-| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings** | Portier + Expert |
+| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings**. *Note: Gère désormais les lots (instruments + accessoires) pour éviter les rejets abusifs.* | Portier + Expert |
 | `analysisConfig.gatekeeperVerbosityInstruction` | Instruction du Portier (filtre initial, liste des catégories acceptées) — **Array de strings** | Portier uniquement |
 | `analysisConfig.analystVerbosityInstruction` | Instruction de l'Analyste (format puce compact + 5 scores) — **Array de strings** | Analyste uniquement |
 | `analysisConfig.expertProContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) — **Array de strings** | Expert Pro uniquement |

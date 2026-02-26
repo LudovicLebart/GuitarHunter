@@ -41,7 +41,6 @@ PAUSE_DURATION_SECONDS = 12 * 3600  # 12 heures
 def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
-    bot.scraper.start_session()
     
     # Démarrage du thread de surveillance des réanalyses
     threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
@@ -158,7 +157,6 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                 time.sleep(15)
     finally:
         logger.info("Arrêt de la boucle principale. Nettoyage...")
-        bot.scraper.close_session()
         if firestore_handler:
             firestore_handler.close()
 

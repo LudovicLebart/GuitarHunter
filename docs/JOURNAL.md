@@ -1,5 +1,46 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-26] [FLASH] Action : Raffinement des Prompts pour les Lots (Bundles) → Résultat : Mise à jour de `prompts.json` (directives Portier et Prompt Principal). L'IA autorise désormais explicitement les instruments vendus avec des accessoires mineurs (micros, câbles, supports). Le verdict `REJECTED_ITEM` est désormais restreint aux annonces vendant *uniquement* des accessoires non autorisés.
+
+[2026-02-26] [PRO] Action : Finalisation du Dashboard (Radar & Marques) & Ajout de Champs IA → Résultat : (1) Intégration de la librairie `recharts` dans le frontend. (2) Remplacement des placeholders dans `MockupStatsView.jsx` par un **Radar Chart** affichant le profil moyen des 5 scores Gemini et un **Bar Chart** pour la distribution du Top 5 des marques. Les données sont calculées dynamiquement depuis l'inventaire filtré. (3) Backend : Ajout des clés `brand`, `model_name`, `production_year`, et `country_of_origin` au dictionnaire JSON attendu dans `main_analysis_prompt` (`prompts.json`), enrichissant considérablement la granularité future de l'analyse IA.
+
+[2026-02-26] [PRO] Action : Audit approfondi des Statistiques et du Tunnel de Conversion → Résultat : Vérification du code de `MockupStatsView.jsx`. (1) Le **Tunnel de Conversion** à 3 niveaux est déjà fonctionnel et alimenté par les données réelles de Firestore. (2) Les **KPIs Financiers** (Marge latente, ROI, Score moyen) sont calculés dynamiquement. (3) Identification des manques : le Radar Chart (nécessite Recharts) et la distribution par Marque (nécessite extraction `brand` backend) restent à implémenter. Mise à jour de la `TODO.md` pour refléter cet état d'avancement supérieur aux attentes.
+
+[2026-02-26] [PRO] Action : Implémentation d'une Protection Anti-Botting (Stealth) Globale → Résultat : Correction du blocage par Facebook lors du rescraping massif. (1) **Randomisation** : Injection de User-Agents tournants et de Viewports aléatoires dans `FacebookScraper` (`core.py`). (2) **Furtivité Playwright** : Ajout de flags spécifiques (`AutomationControlled`, `infobars`) pour masquer l'automatisation. (3) **Détection de Blocage** : Interruption propre en cas de redirection vers `/login` ou CAPTCHA. (4) **Rotation & Jitter** : Le script `migrate_images.py` redémarre maintenant le navigateur toutes les 15 requêtes et utilise des délais aléatoires (jitter) pour simuler un comportement humain. Test `--dry-run` validé avec succès.
+
+[2026-02-26] [PRO] Action : Raffinement des Interactions Cartographiques (Tooltip & Pins) → Résultat : Ajout d'InfoWindows enrichies au survol (PC) et au clic (Mobile) sur les marqueurs Google Maps. Les bulles incluent désormais une miniature, le titre, le score IA et la valeur estimée dans un design Dark Theme. Le marqueur sélectionné est désormais visuellement identifié par une taille supérieure.
+
+[2026-02-26] [PRO] Action : Optimisation de l'Expérience Mobile (Overlay & Navigation) → Résultat : (1) Correction de l'affichage de l'annonce sur mobile : elle s'affiche désormais en "Full-Screen Overlay" par-dessus la carte au lieu de la compresser, garantissant une lisibilité maximale. (2) Inversion de la logique de clic sur mobile : le premier clic sur un pin ouvre l'InfoWindow, le clic sur la bulle ouvre l'annonce complète.
+
+[2026-02-26] [PRO] Action : Amélioration UX de la DealCard et de la Modale IA → Résultat : (1) Le bouton de ré-analyse est devenu un menu déroulant dynamique offrant les options "Scan Standard" et "Luthier Expert", géré par `useState` pour supporter le survol (PC) et le clic (Mobile). (2) Factorisation de la barre d'actions complète (Favori, Scan, Rejeter, Suppression, Facebook) pour l'injecter directement dans l'en-tête de la Modale d'Expertise IA, offrant une parité fonctionnelle totale entre les vues.
+
+[2026-02-26] [PRO] Action : Correction UI Mobile du Menu des Verdicts (Mockup V2) → Résultat : Le composant `VerdictDropdown` s'écrasait et coupait le texte sélectionné sur les petits écrans. Application de `whitespace-nowrap` sur le bouton principal et définition d'une largeur fixe (`w-56`) avec `truncate` sur les options du menu déroulant dans `MockupDashboard.jsx` pour garantir un affichage propre sur une seule ligne.
+
+[2026-02-26] [PRO] Action : Correction du Responsive Design et Résolution de la "Double Navbar" Mobile (Mockup V2) → Résultat : Le rendu mobile souffrait d'un overflow horizontal causé par la Navbar V1 qui restait active en arrière-plan avec une largeur minimale incompressible. (1) Désactivation conditionnelle de la Navbar V1 dans `App.jsx` lorsque le Mockup V2 est ouvert, éliminant la "bande blanche" sur mobile. (2) Refonte du container de recherche/filtres dans `MockupDashboard` en utilisant un layout `grid-cols-1 md:flex` pour forcer un empilement vertical propre des éléments (Recherche, Favoris, Vues, Bouton X) sur petits écrans. (3) Application de `whitespace-nowrap` sur l'indicateur de statut du bot dans `MockupNavbar` pour empêcher le texte de se casser sur deux lignes, et ajustement global des marges internes (padding) pour maximiser l'espace utile sur smartphone.
+
+[2026-02-26] [PRO] Action : Résolution de l'erreur Greenlet (Cannot switch to a different thread) sur le backend → Résultat : L'implémentation de tâches de scraping en arrière-plan (ex: REFRESH, SCAN_URL) générait des crashs asynchrones car l'instance Playwright globale (`self.scraper`) du thread principal ne pouvait pas être partagée avec les threads secondaires. La solution a été de retirer le contexte Playwright global dans le bot (`bot.py`) et la boucle principale (`main.py`). Désormais, chaque action appelant le Scraper (comme `run_scan`, `scan_specific_url` ou `cleanup_sold_listings`) instancie son propre scraper temporaire (`temp_scraper = FacebookScraper()`) localement et le libère `finally: temp_scraper.close_session()`. Cette architecture garantit l'isolation absolue des navigateurs Chromium par thread.
+
+[2026-02-25] [PRO] Action : Raffinement final de l'UI V2 (Modale IA, Barre de Filtres, Map Centering, Raccourci Favoris) → Résultat : (1) Restauration de la section "Analyse Détaillée" dans la Modale IA : Le Markdown complet (`aiAnalysis.analysis`) s'affiche maintenant correctement avec saut de ligne grâce à `whitespace-pre-wrap` au lieu de l'ancien `aiAnalysis.reasoning` tronqué. (2) Rapatriement du statut "Favoris" dans la V2 avec un double accès : option intégrée au sommet de `VerdictDropdown` + création d'un bouton fixe "Cœur" adjacent pour un accès ultra-rapide en un clic. (3) Dynamisme de la Carte : Intégration de la logique `fitBounds` dans `MapView.jsx` pour que la Google Map se centre et zoome automatiquement sur les annonces visibles selon les filtres actifs, avec une sécurité anti-zoom extrême pour les annonces solitaires.
+
+[2026-02-25] [PRO] Action : Finalisation de l'UI/UX du Mockup V2 (Responsive, Modale IA, Barre de Filtres) → Résultat : (1) Modale IA Plein Écran : Le bloc d'expertise IA collapsible a été remplacé par une modale "glassmorphism" (`z-[100]`) permettant une lecture très confortable sur Desktop sans déformer la DealCard. (2) Nettoyage Dashboard : Le compteur de résultats et le bouton "Effacer tous les filtres" (maintenant stylisé en bouton carré dynamique rouge) ont été consolidés à l'intérieur de la barre de filtres principale. (3) Hauteur des cartes : Réduction de la hauteur des images de `400px` à `280px` pour afficher la carte entière sur les écrans de PC portables sans scroller. (4) Correction Navbar Mobile : Résolution du débordement horizontal (`overflow-x-hidden`) en contraignant la largeur de la toolbar.
+[2026-02-25] [FLASH] Action : Intégration de la galerie ImageGallery et données réelles dans le Mockup V2 → Résultat : Remplacement du défilement horizontal basique par le composant robuste ImageGallery. Support natif du plein écran, des flèches de navigation et de l'affichage vertical intégral (object-contain). Extraction de véritables URLs Facebook depuis Firestore pour un rendu réaliste.
+
+[2026-02-25] [PRO] Action : Finalisation Responsive et Logique Taxonomique Mockup V2 → Résultat : (1) Correction Mobile : Le status interactif du bot reste toujours visible sur `MockupNavbar` (points info annexes masqués), et ajout d'un bouton "Fermer" sur les DealCards en vue carte sur petit écran pour éviter les blocages. (2) Comptage Taxonomie : Mise à jour de `buildDealCounts` pour que chaque item `FAKE_DEALS` itère sur son chemin entier de `classification` (`ex: electrique.ampli.combo`) pour remplir parfaitement l'arbre à 4 niveaux. (3) UX : Retrait des choix multiples "Toutes" redondants dans les sous-niveaux de filtres. (4) Alignement du Dropdown de filtres sur les "Nouveaux Verdicts" V2 via `ALL_FILTERS_CONFIG`.
+
+[2026-02-25] [PRO] Action : Raffinement UX approfondi du Mockup V2 → Résultat : (1) Tiroir de filtres : Transformation de `MockupFilterDrawer` en un accordéon imbriqué en cascade à 4 niveaux avec badges dynamiques de comptage d'annonces. (2) Barre d'actions (`MockupDashboard`) : Remplacement du défilement horizontal des verdicts par un composant `VerdictDropdown` compact. (3) Recherche : Ajout du filtrage interactif (text/location) avec bouton de réinitialisation interne. (4) Carte : Implémentation du mode "Split-Screen" (`MockupMapView`) et du bouton toggle Liste/Carte. (5) Contrôles UI (`MockupNavbar`) : Intégration de la véritable logique `BotControls` interactive au survol, et ajout des boutons d'actions manuelles (Vérification et Rescan) à la racine de la Toolbar. Le prototype Mockup V2 est achevé et valide toutes les recommandations heuristiques UX de l'analyse précédente.
+
+[2026-02-25] [PRO] Action : Implémentation du filtre Drawer en cascade à 4 niveaux → Résultat : `MockupFilterDrawer.jsx` entièrement réécrit avec un arbre de taxonomie `TAXONOMY_TREE` à 4 niveaux de profondeur. Comportement : tous les groupes sont repliés par défaut (accordéon). Chaque niveau s'affiche et s'ouvre automatiquement dès qu'un choix est fait au niveau parent (Niveau 1 : Type d'instrument, Niveau 2 : Sous-catégorie contextuelle, Niveau 3 : Modèle/Type, Niveau 4 : Marque/Détail). La sélection d'un niveau parent réinitialise automatiquement tous les niveaux enfants. Le titre du groupe indique le contexte (ex : "Sous-catégorie · Électrique"). Les clés de filtres dans `MockupDashboard.jsx` ont été mises à jour (`level1/level2/level3/level4`). "Verdict IA" retiré du Drawer (couvert par les onglets rapides en haut de la grille).
+
+
+[2026-02-25] [PRO] Action : Création du Mockup Complet UI V2 → Résultat : Prototype interactif Dark Mode complet accessible via le bouton "Mockup V2" dans la Navbar.
+ Composants créés : `MockupDealCard.jsx` (image full-width, marge affichée, bloc IA collapsible, titres normalisés, hit-zones 44px), `MockupNavbar.jsx` (statuts système compacts, boutons Filtres et Paramètres, bouton quitter), `MockupFilterDrawer.jsx` (volet latéral coulissant avec 4 niveaux de filtres dynamiques et taxonomie en cascade — les sous-catégories s'adaptent automatiquement au type sélectionné, sans bouton Appliquer), `MockupDashboard.jsx` (assemblage complet : 8 fausses annonces, filtrage live via `useMemo`, onglets verdicts rapides, 3 sections Radar/Marché/Archives, bouton "Effacer les filtres"). Intégration du vrai `ConfigPanel` ouvert via le bouton ⚙️. Le `App.jsx` bascule entre l'interface réelle et le Mockup V2 via un `useState` sans modifier les données ni les hooks Firestore.
+
+[2026-02-25] [PRO] Action : Extension de l'analyse UI/UX (Deep Heuristic Evaluation) → Résultat : Analyse des détails qualitatifs au-delà du simple layout.
+
+[2026-02-25] [PRO] Action : Révision de l'analyse UI/UX suite aux retours utilisateurs → Résultat : Mise à jour de `docs/UI_UX_ANALYSIS.md` pour se concentrer sur les défauts structurels critiques : 1) Démantèlement du panneau latéral (Aside) qui gaspille 20% de la largeur. 2) Refonte des filtres horizontaux qui débordent en un "Drawer" latéral. 3) Correction de la DealCard Mobile pour forcer l'image en pleine largeur (`w-full`). 4) Nettoyage des boutons d'action (remplacement des textes par des icônes comme FB). Le `TODO.md` a été réécrit avec ces nouvelles priorités absolues.
+
+[2026-02-25] [PRO] Action : Analyse approfondie de l'UI/UX et ajout de `docs/UI_UX_ANALYSIS.md` → Résultat : Validation de la structure d'interface actuelle (Dashboard SaaS, code couleur sémantique). Définition de 4 axes prioritaires documentés dans le TODO pour un design Premium : Dark Mode, Micro-interactions visuelles, Refonte par "Tiroir" de la taxonomie des filtres, Intégration d'un panneau de statistiques.
+
 [2026-02-25] [PRO] Action : Implémentation du stockage pérenne des images via Firebase Storage → Résultat : Les URLs CDN de Facebook expirent après 1-3 jours, rendant les images des annonces archivées inaccessibles. (Action 1) Init du bucket Storage dans `backend/database.py` : passage du `storageBucket` à `firebase_admin.initialize_app()` et exposition de `self.bucket`. (Action 2) Ajout de `FIREBASE_STORAGE_BUCKET` et `IMAGE_RETENTION_REJECTED_DAYS` (30j) dans `config.py`. (Action 3) Le `FirestoreRepository` passe le bucket aux méthodes `upload_images_to_storage()` (upload + URL publique) et `purge_rejected_images()` (purge lifecycle). (Action 4) Le bot (`bot.py`) uploade systematiquement les images avant de sauvegarder chaque annonce et expose `purge_rejected_images()` pour le scheduler. (Action 5) Le frontend (`DealCard.jsx`) utilise `storageImageUrls || imageUrls` comme fallback. (Action 6) Création du script one-shot `backend/scripts/migrate_images.py` pour migrer les annonces existantes (test validité URL, re-scraping si expirée, upload Storage). (Action 7) Branchement de la purge lifecycle au `TaskScheduler` (`services.py`) via `purge_func=` — job hebdomadaire automatique. (Action 8) Correction du dry-run du script de migration : Playwright ne se lançait pas inutilement, seulement un HTTP HEAD pour tester la validité des URLs. (Action 9) Ajout de `run.bat` et du workflow `.agent/workflows/run-venv.md` pour forcer l'usage du venv.
 
 [2026-02-24] [FLASH] Action : Ajout de la taxonomie aux annonces rejetées par le Portier → Résultat : Les annonces immédiatement rejetées (BAD_DEAL, REJECTED_ITEM) ne possédaient pas de champ `classification`, empêchant leur filtrage par type dans l'UI. (Action 1) Modification de `gatekeeper_verbosity_instruction` dans `prompts.json` pour exiger la classification dans le JSON de sortie du Portier (Tier 1). (Action 2) Mise à jour de `backend/analyzer.py` pour extraire cette classification et l'inclure dans le payload de retour lors du coupe-circuit. Ce correctif affine l'expérience utilisateur lors de l'exploration des archives rejetées.
@@ -533,9 +574,10 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ### Session 20 : Expansion du Scope - Étape 1 (Amps & Étuis)
 
-#### ✅ Objectif : Passer d'un système "Tout-Guitare" à un système Multi-Catégorie Luthier-Centric.
-
-- **Refonte de la Taxonomie** : Migration de `taxonomy_guitares` vers `taxonomy_master`.
+#### ✅ Objectif : Passer d'un système "Tout-Guitare"- [x] Bugfix: Taxonomy Count Collision (hierarchical paths).
+  - [x] Round 1: Code Audit (Path normalization & aggregation).
+  - [x] Round 2: Data Mapping Verification (Multi-parent nodes).
+  - [x] Round 3: UI/Filter Interaction Sync.
 - **Nouveaux Produits** : Intégration des `amplificateurs` (Lampes, Transistors, Modélisation) et des `accessoires_etuis` (Rigides, Housses souples).
 - **Persona Luthier** : Mise à jour des prompts pour évaluer les amplis (état des lampes, transformateurs) et valoriser l'apport financier des housses/étuis pour le flipping.
 - **Synchronisation Full-Stack** : Mise à jour de `config.py` et `useDealsManager.js` pour supporter dynamiquement la nouvelle structure.
@@ -544,5 +586,50 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 - L'expansion permet de capturer des opportunités de "Fast Flip" (ex: Boss Katana) et de maximiser la valeur des packs guitare+étui.
 - Le maintien du persona **Maître Luthier** assure une analyse technique rigoureuse, même sur des objets non-luthier classiques comme les amplis numériques.
+
+---
+
+[2026-02-26] [FLASH] Action effectuée → Migration complète vers l'UI V2, suppression de l'obsolescence V1 et validation du build de production.
+
+### Session 36 : Activation Définitive de la V2 & Nettoyage V1
+
+#### ✅ Objectif : Remplacer l'ancienne UI par la nouvelle interface SaaS V2.
+
+- **Standardisation des Composants** : Renommage massif des composants `Mockup*` en noms de production (`Dashboard`, `Navbar`, `DealCard`, `FilterDrawer`, `StatsView`).
+- **Simplification de `App.jsx`** : Suppression de toute la logique de bascule V1/V2. L'application monte désormais directement le `Dashboard` V2.
+- **Suppression de la Dette Technique** : Élimination des fichiers V1 obsolètes (`FilterBar.jsx`, `SectionGroup.jsx`, `DealModal.jsx`, `BotControls.jsx`, `DebugStatus.jsx`).
+- **Validation** : Build Vite (`npm run build`) validé avec succès (0 erreur d'import).
+
+#### 🤔 Raisonnement
+
+- La V2 est jugée supérieure en termes d'ergonomie (Filtres en tiroir, Stats intégrées, Map Split-screen) et d'esthétique (Dark Mode).
+- Supprimer les fichiers obsolètes évite toute confusion future et allège le bundle final.
+- La transition "Production Ready" marque la fin de la phase de prototypage de la nouvelle interface.
+
+---
+
+[2026-02-26] [FLASH] Action effectuée → Polissage UI : Verrouillage du scroll global et correction du clipping dans la Navbar.
+
+### Session 39 : Polissage de l'Expérience Utilisateur
+
+#### ✅ Objectif : Supprimer les artefacts visuels résiduels pour une expérience "Produit" parfaite.
+
+- **Désactivation du Scroll Corps** : Ajout de `overflow: hidden` sur `html, body, #root` dans `index.css` pour forcer l'utilisation des conteneurs internes et supprimer la barre de défilement du navigateur.
+- **Correction du Menu Statut** : Retrait de `overflow-x-hidden` sur la `Navbar` pour permettre au menu de survol (status controls) de s'afficher sans être tronqué.
+- **Z-Index & Layers** : Vérification de la superposition des éléments interactifs pour un rendu "floating" optimal.
+
+#### 🤔 Raisonnement
+
+- Le Dashboard V2 est conçu pour être une interface fixe (SPA). La présence d'une scrollbar native sur le côté droit nuisait à l'aspect premium et cassait l'alignement visuel.
+- La Navbar doit être capable de déborder (overflow visible) pour ses menus contextuels, tout en restant `sticky`.
+
+---
+
+[2026-02-26] [FLASH] Action effectuée → Bugfix ConfigPanel : Suppression d'un double `return` et de blocs syntaxiques redondants bloquant le build Vite.
+
+### Session 40 : Correction Syntaxique Critique
+
+- **Correction `ExclusionKeywordsSection`** : Suppression du code dupliqué par erreur lors du précédent push. Le composant `ConfigPanel.jsx` est désormais syntaxiquement correct.
+- **Vérification** : Le build Vite ne doit plus lever l'erreur `The character "}" is not valid inside a JSX element`.
 
 ---

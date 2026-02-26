@@ -43,6 +43,8 @@ export const useDealsManager = (user, setError) => {
   const [level2Filter, setLevel2Filter] = useState('ALL');
   const [level3Filter, setLevel3Filter] = useState('ALL');
   const [level4Filter, setLevel4Filter] = useState('ALL');
+  const [conditionFilter, setConditionFilter] = useState('ALL');
+  const [priceFilter, setPriceFilter] = useState('ALL');
 
   useEffect(() => {
     if (!user) return;
@@ -86,23 +88,33 @@ export const useDealsManager = (user, setError) => {
   }, [setError]);
 
   // Construction de la map de chemins normalisés
-  const taxonomyPaths = useMemo(() => {
-    const paths = {};
+  const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
+    const fullPaths = {};
+    const leafPaths = {};
     const traverse = (node, currentPath) => {
       if (Array.isArray(node)) {
         node.forEach(item => {
-          paths[normalize(item)] = [...currentPath, item];
+          const path = [...currentPath, item];
+          const fullKey = normalize(path.join('.'));
+          const leafKey = normalize(item);
+          fullPaths[fullKey] = path;
+          // Leaf only: prioritize the deeper node if there's a collision? 
+          // For now, simple leaf mapping for fallback.
+          leafPaths[leafKey] = path;
         });
       } else if (typeof node === 'object' && node !== null) {
         Object.keys(node).forEach(key => {
-          const newPath = [...currentPath, key];
-          paths[normalize(key)] = newPath;
-          traverse(node[key], newPath);
+          const path = [...currentPath, key];
+          const fullKey = normalize(path.join('.'));
+          const leafKey = normalize(key);
+          fullPaths[fullKey] = path;
+          leafPaths[leafKey] = path;
+          traverse(node[key], path);
         });
       }
     };
     traverse(MASTER_TAXONOMY, []);
-    return paths;
+    return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
   }, []);
 
   const level1Options = useMemo(() => ['ALL', ...Object.keys(MASTER_TAXONOMY), 'OTHER'], []);
@@ -175,22 +187,25 @@ export const useDealsManager = (user, setError) => {
     if (deal.status === 'rejected') return false;
     // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
 
-
     // Recherche textuelle
     if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
 
     // Classification
     const analysis = deal.aiAnalysis || {};
     const classification = analysis.classification;
+    if (!classification) return l1 === 'ALL' || l1 === 'OTHER';
+
     const normalizedClass = normalize(classification);
-    let path = classification ? taxonomyPaths[normalizedClass] : null;
-    if (!path && classification) {
-      path = findPathFuzzy(normalizedClass, taxonomyPaths);
-    }
+    // 1. Try exact full path lookup
+    let path = taxonomyFullPaths[normalizedClass];
+    // 2. Fallback to leaf lookup
+    if (!path) path = taxonomyLeafPaths[normalizedClass];
+    // 3. Last resort fuzzy search
+    if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
 
     if (l1 !== 'ALL') {
       if (l1 === 'OTHER') {
-        if (path) return false; // Si c'est classé, ce n'est pas OTHER
+        if (path) return false;
       } else {
         if (!path || path[0] !== l1) return false;
         if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
@@ -199,14 +214,42 @@ export const useDealsManager = (user, setError) => {
       }
     }
     return true;
-  }, [taxonomyPaths]);
+  }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
-  // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT)
+  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
+  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter) => {
+    // === CONDITION ===
+    if (condition !== 'ALL') {
+      const conditionScore = deal.aiAnalysis?.condition_score;
+      if (conditionScore == null) return false; // Si pas de score, on exclut
+
+      if (condition === 'excellent' && conditionScore < 8) return false;
+      if (condition === 'good' && conditionScore < 5) return false;
+      if (condition === 'project' && conditionScore >= 5) return false;
+    }
+
+    // === PRICE ===
+    if (priceFilter !== 'ALL') {
+      const price = deal.price;
+      if (price == null) return false; // Si pas de prix, on exclut
+
+      if (priceFilter === 'under100' && price >= 100) return false;
+      if (priceFilter === '100-300' && (price < 100 || price > 300)) return false;
+      if (priceFilter === '300-600' && (price < 300 || price > 600)) return false;
+      if (priceFilter === 'over600' && price <= 600) return false;
+    }
+
+    return true;
+  }, []);
+
+  // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT, CONDITION et PRICE)
   const typeCounts = useMemo(() => {
-    const c = { OTHER: 0 };
+    const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
-      // On n'inclut que les deals qui passent le filtre de verdict actuel
       if (!matchesVerdictFilter(deal, filterType)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
+
+      c.all++;
 
       const classification = deal.aiAnalysis?.classification;
       if (!classification) {
@@ -214,23 +257,24 @@ export const useDealsManager = (user, setError) => {
         return;
       }
 
-      let path = taxonomyPaths[normalize(classification)];
-      if (!path) {
-        path = findPathFuzzy(normalize(classification), taxonomyPaths);
-      }
+      const normalizedClass = normalize(classification);
+      let path = taxonomyFullPaths[normalizedClass] || taxonomyLeafPaths[normalizedClass];
+      if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
 
       if (path) {
+        let currentPath = "";
         path.forEach(segment => {
-          if (segment) c[segment] = (c[segment] || 0) + 1;
+          currentPath = currentPath ? `${currentPath}.${segment}` : segment;
+          c[currentPath] = (c[currentPath] || 0) + 1;
         });
       } else {
         c.OTHER++;
       }
     });
     return c;
-  }, [deals, filterType, matchesVerdictFilter, taxonomyPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
 
-  // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE)
+  // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
     const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0 };
     // Initialiser tous les compteurs de verdicts possibles
@@ -250,8 +294,9 @@ export const useDealsManager = (user, setError) => {
         return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
 
-      // On n'inclut que les deals qui passent les filtres de type actuels
+      // On n'inclut que les deals qui passent les filtres de type, condition et prix actuels
       if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
@@ -271,22 +316,23 @@ export const useDealsManager = (user, setError) => {
       if (deal.isFavorite) c.FAVORITES++;
     });
     return c;
-  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesTypeFilter]);
+  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
 
-  // 5. Liste finale filtrée (Intersection des deux filtres)
+  // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
 
 
-      // Pour les autres filtres, on combine verdict et type
+      // Pour les autres filtres, on combine verdict, type, condition et prix
       const verdictMatch = matchesVerdictFilter(deal, filterType);
       const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery);
+      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter);
 
-      return verdictMatch && typeMatch;
+      return verdictMatch && typeMatch && condPriceMatch;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
+  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
@@ -303,6 +349,8 @@ export const useDealsManager = (user, setError) => {
       level2Filter, setLevel2Filter,
       level3Filter, setLevel3Filter,
       level4Filter, setLevel4Filter,
+      conditionFilter, setConditionFilter,
+      priceFilter, setPriceFilter,
       level1Options,
       level2Options,
       level3Options,

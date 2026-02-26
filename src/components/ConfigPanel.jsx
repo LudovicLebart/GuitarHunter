@@ -64,18 +64,30 @@ const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle ins
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {safeItems.map((item, index) => (
-        <div key={index} className="flex items-start gap-2 group animate-in fade-in slide-in-from-left-2 duration-200">
+        <div key={index} className="flex items-start gap-3 group animate-in fade-in slide-in-from-left-2 duration-200">
           <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-2">
-            <button onClick={() => moveItem(index, 'up')} disabled={index === 0} className="text-slate-300 hover:text-blue-500 disabled:opacity-0"><ArrowUp size={14} /></button>
-            <button onClick={() => moveItem(index, 'down')} disabled={index === safeItems.length - 1} className="text-slate-300 hover:text-blue-500 disabled:opacity-0"><ArrowDown size={14} /></button>
+            <button onClick={() => moveItem(index, 'up')} disabled={index === 0} className="text-slate-500 hover:text-blue-400 disabled:opacity-0 transition-colors"><ArrowUp size={14} /></button>
+            <button onClick={() => moveItem(index, 'down')} disabled={index === safeItems.length - 1} className="text-slate-500 hover:text-blue-400 disabled:opacity-0 transition-colors"><ArrowDown size={14} /></button>
           </div>
-          <textarea value={item} onChange={(e) => handleChange(index, e.target.value)} onBlur={handleBlur} className="flex-grow p-3 bg-white border border-slate-200 rounded-lg text-xs focus:ring-2 focus:ring-purple-500 outline-none transition-all font-mono text-slate-600 resize-none overflow-hidden min-h-[60px] leading-relaxed shadow-sm" rows={Math.max(2, Math.ceil((item || "").length / 70))} placeholder={placeholder} />
-          <button onClick={() => deleteItem(index)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-2 pt-3"><Trash2 size={16} /></button>
+          <textarea 
+            value={item} 
+            onChange={(e) => handleChange(index, e.target.value)} 
+            onBlur={handleBlur} 
+            className="flex-grow p-4 bg-slate-900/50 border border-slate-800 rounded-xl text-[13px] focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 outline-none transition-all font-mono text-slate-200 resize-none overflow-hidden min-h-[80px] leading-relaxed shadow-inner" 
+            rows={Math.max(2, Math.ceil((item || "").length / 60))} 
+            placeholder={placeholder} 
+          />
+          <button onClick={() => deleteItem(index)} className="text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-2 pt-3"><Trash2 size={16} /></button>
         </div>
       ))}
-      <button onClick={addItem} className="w-full py-3 border-2 border-dashed border-slate-200 rounded-lg text-slate-400 hover:border-purple-300 hover:text-purple-500 hover:bg-purple-50 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider mt-2"><Plus size={14} /> Ajouter une ligne</button>
+      <button 
+        onClick={addItem} 
+        className="w-full py-4 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 hover:border-purple-500/50 hover:text-purple-400 hover:bg-purple-500/5 transition-all flex items-center justify-center gap-3 text-xs font-black uppercase tracking-widest mt-2"
+      >
+        <Plus size={16} /> Ajouter une ligne d'instruction
+      </button>
     </div>
   );
 };
@@ -87,18 +99,26 @@ const FacebookSearchSection = () => {
   const [specificUrl, setSpecificUrl] = useState('');
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Dist (km)</label><input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Ads</label><input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({ ...scanConfig, max_ads: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Rayon (km)</label><input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+        <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Max Annonces</label><input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({ ...scanConfig, max_ads: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Min Price</label><input type="number" value={scanConfig.min_price} onChange={(e) => setScanConfig({ ...scanConfig, min_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-        <div><label className="text-[9px] font-bold text-slate-400 uppercase">Max Price</label><input type="number" value={scanConfig.max_price} onChange={(e) => setScanConfig({ ...scanConfig, max_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
+      <div className="grid grid-cols-2 gap-4">
+        <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Prix Min ($)</label><input type="number" value={scanConfig.min_price} onChange={(e) => setScanConfig({ ...scanConfig, min_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+        <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Prix Max ($)</label><input type="number" value={scanConfig.max_price} onChange={(e) => setScanConfig({ ...scanConfig, max_price: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       </div>
-      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Fréquence (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-      <div><label className="text-[9px] font-bold text-slate-400 uppercase">Search Query</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /></div>
-      <div className="pt-3 border-t border-slate-100"><label className="text-[9px] font-bold text-slate-400 uppercase">Scan d'URL Spécifique</label><div className="flex gap-2 mt-1"><input type="text" placeholder="Coller l'URL de l'annonce Facebook..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" /><button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 disabled:bg-slate-300 flex items-center justify-center">{isScanningUrl ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />}</button></div></div>
+      <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Fréquence Scan (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+      <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Mots-clés de recherche</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+      <div className="pt-4 border-t border-slate-800/50">
+        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Scan d'URL Direct</label>
+        <div className="flex gap-2">
+            <input type="text" placeholder="URL Facebook Marketplace..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
+            <button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 transition-all flex items-center justify-center">
+                {isScanningUrl ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
+            </button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -117,9 +137,77 @@ const CityManagementSection = () => {
   };
   return (
     <div className="pt-2 space-y-4">
-      <div className="space-y-2"><label className="text-[9px] font-bold text-slate-400 uppercase">Villes Scannées</label>{scannableCities.map(city => (<div key={city.docId} className="flex items-center justify-between bg-blue-50 p-2 rounded-lg text-xs border border-blue-100"><span className="font-bold text-blue-700">{city.name}</span><button onClick={() => removeCityFromWhitelist(city)} className="text-blue-400 hover:text-rose-600 p-1"><X size={14} /></button></div>))}{scannableCities.length === 0 && <p className="text-[10px] text-slate-400 italic text-center py-2 bg-slate-50 rounded-lg border border-dashed border-slate-200">Aucune ville active.</p>}</div>
-      <div className="relative"><label className="text-[9px] font-bold text-slate-400 uppercase mb-1 block">Activer une ville existante</label><div className="flex gap-2"><div className="relative flex-grow"><input type="text" placeholder="Rechercher une ville..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" />{suggestions.length > 0 && (<div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">{suggestions.map(suggestion => (<div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-2 text-xs hover:bg-blue-50 cursor-pointer">{suggestion.name}</div>))}</div>)}</div><button onClick={() => setShowAddForm(!showAddForm)} className={`p-2 rounded-lg border transition-colors ${showAddForm ? 'bg-slate-200 text-slate-600 border-slate-300' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'}`} title="Créer une nouvelle ville"><Plus size={16} className={showAddForm ? "rotate-45 transition-transform" : "transition-transform"} /></button></div></div>
-      {showAddForm && (<div className="bg-slate-50 p-3 rounded-xl border border-slate-200 animate-in slide-in-from-top-2"><h4 className="text-[10px] font-bold text-slate-500 uppercase mb-2">Ajouter une nouvelle ville</h4><div className="space-y-2"><input type="text" placeholder="Nom de la ville (ex: Sherbrooke)" value={newCityName} onChange={(e) => setNewCityName(e.target.value)} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs" /><p className="text-[9px] text-slate-400">Le bot cherchera l'ID automatiquement.</p><button onClick={handleSaveCity} disabled={!newCityName || isAddingCity} className="w-full py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2">{isAddingCity ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}{isAddingCity ? "Recherche en cours..." : "Chercher & Ajouter"}</button></div></div>)}
+      <div className="space-y-2">
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Villes Actives</label>
+        <div className="flex flex-wrap gap-2">
+          {scannableCities.map(city => (
+            <div key={city.docId} className="flex items-center gap-2 bg-blue-500/10 px-3 py-1.5 rounded-full text-xs border border-blue-500/30 group">
+              <span className="font-bold text-blue-400">{city.name}</span>
+              <button onClick={() => removeCityFromWhitelist(city)} className="text-blue-500/50 hover:text-rose-500 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+          {scannableCities.length === 0 && (
+            <p className="w-full text-[11px] text-slate-500 italic py-4 text-center bg-slate-900/30 rounded-xl border border-dashed border-slate-800">
+              Aucune ville configurée pour le scan.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="relative pt-2 border-t border-slate-800/50">
+        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Ajouter une zone</label>
+        <div className="flex gap-2">
+          <div className="relative flex-grow">
+            <input 
+              type="text" 
+              placeholder="Rechercher une ville..." 
+              value={searchTerm} 
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" 
+            />
+            {suggestions.length > 0 && (
+              <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
+                {suggestions.map(suggestion => (
+                  <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
+                    {suggestion.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <button 
+            onClick={() => setShowAddForm(!showAddForm)} 
+            className={`p-3 rounded-xl border transition-all ${showAddForm ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-900/50 text-blue-400 border-slate-800 hover:bg-slate-800 hover:border-slate-700'}`}
+          >
+            <Plus size={16} className={showAddForm ? "rotate-45 transition-transform" : "transition-transform"} />
+          </button>
+        </div>
+      </div>
+
+      {showAddForm && (
+        <div className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10 animate-in slide-in-from-top-2 duration-300">
+          <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-3">Nouvelle ville manuelle</h4>
+          <div className="space-y-3">
+            <input 
+              type="text" 
+              placeholder="Nom de la ville (ex: Sherbrooke)" 
+              value={newCityName} 
+              onChange={(e) => setNewCityName(e.target.value)} 
+              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30" 
+            />
+            <button 
+              onClick={handleSaveCity} 
+              disabled={!newCityName || isAddingCity} 
+              className="w-full py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-600/10"
+            >
+              {isAddingCity ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+              {isAddingCity ? "Recherche..." : "Ajouter au système"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -128,9 +216,9 @@ const ExclusionKeywordsSection = () => {
   const { exclusionKeywords, setExclusionKeywords, saveConfig } = useBotConfigContext();
   return (
     <div className="pt-2 space-y-4">
-      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-        <label className="text-[10px] font-bold text-rose-600 uppercase block mb-2">Mots-clés à Exclure</label>
-        <p className="text-[9px] text-slate-400 mb-3">Si le titre ou la description contient un de ces mots, l'annonce est rejetée sans analyse IA.</p>
+      <div className="bg-rose-500/5 p-5 rounded-3xl border border-rose-500/10">
+        <label className="text-[11px] font-black text-rose-500 uppercase tracking-widest block mb-1">Mots-clés d'Exclusion</label>
+        <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Si l'un de ces termes est détecté dans le titre ou la description, l'annonce est immédiatement écartée.</p>
         <PromptListEditor items={exclusionKeywords} onChange={setExclusionKeywords} onSave={(val) => saveConfig({ exclusionKeywords: val })} placeholder="Ex: Stagg, brisé, pour pièces..." />
       </div>
     </div>
@@ -153,43 +241,43 @@ const AiConfigSection = () => {
   ];
 
   return (
-    <div className="space-y-4 pt-2">
-      <div className="flex items-center justify-between mb-2">
-        <button onClick={handleRelaunchAll} disabled={isReanalyzingAll} className={`flex-grow mr-2 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${isReanalyzingAll ? 'bg-purple-100 text-purple-600' : 'bg-purple-50 text-purple-600 hover:bg-purple-100 border border-purple-100'}`}><BrainCircuit size={14} className={isReanalyzingAll ? "animate-pulse" : ""} />{isReanalyzingAll ? 'Analyse...' : 'Relancer Analyses'}</button>
-        <button onClick={handleResetDefaults} className="text-[9px] font-bold text-slate-400 hover:text-blue-600 flex items-center gap-1 transition-colors px-2" title="Réinitialiser"><RotateCcw size={10} /> Reset</button>
+    <div className="space-y-6 pt-2">
+      <div className="flex items-center gap-3">
+        <button onClick={handleRelaunchAll} disabled={isReanalyzingAll} className={`flex-grow flex items-center justify-center gap-3 px-4 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${isReanalyzingAll ? 'bg-purple-500/20 text-purple-400 cursor-not-allowed' : 'bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-900/40'}`}><BrainCircuit size={18} className={isReanalyzingAll ? "animate-pulse" : ""} />{isReanalyzingAll ? 'Traitement...' : 'Relancer Analyses'}</button>
+        <button onClick={handleResetDefaults} className="w-12 h-12 flex items-center justify-center bg-slate-800 text-slate-400 hover:text-blue-400 rounded-xl border border-slate-700 transition-all" title="Réinitialiser par défaut"><RotateCcw size={18} /></button>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Portier (Rapide)</label>
-            <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-3">Modèle Portier</label>
+            <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Modèle Expert (Puissant)</label>
-            <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs">
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-3">Modèle Expert</label>
+            <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
         </div>
 
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Prompt Principal (Portier & Expert)</label>
+        <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80">
+          <label className="text-[11px] font-black text-purple-500 uppercase tracking-widest block mb-1">Prompt Principal</label>
+          <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Instructions fondamentales partagées par tous les agents d'analyse.</p>
           <PromptListEditor items={analysisConfig.mainAnalysisPrompt} onChange={(val) => handleAnalysisConfigChange('mainAnalysisPrompt', val)} onSave={(val) => saveConfig({ 'analysisConfig.mainAnalysisPrompt': val })} placeholder="Ex: Tu es un expert en guitares..." />
         </div>
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Instruction de concision (Portier)</label>
+        
+        <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80">
+          <label className="text-[11px] font-black text-purple-500 uppercase tracking-widest block mb-1">Instruction Portier</label>
+          <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Règles de sortie spécifiques pour l'agent de premier niveau.</p>
           <PromptListEditor items={analysisConfig.gatekeeperVerbosityInstruction} onChange={(val) => handleAnalysisConfigChange('gatekeeperVerbosityInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.gatekeeperVerbosityInstruction': val })} placeholder="Ex: Sois bref..." />
         </div>
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-          <label className="text-[10px] font-bold text-purple-600 uppercase block mb-2">Contexte pour l'Expert</label>
-          <PromptListEditor items={analysisConfig.expertContextInstruction} onChange={(val) => handleAnalysisConfigChange('expertContextInstruction', val)} onSave={(val) => saveConfig({ 'analysisConfig.expertContextInstruction': val })} placeholder="Ex: Le portier a dit..." />
-        </div>
-        <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 border-l-4 border-l-rose-500">
-          <label className="text-[10px] font-bold text-rose-600 uppercase block mb-1">Verdicts de Rejet (Coupe-circuit)</label>
-          <p className="text-[9px] text-slate-400 mb-3">Si le Portier renvoie un de ces statuts EXACTS, l'annonce est rejetée et l'Expert n'est pas appelé (ex: BAD_DEAL, REJECTED_ITEM).</p>
+
+        <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80 border-l-4 border-l-rose-500/50">
+          <label className="text-[11px] font-black text-rose-500 uppercase tracking-widest block mb-1">Coupe-Circuits (Reject)</label>
+          <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Si le Portier renvoie l'un de ces statuts, l'analyse s'arrête immédiatement.</p>
           <PromptListEditor items={analysisConfig.rejectionVerdicts} onChange={(val) => handleAnalysisConfigChange('rejectionVerdicts', val)} onSave={(val) => saveConfig({ 'analysisConfig.rejectionVerdicts': val })} placeholder="Ajouter un verdict (ex: BAD_DEAL)" />
         </div>
       </div>
@@ -202,18 +290,22 @@ const LogsConfigSection = () => {
 
   return (
     <div className="pt-2 space-y-4">
-      <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-2">Limite de Logs (Affichage)</label>
-        <p className="text-[9px] text-slate-400 mb-3">Nombre maximum de logs à afficher dans la visionneuse.</p>
-        <input
-          type="number"
-          value={logLimit}
-          onChange={(e) => setLogLimit(Number(e.target.value))}
-          onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
-          className="w-full p-2 bg-white border border-slate-200 rounded-lg text-xs"
-          min="10"
-          max="500"
-        />
+      <div className="bg-slate-900/50 p-5 rounded-3xl border border-slate-800">
+        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest block mb-1">Limite Temporaire de Logs</label>
+        <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Nombre maximum de lignes conservées en mémoire pour l'affichage temps-réel.</p>
+        <div className="flex items-center gap-4">
+            <input
+            type="range"
+            min="10"
+            max="500"
+            step="10"
+            value={logLimit}
+            onChange={(e) => setLogLimit(Number(e.target.value))}
+            onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
+            className="flex-grow h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+            <span className="min-w-[40px] text-right font-mono text-xs text-blue-400 font-bold">{logLimit}</span>
+        </div>
       </div>
     </div>
   );
@@ -226,21 +318,24 @@ const ConfigPanel = ({ showConfig, onClose }) => {
   if (!showConfig) return null;
 
   const panelContent = (
-    <div className={`bg-white shadow-2xl border-l border-slate-200 flex flex-col transition-all duration-300 ease-in-out ${isExpanded ? 'w-[900px] max-w-[95vw]' : 'w-full lg:w-[500px]'}`}>
-      <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white sticky top-0 z-20">
-        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400">Paramètres</h3>
+    <div className={`bg-slate-900/95 backdrop-blur-xl shadow-2xl border-l border-slate-800 flex flex-col transition-all duration-300 ease-in-out ${isExpanded ? 'w-[900px] max-w-[95vw]' : 'w-full lg:w-[500px]'}`}>
+      <div className="flex items-center justify-between p-6 border-b border-slate-800 bg-slate-900/50 sticky top-0 z-20 backdrop-blur-md">
+        <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-3">
+            <Settings size={16} className="text-blue-500" />
+            Paramètres Système
+        </h3>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowLogs(!showLogs)} className={`p-1.5 rounded-lg transition-colors ${showLogs ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`} title="Voir les logs"><Terminal size={16} /></button>
-          <button onClick={() => setIsExpanded(!isExpanded)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors hidden lg:block" title={isExpanded ? "Réduire" : "Agrandir"}>{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"><X size={18} /></button>
+          <button onClick={() => setShowLogs(!showLogs)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${showLogs ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Visionneuse de logs"><Terminal size={16} /></button>
+          <button onClick={() => setIsExpanded(!isExpanded)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded-lg transition-all hidden lg:block">{isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-slate-800 rounded-lg transition-all"><X size={20} /></button>
         </div>
       </div>
-      <div className="flex-grow overflow-y-auto custom-scrollbar p-5 space-y-2">
-        <CollapsibleSection title="Recherche Facebook"><FacebookSearchSection /></CollapsibleSection>
-        <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
-        <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
-        <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
-        <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
+      <div className="flex-grow overflow-y-auto scrollbar-dark p-6 space-y-4">
+        <CollapsibleSection title="Scraping & Facebook"><FacebookSearchSection /></CollapsibleSection>
+        <CollapsibleSection title="Géo-Localisation"><CityManagementSection /></CollapsibleSection>
+        <CollapsibleSection title="Nettoyage & Mots-clés"><ExclusionKeywordsSection /></CollapsibleSection>
+        <CollapsibleSection title="Intelligence Artificielle V2"><AiConfigSection /></CollapsibleSection>
+        <CollapsibleSection title="Système & Maintenance"><LogsConfigSection /></CollapsibleSection>
       </div>
       {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
     </div>
@@ -248,15 +343,17 @@ const ConfigPanel = ({ showConfig, onClose }) => {
 
   if (window.innerWidth < 1024) {
     return (
-      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 space-y-2 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto custom-scrollbar relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-rose-600"><X size={18} /></button>
-        <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Paramètres</h3>
-        <CollapsibleSection title="Recherche Facebook"><FacebookSearchSection /></CollapsibleSection>
-        <CollapsibleSection title="Villes & Zones"><CityManagementSection /></CollapsibleSection>
-        <CollapsibleSection title="Filtres & Exclusion"><ExclusionKeywordsSection /></CollapsibleSection>
-        <CollapsibleSection title="Intelligence Artificielle"><AiConfigSection /></CollapsibleSection>
-        <CollapsibleSection title="Logs & Système"><LogsConfigSection /></CollapsibleSection>
-        <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2"><Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Voir Logs Serveur'}</button>
+      <div className="bg-slate-900 p-6 rounded-3xl shadow-2xl border border-slate-800 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto scrollbar-dark relative">
+        <div className="flex items-center justify-between mb-2">
+            <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Paramètres</h3>
+            <button onClick={onClose} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20} /></button>
+        </div>
+        <CollapsibleSection title="Scraping"><FacebookSearchSection /></CollapsibleSection>
+        <CollapsibleSection title="Villes"><CityManagementSection /></CollapsibleSection>
+        <CollapsibleSection title="Filtres"><ExclusionKeywordsSection /></CollapsibleSection>
+        <CollapsibleSection title="IA"><AiConfigSection /></CollapsibleSection>
+        <CollapsibleSection title="Logs"><LogsConfigSection /></CollapsibleSection>
+        <button onClick={() => setShowLogs(!showLogs)} className="w-full mt-4 py-3 bg-slate-800 text-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-slate-700 transition-all border border-slate-700"><Terminal size={14} /> {showLogs ? 'Masquer Logs' : 'Logs Serveur'}</button>
         {showLogs && <LogViewer onClose={() => setShowLogs(false)} />}
       </div>
     );
