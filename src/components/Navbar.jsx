@@ -46,7 +46,7 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
 
     return (
         <nav className="sticky top-0 z-30 w-full bg-slate-900/80 backdrop-blur-lg border-b border-slate-800">
-            <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 h-16 flex items-center justify-between gap-2 sm:gap-4 overflow-x-hidden">
+            <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 h-16 flex items-center justify-between gap-2 sm:gap-4">
 
                 {/* Logo */}
                 <div className="flex items-center gap-3 shrink-0">

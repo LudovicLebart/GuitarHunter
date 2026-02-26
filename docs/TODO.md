@@ -168,4 +168,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Correction "Mode Hors Ligne" : Automatisation via GitHub Secrets (.env & Firebase Key) (Session 25).
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
 - [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
-- [x] Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper (Session 27).
+- [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
+- [x] Session 39 : Polissage UI V2 (Suppression scrollbar native, Fix clipping Navbar).
