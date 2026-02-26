@@ -18,6 +18,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Script de migration one-shot : `backend/scripts/migrate_images.py`.
     - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
 
+- [ ] **Bug : Interruption du Scraper par Facebook (Anti-botting)**
+    - *Détails :* Playwright est détecté par Facebook lors des tâches asynchrones, qui redirige sur la page d'accueil ou requiert une vérification, empêchant l'extraction des données. Nécessite une solution de contournement (Proxies, Fingerprinting, Stealth plugins...).
+
 - [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
     - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
     - Toute commande d'action, et notamment les commandes manuelles asynchrones (REFRESH, SCAN_URL), interrompt la pause.

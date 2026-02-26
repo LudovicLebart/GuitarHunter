@@ -39,7 +39,8 @@ class GuitarHunterBot:
         self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET, bucket=storage_bucket)
         self.set_status('idle')
         self.analyzer = DealAnalyzer()
-        self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
+        # Le scraper sera désormais instancié au besoin par chaque thread
+        # self.scraper = FacebookScraper({}, {})
         
         initial_scan_config = {
             "max_ads": 5, "frequency": 60, "location": "montreal",
@@ -237,14 +238,19 @@ class GuitarHunterBot:
                     city_id = city_data['id']
                     city_norm_name = ListingParser.normalize_city_name(city_name)
                     
-                    self.scraper.city_mapping = {city_norm_name: city_id}
+                    temp_scraper = FacebookScraper({}, {})
+                    temp_scraper.city_mapping = {city_norm_name: city_id}
                     # On passe la liste complète des villes autorisées
-                    self.scraper.allowed_cities = all_allowed_cities_norm
+                    temp_scraper.allowed_cities = all_allowed_cities_norm
 
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
                     logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
-                    self.scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    
+                    try:
+                        temp_scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    finally:
+                        temp_scraper.close_session()
                     
                     if self._is_stop_requested():
                         logger.info("🛑 Interruption de la boucle des villes.")
@@ -259,9 +265,14 @@ class GuitarHunterBot:
     def scan_specific_url(self, url):
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
+        temp_scraper = FacebookScraper({}, {})
         try:
-            self.scraper.scan_specific_url(url, self.handle_deal_found)
+            temp_scraper.scan_specific_url(url, self.handle_deal_found)
         finally:
+            try:
+                temp_scraper.close_session()
+            except Exception as e:
+                logger.warning(f"Erreur lors de la fermeture du scraper temporaire URL : {e}")
             if not self.offline_mode: self.set_status('idle', task_name='scanning_url')
 
     def cleanup_sold_listings(self):
@@ -382,7 +393,12 @@ class GuitarHunterBot:
             if data.get('name', '').lower() == city_name.lower():
                 raise Exception(f"La ville '{city_name}' existe déjà.")
 
-        city_id = CityFinder.find_city_id(self.scraper, city_name)
+        temp_scraper = FacebookScraper({}, {})
+        try:
+            city_id = CityFinder.find_city_id(temp_scraper, city_name)
+        finally:
+            temp_scraper.close_session()
+            
         if city_id:
             for doc in existing_cities:
                 if str(doc.to_dict().get('id')) == str(city_id):

@@ -57,7 +57,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
   - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
 
 ### `backend/scraping/`
-- **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces.
+- **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. **Note d'architecture (Thread-Safety)** : L'instance `FacebookScraper` n'est plus globale au bot. Pour éviter les erreurs `greenlet.error` (Cannot switch to a different thread) de l'API synchrone de Playwright lors des commandes en arrière-plan (ex: `REFRESH`, `SCAN_URL`), un `temp_scraper` est instancié localement au sein de chaque thread worker et fermé immédiatement après usage.
 
 ### `backend/resources/` (Nouveau)
 - **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
