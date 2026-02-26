@@ -12,6 +12,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
+    - Utilisation de chemins hiérarchiques complets (`dot-notation`) comme clés de comptage.
+    - Mise à jour de `useDealsManager.js` et `FilterDrawer.jsx` pour gérer la récursion par path.
+
 - [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
     - Stockage pérenne via Firebase Storage. Upload systématique lors de chaque `handle_deal_found`.
     - Politique de cycle de vie : purge des images des deals rejetés après 30 jours (`IMAGE_RETENTION_REJECTED_DAYS`).
@@ -70,8 +74,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Dark Scrollbar pour les Filtres (Mockup)**
     - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
 
-- [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 32)*
-    - *Détails :* `MockupDashboard` branché sur `useDealsContext` (données réelles Firestore). `MockupDealCard` câblé sur le vrai modèle `aiAnalysis` (verdict, reasoning, model_used, deal_score, estimated_value) et sur les vraies actions (favori, rejet, suppression, ré-analyse, lien Facebook). Vue MAP remplacée par le vrai `MapView.jsx`. Filtres (`filterType`, `level1-4Filter`, `searchQuery`) synchronisés avec `useDealsManager`. V1 intacte.
+- [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 36)*
+    - *Détails :* La V2 est désormais l'interface par défaut. Les composants "Mockup" ont été renommés en noms standards (`Dashboard`, `DealCard`, `Navbar`, `FilterDrawer`, `StatsView`). Les anciens fichiers V1 (`FilterBar`, `SectionGroup`, `DealModal`, `BotControls`, `DebugStatus`) ont été supprimés. `App.jsx` a été simplifié pour monter directement le `Dashboard`.
 - [x] **Bug Mockup V2 : Filtres inopérants** *(Câblé en Session 32)*
 - [x] **Refonte UI Mobile : Corrections majeures** *(Complété Session 34)*
     - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
@@ -90,6 +94,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
+- [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38)*
+    - *Détails :* Aligner l'esthétique du panneau de configuration (prompts, villes, etc.) sur la nouvelle charte graphique V2 (Dark Mode, Slate/Blue palette, coins arrondis, typographie).
 
 - [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.

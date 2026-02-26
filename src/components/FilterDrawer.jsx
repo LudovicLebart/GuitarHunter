@@ -113,7 +113,7 @@ const InlineOption = ({ label, active, onClick, hasChildren, depth = 0, count })
 // ============================================================
 // Main Drawer — Inline Cascading Taxonomy
 // ============================================================
-const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {} }) => {
+const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {} }) => {
     const { level1, level2, level3, level4, condition, price } = filters;
 
     const handleLevelSelect = (level, value) => {
@@ -137,96 +137,48 @@ const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, c
     ].filter(Boolean).length;
 
     // Recursive render function for the taxonomy tree
-    const renderTaxonomyTree = () => {
+    const renderTaxonomyTree = (node = TAXONOMY_TREE, parentPath = "") => {
         return (
             <div className="flex flex-col gap-0.5">
-                <InlineOption
-                    label="Tous les types"
-                    active={level1 === 'all'}
-                    onClick={() => handleLevelSelect('level1', 'all')}
-                    depth={0}
-                    count={counts.all}
-                />
+                {parentPath === "" && (
+                    <InlineOption
+                        label="Tous les types"
+                        active={level1 === 'all'}
+                        onClick={() => handleLevelSelect('level1', 'all')}
+                        depth={0}
+                        count={counts.all}
+                    />
+                )}
 
-                {Object.entries(TAXONOMY_TREE).map(([l1Key, l1Cfg]) => {
-                    const isL1Active = level1 === l1Key;
-                    const hasL2Children = Object.keys(l1Cfg.children).length > 0;
+                {Object.entries(node).map(([key, cfg]) => {
+                    const currentPath = parentPath ? `${parentPath}.${key}` : key;
+                    const depth = parentPath.split('.').filter(Boolean).length;
+                    
+                    // Logic to determine if this specific node is "active" based on levels
+                    const isActive = (depth === 0 && level1 === key) ||
+                                   (depth === 1 && level2 === key && level1 === parentPath) ||
+                                   (depth === 2 && level3 === key && level2 === parentPath.split('.')[1]) ||
+                                   (depth === 3 && level4 === key);
+
+                    const hasChildren = cfg.children && Object.keys(cfg.children).length > 0;
+                    const showChildren = isActive && hasChildren;
 
                     return (
-                        <React.Fragment key={l1Key}>
+                        <React.Fragment key={key}>
                             <InlineOption
-                                label={l1Cfg.label}
-                                active={isL1Active}
-                                onClick={() => handleLevelSelect('level1', l1Key)}
-                                hasChildren={hasL2Children && !isL1Active} // Show chevron only if it has children and is not open
-                                depth={0}
-                                count={counts[l1Key]}
+                                label={cfg.label}
+                                active={isActive}
+                                onClick={() => handleLevelSelect(`level${depth + 1}`, key)}
+                                hasChildren={hasChildren && !isActive}
+                                depth={depth}
+                                count={counts[currentPath] || 0}
                             />
 
-                            {/* LEVEL 2 Rendering (Inline under L1) */}
-                            {isL1Active && hasL2Children && (
-                                <div className="mt-1 flex flex-col gap-0.5 mb-2 relative border-l-2 border-slate-700/50 ml-[11px]">
-
-                                    {Object.entries(l1Cfg.children).map(([l2Key, l2Cfg]) => {
-                                        const isL2Active = level2 === l2Key;
-                                        const hasL3Children = l2Cfg.children && Object.keys(l2Cfg.children).length > 0;
-
-                                        return (
-                                            <React.Fragment key={l2Key}>
-                                                <InlineOption
-                                                    label={l2Cfg.label}
-                                                    active={isL2Active}
-                                                    onClick={() => handleLevelSelect('level2', l2Key)}
-                                                    hasChildren={hasL3Children && !isL2Active}
-                                                    depth={1}
-                                                    count={counts[l2Key]}
-                                                />
-
-                                                {/* LEVEL 3 Rendering (Inline under L2) */}
-                                                {isL2Active && hasL3Children && (
-                                                    <div className="mt-1 flex flex-col gap-0.5 mb-2 relative border-l-2 border-slate-700/50 ml-7">
-
-                                                        {Object.entries(l2Cfg.children || {}).map(([l3Key, l3Cfg]) => {
-                                                            const isL3Active = level3 === l3Key;
-                                                            const hasL4Children = l3Cfg.children && Object.keys(l3Cfg.children).length > 0;
-
-                                                            return (
-                                                                <React.Fragment key={l3Key}>
-                                                                    <InlineOption
-                                                                        label={l3Cfg.label}
-                                                                        active={isL3Active}
-                                                                        onClick={() => handleLevelSelect('level3', l3Key)}
-                                                                        hasChildren={hasL4Children && !isL3Active}
-                                                                        depth={2}
-                                                                        count={counts[l3Key] || 0}
-                                                                    />
-
-                                                                    {/* LEVEL 4 Rendering (Inline under L3) */}
-                                                                    {isL3Active && hasL4Children && (
-                                                                        <div className="mt-1 flex flex-col gap-0.5 mb-1 relative border-l-2 border-slate-700/50 ml-10">
-
-                                                                            {Object.entries(l3Cfg.children).map(([l4Key, l4Cfg]) => {
-                                                                                return (
-                                                                                    <InlineOption
-                                                                                        key={l4Key}
-                                                                                        label={l4Cfg.label}
-                                                                                        active={level4 === l4Key}
-                                                                                        onClick={() => handleLevelSelect('level4', l4Key)}
-                                                                                        depth={3}
-                                                                                        count={counts[l4Key] || 0}
-                                                                                    />
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    )}
-                                                                </React.Fragment>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
+                            {showChildren && (
+                                <div className={`mt-1 flex flex-col gap-0.5 mb-2 relative border-l-2 border-slate-700/50 ${
+                                    depth === 0 ? 'ml-[11px]' : depth === 1 ? 'ml-7' : 'ml-10'
+                                }`}>
+                                    {renderTaxonomyTree(cfg.children, currentPath)}
                                 </div>
                             )}
                         </React.Fragment>
@@ -306,4 +258,4 @@ const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, c
     );
 };
 
-export default MockupFilterDrawer;
+export default FilterDrawer;

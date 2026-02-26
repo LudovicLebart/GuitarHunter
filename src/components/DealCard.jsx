@@ -1,278 +1,468 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { MapPin, Guitar, TrendingUp, Activity, Sparkles, Clock, Heart, RefreshCw, Ban, Share2, ExternalLink, CheckCircle, Trash2, BrainCircuit, Hammer, DollarSign, ChevronDown, Calculator, Tag } from 'lucide-react';
+import React, { useState } from 'react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown } from 'lucide-react';
 import ImageGallery from './ImageGallery';
-import VerdictBadge from './VerdictBadge';
-import SimpleMarkdown from './SimpleMarkdown';
-import CollapsibleSection from './CollapsibleSection';
 
-// Nouveau menu de réanalyse (Compact & Ancré)
-const ReanalysisMenu = ({ onRetry, onForceExpert, onClose, buttonRef }) => {
-  const menuRef = useRef(null);
+// ── Verdict config ───────────────────────────────────────────
+const VERDICT_CONFIG = {
+    PEPITE: { label: 'Pépite', bg: 'bg-yellow-500', text: 'text-yellow-900', icon: Gem },
+    FAST_FLIP: { label: 'Fast Flip', bg: 'bg-emerald-500', text: 'text-emerald-900', icon: Sparkles },
+    LUTHIER_PROJ: { label: 'Projet Luthier', bg: 'bg-orange-500', text: 'text-orange-900', icon: Hammer },
+    CASE_WIN: { label: 'Case Win', bg: 'bg-sky-500', text: 'text-sky-900', icon: Briefcase },
+    COLLECTION: { label: 'Collection', bg: 'bg-blue-500', text: 'text-blue-900', icon: Package },
+    BAD_DEAL: { label: 'Trop Cher', bg: 'bg-rose-500', text: 'text-rose-900', icon: AlertTriangle },
+    REJECTED_ITEM: { label: 'Rejeté', bg: 'bg-slate-600', text: 'text-slate-200', icon: Ban },
+    REJECTED_SERVICE: { label: 'Service', bg: 'bg-slate-600', text: 'text-slate-200', icon: Ban },
+    ERROR: { label: 'Erreur', bg: 'bg-red-900', text: 'text-red-200', icon: AlertTriangle },
+    DEFAULT: { label: 'Analyse...', bg: 'bg-slate-700', text: 'text-slate-200', icon: RefreshCw },
+};
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      // Ignore les clics sur le bouton qui ouvre le menu
-      if (buttonRef.current && buttonRef.current.contains(event.target)) {
-        return;
-      }
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        onClose();
-      }
+const toTitleCase = (str = '') =>
+    str.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+// Format a Firestore timestamp or ISO string to a relative human string
+const formatRelativeDate = (timestamp) => {
+    if (!timestamp) return null;
+    try {
+        const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+        const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+        if (diff < 60) return 'À l\'instant';
+        if (diff < 3600) return `Il y a ${Math.floor(diff / 60)} min`;
+        if (diff < 86400) return `Il y a ${Math.floor(diff / 3600)}h`;
+        return `Il y a ${Math.floor(diff / 86400)}j`;
+    } catch {
+        return null;
+    }
+};
+
+// ── DealCard ────────────────────────────────────────────
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
+    const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+    const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
+    const [showRescanMenu, setShowRescanMenu] = useState(false);
+    const [showModalRescanMenu, setShowModalRescanMenu] = useState(false);
+
+    const renderActionButtons = (isModal = false) => {
+        const menuOpen = isModal ? showModalRescanMenu : showRescanMenu;
+        const setMenuOpen = isModal ? setShowModalRescanMenu : setShowRescanMenu;
+
+        return (
+            <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Favori */}
+                <button
+                    onClick={onToggleFavorite}
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
+                    title="Favori"
+                >
+                    <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                </button>
+                {/* Ré-analyser Dropdown */}
+                <div
+                    className="relative"
+                    onMouseEnter={() => setMenuOpen(true)}
+                    onMouseLeave={() => setMenuOpen(false)}
+                >
+                    <button
+                        onClick={() => setMenuOpen(!menuOpen)}
+                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
+                        title="Ré-analyser"
+                    >
+                        <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                    </button>
+
+                    {menuOpen && (
+                        <div className={`absolute ${isModal ? 'top-full mt-2' : 'bottom-full mb-2'} left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150`}>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRetry(); }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                            >
+                                <Sparkles size={14} className="text-blue-400" />
+                                Scan Standard
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onForceExpert(); }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                            >
+                                <Gem size={14} className="text-purple-400" />
+                                Luthier Expert
+                            </button>
+                        </div>
+                    )}
+                </div>
+                {/* Rejeter */}
+                <button
+                    onClick={onReject}
+                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 border border-slate-700/50 transition-all"
+                    title="Rejeter"
+                >
+                    <XCircle size={18} className="sm:w-4 sm:h-4" />
+                </button>
+                {/* Supprimer */}
+                <button
+                    onClick={onDelete}
+                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
+                    title="Supprimer"
+                >
+                    <Trash2 size={18} className="sm:w-4 sm:h-4" />
+                </button>
+                <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+                {/* Facebook */}
+                {deal.link ? (
+                    <a
+                        href={deal.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
+                        title="Voir sur Facebook"
+                    >
+                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                    </a>
+                ) : (
+                    <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
+                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                    </button>
+                )}
+            </div>
+        );
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose, buttonRef]);
 
-  return (
-    <div
-      ref={menuRef}
-      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col gap-1 bg-white p-1.5 rounded-xl shadow-xl border border-slate-100 animate-in slide-in-from-bottom-2 fade-in duration-200 z-50"
-    >
-      <button
-        onClick={(e) => { e.stopPropagation(); onRetry(); }}
-        className="flex items-center justify-center p-2 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-500 hover:text-white transition-colors"
-        title="Analyse Standard"
-      >
-        <RefreshCw size={16} />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onForceExpert(); }}
-        className="flex items-center justify-center p-2 rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white transition-colors"
-        title="Analyse Expert"
-      >
-        <BrainCircuit size={16} />
-      </button>
-    </div>
-  );
-};
+    // ── Map real deal model to UI fields ──────────────────────
+    const ai = deal.aiAnalysis || {};
+    const verdict = ai.verdict || 'DEFAULT';
+    const reasoning = ai.analysis || ai.reasoning || null;
+    const modelUsed = ai.model_used || null;
+    const dealScore = ai.deal_score != null ? ai.deal_score : null;
+    const confidence = dealScore != null ? dealScore * 10 : null; // 0-10 → 0-100%
 
-// Composant interne pour l'affichage du prix et des détails financiers
-const PriceDisplay = ({ deal, showFinanceDetails, setShowFinanceDetails }) => {
-  const grossMargin = deal.aiAnalysis?.estimated_gross_margin;
-  const netCost = deal.aiAnalysis?.net_guitar_cost;
-  const resalePotential = deal.aiAnalysis?.resale_potential || deal.aiAnalysis?.estimated_value_after_repair;
-  const estimatedValue = deal.aiAnalysis?.estimated_value;
-  const repairCost = netCost !== undefined ? netCost - parseInt(deal.price) : 0;
+    // Financial fields — support both real (estimated_value) and legacy field names
+    const estValue = ai.estimated_value ?? ai.estimated_guitar_value ?? null;
+    const price = deal.price ?? null;
+    const computedMargin = (estValue != null && price != null) ? Math.round(estValue - price) : null;
+    const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;
 
-  return (
-    <div className="flex flex-col items-start text-left gap-1 shrink-0 w-full">
-      <div
-        className="flex items-center gap-1 bg-slate-900 text-white px-3 py-1.5 rounded-xl shadow-xl cursor-pointer w-fit"
-        onClick={() => setShowFinanceDetails(!showFinanceDetails)}
-      >
-        <span className="text-lg font-black tabular-nums">{deal.price} $</span>
-        <ChevronDown size={14} className={`transition-transform text-slate-400 ${showFinanceDetails ? 'rotate-180' : ''}`} />
-      </div>
+    const taxonomy = ai.classification || null;
+    const relDate = formatRelativeDate(deal.timestamp);
+    const images = deal.storageImageUrls?.length > 0 ? deal.storageImageUrls : (deal.imageUrls || []);
 
-      {/* --- VALEURS DE MARCHÉ (TOUJOURS VISIBLES) --- */}
-      <div className="flex flex-col gap-1 text-xs font-bold mt-1 text-slate-500 w-full">
-        {estimatedValue > 0 && (
-          <div className="flex items-center gap-1">
-            <Activity size={12} className="shrink-0" /> <span className="truncate">Val: <span className="font-black">{estimatedValue}$</span></span>
-          </div>
-        )}
-        {resalePotential > 0 && (
-          <div className="flex items-center gap-1 text-purple-600">
-            <TrendingUp size={12} className="shrink-0" /> <span className="truncate">Max: <span className="font-black">{resalePotential}$</span></span>
-          </div>
-        )}
-      </div>
+    const vc = VERDICT_CONFIG[verdict] || VERDICT_CONFIG.DEFAULT;
+    const VIcon = vc.icon;
 
-      {/* --- DROPDOWN : DÉTAILS FINANCIERS --- */}
-      {showFinanceDetails && (
-        <div className="mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 w-full space-y-2 text-left animate-in fade-in slide-in-from-top-2 z-20 relative">
-          {netCost !== undefined && (
-            <div className="flex justify-between items-center text-xs">
-              <span className="font-bold text-slate-500 flex items-center gap-1"><DollarSign size={12} /> Coût Net</span>
-              <span className="font-black text-sky-600">{netCost}$</span>
-            </div>
-          )}
-          {repairCost > 0 && (
-            <div className="flex justify-between items-center text-xs pl-4">
-              <span className="text-slate-400 flex items-center gap-1"><Hammer size={12} /> Répar.</span>
-              <span className="font-bold text-orange-500">{repairCost}$</span>
-            </div>
-          )}
-          {grossMargin !== undefined && (
-            <div className={`flex justify-between items-center text-sm font-black p-2 rounded-lg ${grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-              <span className="flex items-center gap-1"><Calculator size={14} /> Marge</span>
-              <span>{grossMargin >= 0 ? `+${grossMargin}` : grossMargin}$</span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+    const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
 
+    return (
+        <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group">
 
-const DealCard = ({ deal, filterType, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
-  const [copied, setCopied] = useState(false);
-  const [isReanalysisMenuOpen, setIsReanalysisMenuOpen] = useState(false);
-  const reanalysisButtonRef = useRef(null);
-  const [showFinanceDetails, setShowFinanceDetails] = useState(false);
+            {/* Image Gallery Container */}
+            <div className="relative w-full h-[280px] bg-slate-950 overflow-hidden flex items-center justify-center shrink-0">
+                <div className="h-full w-full">
+                    <ImageGallery images={images.length > 0 ? images : ['']} title={deal.title} />
+                </div>
 
-
-  const handleShare = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const url = `${window.location.origin}${window.location.pathname}?dealId=${deal.id}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  const getModelName = (deal) => {
-    if (['analyzing', 'retry_analysis', 'retry_analysis_expert', 'analyzing_expert'].includes(deal.status)) {
-      return 'Analyse en cours...';
-    }
-    if (deal.aiAnalysis?.model_used) {
-      return deal.aiAnalysis.model_used;
-    }
-    if (deal.status === 'sold' && !deal.aiAnalysis?.verdict) {
-      return 'Non Analysé (Vendu)';
-    }
-    if (deal.status === 'analyzed' && !deal.aiAnalysis?.model_used) {
-      return 'Modèle non spécifié';
-    }
-    return deal.aiAnalysis?.model_used || 'Analyse initiale';
-  };
-
-  const modelName = getModelName(deal);
-  const isExpertAnalysis = modelName.includes('pro') || modelName.includes('expert');
-  const isAnalyzing = ['retry_analysis', 'retry_analysis_expert', 'analyzing', 'analyzing_expert'].includes(deal.status);
-
-  const handleReanalysisButtonClick = () => {
-    setIsReanalysisMenuOpen(prev => !prev);
-  };
-
-  const closeMenu = () => {
-    setIsReanalysisMenuOpen(false);
-  };
-
-  const isLuthierProject = deal.aiAnalysis?.verdict === 'LUTHIER_PROJ';
-
-
-  return (
-    <div className={`group bg-white rounded-[2rem] shadow-sm border border-slate-200 flex flex-col md:flex-row items-start hover:shadow-2xl hover:shadow-blue-500/5 transition-all duration-500 animate-in fade-in slide-in-from-bottom-4 ${deal.status === 'rejected' || deal.status === 'sold' ? 'opacity-60' : ''}`}>
-
-      {/* --- MOBILE HEADER (Image + Prix) --- */}
-      <div className="md:hidden w-full flex p-4 pb-0 gap-4">
-        <div className="w-1/2 h-40 shrink-0 relative bg-slate-100 rounded-2xl overflow-hidden">
-          <div className="h-full w-full"><ImageGallery images={deal.storageImageUrls || deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
-          <div className="absolute top-2 left-2 z-10 pointer-events-none scale-75 origin-top-left flex flex-col gap-2">
-            <VerdictBadge verdict={deal.aiAnalysis?.verdict} status={deal.status} />
-            {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-2 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1"><Tag size={10} /> Vendu</div>}
-          </div>
-        </div>
-        <div className="flex-1 pt-1 min-w-0">
-          <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
-        </div>
-      </div>
-
-      {/* --- DESKTOP SIDEBAR (Image Sticky) --- */}
-      <div className="hidden md:block md:w-80 md:sticky md:top-24 self-start shrink-0 relative bg-slate-100 md:rounded-l-[2rem] rounded-t-[2rem] md:rounded-tr-none overflow-hidden">
-        <div className="h-64 md:h-80 w-full"><ImageGallery images={deal.storageImageUrls || deal.imageUrls || [deal.imageUrl]} title={deal.title} /></div>
-        <div className="absolute top-4 left-4 z-10 pointer-events-none flex flex-col gap-2">
-          <VerdictBadge verdict={deal.aiAnalysis?.verdict} status={deal.status} />
-          {deal.status === 'sold' && <div className="bg-slate-900/80 text-white px-3 py-1.5 rounded-xl text-xs font-black uppercase flex items-center gap-1 shadow-lg animate-in zoom-in-95"><Tag size={14} /> Vendu / Indisponible</div>}
-        </div>
-        <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
-      </div>
-
-      <div className="flex-1 p-6 md:p-8 flex flex-col w-full md:rounded-r-[2rem] rounded-b-[2rem] md:rounded-bl-none">
-        <div className="flex flex-col gap-4 mb-2">
-
-          {/* --- DESKTOP PRICE (Au-dessus du titre) --- */}
-          <div className="hidden md:block">
-            <PriceDisplay deal={deal} showFinanceDetails={showFinanceDetails} setShowFinanceDetails={setShowFinanceDetails} />
-          </div>
-
-          <div className="flex-1">
-            <div className="flex items-center gap-2 text-blue-600 font-bold text-[10px] uppercase tracking-widest mb-1"><MapPin size={10} /> {deal.location || 'Québec'}</div>
-            <h2 className="text-xl md:text-2xl font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors uppercase tracking-tight">{deal.title}</h2>
-
-            <div className="flex flex-wrap gap-2 mt-2">
-              {deal.aiAnalysis?.classification && (<div className="flex items-center gap-2 text-purple-600 bg-purple-50 px-3 py-1 rounded-full text-xs font-bold"><Guitar size={12} /><span>{deal.aiAnalysis.classification}</span></div>)}
-              {isLuthierProject && (<div className="flex items-center gap-2 text-orange-600 bg-orange-50 px-3 py-1 rounded-full text-xs font-bold"><Hammer size={12} /><span>Travaux Requis</span></div>)}
-              {deal.status === 'sold' && (<div className="flex items-center gap-2 text-slate-600 bg-slate-100 px-3 py-1 rounded-full text-xs font-bold"><Tag size={12} /><span>Vendu</span></div>)}
-            </div>
-          </div>
-
-        </div>
-
-        <div className="relative mb-6">
-          <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-full ${isExpertAnalysis ? 'bg-purple-500' : 'bg-blue-100'}`} />
-          <div className="pl-5 py-1">
-            <div className={`flex items-center gap-1.5 mb-2 ${isExpertAnalysis ? 'text-purple-600' : 'text-blue-600'}`}><Sparkles size={14} /><span className="text-[10px] font-black uppercase tracking-widest">{modelName}</span></div>
-            <div className="mt-2">
-              {/* --- LOGIQUE D'AFFICHAGE STANDARDISÉE --- */}
-              {deal.aiAnalysis?.summary ? (
-                <>
-                  <SimpleMarkdown text={deal.aiAnalysis.summary} />
-                  {deal.aiAnalysis.analysis && (
-                    <CollapsibleSection title="Voir l'analyse détaillée">
-                      <SimpleMarkdown text={deal.aiAnalysis.analysis} />
-                    </CollapsibleSection>
-                  )}
-                </>
-              ) : deal.aiAnalysis?.reasoning ? (
-                <p className="text-slate-700 text-sm font-medium">{deal.aiAnalysis.reasoning}</p>
-              ) : deal.status === 'rejected' ? (
-                <p className="text-slate-400 italic text-sm">Annonce rejetée par l'intelligence artificielle.</p>
-              ) : deal.status === 'sold' ? (
-                <p className="text-slate-400 italic text-sm">Cette annonce a été vendue ou supprimée avant la fin de l'analyse.</p>
-              ) : (<p className="text-slate-400 italic text-sm">Analyse de l'état et de la valeur en cours par l'intelligence artificielle...</p>)}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-auto pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2 text-slate-400 text-[10px] font-bold"><Clock size={14} /><span className="uppercase tracking-widest">{deal.timestamp?.seconds ? new Date(deal.timestamp.seconds * 1000).toLocaleString() : 'Juste maintenant'}</span></div>
-            {deal.aiAnalysis?.confidence && (<div className="flex items-center gap-2"><div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${deal.aiAnalysis.confidence * 100}%` }} /></div><span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Confiance {Math.round(deal.aiAnalysis.confidence * 100)}%</span></div>)}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button onClick={() => onToggleFavorite(deal.id, deal.isFavorite)} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${deal.isFavorite ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-400 hover:text-rose-400'}`} title={deal.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"}><Heart size={14} fill={deal.isFavorite ? "currentColor" : "none"} /></button>
-
-            {/* Bouton de réanalyse : Maintenant accessible même si rejeté */}
-            <div className="relative">
-              <button
-                ref={reanalysisButtonRef}
-                onClick={handleReanalysisButtonClick}
-                disabled={isAnalyzing}
-                className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm relative overflow-hidden ${isAnalyzing ? 'bg-amber-100 text-amber-600 cursor-wait' : 'bg-slate-100 text-slate-400 hover:text-amber-500'}`}
-                title="Relancer l'analyse"
-              >
-                {isAnalyzing ? (<RefreshCw size={14} className="animate-spin" />) : (<RefreshCw size={14} />)}
-              </button>
-              {isReanalysisMenuOpen && (
-                <ReanalysisMenu
-                  buttonRef={reanalysisButtonRef}
-                  onRetry={() => {
-                    if (onRetry) onRetry(deal.id);
-                    closeMenu();
-                  }}
-                  onForceExpert={() => {
-                    if (onForceExpert) onForceExpert(deal.id);
-                    closeMenu();
-                  }}
-                  onClose={closeMenu}
-                />
-              )}
+                {/* Verdict Badge */}
+                <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg z-10 ${vc.text}`}>
+                    <VIcon size={12} className={isAnalyzing ? 'animate-spin' : ''} />
+                    {isAnalyzing ? 'Analyse...' : vc.label}
+                </div>
+                {/* Price Badge */}
+                {price != null && (
+                    <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-3 py-1.5 rounded-xl text-base font-black shadow-lg z-10 pointer-events-none">
+                        {price}$
+                    </div>
+                )}
             </div>
 
-            {deal.status !== 'rejected' && deal.status !== 'sold' && (<button onClick={() => onReject(deal.id)} className="flex items-center gap-2 bg-slate-100 hover:bg-rose-600 hover:text-white text-slate-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Rejeter l'annonce"><Ban size={14} /></button>)}
-            <button onClick={() => onDelete(deal.id)} className="flex items-center gap-2 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm" title="Supprimer définitivement"><Trash2 size={14} /></button>
-            <button onClick={handleShare} className={`flex items-center gap-2 px-3 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-sm ${copied ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400 hover:text-blue-500'}`} title="Copier le lien de l'analyse">{copied ? <CheckCircle size={14} /> : <Share2 size={14} />}</button>
-            <a href={deal.link} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-600 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group/btn shadow-sm">Voir sur Facebook <ExternalLink size={14} className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" /></a>
-          </div>
+            {/* Body */}
+            <div className="p-4 flex flex-col gap-3 flex-1">
+
+                {/* Title & Location */}
+                <div>
+                    <h3 className="text-sm font-bold text-white leading-snug line-clamp-2">
+                        {toTitleCase(deal.title || '')}
+                    </h3>
+                    <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 flex-wrap">
+                        <MapPin size={11} />
+                        <span>{deal.location}</span>
+                        {taxonomy && (
+                            <>
+                                <span className="text-slate-700">•</span>
+                                <span className="text-purple-400 truncate max-w-[120px]" title={taxonomy}>{taxonomy}</span>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* Financial Summary — visible immediately */}
+                {margin != null && (
+                    <div className="flex items-center gap-2">
+                        <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${margin > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'}`}>
+                            Marge {margin > 0 ? '+' : ''}{margin}$
+                        </span>
+                        <span className="text-[11px] text-slate-500">Val. Est. {estValue}$</span>
+                    </div>
+                )}
+
+                {/* AI Reasoning button — opens modal */}
+                {reasoning && (
+                    <div className="bg-slate-950 rounded-xl border border-slate-800 relative z-10 w-full mb-2">
+                        <button
+                            className="w-full h-full flex items-center justify-between px-3 py-2 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+                            onClick={() => setShowAnalysisModal(true)}
+                        >
+                            <span className="flex items-center gap-1.5 font-bold">
+                                <span title={`Modèles: ${modelUsed || 'N/A'}`} className="cursor-help flex items-center gap-1.5">
+                                    <FileText size={12} className="text-blue-400" /> Analyse IA
+                                </span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                                {confidence != null && (
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="w-14 h-1 bg-slate-800 rounded-full overflow-hidden hidden sm:block">
+                                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${confidence}%` }}></div>
+                                        </div>
+                                        <span className="text-blue-400 font-bold">{Math.round(confidence)}%</span>
+                                    </div>
+                                )}
+                                <span className="text-slate-500 font-mono ml-1">Lire</span>
+                            </div>
+                        </button>
+                    </div>
+                )}
+
+                {/* Footer actions */}
+                <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-800/50">
+                    <span className="text-[10px] sm:text-xs text-slate-600 font-mono flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60"></div>
+                        {relDate || 'Récent'}
+                    </span>
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                        {/* Favori */}
+                        <button
+                            onClick={onToggleFavorite}
+                            className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
+                            title="Favori"
+                        >
+                            <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                        </button>
+                        {/* Ré-analyser Dropdown */}
+                        <div
+                            className="relative"
+                            onMouseEnter={() => setShowRescanMenu(true)}
+                            onMouseLeave={() => setShowRescanMenu(false)}
+                        >
+                            <button
+                                onClick={() => setShowRescanMenu(!showRescanMenu)}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
+                                title="Ré-analyser"
+                            >
+                                <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                            </button>
+
+                            {showRescanMenu && (
+                                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onRetry(); }}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                    >
+                                        <Sparkles size={14} className="text-blue-400" />
+                                        Scan Standard
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onForceExpert(); }}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                                    >
+                                        <Gem size={14} className="text-purple-400" />
+                                        Luthier Expert
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        {/* Rejeter */}
+                        <button
+                            onClick={onReject}
+                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 border border-slate-700/50 transition-all"
+                            title="Rejeter"
+                        >
+                            <XCircle size={18} className="sm:w-4 sm:h-4" />
+                        </button>
+                        {/* Supprimer */}
+                        <button
+                            onClick={onDelete}
+                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
+                            title="Supprimer"
+                        >
+                            <Trash2 size={18} className="sm:w-4 sm:h-4" />
+                        </button>
+                        <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+                        {/* Facebook */}
+                        {deal.link ? (
+                            <a
+                                href={deal.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
+                                title="Voir sur Facebook"
+                            >
+                                <Facebook size={18} className="sm:w-4 sm:h-4" />
+                            </a>
+                        ) : (
+                            <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
+                                <Facebook size={18} className="sm:w-4 sm:h-4" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* AI Reasoning Full-Screen Modal */}
+            {showAnalysisModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md cursor-pointer" onClick={() => setShowAnalysisModal(false)}></div>
+
+                    <div className="relative w-full max-w-5xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 pointer-events-auto">
+                        {/* Modal Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
+                            <div>
+                                <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
+                                    Rapport d'Expertise IA
+                                </h2>
+                                <h3 className="text-sm text-slate-400 truncate max-w-[250px] sm:max-w-md">
+                                    {toTitleCase(deal.title || '')}
+                                </h3>
+                            </div>
+                            <div className="flex items-center justify-end gap-2 self-end sm:self-auto">
+                                {renderActionButtons(true)}
+                                <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
+                                <button
+                                    onClick={() => setShowAnalysisModal(false)}
+                                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors border border-slate-700/50 shrink-0"
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 flex flex-col md:flex-row min-h-0">
+                            {/* Left column: Image only */}
+                            <div className="hidden md:flex flex-col w-1/3 bg-slate-950 border-r border-slate-800 p-6 items-center justify-start shrink-0 overflow-y-auto scrollbar-dark">
+                                <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-black shadow-inner relative border border-slate-800 shrink-0">
+                                    <img
+                                        src={images[0] || ''}
+                                        alt={deal.title}
+                                        className="w-full h-full object-contain"
+                                        onError={() => setImageError(true)}
+                                    />
+                                    <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
+                                        <vc.icon size={12} strokeWidth={3} />
+                                        {vc.label}
+                                    </div>
+                                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end">
+                                        <div className="text-white/80 font-mono text-xs shadow-black drop-shadow-md">
+                                            Demandé: <span className="text-white font-black text-lg">{price}$</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Right column: Split content layout */}
+                            <div className="flex-1 flex flex-col p-6 sm:p-8 overflow-y-auto scrollbar-dark bg-slate-900 relative">
+                                {/* Border accent on the left, like a quote block */}
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-500 rounded-r-full"></div>
+
+                                {/* Header with Sparkles and Model Chain */}
+                                <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-wider text-purple-400 mb-4 pl-4">
+                                    <span className="text-purple-300">✨</span>
+                                    {modelUsed ? modelUsed.split(' -> ').map(m => m.trim().toUpperCase()).join(' -> ') : 'GÉNÉRATION IA'}
+                                </div>
+
+                                {/* Financials & Verdict row moved here */}
+                                <div className="flex flex-wrap items-center gap-4 pl-4 mb-8">
+                                    <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase">Prix et Est.</div>
+                                        <div className="text-lg font-black text-white">{price}$ <span className="text-sm font-normal text-slate-400 line-through">{estValue}$</span></div>
+                                    </div>
+                                    {margin != null && (
+                                        <div className={`px-4 py-2 rounded-xl border ${margin > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
+                                            <div className={`text-[10px] font-bold uppercase ${margin > 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>Marge</div>
+                                            <div className={`text-lg font-black ${margin > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{margin > 0 ? '+' : ''}{margin}$</div>
+                                        </div>
+                                    )}
+                                    <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
+                                        <div className="text-[10px] text-slate-500 font-bold uppercase">Confiance IA</div>
+                                        <div className="text-lg font-black text-blue-400">{Math.round(confidence || 0)}%</div>
+                                    </div>
+                                </div>
+
+                                {/* Summary Text */}
+                                <div className="text-sm sm:text-base text-slate-200 font-medium leading-relaxed pl-4 mb-6">
+                                    {deal.aiAnalysis.summary || 'Résumé global non fourni par l\'IA pour cette annonce. Ouvrez l\'analyse détaillée pour lire le raisonnement textuel.'}
+                                </div>
+
+                                {/* Separator */}
+                                <div className="border-t border-slate-800/60 ml-4 mb-6"></div>
+
+                                {/* Sub-Content: Voir l'analyse détaillée */}
+                                <div className="pl-4 pb-4">
+                                    <button
+                                        onClick={() => setShowDetailedAnalysis(!showDetailedAnalysis)}
+                                        className="flex items-center justify-between w-full text-left font-bold text-slate-300 hover:text-white transition-colors py-2"
+                                    >
+                                        <span>Voir l'analyse détaillée</span>
+                                        <ChevronDown size={18} className={`text-slate-500 transition-transform ${showDetailedAnalysis ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {showDetailedAnalysis && reasoning && (
+                                        <div className="mt-6 text-[13px] sm:text-[15px] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap animate-in fade-in slide-in-from-top-2">
+                                            {reasoning.split('\n').map((line, i) => {
+                                                if (line.trim() === '') return <div key={i} className="h-4"></div>;
+
+                                                const isHeader = line.startsWith('#');
+                                                const isList = line.trim().startsWith('-') || line.trim().startsWith('* ');
+
+                                                // Parse bold text **like this**
+                                                const formattedLine = line.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+                                                    if (part.startsWith('**') && part.endsWith('**')) {
+                                                        return <strong key={index} className="text-blue-400 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
+                                                    }
+                                                    return part;
+                                                });
+
+                                                if (isHeader) {
+                                                    // Strip # and render as header
+                                                    const text = line.replace(/^#+\s*/, '');
+                                                    return <h3 key={i} className="text-blue-400 font-black text-sm uppercase tracking-widest mt-6 mb-2 border-b border-slate-800 pb-2">{text}</h3>;
+                                                }
+
+                                                if (isList) {
+                                                    // Strip list marker and render with indent
+                                                    const text = line.replace(/^[-*]\s*/, '');
+                                                    const listParts = text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
+                                                        if (part.startsWith('**') && part.endsWith('**')) {
+                                                            return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
+                                                        }
+                                                        return part;
+                                                    });
+
+                                                    return (
+                                                        <div key={i} className="flex gap-3 mb-2 items-start pl-2">
+                                                            <span className="text-blue-500 shrink-0 mt-0.5">•</span>
+                                                            <span className="text-slate-300">{listParts}</span>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return <div key={i} className="mb-3">{formattedLine}</div>;
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default DealCard;

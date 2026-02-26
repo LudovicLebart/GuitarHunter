@@ -50,7 +50,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "storageImageUrls": ["URL Firebase Storage (pérenne)"],
     "aiAnalysis": { 
        "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | "REJECTED_ITEM" | ...,
-       "classification": "Valeur de taxonomy_master (ex: guitare.acoustique.folk)",
+       "classification": "Valeur hiérarchique (dot-notation, ex: guitare.electrique.solid_body)",
        "brand": "Marque (ex: Fender)",
        "model_name": "Modèle exact (ex: Stratocaster)",
        "production_year": "Année/Décennie",
@@ -81,4 +81,4 @@ Le Frontend utilise les capacités temps-réel de Firestore pour refléter les c
 ## 6. Flux d'Interactions UI (Exemple : Cartographie)
 1. **Survol/Clic Marqueur** → `MapView` déclenche l'affichage de l'InfoWindow locale (Data issues du `deal` associé).
 2. **Clic InfoWindow** → `MapView` appelle `onSelectDeal(deal)`.
-3. **Changement d'état** → `MockupDashboard` reçoit le nouveau `selectedDeal` et déclenche l'affichage (Overlay sur Mobile, Sidebar sur Desktop).
+3. **Changement d'état** → `Dashboard` reçoit le nouveau `selectedDeal` et déclenche l'affichage (Overlay sur Mobile, Sidebar sur Desktop).

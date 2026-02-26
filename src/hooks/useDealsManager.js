@@ -88,23 +88,33 @@ export const useDealsManager = (user, setError) => {
   }, [setError]);
 
   // Construction de la map de chemins normalisés
-  const taxonomyPaths = useMemo(() => {
-    const paths = {};
+  const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
+    const fullPaths = {};
+    const leafPaths = {};
     const traverse = (node, currentPath) => {
       if (Array.isArray(node)) {
         node.forEach(item => {
-          paths[normalize(item)] = [...currentPath, item];
+          const path = [...currentPath, item];
+          const fullKey = normalize(path.join('.'));
+          const leafKey = normalize(item);
+          fullPaths[fullKey] = path;
+          // Leaf only: prioritize the deeper node if there's a collision? 
+          // For now, simple leaf mapping for fallback.
+          leafPaths[leafKey] = path;
         });
       } else if (typeof node === 'object' && node !== null) {
         Object.keys(node).forEach(key => {
-          const newPath = [...currentPath, key];
-          paths[normalize(key)] = newPath;
-          traverse(node[key], newPath);
+          const path = [...currentPath, key];
+          const fullKey = normalize(path.join('.'));
+          const leafKey = normalize(key);
+          fullPaths[fullKey] = path;
+          leafPaths[leafKey] = path;
+          traverse(node[key], path);
         });
       }
     };
     traverse(MASTER_TAXONOMY, []);
-    return paths;
+    return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
   }, []);
 
   const level1Options = useMemo(() => ['ALL', ...Object.keys(MASTER_TAXONOMY), 'OTHER'], []);
@@ -183,15 +193,19 @@ export const useDealsManager = (user, setError) => {
     // Classification
     const analysis = deal.aiAnalysis || {};
     const classification = analysis.classification;
+    if (!classification) return l1 === 'ALL' || l1 === 'OTHER';
+
     const normalizedClass = normalize(classification);
-    let path = classification ? taxonomyPaths[normalizedClass] : null;
-    if (!path && classification) {
-      path = findPathFuzzy(normalizedClass, taxonomyPaths);
-    }
+    // 1. Try exact full path lookup
+    let path = taxonomyFullPaths[normalizedClass];
+    // 2. Fallback to leaf lookup
+    if (!path) path = taxonomyLeafPaths[normalizedClass];
+    // 3. Last resort fuzzy search
+    if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
 
     if (l1 !== 'ALL') {
       if (l1 === 'OTHER') {
-        if (path) return false; // Si c'est classé, ce n'est pas OTHER
+        if (path) return false;
       } else {
         if (!path || path[0] !== l1) return false;
         if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
@@ -200,7 +214,7 @@ export const useDealsManager = (user, setError) => {
       }
     }
     return true;
-  }, [taxonomyPaths]);
+  }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
   // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
   const matchesConditionAndPrice = useCallback((deal, condition, priceFilter) => {
@@ -232,11 +246,10 @@ export const useDealsManager = (user, setError) => {
   const typeCounts = useMemo(() => {
     const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
-      // On n'inclut que les deals qui passent le filtre de verdict, condition et prix actuels
       if (!matchesVerdictFilter(deal, filterType)) return;
       if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
-      c.all++; // Total pour le filtre courant
+      c.all++;
 
       const classification = deal.aiAnalysis?.classification;
       if (!classification) {
@@ -244,21 +257,22 @@ export const useDealsManager = (user, setError) => {
         return;
       }
 
-      let path = taxonomyPaths[normalize(classification)];
-      if (!path) {
-        path = findPathFuzzy(normalize(classification), taxonomyPaths);
-      }
+      const normalizedClass = normalize(classification);
+      let path = taxonomyFullPaths[normalizedClass] || taxonomyLeafPaths[normalizedClass];
+      if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
 
       if (path) {
+        let currentPath = "";
         path.forEach(segment => {
-          if (segment) c[segment] = (c[segment] || 0) + 1;
+          currentPath = currentPath ? `${currentPath}.${segment}` : segment;
+          c[currentPath] = (c[currentPath] || 0) + 1;
         });
       } else {
         c.OTHER++;
       }
     });
     return c;
-  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {

@@ -309,7 +309,7 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         .gm-ui-hover-effect { display: none !important; }
         .gm-style-iw-d { overflow: hidden !important; max-height: none !important; }
       `}</style>
-      <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-200 overflow-hidden" />
+      <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-800 overflow-hidden" />
     </>
   );
 };

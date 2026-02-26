@@ -574,9 +574,10 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ### Session 20 : Expansion du Scope - Étape 1 (Amps & Étuis)
 
-#### ✅ Objectif : Passer d'un système "Tout-Guitare" à un système Multi-Catégorie Luthier-Centric.
-
-- **Refonte de la Taxonomie** : Migration de `taxonomy_guitares` vers `taxonomy_master`.
+#### ✅ Objectif : Passer d'un système "Tout-Guitare"- [x] Bugfix: Taxonomy Count Collision (hierarchical paths).
+  - [x] Round 1: Code Audit (Path normalization & aggregation).
+  - [x] Round 2: Data Mapping Verification (Multi-parent nodes).
+  - [x] Round 3: UI/Filter Interaction Sync.
 - **Nouveaux Produits** : Intégration des `amplificateurs` (Lampes, Transistors, Modélisation) et des `accessoires_etuis` (Rigides, Housses souples).
 - **Persona Luthier** : Mise à jour des prompts pour évaluer les amplis (état des lampes, transformateurs) et valoriser l'apport financier des housses/étuis pour le flipping.
 - **Synchronisation Full-Stack** : Mise à jour de `config.py` et `useDealsManager.js` pour supporter dynamiquement la nouvelle structure.
@@ -585,5 +586,24 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 - L'expansion permet de capturer des opportunités de "Fast Flip" (ex: Boss Katana) et de maximiser la valeur des packs guitare+étui.
 - Le maintien du persona **Maître Luthier** assure une analyse technique rigoureuse, même sur des objets non-luthier classiques comme les amplis numériques.
+
+---
+
+[2026-02-26] [FLASH] Action effectuée → Migration complète vers l'UI V2, suppression de l'obsolescence V1 et validation du build de production.
+
+### Session 36 : Activation Définitive de la V2 & Nettoyage V1
+
+#### ✅ Objectif : Remplacer l'ancienne UI par la nouvelle interface SaaS V2.
+
+- **Standardisation des Composants** : Renommage massif des composants `Mockup*` en noms de production (`Dashboard`, `Navbar`, `DealCard`, `FilterDrawer`, `StatsView`).
+- **Simplification de `App.jsx`** : Suppression de toute la logique de bascule V1/V2. L'application monte désormais directement le `Dashboard` V2.
+- **Suppression de la Dette Technique** : Élimination des fichiers V1 obsolètes (`FilterBar.jsx`, `SectionGroup.jsx`, `DealModal.jsx`, `BotControls.jsx`, `DebugStatus.jsx`).
+- **Validation** : Build Vite (`npm run build`) validé avec succès (0 erreur d'import).
+
+#### 🤔 Raisonnement
+
+- La V2 est jugée supérieure en termes d'ergonomie (Filtres en tiroir, Stats intégrées, Map Split-screen) et d'esthétique (Dark Mode).
+- Supprimer les fichiers obsolètes évite toute confusion future et allège le bundle final.
+- La transition "Production Ready" marque la fin de la phase de prototypage de la nouvelle interface.
 
 ---

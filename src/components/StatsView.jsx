@@ -45,7 +45,7 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
     </div>
 );
 
-const MockupStatsView = ({ deals }) => {
+const StatsView = ({ deals }) => {
     // Basic Calculations based on real data
     const totalDeals = deals.length;
     const radarDeals = deals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
@@ -146,7 +146,7 @@ const MockupStatsView = ({ deals }) => {
                 </div>
                 <div className="bg-purple-500/10 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">
                     <Activity size={14} className="animate-pulse" />
-                    Mockup Data
+                    Market Insights
                 </div>
             </div>
 
@@ -262,4 +262,4 @@ const MockupStatsView = ({ deals }) => {
     );
 };
 
-export default MockupStatsView;
+export default StatsView;

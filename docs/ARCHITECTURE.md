@@ -91,7 +91,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Hook central:** C'est le cerveau du frontend pour le tri et l'affichage.
   1. **`onDealsUpdate()`:** S'abonne aux changements de la collection `guitar_deals` dans Firestore.
   2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
-  3. **Système de tri:** Gère les filtres par statut et la taxonomie dynamique sur 4 niveaux de profondeur (`level1Filter` à `level4Filter` et recherche textuelle).
+  3. **Système de tri hiérarchique :** Gère les filtres dynamiques sur 4 niveaux. Utilise des **chemins complets (dot-notation)** pour les clés de comptage (`typeCounts`) et la résolution des taxonomies, évitant ainsi les collisions entre catégories homonymes (ex: "Solid Body" sous Guitare vs Basse).
   4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
 
 ### `src/services/firestoreService.js`
@@ -117,15 +117,15 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
 - **Logique de Navigation :** Sur mobile, le premier clic ouvre la bulle d'info. Le second clic sur la bulle ouvre l'annonce complète en bas d'écran (overlay).
 
-### `src/components/MockupDashboard.jsx` (et Dashboard Analytics V2)
-- **Prototype SaaS (Mockup V2) :** Composants de prévisualisation (Dark Mode, layout pleine largeur, filtres en tiroir, split-screen Map).
+### `src/components/Dashboard.jsx` (Tableau de Bord V2)
+- **Interface Principale :** Regroupe la Navbar, le Tiroir de Filtres, et les différentes vues (Liste, Carte, Stats).
 - **Overlay Mobile :** Implémentation d'un système d'overlay (`absolute inset-0`) pour l'annonce sélectionnée sur mobile, couvrant la carte au lieu de la compresser pour une lecture optimale.
-- **Tableau de Bord de Statistiques (`MockupStatsView.jsx`) :** Composant complexe agrégeant les données de Firestore.
+- **Tableau de Bord de Statistiques (`StatsView.jsx`) :** Composant agrégeant les données de Firestore.
     - Calcule dynamiquement le Tunnel de Conversion (Funnel) et les KPIs financiers (Marge nette latente, Score moyen, Marge par pépite) sur l'inventaire en cours.
     - Utilise `recharts` pour visualiser un **Radar Chart** du profil moyen IA (5 scores) et un **Bar Chart** pour la distribution du Top 5 des Marques.
 
-### `src/components/MockupDealCard.jsx`
-- **Composant Deal V2 :** Version "SaaS" de la carte d'annonce.
+### `src/components/DealCard.jsx`
+- **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
 - **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
 - **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
 

@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart } from 'lucide-react';
-import MockupNavbar from './MockupNavbar';
-import MockupDealCard from './MockupDealCard';
-import MockupFilterDrawer from './MockupFilterDrawer';
-import MockupStatsView from './MockupStatsView';
+import Navbar from './Navbar';
+import DealCard from './DealCard';
+import FilterDrawer from './FilterDrawer';
+import StatsView from './StatsView';
 import ConfigPanel from './ConfigPanel';
 import MapView from './MapView';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
@@ -96,9 +96,9 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
 // Dashboard
 // ============================================================
 // ============================================================
-// Mockup Map View Header / Wrapper
+// Map View Header / Wrapper
 // ============================================================
-const MockupMapView = ({ deals, renderDealCard }) => {
+const MapViewOverlay = ({ deals, renderDealCard }) => {
     const [selectedDealId, setSelectedDealId] = useState(null);
     const selectedDeal = deals.find(d => d.id === selectedDealId);
 
@@ -133,7 +133,7 @@ const MockupMapView = ({ deals, renderDealCard }) => {
     );
 };
 
-const MockupDashboard = ({ onClose }) => {
+const Dashboard = ({ onClose }) => {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [showConfig, setShowConfig] = useState(false);
     const [viewMode, setViewMode] = useState('LIST');
@@ -248,7 +248,7 @@ const MockupDashboard = ({ onClose }) => {
 
     // ── Render a real deal card with real actions ─────────────
     const renderDealCard = (d) => (
-        <MockupDealCard
+        <DealCard
             key={d.id}
             deal={d}
             onRetry={() => dealActions?.handleRetryAnalysis(d.id)}
@@ -261,7 +261,7 @@ const MockupDashboard = ({ onClose }) => {
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
-            <MockupNavbar
+            <Navbar
                 onOpenFilters={() => setDrawerOpen(true)}
                 onOpenSettings={() => setShowConfig(s => !s)}
                 onClose={onClose}
@@ -272,7 +272,7 @@ const MockupDashboard = ({ onClose }) => {
                 isCleaning={isCleaning}
             />
 
-            <MockupFilterDrawer
+            <FilterDrawer
                 open={drawerOpen}
                 onClose={() => setDrawerOpen(false)}
                 filters={filters}
@@ -359,9 +359,9 @@ const MockupDashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <MockupStatsView deals={filteredDeals} />
+                    <StatsView deals={filteredDeals} />
                 ) : viewMode === 'MAP' ? (
-                    <MockupMapView deals={filteredDeals} renderDealCard={renderDealCard} />
+                    <MapViewOverlay deals={filteredDeals} renderDealCard={renderDealCard} />
                 ) : (
                     <>
                         {/* ─── Sections ─── */}
@@ -414,4 +414,4 @@ const MockupDashboard = ({ onClose }) => {
     );
 };
 
-export default MockupDashboard;
+export default Dashboard;

@@ -20,7 +20,7 @@ const BOT_STATUS_CONFIG = {
     stopped: { label: 'Arrêté', color: 'text-rose-400', icon: <Power size={14} className="text-rose-400" /> },
 };
 
-const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
+const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
 
@@ -158,7 +158,7 @@ const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) =
                         )}
                     </button>
 
-                    {/* Settings / Paramètres button (gear icon) */}
+                    {/* Paramètres button (gear icon) */}
                     <button
                         onClick={onOpenSettings}
                         className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
@@ -166,19 +166,10 @@ const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) =
                     >
                         <Settings size={16} />
                     </button>
-
-                    {/* Exit Mockup */}
-                    <button
-                        onClick={onClose}
-                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-purple-600 text-white text-xs font-bold hover:bg-purple-500 transition-all border border-purple-500"
-                    >
-                        <X size={14} />
-                        <span className="hidden sm:inline">Quitter V2</span>
-                    </button>
                 </div>
             </div>
         </nav>
     );
 };
 
-export default MockupNavbar;
+export default Navbar;
