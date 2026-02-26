@@ -392,17 +392,20 @@ const MockupDashboard = ({ onClose }) => {
                             <Activity size={16} />
                         </button>
                     </div>
+
+                    {/* Results Count & Clear Filters (Moved into the bar) */}
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 shrink-0 sm:ml-2">
+                        <span className="text-xs text-slate-500 font-mono hidden xl:block">
+                            {filtered.length} annonce{filtered.length !== 1 ? 's' : ''}
+                        </span>
+                        {(activeFilterCount > 0 || search) && (
+                            <button onClick={handleReset} className="flex items-center justify-center h-10 w-10 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/20" title="Effacer tous les filtres">
+                                <X size={16} />
+                            </button>
+                        )}
+                    </div>
                 </div>
 
-                {/* ─── Results count ─── */}
-                <p className="text-xs text-slate-500 font-mono mb-4">
-                    {filtered.length} annonce{filtered.length !== 1 ? 's' : ''} affichée{filtered.length !== 1 ? 's' : ''}
-                    {(activeFilterCount > 0 || search) ? (
-                        <button onClick={handleReset} className="ml-3 text-blue-400 hover:text-blue-300 transition-colors">
-                            × Effacer les filtres
-                        </button>
-                    ) : null}
-                </p>
 
                 {viewMode === 'STATS' ? (
                     <MockupStatsView deals={filtered} />

@@ -61,8 +61,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup)*
     - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
 - [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
-- [ ] **Dark Scrollbar pour les Filtres (Mockup)**
-    - *Détails :* Appliquer un style sombre à la scrollbar du drawer de filtres.
+- [x] **Dark Scrollbar pour les Filtres (Mockup)**
+    - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
 
 - [ ] **🚀 Migration vers Production (Prochaine Étape)**
     - [ ] **Appliquer le Pattern Drawer & Cascade à la production**

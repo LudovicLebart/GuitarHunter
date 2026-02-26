@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, ChevronDown, ChevronUp } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, ChevronDown, ChevronUp, X, FileText } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 
 const VERDICT_CONFIG = {
@@ -16,7 +16,7 @@ const toTitleCase = (str = '') =>
     str.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 const MockupDealCard = ({ deal }) => {
-    const [expanded, setExpanded] = useState(false);
+    const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [liked, setLiked] = useState(false);
 
     const verdict = deal.verdict || 'DEFAULT';
@@ -27,7 +27,7 @@ const MockupDealCard = ({ deal }) => {
         <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group">
 
             {/* Image Gallery Container */}
-            <div className="relative w-full h-[350px] sm:h-[400px] bg-slate-950 overflow-hidden flex items-center justify-center">
+            <div className="relative w-full h-[280px] bg-slate-950 overflow-hidden flex items-center justify-center shrink-0">
                 <div className="h-full w-full">
                     <ImageGallery images={deal.imageUrls || [deal.image || '']} title={deal.title} />
                 </div>
@@ -73,16 +73,17 @@ const MockupDealCard = ({ deal }) => {
                     </div>
                 )}
 
-                {/* AI Reasoning block — collapsible */}
+                {/* AI Reasoning button — opens modal */}
                 {deal.reasoning && (
-                    <div className="bg-slate-950 rounded-xl border border-slate-800">
+                    <div className="bg-slate-950 rounded-xl border border-slate-800 relative z-10 w-full">
                         <button
-                            className="w-full flex items-center justify-between px-3 py-2 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
-                            onClick={() => setExpanded(!expanded)}
+                            className="w-full h-full flex items-center justify-between px-3 py-2 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+                            onClick={() => setShowAnalysisModal(true)}
                         >
                             <span className="flex items-center gap-1.5 font-bold">
-                                {/* Hidden model debug — tooltip only */}
-                                <span title={`Modèles: ${deal.models || 'N/A'}`} className="cursor-help">✨ Analyse IA</span>
+                                <span title={`Modèles: ${deal.models || 'N/A'}`} className="cursor-help flex items-center gap-1.5">
+                                    <FileText size={12} className="text-blue-400" /> Analyse IA
+                                </span>
                             </span>
                             <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1.5">
@@ -91,14 +92,9 @@ const MockupDealCard = ({ deal }) => {
                                     </div>
                                     <span className="text-blue-400 font-bold">{deal.confidence}%</span>
                                 </div>
-                                {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                                <span className="text-slate-500 font-mono ml-1">Lire</span>
                             </div>
                         </button>
-                        {expanded && (
-                            <div className="px-3 pb-3 text-[11px] text-slate-300 leading-relaxed border-t border-slate-800 pt-2 whitespace-pre-wrap font-mono">
-                                {deal.reasoning}
-                            </div>
-                        )}
                     </div>
                 )}
 
@@ -128,6 +124,110 @@ const MockupDealCard = ({ deal }) => {
                     </div>
                 </div>
             </div>
+
+            {/* AI Reasoning Full-Screen Modal */}
+            {showAnalysisModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md cursor-pointer" onClick={() => setShowAnalysisModal(false)}></div>
+
+                    <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 pointer-events-auto">
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
+                            <div>
+                                <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
+                                    Rapport d'Expertise IA
+                                </h2>
+                                <h3 className="text-sm text-slate-400 truncate max-w-[200px] sm:max-w-md">
+                                    {toTitleCase(deal.title)}
+                                </h3>
+                            </div>
+                            <button
+                                onClick={() => setShowAnalysisModal(false)}
+                                className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full transition-colors border border-slate-700/50 shrink-0"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="flex-1 flex flex-col md:flex-row min-h-0">
+                            {/* Left column: Image ref */}
+                            <div className="hidden md:flex flex-col w-1/3 bg-slate-950 border-r border-slate-800 p-6 items-center shrink-0 overflow-y-auto scrollbar-dark">
+                                <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-black mb-6 shadow-inner relative border border-slate-800 shrink-0">
+                                    <img
+                                        src={deal.imageUrls?.[0] || deal.image}
+                                        alt={deal.title}
+                                        className="w-full h-full object-contain"
+                                    />
+                                    {/* Verdict Badge Replica */}
+                                    <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
+                                        <VIcon size={14} />
+                                        {vc.label}
+                                    </div>
+                                </div>
+                                <div className="w-full space-y-4">
+                                    <div className="bg-slate-900 rounded-xl p-4 border border-slate-800">
+                                        <div className="text-xs text-slate-500 font-bold uppercase mb-1">Prix demandé</div>
+                                        <div className="text-2xl font-black text-white">{deal.price}$ <span className="text-sm font-normal text-slate-400 line-through ml-2">{deal.estValue}$</span></div>
+                                    </div>
+
+                                    {deal.margin != null && (
+                                        <div className={`rounded-xl p-4 border ${deal.margin > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
+                                            <div className={`text-xs font-bold uppercase mb-1 ${deal.margin > 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>Marge Estimée</div>
+                                            <div className={`text-xl font-black ${deal.margin > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{deal.margin > 0 ? '+' : ''}{deal.margin}$</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Right column: The markdown text */}
+                            <div className="flex-1 p-6 sm:p-8 overflow-y-auto scrollbar-dark">
+                                <div className="flex items-center gap-4 mb-6 pb-6 border-b border-slate-800/50 shrink-0">
+                                    <div className="flex-1">
+                                        <div className="text-xs text-slate-500 font-bold uppercase mb-2">Modèles utilisés</div>
+                                        <div className="text-sm text-slate-300 font-mono bg-slate-950 px-3 py-1.5 rounded-lg inline-block border border-slate-800">{deal.models || 'Indisponible'}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs text-slate-500 font-bold uppercase mb-2 text-right">Confiance Globale</div>
+                                        <div className="flex items-center justify-end gap-3">
+                                            <span className="text-2xl font-black text-blue-400">{deal.confidence || 0}%</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="prose prose-invert prose-sm sm:prose-base max-w-none 
+                                    prose-p:text-slate-300 prose-p:leading-relaxed
+                                    prose-strong:text-white prose-strong:font-bold
+                                    prose-ul:text-slate-300 prose-li:my-1
+                                    font-mono marker:text-blue-500">
+                                    {deal.reasoning.split('\n').map((line, i) => {
+                                        // A very simple markdown-ish renderer for the modal
+                                        if (line.trim() === '') return <br key={i} className="my-2" />;
+                                        if (line.startsWith('##')) return <h3 key={i} className="text-lg font-bold text-white mt-6 mb-3 pb-2 border-b border-slate-800">{line.replace('##', '').trim()}</h3>;
+                                        if (line.startsWith('•') || line.startsWith('-')) {
+                                            // Bold parsing for specific patterns like `**Authenticité**`
+                                            const parts = line.split(/(\*\*.*?\*\*)/g);
+                                            return (
+                                                <div key={i} className="flex gap-3 mb-2 items-start text-[13px] sm:text-[15px]">
+                                                    <span className="text-blue-500 shrink-0 mt-0.5">•</span>
+                                                    <span>
+                                                        {parts.map((p, j) =>
+                                                            p.startsWith('**') && p.endsWith('**')
+                                                                ? <strong key={j} className="text-white font-bold">{p.slice(2, -2)}</strong>
+                                                                : p.replace(/^[-•]/, '').trim()
+                                                        )}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return <p key={i} className="text-[13px] sm:text-[15px] mb-3">{line}</p>;
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
