@@ -126,7 +126,8 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 ### `src/components/DealCard.jsx`
 - **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
-- **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
+- **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, Partager, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
+- **Partage Intelligent :** Intègre l'API `navigator.share` avec fallback automatique vers la copie dans le presse-papier pour une flexibilité maximale (PC/Mobile).
 - **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
 
 ## 4. 🧠 Système de Prompts Dynamiques

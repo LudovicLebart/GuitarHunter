@@ -260,7 +260,7 @@ const Dashboard = ({ onClose }) => {
     );
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
+        <div className="min-h-screen bg-slate-950 text-slate-100 font-sans overflow-x-hidden">
             <Navbar
                 onOpenFilters={() => setDrawerOpen(true)}
                 onOpenSettings={() => setShowConfig(s => !s)}

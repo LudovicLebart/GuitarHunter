@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown, Share2 } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 
 // ── Verdict config ───────────────────────────────────────────
@@ -40,6 +40,38 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
     const [showRescanMenu, setShowRescanMenu] = useState(false);
     const [showModalRescanMenu, setShowModalRescanMenu] = useState(false);
+    const [isCopying, setIsCopying] = useState(false);
+
+    const handleShare = async (e) => {
+        e.stopPropagation();
+        if (!deal.link) return;
+
+        const shareData = {
+            title: `Guitar Hunter AI : ${deal.title}`,
+            text: `Regarde cette annonce sur Facebook Marketplace : ${deal.title}`,
+            url: deal.link
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Erreur de partage:', err);
+                }
+            }
+        } else {
+            // Fallback: Copy to clipboard
+            try {
+                await navigator.clipboard.writeText(deal.link);
+                setIsCopying(true);
+                setTimeout(() => setIsCopying(false), 2000);
+            } catch (err) {
+                console.error('Erreur de copie:', err);
+                alert("Impossible de copier le lien. Copiez-le manuellement depuis la barre d'adresse.");
+            }
+        }
+    };
 
     const renderActionButtons = (isModal = false) => {
         const menuOpen = isModal ? showModalRescanMenu : showRescanMenu;
@@ -96,7 +128,6 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 >
                     <XCircle size={18} className="sm:w-4 sm:h-4" />
                 </button>
-                {/* Supprimer */}
                 <button
                     onClick={onDelete}
                     className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
@@ -104,7 +135,18 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 >
                     <Trash2 size={18} className="sm:w-4 sm:h-4" />
                 </button>
+
                 <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+
+                {/* Partager */}
+                <button
+                    onClick={handleShare}
+                    disabled={!deal.link}
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isCopying ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-blue-400 hover:bg-blue-500/10'}`}
+                    title={isCopying ? "Lien copié !" : "Partager l'annonce"}
+                >
+                    <Share2 size={18} className="sm:w-4 sm:h-4" />
+                </button>
                 {/* Facebook */}
                 {deal.link ? (
                     <a
@@ -283,7 +325,6 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         >
                             <XCircle size={18} className="sm:w-4 sm:h-4" />
                         </button>
-                        {/* Supprimer */}
                         <button
                             onClick={onDelete}
                             className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
@@ -291,7 +332,18 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         >
                             <Trash2 size={18} className="sm:w-4 sm:h-4" />
                         </button>
+
                         <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+
+                        {/* Partager */}
+                        <button
+                            onClick={handleShare}
+                            disabled={!deal.link}
+                            className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isCopying ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-blue-400 hover:bg-blue-500/10'}`}
+                            title={isCopying ? "Lien copié !" : "Partager l'annonce"}
+                        >
+                            <Share2 size={18} className="sm:w-4 sm:h-4" />
+                        </button>
                         {/* Facebook */}
                         {deal.link ? (
                             <a

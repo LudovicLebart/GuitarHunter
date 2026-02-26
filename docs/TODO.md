@@ -47,8 +47,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Lancer la migration réelle des images** *(Fait Session 29 — migrate --real)*
 
-- [ ] **Feature : Extraire la Date de Mise en Ligne**
-    - *Détails :* Étudier la faisabilité d'extraire la date/heure de publication originelle de l'annonce sur Facebook Marketplace lors du scraping (nécessite possiblement une analyse plus profonde du DOM ou de l'API locale).
+- [x] **Feature : Extraire la Date de Mise en Ligne** *(Session 40)*
+    - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -169,4 +169,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
 - [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
 - [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
-- [x] Session 39 : Polissage UI V2 (Suppression scrollbar native, Fix clipping Navbar).
+- [x] Correction Critique : Scrollbloqué sur la page principale (V2).
+- [x] Restauration du Bouton de Partage (V2) avec support native share & clipboard.

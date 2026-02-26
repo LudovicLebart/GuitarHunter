@@ -200,4 +200,22 @@ class ListingParser:
         except Exception as e:
             logger.debug(f"Erreur extraction description: {e}")
 
-        return {"description": description[:3000], "imageUrls": image_urls, "coordinates": coordinates}
+        # --- NOUVEAU : Extraction de la date de publication ---
+        published_at_raw = None
+        try:
+            # On cherche la balise abbr qui contient l'âge de l'annonce
+            # Le sélecteur cible l'élément tel que fourni par l'utilisateur
+            date_element = page.locator('div[role="main"] abbr[aria-label]').first
+            if date_element.count() > 0:
+                published_at_raw = date_element.get_attribute('aria-label')
+                if published_at_raw:
+                    logger.info(f"   📅 Date extraite : {published_at_raw}")
+        except Exception as e:
+            logger.debug(f"Erreur extraction date de publication: {e}")
+
+        return {
+            "description": description[:3000], 
+            "imageUrls": image_urls, 
+            "coordinates": coordinates,
+            "published_at_raw": published_at_raw
+        }

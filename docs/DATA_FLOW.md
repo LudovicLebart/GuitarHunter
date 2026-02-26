@@ -65,6 +65,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
        "tier3_trigger": "Reason why Expert Pro was called (optional)"
     },
     "link": "URL",
+    "published_at_raw": "il y a X semaines (extraite par le scraper)",
     "timestamp": "ServerTimestamp"
   }
   ```

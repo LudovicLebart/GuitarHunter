@@ -295,7 +295,7 @@ class FacebookScraper:
                         "title": title, "price": price, "description": details['description'],
                         "imageUrl": final_img, "imageUrls": details['imageUrls'],
                         "link": clean_link, "location": spec_loc,
-                        "id": fb_id
+                        "id": fb_id, "published_at_raw": details.get('published_at_raw')
                     }
                     if coords:
                         logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
@@ -366,7 +366,8 @@ class FacebookScraper:
                 "imageUrl": details['imageUrls'][0] if details['imageUrls'] else "",
                 "imageUrls": details['imageUrls'],
                 "link": clean_link, "location": location,
-                "searchDistance": 0, "id": fb_id
+                "searchDistance": 0, "id": fb_id,
+                "published_at_raw": details.get('published_at_raw')
             }
             if details['coordinates']:
                 listing_data["latitude"] = details['coordinates']["lat"]
