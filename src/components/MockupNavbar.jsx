@@ -45,8 +45,8 @@ const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) =
     };
 
     return (
-        <nav className="sticky top-0 z-30 bg-slate-900/80 backdrop-blur-lg border-b border-slate-800">
-            <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+        <nav className="sticky top-0 z-30 w-full bg-slate-900/80 backdrop-blur-lg border-b border-slate-800">
+            <div className="w-full max-w-7xl mx-auto px-2 sm:px-4 h-16 flex items-center justify-between gap-2 sm:gap-4 overflow-x-hidden">
 
                 {/* Logo */}
                 <div className="flex items-center gap-3 shrink-0">
@@ -54,10 +54,10 @@ const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) =
                         <Guitar size={20} />
                     </div>
                     <div>
-                        <h1 className="text-base font-black tracking-tight text-white leading-none">
+                        <h1 className="text-sm sm:text-base font-black tracking-tight text-white leading-none">
                             GUITAR HUNTER <span className="text-blue-400">AI</span>
                         </h1>
-                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">
+                        <p className="hidden sm:block text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">
                             Scraper & Gemini Evaluator
                         </p>
                     </div>
@@ -71,8 +71,8 @@ const MockupNavbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) =
                     </div>
 
                     {/* Bot Interactive Status */}
-                    <div className="relative group flex items-center h-full">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold cursor-help px-2 py-1 rounded-lg transition-colors hover:bg-slate-800">
+                    <div className="relative group flex items-center h-full flex-shrink-0">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold cursor-help px-1 sm:px-2 py-1 rounded-lg transition-colors hover:bg-slate-800 whitespace-nowrap">
                             {statusInfo.icon}
                             <span className={statusInfo.color}>{statusInfo.label}</span>
                         </div>

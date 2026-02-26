@@ -142,59 +142,59 @@ const MockupDealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavori
                 )}
 
                 {/* Footer actions */}
-                <div className="flex items-center justify-between mt-auto pt-2 border-t border-slate-800/50">
-                    <span className="text-[10px] text-slate-600 font-mono flex items-center gap-1">
+                <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-800/50">
+                    <span className="text-[10px] sm:text-xs text-slate-600 font-mono flex items-center gap-1">
                         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60"></div>
                         {relDate || 'Récent'}
                     </span>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
                         {/* Favori */}
                         <button
                             onClick={onToggleFavorite}
-                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
+                            className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-rose-400 hover:bg-rose-500/10'}`}
                             title="Favori"
                         >
-                            <Heart size={16} fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                            <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
                         </button>
                         {/* Ré-analyser */}
                         <button
                             onClick={onRetry}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
+                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-slate-700/50 transition-all"
                             title="Ré-analyser"
                         >
-                            <RefreshCw size={16} className={isAnalyzing ? 'animate-spin' : ''} />
+                            <RefreshCw size={18} className={`sm:w-4 sm:h-4 ${isAnalyzing ? 'animate-spin' : ''}`} />
                         </button>
                         {/* Rejeter */}
                         <button
                             onClick={onReject}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 border border-slate-700/50 transition-all"
+                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 border border-slate-700/50 transition-all"
                             title="Rejeter"
                         >
-                            <XCircle size={16} />
+                            <XCircle size={18} className="sm:w-4 sm:h-4" />
                         </button>
                         {/* Supprimer */}
                         <button
                             onClick={onDelete}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
+                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-500 hover:text-red-400 hover:bg-red-500/10 border border-slate-700/50 transition-all"
                             title="Supprimer"
                         >
-                            <Trash2 size={16} />
+                            <Trash2 size={18} className="sm:w-4 sm:h-4" />
                         </button>
-                        <div className="w-px h-5 bg-slate-800 mx-0.5"></div>
+                        <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
                         {/* Facebook */}
                         {deal.link ? (
                             <a
                                 href={deal.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="w-9 h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
                                 title="Voir sur Facebook"
                             >
-                                <Facebook size={16} />
+                                <Facebook size={18} className="sm:w-4 sm:h-4" />
                             </a>
                         ) : (
-                            <button className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
-                                <Facebook size={16} />
+                            <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
+                                <Facebook size={18} className="sm:w-4 sm:h-4" />
                             </button>
                         )}
                     </div>
@@ -229,6 +229,13 @@ const MockupDealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavori
                                         <ExternalLink size={14} /> Voir l'annonce
                                     </a>
                                 )}
+                                <button
+                                    onClick={onToggleFavorite}
+                                    className={`w-10 h-10 flex items-center justify-center rounded-full transition-all border ${deal.isFavorite ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 border-slate-700/50'}`}
+                                    title="Favori"
+                                >
+                                    <Heart size={20} fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                                </button>
                                 <button
                                     onClick={() => setShowAnalysisModal(false)}
                                     className="w-10 h-10 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-full transition-colors border border-slate-700/50 shrink-0"

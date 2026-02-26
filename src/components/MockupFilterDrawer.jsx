@@ -85,7 +85,7 @@ const InlineOption = ({ label, active, onClick, hasChildren, depth = 0, count })
     return (
         <button
             onClick={onClick}
-            className={`flex items-center gap-2.5 text-left py-2 rounded-lg transition-all w-full ${paddingLeft} ${active ? 'bg-blue-600/10 border border-blue-500/20' : 'hover:bg-slate-800 border border-transparent'
+            className={`flex items-center gap-3 text-left py-2.5 sm:py-2 rounded-lg transition-all w-full ${paddingLeft} ${active ? 'bg-blue-600/10 border border-blue-500/20' : 'hover:bg-slate-800 border border-transparent'
                 }`}
         >
             <div className={`${indicatorSize} shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${active ? 'border-blue-500 bg-blue-500' : 'border-slate-600'

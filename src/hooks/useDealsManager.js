@@ -43,6 +43,8 @@ export const useDealsManager = (user, setError) => {
   const [level2Filter, setLevel2Filter] = useState('ALL');
   const [level3Filter, setLevel3Filter] = useState('ALL');
   const [level4Filter, setLevel4Filter] = useState('ALL');
+  const [conditionFilter, setConditionFilter] = useState('ALL');
+  const [priceFilter, setPriceFilter] = useState('ALL');
 
   useEffect(() => {
     if (!user) return;
@@ -175,7 +177,6 @@ export const useDealsManager = (user, setError) => {
     if (deal.status === 'rejected') return false;
     // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
 
-
     // Recherche textuelle
     if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
 
@@ -201,12 +202,39 @@ export const useDealsManager = (user, setError) => {
     return true;
   }, [taxonomyPaths]);
 
-  // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT)
+  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
+  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter) => {
+    // === CONDITION ===
+    if (condition !== 'ALL') {
+      const conditionScore = deal.aiAnalysis?.condition_score;
+      if (conditionScore == null) return false; // Si pas de score, on exclut
+
+      if (condition === 'excellent' && conditionScore < 8) return false;
+      if (condition === 'good' && conditionScore < 5) return false;
+      if (condition === 'project' && conditionScore >= 5) return false;
+    }
+
+    // === PRICE ===
+    if (priceFilter !== 'ALL') {
+      const price = deal.price;
+      if (price == null) return false; // Si pas de prix, on exclut
+
+      if (priceFilter === 'under100' && price >= 100) return false;
+      if (priceFilter === '100-300' && (price < 100 || price > 300)) return false;
+      if (priceFilter === '300-600' && (price < 300 || price > 600)) return false;
+      if (priceFilter === 'over600' && price <= 600) return false;
+    }
+
+    return true;
+  }, []);
+
+  // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT, CONDITION et PRICE)
   const typeCounts = useMemo(() => {
     const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
-      // On n'inclut que les deals qui passent le filtre de verdict actuel
+      // On n'inclut que les deals qui passent le filtre de verdict, condition et prix actuels
       if (!matchesVerdictFilter(deal, filterType)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       c.all++; // Total pour le filtre courant
 
@@ -230,9 +258,9 @@ export const useDealsManager = (user, setError) => {
       }
     });
     return c;
-  }, [deals, filterType, matchesVerdictFilter, taxonomyPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyPaths]);
 
-  // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE)
+  // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
     const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0 };
     // Initialiser tous les compteurs de verdicts possibles
@@ -252,8 +280,9 @@ export const useDealsManager = (user, setError) => {
         return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
 
-      // On n'inclut que les deals qui passent les filtres de type actuels
+      // On n'inclut que les deals qui passent les filtres de type, condition et prix actuels
       if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
@@ -273,22 +302,23 @@ export const useDealsManager = (user, setError) => {
       if (deal.isFavorite) c.FAVORITES++;
     });
     return c;
-  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesTypeFilter]);
+  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
 
-  // 5. Liste finale filtrée (Intersection des deux filtres)
+  // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
     return deals.filter(deal => {
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
 
 
-      // Pour les autres filtres, on combine verdict et type
+      // Pour les autres filtres, on combine verdict, type, condition et prix
       const verdictMatch = matchesVerdictFilter(deal, filterType);
       const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery);
+      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter);
 
-      return verdictMatch && typeMatch;
+      return verdictMatch && typeMatch && condPriceMatch;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery, matchesVerdictFilter, matchesTypeFilter]);
+  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
@@ -305,6 +335,8 @@ export const useDealsManager = (user, setError) => {
       level2Filter, setLevel2Filter,
       level3Filter, setLevel3Filter,
       level4Filter, setLevel4Filter,
+      conditionFilter, setConditionFilter,
+      priceFilter, setPriceFilter,
       level1Options,
       level2Options,
       level3Options,

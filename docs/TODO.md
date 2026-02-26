@@ -69,6 +69,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 32)*
     - *Détails :* `MockupDashboard` branché sur `useDealsContext` (données réelles Firestore). `MockupDealCard` câblé sur le vrai modèle `aiAnalysis` (verdict, reasoning, model_used, deal_score, estimated_value) et sur les vraies actions (favori, rejet, suppression, ré-analyse, lien Facebook). Vue MAP remplacée par le vrai `MapView.jsx`. Filtres (`filterType`, `level1-4Filter`, `searchQuery`) synchronisés avec `useDealsManager`. V1 intacte.
+- [ ] **Bug Mockup V2 : Filtres inopérants**
+    - *Détails :* Les entrées "Condition Estimée" et "Fourchettes de Prix" ne fonctionnent pas dans les filtres du Mockup V2.
+- [ ] **Refonte UI Mobile : Corrections majeures**
+    - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
 - [ ] **Système de Thème (Dark Mode) global**
     - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
 - [ ] **Dashboard Analytics & Statistiques**
@@ -79,6 +83,21 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Continuer d'affiner le composant `PriceDisplay` dans `DealCard.jsx`. Objectif : affichage clair, compact et informatif sur mobile et desktop.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
+
+- [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
+    - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
+
+### 🪟 Modale d'Analyse IA (Mockup V2)
+
+- [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*
+    - *Détails :* L'utilisateur peut désormais marquer une annonce en favori directement depuis la vue détaillée (modale) de la carte.
+
+---
+
+### 🗺️ Cartographie (Mockup V2)
+
+- [ ] **Améliorer l'interaction avec les Pins**
+    - *Détails :* Au clic sur un pin, ouvrir une mini-popup (type tooltip) avec une photo et les infos minimales. Un deuxième clic sur cette popup ouvre l'annonce dans le split frame (barre latérale) comme c'est le cas actuellement.
 
 ---
 

@@ -165,6 +165,10 @@ const MockupDashboard = ({ onClose }) => {
         setLevel3Filter,
         level4Filter = 'ALL',
         setLevel4Filter,
+        conditionFilter = 'ALL',
+        setConditionFilter,
+        priceFilter = 'ALL',
+        setPriceFilter,
         searchQuery = '',
         setSearchQuery,
     } = filterProps || {};
@@ -177,8 +181,8 @@ const MockupDashboard = ({ onClose }) => {
         level2: level2Filter === 'ALL' ? 'all' : level2Filter,
         level3: level3Filter === 'ALL' ? 'all' : level3Filter,
         level4: level4Filter === 'ALL' ? 'all' : level4Filter,
-        condition: 'all',
-        price: 'all',
+        condition: conditionFilter === 'ALL' ? 'all' : conditionFilter,
+        price: priceFilter === 'ALL' ? 'all' : priceFilter,
     };
 
     const handleFilterChange = (key, value) => {
@@ -190,6 +194,8 @@ const MockupDashboard = ({ onClose }) => {
             case 'level2': setLevel2Filter?.(normalized); break;
             case 'level3': setLevel3Filter?.(normalized); break;
             case 'level4': setLevel4Filter?.(normalized); break;
+            case 'condition': setConditionFilter?.(normalized); break;
+            case 'price': setPriceFilter?.(normalized); break;
             default: break;
         }
     };
@@ -200,6 +206,8 @@ const MockupDashboard = ({ onClose }) => {
         setLevel2Filter?.('ALL');
         setLevel3Filter?.('ALL');
         setLevel4Filter?.('ALL');
+        setConditionFilter?.('ALL');
+        setPriceFilter?.('ALL');
         setSearchQuery?.('');
     };
 
@@ -227,6 +235,8 @@ const MockupDashboard = ({ onClose }) => {
         level2Filter !== 'ALL' ? 1 : 0,
         level3Filter !== 'ALL' ? 1 : 0,
         level4Filter !== 'ALL' ? 1 : 0,
+        conditionFilter !== 'ALL' ? 1 : 0,
+        priceFilter !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
 
     const toggle = (s) => setOpenSections(prev => ({ ...prev, [s]: !prev[s] }));
@@ -269,10 +279,10 @@ const MockupDashboard = ({ onClose }) => {
             {/* Real ConfigPanel — opens via gear icon */}
             <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
 
-            <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8 overflow-x-hidden">
 
                 {/* ─── Search & Actions ─── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 mb-6 flex flex-col sm:flex-row gap-3">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 md:p-4 mb-6 grid grid-cols-1 md:flex md:flex-row gap-3 shadow-sm">
                     {/* Search */}
                     <div className="relative flex-1">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 shrink-0" />
@@ -293,43 +303,47 @@ const MockupDashboard = ({ onClose }) => {
                         )}
                     </div>
 
-                    <div className="flex gap-2 shrink-0">
-                        {/* Favorite Shortcut Toggle */}
-                        <button
-                            onClick={() => setFilterType?.(filterType === 'FAVORITES' ? 'ALL' : 'FAVORITES')}
-                            className={`h-10 px-3 flex items-center justify-center rounded-xl transition-all border shadow-sm ${filterType === 'FAVORITES' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 hover:border-slate-600'}`}
-                            title="Afficher uniquement les favoris"
-                        >
-                            <Heart size={16} fill={filterType === 'FAVORITES' ? 'currentColor' : 'none'} />
-                        </button>
-
-                        {/* Verdict Filter Dropdown */}
-                        <VerdictDropdown
-                            currentVerdict={filterType}
-                            onSelect={(v) => setFilterType?.(v)}
-                            counts={counts || {}}
-                        />
-                    </div>
-
-                    {/* View Mode Toggle */}
-                    <div className="flex bg-slate-800 p-1 rounded-xl shrink-0 h-10 border border-slate-700">
-                        <button onClick={() => setViewMode('LIST')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'LIST' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><List size={16} /></button>
-                        <button onClick={() => setViewMode('MAP')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'MAP' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><MapIcon size={16} /></button>
-                        <button onClick={() => setViewMode('STATS')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'STATS' ? 'bg-slate-700 shadow-sm text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}>
-                            <Activity size={16} />
-                        </button>
-                    </div>
-
-                    {/* Results Count & Clear Filters */}
-                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 shrink-0 sm:ml-2">
-                        <span className="text-xs text-slate-500 font-mono hidden xl:block">
-                            {filteredDeals.length} annonce{filteredDeals.length !== 1 ? 's' : ''}
-                        </span>
-                        {(activeFilterCount > 0 || searchQuery) && (
-                            <button onClick={handleReset} className="flex items-center justify-center h-10 w-10 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/20" title="Effacer tous les filtres">
-                                <X size={16} />
+                    <div className="flex flex-row justify-between md:justify-start gap-2 shrink-0">
+                        <div className="flex gap-2 shrink-0">
+                            {/* Favorite Shortcut Toggle */}
+                            <button
+                                onClick={() => setFilterType?.(filterType === 'FAVORITES' ? 'ALL' : 'FAVORITES')}
+                                className={`h-10 px-3 flex items-center justify-center rounded-xl transition-all border shadow-sm ${filterType === 'FAVORITES' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400 hover:bg-slate-700 hover:border-slate-600'}`}
+                                title="Afficher uniquement les favoris"
+                            >
+                                <Heart size={16} fill={filterType === 'FAVORITES' ? 'currentColor' : 'none'} />
                             </button>
-                        )}
+
+                            {/* Verdict Filter Dropdown */}
+                            <VerdictDropdown
+                                currentVerdict={filterType}
+                                onSelect={(v) => setFilterType?.(v)}
+                                counts={counts || {}}
+                            />
+                        </div>
+
+                        <div className="flex gap-2 shrink-0 md:ml-auto">
+                            {/* View Mode Toggle */}
+                            <div className="flex bg-slate-800 p-1 rounded-xl shrink-0 h-10 border border-slate-700">
+                                <button onClick={() => setViewMode('LIST')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'LIST' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><List size={16} /></button>
+                                <button onClick={() => setViewMode('MAP')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'MAP' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><MapIcon size={16} /></button>
+                                <button onClick={() => setViewMode('STATS')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'STATS' ? 'bg-slate-700 shadow-sm text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}>
+                                    <Activity size={16} />
+                                </button>
+                            </div>
+
+                            {/* Results Count & Clear Filters */}
+                            <div className="flex items-center justify-center gap-2 shrink-0">
+                                <span className="text-xs text-slate-500 font-mono hidden xl:block">
+                                    {filteredDeals.length} annonce{filteredDeals.length !== 1 ? 's' : ''}
+                                </span>
+                                {(activeFilterCount > 0 || searchQuery) && (
+                                    <button onClick={handleReset} className="flex items-center justify-center h-10 w-10 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/20" title="Effacer tous les filtres">
+                                        <X size={16} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
 

@@ -89,32 +89,34 @@ const AppContent = () => {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
-      <nav className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200"><Guitar size={24} /></div>
-            <div>
-              <h1 className="text-lg font-black tracking-tight text-slate-800">GUITAR HUNTER <span className="text-blue-600">AI</span></h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Scraper & Gemini Evaluator</p>
+      {!showMockup && (
+        <nav className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200"><Guitar size={24} /></div>
+              <div>
+                <h1 className="text-lg font-black tracking-tight text-slate-800">GUITAR HUNTER <span className="text-blue-600">AI</span></h1>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Scraper & Gemini Evaluator</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={handleManualCleanup} disabled={isCleaning} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isCleaning ? 'bg-slate-100 text-slate-400' : 'bg-amber-50 text-amber-600 hover:bg-amber-100 shadow-sm border border-amber-100'}`}>
+                <Trash2 size={14} className={isCleaning ? "animate-bounce" : ""} />
+                <span className="hidden sm:inline">{isCleaning ? 'Vérification...' : 'Vérifier Stocks'}</span>
+              </button>
+              <button onClick={handleManualRefresh} disabled={isRefreshing} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100'}`}>
+                <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
+                <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
+              </button>
+              <button onClick={() => setShowConfig(!showConfig)} className={`p-2 h-10 w-10 flex items-center justify-center rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
+              {/* BOUTON MOCKUP V2 */}
+              <button onClick={() => setShowMockup(!showMockup)} className={`px-3 p-2 h-10 flex items-center justify-center rounded-xl text-xs font-bold transition-colors ${showMockup ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}>
+                Mockup V2
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={handleManualCleanup} disabled={isCleaning} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isCleaning ? 'bg-slate-100 text-slate-400' : 'bg-amber-50 text-amber-600 hover:bg-amber-100 shadow-sm border border-amber-100'}`}>
-              <Trash2 size={14} className={isCleaning ? "animate-bounce" : ""} />
-              <span className="hidden sm:inline">{isCleaning ? 'Vérification...' : 'Vérifier Stocks'}</span>
-            </button>
-            <button onClick={handleManualRefresh} disabled={isRefreshing} className={`flex items-center gap-2 px-4 py-2 h-10 rounded-xl text-xs font-bold transition-all ${isRefreshing ? 'bg-slate-100 text-slate-400' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100'}`}>
-              <RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""} />
-              <span className="hidden sm:inline">{isRefreshing ? 'Scan en cours...' : 'Scanner maintenant'}</span>
-            </button>
-            <button onClick={() => setShowConfig(!showConfig)} className={`p-2 h-10 w-10 flex items-center justify-center rounded-xl transition-colors ${showConfig ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}><Settings size={20} /></button>
-            {/* BOUTON MOCKUP V2 */}
-            <button onClick={() => setShowMockup(!showMockup)} className={`px-3 p-2 h-10 flex items-center justify-center rounded-xl text-xs font-bold transition-colors ${showMockup ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'}`}>
-              Mockup V2
-            </button>
-          </div>
-        </div>
-      </nav>
+        </nav>
+      )}
 
       {/* Full-screen Mockup V2 — takes over entire layout */}
       {showMockup ? (
