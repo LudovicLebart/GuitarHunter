@@ -216,16 +216,11 @@ const ExclusionKeywordsSection = () => {
   const { exclusionKeywords, setExclusionKeywords, saveConfig } = useBotConfigContext();
   return (
     <div className="pt-2 space-y-4">
-  return (
-    <div className="pt-2 space-y-4">
       <div className="bg-rose-500/5 p-5 rounded-3xl border border-rose-500/10">
         <label className="text-[11px] font-black text-rose-500 uppercase tracking-widest block mb-1">Mots-clés d'Exclusion</label>
         <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Si l'un de ces termes est détecté dans le titre ou la description, l'annonce est immédiatement écartée.</p>
         <PromptListEditor items={exclusionKeywords} onChange={setExclusionKeywords} onSave={(val) => saveConfig({ exclusionKeywords: val })} placeholder="Ex: Stagg, brisé, pour pièces..." />
       </div>
-    </div>
-  );
-};
     </div>
   );
 };
