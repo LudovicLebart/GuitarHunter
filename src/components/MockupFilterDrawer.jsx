@@ -1,121 +1,42 @@
 import React from 'react';
 import { X, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
 
+import promptsData from '../../prompts.json';
+
 // ============================================================
-// 4-LEVEL TAXONOMY TREE
-// level1 → level2 → level3 → level4
+// TAXONOMY TREE FROM PROMPTS.JSON
+// dynamically format to: { key: { label: '...', children: {...} } }
+// IMPORTANT: keys must EXACTLY match the values in prompt.json arrays for filtering to work
 // ============================================================
-const TAXONOMY_TREE = {
-    electrique: {
-        label: 'Électrique',
-        children: {
-            solid_body: {
-                label: 'Solid Body',
-                children: {
-                    strat_style: { label: 'Strat / Tele Style', children: { fender: 'Fender', squier: 'Squier', other: 'Autre marque' } },
-                    les_paul_style: { label: 'Les Paul / SG Style', children: { gibson: 'Gibson', epiphone: 'Epiphone', other: 'Autre marque' } },
-                    other_solid: { label: 'Autre Solid Body', children: {} },
-                },
-            },
-            hollow_body: {
-                label: 'Semi / Hollow Body',
-                children: {
-                    es_style: { label: 'ES Style (335 etc.)', children: { gibson: 'Gibson', epiphone: 'Epiphone', other: 'Autre' } },
-                    gretsch_style: { label: 'Gretsch / Archtop', children: { gretsch: 'Gretsch', other: 'Autre' } },
-                    other_hollow: { label: 'Autre Semi-Hollow', children: {} },
-                },
-            },
-            ampli_electrique: {
-                label: 'Ampli (Électrique)',
-                children: {
-                    combo: { label: 'Combo', children: {} },
-                    tete_baffle: { label: 'Tête + Baffle', children: {} },
-                    mini_ampli: { label: 'Mini / Practice', children: {} },
-                },
-            },
-        },
-    },
-    acoustique: {
-        label: 'Acoustique / Vocal',
-        children: {
-            folk: {
-                label: 'Folk / Western',
-                children: {
-                    dreadnought: { label: 'Dreadnought', children: {} },
-                    parlor: { label: 'Parlor', children: {} },
-                    jumbo: { label: 'Jumbo / Grand Auditorium', children: {} },
-                },
-            },
-            classique: {
-                label: 'Classique / Nylon',
-                children: {
-                    classique_concert: { label: 'Concert / Étude', children: {} },
-                    flamenca: { label: 'Flamenca', children: {} },
-                },
-            },
-            electro_acoustique: {
-                label: 'Électro-acoustique',
-                children: {
-                    folk_electro: { label: 'Folk + Préamp', children: {} },
-                    classique_electro: { label: 'Nylon + Préamp', children: {} },
-                },
-            },
-            ampli_acoustique: {
-                label: 'Ampli Acoustique',
-                children: {
-                    combo_acou: { label: 'Combo Acoustique', children: {} },
-                    sono_portable: { label: 'Sono / Portable', children: {} },
-                },
-            },
-        },
-    },
-    basse: {
-        label: 'Basse',
-        children: {
-            basse_electrique: {
-                label: 'Basse Électrique',
-                children: {
-                    jazz_bass: { label: 'Jazz Bass Style', children: { fender: 'Fender', squier: 'Squier', other: 'Autre' } },
-                    precision_bass: { label: 'Precision Bass Style', children: { fender: 'Fender', squier: 'Squier', other: 'Autre' } },
-                    other_basse: { label: 'Autre Style', children: {} },
-                },
-            },
-            short_scale: { label: 'Short Scale', children: {} },
-            basse_acoustique: { label: 'Basse Acoustique', children: {} },
-            ampli_basse: {
-                label: 'Ampli Basse',
-                children: {
-                    combo_basse: { label: 'Combo Basse', children: {} },
-                    tete_basse_baffle: { label: 'Tête + Baffle', children: {} },
-                },
-            },
-        },
-    },
-    accessoire: {
-        label: 'Accessoire',
-        children: {
-            etui: {
-                label: 'Étui & Gigbag',
-                children: {
-                    etui_rigide: { label: 'Étui Rigide', children: {} },
-                    gigbag: { label: 'Gigbag', children: {} },
-                    semi_rigide: { label: 'Semi-rigide', children: {} },
-                },
-            },
-            pedales: {
-                label: 'Pédales & Effets',
-                children: {
-                    overdrive_dist: { label: 'Overdrive / Distortion', children: {} },
-                    reverb_delay: { label: 'Reverb / Delay', children: {} },
-                    multi_effets: { label: 'Multi-effets', children: {} },
-                    other_pedales: { label: 'Autre pédales', children: {} },
-                },
-            },
-            cordes: { label: 'Cordes', children: { cordes_elec: 'Électrique', cordes_acou: 'Acoustique', cordes_basse: 'Basse' } },
-            autre_accessoire: { label: 'Autre Accessoire', children: {} },
-        },
-    },
+const formatLabel = (str) => {
+    return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 };
+
+const buildTaxonomyTree = (node) => {
+    if (Array.isArray(node)) {
+        const res = {};
+        node.forEach(item => {
+            // Leaf node: key is the exact item string, no children
+            res[item] = { label: item, children: null };
+        });
+        return res;
+    }
+    if (typeof node === 'object' && node !== null) {
+        const res = {};
+        for (const [key, value] of Object.entries(node)) {
+            // Intermediate node: key is the exact string block
+            res[key] = {
+                label: formatLabel(key),
+                children: buildTaxonomyTree(value)
+            };
+        }
+        return res;
+    }
+    return node;
+};
+
+const TAXONOMY_TREE = buildTaxonomyTree(promptsData.taxonomy_master);
+
 
 const CONDITION_OPTIONS = [
     { value: 'all', label: 'Toutes' },
@@ -265,36 +186,34 @@ const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, c
                                                 {isL2Active && hasL3Children && (
                                                     <div className="mt-1 flex flex-col gap-0.5 mb-2 relative border-l-2 border-slate-700/50 ml-7">
 
-                                                        {Object.entries(l2Cfg.children).map(([l3Key, l3Cfg]) => {
-                                                            const l3Label = typeof l3Cfg === 'string' ? l3Cfg : l3Cfg.label;
+                                                        {Object.entries(l2Cfg.children || {}).map(([l3Key, l3Cfg]) => {
                                                             const isL3Active = level3 === l3Key;
-                                                            const hasL4Children = typeof l3Cfg !== 'string' && l3Cfg.children && Object.keys(l3Cfg.children).length > 0;
+                                                            const hasL4Children = l3Cfg.children && Object.keys(l3Cfg.children).length > 0;
 
                                                             return (
                                                                 <React.Fragment key={l3Key}>
                                                                     <InlineOption
-                                                                        label={l3Label}
+                                                                        label={l3Cfg.label}
                                                                         active={isL3Active}
                                                                         onClick={() => handleLevelSelect('level3', l3Key)}
                                                                         hasChildren={hasL4Children && !isL3Active}
                                                                         depth={2}
-                                                                        count={counts[l3Key]}
+                                                                        count={counts[l3Key] || 0}
                                                                     />
 
                                                                     {/* LEVEL 4 Rendering (Inline under L3) */}
                                                                     {isL3Active && hasL4Children && (
                                                                         <div className="mt-1 flex flex-col gap-0.5 mb-1 relative border-l-2 border-slate-700/50 ml-10">
 
-                                                                            {Object.entries(l3Cfg.children).map(([l4Key, l4LabelObj]) => {
-                                                                                const l4Label = typeof l4LabelObj === 'string' ? l4LabelObj : l4LabelObj.label;
+                                                                            {Object.entries(l3Cfg.children).map(([l4Key, l4Cfg]) => {
                                                                                 return (
                                                                                     <InlineOption
                                                                                         key={l4Key}
-                                                                                        label={l4Label}
+                                                                                        label={l4Cfg.label}
                                                                                         active={level4 === l4Key}
                                                                                         onClick={() => handleLevelSelect('level4', l4Key)}
                                                                                         depth={3}
-                                                                                        count={counts[l4Key]}
+                                                                                        count={counts[l4Key] || 0}
                                                                                     />
                                                                                 );
                                                                             })}
@@ -332,15 +251,16 @@ const MockupFilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, c
                                 {activeCount}
                             </span>
                         )}
+                        {/* DEBUG helper: <span className="text-[10px] text-red-500">{Object.keys(counts).length} counts</span> */}
                     </div>
                     <div className="flex items-center gap-2">
                         {activeCount > 0 && (
-                            <button onClick={onReset} className="text-[11px] text-slate-400 hover:text-white font-semibold px-2 py-1.5 rounded-lg hover:bg-slate-800 transition-all">
+                            <button onClick={onReset} className="text-[10px] uppercase font-bold text-slate-400 hover:text-white transition-colors">
                                 Réinitialiser
                             </button>
                         )}
-                        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 transition-all shadow-sm">
-                            <X size={16} />
+                        <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">
+                            <X size={20} />
                         </button>
                     </div>
                 </div>

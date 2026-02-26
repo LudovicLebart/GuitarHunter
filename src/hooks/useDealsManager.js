@@ -203,10 +203,12 @@ export const useDealsManager = (user, setError) => {
 
   // 3. Calcul des compteurs de TYPE (Basé sur les deals filtrés par VERDICT)
   const typeCounts = useMemo(() => {
-    const c = { OTHER: 0 };
+    const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
       // On n'inclut que les deals qui passent le filtre de verdict actuel
       if (!matchesVerdictFilter(deal, filterType)) return;
+
+      c.all++; // Total pour le filtre courant
 
       const classification = deal.aiAnalysis?.classification;
       if (!classification) {

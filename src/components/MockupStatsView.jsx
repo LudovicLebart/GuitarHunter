@@ -45,23 +45,32 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
 );
 
 const MockupStatsView = ({ deals }) => {
-    // Basic Calculations based on fake data
+    // Basic Calculations based on real data
     const totalDeals = deals.length;
-    const radarDeals = deals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.verdict));
-    const marketDeals = deals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.verdict));
+    const radarDeals = deals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
+    const marketDeals = deals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
     const archiveDeals = totalDeals - radarDeals.length - marketDeals.length;
 
     // Financials (Only calculating positive margins from radar deals)
     let totalPotentialMargin = 0;
     let totalEstimatedValue = 0;
+    let validMarginsCount = 0;
 
     radarDeals.forEach(deal => {
-        if (deal.margin && deal.margin > 0) totalPotentialMargin += deal.margin;
-        if (deal.estValue) totalEstimatedValue += deal.estValue;
+        const estValue = deal.aiAnalysis?.estimated_value ?? deal.aiAnalysis?.estimated_guitar_value ?? null;
+        const price = deal.price ?? null;
+        const computedMargin = (estValue != null && price != null) ? Math.round(estValue - price) : null;
+        const margin = deal.aiAnalysis?.estimated_gross_margin !== undefined ? deal.aiAnalysis.estimated_gross_margin : computedMargin;
+
+        if (margin && margin > 0) {
+            totalPotentialMargin += margin;
+            validMarginsCount++;
+        }
+        if (estValue) totalEstimatedValue += estValue;
     });
 
-    const averageMargin = radarDeals.length > 0 ? Math.round(totalPotentialMargin / radarDeals.filter(d => d.margin).length) : 0;
-    const averageScore = Math.round(deals.reduce((acc, d) => acc + (d.confidence || 0), 0) / (totalDeals || 1));
+    const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
+    const averageScore = Math.round(deals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

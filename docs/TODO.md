@@ -64,17 +64,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Dark Scrollbar pour les Filtres (Mockup)**
     - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
 
-- [ ] **🚀 Migration vers Production (Prochaine Étape)**
-    - [ ] **Appliquer le Pattern Drawer & Cascade à la production**
-        - *Détails :* Porter la logique de `MockupFilterDrawer` vers `FilterBar.jsx`.
-    - [ ] **Fusionner le layout MockupDealCard avec DealCard.jsx**
-        - *Détails :* Intégrer les images full-width, le badge marge et le nettoyage IA.
-    - [ ] **Démanteler l'Aside Desktop en production**
-        - *Détails :* Déplacer `<BotControls />` dans la Navbar.
-    - [ ] **Système de Thème (Dark Mode) global**
-        - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
-    - [ ] **Dashboard Analytics & Statistiques**
-        - *Détails :* Implémenter le moteur de stats (`docs/STATS_REFLEXION.md`).
+- [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 32)*
+    - *Détails :* `MockupDashboard` branché sur `useDealsContext` (données réelles Firestore). `MockupDealCard` câblé sur le vrai modèle `aiAnalysis` (verdict, reasoning, model_used, deal_score, estimated_value) et sur les vraies actions (favori, rejet, suppression, ré-analyse, lien Facebook). Vue MAP remplacée par le vrai `MapView.jsx`. Filtres (`filterType`, `level1-4Filter`, `searchQuery`) synchronisés avec `useDealsManager`. V1 intacte.
+- [ ] **Système de Thème (Dark Mode) global**
+    - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
+- [ ] **Dashboard Analytics & Statistiques**
+    - *Détails :* Implémenter le moteur de stats (`docs/STATS_REFLEXION.md`).
 - [ ] **Créer un Panneau de Statistiques (Dashboard Analytics)**
     - *Détails :* Afficher les KPIs comme le Tunnel de Conversion et un Radar Chart des 5 scores Gemini.
 - [ ] **Revoir l'affichage du bloc de prix**
@@ -113,6 +108,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
 - [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).
 - [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).
 - [x] Session 29 : Purge automatique hebdomadaire des images rejetées (TaskScheduler).

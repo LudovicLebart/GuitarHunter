@@ -138,6 +138,9 @@ const MapView = ({ deals, onDealSelect }) => {
     markersRef.current.forEach(marker => marker.setMap(null));
     markersRef.current = [];
 
+    const bounds = new window.google.maps.LatLngBounds();
+    let hasValidCoords = false;
+
     deals.forEach(deal => {
       let coords;
       // Priorité aux coordonnées GPS précises si elles existent
@@ -177,8 +180,20 @@ const MapView = ({ deals, onDealSelect }) => {
         });
 
         markersRef.current.push(marker);
+        bounds.extend(coords);
+        hasValidCoords = true;
       }
     });
+
+    if (hasValidCoords) {
+      map.fitBounds(bounds);
+
+      // Empêcher un zoom excessif (ex: un seul marqueur)
+      const listener = window.google.maps.event.addListener(map, "idle", () => {
+        if (map.getZoom() > 12) map.setZoom(12);
+        window.google.maps.event.removeListener(listener);
+      });
+    }
   }, [map, deals, onDealSelect]);
 
   return <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-200 overflow-hidden" />;
