@@ -57,7 +57,12 @@ Le backend est un "worker" persistant qui tourne en boucle.
   - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
 
 ### `backend/scraping/`
-- **`FacebookScraper`:** Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. **Note d'architecture (Thread-Safety)** : L'instance `FacebookScraper` n'est plus globale au bot. Pour éviter les erreurs `greenlet.error` (Cannot switch to a different thread) de l'API synchrone de Playwright lors des commandes en arrière-plan (ex: `REFRESH`, `SCAN_URL`), un `temp_scraper` est instancié localement au sein de chaque thread worker et fermé immédiatement après usage.
+- **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 
+    - **Note d'architecture (Thread-Safety)** : L'instance `FacebookScraper` n'est plus globale au bot. Pour éviter les erreurs `greenlet.error` (Cannot switch to a different thread) de l'API synchrone de Playwright lors des commandes en arrière-plan (ex: `REFRESH`, `SCAN_URL`), un `temp_scraper` est instancié localement au sein de chaque thread worker et fermé immédiatement après usage.
+    - **Protection Anti-Bot (Stealth Mode)** : Pour éviter le bannissement ou les redirections vers /login, le scraper intègre désormais :
+        - **Randomisation** : Liste tournante de User-Agents modernes et viewports (résolutions d'écran) aléatoires à chaque démarrage.
+        - **Flags de Furtivité** : Utilisation d'arguments Chromium spécifiques pour masquer le pilotage automatisé (`--disable-blink-features=AutomationControlled`).
+        - **Détection Active** : Surveillance des redirections vers les pages de login ou Captcha, entraînant un arrêt propre de la session.
 
 ### `backend/resources/` (Nouveau)
 - **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.
@@ -72,7 +77,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 ### 🗄️ Firebase Storage
 - **Upload** (`repository.upload_images_to_storage()`) : Télécharge les images depuis leurs URLs CDN Facebook et les stocke dans `deals/{deal_id}/{i}_{uuid}.jpg`. Retourne des URLs publiques pérennes.
 - **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est &gt; `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
-- **Script de migration** (`backend/scripts/migrate_images.py`) : Script one-shot pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage.
+- **Script de migration** (`backend/scripts/migrate_images.py`) : Script pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage. Intègre la **Rotation de Session** (redémarrage du navigateur toutes les 15 annonces) et le **Jitter** (délais aléatoires) pour contrer l'anti-botting de Facebook lors d'opérations massives.
 
 ## 3. ⚛️ Frontend (React)
 
@@ -112,9 +117,12 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
 - **Logique de Navigation :** Sur mobile, le premier clic ouvre la bulle d'info. Le second clic sur la bulle ouvre l'annonce complète en bas d'écran (overlay).
 
-### `src/components/MockupDashboard.jsx` (et associés V2)
+### `src/components/MockupDashboard.jsx` (et Dashboard Analytics V2)
 - **Prototype SaaS (Mockup V2) :** Composants de prévisualisation (Dark Mode, layout pleine largeur, filtres en tiroir, split-screen Map).
 - **Overlay Mobile :** Implémentation d'un système d'overlay (`absolute inset-0`) pour l'annonce sélectionnée sur mobile, couvrant la carte au lieu de la compresser pour une lecture optimale.
+- **Tableau de Bord de Statistiques (`MockupStatsView.jsx`) :** Composant complexe agrégeant les données de Firestore.
+    - Calcule dynamiquement le Tunnel de Conversion (Funnel) et les KPIs financiers (Marge nette latente, Score moyen, Marge par pépite) sur l'inventaire en cours.
+    - Utilise `recharts` pour visualiser un **Radar Chart** du profil moyen IA (5 scores) et un **Bar Chart** pour la distribution du Top 5 des Marques.
 
 ### `src/components/MockupDealCard.jsx`
 - **Composant Deal V2 :** Version "SaaS" de la carte d'annonce.
@@ -186,7 +194,7 @@ L'utilisateur peut modifier les 3 prompts suivants via le **ConfigPanel** (ongle
 
 | Clé Firestore | Description | Utilisé par |
 |---|---|---|
-| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings** | Portier + Expert |
+| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings**. *Note: Gère désormais les lots (instruments + accessoires) pour éviter les rejets abusifs.* | Portier + Expert |
 | `analysisConfig.gatekeeperVerbosityInstruction` | Instruction du Portier (filtre initial, liste des catégories acceptées) — **Array de strings** | Portier uniquement |
 | `analysisConfig.analystVerbosityInstruction` | Instruction de l'Analyste (format puce compact + 5 scores) — **Array de strings** | Analyste uniquement |
 | `analysisConfig.expertProContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) — **Array de strings** | Expert Pro uniquement |

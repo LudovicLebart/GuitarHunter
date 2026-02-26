@@ -260,7 +260,7 @@
     }
   },
   "main_analysis_prompt": [
-    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS, ÉTUIS RIGIDES ET HOUSSES SONT ACCEPTÉS. TOUT AUTRE ACCESSOIRE (pédales, supports, micros, pièces) DOIT ÊTRE REJETÉ avec le verdict REJECTED_ITEM.",
+    "0. **COUPE-CIRCUIT (REJET IMMÉDIAT)** : Avant toute chose, vérifie si l'annonce doit être rejetée. Si c'est un service (cours, réparation), un jouet (Guitar Hero), ou une marque de 'supermarché' injouable (ex: First Act), le verdict est REJECTED_... et l'analyse s'arrête. LES AMPLIS, ÉTUIS RIGIDES ET HOUSSES SONT ACCEPTÉS. SI L'ANNONCE EST UN LOT (BUNDLE) CONTENANT UNE GUITARE OU UN AMPLI, ELLE DOIT ÊTRE ACCEPTÉE, même si elle contient des accessoires (pédales, micros, câbles). REJETTE STRICTEMENT (REJECTED_ITEM) uniquement les annonces qui vendent EXCLUSIVEMENT des accessoires non autorisés (pédales seules, supports seuls, micros seuls, etc.).",
     "",
     "1. **IDENTIFICATION & COTE (L'OEIL DU MAÎTRE)** :",
     "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles avec le texte. Pour les guitares : logo, tête, chevalet. Pour les amplis : état du Tolex, panneau de contrôle, lampes visibles, haut-parleur.",
@@ -291,6 +291,10 @@
     "Tu dois répondre UNIQUEMENT avec un objet JSON valide :",
     "{",
     "  \"visual_inspection\": \"Analyse technique de l'état visible.\",",
+    "  \"brand\": \"Marque identifiée (ex: Fender, Gibson, Boss, etc.).\",",
+    "  \"model_name\": \"Nom exact du modèle (ex: Stratocaster American Standard).\",",
+    "  \"production_year\": \"Année de production estimée ou décennie (ex: 2010s, 1994, Inconnue).\",",
+    "  \"country_of_origin\": \"Pays de fabrication (ex: USA, Japan, Mexico, China, Inconnu).\",",
     "  \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER.\",",
     "  \"estimated_value\": 123,",
     "  \"ancillary_value\": 50,  // Valeur étui, footswitch, etc.",
@@ -313,8 +317,8 @@
     "Tu es le premier filtre (Le Portier).",
     "Ta mission est de lire l'annonce et de décider de son potentiel BRUT.",
     "Si c'est un service ou une arnaque, rejette-la.",
-    "Si c'est une guitare, un ampli, un étui rigide ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. REJETTE STRICTEMENT (REJECTED_ITEM) tout accessoire qui n'est pas un étui ou une housse (ex: pédales, supports, micros, cordes).",
-    "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\", \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER ou NULL si inconnu\" }."
+    "Si c'est une guitare, un ampli, un étui rigide ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. SI L'ANNONCE EST UN LOT (BUNDLE) CONTENANT UN DE CES OBJETS, ACCEPTE-LA. REJETTE STRICTEMENT (REJECTED_ITEM) uniquement ce qui est EXCLUSIVEMENT un accessoire non autorisé (ex: pédales seules, supports, micros, cordes sans instrument).",
+    "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\", \"brand\": \"Marque ou Inconnue\", \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER ou NULL si inconnu\" }."
   ],
   "analyst_verbosity_instruction": [
     "Tu es l'Analyste (Modèle Rapide).",

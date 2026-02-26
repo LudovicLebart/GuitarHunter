@@ -18,8 +18,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Script de migration one-shot : `backend/scripts/migrate_images.py`.
     - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
 
-- [ ] **Bug : Interruption du Scraper par Facebook (Anti-botting)**
-    - *Détails :* Playwright est détecté par Facebook lors des tâches asynchrones, qui redirige sur la page d'accueil ou requiert une vérification, empêchant l'extraction des données. Nécessite une solution de contournement (Proxies, Fingerprinting, Stealth plugins...).
+- [x] **Bug : Interruption du Script de Rescraping d'Images par Facebook (Anti-botting)** *(Corrigé Session 35)*
+    - *Détails :* Playwright est détecté par Facebook lors du rescraping massif des images. 
+    - *Solution :* Implémentation de mesures **Stealth** (User-Agent/Viewport aléatoires, flags anti-detection), détection active de blocage, **Rotation de Session** (toutes les 15 requêtes) et **Jitter** aléatoire.
 
 - [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
     - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
@@ -40,8 +41,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Vérifier les règles Firebase Storage** *(Fait)*
     - *Détails :* Confirmer que les blobs uploadés via `blob.make_public()` sont bien accessibles publiquement. Vérifier dans la console Firebase → Storage → Rules que les lectures publiques sont autorisées.
 
-- [/] **Lancer la migration réelle des images** *(En cours)*
-    - *Détails :* Migration lancée via `run.bat migrate --real`. Dry-run corrigé.
+- [x] **Lancer la migration réelle des images** *(Fait Session 29 — migrate --real)*
+
+- [ ] **Feature : Extraire la Date de Mise en Ligne**
+    - *Détails :* Étudier la faisabilité d'extraire la date/heure de publication originelle de l'annonce sur Facebook Marketplace lors du scraping (nécessite possiblement une analyse plus profonde du DOM ou de l'API locale).
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -69,19 +72,20 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 32)*
     - *Détails :* `MockupDashboard` branché sur `useDealsContext` (données réelles Firestore). `MockupDealCard` câblé sur le vrai modèle `aiAnalysis` (verdict, reasoning, model_used, deal_score, estimated_value) et sur les vraies actions (favori, rejet, suppression, ré-analyse, lien Facebook). Vue MAP remplacée par le vrai `MapView.jsx`. Filtres (`filterType`, `level1-4Filter`, `searchQuery`) synchronisés avec `useDealsManager`. V1 intacte.
-- [ ] **Bug Mockup V2 : Filtres inopérants**
-    - *Détails :* Les entrées "Condition Estimée" et "Fourchettes de Prix" ne fonctionnent pas dans les filtres du Mockup V2.
+- [x] **Bug Mockup V2 : Filtres inopérants** *(Câblé en Session 32)*
 - [x] **Refonte UI Mobile : Corrections majeures** *(Complété Session 34)*
     - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
     - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
     - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
     - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
-- [ ] **Système de Thème (Dark Mode) global**
-    - *Détails :* Porter le thème sombre du mockup via un `ThemeContext`.
-- [ ] **Dashboard Analytics & Statistiques**
-    - *Détails :* Implémenter le moteur de stats (`docs/STATS_REFLEXION.md`).
-- [ ] **Créer un Panneau de Statistiques (Dashboard Analytics)**
-    - *Détails :* Afficher les KPIs comme le Tunnel de Conversion et un Radar Chart des 5 scores Gemini.
+- [x] **Système de Thème (Dark Mode) global** *(Intégré dans le Mockup)*
+- [/] **Dashboard Analytics & Statistiques** *(Moteur de calcul intégré — `MockupStatsView.jsx`)*
+    - *Détails :* Le "moteur" de stats est fonctionnel au sein du composant, utilisant les données réelles de Firestore.
+- [x] **Créer un Panneau de Statistiques (Dashboard Analytics)**
+    - [x] Afficher les KPIs financiers (Marges, Scores, Volumes).
+    - [x] Implémenter le Tunnel de Conversion (Funnel) 3-Tiers.
+    - [x] Implémenter le Radar Chart des 5 scores Gemini (recharts).
+    - [x] Distribution par Marque (fallback textuel en attendant extraction `brand` backend).
 - [x] **Revoir l'affichage du bloc de prix / Actions** *(Complété Session 34)*
     - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**

@@ -1,4 +1,5 @@
 import time
+import random
 import urllib.parse
 import logging
 from playwright.sync_api import sync_playwright, Page
@@ -20,19 +21,58 @@ class FacebookScraper:
         self.browser = None
         self.context = None
 
+        # --- STEALTH: Randomization Arrays ---
+        self._user_agents = [
+            # Chrome Windows
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            # Edge Windows
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+            # Firefox Windows
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+            # Chrome macOS
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            # Safari macOS
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15"
+        ]
+        
+        self._viewports = [
+            {"width": 1920, "height": 1080},
+            {"width": 1366, "height": 768},
+            {"width": 1440, "height": 900},
+            {"width": 1536, "height": 864},
+            {"width": 2560, "height": 1440}
+        ]
+
     def start_session(self):
         """Démarre la session Playwright et le navigateur."""
         if self.browser: return
 
         logger.info("Démarrage de la session Playwright...")
         self.playwright = sync_playwright().start()
+        
+        # Args for stealth
+        launch_args = [
+            "--start-minimized",
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--no-sandbox"
+        ]
+        
         self.browser = self.playwright.chromium.launch(
             headless=self.config.headless,
-            args=["--start-minimized"]
+            args=launch_args
         )
+        
+        # Pick random UA and Viewport
+        ua = random.choice(self._user_agents)
+        vp = random.choice(self._viewports)
+        logger.debug(f"Stealth Init -> UA: {ua[:40]}..., VP: {vp['width']}x{vp['height']}")
+
         self.context = self.browser.new_context(
-            viewport=None,
-            user_agent=self.config.user_agent,
+            viewport=vp,
+            user_agent=ua,
             locale=self.config.locale,
             timezone_id=self.config.timezone,
             geolocation=self.config.geolocation,
@@ -160,6 +200,12 @@ class FacebookScraper:
 
             logger.info(f"   ➡️ Navigation: {url}")
             page.goto(url, timeout=self.config.timeout_navigation)
+            
+            # --- ANTIBOT: Check for Captcha / Login redirect ---
+            if "/login" in page.url or "captcha" in page.url.lower():
+                logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
+                return
+
             try: page.evaluate("document.body.style.zoom = '0.5'")
             except: pass
             
@@ -281,6 +327,11 @@ class FacebookScraper:
             
             if not fb_id:
                 logger.error("❌ ID introuvable.")
+                return
+
+            # --- ANTIBOT: Check for Captcha / Login redirect ---
+            if "/login" in page.url or "captcha" in page.url.lower():
+                logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ (Redirection {page.url}). Session compromise.")
                 return
 
             self._close_login_popup(page)
