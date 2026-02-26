@@ -607,3 +607,20 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 - La transition "Production Ready" marque la fin de la phase de prototypage de la nouvelle interface.
 
 ---
+
+[2026-02-26] [FLASH] Action effectuée → Polissage UI : Verrouillage du scroll global et correction du clipping dans la Navbar.
+
+### Session 39 : Polissage de l'Expérience Utilisateur
+
+#### ✅ Objectif : Supprimer les artefacts visuels résiduels pour une expérience "Produit" parfaite.
+
+- **Désactivation du Scroll Corps** : Ajout de `overflow: hidden` sur `html, body, #root` dans `index.css` pour forcer l'utilisation des conteneurs internes et supprimer la barre de défilement du navigateur.
+- **Correction du Menu Statut** : Retrait de `overflow-x-hidden` sur la `Navbar` pour permettre au menu de survol (status controls) de s'afficher sans être tronqué.
+- **Z-Index & Layers** : Vérification de la superposition des éléments interactifs pour un rendu "floating" optimal.
+
+#### 🤔 Raisonnement
+
+- Le Dashboard V2 est conçu pour être une interface fixe (SPA). La présence d'une scrollbar native sur le côté droit nuisait à l'aspect premium et cassait l'alignement visuel.
+- La Navbar doit être capable de déborder (overflow visible) pour ses menus contextuels, tout en restant `sticky`.
+
+---
