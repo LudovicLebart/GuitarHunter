@@ -1,5 +1,21 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2024-07-30] [PRO] Action : Implémentation d'une stratégie de rotation d'IP (Proxies) → Résultat : (1) Ajout d'une liste `PROXIES` dans `config.py` pour centraliser la configuration. (2) Modification de `FacebookScraper` (`backend/scraping/core.py`) pour sélectionner aléatoirement un proxy de la liste à chaque instanciation d'un navigateur Playwright. (3) La rotation est effective car le bot instancie un scraper temporaire pour chaque tâche, garantissant une nouvelle IP pour chaque scan de ville ou action manuelle.
+
+[2024-07-30] [FLASH] Action : Analyse du diagnostic de détection du scraper par Facebook → Résultat : Le diagnostic est validé. Le projet a déjà implémenté la plupart des contre-mesures (session persistante, randomisation User-Agent/Viewport, jitter, intégration du téléchargement d'images, flags Playwright furtifs) documentées dans les Sessions 35 et 29. Une stratégie de rotation d'IP reste une amélioration potentielle.
+
+[2026-02-27] [FLASH] Action : Optimisation Mobile du LogViewer → Résultat : Forçage de l'affichage en plein écran (`inset-0`, `rounded-none`) sur les petits écrans pour éviter la perte de visibilité de la console. Le comportement flottant est conservé pour les écrans larges (`sm:`).
+
+[2026-02-27] [FLASH] Action : Correction de la lisibilité de la console (LogViewer) et du ConfigPanel → Résultat : Passage d'un fond semi-transparent (`bg-slate-900/95`) à un fond totalement opaque (`bg-slate-950`). Suppression du `backdrop-blur` qui causait des interférences visuelles lors de la superposition sur des images ou des cartes.
+
+[2026-02-27] [FLASH] Action : Correction du blocage du scroll sur mobile → Résultat : Suppression des contraintes `min-height: 100%` et `overflow-x: hidden` sur les éléments racines dans `index.css`, `App.jsx` et `Dashboard.jsx`. Le défilement vertical natif et le geste de rafraîchissement ("pull-to-refresh") sont désormais fonctionnels sur mobile.
+
+[2026-02-26] [FLASH] Action : Restauration du Bouton de Partage → Résultat : Ajout de l'icône `Share2` et de la fonction `handleShare` dans `DealCard.jsx`. Le bouton supporte désormais le partage natif (API `navigator.share`) et la copie automatique dans le presse-papier avec confirmation visuelle ("Lien copié !") en cas de fallback.
+
+[2026-02-26] [FLASH] Action : Correction Critique du Scroll → Résultat : Restauration du défilement vertical en supprimant `overflow: hidden` de `index.css`. Ajout de `overflow-x-hidden` sur le `body` et le `Dashboard` pour empêcher les décalages horizontaux tout en conservant une expérience fluide sur PC et Mobile.
+
+[2026-02-26] [FLASH] Action : Extraction de la Date de Mise en Ligne → Résultat : Implémentation du sélecteur `abbr[aria-label]` dans `ListingParser` pour capturer l'âge de l'annonce. Le champ `published_at_raw` est désormais propagé dans `listing_data` et stocké dans Firestore.
+
 [2026-02-26] [FLASH] Action : Raffinement des Prompts pour les Lots (Bundles) → Résultat : Mise à jour de `prompts.json` (directives Portier et Prompt Principal). L'IA autorise désormais explicitement les instruments vendus avec des accessoires mineurs (micros, câbles, supports). Le verdict `REJECTED_ITEM` est désormais restreint aux annonces vendant *uniquement* des accessoires non autorisés.
 
 [2026-02-26] [PRO] Action : Finalisation du Dashboard (Radar & Marques) & Ajout de Champs IA → Résultat : (1) Intégration de la librairie `recharts` dans le frontend. (2) Remplacement des placeholders dans `MockupStatsView.jsx` par un **Radar Chart** affichant le profil moyen des 5 scores Gemini et un **Bar Chart** pour la distribution du Top 5 des marques. Les données sont calculées dynamiquement depuis l'inventaire filtré. (3) Backend : Ajout des clés `brand`, `model_name`, `production_year`, et `country_of_origin` au dictionnaire JSON attendu dans `main_analysis_prompt` (`prompts.json`), enrichissant considérablement la granularité future de l'analyse IA.

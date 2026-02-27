@@ -47,8 +47,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Lancer la migration réelle des images** *(Fait Session 29 — migrate --real)*
 
-- [ ] **Feature : Extraire la Date de Mise en Ligne**
-    - *Détails :* Étudier la faisabilité d'extraire la date/heure de publication originelle de l'annonce sur Facebook Marketplace lors du scraping (nécessite possiblement une analyse plus profonde du DOM ou de l'API locale).
+- [x] **Feature : Extraire la Date de Mise en Ligne** *(Session 40)*
+    - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -57,6 +57,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
+- [x] **Implémenter une stratégie de rotation d'IP (proxies) pour le scraper**
+    - *Détails :* Si les problèmes de détection par Facebook persistent, explorer l'intégration de proxies résidentiels ou d'une rotation d'IP pour le scraper Playwright afin d'améliorer la furtivité et la résilience.
 - [ ] **Problème à documenter...**
     - *Détails :* ...
 
@@ -94,7 +96,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
-- [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38)*
+- [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38 & 41)*
+    - *Détails :* Aligner l'esthétique du panneau de configuration sur la V2. Correction de la lisibilité de la console par l'ajout d'un fond 100% opaque.
     - *Détails :* Aligner l'esthétique du panneau de configuration (prompts, villes, etc.) sur la nouvelle charte graphique V2 (Dark Mode, Slate/Blue palette, coins arrondis, typographie).
 
 - [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
@@ -169,4 +172,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
 - [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
 - [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
-- [x] Session 39 : Polissage UI V2 (Suppression scrollbar native, Fix clipping Navbar).
+- [x] Correction Critique : Scroll bloqué sur la page principale (V2) sur mobile. Suppression des contraintes CSS restrictives.
+- [x] Restauration du Bouton de Partage (V2) avec support native share & clipboard.

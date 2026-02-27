@@ -24,6 +24,14 @@ FIREBASE_STORAGE_BUCKET = os.getenv("VITE_FIREBASE_STORAGE_BUCKET", "guitarehunt
 # Nombre de jours après lequel les images des annonces rejetées sont purgées de Firebase Storage.
 IMAGE_RETENTION_REJECTED_DAYS = int(os.getenv("IMAGE_RETENTION_REJECTED_DAYS", 30))
 
+# --- PROXIES ---
+# Liste des serveurs proxy à utiliser pour la rotation d'IP dans le scraper.
+# Format : "http://user:password@host:port" ou "http://host:port"
+PROXIES = [
+    # "http://proxy1.com:8000",
+    # "http://proxy2.com:8000",
+]
+
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 GEMINI_MODELS = {
     "available": [
@@ -74,5 +82,4 @@ DEFAULT_EXCLUSION_KEYWORDS = [
     "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum", 
     "Denver", "Groove", "Stagg", "Maestro by Gibson", "Beaver Creek", "kmise"
 ]
-
 

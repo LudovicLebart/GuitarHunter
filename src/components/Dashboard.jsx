@@ -284,7 +284,7 @@ const Dashboard = ({ onClose }) => {
             {/* Real ConfigPanel — opens via gear icon */}
             <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
 
-            <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8 overflow-x-hidden">
+            <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8">
 
                 {/* ─── Search & Actions ─── */}
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 md:p-4 mb-6 grid grid-cols-1 md:flex md:flex-row gap-3 shadow-sm">

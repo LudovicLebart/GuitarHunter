@@ -71,19 +71,19 @@ const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle ins
             <button onClick={() => moveItem(index, 'up')} disabled={index === 0} className="text-slate-500 hover:text-blue-400 disabled:opacity-0 transition-colors"><ArrowUp size={14} /></button>
             <button onClick={() => moveItem(index, 'down')} disabled={index === safeItems.length - 1} className="text-slate-500 hover:text-blue-400 disabled:opacity-0 transition-colors"><ArrowDown size={14} /></button>
           </div>
-          <textarea 
-            value={item} 
-            onChange={(e) => handleChange(index, e.target.value)} 
-            onBlur={handleBlur} 
-            className="flex-grow p-4 bg-slate-900/50 border border-slate-800 rounded-xl text-[13px] focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 outline-none transition-all font-mono text-slate-200 resize-none overflow-hidden min-h-[80px] leading-relaxed shadow-inner" 
-            rows={Math.max(2, Math.ceil((item || "").length / 60))} 
-            placeholder={placeholder} 
+          <textarea
+            value={item}
+            onChange={(e) => handleChange(index, e.target.value)}
+            onBlur={handleBlur}
+            className="flex-grow p-4 bg-slate-900/50 border border-slate-800 rounded-xl text-[13px] focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 outline-none transition-all font-mono text-slate-200 resize-none overflow-hidden min-h-[80px] leading-relaxed shadow-inner"
+            rows={Math.max(2, Math.ceil((item || "").length / 60))}
+            placeholder={placeholder}
           />
           <button onClick={() => deleteItem(index)} className="text-slate-600 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-2 pt-3"><Trash2 size={16} /></button>
         </div>
       ))}
-      <button 
-        onClick={addItem} 
+      <button
+        onClick={addItem}
         className="w-full py-4 border-2 border-dashed border-slate-800 rounded-xl text-slate-500 hover:border-purple-500/50 hover:text-purple-400 hover:bg-purple-500/5 transition-all flex items-center justify-center gap-3 text-xs font-black uppercase tracking-widest mt-2"
       >
         <Plus size={16} /> Ajouter une ligne d'instruction
@@ -113,10 +113,10 @@ const FacebookSearchSection = () => {
       <div className="pt-4 border-t border-slate-800/50">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Scan d'URL Direct</label>
         <div className="flex gap-2">
-            <input type="text" placeholder="URL Facebook Marketplace..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
-            <button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 transition-all flex items-center justify-center">
-                {isScanningUrl ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
-            </button>
+          <input type="text" placeholder="URL Facebook Marketplace..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
+          <button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 transition-all flex items-center justify-center">
+            {isScanningUrl ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
+          </button>
         </div>
       </div>
     </div>
@@ -160,12 +160,12 @@ const CityManagementSection = () => {
         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Ajouter une zone</label>
         <div className="flex gap-2">
           <div className="relative flex-grow">
-            <input 
-              type="text" 
-              placeholder="Rechercher une ville..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" 
+            <input
+              type="text"
+              placeholder="Rechercher une ville..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30"
             />
             {suggestions.length > 0 && (
               <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
@@ -177,8 +177,8 @@ const CityManagementSection = () => {
               </div>
             )}
           </div>
-          <button 
-            onClick={() => setShowAddForm(!showAddForm)} 
+          <button
+            onClick={() => setShowAddForm(!showAddForm)}
             className={`p-3 rounded-xl border transition-all ${showAddForm ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-900/50 text-blue-400 border-slate-800 hover:bg-slate-800 hover:border-slate-700'}`}
           >
             <Plus size={16} className={showAddForm ? "rotate-45 transition-transform" : "transition-transform"} />
@@ -190,16 +190,16 @@ const CityManagementSection = () => {
         <div className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10 animate-in slide-in-from-top-2 duration-300">
           <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-3">Nouvelle ville manuelle</h4>
           <div className="space-y-3">
-            <input 
-              type="text" 
-              placeholder="Nom de la ville (ex: Sherbrooke)" 
-              value={newCityName} 
-              onChange={(e) => setNewCityName(e.target.value)} 
-              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30" 
+            <input
+              type="text"
+              placeholder="Nom de la ville (ex: Sherbrooke)"
+              value={newCityName}
+              onChange={(e) => setNewCityName(e.target.value)}
+              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30"
             />
-            <button 
-              onClick={handleSaveCity} 
-              disabled={!newCityName || isAddingCity} 
+            <button
+              onClick={handleSaveCity}
+              disabled={!newCityName || isAddingCity}
               className="w-full py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-600/10"
             >
               {isAddingCity ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
@@ -268,7 +268,7 @@ const AiConfigSection = () => {
           <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Instructions fondamentales partagées par tous les agents d'analyse.</p>
           <PromptListEditor items={analysisConfig.mainAnalysisPrompt} onChange={(val) => handleAnalysisConfigChange('mainAnalysisPrompt', val)} onSave={(val) => saveConfig({ 'analysisConfig.mainAnalysisPrompt': val })} placeholder="Ex: Tu es un expert en guitares..." />
         </div>
-        
+
         <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80">
           <label className="text-[11px] font-black text-purple-500 uppercase tracking-widest block mb-1">Instruction Portier</label>
           <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Règles de sortie spécifiques pour l'agent de premier niveau.</p>
@@ -294,7 +294,7 @@ const LogsConfigSection = () => {
         <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest block mb-1">Limite Temporaire de Logs</label>
         <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Nombre maximum de lignes conservées en mémoire pour l'affichage temps-réel.</p>
         <div className="flex items-center gap-4">
-            <input
+          <input
             type="range"
             min="10"
             max="500"
@@ -303,8 +303,8 @@ const LogsConfigSection = () => {
             onChange={(e) => setLogLimit(Number(e.target.value))}
             onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
             className="flex-grow h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
-            <span className="min-w-[40px] text-right font-mono text-xs text-blue-400 font-bold">{logLimit}</span>
+          />
+          <span className="min-w-[40px] text-right font-mono text-xs text-blue-400 font-bold">{logLimit}</span>
         </div>
       </div>
     </div>
@@ -318,11 +318,11 @@ const ConfigPanel = ({ showConfig, onClose }) => {
   if (!showConfig) return null;
 
   const panelContent = (
-    <div className={`bg-slate-900/95 backdrop-blur-xl shadow-2xl border-l border-slate-800 flex flex-col transition-all duration-300 ease-in-out ${isExpanded ? 'w-[900px] max-w-[95vw]' : 'w-full lg:w-[500px]'}`}>
-      <div className="flex items-center justify-between p-6 border-b border-slate-800 bg-slate-900/50 sticky top-0 z-20 backdrop-blur-md">
+    <div className={`bg-slate-950 shadow-2xl border-l border-slate-800 flex flex-col transition-all duration-300 ease-in-out ${isExpanded ? 'w-[900px] max-w-[95vw]' : 'w-full lg:w-[500px]'}`}>
+      <div className="flex items-center justify-between p-6 border-b border-slate-800 bg-slate-900 sticky top-0 z-20">
         <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 flex items-center gap-3">
-            <Settings size={16} className="text-blue-500" />
-            Paramètres Système
+          <Settings size={16} className="text-blue-500" />
+          Paramètres Système
         </h3>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowLogs(!showLogs)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${showLogs ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`} title="Visionneuse de logs"><Terminal size={16} /></button>
@@ -345,8 +345,8 @@ const ConfigPanel = ({ showConfig, onClose }) => {
     return (
       <div className="bg-slate-900 p-6 rounded-3xl shadow-2xl border border-slate-800 space-y-4 animate-in fade-in slide-in-from-top-4 duration-300 max-h-[85vh] overflow-y-auto scrollbar-dark relative">
         <div className="flex items-center justify-between mb-2">
-            <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Paramètres</h3>
-            <button onClick={onClose} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20} /></button>
+          <h3 className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Paramètres</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-rose-500 transition-colors"><X size={20} /></button>
         </div>
         <CollapsibleSection title="Scraping"><FacebookSearchSection /></CollapsibleSection>
         <CollapsibleSection title="Villes"><CityManagementSection /></CollapsibleSection>
