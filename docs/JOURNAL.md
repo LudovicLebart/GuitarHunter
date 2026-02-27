@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-27] [FLASH] Action : Optimisation Mobile du LogViewer → Résultat : Forçage de l'affichage en plein écran (`inset-0`, `rounded-none`) sur les petits écrans pour éviter la perte de visibilité de la console. Le comportement flottant est conservé pour les écrans larges (`sm:`).
+
 [2026-02-27] [FLASH] Action : Correction de la lisibilité de la console (LogViewer) et du ConfigPanel → Résultat : Passage d'un fond semi-transparent (`bg-slate-900/95`) à un fond totalement opaque (`bg-slate-950`). Suppression du `backdrop-blur` qui causait des interférences visuelles lors de la superposition sur des images ou des cartes.
 
 [2026-02-27] [FLASH] Action : Correction du blocage du scroll sur mobile → Résultat : Suppression des contraintes `min-height: 100%` et `overflow-x: hidden` sur les éléments racines dans `index.css`, `App.jsx` et `Dashboard.jsx`. Le défilement vertical natif et le geste de rafraîchissement ("pull-to-refresh") sont désormais fonctionnels sur mobile.
