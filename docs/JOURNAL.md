@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-27] [FLASH] Action : Correction de la lisibilité de la console (LogViewer) et du ConfigPanel → Résultat : Passage d'un fond semi-transparent (`bg-slate-900/95`) à un fond totalement opaque (`bg-slate-950`). Suppression du `backdrop-blur` qui causait des interférences visuelles lors de la superposition sur des images ou des cartes.
+
 [2026-02-27] [FLASH] Action : Correction du blocage du scroll sur mobile → Résultat : Suppression des contraintes `min-height: 100%` et `overflow-x: hidden` sur les éléments racines dans `index.css`, `App.jsx` et `Dashboard.jsx`. Le défilement vertical natif et le geste de rafraîchissement ("pull-to-refresh") sont désormais fonctionnels sur mobile.
 
 [2026-02-26] [FLASH] Action : Restauration du Bouton de Partage → Résultat : Ajout de l'icône `Share2` et de la fonction `handleShare` dans `DealCard.jsx`. Le bouton supporte désormais le partage natif (API `navigator.share`) et la copie automatique dans le presse-papier avec confirmation visuelle ("Lien copié !") en cas de fallback.

@@ -74,8 +74,8 @@ const LogViewer = ({ onClose }) => {
     : 'w-[450px] h-[350px]';
 
   return (
-    <div className={`fixed bottom-6 right-6 bg-slate-900/98 backdrop-blur-xl text-slate-200 rounded-3xl shadow-2xl border border-slate-800 flex flex-col transition-all duration-300 z-50 overflow-hidden ${containerClasses}`}>
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md shrink-0 cursor-move">
+    <div className={`fixed bottom-6 right-6 bg-slate-950 text-slate-200 rounded-3xl shadow-2xl border border-slate-800 flex flex-col transition-all duration-300 z-50 overflow-hidden ${containerClasses}`}>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0 cursor-move">
         <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
           <Terminal size={14} className="text-blue-500" />
           <span>Console Système (Max: {logLimit})</span>
