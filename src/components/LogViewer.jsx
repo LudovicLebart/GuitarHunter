@@ -71,10 +71,10 @@ const LogViewer = ({ onClose }) => {
 
   const containerClasses = isExpanded
     ? 'w-[90vw] h-[80vh] max-w-[1200px] max-h-[900px]'
-    : 'w-[450px] h-[350px]';
+    : 'w-full h-full sm:w-[450px] sm:h-[350px]';
 
   return (
-    <div className={`fixed bottom-6 right-6 bg-slate-950 text-slate-200 rounded-3xl shadow-2xl border border-slate-800 flex flex-col transition-all duration-300 z-50 overflow-hidden ${containerClasses}`}>
+    <div className={`fixed inset-0 sm:inset-auto sm:bottom-6 sm:right-6 bg-slate-950 text-slate-200 rounded-none sm:rounded-3xl shadow-2xl border-t sm:border border-slate-800 flex flex-col transition-all duration-300 z-50 overflow-hidden ${containerClasses}`}>
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900 shrink-0 cursor-move">
         <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
           <Terminal size={14} className="text-blue-500" />
