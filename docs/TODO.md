@@ -57,6 +57,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
+- [x] **Implémenter une stratégie de rotation d'IP (proxies) pour le scraper**
+    - *Détails :* Si les problèmes de détection par Facebook persistent, explorer l'intégration de proxies résidentiels ou d'une rotation d'IP pour le scraper Playwright afin d'améliorer la furtivité et la résilience.
 - [ ] **Problème à documenter...**
     - *Détails :* ...
 

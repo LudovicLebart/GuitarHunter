@@ -4,6 +4,17 @@ import urllib.parse
 import logging
 from playwright.sync_api import sync_playwright, Page
 
+# --- AJOUT : Importation de la configuration des proxies ---
+import sys
+import os
+# Ajout du chemin racine au sys.path pour permettre l'import de config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+try:
+    from config import PROXIES
+except ImportError:
+    PROXIES = []
+# --- FIN AJOUT ---
+
 from .config import ScraperConfig
 from .parser import ListingParser
 
@@ -59,10 +70,19 @@ class FacebookScraper:
             "--disable-infobars",
             "--no-sandbox"
         ]
+
+        # --- AJOUT : Logique de rotation de proxy ---
+        proxy_config = None
+        if PROXIES:
+            selected_proxy = random.choice(PROXIES)
+            logger.info(f"🌐 Utilisation du proxy : {selected_proxy}")
+            proxy_config = {"server": selected_proxy}
+        # --- FIN AJOUT ---
         
         self.browser = self.playwright.chromium.launch(
             headless=self.config.headless,
-            args=launch_args
+            args=launch_args,
+            proxy=proxy_config  # Ajout de la configuration du proxy ici
         )
         
         # Pick random UA and Viewport
