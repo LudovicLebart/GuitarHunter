@@ -15,7 +15,7 @@ const AppContent = () => {
   const { error, setError } = useBotConfigContext();
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 selection:bg-blue-100">
+    <div className="font-sans text-slate-900 selection:bg-blue-100">
       <Dashboard onClose={() => { }} />
 
       {error && (

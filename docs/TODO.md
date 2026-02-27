@@ -169,5 +169,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
 - [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
 - [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
-- [x] Correction Critique : Scrollbloqué sur la page principale (V2).
+- [x] Correction Critique : Scroll bloqué sur la page principale (V2) sur mobile. Suppression des contraintes CSS restrictives.
 - [x] Restauration du Bouton de Partage (V2) avec support native share & clipboard.
