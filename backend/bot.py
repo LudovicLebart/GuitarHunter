@@ -172,7 +172,8 @@ class GuitarHunterBot:
             return
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
-        NotificationService.notify_deal(listing_data, analysis)
+        deal_id = listing_data.get('id')
+        NotificationService.notify_deal(deal_id, listing_data, analysis)
         
         if not self.offline_mode:
             # Upload des images dans Firebase Storage avant la sauvegarde

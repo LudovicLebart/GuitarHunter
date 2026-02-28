@@ -44,12 +44,14 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const handleShare = async (e) => {
         e.stopPropagation();
-        if (!deal.link) return;
+        if (!deal.id) return; // Ensure deal.id exists to construct the shareable link
+
+        const shareableLink = `${window.location.origin}${window.location.pathname}?dealId=${deal.id}`;
 
         const shareData = {
             title: `Guitar Hunter AI : ${deal.title}`,
-            text: `Regarde cette annonce sur Facebook Marketplace : ${deal.title}`,
-            url: deal.link
+            text: `Découvre cette annonce analysée par Guitar Hunter AI : ${deal.title}`,
+            url: shareableLink
         };
 
         if (navigator.share) {
@@ -63,7 +65,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
         } else {
             // Fallback: Copy to clipboard
             try {
-                await navigator.clipboard.writeText(deal.link);
+                await navigator.clipboard.writeText(shareableLink);
                 setIsCopying(true);
                 setTimeout(() => setIsCopying(false), 2000);
             } catch (err) {

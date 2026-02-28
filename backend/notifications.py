@@ -40,7 +40,7 @@ class NotificationService:
             logger.error(f"Erreur connexion ntfy: {e}")
 
     @staticmethod
-    def notify_deal(deal_data, analysis):
+    def notify_deal(deal_id, deal_data, analysis):
         """Formate et envoie une notification pour une annonce intéressante."""
         verdict = analysis.get('verdict', 'UNKNOWN')
         
@@ -64,10 +64,16 @@ class NotificationService:
         tags = ['guitar', 'moneybag']
         if verdict == 'PEPITE': tags.append('star')
         
+        click_url = None
+        if deal_id:
+            click_url = f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}"
+        else:
+            logger.warning(f"Aucun deal_id fourni pour la notification '{title}'. Le lien sera absent.")
+
         NotificationService.send_notification(
             title=title,
             message=message,
             priority=priority,
             tags=tags,
-            click_url=f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_data.get('id')}"
+            click_url=click_url
         )

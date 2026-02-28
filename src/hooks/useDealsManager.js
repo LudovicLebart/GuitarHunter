@@ -35,6 +35,7 @@ const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
 export const useDealsManager = (user, setError) => {
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDeal, setSelectedDeal] = useState(null);
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
 
   const [filterType, setFilterType] = useState('ALL');
@@ -340,6 +341,8 @@ export const useDealsManager = (user, setError) => {
     deals,
     loading,
     dbStatus,
+    selectedDeal,
+    setSelectedDeal,
     filteredDeals,
     counts,
     filterProps: {
@@ -362,7 +365,9 @@ export const useDealsManager = (user, setError) => {
       handleDeleteDeal,
       handleRetryAnalysis,
       handleForceExpertAnalysis,
-      handleToggleFavorite
+      handleToggleFavorite,
+      // On expose directement la sélection pour que la carte puisse ouvrir la modale
+      handleSelectDeal: setSelectedDeal 
     }
   };
 };

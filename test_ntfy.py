@@ -1,52 +1,55 @@
+import logging
 import os
 import sys
-import firebase_admin
-from firebase_admin import credentials, firestore
 
-# Add current path to sys.path so we can import modules
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# --- Configuration minimale pour exécuter le script ---
+# Ajoute la racine du projet au path pour que les imports fonctionnent
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
+# Configure un logger basique pour voir les messages du service
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
-from backend.notifications import NotificationService
+try:
+    from backend.notifications import NotificationService
+except ImportError:
+    print("ERREUR: Impossible d'importer NotificationService.")
+    print("Assurez-vous que ce script est bien à la racine de votre projet 'GuitarHunter'.")
+    sys.exit(1)
 
-def main():
-    if not firebase_admin._apps:
-        try:
-            cred = credentials.Certificate(FIREBASE_KEY_PATH)
-            firebase_admin.initialize_app(cred)
-        except Exception as e:
-            print(f"Erreur d'initialisation Firebase: {e}")
-            sys.exit(1)
 
-    db = firestore.client()
-    deals_ref = db.collection('artifacts').document(APP_ID_TARGET).collection('users').document(USER_ID_TARGET).collection('guitar_deals')
+def send_test_notification():
+    """
+    Envoie une notification de test avec des données prédéfinies pour valider le lien.
+    """
+    # L'ID de l'annonce que tu as fourni
+    test_deal_id = "1024831570706623"
 
-    deal_id_to_test = "1524240128676865"
-    deal_doc = deals_ref.document(deal_id_to_test).get()
-
-    if deal_doc.exists:
-        deal_data = deal_doc.to_dict()
-        deal_data['id'] = deal_doc.id
-        print(f"Annonce trouvée dans FB: {deal_data.get('title')}")
-    else:
-        deal_data = {
-            'id': 'mocked_id_12345',
-            'title': 'Guitare de Test (Base Vide)',
-            'price': 500,
-            'link': 'https://www.facebook.com/marketplace/item/mocked_id_12345'
-        }
-        print("Aucune annonce trouvée, utilisation d'une annonce fictive.")
-        
-    # On définit un faux verdict 'PEPITE' pour forcer l'envoi
-    analysis = {
-        'verdict': 'PEPITE',
-        'estimated_value': int(deal_data.get('price', 0)) + 300,
-        'reasoning': 'Ceci est une notification de test générée par l\'IA pour vérifier la redirection vers le Frontend.'
+    # Données de l'annonce (simulées pour le test)
+    test_deal_data = {
+        'title': "Guitare de Test (PEPITE)",
+        'price': 750
     }
-    
-    NotificationService.notify_deal(deal_data, analysis)
-    print(f"Notification envoyée pour l'annonce: {deal_data.get('title')} (ID: {deal_data['id']})")
-    print(f"Lien cible: https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_data['id']}")
+
+    # Données de l'analyse IA (simulées pour le test)
+    test_analysis = {
+        'verdict': 'PEPITE', # Pour s'assurer que la notification est envoyée avec une priorité haute
+        'estimated_value': 1200,
+        'reasoning': "Ceci est une notification de test pour valider le lien de redirection."
+    }
+
+    print(f"Envoi d'une notification de test pour l'ID : {test_deal_id}...")
+
+    # Appel de la fonction de notification avec les données de test
+    NotificationService.notify_deal(
+        deal_id=test_deal_id,
+        deal_data=test_deal_data,
+        analysis=test_analysis
+    )
+
+    print("\nDemande de notification envoyée.")
+    print("Vérifiez votre client ntfy.sh.")
+    print(f"Le lien généré devrait être : https://ludoviclebart.github.io/GuitarHunter/?dealId={test_deal_id}")
+
 
 if __name__ == "__main__":
-    main()
+    send_test_notification()
