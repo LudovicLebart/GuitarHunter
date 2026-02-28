@@ -1,5 +1,8 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-02-28] [PRO] Action : Implémentation de la redirection par `dealId` et amélioration du partage → Résultat : (1) Le composant `Dashboard.jsx` lit désormais le paramètre `dealId` de l'URL au chargement, sélectionne l'annonce correspondante et force l'affichage en mode "Carte" (`MapView`). (2) Le bouton de partage dans `DealCard.jsx` génère un lien vers l'application avec le `dealId` de l'annonce, permettant un partage direct et une ouverture de la modale de détail. (3) La logique de sélection de l'annonce depuis l'URL a été déplacée de `useDealsManager.js` vers `Dashboard.jsx` pour une meilleure gestion de l'état de l'interface.
+
+
 [2024-07-30] [PRO] Action : Implémentation d'une stratégie de rotation d'IP (Proxies) → Résultat : (1) Ajout d'une liste `PROXIES` dans `config.py` pour centraliser la configuration. (2) Modification de `FacebookScraper` (`backend/scraping/core.py`) pour sélectionner aléatoirement un proxy de la liste à chaque instanciation d'un navigateur Playwright. (3) La rotation est effective car le bot instancie un scraper temporaire pour chaque tâche, garantissant une nouvelle IP pour chaque scan de ville ou action manuelle.
 
 [2024-07-30] [FLASH] Action : Analyse du diagnostic de détection du scraper par Facebook → Résultat : Le diagnostic est validé. Le projet a déjà implémenté la plupart des contre-mesures (session persistante, randomisation User-Agent/Viewport, jitter, intégration du téléchargement d'images, flags Playwright furtifs) documentées dans les Sessions 35 et 29. Une stratégie de rotation d'IP reste une amélioration potentielle.

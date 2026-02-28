@@ -62,8 +62,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
 
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
-    - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique.
-
+    - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
+- [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
 - [ ] **Bug : Problème de déplacement sur la carte (MapView)**
     - *Détails :* Des comportements inattendus ou des blocages sont observés lors de l'interaction avec la carte (zoom, déplacement, sélection de marqueurs).
 

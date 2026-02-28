@@ -113,6 +113,10 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   - Contient un module financier interactif pour afficher les estimations de valeur, de coût et de marge.
   - Les boutons d'action (Rejeter, Réanalyser) appellent les fonctions passées en props, qui remontent jusqu'à `useDealsManager` puis `firestoreService`.
 
+### `src/components/Dashboard.jsx`
+- **Gestion de l'URL (`dealId`)**: Au chargement, le composant lit le paramètre `dealId` de l'URL. Si présent, il sélectionne l'annonce correspondante via `dealActions.handleSelectDeal` et force le `viewMode` à `'MAP'` pour afficher la modale de détail. L'URL est ensuite nettoyée pour éviter des ouvertures répétées.
+- **Bouton de Partage**: Le bouton de partage génère une URL spécifique à l'annonce (`${window.location.origin}${window.location.pathname}?dealId=${deal.id}`) qui, une fois ouverte, déclenchera l'ouverture de la modale de détail de l'annonce grâce à la logique ci-dessus.
+
 ### `src/components/MapView.jsx`
 - **Cartographie Google Maps :** Intègre la logique des marqueurs et des InfoWindows.
 - **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
