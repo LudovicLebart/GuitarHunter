@@ -254,6 +254,33 @@ class FirestoreRepository:
         
         return stable_urls
 
+    def delete_deal_images(self, deal_id):
+        """
+        Supprime toutes les images d'un deal dans Firebase Storage et
+        efface le champ storageImageUrls dans Firestore.
+        """
+        if not self._bucket:
+            logger.warning(f"delete_deal_images: Pas de bucket Storage configuré pour deal {deal_id}.")
+            return 0
+
+        deleted_count = 0
+        try:
+            # 1. Supprimer les fichiers dans Storage
+            prefix = f"deals/{deal_id}/"
+            blobs = list(self._bucket.list_blobs(prefix=prefix))
+            if blobs:
+                for blob in blobs:
+                    blob.delete()
+                deleted_count = len(blobs)
+                logger.info(f"🗑️ {deleted_count} image(s) supprimée(s) du Storage pour deal {deal_id}.")
+
+            # 2. Effacer le champ dans Firestore
+            self.collection_ref.document(deal_id).update({'storageImageUrls': firestore.DELETE_FIELD})
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Erreur lors de la suppression des images pour deal {deal_id}: {e}", exc_info=True)
+            return 0
+
     def purge_rejected_images(self, retention_days=30, rejection_verdicts=None):
         """
         Politique de cycle de vie : supprime les images Firebase Storage
@@ -308,4 +335,3 @@ class FirestoreRepository:
 
         logger.info(f"Purge lifecycle terminée. {purged_count} image(s) supprimée(s).")
         return purged_count
-

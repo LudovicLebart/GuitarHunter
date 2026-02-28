@@ -32,17 +32,28 @@ const SectionHeader = ({ icon: Icon, title, count, color, open, onToggle }) => (
 const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
     const [isOpen, setIsOpen] = useState(false);
 
+    // Réorganisation pour inclure les statuts spéciaux (Vendu, Rejeté, Erreur)
     const OPTIONS = [
         { id: 'ALL', label: 'Toutes les annonces' },
-        { divider: true },
         { id: 'FAVORITES', label: 'Favoris' },
         { divider: true },
-        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION', 'BAD_DEAL', 'REJECTED_ITEM', 'INCOMPLETE_DATA']
+        // Verdicts positifs
+        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION']
             .filter(id => ALL_FILTERS_CONFIG[id])
             .map(id => ({
                 id,
                 label: ALL_FILTERS_CONFIG[id]?.pluralLabel || ALL_FILTERS_CONFIG[id]?.label || id,
-            }))
+            })),
+        { divider: true },
+        // Verdicts de "bruit" ou négatifs
+        ...['BAD_DEAL', 'REJECTED_ITEM', 'INCOMPLETE_DATA']
+            .filter(id => ALL_FILTERS_CONFIG[id])
+            .map(id => ({ id, label: ALL_FILTERS_CONFIG[id]?.label || id })),
+        { divider: true },
+        // Statuts spéciaux
+        { id: 'SOLD', label: 'Annonces Vendues' },
+        { id: 'REJECTED', label: 'Annonces Rejetées' },
+        { id: 'ERROR', label: 'Erreurs d\'analyse' },
     ];
 
     const currentLabel = OPTIONS.find(o => o.id === currentVerdict)?.label || 'Toutes les annonces';

@@ -42,6 +42,9 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
     
+    # --- NOUVEAU : Verrou pour les commandes en cours ---
+    in_flight_command_ids = set()
+
     # Démarrage du thread de surveillance des réanalyses
     threading.Thread(target=monitor_retries, args=(bot,), daemon=True).start()
     
@@ -73,16 +76,27 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                 if sync_result:
                     for command in sync_result.commands:
                         logger.info(f"Commande reçue : {command.type} (ID: {command.command_id})")
+
+                        # --- NOUVEAU : Vérification du verrou ---
+                        if command.command_id in in_flight_command_ids:
+                            logger.warning(f"Commande {command.type} (ID: {command.command_id}) déjà en cours d'exécution. Ignorée.")
+                            continue
+
                         handler = command_handlers.get(command.type)
                         if handler:
                             # Définition d'une fonction wrapper pour exécuter la commande asynchronement
                             def execute_command_async(h, p, cid, ctype):
+                                # --- NOUVEAU : Verrouillage et déverrouillage ---
                                 try:
+                                    in_flight_command_ids.add(cid)
                                     h(p)
                                     if cid: bot.repo.mark_command_completed(cid)
                                 except Exception as e:
                                     logger.error(f"Erreur exécution asynchrone commande {ctype}: {e}", exc_info=True)
                                     if cid: bot.repo.mark_command_failed(cid, str(e))
+                                finally:
+                                    if cid in in_flight_command_ids:
+                                        in_flight_command_ids.remove(cid)
 
                             if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL']:
                                 logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
