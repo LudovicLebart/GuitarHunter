@@ -1,5 +1,7 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-03-05] [PRO] Action : Implémentation complète de la sélection 3-Tiers et correction Gemini 2.5 Pro → Résultat : (1) Correction du bug où l'Expert Pro était écrasé vers Flash à cause d'une omission dans l'UI. (2) Ajout du modèle `gemini-2.5-pro` à la liste des modèles disponibles dans l'interface. (3) Ajout d'un 3ème menu déroulant dans le `ConfigPanel` pour configurer le modèle de l'Analyste (Tier 2 - `mainModel`) de manière indépendante du Portier (Tier 1) et de l'Expert (Tier 3). (4) Mise à jour du hook `useBotConfig.js` pour gérer les 3 modèles avec les bonnes valeurs par défaut du backend.
+
 [2026-02-28] [PRO] Action : Implémentation de la redirection par `dealId` et amélioration du partage → Résultat : (1) Le composant `Dashboard.jsx` lit désormais le paramètre `dealId` de l'URL au chargement, sélectionne l'annonce correspondante et force l'affichage en mode "Carte" (`MapView`). (2) Le bouton de partage dans `DealCard.jsx` génère un lien vers l'application avec le `dealId` de l'annonce, permettant un partage direct et une ouverture de la modale de détail. (3) La logique de sélection de l'annonce depuis l'URL a été déplacée de `useDealsManager.js` vers `Dashboard.jsx` pour une meilleure gestion de l'état de l'interface.
 
 
@@ -231,7 +233,7 @@ Une racine propre facilite la navigation dans le projet et sépare clairement le
     - **Problème :** L'utilisateur a remarqué un écart de ~300 annonces entre le total Firestore (486) et les annonces visibles (84 + 91).
     - **Investigation :** Création de scripts d'audit (`inspect_db_stats.py`, `inspect_rejection_reasons.py`) pour analyser les documents `status: 'rejected'`.
     - **Découverte :** 287 annonces portent le verdict `REJECTED` (ancienne nomenclature v1). 20 proviennent du pré-filtre Javascript, le reste (267) provient des modèles Gemini (anciennes analyses).
-    - **Cause de l'invisibilité :** Le frontend (`matchesVerdictFilter`) masque totalement les documents ayant un statut global `rejected`. Dans la nomenclature v2, le "bruit" est classé `REJECTED_ITEM` avec un statut global `analyzed`, ce qui les rend comptabilisables dans l'UI alors que la v1 les annihilait visuellement.
+    - **Cause de l'invisibilité :** Le frontend (`matchesVerdictFilter`) masque totalement les documents ayant un statut global `rejected`. Dans la nomenclature v2, le "bruit" est classé `REJECTED_ITEM` avec un statut global `analyzed`, ce qui les rend comptabilisable dans l'UI alors que la v1 les annihilait visuellement.
 - **Analyse du système de nettoyage (Sold Listings) :**
     - Documentation du fonctionnement de `cleanup_sold_listings`. Identification de la fragilité de la détection (basée sur du texte strict) et du risque de perte d'historique dû au "Hard Delete".
 
@@ -282,7 +284,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 1.  **Analyse globale des flux de données et de l'architecture :**
     - Réalisation d'un audit de bas en haut (Scrapers -> Core Logic -> IA -> Base de données -> Frontend).
     - Mise à jour de `docs/TODO.md` avec de nouvelles priorités de pointe (dette technique cachée).
-    - Mise à jour de `docs/ARCHITECTURE.md` pour refléter la situation réelle des flux de commandes.
+    - Mise à jour de `docs/ARCHITECTURE.MD` pour refléter la situation réelle des flux de commandes.
 
 2.  **Identifications Clés (Dette Technique ajoutée au TODO) :**
     - **Architecture de Commandes Hybride :** Le backend écoute à la fois des champs horodatés sur `users/{id}` (legacy) et des documents dans la collection `commands` (nouveau). Cela crée une complexité inutile.

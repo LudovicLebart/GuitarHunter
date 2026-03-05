@@ -200,7 +200,10 @@ L'utilisateur peut modifier les 3 prompts suivants via le **ConfigPanel** (ongle
 
 | Clé Firestore | Description | Utilisé par |
 |---|---|---|
-| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings**. *Note: Gère désormais les lots (instruments + accessoires) pour éviter les rejets abusifs.* | Portier + Expert |
+| `analysisConfig.gatekeeperModel` | Modèle utilisé pour le filtrage rapide (Tier 1) | Portier |
+| `analysisConfig.mainModel` | Modèle utilisé pour la structuration et les scores (Tier 2) | Analyste |
+| `analysisConfig.expertModel` | Modèle utilisé pour l'analyse approfondie (Tier 3) | Expert Pro |
+| `analysisConfig.mainAnalysisPrompt` | Prompt principal complet (persona + verdicts + format JSON) — **Array de strings**. | Portier + Expert |
 | `analysisConfig.gatekeeperVerbosityInstruction` | Instruction du Portier (filtre initial, liste des catégories acceptées) — **Array de strings** | Portier uniquement |
 | `analysisConfig.analystVerbosityInstruction` | Instruction de l'Analyste (format puce compact + 5 scores) — **Array de strings** | Analyste uniquement |
 | `analysisConfig.expertProContextInstruction` | Contexte injecté en tête du prompt de l'Expert (contient `{status}` et `{reasoning}`) — **Array de strings** | Expert Pro uniquement |
