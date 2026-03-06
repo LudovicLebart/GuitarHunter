@@ -113,6 +113,15 @@ class GuitarHunterBot:
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
         return sync_result
 
+    @staticmethod
+    def _normalize_price(price):
+        """Nettoie une chaîne de prix (ex: ' 150 $ ') pour retourner un float fiable."""
+        try:
+            num_str = ''.join(c for c in str(price).replace(',', '.') if c.isdigit() or c == '.')
+            return float(num_str) if num_str else 0.0
+        except Exception:
+            return 0.0
+
     def should_skip_deal(self, deal_id, price):
         if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
@@ -121,11 +130,14 @@ class GuitarHunterBot:
         if existing_deal.get('status') == 'rejected':
             self.session_processed_ids.add(deal_id)
             return True
-        try:
-            if int(existing_deal.get('price', -1)) == int(price):
-                self.session_processed_ids.add(deal_id)
-                return True
-        except (ValueError, TypeError): pass
+            
+        old_price = self._normalize_price(existing_deal.get('price', -1))
+        new_price = self._normalize_price(price)
+        
+        if old_price > 0 and old_price == new_price:
+            self.session_processed_ids.add(deal_id)
+            return True
+            
         return False
 
     def _check_exclusion(self, listing_data, config):
@@ -154,9 +166,14 @@ class GuitarHunterBot:
                 if existing_deal.get('status') == 'rejected':
                     logger.info("Annonce déjà rejetée. Ignorée.")
                     return
-                if existing_deal.get('price') == listing_data['price']:
-                    logger.info("Annonce déjà existante avec le même prix. Ignorée.")
+                    
+                old_p = self._normalize_price(existing_deal.get('price'))
+                new_p = self._normalize_price(listing_data['price'])
+                
+                if old_p > 0 and old_p == new_p:
+                    logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
                     return
+                    
                 # Prix différent !
                 original_price = existing_deal.get('price')
                 logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
@@ -164,8 +181,6 @@ class GuitarHunterBot:
                 
                 # Enrichissement des données avec les infos de baisse de prix
                 try:
-                    old_p = float(str(original_price).replace('$', '').replace(' ', '').replace(',', '')) if original_price else 0
-                    new_p = float(str(listing_data['price']).replace('$', '').replace(' ', '').replace(',', '')) if listing_data['price'] else 0
                     if old_p > new_p > 0:
                         listing_data['original_price'] = original_price
                         listing_data['price_drop_amount'] = old_p - new_p
@@ -188,7 +203,7 @@ class GuitarHunterBot:
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
         deal_id = listing_data.get('id')
-        NotificationService.notify_deal(deal_id, listing_data, analysis)
+        NotificationService.notify_deal(deal_id, listing_data, analysis, is_update=is_update)
         
         if not self.offline_mode:
             # Upload des images dans Firebase Storage avant la sauvegarde

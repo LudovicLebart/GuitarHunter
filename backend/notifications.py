@@ -40,7 +40,7 @@ class NotificationService:
             logger.error(f"Erreur connexion ntfy: {e}")
 
     @staticmethod
-    def notify_deal(deal_id, deal_data, analysis):
+    def notify_deal(deal_id, deal_data, analysis, is_update=False):
         """Formate et envoie une notification pour une annonce intéressante."""
         verdict = analysis.get('verdict', 'UNKNOWN')
         
@@ -48,13 +48,44 @@ class NotificationService:
         if verdict not in ['PEPITE', 'BONNE_AFFAIRE', 'GOLD']:
             return
 
-        title = f"🎸 {verdict} : {deal_data.get('title')}"
         price = deal_data.get('price', 0)
+        title_prefix = f"🎸 {verdict}"
+        
+        # --- Filtrage intelligent des mises à jour ---
+        if is_update:
+            price_drop = deal_data.get('price_drop_amount')
+            old_price_raw = deal_data.get('original_price')
+            
+            # Si aucune baisse de prix n'est enregistrée, on ignore la notification
+            if not price_drop or not old_price_raw:
+                logger.info(f"ntfy ignoré : simple mise à jour de l'annonce sans baisse de prix ({deal_id}).")
+                return
+                
+            try:
+                old_p = float(''.join(c for c in str(old_price_raw).replace(',', '.') if c.isdigit() or c == '.'))
+                if old_p > 0:
+                    drop_percent = (price_drop / old_p) * 100
+                    # Filtre anti-spam : ignore les baisses de moins de 5% ET moins de 50$
+                    if drop_percent < 5.0 and price_drop < 50:
+                        logger.info(f"ntfy ignoré : baisse de prix trop mineure ({drop_percent:.1f}%, -{price_drop}$) pour {deal_id}")
+                        return
+                    title_prefix = f"📉 BAISSE DE PRIX ({verdict})"
+            except Exception:
+                pass
+
+        title = f"{title_prefix} : {deal_data.get('title')}"
         est_val = analysis.get('estimated_value', 0)
         profit = est_val - price
         
         message = (
-            f"Prix: {price}$\n"
+            f"Nouveau Prix: {price}$" if is_update else f"Prix: {price}$"
+        )
+        if is_update and deal_data.get('price_drop_amount'):
+            message += f" (Baisse de {deal_data.get('price_drop_amount')}$)\n"
+        else:
+            message += "\n"
+            
+        message += (
             f"Estimé: {est_val}$\n"
             f"Profit potentiel: {profit}$\n\n"
             f"Raison: {analysis.get('reasoning', '')[:100]}..."
