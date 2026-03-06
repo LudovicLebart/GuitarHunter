@@ -58,6 +58,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/scraping/`
 - **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 
+    - **Détection des Baisses de Prix** : Avant analyse, si une annonce existe déjà en DB mais que son prix a baissé, elle est marquée comme une mise à jour. L'ancien prix est sauvegardé (`original_price`), la différence calculée (`price_drop_amount`), et l'annonce repasse dans le pipeline IA pour réévaluation (la marge évolue).
     - **Note d'architecture (Thread-Safety)** : L'instance `FacebookScraper` n'est plus globale au bot. Pour éviter les erreurs `greenlet.error` (Cannot switch to a different thread) de l'API synchrone de Playwright lors des commandes en arrière-plan (ex: `REFRESH`, `SCAN_URL`), un `temp_scraper` est instancié localement au sein de chaque thread worker et fermé immédiatement après usage.
     - **Protection Anti-Bot (Stealth Mode)** : Pour éviter le bannissement ou les redirections vers /login, le scraper intègre désormais :
         - **Rotation d'IP (Proxies)** : Si la liste `PROXIES` dans `config.py` est remplie, chaque instance du scraper choisira aléatoirement un proxy, permettant une rotation des adresses IP à chaque nouvelle tâche de scraping.
@@ -118,9 +119,13 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Bouton de Partage**: Le bouton de partage génère une URL spécifique à l'annonce (`${window.location.origin}${window.location.pathname}?dealId=${deal.id}`) qui, une fois ouverte, déclenchera l'ouverture de la modale de détail de l'annonce grâce à la logique ci-dessus.
 
 ### `src/components/MapView.jsx`
-- **Cartographie Google Maps :** Intègre la logique des marqueurs et des InfoWindows.
-- **Interactions Enrichies :** Les marqueurs affichent des InfoWindows (tooltips) au survol (PC) ou au clic (Mobile). Ces bulles contiennent une miniature de l'annonce, le titre, le Score DEAL (IA) et la Valeur Estimée.
-- **Logique de Navigation :** Sur mobile, le premier clic ouvre la bulle d'info. Le second clic sur la bulle ouvre l'annonce complète en bas d'écran (overlay).
+- **Cartographie Google Maps :** Intègre### 1. Logique de Scraping et de Détection (`backend/scraping/`)
+
+*   **Extraction :** Utilise Scrapy/Playwright pour cibler le Marketplace, contourner les protections, et charger les annonces dynamiquement (scroll down).
+*   **Nettoyage initial :** Standardisation des ID, nettoyage des titres et descriptions (retrait des émojis inutiles, formatage des prix).
+*   **Détection d'existence & Baisse de prix :** Avant analyse, un premier check compare l'ID avec la mémoire (session) et la base de données.
+    *   Si l'annonce existe avec le même prix : Ignorée *(économie d'API)*.
+    *   Si l'annonce existe mais avec un prix inférieur : Elle est traitée comme une *mise à jour* (`is_update = True`). Le nouveau prix écrase l'ancien, la différence (`price_drop_amount`) est calculée, et l'annonce repasse dans le pipeline d'IA pour réévaluer son potentiel (les marges évoluent).
 
 ### `src/components/Dashboard.jsx` (Tableau de Bord V2)
 - **Interface Principale :** Regroupe la Navbar, le Tiroir de Filtres, et les différentes vues (Liste, Carte, Stats).

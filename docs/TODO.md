@@ -159,6 +159,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Plan de travail :* [`docs/STATS_REFLEXION.md`](./STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
 
+- [x] **Feature : Détection des Baisses de Prix** *(Session 05/03/2026)*
+    - *Détails :* Le bot compare le prix actuel avec le prix en DB. Si inférieur, il met à jour le document, calcule `price_drop_amount` et force une réanalyse IA.
+    - *Frontend :* Affichage d'un badge vert émeraude "Baisse -XX$" sur la DealCard.
+
+- [x] **Feature : Pipeline IA 3-Tiers configurable** *(Session 05/03/2026)*
+    - *Détails :* Ajout d'un modèle intermédiaire "Analyste" (Tier 2) entre le Portier et l'Expert Pro.
+    - *Frontend :* Le `ConfigPanel` permet désormais de choisir les 3 modèles indépendamment. Correction du bug écrasant l'Expert Pro vers Flash.
+
 ---
 
 ## ✅ Terminé

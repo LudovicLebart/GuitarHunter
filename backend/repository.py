@@ -94,6 +94,26 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Firestore update failed for deal '{deal_id}': {e}", exc_info=True)
 
+    def update_deal_data_and_analysis(self, deal_id, deal_data, analysis_data):
+        """Met à jour les données complètes de l'annonce (ex: baisse de prix) et son analyse."""
+        try:
+            status = "analyzed"
+            if analysis_data.get('verdict') == 'REJECTED':
+                status = "rejected"
+                
+            # Fusionner les nouvelles métadonnées de l'annonce (y compris le nouveau prix)
+            update_data = {
+                **deal_data,
+                "aiAnalysis": analysis_data,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "status": status
+            }
+            
+            self.collection_ref.document(deal_id).update(update_data)
+            logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
+        except Exception as e:
+            logger.error(f"Firestore full update failed for deal '{deal_id}': {e}", exc_info=True)
+
     def update_deal_status(self, deal_id, status, error_message=None):
         """Met à jour uniquement le statut d'une annonce, avec un message d'erreur optionnel."""
         try:

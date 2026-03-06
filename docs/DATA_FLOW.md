@@ -45,6 +45,8 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
   {
     "title": "String",
     "price": "Number",
+    "original_price": "Number (Optionnel, si baisse de prix)",
+    "price_drop_amount": "Number (Optionnel, si baisse de prix)",
     "status": "analyzed" | "rejected" | "sold",
     "imageUrls": ["URL CDN Facebook (temporaire)"],
     "storageImageUrls": ["URL Firebase Storage (pérenne)"],
@@ -61,7 +63,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
        "condition_score": 0-10,
        "liquidity_score": 0-10,
        "restoration_interest_score": 0-10,
-       "model_used": "Chain of models used",
+       "model_used": "Chain of models used (ex: flash-lite -> flash -> pro)",
        "tier3_trigger": "Reason why Expert Pro was called (optional)"
     },
     "link": "URL",

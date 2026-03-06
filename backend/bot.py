@@ -146,6 +146,8 @@ class GuitarHunterBot:
         self.session_processed_ids.add(listing_data['id'])
         
         is_update = False
+        original_price = None
+        
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
             if existing_deal:
@@ -155,8 +157,20 @@ class GuitarHunterBot:
                 if existing_deal.get('price') == listing_data['price']:
                     logger.info("Annonce déjà existante avec le même prix. Ignorée.")
                     return
-                logger.info("Annonce existante mais prix différent. Mise à jour.")
+                # Prix différent !
+                original_price = existing_deal.get('price')
+                logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
                 is_update = True
+                
+                # Enrichissement des données avec les infos de baisse de prix
+                try:
+                    old_p = float(str(original_price).replace('$', '').replace(' ', '').replace(',', '')) if original_price else 0
+                    new_p = float(str(listing_data['price']).replace('$', '').replace(' ', '').replace(',', '')) if listing_data['price'] else 0
+                    if old_p > new_p > 0:
+                        listing_data['original_price'] = original_price
+                        listing_data['price_drop_amount'] = old_p - new_p
+                except Exception as e:
+                    logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
         found_keyword = self._check_exclusion(listing_data, current_config)
@@ -166,7 +180,8 @@ class GuitarHunterBot:
             rejection_analysis = self._create_rejection_analysis(found_keyword)
             if not self.offline_mode:
                 if is_update:
-                    self.repo.update_deal_analysis(listing_data['id'], rejection_analysis)
+                    # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
+                    self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, rejection_analysis)
                 else:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return
@@ -184,7 +199,8 @@ class GuitarHunterBot:
                     listing_data['storageImageUrls'] = stable_urls
             
             if is_update:
-                self.repo.update_deal_analysis(listing_data['id'], analysis)
+                # Appel de la nouvelle méthode pour écraser le prix Firestore et ajouter l'historique
+                self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, analysis)
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
