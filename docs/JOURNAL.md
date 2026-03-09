@@ -661,18 +661,18 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 ---
 
-[2026-03-09] [FLASH] Action effectuée → Migration vers Tailscale OAuth (config.py & deploy.yml) et mise à jour de la documentation.
+[2026-03-09] [FLASH] Action effectuée → Migration vers Tailscale OAuth pour le déploiement (CI/CD) et correction du périmètre des secrets.
 
-### Session 48 : Intégration Tailscale OAuth
+### Session 48 : Intégration Tailscale OAuth (CI/CD)
 
-#### ✅ Objectif : Sécuriser et automatiser la connexion Tailscale via OAuth.
+#### ✅ Objectif : Sécuriser la connexion SSH du GitHub Runner via Tailscale OAuth.
 
-- **Backend (`config.py`)** : Chargement des variables `TS_OAUTH_CLIENT_ID` et `TS_OAUTH_SECRET`.
-- **DevOps (`deploy.yml`)** : Injection explicite des secrets dans le `.env` du serveur lors du déploiement SSH.
-- **Documentation** : Mise à jour de `ARCHITECTURE.md` pour refléter le changement de mode d'authentification.
+- **DevOps (`deploy.yml`)** : Utilisation des secrets `TS_OAUTH_CLIENT_ID` et `TS_OAUTH_SECRET` pour rejoindre le Tailnet lors du déploiement.
+- **Documentation** : Mise à jour de `ARCHITECTURE.md` pour clarifier que ces secrets concernent le pipeline de déploiement et non l'application.
+- **Correction** : Retrait des variables OAuth de `config.py` et de l'injection dans le `.env` du serveur (périmètre CI/CD uniquement).
 
 #### 🤔 Raisonnement
 
-- L'utilisation d'OAuth au lieu de clés d'authentification statiques améliore la sécurité et simplifie la rotation des accès via les Secrets GitHub.
+- Les identifiants OAuth Tailscale sont nécessaires au GitHub Runner pour accéder au serveur privé. L'application (bot) n'en a pas besoin pour son fonctionnement interne. Séparer les deux types de secrets améliore la clarté et la sécurité.
 
 ---

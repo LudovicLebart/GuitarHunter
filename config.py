@@ -14,8 +14,6 @@ FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 USER_ID_TARGET = os.getenv("USER_ID_TARGET")
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
-TS_OAUTH_CLIENT_ID = os.getenv("TS_OAUTH_CLIENT_ID")
-TS_OAUTH_SECRET = os.getenv("TS_OAUTH_SECRET")
 
 # CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
