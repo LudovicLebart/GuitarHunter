@@ -18,17 +18,14 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Tailscale Debug
-        run: |
-          tailscale status
-          tailscale ping -c 3 ${{ secrets.SERVER_IP }} || echo "Ping failed"
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 60s
+          command_timeout: 10m
           script: |
             mkdir -p ~/GuitareHunter
             cd ~/GuitareHunter
