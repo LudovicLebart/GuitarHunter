@@ -14,7 +14,9 @@ jobs:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v2
         with:
-          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -32,6 +34,8 @@ jobs:
               echo "⚠️ Secret DOT_ENV manquant dans GitHub."
             else
               echo "${{ secrets.DOT_ENV }}" > .env
+              echo "TS_OAUTH_CLIENT_ID=${{ secrets.TS_OAUTH_CLIENT_ID }}" >> .env
+              echo "TS_OAUTH_SECRET=${{ secrets.TS_OAUTH_SECRET }}" >> .env
               echo "✅ Fichier .env mis à jour."
             fi
 

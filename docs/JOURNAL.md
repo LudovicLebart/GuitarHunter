@@ -658,3 +658,21 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 - **Vérification** : Le build Vite ne doit plus lever l'erreur `The character "}" is not valid inside a JSX element`.
 
 ---
+
+---
+
+[2026-03-09] [FLASH] Action effectuée → Migration vers Tailscale OAuth (config.py & deploy.yml) et mise à jour de la documentation.
+
+### Session 48 : Intégration Tailscale OAuth
+
+#### ✅ Objectif : Sécuriser et automatiser la connexion Tailscale via OAuth.
+
+- **Backend (`config.py`)** : Chargement des variables `TS_OAUTH_CLIENT_ID` et `TS_OAUTH_SECRET`.
+- **DevOps (`deploy.yml`)** : Injection explicite des secrets dans le `.env` du serveur lors du déploiement SSH.
+- **Documentation** : Mise à jour de `ARCHITECTURE.md` pour refléter le changement de mode d'authentification.
+
+#### 🤔 Raisonnement
+
+- L'utilisation d'OAuth au lieu de clés d'authentification statiques améliore la sécurité et simplifie la rotation des accès via les Secrets GitHub.
+
+---

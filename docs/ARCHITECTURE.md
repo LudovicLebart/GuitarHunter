@@ -28,6 +28,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
   2. Exécute les tâches planifiées (scan, nettoyage) via `TaskScheduler`.
   3. Gère un `command_handlers` pour router les commandes Firestore vers les bonnes méthodes du bot.
 - **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
+- **Authentification Tailscale (OAuth):** Le bot utilise désormais des identifiants OAuth Tailscale (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) pour la connectivité sécurisée, injectés via GitHub Secrets lors du déploiement.
 
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
