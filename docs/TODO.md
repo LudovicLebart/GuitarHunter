@@ -171,9 +171,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
-- [x] **Feature : Système Multi-Utilisateurs** *(Session 2026-03-21)*
+- [x] **Feature : Système Multi-Utilisateurs & Migration V2** *(Session 2026-03-21)*
     - *Backend* : `USER_IDS_TARGET` dans `.env` (liste d'UIDs). Un thread par utilisateur dans `main.py`. `bot.py` paramétrable.
-    - *Frontend* : Firebase Auth email/password (`useAuth.js`). `LoginPage.jsx`. `firestoreService.js` dynamisé (`getRefs(userId)`). Tous les hooks propagent `user.uid`.
+    - *Frontend* : Firebase Auth email/password (`useAuth.js`). `LoginPage.jsx` (Login/Register). `firestoreService.js` dynamisé (`getRefs(userId)`).
+    - *Migration* : Script automatisé pour rapatrier l'ancienne DB vers le nouveau UID Firebase de l'administrateur.
 
 
 - [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
