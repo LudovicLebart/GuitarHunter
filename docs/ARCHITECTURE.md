@@ -17,6 +17,14 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
   - **`START_BOT` :** Réveil immédiat. Interrompt la boucle de pause via `start_event`. Note : toute autre commande actionnable (`REFRESH`, `SCAN_URL`, `CLEANUP`, `CLEAR_LOGS`, etc.) reçue pendant la pause réveille également le bot automatiquement (sondage Firestore toutes les 5s) et est exécutée immédiatement après le réveil.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration et le statut dynamique du bot (`botStatus`: `idle`, `scanning`, `paused`, `stopped`).
 
+## 2. 🔐 Authentification (Firebase Auth)
+
+Le système utilise **Firebase Authentication** pour gérer l'accès multi-utilisateurs.
+- **Méthode :** Email / Mot de passe.
+- **Persistance :** Gérée par le SDK Firebase (Session locale).
+- **Lien avec Firestore :** Le `uid` généré par Firebase Auth sert de `USER_ID` pour l'isolation des données dans Firestore.
+- **Migration :** Un mécanisme spécial dans `firestoreService.js` permet de migrer les données d'un ancien ID statique vers le nouveau UID Firebase d'un utilisateur spécifique (administrateur).
+
 ## 2. 🐍 Backend (Python)
 
 Le backend est un "worker" persistant qui tourne en boucle.

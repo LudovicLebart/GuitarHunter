@@ -1,21 +1,33 @@
 import React, { useCallback } from 'react';
 import { AlertTriangle, XCircle } from 'lucide-react';
 
-// Contexts & Main Hook
+import { AuthProvider } from './context/AuthContext';
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
 import { DealsProvider } from './context/DealsContext';
 import { CitiesProvider } from './context/CitiesContext';
 import { useAuth } from './hooks/useAuth';
 
-// Components
 import Dashboard from './components/Dashboard';
+import LoginPage from './components/LoginPage';
 
 const AppContent = () => {
-  const { authStatus } = useAuth();
+  const { user, authStatus } = useAuth();
   const { error, setError } = useBotConfigContext();
 
+  if (authStatus.status === 'loading') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-slate-400 text-sm">Vérification de la session...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return (
-    <div className="font-sans text-slate-900 selection:bg-blue-100">
+    <div className="font-sans text-slate-900 selection:bg-blue-100 min-h-screen bg-slate-950">
       <Dashboard onClose={() => { }} />
 
       {error && (
@@ -35,13 +47,15 @@ const AppContent = () => {
 };
 
 const App = () => (
-  <BotConfigProvider>
-    <DealsProvider>
-      <CitiesProvider>
-        <AppContent />
-      </CitiesProvider>
-    </DealsProvider>
-  </BotConfigProvider>
+    <AuthProvider>
+      <BotConfigProvider>
+        <DealsProvider>
+          <CitiesProvider>
+            <AppContent />
+          </CitiesProvider>
+        </DealsProvider>
+      </BotConfigProvider>
+    </AuthProvider>
 );
 
 export default App;

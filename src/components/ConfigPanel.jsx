@@ -3,7 +3,7 @@ import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, 
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
-import { addCommand } from '../services/firestoreService';
+
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
 

@@ -1,6 +1,7 @@
 import React from 'react';
-import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw } from 'lucide-react';
+import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
+import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/firestoreService';
 
 const StatusDot = ({ ok, label }) => (
@@ -23,6 +24,7 @@ const BOT_STATUS_CONFIG = {
 const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
+    const { signOut } = useAuth();
 
     // Fallback if rendered outside context (for isolated UI tests)
     const { botStatus = 'scanning', configStatus = { status: 'success' }, isRefreshing = false, isCleaning = false, handleManualRefresh = () => { }, handleManualCleanup = () => { } } = botContext || {};
@@ -165,6 +167,15 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
                         title="Paramètres"
                     >
                         <Settings size={16} />
+                    </button>
+
+                    {/* Déconnexion button */}
+                    <button
+                        onClick={signOut}
+                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                        title="Se déconnecter"
+                    >
+                        <LogOut size={16} />
                     </button>
                 </div>
             </div>

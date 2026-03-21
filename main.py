@@ -7,7 +7,7 @@ import threading
 # On utilisera flush=True dans les prints critiques.
 print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
-from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
+from config import APP_ID_TARGET, USER_IDS_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
@@ -181,35 +181,62 @@ def main():
     db = db_service.db
     offline_mode = db_service.offline_mode
 
-    print("DEBUG: Configuration du logging...", flush=True)
-    firestore_handler = setup_logging(db, APP_ID_TARGET, USER_ID_TARGET, offline_mode)
-    
-    logger = logging.getLogger(__name__)
-    logger.info("Logging initialisé avec succès.")
-
     if offline_mode:
-        logger.warning("Le bot est en mode hors ligne. Sortie.")
+        print("Le bot est en mode hors ligne. Sortie.", flush=True)
         sys.exit(1)
 
-    exit_code = 0
-    try:
-        print("DEBUG: Lancement du bot...", flush=True)
-        # Events pour pilotage asynchrone du bot
+    # --- Multi-utilisateurs ---
+    # On lance un thread main_loop indépendant par utilisateur
+    user_threads = []
+    user_firestore_handlers = []
+
+    for user_id in USER_IDS_TARGET:
+        print(f"DEBUG: Configuration du bot pour l'utilisateur {user_id}...", flush=True)
+        firestore_handler = setup_logging(db, APP_ID_TARGET, user_id, offline_mode)
+        user_firestore_handlers.append(firestore_handler)
+
+        logger = logging.getLogger(f"user.{user_id}")
+        logger.info(f"Démarrage du bot pour l'utilisateur {user_id}")
+
         stop_event = threading.Event()
         start_event = threading.Event()
         scan_stop_event = threading.Event()
-        bot = GuitarHunterBot(db, db_service.bucket, is_offline=offline_mode, stop_event=stop_event, scan_stop_event=scan_stop_event)
-        main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event)
+
+        bot = GuitarHunterBot(
+            db,
+            db_service.bucket,
+            is_offline=offline_mode,
+            stop_event=stop_event,
+            scan_stop_event=scan_stop_event,
+            app_id=APP_ID_TARGET,
+            user_id=user_id
+        )
+
+        t = threading.Thread(
+            target=main_loop,
+            args=(bot, firestore_handler, stop_event, start_event, scan_stop_event),
+            daemon=True,
+            name=f"bot-{user_id[:8]}"
+        )
+        user_threads.append(t)
+        t.start()
+
+    if not user_threads:
+        print("❌ Aucun utilisateur configuré dans USER_IDS_TARGET. Arrêt.", flush=True)
+        sys.exit(1)
+
+    print(f"✅ {len(user_threads)} bot(s) démarré(s). Entrée en veille principale...", flush=True)
+    try:
+        # Le thread principal attend que tous les threads utilisateurs se terminent
+        for t in user_threads:
+            t.join()
     except KeyboardInterrupt:
-        logger.info("Interruption clavier reçue. Arrêt du bot.")
-    except Exception as e:
-        logger.critical(f"Erreur critique non gérée au démarrage : {e}", exc_info=True)
-        exit_code = 1
+        logging.getLogger(__name__).info("Interruption clavier reçue. Arrêt du bot.")
     finally:
-        logger.info("Fermeture propre de l'application.")
-        if firestore_handler:
-            firestore_handler.close()
-        sys.exit(exit_code)
+        for h in user_firestore_handlers:
+            if h:
+                h.close()
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

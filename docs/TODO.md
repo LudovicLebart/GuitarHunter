@@ -171,6 +171,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## ✅ Terminé
 
+- [x] **Feature : Système Multi-Utilisateurs** *(Session 2026-03-21)*
+    - *Backend* : `USER_IDS_TARGET` dans `.env` (liste d'UIDs). Un thread par utilisateur dans `main.py`. `bot.py` paramétrable.
+    - *Frontend* : Firebase Auth email/password (`useAuth.js`). `LoginPage.jsx`. `firestoreService.js` dynamisé (`getRefs(userId)`). Tous les hooks propagent `user.uid`.
+
+
 - [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
 - [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).
 - [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).

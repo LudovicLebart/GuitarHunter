@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-03-21] [PRO] Action : Raffinement Login & Data Migration V2 → Résultat : (1) **Frontend** : Ajout du mode Inscription (`signUp`) dans `LoginPage.jsx` avec autocomplétion pour gestionnaires de mots de passe. (2) **Migration** : Implémentation de `migrateOldDataToNewUser` dans `firestoreService.js` pour copier automatiquement les données de l'ID historique vers le compte `ludovic.lebart@gmail.com` lors de sa première connexion (si profil vide). (3) **Sécurité** : Isolation stricte garantie par `getRefs(userId)`.
+
+[2026-03-21] [PRO] Action : Implémentation du système Multi-Utilisateurs → Résultat : (1) **Backend** : `config.py` supporte `USER_IDS_TARGET` (liste d'UIDs séparés par virgule, rétrocompatible `USER_ID_TARGET`). `bot.py` reçoit `app_id` et `user_id` comme paramètres explicites. `main.py` lance un thread `main_loop` indépendant par utilisateur. (2) **Frontend** : `useAuth.js` migré vers Firebase Auth email/password. `AuthContext.jsx` et `LoginPage.jsx` créés. `firestoreService.js` dynamisé via `getRefs(userId)`. Tous les hooks propagent `user.uid`. `App.jsx` affiche `LoginPage` si non connecté. (3) Build Vite validé (exit code 0).
+
+
 [2026-03-05] [PRO] Action : Fiabilisation des comparaisons de prix et anti-spam Ntfy → Résultat : (1) Création d'une fonction `_normalize_price` dans `bot.py` pour comparer sereinement les prix (ex: "150$" vs " 150.0") et éviter les fausses "mises à jour". (2) Implémentation d'un filtre dans `notifications.py` (`notify_deal`) pour ne déclencher une alerte de "Baisse de Prix" que si la baisse est de plus de 5% ou de plus de 50$.
 
 [2026-03-05] [PRO] Action : Détection et intégration visuelle des Baisses de Prix → Résultat : (1) Backend (`bot.py`, `repository.py`) mis à jour pour écraser le prix Firestore et conserver l'ancien prix (`original_price`) lors d'une baisse. (2) Les annonces subissant une baisse repassent désormais au travers du pipeline de l'IA avec le nouveau prix. (3) Frontend (`DealCard.jsx`) mis à jour pour afficher un badge vert vif « Baisse -XX$ » si le prix a chuté, visible sur la miniature et dans la modale IA.

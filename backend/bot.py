@@ -19,11 +19,16 @@ from backend.notifications import NotificationService
 logger = logging.getLogger(__name__)
 
 class GuitarHunterBot:
-    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None):
+    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
+                 app_id=None, user_id=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
         self.offline_mode = is_offline
         self.session_processed_ids = set()
+        
+        # Support multi-utilisateurs : utiliser les params explicites si fournis, sinon fallback sur config
+        self._app_id = app_id or APP_ID_TARGET
+        self._user_id = user_id or USER_ID_TARGET
         
         # --- NOUVEAU : Gestionnaire d'état robuste ---
         self._status_lock = threading.Lock()
@@ -33,10 +38,10 @@ class GuitarHunterBot:
         if self.offline_mode:
             logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
-            self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
+            self.scraper = FacebookScraper({}, {})
             return
 
-        self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET, bucket=storage_bucket)
+        self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
         self.set_status('idle')
         self.analyzer = DealAnalyzer()
         # Le scraper sera désormais instancié au besoin par chaque thread
@@ -53,8 +58,8 @@ class GuitarHunterBot:
         self.cleanup_lock = threading.Lock()
 
         logger.info("--- Configuration du Bot Terminée ---")
-        logger.info(f"APP ID: {APP_ID_TARGET}")
-        logger.info(f"USER ID: {USER_ID_TARGET}")
+        logger.info(f"APP ID: {self._app_id}")
+        logger.info(f"USER ID: {self._user_id}")
         
         self._init_firestore_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)

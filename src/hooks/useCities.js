@@ -8,20 +8,23 @@ export const useCities = (user, setError) => {
 
   useEffect(() => {
     if (!user) return;
+    const uid = user.uid;
 
     const unsubscribe = onCitiesUpdate(
       (data) => setCities(data),
-      (err) => setError(err.message)
+      (err) => setError(err.message),
+      uid
     );
 
     return () => unsubscribe();
   }, [user, setError]);
 
   const handleAddCity = useCallback(async () => {
-    if (!newCityName) return;
+    if (!newCityName || !user) return;
+    const uid = user.uid;
     setIsAddingCity(true);
     try {
-      const commandDocRef = await requestAddCity(newCityName);
+      const commandDocRef = await requestAddCity(newCityName, uid);
       
       const unsubscribe = onCommandUpdate(commandDocRef.id, (data) => {
           if (data.status === 'completed') {
@@ -31,34 +34,36 @@ export const useCities = (user, setError) => {
           } else if (data.status === 'failed') {
               setError(data.error || "Erreur lors de l'ajout de la ville.");
               setIsAddingCity(false);
-              setNewCityName(''); // Vider le champ aussi en cas d'échec
+              setNewCityName('');
               unsubscribe();
           }
-      });
+      }, uid);
 
     } catch (e) {
       setError(e.message);
       setIsAddingCity(false);
     }
-  }, [newCityName, setError]);
+  }, [newCityName, user, setError]);
 
   const handleDeleteCity = useCallback(async (id) => {
+    if (!user) return;
     if (window.confirm('Voulez-vous vraiment supprimer cette ville ?')) {
       try {
-        await deleteCity(id);
+        await deleteCity(id, user.uid);
       } catch (e) {
         setError(e.message);
       }
     }
-  }, [setError]);
+  }, [user, setError]);
 
   const handleToggleScannable = useCallback(async (id, currentStatus) => {
+      if (!user) return;
       try {
-          await toggleCityScannable(id, currentStatus);
+          await toggleCityScannable(id, currentStatus, user.uid);
       } catch (e) {
           setError(e.message);
       }
-  }, [setError]);
+  }, [user, setError]);
 
   return {
     cities,
