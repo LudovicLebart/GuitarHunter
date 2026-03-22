@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
@@ -32,17 +32,28 @@ const SectionHeader = ({ icon: Icon, title, count, color, open, onToggle }) => (
 const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
     const [isOpen, setIsOpen] = useState(false);
 
+    // Réorganisation pour inclure les statuts spéciaux (Vendu, Rejeté, Erreur)
     const OPTIONS = [
         { id: 'ALL', label: 'Toutes les annonces' },
-        { divider: true },
         { id: 'FAVORITES', label: 'Favoris' },
         { divider: true },
-        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION', 'BAD_DEAL', 'REJECTED_ITEM', 'INCOMPLETE_DATA']
+        // Verdicts positifs
+        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION']
             .filter(id => ALL_FILTERS_CONFIG[id])
             .map(id => ({
                 id,
                 label: ALL_FILTERS_CONFIG[id]?.pluralLabel || ALL_FILTERS_CONFIG[id]?.label || id,
-            }))
+            })),
+        { divider: true },
+        // Verdicts de "bruit" ou négatifs
+        ...['BAD_DEAL', 'REJECTED_ITEM', 'INCOMPLETE_DATA']
+            .filter(id => ALL_FILTERS_CONFIG[id])
+            .map(id => ({ id, label: ALL_FILTERS_CONFIG[id]?.label || id })),
+        { divider: true },
+        // Statuts spéciaux
+        { id: 'SOLD', label: 'Annonces Vendues' },
+        { id: 'REJECTED', label: 'Annonces Rejetées' },
+        { id: 'ERROR', label: 'Erreurs d\'analyse' },
     ];
 
     const currentLabel = OPTIONS.find(o => o.id === currentVerdict)?.label || 'Toutes les annonces';
@@ -98,15 +109,14 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
 // ============================================================
 // Map View Header / Wrapper
 // ============================================================
-const MapViewOverlay = ({ deals, renderDealCard }) => {
-    const [selectedDealId, setSelectedDealId] = useState(null);
-    const selectedDeal = deals.find(d => d.id === selectedDealId);
+const MapViewOverlay = ({ deals, renderDealCard, selectedDeal, onDealSelect, onClearSelection }) => {
+    const selectedDealId = selectedDeal ? selectedDeal.id : null;
 
     return (
         <div className="flex flex-col lg:flex-row gap-6 h-[70vh] min-h-[500px] relative">
             {/* Real Map filling the whole space */}
             <div className="flex-1 rounded-3xl overflow-hidden relative flex flex-col shadow-inner border border-slate-800 w-full h-full">
-                <MapView deals={deals} onDealSelect={(deal) => setSelectedDealId(deal.id)} selectedDealId={selectedDealId} />
+                <MapView deals={deals} onDealSelect={onDealSelect} selectedDealId={selectedDealId} />
             </div>
 
             {/* Selected Deal Sidebar (Desktop) or Full Overlay (Mobile) */}
@@ -119,7 +129,7 @@ const MapViewOverlay = ({ deals, renderDealCard }) => {
                 ">
                     <div className="flex items-center justify-between mb-2 lg:hidden px-4 pt-2">
                         <span className="text-sm font-bold text-slate-300">Détails de l'annonce</span>
-                        <button onClick={() => setSelectedDealId(null)} className="p-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                        <button onClick={onClearSelection} className="p-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
                             <X size={16} />
                         </button>
                     </div>
@@ -146,6 +156,7 @@ const Dashboard = ({ onClose }) => {
         filteredDeals,
         filterProps,
         dealActions,
+        selectedDeal,
         counts,
     } = useDealsContext();
 
@@ -155,6 +166,27 @@ const Dashboard = ({ onClose }) => {
         handleManualRefresh,
         handleManualCleanup,
     } = useBotConfigContext();
+
+    // Effet pour ouvrir une annonce depuis l'URL au chargement
+    useEffect(() => {
+        // Ne s'exécute que si les deals sont chargés et qu'aucune modale n'est déjà ouverte
+        if (deals.length > 0 && !selectedDeal) {
+            const params = new URLSearchParams(window.location.search);
+            const dealIdFromUrl = params.get('dealId');
+
+            if (dealIdFromUrl) {
+                // On cherche dans TOUTES les annonces, pas seulement les filtrées
+                const dealToSelect = deals.find(d => d.id === dealIdFromUrl);
+                if (dealToSelect) {
+                    dealActions.handleSelectDeal(dealToSelect);
+                    setViewMode('MAP');
+                    // On nettoie l'URL pour éviter de rouvrir la modale à chaque changement de filtre
+                    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+                }
+            }
+        }
+    }, [deals, selectedDeal, dealActions, setViewMode]);
+
 
     // ── Adapt filterProps to local filter state ───────────────
     // filterProps from useDealsManager exposes: filterType/setFilterType,
@@ -361,7 +393,13 @@ const Dashboard = ({ onClose }) => {
                 ) : viewMode === 'STATS' ? (
                     <StatsView deals={filteredDeals} />
                 ) : viewMode === 'MAP' ? (
-                    <MapViewOverlay deals={filteredDeals} renderDealCard={renderDealCard} />
+                    <MapViewOverlay
+                        deals={filteredDeals}
+                        renderDealCard={renderDealCard}
+                        selectedDeal={selectedDeal}
+                        onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
+                        onClearSelection={() => dealActions.handleSelectDeal(null)}
+                    />
                 ) : (
                     <>
                         {/* ─── Sections ─── */}

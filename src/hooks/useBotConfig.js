@@ -6,7 +6,8 @@ import {
   triggerManualCleanup,
   triggerRelaunchAll,
   triggerScanSpecificUrl,
-  resetBotConfigToDefaults
+  resetBotConfigToDefaults,
+  migrateOldDataToNewUser
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
@@ -46,7 +47,8 @@ export const useBotConfig = (user) => {
   // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
     gatekeeperModel: 'gemini-2.5-flash-lite',
-    expertModel: 'gemini-2.5-flash',
+    mainModel: 'gemini-2.5-flash',
+    expertModel: 'gemini-2.5-pro',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
     expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -69,6 +71,22 @@ export const useBotConfig = (user) => {
 
   useEffect(() => {
     if (!user) return;
+    const uid = user.uid;
+    const email = user.email;
+
+    const initConfig = async () => {
+      try {
+        const migrated = await migrateOldDataToNewUser(uid, email);
+        if (migrated) {
+          console.log("🔄 Données migrées avec succès vers le compte administrateur !");
+        }
+      } catch (err) {
+        console.error("Erreur inattendue lors de la vérification de la migration", err);
+      }
+    };
+
+    // Lance la migration asynchrone avant d'écouter les mises à jour
+    initConfig();
 
     const handleUpdate = (data) => {
       console.log("🔄 useBotConfig: Received update from Firestore", data);
@@ -77,14 +95,11 @@ export const useBotConfig = (user) => {
       if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
 
-      // Récupération des modèles disponibles
       if (data.availableModels && Array.isArray(data.availableModels)) {
         setAvailableModels(data.availableModels);
       }
 
-      // Fusionne la config d'analyse pour ne pas écraser les champs non gérés par l'UI
       if (data.analysisConfig) {
-        console.log("📝 Updating analysisConfig from Firestore data");
         setAnalysisConfig(prev => ({
           ...prev,
           ...data.analysisConfig,
@@ -95,10 +110,7 @@ export const useBotConfig = (user) => {
         }));
       }
 
-      if (data.logLimit) {
-        setLogLimit(data.logLimit);
-      }
-
+      if (data.logLimit) setLogLimit(data.logLimit);
       if (data.botStatus) setBotStatus(data.botStatus);
 
       if (data.scanError) {
@@ -113,61 +125,51 @@ export const useBotConfig = (user) => {
       setConfigStatus({ status: 'error', msg: e.message });
     };
 
-    const unsubscribe = onBotConfigUpdate(handleUpdate, handleError);
-
+    const unsubscribe = onBotConfigUpdate(handleUpdate, handleError, uid);
     return () => unsubscribe();
   }, [user, error]);
 
   const saveConfig = useCallback(async (newVal) => {
+    if (!user) return;
     try {
-      console.log("💾 Saving config...", newVal);
-      await updateUserConfig(newVal);
+      await updateUserConfig(newVal, user.uid);
     } catch (e) {
       setError(e.message);
     }
-  }, []);
+  }, [user]);
 
   const handleManualRefresh = useCallback(async () => {
-    try {
-      await triggerManualRefresh();
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
+    if (!user) return;
+    try { await triggerManualRefresh(user.uid); } catch (e) { setError(e.message); }
+  }, [user]);
 
   const handleManualCleanup = useCallback(async () => {
-    try {
-      await triggerManualCleanup();
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
+    if (!user) return;
+    try { await triggerManualCleanup(user.uid); } catch (e) { setError(e.message); }
+  }, [user]);
 
   const handleRelaunchAll = useCallback(async () => {
+    if (!user) return;
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment relancer l'analyse IA pour TOUTES les annonces ?")) {
-      try {
-        await triggerRelaunchAll();
-      } catch (e) {
-        setError(e.message);
-      }
+      try { await triggerRelaunchAll(user.uid); } catch (e) { setError(e.message); }
     }
-  }, []);
+  }, [user]);
 
   const handleScanSpecificUrl = useCallback(async (specificUrl, setSpecificUrl) => {
-    if (!specificUrl) return;
+    if (!specificUrl || !user) return;
     try {
-      await triggerScanSpecificUrl(specificUrl);
+      await triggerScanSpecificUrl(specificUrl, user.uid);
       setSpecificUrl('');
-    } catch (e) {
-      setError(e.message);
-    }
-  }, []);
+    } catch (e) { setError(e.message); }
+  }, [user]);
 
   const handleResetDefaults = useCallback(async () => {
+    if (!user) return;
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       const defaultAnalysis = {
         gatekeeperModel: 'gemini-2.5-flash-lite',
-        expertModel: 'gemini-2.5-flash',
+        mainModel: 'gemini-2.5-flash',
+        expertModel: 'gemini-2.5-pro',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
         expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -182,19 +184,20 @@ export const useBotConfig = (user) => {
         await updateUserConfig({
           exclusionKeywords: DEFAULT_EXCLUSION_KEYWORDS,
           'analysisConfig.gatekeeperModel': defaultAnalysis.gatekeeperModel,
+          'analysisConfig.mainModel': defaultAnalysis.mainModel,
           'analysisConfig.expertModel': defaultAnalysis.expertModel,
           'analysisConfig.mainAnalysisPrompt': defaultAnalysis.mainAnalysisPrompt,
           'analysisConfig.gatekeeperVerbosityInstruction': defaultAnalysis.gatekeeperVerbosityInstruction,
           'analysisConfig.expertContextInstruction': defaultAnalysis.expertContextInstruction,
           'analysisConfig.rejectionVerdicts': defaultAnalysis.rejectionVerdicts,
           logLimit: 100
-        });
+        }, user.uid);
       } catch (e) {
         console.error("Erreur lors du reset:", e);
         setError(e.message);
       }
     }
-  }, []);
+  }, [user]);
 
   return {
     configStatus, error, setError,

@@ -35,6 +35,7 @@ const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
 export const useDealsManager = (user, setError) => {
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedDeal, setSelectedDeal] = useState(null);
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
 
   const [filterType, setFilterType] = useState('ALL');
@@ -48,6 +49,7 @@ export const useDealsManager = (user, setError) => {
 
   useEffect(() => {
     if (!user) return;
+    const uid = user.uid;
     const unsubscribe = onDealsUpdate(
       (dealsData, count) => {
         setDeals(dealsData.map(d => ({ ...d })));
@@ -58,34 +60,40 @@ export const useDealsManager = (user, setError) => {
         setError(err.message);
         setLoading(false);
         setDbStatus({ status: 'error', msg: err.message });
-      }
+      },
+      uid
     );
     return () => unsubscribe();
   }, [user, setError]);
 
   const handleRejectDeal = useCallback(async (dealId) => {
-    try { await rejectDeal(dealId); } catch (e) { setError(e.message); }
-  }, [setError]);
+    if (!user) return;
+    try { await rejectDeal(dealId, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   const handleDeleteDeal = useCallback(async (dealId) => {
+    if (!user) return;
     if (window.confirm("Voulez-vous vraiment supprimer définitivement cette annonce ?")) {
-      try { await deleteDeal(dealId); } catch (e) { setError(e.message); }
+      try { await deleteDeal(dealId, user.uid); } catch (e) { setError(e.message); }
     }
-  }, [setError]);
+  }, [user, setError]);
 
   const handleRetryAnalysis = useCallback(async (dealId) => {
+    if (!user) return;
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
-    try { await retryDealAnalysis(dealId); } catch (e) { setError(e.message); }
-  }, [setError]);
+    try { await retryDealAnalysis(dealId, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId) => {
+    if (!user) return;
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing_expert', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
-    try { await forceExpertAnalysis(dealId); } catch (e) { setError(e.message); }
-  }, [setError]);
+    try { await forceExpertAnalysis(dealId, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
-    try { await toggleDealFavorite(dealId, currentStatus); } catch (e) { setError(e.message); }
-  }, [setError]);
+    if (!user) return;
+    try { await toggleDealFavorite(dealId, currentStatus, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   // Construction de la map de chemins normalisés
   const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
@@ -340,6 +348,8 @@ export const useDealsManager = (user, setError) => {
     deals,
     loading,
     dbStatus,
+    selectedDeal,
+    setSelectedDeal,
     filteredDeals,
     counts,
     filterProps: {
@@ -362,7 +372,9 @@ export const useDealsManager = (user, setError) => {
       handleDeleteDeal,
       handleRetryAnalysis,
       handleForceExpertAnalysis,
-      handleToggleFavorite
+      handleToggleFavorite,
+      // On expose directement la sélection pour que la carte puisse ouvrir la modale
+      handleSelectDeal: setSelectedDeal 
     }
   };
 };

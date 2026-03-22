@@ -12,6 +12,16 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+console.log("🔥 Config Firebase:", { ...firebaseConfig, apiKey: firebaseConfig.apiKey ? '***' : 'MISSING' });
+
+let app, auth, db;
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  console.log("🔥 Firebase initialisé avec succès !");
+} catch (error) {
+  console.error("🔥 ERREUR FATALE LORS DE L'INITIALISATION DE FIREBASE:", error);
+}
+
+export { auth, db };

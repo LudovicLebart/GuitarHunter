@@ -20,6 +20,17 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Stockage pérenne via Firebase Storage. Upload systématique lors de chaque `handle_deal_found`.
     - Politique de cycle de vie : purge des images des deals rejetés après 30 jours (`IMAGE_RETENTION_REJECTED_DAYS`).
     - Script de migration one-shot : `backend/scripts/migrate_images.py`.
+
+- [x] **Bug : Scans multiples concurrents (ouverture de plusieurs fenêtres Playwright)** *(Corrigé Session 42)*
+    - *Détails :* La boucle principale de `main.py` relançait la même commande `REFRESH` plusieurs fois si elle restait `pending` dans Firestore, entraînant des scans concurrents et des erreurs.
+    - *Solution :* Implémentation d'un verrou local (`in_flight_command_ids` set) dans `main.py` pour s'assurer qu'une commande n'est exécutée qu'une seule fois à la fois, même si elle est encore `pending` dans Firestore.
+
+- [x] **Opération de maintenance : Nettoyage et rafraîchissement des images corrompues** *(Effectué Session 42)*
+    - *Détails :* Suite au bug des scans multiples, des images incorrectes ont pu être associées à des annonces.
+    - *Solution :* Création et exécution du script `backend/scripts/refresh_images.py`.
+    - *Fiabilisation :* Le script a été optimisé pour utiliser une session de navigateur unique (anti-détection) et pour cibler uniquement les annonces créées après une date spécifique (`--since-date`) pour plus d'efficacité.
+
+- [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
     - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
 
 - [x] **Bug : Interruption du Script de Rescraping d'Images par Facebook (Anti-botting)** *(Corrigé Session 35)*
@@ -49,6 +60,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Feature : Extraire la Date de Mise en Ligne** *(Session 40)*
     - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
+
+- [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
+    - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
+- [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
+- [ ] **Bug : Problème de déplacement sur la carte (MapView)**
+    - *Détails :* Des comportements inattendus ou des blocages sont observés lors de l'interaction avec la carte (zoom, déplacement, sélection de marqueurs).
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -142,9 +159,23 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Plan de travail :* [`docs/STATS_REFLEXION.md`](./STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
 
+- [x] **Feature : Détection des Baisses de Prix** *(Session 05/03/2026)*
+    - *Détails :* Le bot compare le prix actuel avec le prix en DB. Si inférieur, il met à jour le document, calcule `price_drop_amount` et force une réanalyse IA.
+    - *Frontend :* Affichage d'un badge vert émeraude "Baisse -XX$" sur la DealCard.
+
+- [x] **Feature : Pipeline IA 3-Tiers configurable** *(Session 05/03/2026)*
+    - *Détails :* Ajout d'un modèle intermédiaire "Analyste" (Tier 2) entre le Portier et l'Expert Pro.
+    - *Frontend :* Le `ConfigPanel` permet désormais de choisir les 3 modèles indépendamment. Correction du bug écrasant l'Expert Pro vers Flash.
+
 ---
 
 ## ✅ Terminé
+
+- [x] **Feature : Système Multi-Utilisateurs & Migration V2** *(Session 2026-03-21)*
+    - *Backend* : `USER_IDS_TARGET` dans `.env` (liste d'UIDs). Un thread par utilisateur dans `main.py`. `bot.py` paramétrable.
+    - *Frontend* : Firebase Auth email/password (`useAuth.js`). `LoginPage.jsx` (Login/Register). `firestoreService.js` dynamisé (`getRefs(userId)`).
+    - *Migration* : Script automatisé pour rapatrier l'ancienne DB vers le nouveau UID Firebase de l'administrateur.
+
 
 - [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
 - [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).

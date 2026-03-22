@@ -94,6 +94,26 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Firestore update failed for deal '{deal_id}': {e}", exc_info=True)
 
+    def update_deal_data_and_analysis(self, deal_id, deal_data, analysis_data):
+        """Met à jour les données complètes de l'annonce (ex: baisse de prix) et son analyse."""
+        try:
+            status = "analyzed"
+            if analysis_data.get('verdict') == 'REJECTED':
+                status = "rejected"
+                
+            # Fusionner les nouvelles métadonnées de l'annonce (y compris le nouveau prix)
+            update_data = {
+                **deal_data,
+                "aiAnalysis": analysis_data,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "status": status
+            }
+            
+            self.collection_ref.document(deal_id).update(update_data)
+            logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
+        except Exception as e:
+            logger.error(f"Firestore full update failed for deal '{deal_id}': {e}", exc_info=True)
+
     def update_deal_status(self, deal_id, status, error_message=None):
         """Met à jour uniquement le statut d'une annonce, avec un message d'erreur optionnel."""
         try:
@@ -254,6 +274,33 @@ class FirestoreRepository:
         
         return stable_urls
 
+    def delete_deal_images(self, deal_id):
+        """
+        Supprime toutes les images d'un deal dans Firebase Storage et
+        efface le champ storageImageUrls dans Firestore.
+        """
+        if not self._bucket:
+            logger.warning(f"delete_deal_images: Pas de bucket Storage configuré pour deal {deal_id}.")
+            return 0
+
+        deleted_count = 0
+        try:
+            # 1. Supprimer les fichiers dans Storage
+            prefix = f"deals/{deal_id}/"
+            blobs = list(self._bucket.list_blobs(prefix=prefix))
+            if blobs:
+                for blob in blobs:
+                    blob.delete()
+                deleted_count = len(blobs)
+                logger.info(f"🗑️ {deleted_count} image(s) supprimée(s) du Storage pour deal {deal_id}.")
+
+            # 2. Effacer le champ dans Firestore
+            self.collection_ref.document(deal_id).update({'storageImageUrls': firestore.DELETE_FIELD})
+            return deleted_count
+        except Exception as e:
+            logger.error(f"Erreur lors de la suppression des images pour deal {deal_id}: {e}", exc_info=True)
+            return 0
+
     def purge_rejected_images(self, retention_days=30, rejection_verdicts=None):
         """
         Politique de cycle de vie : supprime les images Firebase Storage
@@ -308,4 +355,3 @@ class FirestoreRepository:
 
         logger.info(f"Purge lifecycle terminée. {purged_count} image(s) supprimée(s).")
         return purged_count
-

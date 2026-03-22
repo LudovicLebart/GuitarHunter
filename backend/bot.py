@@ -19,11 +19,16 @@ from backend.notifications import NotificationService
 logger = logging.getLogger(__name__)
 
 class GuitarHunterBot:
-    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None):
+    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
+                 app_id=None, user_id=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
         self.offline_mode = is_offline
         self.session_processed_ids = set()
+        
+        # Support multi-utilisateurs : utiliser les params explicites si fournis, sinon fallback sur config
+        self._app_id = app_id or APP_ID_TARGET
+        self._user_id = user_id or USER_ID_TARGET
         
         # --- NOUVEAU : Gestionnaire d'état robuste ---
         self._status_lock = threading.Lock()
@@ -33,10 +38,10 @@ class GuitarHunterBot:
         if self.offline_mode:
             logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
-            self.scraper = FacebookScraper({}, {}) # On passe un dict vide pour les coords
+            self.scraper = FacebookScraper({}, {})
             return
 
-        self.repo = FirestoreRepository(db_client, APP_ID_TARGET, USER_ID_TARGET, bucket=storage_bucket)
+        self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
         self.set_status('idle')
         self.analyzer = DealAnalyzer()
         # Le scraper sera désormais instancié au besoin par chaque thread
@@ -53,8 +58,8 @@ class GuitarHunterBot:
         self.cleanup_lock = threading.Lock()
 
         logger.info("--- Configuration du Bot Terminée ---")
-        logger.info(f"APP ID: {APP_ID_TARGET}")
-        logger.info(f"USER ID: {USER_ID_TARGET}")
+        logger.info(f"APP ID: {self._app_id}")
+        logger.info(f"USER ID: {self._user_id}")
         
         self._init_firestore_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
@@ -113,6 +118,15 @@ class GuitarHunterBot:
         sync_result = self.config_manager.sync_with_firestore(initial=initial)
         return sync_result
 
+    @staticmethod
+    def _normalize_price(price):
+        """Nettoie une chaîne de prix (ex: ' 150 $ ') pour retourner un float fiable."""
+        try:
+            num_str = ''.join(c for c in str(price).replace(',', '.') if c.isdigit() or c == '.')
+            return float(num_str) if num_str else 0.0
+        except Exception:
+            return 0.0
+
     def should_skip_deal(self, deal_id, price):
         if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
@@ -121,11 +135,14 @@ class GuitarHunterBot:
         if existing_deal.get('status') == 'rejected':
             self.session_processed_ids.add(deal_id)
             return True
-        try:
-            if int(existing_deal.get('price', -1)) == int(price):
-                self.session_processed_ids.add(deal_id)
-                return True
-        except (ValueError, TypeError): pass
+            
+        old_price = self._normalize_price(existing_deal.get('price', -1))
+        new_price = self._normalize_price(price)
+        
+        if old_price > 0 and old_price == new_price:
+            self.session_processed_ids.add(deal_id)
+            return True
+            
         return False
 
     def _check_exclusion(self, listing_data, config):
@@ -146,17 +163,34 @@ class GuitarHunterBot:
         self.session_processed_ids.add(listing_data['id'])
         
         is_update = False
+        original_price = None
+        
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
             if existing_deal:
                 if existing_deal.get('status') == 'rejected':
                     logger.info("Annonce déjà rejetée. Ignorée.")
                     return
-                if existing_deal.get('price') == listing_data['price']:
-                    logger.info("Annonce déjà existante avec le même prix. Ignorée.")
+                    
+                old_p = self._normalize_price(existing_deal.get('price'))
+                new_p = self._normalize_price(listing_data['price'])
+                
+                if old_p > 0 and old_p == new_p:
+                    logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
                     return
-                logger.info("Annonce existante mais prix différent. Mise à jour.")
+                    
+                # Prix différent !
+                original_price = existing_deal.get('price')
+                logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
                 is_update = True
+                
+                # Enrichissement des données avec les infos de baisse de prix
+                try:
+                    if old_p > new_p > 0:
+                        listing_data['original_price'] = original_price
+                        listing_data['price_drop_amount'] = old_p - new_p
+                except Exception as e:
+                    logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
         found_keyword = self._check_exclusion(listing_data, current_config)
@@ -166,13 +200,15 @@ class GuitarHunterBot:
             rejection_analysis = self._create_rejection_analysis(found_keyword)
             if not self.offline_mode:
                 if is_update:
-                    self.repo.update_deal_analysis(listing_data['id'], rejection_analysis)
+                    # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
+                    self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, rejection_analysis)
                 else:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
-        NotificationService.notify_deal(listing_data, analysis)
+        deal_id = listing_data.get('id')
+        NotificationService.notify_deal(deal_id, listing_data, analysis, is_update=is_update)
         
         if not self.offline_mode:
             # Upload des images dans Firebase Storage avant la sauvegarde
@@ -183,7 +219,8 @@ class GuitarHunterBot:
                     listing_data['storageImageUrls'] = stable_urls
             
             if is_update:
-                self.repo.update_deal_analysis(listing_data['id'], analysis)
+                # Appel de la nouvelle méthode pour écraser le prix Firestore et ajouter l'historique
+                self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, analysis)
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 

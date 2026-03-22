@@ -1,5 +1,19 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-03-21] [PRO] Action : Raffinement Login & Data Migration V2 → Résultat : (1) **Frontend** : Ajout du mode Inscription (`signUp`) dans `LoginPage.jsx` avec autocomplétion pour gestionnaires de mots de passe. (2) **Migration** : Implémentation de `migrateOldDataToNewUser` dans `firestoreService.js` pour copier automatiquement les données de l'ID historique vers le compte `ludovic.lebart@gmail.com` lors de sa première connexion (si profil vide). (3) **Sécurité** : Isolation stricte garantie par `getRefs(userId)`.
+
+[2026-03-21] [PRO] Action : Implémentation du système Multi-Utilisateurs → Résultat : (1) **Backend** : `config.py` supporte `USER_IDS_TARGET` (liste d'UIDs séparés par virgule, rétrocompatible `USER_ID_TARGET`). `bot.py` reçoit `app_id` et `user_id` comme paramètres explicites. `main.py` lance un thread `main_loop` indépendant par utilisateur. (2) **Frontend** : `useAuth.js` migré vers Firebase Auth email/password. `AuthContext.jsx` et `LoginPage.jsx` créés. `firestoreService.js` dynamisé via `getRefs(userId)`. Tous les hooks propagent `user.uid`. `App.jsx` affiche `LoginPage` si non connecté. (3) Build Vite validé (exit code 0).
+
+
+[2026-03-05] [PRO] Action : Fiabilisation des comparaisons de prix et anti-spam Ntfy → Résultat : (1) Création d'une fonction `_normalize_price` dans `bot.py` pour comparer sereinement les prix (ex: "150$" vs " 150.0") et éviter les fausses "mises à jour". (2) Implémentation d'un filtre dans `notifications.py` (`notify_deal`) pour ne déclencher une alerte de "Baisse de Prix" que si la baisse est de plus de 5% ou de plus de 50$.
+
+[2026-03-05] [PRO] Action : Détection et intégration visuelle des Baisses de Prix → Résultat : (1) Backend (`bot.py`, `repository.py`) mis à jour pour écraser le prix Firestore et conserver l'ancien prix (`original_price`) lors d'une baisse. (2) Les annonces subissant une baisse repassent désormais au travers du pipeline de l'IA avec le nouveau prix. (3) Frontend (`DealCard.jsx`) mis à jour pour afficher un badge vert vif « Baisse -XX$ » si le prix a chuté, visible sur la miniature et dans la modale IA.
+
+[2026-03-05] [PRO] Action : Implémentation complète de la sélection 3-Tiers et correction Gemini 2.5 Pro → Résultat : (1) Correction du bug où l'Expert Pro était écrasé vers Flash à cause d'une omission dans l'UI. (2) Ajout du modèle `gemini-2.5-pro` à la liste des modèles disponibles dans l'interface. (3) Ajout d'un 3ème menu déroulant dans le `ConfigPanel` pour configurer le modèle de l'Analyste (Tier 2 - `mainModel`) de manière indépendante du Portier (Tier 1) et de l'Expert (Tier 3). (4) Mise à jour du hook `useBotConfig.js` pour gérer les 3 modèles avec les bonnes valeurs par défaut du backend.
+
+[2026-02-28] [PRO] Action : Implémentation de la redirection par `dealId` et amélioration du partage → Résultat : (1) Le composant `Dashboard.jsx` lit désormais le paramètre `dealId` de l'URL au chargement, sélectionne l'annonce correspondante et force l'affichage en mode "Carte" (`MapView`). (2) Le bouton de partage dans `DealCard.jsx` génère un lien vers l'application avec le `dealId` de l'annonce, permettant un partage direct et une ouverture de la modale de détail. (3) La logique de sélection de l'annonce depuis l'URL a été déplacée de `useDealsManager.js` vers `Dashboard.jsx` pour une meilleure gestion de l'état de l'interface.
+
+
 [2024-07-30] [PRO] Action : Implémentation d'une stratégie de rotation d'IP (Proxies) → Résultat : (1) Ajout d'une liste `PROXIES` dans `config.py` pour centraliser la configuration. (2) Modification de `FacebookScraper` (`backend/scraping/core.py`) pour sélectionner aléatoirement un proxy de la liste à chaque instanciation d'un navigateur Playwright. (3) La rotation est effective car le bot instancie un scraper temporaire pour chaque tâche, garantissant une nouvelle IP pour chaque scan de ville ou action manuelle.
 
 [2024-07-30] [FLASH] Action : Analyse du diagnostic de détection du scraper par Facebook → Résultat : Le diagnostic est validé. Le projet a déjà implémenté la plupart des contre-mesures (session persistante, randomisation User-Agent/Viewport, jitter, intégration du téléchargement d'images, flags Playwright furtifs) documentées dans les Sessions 35 et 29. Une stratégie de rotation d'IP reste une amélioration potentielle.
@@ -228,7 +242,7 @@ Une racine propre facilite la navigation dans le projet et sépare clairement le
     - **Problème :** L'utilisateur a remarqué un écart de ~300 annonces entre le total Firestore (486) et les annonces visibles (84 + 91).
     - **Investigation :** Création de scripts d'audit (`inspect_db_stats.py`, `inspect_rejection_reasons.py`) pour analyser les documents `status: 'rejected'`.
     - **Découverte :** 287 annonces portent le verdict `REJECTED` (ancienne nomenclature v1). 20 proviennent du pré-filtre Javascript, le reste (267) provient des modèles Gemini (anciennes analyses).
-    - **Cause de l'invisibilité :** Le frontend (`matchesVerdictFilter`) masque totalement les documents ayant un statut global `rejected`. Dans la nomenclature v2, le "bruit" est classé `REJECTED_ITEM` avec un statut global `analyzed`, ce qui les rend comptabilisables dans l'UI alors que la v1 les annihilait visuellement.
+    - **Cause de l'invisibilité :** Le frontend (`matchesVerdictFilter`) masque totalement les documents ayant un statut global `rejected`. Dans la nomenclature v2, le "bruit" est classé `REJECTED_ITEM` avec un statut global `analyzed`, ce qui les rend comptabilisable dans l'UI alors que la v1 les annihilait visuellement.
 - **Analyse du système de nettoyage (Sold Listings) :**
     - Documentation du fonctionnement de `cleanup_sold_listings`. Identification de la fragilité de la détection (basée sur du texte strict) et du risque de perte d'historique dû au "Hard Delete".
 
@@ -279,7 +293,7 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 1.  **Analyse globale des flux de données et de l'architecture :**
     - Réalisation d'un audit de bas en haut (Scrapers -> Core Logic -> IA -> Base de données -> Frontend).
     - Mise à jour de `docs/TODO.md` avec de nouvelles priorités de pointe (dette technique cachée).
-    - Mise à jour de `docs/ARCHITECTURE.md` pour refléter la situation réelle des flux de commandes.
+    - Mise à jour de `docs/ARCHITECTURE.MD` pour refléter la situation réelle des flux de commandes.
 
 2.  **Identifications Clés (Dette Technique ajoutée au TODO) :**
     - **Architecture de Commandes Hybride :** Le backend écoute à la fois des champs horodatés sur `users/{id}` (legacy) et des documents dans la collection `commands` (nouveau). Cela crée une complexité inutile.
@@ -647,5 +661,23 @@ Le projet évolue avec succès vers un système d'analyse IA en cascade et param
 
 - **Correction `ExclusionKeywordsSection`** : Suppression du code dupliqué par erreur lors du précédent push. Le composant `ConfigPanel.jsx` est désormais syntaxiquement correct.
 - **Vérification** : Le build Vite ne doit plus lever l'erreur `The character "}" is not valid inside a JSX element`.
+
+---
+
+---
+
+[2026-03-09] [FLASH] Action effectuée → Migration vers Tailscale OAuth pour le déploiement (CI/CD) et correction du périmètre des secrets.
+
+### Session 48 : Intégration Tailscale OAuth (CI/CD)
+
+#### ✅ Objectif : Sécuriser la connexion SSH du GitHub Runner via Tailscale OAuth.
+
+- **DevOps (`deploy.yml`)** : Utilisation des secrets `TS_OAUTH_CLIENT_ID` et `TS_OAUTH_SECRET` pour rejoindre le Tailnet lors du déploiement.
+- **Documentation** : Mise à jour de `ARCHITECTURE.md` pour clarifier que ces secrets concernent le pipeline de déploiement et non l'application.
+- **Correction** : Retrait des variables OAuth de `config.py` et de l'injection dans le `.env` du serveur (périmètre CI/CD uniquement).
+
+#### 🤔 Raisonnement
+
+- Les identifiants OAuth Tailscale sont nécessaires au GitHub Runner pour accéder au serveur privé. L'application (bot) n'en a pas besoin pour son fonctionnement interne. Séparer les deux types de secrets améliore la clarté et la sécurité.
 
 ---

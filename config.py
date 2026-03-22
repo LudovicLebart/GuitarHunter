@@ -12,7 +12,13 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
-USER_ID_TARGET = os.getenv("USER_ID_TARGET")
+
+# Support multi-utilisateurs : liste d'UIDs séparés par des virgules
+_user_ids_raw = os.getenv("USER_IDS_TARGET", os.getenv("USER_ID_TARGET", ""))
+USER_IDS_TARGET = [uid.strip() for uid in _user_ids_raw.split(",") if uid.strip()]
+# Rétro-compatibilité : USER_ID_TARGET pointe vers le premier UID de la liste
+USER_ID_TARGET = USER_IDS_TARGET[0] if USER_IDS_TARGET else ""
+
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
 # CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
@@ -55,9 +61,11 @@ DEFAULT_PRO_AUTH_SCORE_THRESHOLD = 7
 DEFAULT_PRO_CONFIDENCE_THRESHOLD = 0.75
 
 # --- VALIDATION AU DÉMARRAGE ---
-if not APP_ID_TARGET or not USER_ID_TARGET:
-    print("❌ ERREUR: APP_ID_TARGET et USER_ID_TARGET doivent être définis dans le fichier .env")
+if not APP_ID_TARGET or not USER_IDS_TARGET:
+    print("❌ ERREUR: APP_ID_TARGET et USER_IDS_TARGET (ou USER_ID_TARGET pour mono-user) doivent être définis dans le fichier .env")
     sys.exit(1)
+
+print(f"✅ Multi-utilisateurs : {len(USER_IDS_TARGET)} utilisateur(s) configuré(s) : {USER_IDS_TARGET}")
 
 # --- CHARGEMENT DES PROMPTS PAR DÉFAUT ---
 try:

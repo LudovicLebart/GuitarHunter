@@ -44,12 +44,14 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const handleShare = async (e) => {
         e.stopPropagation();
-        if (!deal.link) return;
+        if (!deal.id) return; // Ensure deal.id exists to construct the shareable link
+
+        const shareableLink = `${window.location.origin}${window.location.pathname}?dealId=${deal.id}`;
 
         const shareData = {
             title: `Guitar Hunter AI : ${deal.title}`,
-            text: `Regarde cette annonce sur Facebook Marketplace : ${deal.title}`,
-            url: deal.link
+            text: `Découvre cette annonce analysée par Guitar Hunter AI : ${deal.title}`,
+            url: shareableLink
         };
 
         if (navigator.share) {
@@ -63,7 +65,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
         } else {
             // Fallback: Copy to clipboard
             try {
-                await navigator.clipboard.writeText(deal.link);
+                await navigator.clipboard.writeText(shareableLink);
                 setIsCopying(true);
                 setTimeout(() => setIsCopying(false), 2000);
             } catch (err) {
@@ -178,6 +180,8 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     // Financial fields — support both real (estimated_value) and legacy field names
     const estValue = ai.estimated_value ?? ai.estimated_guitar_value ?? null;
     const price = deal.price ?? null;
+    const originalPrice = deal.original_price ?? null;
+    const priceDrop = deal.price_drop_amount ?? null;
     const computedMargin = (estValue != null && price != null) ? Math.round(estValue - price) : null;
     const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;
 
@@ -206,8 +210,15 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 </div>
                 {/* Price Badge */}
                 {price != null && (
-                    <div className="absolute top-3 right-3 bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-3 py-1.5 rounded-xl text-base font-black shadow-lg z-10 pointer-events-none">
-                        {price}$
+                    <div className="absolute top-3 right-3 flex flex-col items-end gap-1 z-10 pointer-events-none">
+                        <div className="bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-3 py-1.5 rounded-xl text-base font-black shadow-lg">
+                            {price}$
+                        </div>
+                        {priceDrop > 0 && (
+                            <div className="bg-emerald-500/90 backdrop-blur-sm border border-emerald-400 text-emerald-950 px-2.5 py-1 rounded-lg text-xs font-black shadow-lg">
+                                Baisse -{priceDrop}$
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -430,7 +441,11 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                                 <div className="flex flex-wrap items-center gap-4 pl-4 mb-8">
                                     <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800">
                                         <div className="text-[10px] text-slate-500 font-bold uppercase">Prix et Est.</div>
-                                        <div className="text-lg font-black text-white">{price}$ <span className="text-sm font-normal text-slate-400 line-through">{estValue}$</span></div>
+                                        <div className="text-lg font-black text-white flex items-center gap-2">
+                                            {price}$
+                                            {priceDrop > 0 && <span className="text-sm font-bold text-emerald-400 bg-emerald-500/10 px-1.5 rounded">-{priceDrop}$</span>}
+                                            <span className="text-sm font-normal text-slate-400 line-through">{estValue}$</span>
+                                        </div>
                                     </div>
                                     {margin != null && (
                                         <div className={`px-4 py-2 rounded-xl border ${margin > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
