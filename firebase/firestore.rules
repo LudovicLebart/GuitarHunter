@@ -2,9 +2,21 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Règle globale permissive pour le développement
-    match /{document=**} {
-      allow read, write: if true;
+    // Seul le propriétaire authentifié accède à ses propres données.
+    // Le backend (Admin SDK) bypass ces règles par design — pas d'impact serveur.
+    // Le document utilisateur lui-même (botStatus, config, etc.)
+    match /artifacts/{appId}/users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Toutes les sous-collections (guitar_deals, commands, cities, logs)
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Protection du document racine de l'application (lecture seule authentifiée)
+    match /artifacts/{appId} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
   }

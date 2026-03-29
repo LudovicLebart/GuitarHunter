@@ -12,31 +12,38 @@ from config import (
 from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
+from backend.scraping.utils import calculate_distance
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
 
-logger = logging.getLogger(__name__)
-
 class GuitarHunterBot:
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
-                 app_id=None, user_id=None):
+                 app_id=None, user_id=None, browser_semaphore=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
         self.offline_mode = is_offline
-        self.session_processed_ids = set()
-        
+
         # Support multi-utilisateurs : utiliser les params explicites si fournis, sinon fallback sur config
         self._app_id = app_id or APP_ID_TARGET
         self._user_id = user_id or USER_ID_TARGET
-        
-        # --- NOUVEAU : Gestionnaire d'état robuste ---
+
+        # Logger isolé par utilisateur pour ne pas mélanger les logs en multi-user
+        self.logger = logging.getLogger(f"bot.{self._user_id[:8]}")
+
+        # session_processed_ids isolé par thread via threading.local()
+        self._local = threading.local()
+
+        # Sémaphore global Playwright partagé entre tous les bots (limite les navigateurs simultanés)
+        self._browser_semaphore = browser_semaphore
+
+        # Gestionnaire d'état robuste
         self._status_lock = threading.Lock()
         self._current_status = 'idle'
-        self._active_tasks = set() # Suit les tâches en cours ('scanning', 'cleaning', etc.)
+        self._active_tasks = set()
 
         if self.offline_mode:
-            logger.warning("Le bot est en mode hors ligne.")
+            self.logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
             self.scraper = FacebookScraper({}, {})
             return
@@ -44,25 +51,30 @@ class GuitarHunterBot:
         self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
         self.set_status('idle')
         self.analyzer = DealAnalyzer()
-        # Le scraper sera désormais instancié au besoin par chaque thread
-        # self.scraper = FacebookScraper({}, {})
-        
+
         initial_scan_config = {
-            "max_ads": 5, "frequency": 60, "location": "montreal",
+            "max_ads": 5, "frequency": 60, "location": "montreal", "distance": 10,
             "min_price": 0, "max_price": 150, "search_query": "electric guitar"
         }
-        
+
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
-        
+
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
-        logger.info("--- Configuration du Bot Terminée ---")
-        logger.info(f"APP ID: {self._app_id}")
-        logger.info(f"USER ID: {self._user_id}")
-        
+        self.logger.info("--- Configuration du Bot Terminée ---")
+        self.logger.info(f"APP ID: {self._app_id}")
+        self.logger.info(f"USER ID: {self._user_id}")
+
         self._init_firestore_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
+
+    @property
+    def session_processed_ids(self):
+        """Set isolé par thread — chaque thread (scan, refresh) a sa propre mémoire de session."""
+        if not hasattr(self._local, 'processed_ids'):
+            self._local.processed_ids = set()
+        return self._local.processed_ids
 
     def set_status(self, new_status, task_name=None):
         """
@@ -93,7 +105,7 @@ class GuitarHunterBot:
                 try:
                     self.repo.update_bot_status(calculated_status)
                 except Exception as e:
-                    logger.error(f"Erreur lors de la mise à jour du statut {calculated_status}: {e}")
+                    self.logger.error(f"Erreur lors de la mise à jour du statut {calculated_status}: {e}")
 
     def _init_firestore_structure(self, initial_scan_config):
         initial_config = {
@@ -110,7 +122,7 @@ class GuitarHunterBot:
             },
             'availableModels': GEMINI_MODELS["available"]
         }
-        logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
+        self.logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
         self.repo.ensure_initial_structure(initial_config)
 
     def sync_and_apply_config(self, initial=False):
@@ -159,7 +171,7 @@ class GuitarHunterBot:
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
     def handle_deal_found(self, listing_data):
-        logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
+        self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
         self.session_processed_ids.add(listing_data['id'])
         
         is_update = False
@@ -169,19 +181,19 @@ class GuitarHunterBot:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
             if existing_deal:
                 if existing_deal.get('status') == 'rejected':
-                    logger.info("Annonce déjà rejetée. Ignorée.")
+                    self.logger.info("Annonce déjà rejetée. Ignorée.")
                     return
                     
                 old_p = self._normalize_price(existing_deal.get('price'))
                 new_p = self._normalize_price(listing_data['price'])
                 
                 if old_p > 0 and old_p == new_p:
-                    logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
+                    self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
                     return
                     
                 # Prix différent !
                 original_price = existing_deal.get('price')
-                logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
+                self.logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
                 is_update = True
                 
                 # Enrichissement des données avec les infos de baisse de prix
@@ -190,13 +202,13 @@ class GuitarHunterBot:
                         listing_data['original_price'] = original_price
                         listing_data['price_drop_amount'] = old_p - new_p
                 except Exception as e:
-                    logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
+                    self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
         found_keyword = self._check_exclusion(listing_data, current_config)
         
         if found_keyword:
-            logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
+            self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
             rejection_analysis = self._create_rejection_analysis(found_keyword)
             if not self.offline_mode:
                 if is_update:
@@ -234,21 +246,20 @@ class GuitarHunterBot:
 
     def run_scan(self):
         if self._is_stop_requested():
-            logger.info("🛑 run_scan ignoré car un arrêt est en cours.")
+            self.logger.info("🛑 run_scan ignoré car un arrêt est en cours.")
             return
 
         if not self.offline_mode:
             self.set_status('scanning', task_name='scanning')
-        
-        self.session_processed_ids = set()
-        
+
+        self.session_processed_ids.clear()
+
         try:
             scan_config = self.config_manager.scan_config
-            logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
+            self.logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
             
             cities_docs = self.repo.get_cities()
             
-            # DEBUG LOGS
             all_cities = []
             cities_to_scan = []
             
@@ -261,40 +272,75 @@ class GuitarHunterBot:
                 if is_scannable:
                     cities_to_scan.append(data)
             
-            logger.info(f"Villes trouvées en DB ({len(all_cities)}): {', '.join(all_cities)}")
+            self.logger.info(f"Villes trouvées en DB ({len(all_cities)}): {', '.join(all_cities)}")
 
             if not cities_to_scan:
-                logger.warning("Aucune ville scannable configurée. Scan ignoré.")
+                self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                # On prépare la liste de TOUTES les villes autorisées (whitelist globale pour ce scan)
                 all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
                 
-                logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
+                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
                 for city_data in cities_to_scan:
-                    city_name = city_data['name']
-                    city_id = city_data['id']
+                    if self._is_stop_requested():
+                        self.logger.info("🛑 Interruption de la boucle des villes.")
+                        break
+
+                    city_name = city_data.get('name')
+                    city_id = city_data.get('id')
+                    city_lat = city_data.get('latitude')
+                    city_lon = city_data.get('longitude')
                     city_norm_name = ListingParser.normalize_city_name(city_name)
                     
-                    temp_scraper = FacebookScraper({}, {})
-                    temp_scraper.city_mapping = {city_norm_name: city_id}
-                    # On passe la liste complète des villes autorisées
-                    temp_scraper.allowed_cities = all_allowed_cities_norm
+                    if not all([city_name, city_id, city_lat is not None, city_lon is not None]):
+                        self.logger.warning(f"Données incomplètes pour la ville {city_name or 'inconnue'}. Scan de cette ville ignoré.")
+                        continue
 
                     city_specific_config = scan_config.copy()
                     city_specific_config['location'] = city_norm_name
-                    logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
-                    
+                    self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
+
+                    if self._browser_semaphore:
+                        self._browser_semaphore.acquire()
                     try:
-                        temp_scraper.scan_marketplace(city_specific_config, self.handle_deal_found, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                        temp_scraper = FacebookScraper({}, {})
+                        temp_scraper.city_mapping = {city_norm_name: city_id}
+                        temp_scraper.allowed_cities = all_allowed_cities_norm
+
+                        try:
+                            found_deals = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+
+                            # --- FILTRAGE PAR RAYON ---
+                            radius_km = scan_config.get('distance', 0)
+                            if radius_km > 0:
+                                deals_in_radius = []
+                                for deal in found_deals:
+                                    deal_lat = deal.get('latitude')
+                                    deal_lon = deal.get('longitude')
+                                    if deal_lat is not None and deal_lon is not None:
+                                        distance = calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
+                                        if distance <= radius_km:
+                                            deals_in_radius.append(deal)
+                                        else:
+                                            self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km).")
+                                    else:
+                                        deals_in_radius.append(deal)
+
+                                self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
+                                found_deals = deals_in_radius
+
+                            # --- TRAITEMENT DES ANNONCES FILTRÉES ---
+                            for deal in found_deals:
+                                if self._is_stop_requested(): break
+                                self.handle_deal_found(deal)
+
+                        finally:
+                            temp_scraper.close_session()
                     finally:
-                        temp_scraper.close_session()
+                        if self._browser_semaphore:
+                            self._browser_semaphore.release()
                     
-                    if self._is_stop_requested():
-                        logger.info("🛑 Interruption de la boucle des villes.")
-                        break
-                        
                     time.sleep(2)
-            logger.info("Scan planifié terminé.")
+            self.logger.info("Scan planifié terminé.")
         finally:
             if not self.offline_mode:
                 self.set_status('idle', task_name='scanning')
@@ -302,58 +348,64 @@ class GuitarHunterBot:
     def scan_specific_url(self, url):
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
-        temp_scraper = FacebookScraper({}, {})
+        if self._browser_semaphore:
+            self._browser_semaphore.acquire()
         try:
-            temp_scraper.scan_specific_url(url, self.handle_deal_found)
-        finally:
+            temp_scraper = FacebookScraper({}, {})
             try:
-                temp_scraper.close_session()
-            except Exception as e:
-                logger.warning(f"Erreur lors de la fermeture du scraper temporaire URL : {e}")
-            if not self.offline_mode: self.set_status('idle', task_name='scanning_url')
+                temp_scraper.scan_specific_url(url, self.handle_deal_found)
+            finally:
+                try:
+                    temp_scraper.close_session()
+                except Exception as e:
+                    self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire URL : {e}")
+        finally:
+            if self._browser_semaphore:
+                self._browser_semaphore.release()
+            if not self.offline_mode:
+                self.set_status('idle', task_name='scanning_url')
 
     def cleanup_sold_listings(self):
         if self.offline_mode or self.is_cleaning: return
-        logger.info("Démarrage du nettoyage des annonces vendues...")
+        self.logger.info("Démarrage du nettoyage des annonces vendues...")
         threading.Thread(target=self._perform_cleanup, daemon=True).start()
 
     def _perform_cleanup(self):
         with self.cleanup_lock:
             self.is_cleaning = True
             if not self.offline_mode: self.set_status('cleaning', task_name='cleaning')
-            
-            # --- ISOLATION PLAYWRIGHT ---
-            # On crée une nouvelle instance de scraper dédiée à ce thread
-            # pour éviter le conflit "greenlet.error" avec le thread principal.
-            temp_scraper = FacebookScraper({}, {})
-            
-            try:
-                docs = self.repo.get_active_listings()
-                listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
-                logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
-                deleted_count = 0
-                for item in listings:
-                    if self._is_stop_requested():
-                        logger.info("🛑 Nettoyage interrompu.")
-                        break
-                        
-                    if not item['url']: continue
-                    # On utilise le scraper temporaire
-                    if not temp_scraper.check_listing_availability(item['url']):
-                        logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
-                        self.repo.update_deal_status(item['id'], 'sold', 'Annonce indisponible ou vendue (détecté par le bot)')
-                        deleted_count += 1
-                    time.sleep(0.5)
-                logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
-            except Exception as e:
-                logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
-            finally:
-                # On s'assure de fermer proprement le navigateur temporaire
-                try:
-                    temp_scraper.close_session()
-                except Exception as e:
-                    logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
 
+            if self._browser_semaphore:
+                self._browser_semaphore.acquire()
+            try:
+                temp_scraper = FacebookScraper({}, {})
+                try:
+                    docs = self.repo.get_active_listings()
+                    listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
+                    self.logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
+                    deleted_count = 0
+                    for item in listings:
+                        if self._is_stop_requested():
+                            self.logger.info("🛑 Nettoyage interrompu.")
+                            break
+
+                        if not item['url']: continue
+                        if not temp_scraper.check_listing_availability(item['url']):
+                            self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
+                            self.repo.update_deal_status(item['id'], 'sold', 'Annonce indisponible ou vendue (détecté par le bot)')
+                            deleted_count += 1
+                        time.sleep(0.5)
+                    self.logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
+                except Exception as e:
+                    self.logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
+                finally:
+                    try:
+                        temp_scraper.close_session()
+                    except Exception as e:
+                        self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
+            finally:
+                if self._browser_semaphore:
+                    self._browser_semaphore.release()
                 self.is_cleaning = False
                 if not self.offline_mode: self.set_status('idle', task_name='cleaning')
 
@@ -363,19 +415,18 @@ class GuitarHunterBot:
         
         docs = list(self.repo.get_retry_queue_listings())
         if not docs:
-            return  # Rien à faire, on sort sans rien modifier
+            return
 
-        # Si on a des annonces, on indique qu'on les traite
         self.set_status('reanalyzing', task_name='retry_queue')
         
         try:
             for doc in docs:
                 if self._is_stop_requested():
-                    logger.info("🛑 File d'attente interrompue.")
+                    self.logger.info("🛑 File d'attente interrompue.")
                     break
                     
                 data = doc.to_dict()
-                logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
+                self.logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
                 
                 listing_data = {
                     "title": data.get('title'), "price": data.get('price'),
@@ -389,7 +440,7 @@ class GuitarHunterBot:
                 
                 found_keyword = self._check_exclusion(listing_data, current_config)
                 if found_keyword:
-                    logger.info(f"Annonce rejetée par pré-filtrage lors de la réanalyse. Mot-clé : '{found_keyword}'")
+                    self.logger.info(f"Annonce rejetée par pré-filtrage lors de la réanalyse. Mot-clé : '{found_keyword}'")
                     rejection_analysis = self._create_rejection_analysis(found_keyword)
                     self.repo.update_deal_analysis(doc.id, rejection_analysis)
                     continue 
@@ -398,7 +449,7 @@ class GuitarHunterBot:
                     analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
                     self.repo.update_deal_analysis(doc.id, analysis)
                 except Exception as e:
-                    logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
+                    self.logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
                     self.repo.update_deal_status(doc.id, 'analysis_failed', str(e))
         finally:
             self.set_status('idle', task_name='retry_queue')
@@ -411,18 +462,18 @@ class GuitarHunterBot:
             self.set_status('reanalyzing_all', task_name='reanalyzing_all')
         
         try:
-            logger.info("Démarrage de la réanalyse de TOUTES les annonces...")
+            self.logger.info("Démarrage de la réanalyse de TOUTES les annonces...")
             count = self.repo.mark_all_for_reanalysis()
-            logger.info(f"{count} annonces marquées pour réanalyse. Elles seront traitées par le thread de surveillance.")
+            self.logger.info(f"{count} annonces marquées pour réanalyse. Elles seront traitées par le thread de surveillance.")
         except Exception as e:
-            logger.error(f"Erreur lors de la demande de réanalyse globale : {e}", exc_info=True)
+            self.logger.error(f"Erreur lors de la demande de réanalyse globale : {e}", exc_info=True)
         finally:
             if not self.offline_mode:
                 self.set_status('idle', task_name='reanalyzing_all')
 
     def add_city_auto(self, city_name):
         if self.offline_mode: return
-        logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
+        self.logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
         
         existing_cities = self.repo.get_cities()
         for doc in existing_cities:
@@ -430,39 +481,49 @@ class GuitarHunterBot:
             if data.get('name', '').lower() == city_name.lower():
                 raise Exception(f"La ville '{city_name}' existe déjà.")
 
-        temp_scraper = FacebookScraper({}, {})
+        if self._browser_semaphore:
+            self._browser_semaphore.acquire()
         try:
-            city_id = CityFinder.find_city_id(temp_scraper, city_name)
+            temp_scraper = FacebookScraper({}, {})
+            try:
+                city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
+            finally:
+                temp_scraper.close_session()
         finally:
-            temp_scraper.close_session()
+            if self._browser_semaphore:
+                self._browser_semaphore.release()
             
         if city_id:
             for doc in existing_cities:
                 if str(doc.to_dict().get('id')) == str(city_id):
                      raise Exception(f"Une ville avec l'ID {city_id} existe déjà ({doc.to_dict().get('name')}).")
 
-            logger.info(f"ID trouvé pour {city_name}: {city_id}. Ajout à Firestore...")
+            self.logger.info(f"ID trouvé pour {city_name}: {city_id}. Coordonnées: {city_coords}. Ajout à Firestore...")
+            city_data = {'name': city_name, 'id': city_id, 'isScannable': True, 'createdAt': firestore.SERVER_TIMESTAMP}
+            if city_coords:
+                city_data.update({'latitude': city_coords['lat'], 'longitude': city_coords['lon']})
+            
             try:
-                self.repo.cities_ref.add({'name': city_name, 'id': city_id, 'isScannable': True, 'createdAt': firestore.SERVER_TIMESTAMP})
-                logger.info(f"Ville {city_name} ajoutée avec succès.")
+                self.repo.cities_ref.add(city_data)
+                self.logger.info(f"Ville {city_name} ajoutée avec succès.")
                 return True
             except Exception as e:
-                logger.error(f"Erreur lors de l'ajout de la ville {city_name}: {e}")
+                self.logger.error(f"Erreur lors de l'ajout de la ville {city_name}: {e}")
                 raise e 
         else:
-            logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
+            self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
             raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
 
     def clear_logs(self, _=None):
         if self.offline_mode:
-            logger.warning("Cannot clear logs in offline mode.")
+            self.logger.warning("Cannot clear logs in offline mode.")
             return
-        logger.info("--- COMMANDE REÇUE : Effacement des logs ---")
+        self.logger.info("--- COMMANDE REÇUE : Effacement des logs ---")
         try:
             deleted_count = self.repo.delete_all_logs()
-            logger.info(f"--- {deleted_count} logs ont été supprimés avec succès. ---")
+            self.logger.info(f"--- {deleted_count} logs ont été supprimés avec succès. ---")
         except Exception as e:
-            logger.error(f"Erreur lors de la suppression des logs: {e}", exc_info=True)
+            self.logger.error(f"Erreur lors de la suppression des logs: {e}", exc_info=True)
             raise
 
     def analyze_single_deal(self, payload):
@@ -473,17 +534,16 @@ class GuitarHunterBot:
         force_expert = payload.get('forceExpert', False)
         
         if not deal_id:
-            logger.error("analyze_single_deal: dealId manquant dans le payload.")
+            self.logger.error("analyze_single_deal: dealId manquant dans le payload.")
             return
 
-        logger.info(f"Demande d'analyse manuelle pour l'annonce {deal_id} (Force Expert: {force_expert})")
+        self.logger.info(f"Demande d'analyse manuelle pour l'annonce {deal_id} (Force Expert: {force_expert})")
         
         deal_data = self.repo.get_deal_by_id(deal_id)
         if not deal_data:
-            logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
+            self.logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
             return
 
-        # Reconstruction de listing_data pour l'analyseur
         listing_data = {
             "title": deal_data.get('title'),
             "price": deal_data.get('price'),
@@ -498,22 +558,20 @@ class GuitarHunterBot:
 
         current_config = self.config_manager.current_config_snapshot
         
-        # On ne vérifie pas l'exclusion ici car c'est une demande explicite de l'utilisateur
-        
         try:
             analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
             self.repo.update_deal_analysis(deal_id, analysis)
-            logger.info(f"Analyse manuelle terminée pour {deal_id}.")
+            self.logger.info(f"Analyse manuelle terminée pour {deal_id}.")
         except Exception as e:
-            logger.error(f"Erreur lors de l'analyse manuelle de {deal_id}: {e}", exc_info=True)
+            self.logger.error(f"Erreur lors de l'analyse manuelle de {deal_id}: {e}", exc_info=True)
             self.repo.update_deal_status(deal_id, 'analysis_failed', str(e))
 
     def purge_rejected_images(self):
         """Politique de cycle de vie : purge les images des deals rejetés anciens."""
         if self.offline_mode: return
-        logger.info(f"--- Démarrage de la purge des images (rétention: {IMAGE_RETENTION_REJECTED_DAYS}j) ---")
+        self.logger.info(f"--- Démarrage de la purge des images (rétention: {IMAGE_RETENTION_REJECTED_DAYS}j) ---")
         try:
             count = self.repo.purge_rejected_images(retention_days=IMAGE_RETENTION_REJECTED_DAYS)
-            logger.info(f"--- Purge terminée : {count} image(s) supprimée(s). ---")
+            self.logger.info(f"--- Purge terminée : {count} image(s) supprimée(s). ---")
         except Exception as e:
-            logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
+            self.logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)

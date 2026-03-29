@@ -1,19 +1,21 @@
 import time
 import logging
 import re
+import urllib.parse
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
 
 class CityFinder:
     @staticmethod
-    def find_city_id(scraper, city_name):
+    def find_city_id_and_coords(scraper, city_name):
         scraper._ensure_session()
         page = scraper.context.new_page()
         city_id = None
+        city_coords = None
         
         try:
-            logger.info(f"Début de la recherche d'ID pour la ville: '{city_name}'")
+            logger.info(f"Début de la recherche d'ID et de coordonnées pour la ville: '{city_name}'")
             page.goto("https://www.facebook.com/marketplace/", timeout=30000)
             logger.info("Page Marketplace chargée.")
 
@@ -27,7 +29,7 @@ class CityFinder:
             
             if not loc_button.is_visible(timeout=1000):
                  logger.error("Bouton de localisation introuvable. Abandon.")
-                 return None
+                 return None, None
 
             logger.info("Bouton de localisation trouvé. Clic.")
             loc_button.click(force=True)
@@ -68,6 +70,20 @@ class CityFinder:
                 if match:
                     city_id = match.group(1)
                     logger.info(f"ID de la ville trouvé: {city_id}")
+                    
+                    # --- Extraction des coordonnées de l'URL ---
+                    parsed_url = urllib.parse.urlparse(current_url)
+                    query_params = urllib.parse.parse_qs(parsed_url.query)
+                    
+                    lat = query_params.get('latitude')
+                    lon = query_params.get('longitude')
+                    
+                    if lat and lon:
+                        try:
+                            city_coords = {'lat': float(lat[0]), 'lon': float(lon[0])}
+                            logger.info(f"Coordonnées de la ville trouvées dans l'URL: {city_coords}")
+                        except ValueError:
+                            logger.warning("Impossible de convertir latitude/longitude en float.")
             except PlaywrightTimeoutError:
                 logger.error("L'URL n'a pas changé après l'application de la nouvelle ville.")
 
@@ -84,4 +100,4 @@ class CityFinder:
             logger.info("Fermeture de la page CityFinder.")
             page.close()
             
-        return city_id
+        return city_id, city_coords

@@ -3,8 +3,7 @@ import { useAuthContext } from '../context/AuthContext';
 import { Guitar, Lock, Mail, AlertCircle, Loader2 } from 'lucide-react';
 
 const LoginPage = () => {
-  const { signIn, signUp } = useAuthContext();
-  const [isRegistering, setIsRegistering] = useState(false);
+  const { signIn } = useAuthContext();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,19 +14,13 @@ const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      if (isRegistering) {
-        await signUp(email, password);
-      } else {
-        await signIn(email, password);
-      }
+      await signIn(email, password);
     } catch (err) {
       const messages = {
         'auth/invalid-credential': 'Email ou mot de passe incorrect.',
         'auth/invalid-email': 'Adresse email invalide.',
         'auth/user-disabled': 'Ce compte a été désactivé.',
         'auth/too-many-requests': 'Trop de tentatives. Réessayez plus tard.',
-        'auth/email-already-in-use': 'Cet email est déjà utilisé par un autre compte.',
-        'auth/weak-password': 'Le mot de passe doit contenir au moins 6 caractères.',
       };
       setError(messages[err.code] || 'Erreur d\'authentification. Vérifiez vos informations.');
     } finally {
@@ -50,7 +43,7 @@ const LoginPage = () => {
           </div>
           <h1 className="text-3xl font-black text-white tracking-tight">Guitar Hunter</h1>
           <p className="text-slate-400 text-sm mt-1">
-            {isRegistering ? "Créez votre compte pour commencer" : "Connectez-vous à votre espace personnel"}
+            Connectez-vous à votre espace personnel
           </p>
         </div>
 
@@ -87,7 +80,7 @@ const LoginPage = () => {
                 <input
                   type="password"
                   name="password"
-                  autoComplete={isRegistering ? "new-password" : "current-password"}
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -114,28 +107,12 @@ const LoginPage = () => {
               {loading ? (
                 <>
                   <Loader2 size={16} className="animate-spin" />
-                  {isRegistering ? 'Création en cours...' : 'Connexion...'}
+                  Connexion...
                 </>
               ) : (
-                isRegistering ? 'Créer mon compte' : 'Se connecter'
+                'Se connecter'
               )}
             </button>
-            
-            {/* Toggle Mode */}
-            <div className="pt-4 mt-4 border-t border-slate-800 text-center">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegistering(!isRegistering);
-                  setError('');
-                }}
-                className="text-sm text-slate-400 hover:text-white transition-colors"
-              >
-                {isRegistering 
-                  ? "Vous avez déjà un compte ? Se connecter" 
-                  : "Pas encore de compte ? S'inscrire"}
-              </button>
-            </div>
           </form>
         </div>
 

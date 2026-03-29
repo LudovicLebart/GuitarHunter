@@ -25,7 +25,7 @@ const unflatten = (data) => {
 // --- Factory : crée les références Firestore pour un userId donné ---
 const getRefs = (userId) => {
   if (!APP_ID || !userId) {
-    console.warn("firestoreService: APP_ID ou userId manquant.", { APP_ID, userId });
+    throw new Error(`firestoreService: APP_ID ou userId manquant. APP_ID=${APP_ID}, userId=${userId}`);
   }
   const userDocRef = doc(db, 'artifacts', APP_ID, 'users', userId);
   return {
@@ -204,14 +204,13 @@ export const toggleCityScannable = async (docId, currentStatus, userId) => {
 // --- Migration Automatique V2 ---
 export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
   const OLD_USER_ID = import.meta.env.VITE_USER_ID_TARGET;
-  
-  if (userEmail !== 'ludovic.lebart@gmail.com') {
-    return false; // Pas de migration pour les nouveaux utilisateurs réguliers
+  const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
+
+  if (!ADMIN_EMAIL || userEmail !== ADMIN_EMAIL) {
+    return false; // Pas de migration pour les utilisateurs non-admin
   }
 
   if (!OLD_USER_ID || OLD_USER_ID === newUserId) return false;
-
-  console.log(`Vérification de migration : Ancien ID (${OLD_USER_ID}) vers Nouveau UID (${newUserId}) pour ${userEmail}...`);
 
   const {
     userDocRef: newConfigRef,
@@ -225,40 +224,48 @@ export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
     citiesCollectionRef: oldCitiesRef
   } = getRefs(OLD_USER_ID);
 
-  // 1. Check if new user already has a config document
+  // 1. Vérifier si la migration a déjà eu lieu
   const newConfigSnap = await getDoc(newConfigRef);
-  if (newConfigSnap.exists()) {
-    console.log("Migration ignorée : L'utilisateur a déjà des données.");
+  if (newConfigSnap.exists() && newConfigSnap.data()?.migrationDone === true) {
     return false;
   }
 
   console.log(`Lancement de la migration pour l'UID ${newUserId}...`);
 
+  // 2. Copie Config
   try {
-    // 2. Copy Config
     const oldConfigSnap = await getDoc(oldConfigRef);
     if (oldConfigSnap.exists()) {
-      await setDoc(newConfigRef, oldConfigSnap.data());
+      await setDoc(newConfigRef, { ...oldConfigSnap.data(), migrationDone: true });
     }
-
-    // 3. Copy Cities
-    const oldCitiesSnap = await getDocs(oldCitiesRef);
-    const cityPromises = oldCitiesSnap.docs.map(cityDoc => 
-      setDoc(doc(newCitiesRef, cityDoc.id), cityDoc.data())
-    );
-    await Promise.all(cityPromises);
-
-    // 4. Copy Deals (Batch is recommended for many deals, but standard write is okay for now)
-    const oldDealsSnap = await getDocs(oldDealsRef);
-    const dealPromises = oldDealsSnap.docs.map(dealDoc => 
-      setDoc(doc(newDealsRef, dealDoc.id), dealDoc.data())
-    );
-    await Promise.all(dealPromises);
-
-    console.log(`✅ Migration de ${OLD_USER_ID} vers ${newUserId} terminée avec succès !`);
-    return true;
+    console.log('Migration — config : ✅');
   } catch (error) {
-    console.error("❌ Erreur pendant la migration des données :", error);
+    console.error('Migration — config : ❌', error);
     return false;
   }
+
+  // 3. Copie Cities
+  try {
+    const oldCitiesSnap = await getDocs(oldCitiesRef);
+    await Promise.all(oldCitiesSnap.docs.map(cityDoc =>
+      setDoc(doc(newCitiesRef, cityDoc.id), cityDoc.data())
+    ));
+    console.log(`Migration — villes (${oldCitiesSnap.size}) : ✅`);
+  } catch (error) {
+    console.error('Migration — villes : ❌', error);
+  }
+
+  // 4. Copie Deals
+  try {
+    const oldDealsSnap = await getDocs(oldDealsRef);
+    await Promise.all(oldDealsSnap.docs.map(dealDoc =>
+      setDoc(doc(newDealsRef, dealDoc.id), dealDoc.data())
+    ));
+    console.log(`Migration — annonces (${oldDealsSnap.size}) : ✅`);
+  } catch (error) {
+    console.error('Migration — annonces : ❌', error);
+  }
+
+  console.log(`✅ Migration de ${OLD_USER_ID} vers ${newUserId} terminée.`);
+  return true;
 };
