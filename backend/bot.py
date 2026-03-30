@@ -258,21 +258,10 @@ class GuitarHunterBot:
             scan_config = self.config_manager.scan_config
             self.logger.info(f"Démarrage du scan planifié (fréq: {scan_config.get('frequency', 'N/A')} min)...")
             
-            cities_docs = self.repo.get_cities()
-            
-            all_cities = []
-            cities_to_scan = []
-            
-            for doc in cities_docs:
-                data = doc.to_dict()
-                name = data.get('name', 'Unknown')
-                is_scannable = data.get('isScannable', False)
-                all_cities.append(f"{name} (Scannable: {is_scannable})")
-                
-                if is_scannable:
-                    cities_to_scan.append(data)
-            
-            self.logger.info(f"Villes trouvées en DB ({len(all_cities)}): {', '.join(all_cities)}")
+            # get_cities() retourne directement les villes isScannable du catalogue partagé
+            cities_to_scan = self.repo.get_cities()
+
+            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c['name'] for c in cities_to_scan])}")
 
             if not cities_to_scan:
                 self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
@@ -473,13 +462,16 @@ class GuitarHunterBot:
 
     def add_city_auto(self, city_name):
         if self.offline_mode: return
-        self.logger.info(f"Tentative d'ajout automatique de la ville: {city_name}")
-        
-        existing_cities = self.repo.get_cities()
-        for doc in existing_cities:
-            data = doc.to_dict()
+        self.logger.info(f"Tentative d'ajout de la ville: {city_name}")
+
+        # Dédoublonnage sur le catalogue partagé (nom)
+        catalog = self.repo.get_all_catalog_cities()
+        for city_id_key, data in catalog.items():
             if data.get('name', '').lower() == city_name.lower():
-                raise Exception(f"La ville '{city_name}' existe déjà.")
+                # Ville déjà dans le catalogue — activer la pref pour cet user
+                self.logger.info(f"Ville '{city_name}' déjà dans le catalogue (id={city_id_key}). Activation pour cet user.")
+                self.repo.set_city_user_pref(city_id_key, True)
+                return True
 
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
@@ -492,24 +484,29 @@ class GuitarHunterBot:
         finally:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
-            
-        if city_id:
-            for doc in existing_cities:
-                if str(doc.to_dict().get('id')) == str(city_id):
-                     raise Exception(f"Une ville avec l'ID {city_id} existe déjà ({doc.to_dict().get('name')}).")
 
-            self.logger.info(f"ID trouvé pour {city_name}: {city_id}. Coordonnées: {city_coords}. Ajout à Firestore...")
-            city_data = {'name': city_name, 'id': city_id, 'isScannable': True, 'createdAt': firestore.SERVER_TIMESTAMP}
+        if city_id:
+            # Dédoublonnage sur l'ID Facebook
+            if str(city_id) in catalog:
+                existing_name = catalog[str(city_id)].get('name')
+                self.logger.info(f"ID {city_id} déjà dans le catalogue ({existing_name}). Activation pour cet user.")
+                self.repo.set_city_user_pref(str(city_id), True)
+                return True
+
+            self.logger.info(f"ID trouvé pour {city_name}: {city_id}. Coordonnées: {city_coords}. Ajout au catalogue partagé...")
+            city_data = {
+                'name': city_name,
+                'id': city_id,
+                'createdAt': firestore.SERVER_TIMESTAMP,
+                'createdBy': self._user_id,
+            }
             if city_coords:
                 city_data.update({'latitude': city_coords['lat'], 'longitude': city_coords['lon']})
-            
-            try:
-                self.repo.cities_ref.add(city_data)
-                self.logger.info(f"Ville {city_name} ajoutée avec succès.")
-                return True
-            except Exception as e:
-                self.logger.error(f"Erreur lors de l'ajout de la ville {city_name}: {e}")
-                raise e 
+
+            self.repo.add_city_to_catalog(city_id, city_data)
+            self.repo.set_city_user_pref(city_id, True)
+            self.logger.info(f"Ville {city_name} ajoutée au catalogue partagé et activée pour cet user.")
+            return True
         else:
             self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
             raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")

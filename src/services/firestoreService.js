@@ -22,6 +22,12 @@ const unflatten = (data) => {
   return result[""] || result;
 };
 
+// Catalogue de villes partagé (indépendant du userId)
+const getSharedCitiesRef = () => {
+  if (!APP_ID) throw new Error('firestoreService: APP_ID manquant.');
+  return collection(db, 'artifacts', APP_ID, 'cities');
+};
+
 // --- Factory : crée les références Firestore pour un userId donné ---
 const getRefs = (userId) => {
   if (!APP_ID || !userId) {
@@ -31,9 +37,9 @@ const getRefs = (userId) => {
   return {
     userDocRef,
     dealsCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'guitar_deals'),
-    citiesCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'cities'),
+    // Préférences de villes par user : docId = Facebook city ID, contient isScannable
+    userCitiesPrefsRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'cities'),
     commandsCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'commands'),
-    userDocRef,
   };
 };
 
@@ -167,34 +173,71 @@ export const toggleDealFavorite = async (dealId, currentStatus, userId) => {
 
 // --- Cities ---
 
+/**
+ * Écoute le catalogue partagé + les préférences user en temps réel.
+ * Fusionne les deux sources et retourne un tableau de villes enrichi :
+ * { docId (= Facebook city ID), name, id, latitude, longitude, isScannable }
+ * Les villes du catalogue sans préférence user ont isScannable = false.
+ * Retourne une fonction de nettoyage qui désabonne les deux listeners.
+ */
 export const onCitiesUpdate = (onUpdate, onError, userId) => {
-  const { citiesCollectionRef } = getRefs(userId);
-  return onSnapshot(citiesCollectionRef, (snapshot) => {
-    const citiesData = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
-    citiesData.sort((a, b) => a.name.localeCompare(b.name));
-    onUpdate(citiesData);
-  }, (error) => {
-    console.error("Error listening to cities:", error);
-    onError(error);
-  });
+  const sharedCitiesRef = getSharedCitiesRef();
+  const { userCitiesPrefsRef } = getRefs(userId);
+
+  let catalogCache = {};
+  let prefsCache = {};
+
+  const merge = () => {
+    const merged = Object.entries(catalogCache)
+      .map(([cityId, cityData]) => ({
+        docId: cityId,
+        ...cityData,
+        isScannable: prefsCache[cityId]?.isScannable ?? false,
+      }))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    onUpdate(merged);
+  };
+
+  const unsubCatalog = onSnapshot(sharedCitiesRef, (snapshot) => {
+    catalogCache = {};
+    snapshot.docs.forEach(d => { catalogCache[d.id] = d.data(); });
+    merge();
+  }, (error) => { console.error("Error listening to shared cities:", error); onError(error); });
+
+  const unsubPrefs = onSnapshot(userCitiesPrefsRef, (snapshot) => {
+    prefsCache = {};
+    snapshot.docs.forEach(d => { prefsCache[d.id] = d.data(); });
+    merge();
+  }, (error) => { console.error("Error listening to city prefs:", error); onError(error); });
+
+  return () => { unsubCatalog(); unsubPrefs(); };
 };
 
 export const requestAddCity = (cityName, userId) => addCommand('ADD_CITY', cityName, userId);
 
+/**
+ * Supprime la préférence user pour cette ville (la retire de la liste active).
+ * La ville reste dans le catalogue partagé.
+ * docId = Facebook city ID
+ */
 export const deleteCity = async (docId, userId) => {
   try {
-    const { citiesCollectionRef } = getRefs(userId);
-    await deleteDoc(doc(citiesCollectionRef, docId));
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await deleteDoc(doc(userCitiesPrefsRef, docId));
   } catch (error) {
-    console.error(`Error deleting city ${docId}:`, error);
+    console.error(`Error removing city pref ${docId}:`, error);
     throw new Error("Erreur lors de la suppression de la ville.");
   }
 };
 
+/**
+ * Active ou désactive le scan d'une ville pour cet utilisateur.
+ * docId = Facebook city ID
+ */
 export const toggleCityScannable = async (docId, currentStatus, userId) => {
   try {
-    const { citiesCollectionRef } = getRefs(userId);
-    await updateDoc(doc(citiesCollectionRef, docId), { isScannable: !currentStatus });
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await setDoc(doc(userCitiesPrefsRef, docId), { isScannable: !currentStatus }, { merge: true });
   } catch (error) {
     console.error(`Error toggling scannable for city ${docId}:`, error);
     throw new Error("Erreur lors de la mise à jour de la ville.");
@@ -215,14 +258,16 @@ export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
   const {
     userDocRef: newConfigRef,
     dealsCollectionRef: newDealsRef,
-    citiesCollectionRef: newCitiesRef
+    userCitiesPrefsRef: newCitiesPrefsRef
   } = getRefs(newUserId);
 
   const {
     userDocRef: oldConfigRef,
     dealsCollectionRef: oldDealsRef,
-    citiesCollectionRef: oldCitiesRef
+    userCitiesPrefsRef: oldCitiesPrefsRef
   } = getRefs(OLD_USER_ID);
+
+  const sharedCitiesRef = getSharedCitiesRef();
 
   // 1. Vérifier si la migration a déjà eu lieu
   const newConfigSnap = await getDoc(newConfigRef);
@@ -244,13 +289,19 @@ export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
     return false;
   }
 
-  // 3. Copie Cities
+  // 3. Migration des villes vers le catalogue partagé + prefs user
   try {
-    const oldCitiesSnap = await getDocs(oldCitiesRef);
-    await Promise.all(oldCitiesSnap.docs.map(cityDoc =>
-      setDoc(doc(newCitiesRef, cityDoc.id), cityDoc.data())
-    ));
-    console.log(`Migration — villes (${oldCitiesSnap.size}) : ✅`);
+    const oldCitiesSnap = await getDocs(oldCitiesPrefsRef);
+    await Promise.all(oldCitiesSnap.docs.map(async (cityDoc) => {
+      const data = cityDoc.data();
+      const facebookCityId = data.id ? String(data.id) : cityDoc.id;
+      // Écrire dans le catalogue partagé (les métadonnées de la ville)
+      const { isScannable, ...catalogData } = data;
+      await setDoc(doc(sharedCitiesRef, facebookCityId), catalogData, { merge: true });
+      // Écrire la pref isScannable pour le nouvel user
+      await setDoc(doc(newCitiesPrefsRef, facebookCityId), { isScannable: isScannable ?? false }, { merge: true });
+    }));
+    console.log(`Migration — villes (${oldCitiesSnap.size}) vers catalogue partagé : ✅`);
   } catch (error) {
     console.error('Migration — villes : ❌', error);
   }
