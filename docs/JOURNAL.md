@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-08] [SONNET] [FIX] Correction UID utilisateur — LogViewer + env → Résultat :
+- `LogViewer.jsx` : remplacement de `VITE_USER_ID_TARGET` (ancien ID hardcodé `00737242777130596039`) par `user.uid` (UID Firebase Auth du user connecté). Les logs s'affichent maintenant depuis le bon chemin Firestore.
+- `.env` local : `USER_IDS_TARGET` et `VITE_USER_ID_TARGET` mis à jour avec l'UID Firebase Auth réel (`wbPlgZgkW2VcAl0a2l44UMSDTaG2`). Le secret `DOT_ENV` GitHub doit contenir la même valeur pour que le backend lise les commandes depuis le bon chemin.
+- Cause racine identifiée : l'ancien bot utilisait un ID numérique (`00737242777130596039`) généré avant l'implémentation de Firebase Auth. Le frontend écrivait les commandes vers l'UID Firebase Auth, le backend les lisait depuis l'ancien ID → zéro intersection, commandes jamais traitées.
+
 [2026-04-07] [FLASH] [FIX] Playwright headless forcé à True → Résultat : `backend/scraping/config.py` — `headless: bool = False` → `True`. Le serveur Linux n'ayant pas de display X11 (`$DISPLAY` absent), Playwright crashait au lancement avec `Missing X server`. Le mode headless permet au browser de tourner sans interface graphique sur serveur.
 
 [2026-04-07] [SONNET] [UX/FIX] Autocomplétion villes + rayon 0 strict + email dans logs + fallback architecture villes → Résultat :
