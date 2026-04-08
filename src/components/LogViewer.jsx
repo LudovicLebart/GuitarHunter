@@ -17,10 +17,8 @@ const LogViewer = ({ onClose }) => {
   useEffect(() => {
     if (!user) return;
 
-    const appId = import.meta.env.VITE_FIREBASE_APP_ID;
-
     const finalAppId = import.meta.env.VITE_APP_ID_TARGET;
-    const userIdTarget = import.meta.env.VITE_USER_ID_TARGET;
+    const userIdTarget = user.uid;
 
     const logsRef = collection(db, `artifacts/${finalAppId}/users/${userIdTarget}/logs`);
     // On trie par timestamp décroissant pour avoir les derniers logs, puis on limite
