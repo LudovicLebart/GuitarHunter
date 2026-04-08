@@ -145,20 +145,33 @@ class FirestoreRepository:
             
     def get_cities(self):
         """Retourne les villes activées (isScannable=True) pour cet utilisateur.
-        Fusionne le catalogue partagé avec les préférences user.
+        Nouvelle architecture : fusionne le catalogue partagé avec les préférences user.
+        Fallback ancienne architecture : si le catalogue est vide, lit directement
+        users/{uid}/cities (données complètes dans un seul document).
         Retourne une liste de dicts (name, id, latitude, longitude, isScannable).
         """
         try:
             catalog = {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
             user_prefs = {doc.id: doc.to_dict() for doc in self.user_cities_prefs_ref.stream()}
 
-            result = []
-            for city_id, city_data in catalog.items():
-                pref = user_prefs.get(city_id, {})
-                if pref.get('isScannable', False):
-                    result.append({**city_data, 'isScannable': True})
-
-            return result
+            if catalog:
+                # Nouvelle architecture : catalogue partagé + prefs user séparées
+                result = []
+                for city_id, city_data in catalog.items():
+                    pref = user_prefs.get(city_id, {})
+                    if pref.get('isScannable', False):
+                        result.append({**city_data, 'isScannable': True})
+                logger.info(f"Cities loaded from shared catalog: {len(result)} scannable / {len(catalog)} total.")
+                return result
+            else:
+                # Fallback ancienne architecture : données complètes dans users/{uid}/cities
+                logger.warning("Shared cities catalog is empty. Falling back to legacy user cities collection.")
+                result = []
+                for city_id, data in user_prefs.items():
+                    if data.get('name') and data.get('id') and data.get('isScannable', False):
+                        result.append({**data, 'isScannable': True})
+                logger.info(f"Cities loaded from legacy user collection: {len(result)} scannable.")
+                return result
         except Exception as e:
             logger.error(f"Failed to get cities: {e}", exc_info=True)
             return []

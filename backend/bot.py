@@ -1,6 +1,7 @@
 import time
 import threading
 import logging
+import requests
 from firebase_admin import firestore
 
 from config import (
@@ -12,7 +13,7 @@ from config import (
 from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
-from backend.scraping.utils import calculate_distance
+from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
@@ -472,25 +473,58 @@ class GuitarHunterBot:
             if not self.offline_mode:
                 self.set_status('idle', task_name='reanalyzing_all')
 
+    def _geocode_nominatim(self, city_name: str) -> dict | None:
+        """Retourne {'lat': float, 'lon': float} via Nominatim (OSM), ou None.
+        Essaie plusieurs variantes du nom (Mc X, Saint→St, accents, tirets...)."""
+        headers = {"User-Agent": "GuitarHunter/1.0"}
+        for variant in city_name_variants(city_name):
+            for suffix in [", Quebec, Canada", ", Canada"]:
+                query = variant + suffix
+                try:
+                    resp = requests.get(
+                        "https://nominatim.openstreetmap.org/search",
+                        params={"q": query, "format": "json", "limit": 1, "countrycodes": "ca"},
+                        headers=headers,
+                        timeout=10,
+                    )
+                    resp.raise_for_status()
+                    results = resp.json()
+                    if results:
+                        self.logger.info(f"Nominatim: '{query}' → lat={float(results[0]['lat']):.4f}, lon={float(results[0]['lon']):.4f}")
+                        return {"lat": float(results[0]["lat"]), "lon": float(results[0]["lon"])}
+                except Exception as e:
+                    self.logger.warning(f"Nominatim erreur pour '{query}': {e}")
+                time.sleep(1)
+        return None
+
     def add_city_auto(self, city_name):
         if self.offline_mode: return
         self.logger.info(f"Tentative d'ajout de la ville: {city_name}")
 
         # Dédoublonnage sur le catalogue partagé (nom)
         catalog = self.repo.get_all_catalog_cities()
+        existing_id_by_name = None
         for city_id_key, data in catalog.items():
             if data.get('name', '').lower() == city_name.lower():
-                # Ville déjà dans le catalogue — activer la pref pour cet user
-                self.logger.info(f"Ville '{city_name}' déjà dans le catalogue (id={city_id_key}). Activation pour cet user.")
-                self.repo.set_city_user_pref(city_id_key, True)
+                existing_id_by_name = city_id_key
+                break
+
+        # Si ville déjà dans le catalogue par nom ET coords complètes → juste activer
+        if existing_id_by_name:
+            existing_data = catalog[existing_id_by_name]
+            if existing_data.get('latitude') is not None and existing_data.get('longitude') is not None:
+                self.logger.info(f"Ville '{city_name}' déjà dans le catalogue (id={existing_id_by_name}). Activation pour cet user.")
+                self.repo.set_city_user_pref(existing_id_by_name, True)
                 return True
+            else:
+                self.logger.info(f"Ville '{city_name}' dans le catalogue mais sans coordonnées. Lancement CityFinder pour enrichissement...")
 
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
             temp_scraper = FacebookScraper({}, {})
             try:
-                city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
+                city_id, _ = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
             finally:
                 temp_scraper.close_session()
         finally:
@@ -499,25 +533,31 @@ class GuitarHunterBot:
 
         if city_id:
             # Dédoublonnage sur l'ID Facebook
-            if str(city_id) in catalog:
-                existing_name = catalog[str(city_id)].get('name')
-                self.logger.info(f"ID {city_id} déjà dans le catalogue ({existing_name}). Activation pour cet user.")
-                self.repo.set_city_user_pref(str(city_id), True)
-                return True
+            city_id_str = str(city_id)
+            in_catalog = city_id_str in catalog or existing_id_by_name is not None
+            target_id = city_id_str if city_id_str in catalog else (existing_id_by_name or city_id_str)
 
-            self.logger.info(f"ID trouvé pour {city_name}: {city_id}. Coordonnées: {city_coords}. Ajout au catalogue partagé...")
-            city_data = {
-                'name': city_name,
-                'id': city_id,
-                'createdAt': firestore.SERVER_TIMESTAMP,
-                'createdBy': self._user_id,
-            }
+            # Coordonnées via Nominatim (fiable, pas dépendant de Facebook)
+            city_coords = self._geocode_nominatim(city_name)
+            if city_coords:
+                self.logger.info(f"Coords Nominatim pour '{city_name}': lat={city_coords['lat']:.4f}, lon={city_coords['lon']:.4f}")
+            else:
+                self.logger.warning(f"Nominatim n'a pas trouvé de coords pour '{city_name}'. Ville ajoutée sans coordonnées.")
+
+            city_data = {'name': city_name, 'id': city_id_str}
             if city_coords:
                 city_data.update({'latitude': city_coords['lat'], 'longitude': city_coords['lon']})
 
-            self.repo.add_city_to_catalog(city_id, city_data)
-            self.repo.set_city_user_pref(city_id, True)
-            self.logger.info(f"Ville {city_name} ajoutée au catalogue partagé et activée pour cet user.")
+            if in_catalog:
+                self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")
+                self.repo.add_city_to_catalog(target_id, city_data)
+            else:
+                self.logger.info(f"Nouvelle ville {city_name} (id={city_id_str}). Ajout au catalogue partagé...")
+                city_data.update({'createdAt': firestore.SERVER_TIMESTAMP, 'createdBy': self._user_id})
+                self.repo.add_city_to_catalog(city_id_str, city_data)
+
+            self.repo.set_city_user_pref(target_id, True)
+            self.logger.info(f"Ville {city_name} prete dans le catalogue.")
             return True
         else:
             self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")

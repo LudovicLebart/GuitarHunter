@@ -1,5 +1,18 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-08] [PRO] [FIX] Enrichissement coords villes + Nominatim → Résultat :
+- **`bot.py:_geocode_nominatim()`** : nouvelle méthode pour interroger Nominatim (OSM, gratuit) au lieu de dépendre des coords de CityFinder qui ne les fournit pas.
+- **`bot.py:add_city_auto()`** : refonte complète — quand une ville est déjà dans le catalogue mais sans coords, lance Nominatim pour les compléter (merge=True upsert). Gestion correcte dédoublonnage par nom + ID.
+- **`backend/scraping/utils.py:city_name_variants()`** : nouvelle fonction générant variantes du nom ("Mc Masterville" → "McMasterville", "Saint-X" → "St-X", sans accents, tirets/espaces...) pour maximiser succès geocodage.
+- **`bot.py` + `enrich_cities_coords.py`** : utilisent `city_name_variants()` pour essayer automatiquement les bonnes formes du nom.
+- **`enrich_cities_coords.py`** : script one-shot pour compléter lat/lon des 20 villes du catalogue via Nominatim.
+
+[2026-04-08] [SONNET] [FIX] Migration villes vers catalogue partagé + fallback backend → Résultat :
+- **`backend/scripts/migrate_cities_to_shared_catalog.py`** : Refonte du script — ajout des params `--source-user-id` et `--target-user-id` pour migrer depuis un UID arbitraire. Correction du cas où le docId Firestore est le Facebook city ID (ancienne architecture sans champ `id` dans la data). Copie fidèle de `isScannable` depuis la source vers la cible (au lieu de forcer `False`).
+- **`backend/repository.py`** : `get_cities()` — ajout d'un fallback ancienne architecture : si le catalogue partagé `artifacts/{APP_ID}/cities` est vide, lit directement `users/{uid}/cities` (données complètes name+id+lat+lon+isScannable). Comportement identique au fallback déjà en place côté frontend.
+- **`config.py` + `backend/database.py`** : Suppression des emojis dans les `print()` — incompatibles avec l'encodage cp1252 de certains terminaux Windows.
+- **Migration exécutée** : 20 villes de `00737242777130596039` → catalogue partagé + prefs `isScannable=True` pour `wbPlgZgkW2VcAl0a2l44UMSDTaG2`. Backend confirme 20 villes scannable.
+
 [2026-04-08] [SONNET] [FIX] Correction UID utilisateur — LogViewer + env → Résultat :
 - `LogViewer.jsx` : remplacement de `VITE_USER_ID_TARGET` (ancien ID hardcodé `00737242777130596039`) par `user.uid` (UID Firebase Auth du user connecté). Les logs s'affichent maintenant depuis le bon chemin Firestore.
 - `.env` local : `USER_IDS_TARGET` et `VITE_USER_ID_TARGET` mis à jour avec l'UID Firebase Auth réel (`wbPlgZgkW2VcAl0a2l44UMSDTaG2`). Le secret `DOT_ENV` GitHub doit contenir la même valeur pour que le backend lise les commandes depuis le bon chemin.
