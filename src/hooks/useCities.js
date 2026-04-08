@@ -9,7 +9,6 @@ export const useCities = (user, setError) => {
   useEffect(() => {
     if (!user) return;
     const uid = user.uid;
-
     const unsubscribe = onCitiesUpdate(
       (data) => setCities(data),
       (err) => setError(err.message),

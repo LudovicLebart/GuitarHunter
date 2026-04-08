@@ -22,18 +22,24 @@ const unflatten = (data) => {
   return result[""] || result;
 };
 
+// Catalogue de villes partagé (indépendant du userId)
+const getSharedCitiesRef = () => {
+  if (!APP_ID) throw new Error('firestoreService: APP_ID manquant.');
+  return collection(db, 'artifacts', APP_ID, 'cities');
+};
+
 // --- Factory : crée les références Firestore pour un userId donné ---
 const getRefs = (userId) => {
   if (!APP_ID || !userId) {
-    console.warn("firestoreService: APP_ID ou userId manquant.", { APP_ID, userId });
+    throw new Error(`firestoreService: APP_ID ou userId manquant. APP_ID=${APP_ID}, userId=${userId}`);
   }
   const userDocRef = doc(db, 'artifacts', APP_ID, 'users', userId);
   return {
     userDocRef,
     dealsCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'guitar_deals'),
-    citiesCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'cities'),
+    // Préférences de villes par user : docId = Facebook city ID, contient isScannable
+    userCitiesPrefsRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'cities'),
     commandsCollectionRef: collection(db, 'artifacts', APP_ID, 'users', userId, 'commands'),
-    userDocRef,
   };
 };
 
@@ -167,34 +173,85 @@ export const toggleDealFavorite = async (dealId, currentStatus, userId) => {
 
 // --- Cities ---
 
+/**
+ * Écoute le catalogue partagé + les préférences user en temps réel.
+ * Fusionne les deux sources et retourne un tableau de villes enrichi :
+ * { docId (= Facebook city ID), name, id, latitude, longitude, isScannable }
+ * Les villes du catalogue sans préférence user ont isScannable = false.
+ * Retourne une fonction de nettoyage qui désabonne les deux listeners.
+ */
 export const onCitiesUpdate = (onUpdate, onError, userId) => {
-  const { citiesCollectionRef } = getRefs(userId);
-  return onSnapshot(citiesCollectionRef, (snapshot) => {
-    const citiesData = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
-    citiesData.sort((a, b) => a.name.localeCompare(b.name));
-    onUpdate(citiesData);
-  }, (error) => {
-    console.error("Error listening to cities:", error);
-    onError(error);
-  });
+  const sharedCitiesRef = getSharedCitiesRef();
+  const { userCitiesPrefsRef } = getRefs(userId);
+
+  let catalogCache = {};
+  let prefsCache = {};
+
+  const merge = () => {
+    if (Object.keys(catalogCache).length > 0) {
+      // Nouvelle architecture : catalogue partagé + prefs user séparées
+      const merged = Object.entries(catalogCache)
+        .map(([cityId, cityData]) => ({
+          docId: cityId,
+          ...cityData,
+          isScannable: prefsCache[cityId]?.isScannable ?? false,
+        }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      onUpdate(merged);
+    } else {
+      // Fallback ancienne architecture : données complètes dans users/{uid}/cities
+      // (name, id, lat, lon, isScannable dans le même document)
+      const merged = Object.entries(prefsCache)
+        .filter(([, data]) => data.name && data.id)
+        .map(([cityId, data]) => ({
+          docId: cityId,
+          ...data,
+        }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      onUpdate(merged);
+    }
+  };
+
+  const unsubCatalog = onSnapshot(sharedCitiesRef, (snapshot) => {
+    catalogCache = {};
+    snapshot.docs.forEach(d => { catalogCache[d.id] = d.data(); });
+    merge();
+  }, (error) => { console.error("Error listening to shared cities:", error); onError(error); });
+
+  const unsubPrefs = onSnapshot(userCitiesPrefsRef, (snapshot) => {
+    prefsCache = {};
+    snapshot.docs.forEach(d => { prefsCache[d.id] = d.data(); });
+    merge();
+  }, (error) => { console.error("Error listening to city prefs:", error); onError(error); });
+
+  return () => { unsubCatalog(); unsubPrefs(); };
 };
 
 export const requestAddCity = (cityName, userId) => addCommand('ADD_CITY', cityName, userId);
 
+/**
+ * Supprime la préférence user pour cette ville (la retire de la liste active).
+ * La ville reste dans le catalogue partagé.
+ * docId = Facebook city ID
+ */
 export const deleteCity = async (docId, userId) => {
   try {
-    const { citiesCollectionRef } = getRefs(userId);
-    await deleteDoc(doc(citiesCollectionRef, docId));
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await deleteDoc(doc(userCitiesPrefsRef, docId));
   } catch (error) {
-    console.error(`Error deleting city ${docId}:`, error);
+    console.error(`Error removing city pref ${docId}:`, error);
     throw new Error("Erreur lors de la suppression de la ville.");
   }
 };
 
+/**
+ * Active ou désactive le scan d'une ville pour cet utilisateur.
+ * docId = Facebook city ID
+ */
 export const toggleCityScannable = async (docId, currentStatus, userId) => {
   try {
-    const { citiesCollectionRef } = getRefs(userId);
-    await updateDoc(doc(citiesCollectionRef, docId), { isScannable: !currentStatus });
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await setDoc(doc(userCitiesPrefsRef, docId), { isScannable: !currentStatus }, { merge: true });
   } catch (error) {
     console.error(`Error toggling scannable for city ${docId}:`, error);
     throw new Error("Erreur lors de la mise à jour de la ville.");
@@ -204,61 +261,76 @@ export const toggleCityScannable = async (docId, currentStatus, userId) => {
 // --- Migration Automatique V2 ---
 export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
   const OLD_USER_ID = import.meta.env.VITE_USER_ID_TARGET;
-  
-  if (userEmail !== 'ludovic.lebart@gmail.com') {
-    return false; // Pas de migration pour les nouveaux utilisateurs réguliers
+  const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
+
+  if (!ADMIN_EMAIL || userEmail !== ADMIN_EMAIL) {
+    return false; // Pas de migration pour les utilisateurs non-admin
   }
 
   if (!OLD_USER_ID || OLD_USER_ID === newUserId) return false;
 
-  console.log(`Vérification de migration : Ancien ID (${OLD_USER_ID}) vers Nouveau UID (${newUserId}) pour ${userEmail}...`);
-
   const {
     userDocRef: newConfigRef,
     dealsCollectionRef: newDealsRef,
-    citiesCollectionRef: newCitiesRef
+    userCitiesPrefsRef: newCitiesPrefsRef
   } = getRefs(newUserId);
 
   const {
     userDocRef: oldConfigRef,
     dealsCollectionRef: oldDealsRef,
-    citiesCollectionRef: oldCitiesRef
+    userCitiesPrefsRef: oldCitiesPrefsRef
   } = getRefs(OLD_USER_ID);
 
-  // 1. Check if new user already has a config document
+  const sharedCitiesRef = getSharedCitiesRef();
+
+  // 1. Vérifier si la migration a déjà eu lieu
   const newConfigSnap = await getDoc(newConfigRef);
-  if (newConfigSnap.exists()) {
-    console.log("Migration ignorée : L'utilisateur a déjà des données.");
+  if (newConfigSnap.exists() && newConfigSnap.data()?.migrationDone === true) {
     return false;
   }
 
   console.log(`Lancement de la migration pour l'UID ${newUserId}...`);
 
+  // 2. Copie Config
   try {
-    // 2. Copy Config
     const oldConfigSnap = await getDoc(oldConfigRef);
     if (oldConfigSnap.exists()) {
-      await setDoc(newConfigRef, oldConfigSnap.data());
+      await setDoc(newConfigRef, { ...oldConfigSnap.data(), migrationDone: true });
     }
-
-    // 3. Copy Cities
-    const oldCitiesSnap = await getDocs(oldCitiesRef);
-    const cityPromises = oldCitiesSnap.docs.map(cityDoc => 
-      setDoc(doc(newCitiesRef, cityDoc.id), cityDoc.data())
-    );
-    await Promise.all(cityPromises);
-
-    // 4. Copy Deals (Batch is recommended for many deals, but standard write is okay for now)
-    const oldDealsSnap = await getDocs(oldDealsRef);
-    const dealPromises = oldDealsSnap.docs.map(dealDoc => 
-      setDoc(doc(newDealsRef, dealDoc.id), dealDoc.data())
-    );
-    await Promise.all(dealPromises);
-
-    console.log(`✅ Migration de ${OLD_USER_ID} vers ${newUserId} terminée avec succès !`);
-    return true;
+    console.log('Migration — config : ✅');
   } catch (error) {
-    console.error("❌ Erreur pendant la migration des données :", error);
+    console.error('Migration — config : ❌', error);
     return false;
   }
+
+  // 3. Migration des villes vers le catalogue partagé + prefs user
+  try {
+    const oldCitiesSnap = await getDocs(oldCitiesPrefsRef);
+    await Promise.all(oldCitiesSnap.docs.map(async (cityDoc) => {
+      const data = cityDoc.data();
+      const facebookCityId = data.id ? String(data.id) : cityDoc.id;
+      // Écrire dans le catalogue partagé (les métadonnées de la ville)
+      const { isScannable, ...catalogData } = data;
+      await setDoc(doc(sharedCitiesRef, facebookCityId), catalogData, { merge: true });
+      // Écrire la pref isScannable pour le nouvel user
+      await setDoc(doc(newCitiesPrefsRef, facebookCityId), { isScannable: isScannable ?? false }, { merge: true });
+    }));
+    console.log(`Migration — villes (${oldCitiesSnap.size}) vers catalogue partagé : ✅`);
+  } catch (error) {
+    console.error('Migration — villes : ❌', error);
+  }
+
+  // 4. Copie Deals
+  try {
+    const oldDealsSnap = await getDocs(oldDealsRef);
+    await Promise.all(oldDealsSnap.docs.map(dealDoc =>
+      setDoc(doc(newDealsRef, dealDoc.id), dealDoc.data())
+    ));
+    console.log(`Migration — annonces (${oldDealsSnap.size}) : ✅`);
+  } catch (error) {
+    console.error('Migration — annonces : ❌', error);
+  }
+
+  console.log(`✅ Migration de ${OLD_USER_ID} vers ${newUserId} terminée.`);
+  return true;
 };

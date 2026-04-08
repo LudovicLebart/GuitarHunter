@@ -2,6 +2,37 @@
 
 Ce document détaille le fonctionnement interne du projet.
 
+## 0. 🔐 Firestore Security Rules (Session 2026-03-29)
+
+Les règles Firestore assurent l'isolation multi-utilisateur. Chaque utilisateur n'accède qu'à ses données.
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Document utilisateur (botStatus, config, etc.)
+    match /artifacts/{appId}/users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Sous-collections (guitar_deals, commands, cities, logs)
+    match /artifacts/{appId}/users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Document racine app (lecture seule)
+    match /artifacts/{appId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+  }
+}
+```
+
+**Note:** Le backend (Admin SDK) contourne ces règles par design — aucun impact sur l'API serveur.
+
+> ⚠️ **Compatibilité ascendante (2026-04-07)** : Le frontend implémente un fallback dans `onCitiesUpdate` — si le catalogue partagé `artifacts/{APP_ID}/cities` est vide, il lit depuis `users/{uid}/cities` (ancienne architecture où les métadonnées sont stockées avec `isScannable`). Ce fallback sera retiré une fois le serveur migré vers la nouvelle architecture.
+
+---
+
 ## 1. 🔄 Firestore : Le Cœur du Système (Event Bus)
 
 Le projet utilise une architecture où **Firestore n'est pas seulement une base de données, mais un bus d'événements et de commandes**.
@@ -40,8 +71,11 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
+- **Multi-utilisateur:** Accepte `app_id`, `user_id`, `browser_semaphore` en paramètres. Logger isolé par user : `logging.getLogger(f"bot.{user_id[:8]}")`.
 - **Gestionnaire d'état robuste:** Utilise un accès concurrent sécurisé via `threading.Lock()` et `set_status()` pour gérer l'étiquetage du `botStatus` en fonction des threads actifs (ex: `_active_tasks`), empêchant les processus asynchrones d'écraser prématurément des états prioritaires comme `scanning`.
-- **`run_scan()`:** Déclenche le scraping des villes configurées. Régulé par le `scheduler`.
+- **Session isolée par thread:** `session_processed_ids` → `@property` sur `threading.local()`. Chaque thread (scan, refresh) a sa propre mémoire de session pour éviter les collisions.
+- **Sémaphore Playwright:** Chaque instanciation de `FacebookScraper` acquiert/libère le sémaphore global. Limite `MAX_CONCURRENT_BROWSERS` navigateurs simultanés (défaut 3).
+- **`run_scan()`:** Déclenche le scraping des villes configurées. Régulé par le `scheduler`. Scraper instancié localement par city avec sémaphore protection.
 - **`handle_deal_found()`:** Callback appelé par le scraper pour chaque annonce trouvée. Orchestre : (1) upload des images vers Firebase Storage (`repo.upload_images_to_storage()`), (2) injection de `storageImageUrls` dans les données, (3) appel à l'analyseur IA, (4) sauvegarde dans Firestore.
 - **`analyze_single_deal(payload)`:** Méthode spécifique pour traiter une commande de réanalyse (`ANALYZE_DEAL`). Elle récupère l'annonce et appelle `analyzer.analyze_deal`.
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).
@@ -90,6 +124,36 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est &gt; `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
 - **Script de migration** (`backend/scripts/migrate_images.py`) : Script pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage. Intègre la **Rotation de Session** (redémarrage du navigateur toutes les 15 annonces) et le **Jitter** (délais aléatoires) pour contrer l'anti-botting de Facebook lors d'opérations massives.
 
+## 2.1 🔄 Robustesse & Monitoring (Session 2026-03-29)
+
+### Watchdog — Redémarrage Automatique des Bots Crashés
+
+`main.py` exécute une boucle watchdog qui vérifie tous les 30s si les threads des bots sont vivants.
+
+```python
+while True:
+    time.sleep(30)
+    for user_id, ctx in list(user_contexts.items()):
+        if not ctx["thread"].is_alive():
+            logger.critical(f"Thread mort pour {user_id}. Redémarrage...")
+            try:
+                new_bot, ... = _create_user_bot(db_service, user_id)
+                # Recréer et relancer le thread
+            except Exception as e:
+                logger.error(f"Redémarrage échoué: {e}")
+```
+
+**Avantages:**
+- Détecte les crashes silencieux (exceptions non-catchées dans la boucle principale).
+- Isole les crashes : si le bot de l'utilisateur A crashe, B et C continuent.
+- Recrée le bot avec un état vierge (botStatus = `idle`).
+
+**Limitations:**
+- Pas de backoff exponentiel. Un bot qui crashe à chaque redémarrage rédémarre en boucle toutes les 30s.
+- Perte d'état de pause (si le bot était en pause 12h, il reprend en idle).
+
+---
+
 ## 3. ⚛️ Frontend (React)
 
 Le frontend est une Single Page Application (SPA) conçue pour être très réactive.
@@ -107,9 +171,10 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
-- **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
+- **`getRefs(userId)`:** Factory centralisée créant les références Firestore isolées par user. Valide `userId` avant création → `throw new Error(...)` si absent (fail fast).
 - **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
 - **Actions des Boutons (Refresh, Cleanup, etc.) :** Toutes les actions créent désormais un document dans la collection `commands` via `addCommand(type, payload)`.
+- **Migration multi-user:** `migrateOldDataToNewUser(newUserId, userEmail)` → Email admin via `VITE_ADMIN_EMAIL` env var (sécurité). Flag `migrationDone` prévient les remigrés. Try/catch granulaire par étape.
 
 ### `src/components/BotControls.jsx`
 - **Contrôle et Statut:** Regroupe l'indicateur de statut du bot (`idle`, `scanning`, `paused`, `stopped`) et les boutons de pilotage à distance (`STOP_BOT`, `STOP_SCAN`, `START_BOT`). Intégré dans le panneau latéral "Système".

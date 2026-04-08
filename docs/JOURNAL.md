@@ -1,5 +1,43 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-07] [FLASH] [FIX] Playwright headless forcé à True → Résultat : `backend/scraping/config.py` — `headless: bool = False` → `True`. Le serveur Linux n'ayant pas de display X11 (`$DISPLAY` absent), Playwright crashait au lancement avec `Missing X server`. Le mode headless permet au browser de tourner sans interface graphique sur serveur.
+
+[2026-04-07] [SONNET] [UX/FIX] Autocomplétion villes + rayon 0 strict + email dans logs + fallback architecture villes → Résultat :
+
+- **`ConfigPanel.jsx`** : Autocomplétion dans le formulaire "Nouvelle ville manuelle" — suggestions filtrées depuis le catalogue existant (≥2 caractères). Clic sur ville non-active → activation directe sans commande ADD_CITY. Ville déjà active → label "Déjà active" grisé.
+- **`ConfigPanel.jsx`** : Badge "Nom strict" + texte explicatif affiché dans le champ Rayon (km) lorsque la valeur vaut 0.
+- **`bot.py`** : Rayon = 0 déclenche un filtrage par correspondance exacte du nom de ville (`normalize_city_name`) au lieu de ne rien filtrer. Rayon > 0 conserve le filtre Haversine existant.
+- **`main.py`** : Ajout de `_get_user_label(uid)` — interroge `firebase_admin.auth.get_user(uid)` au démarrage pour afficher `email (uid[:8])` dans tous les logs et noms de threads (watchdog inclus).
+- **`firestoreService.js`** : Ajout d'un fallback dans `onCitiesUpdate` — si le catalogue partagé `artifacts/{APP_ID}/cities` est vide (ancienne architecture), lecture depuis `users/{uid}/cities` (données complètes : name, id, lat, lon, isScannable). Résout le bug "0 villes dans l'interface" causé par la non-migration du catalogue partagé sur le serveur déployé.
+- **`CLAUDE.md`** : Création du fichier de configuration Claude Code à la racine, encodant le protocole de développement (3 étapes, aiguillage FLASH/PRO, frugalité, architecture clé).
+
+[2026-03-29] [PRO] Action : Implémentation Audit Sécurité & Robustesse Multi-Utilisateur (Phases 1 & 2) → Résultat :
+
+**PHASE 1 — Sécurité [4 Tasks]**
+- Task 1.1 : `firebase/firestore.rules` → `allow read, write: if true` remplacé par règles strictes `request.auth.uid == userId` (+ document parent explicite).
+- Task 1.2 : `useAuth.js` + `LoginPage.jsx` → `signUp` supprimé, formulaire réduit à connexion seule. Inscription via console Firebase Admin uniquement.
+- Task 1.3 : `firestoreService.js:getRefs()` → `console.warn` transformé en `throw new Error(...)` pour fail fast.
+- Task 1.4 : `firestoreService.js:migrateOldDataToNewUser` → Email admin → `VITE_ADMIN_EMAIL` env var, flag `migrationDone`, try/catch granulaire par étape (config ✅ / villes ✅ / annonces ✅).
+
+**PHASE 2 — Robustesse Backend [6 Tasks]**
+- Task 2.1 : `main.py` → `try/except` autour de `GuitarHunterBot()` pour chaque user. Échecs isolés par user sans crash global.
+- Task 2.2 : `main.py` → Boucle watchdog `while True` (30s interval) redémarre threads morts. Capteur de crashes `t.is_alive()`.
+- Task 2.3 : `bot.py` + `main.py` → `threading.Semaphore(MAX_CONCURRENT_BROWSERS)` partagé. Chaque `FacebookScraper` acquis/libéré. Limite navigateurs simultanés.
+- Task 2.4 : `main.py` → `threading.Lock()` sur `in_flight_command_ids`, `.discard()` au lieu de `.remove()` pour éviter `KeyError`.
+- Task 2.5 : `bot.py` → `session_processed_ids` → `@property` sur `threading.local()`. Isolé par thread, `.clear()` au lieu de `= set()`.
+- Task 2.6 : `bot.py` → Logger par user `logging.getLogger(f"bot.{user_id[:8]}")`, tous les `logger.` remplacés par `self.logger.`.
+
+**Code Review — 3 Rondes validées**
+- Ronde 1 (Exactitude) : 1 bug Firestore rules trouvé et corrigé (document parent).
+- Ronde 2 (Cohérence) : Chaîne useAuth → AuthContext → LoginPage OK. Sémaphore propagé correctement.
+- Ronde 3 (Edge Cases) : Acceptables. Watchdog sans backoff reste backlog.
+
+**Variables d'Environnement à ajouter**
+```
+VITE_ADMIN_EMAIL=ton@email.com
+MAX_CONCURRENT_BROWSERS=3
+```
+
 [2026-03-21] [PRO] Action : Raffinement Login & Data Migration V2 → Résultat : (1) **Frontend** : Ajout du mode Inscription (`signUp`) dans `LoginPage.jsx` avec autocomplétion pour gestionnaires de mots de passe. (2) **Migration** : Implémentation de `migrateOldDataToNewUser` dans `firestoreService.js` pour copier automatiquement les données de l'ID historique vers le compte `ludovic.lebart@gmail.com` lors de sa première connexion (si profil vide). (3) **Sécurité** : Isolation stricte garantie par `getRefs(userId)`.
 
 [2026-03-21] [PRO] Action : Implémentation du système Multi-Utilisateurs → Résultat : (1) **Backend** : `config.py` supporte `USER_IDS_TARGET` (liste d'UIDs séparés par virgule, rétrocompatible `USER_ID_TARGET`). `bot.py` reçoit `app_id` et `user_id` comme paramètres explicites. `main.py` lance un thread `main_loop` indépendant par utilisateur. (2) **Frontend** : `useAuth.js` migré vers Firebase Auth email/password. `AuthContext.jsx` et `LoginPage.jsx` créés. `firestoreService.js` dynamisé via `getRefs(userId)`. Tous les hooks propagent `user.uid`. `App.jsx` affiche `LoginPage` si non connecté. (3) Build Vite validé (exit code 0).

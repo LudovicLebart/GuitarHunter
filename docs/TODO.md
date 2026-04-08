@@ -10,6 +10,70 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔐 Sécurité & Robustesse Multi-Utilisateur (Validé 2026-03-29)
+
+### Phase 1 — Sécurité ✅
+
+- [x] **Task 1.1 : Firestore Rules** *(2026-03-29)*
+    - `firebase/firestore.rules` : `allow read, write: if true` → règles strictes `request.auth.uid == userId`
+    - Document parent explicite : `match /artifacts/{appId}/users/{userId}`
+    - Sous-collections couvertes : `match /artifacts/{appId}/users/{userId}/{document=**}`
+
+- [x] **Task 1.2 : Inscription verrouillée** *(2026-03-29)*
+    - `useAuth.js` : `signUp` supprimé
+    - `LoginPage.jsx` : Formulaire réduit à connexion seule. Comptes via console Firebase Admin.
+
+- [x] **Task 1.3 : Guard `getRefs()`** *(2026-03-29)*
+    - `firestoreService.js:26` : `console.warn` → `throw new Error(...)` si `userId` manquant
+
+- [x] **Task 1.4 : Migration nettoyée** *(2026-03-29)*
+    - Email admin : `ludovic.lebart@gmail.com` → `VITE_ADMIN_EMAIL` env var
+    - Flag `migrationDone` : prévient les remigrés
+    - Try/catch granulaire par étape (config/villes/annonces)
+
+### Phase 2 — Robustesse ✅
+
+- [x] **Task 2.1 : Try/except bots** *(2026-03-29)*
+    - `main.py:224-247` : Création bot dans try/except. Échec isolé par user.
+
+- [x] **Task 2.2 : Watchdog threads** *(2026-03-29)*
+    - `main.py:255-284` : Boucle surveillance 30s. Redémarre threads morts.
+    - Détection : `t.is_alive()`. Isolation : each user thread indépendant.
+
+- [x] **Task 2.3 : Sémaphore Playwright** *(2026-03-29)*
+    - `main.py:15` : `playwright_semaphore = threading.Semaphore(MAX_CONCURRENT_BROWSERS)`
+    - `bot.py:38` : `self._browser_semaphore` reçu en param
+    - `bot.py` : Chaque `FacebookScraper` → `acquire()`/`release()` (run_scan, scan_specific_url, cleanup, add_city_auto)
+    - `.env` : `MAX_CONCURRENT_BROWSERS=3` (défaut)
+
+- [x] **Task 2.4 : Lock `in_flight_command_ids`** *(2026-03-29)*
+    - `main.py:60` : `in_flight_lock = threading.Lock()`
+    - `main.py:95-99` : `with in_flight_lock: ...add(...)`
+    - Finale : `discard()` au lieu de `remove()`
+
+- [x] **Task 2.5 : `session_processed_ids` isolé** *(2026-03-29)*
+    - `bot.py:35,72-77` : `@property` sur `threading.local()`
+    - `bot.py:255` : `.clear()` au démarrage de scan
+
+- [x] **Task 2.6 : Logger par user** *(2026-03-29)*
+    - `bot.py:32` : `self.logger = logging.getLogger(f"bot.{user_id[:8]}")`
+    - Tous les `logger.xxx(` remplacés par `self.logger.xxx(` dans bot.py
+
+### Code Review — 3 Rondes ✅
+
+- Ronde 1 (Exactitude) : ✅ Valide. 1 bug Firestore rules → document parent ajouté.
+- Ronde 2 (Cohérence) : ✅ Valide. Chaîne useAuth-AuthContext-LoginPage OK.
+- Ronde 3 (Edge Cases) : ✅ Acceptables. Watchdog sans backoff = backlog.
+
+### Backlog — Phase 3 (Architecture)
+
+- [ ] **Architecture : Découplage Frontend/Backend**
+    - *Détails :* Backend lit `USER_IDS_TARGET` (statique). Nouvel utilisateur Firebase Auth = pas de bot.
+    - *Solution :* Collection Firestore `registered_users`, onboarding dynamique (voir `MULTI_USER_PLAN.md`)
+    - *Impact :* Supprime dépendance `.env` pour multi-user, sync auto frontend/backend
+
+---
+
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
@@ -116,6 +180,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38 & 41)*
     - *Détails :* Aligner l'esthétique du panneau de configuration sur la V2. Correction de la lisibilité de la console par l'ajout d'un fond 100% opaque.
     - *Détails :* Aligner l'esthétique du panneau de configuration (prompts, villes, etc.) sur la nouvelle charte graphique V2 (Dark Mode, Slate/Blue palette, coins arrondis, typographie).
+
+- [x] **Autocomplétion dans le formulaire d'ajout de ville** *(2026-04-07)*
+    - *Détails :* Suggestions filtrées depuis le catalogue existant dès 2 caractères tapés. Clic = activation directe si ville non-active.
+
+- [ ] **Migration catalogue partagé** *(Dette technique)*
+    - *Détails :* Le serveur déployé utilise l'ancienne architecture (villes dans `users/{uid}/cities` avec métadonnées complètes). Le catalogue partagé `artifacts/{APP_ID}/cities` est vide. Un fallback a été ajouté côté frontend, mais la migration vers la nouvelle architecture reste à faire pour le déploiement de la nouvelle version backend.
 
 - [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.

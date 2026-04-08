@@ -19,13 +19,21 @@ class FirestoreRepository:
         # Firestore References
         self.user_ref = self.db.collection('artifacts').document(self.app_id) \
             .collection('users').document(self.user_id)
-        
+
         self.collection_ref = self.user_ref.collection('guitar_deals')
-        
-        self.cities_ref = self.user_ref.collection('cities')
-        
+
+        # Catalogue de villes partagé entre tous les utilisateurs.
+        # DocId = Facebook city ID (unique). Contient: name, id, latitude, longitude.
+        self.shared_cities_ref = self.db.collection('artifacts').document(self.app_id) \
+            .collection('cities')
+
+        # Préférences de villes par utilisateur.
+        # DocId = Facebook city ID (même que dans shared_cities_ref).
+        # Contient uniquement: isScannable (bool).
+        self.user_cities_prefs_ref = self.user_ref.collection('cities')
+
         self.commands_ref = self.user_ref.collection('commands')
-        
+
         self.logs_ref = self.user_ref.collection('logs')
 
     def ensure_initial_structure(self, initial_config):
@@ -136,11 +144,52 @@ class FirestoreRepository:
             return None
             
     def get_cities(self):
+        """Retourne les villes activées (isScannable=True) pour cet utilisateur.
+        Fusionne le catalogue partagé avec les préférences user.
+        Retourne une liste de dicts (name, id, latitude, longitude, isScannable).
+        """
         try:
-            return self.cities_ref.stream()
+            catalog = {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
+            user_prefs = {doc.id: doc.to_dict() for doc in self.user_cities_prefs_ref.stream()}
+
+            result = []
+            for city_id, city_data in catalog.items():
+                pref = user_prefs.get(city_id, {})
+                if pref.get('isScannable', False):
+                    result.append({**city_data, 'isScannable': True})
+
+            return result
         except Exception as e:
             logger.error(f"Failed to get cities: {e}", exc_info=True)
             return []
+
+    def get_all_catalog_cities(self):
+        """Retourne toutes les villes du catalogue partagé (dict city_id → data)."""
+        try:
+            return {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
+        except Exception as e:
+            logger.error(f"Failed to get catalog cities: {e}", exc_info=True)
+            return {}
+
+    def add_city_to_catalog(self, city_id, city_data):
+        """Écrit une ville dans le catalogue partagé (upsert sur le Facebook city ID)."""
+        try:
+            self.shared_cities_ref.document(str(city_id)).set(city_data, merge=True)
+            logger.info(f"Ville '{city_data.get('name')}' (id={city_id}) ajoutée au catalogue partagé.")
+        except Exception as e:
+            logger.error(f"Failed to add city {city_id} to shared catalog: {e}", exc_info=True)
+            raise
+
+    def set_city_user_pref(self, city_id, is_scannable):
+        """Crée ou met à jour la préférence isScannable d'une ville pour cet utilisateur."""
+        try:
+            self.user_cities_prefs_ref.document(str(city_id)).set(
+                {'isScannable': is_scannable}, merge=True
+            )
+            logger.info(f"Préférence ville {city_id} pour user {self.user_id[:8]}: isScannable={is_scannable}")
+        except Exception as e:
+            logger.error(f"Failed to set city pref for {city_id}: {e}", exc_info=True)
+            raise
 
     def get_active_listings(self):
         try:

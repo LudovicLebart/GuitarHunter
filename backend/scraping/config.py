@@ -4,7 +4,7 @@ from typing import Dict
 @dataclass
 class ScraperConfig:
     """Configuration centralisée pour le scraper."""
-    headless: bool = False
+    headless: bool = True
     timeout_navigation: int = 60000
     timeout_selector: int = 15000
     scroll_iterations: int = 3

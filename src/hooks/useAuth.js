@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
   signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged
 } from 'firebase/auth';
@@ -39,15 +38,5 @@ export const useAuth = () => {
     setAuthStatus({ status: 'unauthenticated', msg: 'Déconnecté' });
   };
 
-  const signUp = async (email, password) => {
-    setAuthStatus({ status: 'loading', msg: 'Création du compte...' });
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
-    } catch (err) {
-      setAuthStatus({ status: 'error', msg: err.message });
-      throw err;
-    }
-  };
-
-  return { user, authStatus, signIn, signUp, signOut };
+  return { user, authStatus, signIn, signOut };
 };
