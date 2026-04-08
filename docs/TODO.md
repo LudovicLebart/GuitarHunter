@@ -74,6 +74,21 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🏙️ Villes & Geocodage (2026-04-08)
+
+- [x] **Bug : Backend scannait 0 villes après migration UID** *(Corrigé 2026-04-08)*
+    - `repository.py:get_cities()` : fallback ancienne architecture si catalogue partagé vide
+    - `migrate_cities_to_shared_catalog.py` : params `--source-user-id` / `--target-user-id`, gestion docId=facebook_city_id, copie fidèle isScannable
+    - Migration exécutée : 20 villes → catalogue partagé, prefs `isScannable=True` pour wbPlgZgk...
+
+- [x] **Bug : Backend rejette 20 villes (données incomplètes = lat/lon manquantes)** *(Corrigé 2026-04-08)*
+    - `bot.py:add_city_auto()` : utilise Nominatim (OSM) pour coords, pas CityFinder. Enrichit villes existantes sans coords via merge upsert.
+    - `utils.py:city_name_variants()` : essaie "McMasterville", "St-Jean", sans accents... pour maximiser succès geocodage.
+    - `enrich_cities_coords.py` : script one-shot Nominatim pour les 20 villes manquantes.
+    - Résultat : toutes les villes maintenant scannables (coords disponibles).
+
+---
+
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*

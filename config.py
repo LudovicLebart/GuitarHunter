@@ -62,18 +62,18 @@ DEFAULT_PRO_CONFIDENCE_THRESHOLD = 0.75
 
 # --- VALIDATION AU DÉMARRAGE ---
 if not APP_ID_TARGET or not USER_IDS_TARGET:
-    print("❌ ERREUR: APP_ID_TARGET et USER_IDS_TARGET (ou USER_ID_TARGET pour mono-user) doivent être définis dans le fichier .env")
+    print("ERREUR: APP_ID_TARGET et USER_IDS_TARGET (ou USER_ID_TARGET pour mono-user) doivent etre definis dans le fichier .env")
     sys.exit(1)
 
-print(f"✅ Multi-utilisateurs : {len(USER_IDS_TARGET)} utilisateur(s) configuré(s) : {USER_IDS_TARGET}")
+print(f"[OK] Multi-utilisateurs : {len(USER_IDS_TARGET)} utilisateur(s) configure(s) : {USER_IDS_TARGET}")
 
 # --- CHARGEMENT DES PROMPTS PAR DÉFAUT ---
 try:
     with open(os.path.join(BASE_DIR, 'prompts.json'), 'r', encoding='utf-8') as f:
         prompts_data = json.load(f)
-    print("✅ Prompts par défaut chargés depuis prompts.json")
+    print("[OK] Prompts par defaut charges depuis prompts.json")
 except Exception as e:
-    print(f"⚠️ ERREUR: Impossible de charger prompts.json : {e}")
+    print(f"[WARN] Impossible de charger prompts.json : {e}")
     prompts_data = {}
 
 # --- NOUVELLES CONSTANTES POUR LA CASCADE ---
