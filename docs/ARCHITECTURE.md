@@ -29,6 +29,8 @@ service cloud.firestore {
 
 **Note:** Le backend (Admin SDK) contourne ces règles par design — aucun impact sur l'API serveur.
 
+> ⚠️ **Compatibilité ascendante (2026-04-07)** : Le frontend implémente un fallback dans `onCitiesUpdate` — si le catalogue partagé `artifacts/{APP_ID}/cities` est vide, il lit depuis `users/{uid}/cities` (ancienne architecture où les métadonnées sont stockées avec `isScannable`). Ce fallback sera retiré une fois le serveur migré vers la nouvelle architecture.
+
 ---
 
 ## 1. 🔄 Firestore : Le Cœur du Système (Event Bus)

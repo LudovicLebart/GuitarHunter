@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-07] [FLASH] [FIX] Playwright headless forcé à True → Résultat : `backend/scraping/config.py` — `headless: bool = False` → `True`. Le serveur Linux n'ayant pas de display X11 (`$DISPLAY` absent), Playwright crashait au lancement avec `Missing X server`. Le mode headless permet au browser de tourner sans interface graphique sur serveur.
+
+[2026-04-07] [SONNET] [UX/FIX] Autocomplétion villes + rayon 0 strict + email dans logs + fallback architecture villes → Résultat :
+
+- **`ConfigPanel.jsx`** : Autocomplétion dans le formulaire "Nouvelle ville manuelle" — suggestions filtrées depuis le catalogue existant (≥2 caractères). Clic sur ville non-active → activation directe sans commande ADD_CITY. Ville déjà active → label "Déjà active" grisé.
+- **`ConfigPanel.jsx`** : Badge "Nom strict" + texte explicatif affiché dans le champ Rayon (km) lorsque la valeur vaut 0.
+- **`bot.py`** : Rayon = 0 déclenche un filtrage par correspondance exacte du nom de ville (`normalize_city_name`) au lieu de ne rien filtrer. Rayon > 0 conserve le filtre Haversine existant.
+- **`main.py`** : Ajout de `_get_user_label(uid)` — interroge `firebase_admin.auth.get_user(uid)` au démarrage pour afficher `email (uid[:8])` dans tous les logs et noms de threads (watchdog inclus).
+- **`firestoreService.js`** : Ajout d'un fallback dans `onCitiesUpdate` — si le catalogue partagé `artifacts/{APP_ID}/cities` est vide (ancienne architecture), lecture depuis `users/{uid}/cities` (données complètes : name, id, lat, lon, isScannable). Résout le bug "0 villes dans l'interface" causé par la non-migration du catalogue partagé sur le serveur déployé.
+- **`CLAUDE.md`** : Création du fichier de configuration Claude Code à la racine, encodant le protocole de développement (3 étapes, aiguillage FLASH/PRO, frugalité, architecture clé).
+
 [2026-03-29] [PRO] Action : Implémentation Audit Sécurité & Robustesse Multi-Utilisateur (Phases 1 & 2) → Résultat :
 
 **PHASE 1 — Sécurité [4 Tasks]**

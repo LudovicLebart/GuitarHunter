@@ -11,6 +11,7 @@ from backend.database import DatabaseService
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
+import firebase_admin.auth as fb_auth
 
 # --- Sémaphore global : limite le nombre de navigateurs Playwright simultanés ---
 MAX_CONCURRENT_BROWSERS = int(os.getenv("MAX_CONCURRENT_BROWSERS", 3))
@@ -204,6 +205,16 @@ def _create_user_bot(db_service, user_id):
     return bot, stop_event, start_event, scan_stop_event
 
 
+def _get_user_label(uid):
+    """Retourne 'email (uid[:8])' pour les logs. Fallback sur uid[:8] si Firebase Auth échoue."""
+    try:
+        fb_user = fb_auth.get_user(uid)
+        email = fb_user.email or uid[:8]
+        return f"{email} ({uid[:8]})"
+    except Exception:
+        return uid[:8]
+
+
 def main():
     """Point d'entrée principal de l'application."""
     print("DEBUG: Initialisation de la DB...", flush=True)
@@ -220,7 +231,8 @@ def main():
     user_contexts = {}
 
     for user_id in USER_IDS_TARGET:
-        print(f"DEBUG: Configuration du bot pour l'utilisateur {user_id}...", flush=True)
+        label = _get_user_label(user_id)
+        print(f"DEBUG: Configuration du bot pour {label}...", flush=True)
         try:
             firestore_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
             bot, stop_event, start_event, scan_stop_event = _create_user_bot(db_service, user_id)
@@ -229,7 +241,7 @@ def main():
                 target=main_loop,
                 args=(bot, firestore_handler, stop_event, start_event, scan_stop_event),
                 daemon=True,
-                name=f"bot-{user_id[:8]}"
+                name=f"bot-{label}"
             )
             user_contexts[user_id] = {
                 "thread": t,
@@ -240,11 +252,11 @@ def main():
                 "firestore_handler": firestore_handler,
             }
             t.start()
-            print(f"✅ Bot démarré pour l'utilisateur {user_id[:8]}...", flush=True)
+            print(f"✅ Bot démarré pour {label}", flush=True)
 
         except Exception as e:
-            print(f"❌ Impossible de démarrer le bot pour {user_id}: {e}", flush=True)
-            logging.getLogger(__name__).error(f"Échec création bot pour {user_id}", exc_info=True)
+            print(f"❌ Impossible de démarrer le bot pour {label}: {e}", flush=True)
+            logging.getLogger(__name__).error(f"Échec création bot pour {label}", exc_info=True)
 
     if not user_contexts:
         print("❌ Aucun bot n'a pu démarrer. Arrêt.", flush=True)
@@ -259,8 +271,9 @@ def main():
             for user_id, ctx in list(user_contexts.items()):
                 t = ctx["thread"]
                 if not t.is_alive():
+                    label = _get_user_label(user_id)
                     logging.getLogger(__name__).critical(
-                        f"⚠️ Thread bot-{user_id[:8]} est mort ! Tentative de redémarrage..."
+                        f"⚠️ Thread bot-{label} est mort ! Tentative de redémarrage..."
                     )
                     try:
                         new_bot, new_stop, new_start, new_scan_stop = _create_user_bot(db_service, user_id)
@@ -268,7 +281,7 @@ def main():
                             target=main_loop,
                             args=(new_bot, ctx["firestore_handler"], new_stop, new_start, new_scan_stop),
                             daemon=True,
-                            name=f"bot-{user_id[:8]}"
+                            name=f"bot-{label}"
                         )
                         ctx.update({
                             "thread": new_t,
@@ -278,10 +291,10 @@ def main():
                             "scan_stop_event": new_scan_stop,
                         })
                         new_t.start()
-                        logging.getLogger(__name__).info(f"✅ Bot pour {user_id[:8]} redémarré.")
+                        logging.getLogger(__name__).info(f"✅ Bot pour {label} redémarré.")
                     except Exception as e:
                         logging.getLogger(__name__).error(
-                            f"❌ Redémarrage échoué pour {user_id}: {e}", exc_info=True
+                            f"❌ Redémarrage échoué pour {label}: {e}", exc_info=True
                         )
 
     except KeyboardInterrupt:

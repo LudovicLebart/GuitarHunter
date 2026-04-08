@@ -101,7 +101,14 @@ const FacebookSearchSection = () => {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Rayon (km)</label><input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+        <div>
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-2">
+            Rayon (km)
+            {scanConfig.distance === 0 && <span className="text-blue-400 normal-case tracking-normal font-semibold">— Nom strict</span>}
+          </label>
+          <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" />
+          {scanConfig.distance === 0 && <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">Seules les annonces dont la ville correspond exactement au nom scanné sont conservées.</p>}
+        </div>
         <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Max Annonces</label><input type="number" value={scanConfig.max_ads} onChange={(e) => setScanConfig({ ...scanConfig, max_ads: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -129,6 +136,7 @@ const CityManagementSection = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
+  const addSuggestions = useMemo(() => newCityName.trim().length >= 2 ? cities.filter(c => c.name.toLowerCase().includes(newCityName.toLowerCase().trim())) : [], [newCityName, cities]);
   const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
   const handleSaveCity = async () => {
@@ -190,13 +198,38 @@ const CityManagementSection = () => {
         <div className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10 animate-in slide-in-from-top-2 duration-300">
           <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-3">Nouvelle ville manuelle</h4>
           <div className="space-y-3">
-            <input
-              type="text"
-              placeholder="Nom de la ville (ex: Sherbrooke)"
-              value={newCityName}
-              onChange={(e) => setNewCityName(e.target.value)}
-              className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Nom de la ville (ex: Sherbrooke)"
+                value={newCityName}
+                onChange={(e) => setNewCityName(e.target.value)}
+                className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30"
+              />
+              {addSuggestions.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-40 overflow-y-auto scrollbar-dark">
+                  {addSuggestions.map(city => (
+                    <div
+                      key={city.docId}
+                      onClick={() => {
+                        if (!city.isScannable) {
+                          addCityToWhitelist(city);
+                          setShowAddForm(false);
+                        }
+                        setNewCityName('');
+                      }}
+                      className={`p-3 text-xs flex items-center justify-between border-b border-slate-700/50 last:border-0 transition-colors ${city.isScannable ? 'opacity-50 cursor-default' : 'cursor-pointer hover:bg-slate-700'}`}
+                    >
+                      <span className="text-slate-200">{city.name}</span>
+                      {city.isScannable
+                        ? <span className="text-green-400 text-[10px] font-bold">Déjà active</span>
+                        : <span className="text-blue-400 text-[10px]">↵ Activer</span>
+                      }
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               onClick={handleSaveCity}
               disabled={!newCityName || isAddingCity}

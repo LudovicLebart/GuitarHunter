@@ -188,14 +188,28 @@ export const onCitiesUpdate = (onUpdate, onError, userId) => {
   let prefsCache = {};
 
   const merge = () => {
-    const merged = Object.entries(catalogCache)
-      .map(([cityId, cityData]) => ({
-        docId: cityId,
-        ...cityData,
-        isScannable: prefsCache[cityId]?.isScannable ?? false,
-      }))
-      .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    onUpdate(merged);
+    if (Object.keys(catalogCache).length > 0) {
+      // Nouvelle architecture : catalogue partagé + prefs user séparées
+      const merged = Object.entries(catalogCache)
+        .map(([cityId, cityData]) => ({
+          docId: cityId,
+          ...cityData,
+          isScannable: prefsCache[cityId]?.isScannable ?? false,
+        }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      onUpdate(merged);
+    } else {
+      // Fallback ancienne architecture : données complètes dans users/{uid}/cities
+      // (name, id, lat, lon, isScannable dans le même document)
+      const merged = Object.entries(prefsCache)
+        .filter(([, data]) => data.name && data.id)
+        .map(([cityId, data]) => ({
+          docId: cityId,
+          ...data,
+        }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      onUpdate(merged);
+    }
   };
 
   const unsubCatalog = onSnapshot(sharedCitiesRef, (snapshot) => {

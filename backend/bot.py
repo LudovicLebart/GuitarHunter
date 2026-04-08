@@ -300,7 +300,19 @@ class GuitarHunterBot:
 
                             # --- FILTRAGE PAR RAYON ---
                             radius_km = scan_config.get('distance', 0)
-                            if radius_km > 0:
+                            if radius_km == 0:
+                                # Mode nom strict : ne conserver que les annonces dont la localisation correspond à la ville
+                                norm_city = ListingParser.normalize_city_name(city_name)
+                                strict_filtered = []
+                                for deal in found_deals:
+                                    norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
+                                    if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
+                                        strict_filtered.append(deal)
+                                    else:
+                                        self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' ≠ '{city_name}'.")
+                                self.logger.info(f"[STRICT] {len(strict_filtered)}/{len(found_deals)} annonces conservées (correspondance exacte ville).")
+                                found_deals = strict_filtered
+                            elif radius_km > 0:
                                 deals_in_radius = []
                                 for deal in found_deals:
                                     deal_lat = deal.get('latitude')

@@ -7,7 +7,10 @@
       "Bash(node -c src/hooks/useAuth.js)",
       "Bash(node -c src/components/LoginPage.jsx)",
       "Bash(node -c src/services/firestoreService.js)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python -m py_compile backend/bot.py backend/repository.py)",
+      "Bash(python -m py_compile backend/scripts/migrate_cities_to_shared_catalog.py)",
+      "Bash(python -m py_compile backend/repository.py backend/bot.py backend/scripts/migrate_cities_to_shared_catalog.py)"
     ]
   }
 }
