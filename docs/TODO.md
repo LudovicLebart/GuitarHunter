@@ -91,6 +91,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [ ] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)**
+    - *Détails :* Depuis le passage au multi-utilisateur, le service de nettoyage (`cleanup_sold_listings`) semble inefficace.
+    - *Causes suspectées :* Isolation du scheduler (global `schedule` partagé), fréquence de 24h trop longue, ou réinitialisation par le watchdog.
+    - *Solution :* Passer à des instances de `schedule.Scheduler()` locales par bot et forcer un nettoyage au démarrage.
+
+
 - [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
     - Utilisation de chemins hiérarchiques complets (`dot-notation`) comme clés de comptage.
     - Mise à jour de `useDealsManager.js` et `FilterDrawer.jsx` pour gérer la récursion par path.

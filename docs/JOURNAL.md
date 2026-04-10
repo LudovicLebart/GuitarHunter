@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-09] [FLASH] Ajustement PEPITE + Diagnostic Inventaire Multi-User + list_users.py → Résultat :
+- **`prompts.json`** : Ajustement de la taxonomie `PEPITE` pour exiger une marge > 100% ET > 150$ (ou 30% sur iconique). Priorisation de la rentabilité financière sur le prestige.
+- **`docs/TODO.md`** : Ajout du bug de détection des ventes en multi-utilisateur (Dette technique identifiée : isolation du scheduler).
+- **`backend/scripts/list_users.py`** : Création d'un nouvel outil d'administration pour lister les utilisateurs (UID <-> Email) et purger massivement les comptes anonymes.
+- **Audit Multi-utilisateurs** : Identification d'un bug dans `TaskScheduler` (usage de `schedule` global au lieu d'instances locales), expliquant l'inefficacité du nettoyage automatique.
+
 [2026-04-08] [PRO] [FIX] Enrichissement coords villes + Nominatim → Résultat :
 - **`bot.py:_geocode_nominatim()`** : nouvelle méthode pour interroger Nominatim (OSM, gratuit) au lieu de dépendre des coords de CityFinder qui ne les fournit pas.
 - **`bot.py:add_city_auto()`** : refonte complète — quand une ville est déjà dans le catalogue mais sans coords, lance Nominatim pour les compléter (merge=True upsert). Gestion correcte dédoublonnage par nom + ID.
