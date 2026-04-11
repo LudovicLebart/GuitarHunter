@@ -21,6 +21,14 @@ USER_ID_TARGET = USER_IDS_TARGET[0] if USER_IDS_TARGET else ""
 
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
+# --- CONFIGURATION SMTP (Notifications Email) ---
+# Compatible Gmail (port 587 + STARTTLS) et tout autre SMTP.
+# Si non configuré, les notifications email sont silencieusement désactivées.
+SMTP_HOST     = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT     = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER     = os.getenv("SMTP_USER", "")       # ex: monbot@gmail.com
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")   # Mot de passe d'application Gmail
+
 # CORRECTION : Utilisation d'un chemin absolu pour la clé Firebase
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "backend", "config", "serviceAccountKey.json")
