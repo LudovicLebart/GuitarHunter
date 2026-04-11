@@ -3,6 +3,7 @@ import threading
 import logging
 import requests
 from firebase_admin import firestore
+import firebase_admin.auth as fb_auth
 
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
@@ -43,6 +44,9 @@ class GuitarHunterBot:
         self._current_status = 'idle'
         self._active_tasks = set()
 
+        # Email de destination pour les notifications (résolu après init Firebase)
+        self._user_email = ''  # Valeur par défaut : notifications email silencieusement désactivées
+
         if self.offline_mode:
             self.logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
@@ -63,12 +67,25 @@ class GuitarHunterBot:
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
+        # Récupération de l'email Firebase Auth pour les notifications
+        self._user_email = self._resolve_user_email()
+
         self.logger.info("--- Configuration du Bot Terminée ---")
         self.logger.info(f"APP ID: {self._app_id}")
         self.logger.info(f"USER ID: {self._user_id}")
+        self.logger.info(f"EMAIL: {self._user_email or 'Non disponible'}") 
 
         self._init_firestore_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
+
+    def _resolve_user_email(self) -> str:
+        """Récupère l'email Firebase Auth de l'utilisateur. Retourne '' si indisponible."""
+        try:
+            fb_user = fb_auth.get_user(self._user_id)
+            return fb_user.email or ''
+        except Exception as e:
+            self.logger.warning(f"Impossible de récupérer l'email pour {self._user_id[:8]}: {e}")
+            return ''
 
     @property
     def session_processed_ids(self):
@@ -221,7 +238,11 @@ class GuitarHunterBot:
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
         deal_id = listing_data.get('id')
-        NotificationService.notify_deal(deal_id, listing_data, analysis, is_update=is_update)
+        NotificationService.notify_deal(
+            deal_id, listing_data, analysis,
+            is_update=is_update,
+            user_email=self._user_email
+        )
         
         if not self.offline_mode:
             # Upload des images dans Firebase Storage avant la sauvegarde
@@ -394,7 +415,7 @@ class GuitarHunterBot:
                         if not item['url']: continue
                         if not temp_scraper.check_listing_availability(item['url']):
                             self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
-                            self.repo.update_deal_status(item['id'], 'sold', 'Annonce indisponible ou vendue (détecté par le bot)')
+                            self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
                             deleted_count += 1
                         time.sleep(0.5)
                     self.logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")

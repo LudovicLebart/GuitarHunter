@@ -126,6 +126,9 @@ class FirestoreRepository:
         """Met à jour uniquement le statut d'une annonce, avec un message d'erreur optionnel."""
         try:
             update_data = {'status': status}
+            if status == 'sold':
+                update_data['soldAt'] = firestore.SERVER_TIMESTAMP
+                
             if error_message:
                 # Utilisation de datetime.now() au lieu de SERVER_TIMESTAMP pour ArrayUnion
                 update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'error': error_message, 'timestamp': datetime.now()}])
@@ -134,6 +137,23 @@ class FirestoreRepository:
             logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
         except Exception as e:
             logger.error(f"Failed to update status for deal '{deal_id}': {e}", exc_info=True)
+
+    def mark_deal_as_sold(self, deal_id, reason=None):
+        """Marque une annonce comme vendue avec un horodatage soldAt."""
+        try:
+            update_data = {
+                'status': 'sold',
+                'soldAt': firestore.SERVER_TIMESTAMP,
+                'timestamp': firestore.SERVER_TIMESTAMP
+            }
+            if reason:
+                # Utilisation de datetime.now() pour ArrayUnion
+                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
+            
+            self.collection_ref.document(deal_id).update(update_data)
+            logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
+        except Exception as e:
+            logger.error(f"Failed to mark deal '{deal_id}' as sold: {e}", exc_info=True)
 
     def get_user_config(self):
         try:

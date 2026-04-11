@@ -91,11 +91,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [ ] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)**
-    - *Détails :* Depuis le passage au multi-utilisateur, le service de nettoyage (`cleanup_sold_listings`) semble inefficace.
-    - *Causes suspectées :* Isolation du scheduler (global `schedule` partagé), fréquence de 24h trop longue, ou réinitialisation par le watchdog.
-    - *Solution :* Passer à des instances de `schedule.Scheduler()` locales par bot et forcer un nettoyage au démarrage.
-    - *Amélioration demandée :* Ajouter un champ `sold_at` (date de détection de la vente) pour permettre des statistiques de "vitesse de vente" (ex: détecter les faux fast-flips).
+- [x] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)** *(Corrigé 2026-04-10)*
+    - *Détails :* Le service de nettoyage (`cleanup_sold_listings`) a été fiabilisé.
+    - *Solution :* Migration vers une méthode `mark_deal_as_sold` dans le repository.
+    - *Amélioration réalisée :* Ajout automatique d'un champ `soldAt` (date de détection de la vente) permettant des statistiques de "vitesse de vente".
 
 
 - [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
@@ -262,6 +261,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ---
 
 ## ✅ Terminé
+
+- [x] **Feature : Notifications Email par utilisateur (SMTP Gmail)** *(2026-04-10)*
+    - *Backend* : Refonte de `notifications.py` (Ntfy + Email).
+    - *Intégration* : `bot.py` récupère l'email Firebase Auth et le transmet à `notify_deal`.
+    - *Configuration* : Support SMTP (Gmail TLS) via `.env`.
 
 - [x] **Feature : Système Multi-Utilisateurs & Migration V2** *(Session 2026-03-21)*
     - *Backend* : `USER_IDS_TARGET` dans `.env` (liste d'UIDs). Un thread par utilisateur dans `main.py`. `bot.py` paramétrable.

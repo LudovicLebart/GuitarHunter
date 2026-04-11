@@ -68,6 +68,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     },
     "link": "URL",
     "published_at_raw": "il y a X semaines (extraite par le scraper)",
+    "soldAt": "Timestamp (Optionnel, présent uniquement si status=sold)",
     "timestamp": "ServerTimestamp"
   }
   ```

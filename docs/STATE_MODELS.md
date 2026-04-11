@@ -81,6 +81,9 @@ interface Deal {
     restoration_interest_score?: number;
   };
 
+  /** Horodatage de détection de vente */
+  soldAt?: Timestamp; // Optionnel
+
   /** Horodatage de dernière mise à jour */
   timestamp: Timestamp; // Obligatoire
 }

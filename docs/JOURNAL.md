@@ -1,5 +1,18 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-04-10] [PRO] Ajout des notifications email par utilisateur (SMTP Gmail) → Résultat :
+- **`backend/notifications.py`** : Refonte complète. Séparation en `NtfyNotifier` (canal push ntfy.sh, optionnel) et `EmailNotifier` (SMTP Gmail, universel). Point d'entrée centralisé `NotificationService.notify_deal()` avec paramètre `user_email`. Corps d'email structuré (titre, lieu, prix, profit, analyse IA tronquée, lien direct).
+- **`backend/bot.py`** : Ajout de `_resolve_user_email()` — récupère l'email Firebase Auth de l'utilisateur via `firebase_admin.auth.get_user()` à l'initialisation du bot. L'email est transmis automatiquement à chaque appel `notify_deal()`.
+- **`config.py`** : Ajout des variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (lecture `.env`).
+- **`.env`** : Ajout du bloc SMTP commenté avec instructions Gmail (mot de passe d'application).
+- **Comportement** : Si `SMTP_USER`/`SMTP_PASSWORD` sont vides → emails silencieusement désactivés. ntfy.sh continue de fonctionner indépendamment. L'email de destination est automatiquement celui du compte Firebase Auth (zéro config utilisateur).
+
+[2026-04-10] [PRO] Ajout de la date de vente (soldAt) → Résultat :
+- **`docs/STATE_MODELS.md`** : Ajout du champ `soldAt` (Timestamp) à l'interface `Deal`.
+- **`backend/repository.py`** : Création de la méthode `mark_deal_as_sold` qui automatise l'ajout du champ `soldAt` et met à jour le statut.
+- **`backend/bot.py`** : Le bot utilise désormais `mark_deal_as_sold` lors du nettoyage périodique des annonces.
+- **Statistiques** : Cette donnée permet désormais de calculer précisément la vitesse de rotation des stocks (Time to Sell).
+
 [2026-04-09] [FLASH] Ajustement PEPITE + Diagnostic Inventaire Multi-User + list_users.py → Résultat :
 - **`prompts.json`** : Ajustement de la taxonomie `PEPITE` pour exiger une marge > 100% ET > 150$ (ou 30% sur iconique). Priorisation de la rentabilité financière sur le prestige.
 - **`docs/TODO.md`** : Ajout du bug de détection des ventes en multi-utilisateur (Dette technique identifiée : isolation du scheduler).
