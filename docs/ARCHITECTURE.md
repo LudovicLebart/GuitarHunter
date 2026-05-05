@@ -37,7 +37,16 @@ service cloud.firestore {
 
 Le projet utilise une architecture où **Firestore n'est pas seulement une base de données, mais un bus d'événements et de commandes**.
 
-⚠️ **IMPORTANT : Structure Imbriquée (Multi-tenant)**
+⚠️ **IMPORTANT**
+
+### 2.0 🚀 Onboarding Dynamique (Multi-tenant)
+Le backend n'est plus limité à une liste statique d'UIDs. 
+- **Découverte** : `main.py` scanne périodiquement (toutes les 30s) la collection Firestore `artifacts/{APP_ID}/users/`.
+- **Instanciation** : Pour chaque nouvel UID découvert, un thread de bot dédié est démarré "à chaud".
+- **Fallback** : La variable d'environnement `USER_IDS_TARGET` sert de "seed" (liste initiale) au démarrage.
+- **Isolation** : Chaque bot possède son propre logger, ses propres événements d'arrêt et son propre cycle de scan.
+
+**Structure Imbriquée (Multi-tenant)**
 Toutes les données sont isolées par application et par utilisateur. Le chemin de base pour toutes les collections est :
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 

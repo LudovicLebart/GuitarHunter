@@ -67,10 +67,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ### Backlog — Phase 3 (Architecture)
 
-- [ ] **Architecture : Découplage Frontend/Backend**
-    - *Détails :* Backend lit `USER_IDS_TARGET` (statique). Nouvel utilisateur Firebase Auth = pas de bot.
-    - *Solution :* Collection Firestore `registered_users`, onboarding dynamique (voir `MULTI_USER_PLAN.md`)
-    - *Impact :* Supprime dépendance `.env` pour multi-user, sync auto frontend/backend
+- [x] **Architecture : Découplage Frontend/Backend (Onboarding dynamique)** *(2026-05-05)*
+    - *Détails :* Le backend scanne désormais Firestore pour découvrir les nouveaux utilisateurs.
+    - *Impact :* Plus besoin de modifier le `.env` pour chaque nouvel utilisateur.
+
 
 ---
 
