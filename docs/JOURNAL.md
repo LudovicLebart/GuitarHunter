@@ -1,59 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-05] [PRO] Restauration des fonctionnalités d'authentification Frontend → Résultat :
+- **`src/hooks/useAuth.js`** : Réimplémentation de `signUp` (createUserWithEmailAndPassword) et `resetPassword` (sendPasswordResetEmail).
+- **`src/components/LoginPage.jsx`** : Refonte de l'interface pour inclure les modes Inscription et Réinitialisation de mot de passe, avec gestion des messages de succès et d'erreur.
+- **Raison** : Correction de la disparition des boutons suite à une sécurisation trop stricte (Task 1.2) et perte d'accès utilisateur.
+
 [2026-04-10] [PRO] Ajout des notifications email par utilisateur (SMTP Gmail) → Résultat :
-- **`backend/notifications.py`** : Refonte complète. Séparation en `NtfyNotifier` (canal push ntfy.sh, optionnel) et `EmailNotifier` (SMTP Gmail, universel). Point d'entrée centralisé `NotificationService.notify_deal()` avec paramètre `user_email`. Corps d'email structuré (titre, lieu, prix, profit, analyse IA tronquée, lien direct).
-- **`backend/bot.py`** : Ajout de `_resolve_user_email()` — récupère l'email Firebase Auth de l'utilisateur via `firebase_admin.auth.get_user()` à l'initialisation du bot. L'email est transmis automatiquement à chaque appel `notify_deal()`.
-- **`config.py`** : Ajout des variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` (lecture `.env`).
-- **`.env`** : Ajout du bloc SMTP commenté avec instructions Gmail (mot de passe d'application).
-- **Comportement** : Si `SMTP_USER`/`SMTP_PASSWORD` sont vides → emails silencieusement désactivés. ntfy.sh continue de fonctionner indépendamment. L'email de destination est automatiquement celui du compte Firebase Auth (zéro config utilisateur).
-
-[2026-04-10] [PRO] Ajout de la date de vente (soldAt) → Résultat :
-- **`docs/STATE_MODELS.md`** : Ajout du champ `soldAt` (Timestamp) à l'interface `Deal`.
-- **`backend/repository.py`** : Création de la méthode `mark_deal_as_sold` qui automatise l'ajout du champ `soldAt` et met à jour le statut.
-- **`backend/bot.py`** : Le bot utilise désormais `mark_deal_as_sold` lors du nettoyage périodique des annonces.
-- **Statistiques** : Cette donnée permet désormais de calculer précisément la vitesse de rotation des stocks (Time to Sell).
-
-[2026-04-09] [FLASH] Ajustement PEPITE + Diagnostic Inventaire Multi-User + list_users.py → Résultat :
-- **`prompts.json`** : Ajustement de la taxonomie `PEPITE` pour exiger une marge > 100% ET > 150$ (ou 30% sur iconique). Priorisation de la rentabilité financière sur le prestige.
-- **`docs/TODO.md`** : Ajout du bug de détection des ventes en multi-utilisateur (Dette technique identifiée : isolation du scheduler).
-- **`backend/scripts/list_users.py`** : Création d'un nouvel outil d'administration pour lister les utilisateurs (UID <-> Email) et purger massivement les comptes anonymes.
-- **Audit Multi-utilisateurs** : Identification d'un bug dans `TaskScheduler` (usage de `schedule` global au lieu d'instances locales), expliquant l'inefficacité du nettoyage automatique.
-
-[2026-04-08] [PRO] [FIX] Enrichissement coords villes + Nominatim → Résultat :
-- **`bot.py:_geocode_nominatim()`** : nouvelle méthode pour interroger Nominatim (OSM, gratuit) au lieu de dépendre des coords de CityFinder qui ne les fournit pas.
-- **`bot.py:add_city_auto()`** : refonte complète — quand une ville est déjà dans le catalogue mais sans coords, lance Nominatim pour les compléter (merge=True upsert). Gestion correcte dédoublonnage par nom + ID.
-- **`backend/scraping/utils.py:city_name_variants()`** : nouvelle fonction générant variantes du nom ("Mc Masterville" → "McMasterville", "Saint-X" → "St-X", sans accents, tirets/espaces...) pour maximiser succès geocodage.
-- **`bot.py` + `enrich_cities_coords.py`** : utilisent `city_name_variants()` pour essayer automatiquement les bonnes formes du nom.
-- **`enrich_cities_coords.py`** : script one-shot pour compléter lat/lon des 20 villes du catalogue via Nominatim.
-
-[2026-04-08] [SONNET] [FIX] Migration villes vers catalogue partagé + fallback backend → Résultat :
-- **`backend/scripts/migrate_cities_to_shared_catalog.py`** : Refonte du script — ajout des params `--source-user-id` et `--target-user-id` pour migrer depuis un UID arbitraire. Correction du cas où le docId Firestore est le Facebook city ID (ancienne architecture sans champ `id` dans la data). Copie fidèle de `isScannable` depuis la source vers la cible (au lieu de forcer `False`).
-- **`backend/repository.py`** : `get_cities()` — ajout d'un fallback ancienne architecture : si le catalogue partagé `artifacts/{APP_ID}/cities` est vide, lit directement `users/{uid}/cities` (données complètes name+id+lat+lon+isScannable). Comportement identique au fallback déjà en place côté frontend.
-- **`config.py` + `backend/database.py`** : Suppression des emojis dans les `print()` — incompatibles avec l'encodage cp1252 de certains terminaux Windows.
-- **Migration exécutée** : 20 villes de `00737242777130596039` → catalogue partagé + prefs `isScannable=True` pour `wbPlgZgkW2VcAl0a2l44UMSDTaG2`. Backend confirme 20 villes scannable.
-
-[2026-04-08] [SONNET] [FIX] Correction UID utilisateur — LogViewer + env → Résultat :
-- `LogViewer.jsx` : remplacement de `VITE_USER_ID_TARGET` (ancien ID hardcodé `00737242777130596039`) par `user.uid` (UID Firebase Auth du user connecté). Les logs s'affichent maintenant depuis le bon chemin Firestore.
-- `.env` local : `USER_IDS_TARGET` et `VITE_USER_ID_TARGET` mis à jour avec l'UID Firebase Auth réel (`wbPlgZgkW2VcAl0a2l44UMSDTaG2`). Le secret `DOT_ENV` GitHub doit contenir la même valeur pour que le backend lise les commandes depuis le bon chemin.
-- Cause racine identifiée : l'ancien bot utilisait un ID numérique (`00737242777130596039`) généré avant l'implémentation de Firebase Auth. Le frontend écrivait les commandes vers l'UID Firebase Auth, le backend les lisait depuis l'ancien ID → zéro intersection, commandes jamais traitées.
-
-[2026-04-07] [FLASH] [FIX] Playwright headless forcé à True → Résultat : `backend/scraping/config.py` — `headless: bool = False` → `True`. Le serveur Linux n'ayant pas de display X11 (`$DISPLAY` absent), Playwright crashait au lancement avec `Missing X server`. Le mode headless permet au browser de tourner sans interface graphique sur serveur.
-
-[2026-04-07] [SONNET] [UX/FIX] Autocomplétion villes + rayon 0 strict + email dans logs + fallback architecture villes → Résultat :
-
-- **`ConfigPanel.jsx`** : Autocomplétion dans le formulaire "Nouvelle ville manuelle" — suggestions filtrées depuis le catalogue existant (≥2 caractères). Clic sur ville non-active → activation directe sans commande ADD_CITY. Ville déjà active → label "Déjà active" grisé.
-- **`ConfigPanel.jsx`** : Badge "Nom strict" + texte explicatif affiché dans le champ Rayon (km) lorsque la valeur vaut 0.
-- **`bot.py`** : Rayon = 0 déclenche un filtrage par correspondance exacte du nom de ville (`normalize_city_name`) au lieu de ne rien filtrer. Rayon > 0 conserve le filtre Haversine existant.
-- **`main.py`** : Ajout de `_get_user_label(uid)` — interroge `firebase_admin.auth.get_user(uid)` au démarrage pour afficher `email (uid[:8])` dans tous les logs et noms de threads (watchdog inclus).
-- **`firestoreService.js`** : Ajout d'un fallback dans `onCitiesUpdate` — si le catalogue partagé `artifacts/{APP_ID}/cities` est vide (ancienne architecture), lecture depuis `users/{uid}/cities` (données complètes : name, id, lat, lon, isScannable). Résout le bug "0 villes dans l'interface" causé par la non-migration du catalogue partagé sur le serveur déployé.
-- **`CLAUDE.md`** : Création du fichier de configuration Claude Code à la racine, encodant le protocole de développement (3 étapes, aiguillage FLASH/PRO, frugalité, architecture clé).
-
-[2026-03-29] [PRO] Action : Implémentation Audit Sécurité & Robustesse Multi-Utilisateur (Phases 1 & 2) → Résultat :
-
-**PHASE 1 — Sécurité [4 Tasks]**
-- Task 1.1 : `firebase/firestore.rules` → `allow read, write: if true` remplacé par règles strictes `request.auth.uid == userId` (+ document parent explicite).
-- Task 1.2 : `useAuth.js` + `LoginPage.jsx` → `signUp` supprimé, formulaire réduit à connexion seule. Inscription via console Firebase Admin uniquement.
-- Task 1.3 : `firestoreService.js:getRefs()` → `console.warn` transformé en `throw new Error(...)` pour fail fast.
 - Task 1.4 : `firestoreService.js:migrateOldDataToNewUser` → Email admin → `VITE_ADMIN_EMAIL` env var, flag `migrationDone`, try/catch granulaire par étape (config ✅ / villes ✅ / annonces ✅).
 
 **PHASE 2 — Robustesse Backend [6 Tasks]**

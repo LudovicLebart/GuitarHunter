@@ -19,9 +19,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Document parent explicite : `match /artifacts/{appId}/users/{userId}`
     - Sous-collections couvertes : `match /artifacts/{appId}/users/{userId}/{document=**}`
 
-- [x] **Task 1.2 : Inscription verrouillée** *(2026-03-29)*
-    - `useAuth.js` : `signUp` supprimé
-    - `LoginPage.jsx` : Formulaire réduit à connexion seule. Comptes via console Firebase Admin.
+- [x] **Task 1.2 : Inscription et Reset déverrouillés** *(Restaurés 2026-05-05)*
+    - `useAuth.js` : `signUp` et `resetPassword` restaurés
+    - `LoginPage.jsx` : Modes Login/Signup/Reset restaurés avec UI V2
 
 - [x] **Task 1.3 : Guard `getRefs()`** *(2026-03-29)*
     - `firestoreService.js:26` : `console.warn` → `throw new Error(...)` si `userId` manquant
