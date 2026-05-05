@@ -100,31 +100,37 @@ class FirestoreHandler(logging.Handler):
         super().close()
 
 def setup_logging(db_client, app_id, user_id, is_offline):
-    print("DEBUG: Initialisation du logging...", flush=True)
+    """Configure le logging pour un utilisateur spécifique sans polluer le root logger."""
+    print(f"DEBUG: Initialisation du logging pour {user_id[:8]}...", flush=True)
     
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    # 1. Configuration minimale du root logger (console) si pas déjà faite
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        root_logger.setLevel(logging.INFO)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        root_logger.addHandler(console_handler)
     
-    if logger.handlers:
-        for handler in logger.handlers:
-            logger.removeHandler(handler)
+    # 2. Configuration du logger spécifique au bot
+    logger_name = f"bot.{user_id[:8]}"
+    bot_logger = logging.getLogger(logger_name)
+    bot_logger.setLevel(logging.INFO)
+    bot_logger.propagate = True # Permet de voir aussi dans la console via le root
     
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    logger.addHandler(console_handler)
+    # Nettoyage des anciens handlers pour cet utilisateur (important pour le watchdog)
+    if bot_logger.handlers:
+        for handler in bot_logger.handlers[:]:
+            bot_logger.removeHandler(handler)
 
     firestore_handler = None
     if not is_offline:
         try:
             firestore_handler = FirestoreHandler(db_client, app_id, user_id)
             firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
-            logger.addHandler(firestore_handler)
-            print("DEBUG: Firestore logger ajouté au root logger.", flush=True)
+            bot_logger.addHandler(firestore_handler)
+            print(f"DEBUG: Firestore logger ajouté à {logger_name}", flush=True)
         except Exception as e:
-            print(f"ERROR: Echec de l'initialisation du FirestoreHandler: {e}", flush=True)
-            logging.error(f"Echec de l'initialisation du FirestoreHandler: {e}", exc_info=True)
-    else:
-        logging.warning("Mode hors ligne, le logger Firestore n'est pas activé.")
-        print("DEBUG: Mode hors ligne.", flush=True)
-
+            print(f"ERROR: Echec de l'initialisation du FirestoreHandler pour {user_id[:8]}: {e}", flush=True)
+    
     return firestore_handler
+
