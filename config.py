@@ -69,11 +69,15 @@ DEFAULT_PRO_AUTH_SCORE_THRESHOLD = 7
 DEFAULT_PRO_CONFIDENCE_THRESHOLD = 0.75
 
 # --- VALIDATION AU DÉMARRAGE ---
-if not APP_ID_TARGET or not USER_IDS_TARGET:
-    print("ERREUR: APP_ID_TARGET et USER_IDS_TARGET (ou USER_ID_TARGET pour mono-user) doivent etre definis dans le fichier .env")
+if not APP_ID_TARGET:
+    print("ERREUR: APP_ID_TARGET doit etre defini dans le fichier .env")
     sys.exit(1)
 
-print(f"[OK] Multi-utilisateurs : {len(USER_IDS_TARGET)} utilisateur(s) configure(s) : {USER_IDS_TARGET}")
+if not USER_IDS_TARGET:
+    print("[WARN] USER_IDS_TARGET est vide. Le bot attendra la découverte dynamique d'utilisateurs.")
+else:
+    print(f"[OK] Multi-utilisateurs (Seed) : {len(USER_IDS_TARGET)} utilisateur(s) configure(s) : {USER_IDS_TARGET}")
+
 
 # --- CHARGEMENT DES PROMPTS PAR DÉFAUT ---
 try:

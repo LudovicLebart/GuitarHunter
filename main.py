@@ -215,6 +215,51 @@ def _get_user_label(uid):
         return uid[:8]
 
 
+def discover_users(db, app_id):
+    """Scanne Firestore pour trouver tous les UIDs enregistrés sous l'App ID."""
+    try:
+        users_ref = db.collection('artifacts').document(app_id).collection('users')
+        docs = users_ref.stream()
+        return [doc.id for doc in docs]
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Erreur lors de la découverte des utilisateurs : {e}")
+        return []
+
+
+def start_user_bot(user_id, db_service, user_contexts, offline_mode=False):
+    """Initialise et démarre un bot pour un utilisateur s'il n'existe pas déjà."""
+    if user_id in user_contexts:
+        return False
+
+    label = _get_user_label(user_id)
+    logging.getLogger(__name__).info(f"🆕 Nouveau bot détecté pour {label}. Initialisation...")
+    
+    try:
+        firestore_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
+        bot, stop_event, start_event, scan_stop_event = _create_user_bot(db_service, user_id)
+
+        t = threading.Thread(
+            target=main_loop,
+            args=(bot, firestore_handler, stop_event, start_event, scan_stop_event),
+            daemon=True,
+            name=f"bot-{label}"
+        )
+        user_contexts[user_id] = {
+            "thread": t,
+            "bot": bot,
+            "stop_event": stop_event,
+            "start_event": start_event,
+            "scan_stop_event": scan_stop_event,
+            "firestore_handler": firestore_handler,
+        }
+        t.start()
+        print(f"✅ Bot démarré pour {label}", flush=True)
+        return True
+    except Exception as e:
+        print(f"❌ Impossible de démarrer le bot pour {label}: {e}", flush=True)
+        return False
+
+
 def main():
     """Point d'entrée principal de l'application."""
     print("DEBUG: Initialisation de la DB...", flush=True)
@@ -230,44 +275,27 @@ def main():
     # Dictionnaire : user_id -> { thread, bot, stop_event, start_event, scan_stop_event, firestore_handler }
     user_contexts = {}
 
-    for user_id in USER_IDS_TARGET:
-        label = _get_user_label(user_id)
-        print(f"DEBUG: Configuration du bot pour {label}...", flush=True)
-        try:
-            firestore_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
-            bot, stop_event, start_event, scan_stop_event = _create_user_bot(db_service, user_id)
+    # Premier scan au démarrage
+    discovered_uids = discover_users(db_service.db, APP_ID_TARGET)
+    all_target_uids = list(set(USER_IDS_TARGET + discovered_uids))
+    
+    for user_id in all_target_uids:
+        start_user_bot(user_id, db_service, user_contexts, offline_mode)
 
-            t = threading.Thread(
-                target=main_loop,
-                args=(bot, firestore_handler, stop_event, start_event, scan_stop_event),
-                daemon=True,
-                name=f"bot-{label}"
-            )
-            user_contexts[user_id] = {
-                "thread": t,
-                "bot": bot,
-                "stop_event": stop_event,
-                "start_event": start_event,
-                "scan_stop_event": scan_stop_event,
-                "firestore_handler": firestore_handler,
-            }
-            t.start()
-            print(f"✅ Bot démarré pour {label}", flush=True)
-
-        except Exception as e:
-            print(f"❌ Impossible de démarrer le bot pour {label}: {e}", flush=True)
-            logging.getLogger(__name__).error(f"Échec création bot pour {label}", exc_info=True)
-
-    if not user_contexts:
-        print("❌ Aucun bot n'a pu démarrer. Arrêt.", flush=True)
-        sys.exit(1)
-
-    print(f"✅ {len(user_contexts)} bot(s) démarré(s). Watchdog actif.", flush=True)
+    print(f"✅ {len(user_contexts)} bot(s) actif(s). Watchdog et Découverte dynamique activés.", flush=True)
 
     try:
-        # Boucle de surveillance (watchdog) : redémarre les threads morts
+        # Boucle de surveillance (watchdog) + Découverte dynamique
         while True:
             time.sleep(WATCHDOG_INTERVAL)
+            
+            # 1. Découverte de nouveaux utilisateurs
+            current_uids = discover_users(db_service.db, APP_ID_TARGET)
+            for uid in current_uids:
+                if uid not in user_contexts:
+                    start_user_bot(uid, db_service, user_contexts, offline_mode)
+
+            # 2. Watchdog : redémarre les threads morts
             for user_id, ctx in list(user_contexts.items()):
                 t = ctx["thread"]
                 if not t.is_alive():
