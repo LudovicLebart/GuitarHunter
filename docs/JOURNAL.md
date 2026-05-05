@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-05] [PRO] Onboarding Dynamique & Isolation du Logging → Résultat :
+- **`main.py`** : Implémentation de `discover_users` (scan cyclique toutes les 30s) et `start_user_bot`. Transition d'une liste statique vers un mode multi-tenant réactif.
+- **`backend/logging_config.py`** : Isolation du logging par utilisateur. Les logs de chaque bot sont désormais dirigés vers leur propre collection Firestore (`bot.XXXX`) sans interférer avec le logger racine ou les autres utilisateurs.
+- **Watchdog** : Surveillance active des threads par UID. Redémarrage automatique en cas de crash.
+- **Raison** : Permettre l'ajout de nouveaux utilisateurs à chaud sans redémarrage serveur et garantir l'étanchéité des logs en production.
+
 [2026-05-05] [PRO] Restauration des fonctionnalités d'authentification Frontend → Résultat :
 - **`src/hooks/useAuth.js`** : Réimplémentation de `signUp` (createUserWithEmailAndPassword) et `resetPassword` (sendPasswordResetEmail).
 - **`src/components/LoginPage.jsx`** : Refonte de l'interface pour inclure les modes Inscription et Réinitialisation de mot de passe, avec gestion des messages de succès et d'erreur.

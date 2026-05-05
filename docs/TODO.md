@@ -59,6 +59,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - `bot.py:32` : `self.logger = logging.getLogger(f"bot.{user_id[:8]}")`
     - Tous les `logger.xxx(` remplacés par `self.logger.xxx(` dans bot.py
 
+- [x] **Task 2.7 : Isolation du Logging (FirestoreHandler)** *(2026-05-05)*
+    - `backend/logging_config.py` : `setup_logging` n'écrase plus le root logger.
+    - Chaque bot possède son propre handler vers sa collection `logs` dédiée.
+    - Support du redémarrage propre via nettoyage des handlers dans `setup_logging`.
+
+
 ### Code Review — 3 Rondes ✅
 
 - Ronde 1 (Exactitude) : ✅ Valide. 1 bug Firestore rules → document parent ajouté.
