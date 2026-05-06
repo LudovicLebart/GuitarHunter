@@ -7,7 +7,7 @@ L'utilisateur interagit avec l'interface (ex: bouton "Refresh", ajout de ville, 
 - **Service impliqué** : `src/services/firestoreService.js`
 - **Méthode** : `addCommand(type, payload)` ou modification directe de la config utilisateur via `updateUserConfig`.
 - **Exemple** : Un clic sur "Add City" appelle `requestAddCity(cityName)`. Le backend utilise ensuite Playwright pour chercher cette ville sur Facebook Marketplace et extraire son ID interne et ses coordonnées mondiales.
-- **Onboarding** : Lors d'un `signUp` ou au chargement d'une session existante dans `src/hooks/useAuth.js`, un document est créé ou mis à jour dans `artifacts/{APP_ID}/users/{USER_ID}`, servant de signal au backend pour démarrer un bot dédié.
+- **Onboarding** : Lors d'un `signUp`, `signIn` ou au chargement d'une session existante dans `src/hooks/useAuth.js`, la fonction centralisée `ensureUserDoc` crée ou met à jour le document utilisateur dans `artifacts/{APP_ID}/users/{USER_ID}`. En cas d'erreur de permission Firestore, un signal visuel (`warning`) est envoyé au frontend. Ce document sert de signal au backend pour démarrer un bot dédié.
 
 ## 2. Structure de la commande (Collection `commands`)
 Les actions asynchrones sont stockées dans la sous-collection `commands` pour être traitées par le bot.
