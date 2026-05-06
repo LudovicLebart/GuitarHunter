@@ -310,3 +310,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
 - [x] Correction Critique : Scroll bloqué sur la page principale (V2) sur mobile. Suppression des contraintes CSS restrictives.
 - [x] Restauration du Bouton de Partage (V2) avec support native share & clipboard.
+- [x] **Feature : Documentation Utilisateur Interactive (Help Overlay)** *(2026-05-05)*
+    - Intégration d'un bouton d'aide dans la Navbar.
+    - Création d'un overlay interactif documentant les scores IA, les verdicts, les commandes bot et les notifications email.

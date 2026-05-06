@@ -204,6 +204,8 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Gestion de l'URL (`dealId`)**: Au chargement, le composant lit le paramètre `dealId` de l'URL. Si présent, il sélectionne l'annonce correspondante via `dealActions.handleSelectDeal` et force le `viewMode` à `'MAP'` pour afficher la modale de détail. L'URL est ensuite nettoyée pour éviter des ouvertures répétées.
 - **Bouton de Partage**: Le bouton de partage génère une URL spécifique à l'annonce (`${window.location.origin}${window.location.pathname}?dealId=${deal.id}`) qui, une fois ouverte, déclenchera l'ouverture de la modale de détail de l'annonce grâce à la logique ci-dessus.
 
+- **`src/components/HelpOverlay.jsx`**: Guide utilisateur interactif détaillant le fonctionnement de l'IA (Gemini), les scores, les verdicts et les notifications (Email/Ntfy). Accessible via le bouton d'aide dans la Navbar.
+
 ### `src/components/MapView.jsx`
 - **Cartographie Google Maps :** Intègre### 1. Logique de Scraping et de Détection (`backend/scraping/`)
 
