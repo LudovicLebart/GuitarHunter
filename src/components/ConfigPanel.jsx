@@ -95,7 +95,7 @@ const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle ins
 // --- SOUS-COMPOSANTS ---
 
 const FacebookSearchSection = () => {
-  const { scanConfig, setScanConfig, saveConfig, handleScanSpecificUrl, isScanningUrl } = useBotConfigContext();
+  const { scanConfig, setScanConfig, saveConfig, handleScanSpecificUrl, isScanningUrl, handleManualRefresh, isRefreshing } = useBotConfigContext();
   const [specificUrl, setSpecificUrl] = useState('');
 
   return (
@@ -104,7 +104,7 @@ const FacebookSearchSection = () => {
         <div>
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 flex items-center gap-2">
             Rayon (km)
-            {scanConfig.distance === 0 && <span className="text-blue-400 normal-case tracking-normal font-semibold">— Nom strict</span>}
+            {scanConfig.distance === 0 && <span className="text-blue-400 normal-case tracking-normal font-semibold">— Nom strict (Recommandé)</span>}
           </label>
           <input type="number" value={scanConfig.distance} onChange={(e) => setScanConfig({ ...scanConfig, distance: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" />
           {scanConfig.distance === 0 && <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">Seules les annonces dont la ville correspond exactement au nom scanné sont conservées.</p>}
@@ -117,6 +117,18 @@ const FacebookSearchSection = () => {
       </div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Fréquence Scan (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Mots-clés de recherche</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
+      
+      <div className="pt-2">
+        <button 
+          onClick={handleManualRefresh}
+          disabled={isRefreshing}
+          className={`w-full py-4 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-3 transition-all ${isRefreshing ? 'bg-blue-500/20 text-blue-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/40'}`}
+        >
+          <RefreshCw size={18} className={isRefreshing ? "animate-spin" : ""} />
+          {isRefreshing ? 'Scan en cours...' : 'Lancer le Scan'}
+        </button>
+      </div>
+
       <div className="pt-4 border-t border-slate-800/50">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Scan d'URL Direct</label>
         <div className="flex gap-2">
@@ -131,17 +143,17 @@ const FacebookSearchSection = () => {
 };
 
 const CityManagementSection = () => {
-  const { cities, handleToggleScannable, newCityName, setNewCityName, handleAddCity, isAddingCity } = useCitiesContext();
+  const { cities, handleToggleScannable, handleAddCity, isAddingCity } = useCitiesContext();
   const [searchTerm, setSearchTerm] = useState('');
-  const [showAddForm, setShowAddForm] = useState(false);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
-  const addSuggestions = useMemo(() => newCityName.trim().length >= 2 ? cities.filter(c => c.name.toLowerCase().includes(newCityName.toLowerCase().trim())) : [], [newCityName, cities]);
   const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
   const handleSaveCity = async () => {
-    if (!newCityName || isAddingCity) return;
-    await handleAddCity();
+    const cityToAdd = searchTerm.trim();
+    if (!cityToAdd || isAddingCity) return;
+    await handleAddCity(cityToAdd);
+    setSearchTerm('');
   };
   return (
     <div className="pt-2 space-y-4">
@@ -167,9 +179,7 @@ const CityManagementSection = () => {
       <div className="relative pt-2 border-t border-slate-800/50">
         <div className="flex items-center justify-between mb-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Ajouter une zone</label>
-          {!showAddForm && (
-            <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tight">Cliquer sur + pour une nouvelle ville</span>
-          )}
+          <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tight">Taper le nom et cliquer sur + pour ajouter</span>
         </div>
         <div className="flex gap-2">
           <div className="relative flex-grow">
@@ -191,61 +201,16 @@ const CityManagementSection = () => {
             )}
           </div>
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className={`p-3 rounded-xl border transition-all ${showAddForm ? 'bg-slate-700 text-slate-300 border-slate-600' : 'bg-slate-900/50 text-blue-400 border-slate-800 hover:bg-slate-800 hover:border-slate-700'}`}
+            onClick={handleSaveCity}
+            disabled={!searchTerm.trim() || isAddingCity}
+            className={`p-3 rounded-xl border transition-all ${isAddingCity ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse' : 'bg-slate-900/50 text-blue-400 border-slate-800 hover:bg-slate-800 hover:border-slate-700'}`}
           >
-            <Plus size={16} className={showAddForm ? "rotate-45 transition-transform" : "transition-transform"} />
+            {isAddingCity ? <RefreshCw size={16} className="animate-spin" /> : <Plus size={16} />}
           </button>
         </div>
       </div>
 
-      {showAddForm && (
-        <div className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10 animate-in slide-in-from-top-2 duration-300">
-          <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] mb-3">Nouvelle ville manuelle</h4>
-          <div className="space-y-3">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Nom de la ville (ex: Sherbrooke)"
-                value={newCityName}
-                onChange={(e) => setNewCityName(e.target.value)}
-                className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-white outline-none focus:ring-2 focus:ring-blue-500/30"
-              />
-              {addSuggestions.length > 0 && (
-                <div className="absolute z-20 w-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-40 overflow-y-auto scrollbar-dark">
-                  {addSuggestions.map(city => (
-                    <div
-                      key={city.docId}
-                      onClick={() => {
-                        if (!city.isScannable) {
-                          addCityToWhitelist(city);
-                          setShowAddForm(false);
-                        }
-                        setNewCityName('');
-                      }}
-                      className={`p-3 text-xs flex items-center justify-between border-b border-slate-700/50 last:border-0 transition-colors ${city.isScannable ? 'opacity-50 cursor-default' : 'cursor-pointer hover:bg-slate-700'}`}
-                    >
-                      <span className="text-slate-200">{city.name}</span>
-                      {city.isScannable
-                        ? <span className="text-green-400 text-[10px] font-bold">Déjà active</span>
-                        : <span className="text-blue-400 text-[10px]">↵ Activer</span>
-                      }
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={handleSaveCity}
-              disabled={!newCityName || isAddingCity}
-              className="w-full py-3 bg-blue-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all shadow-lg shadow-blue-600/10"
-            >
-              {isAddingCity ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
-              {isAddingCity ? "Recherche..." : "Ajouter au système"}
-            </button>
-          </div>
-        </div>
-      )}
+
     </div>
   );
 };

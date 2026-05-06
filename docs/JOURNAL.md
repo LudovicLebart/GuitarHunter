@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-06] [PRO] Refonte Aide UX & Robustesse Internationale → Résultat :
+- **`src/components/HelpOverlay.jsx`** : Refonte totale du guide de prise en main. Transition vers un guide technique en 4 étapes (Cibles, Vigilance, Lancement, Analyse) avec explications précises sur le "Rayon 0" (Recherche Stricte) et la fréquence de scan. Isolation des réglages IA dans une section "Expertise Avancée".
+- **`src/components/ConfigPanel.jsx`** : Ajout d'un bouton **"Lancer le Scan"** direct pour déclencher la recherche après configuration. Simplification radicale de l'ajout de villes : suppression du formulaire secondaire, l'ajout se fait désormais directement via le bouton "+" du champ de recherche principal.
+- **`backend/bot.py`** : Correction d'une `NameError` critique (`city_coords`) lors de l'ajout automatique de ville.
+- **`backend/scraping/city_finder.py`** : Hardening de la recherche de villes Facebook. Support des versions internationales (Lieu/Location/Lugar), détection des alias d'URL (non-numériques), et nettoyage forcé du champ de recherche (`Ctrl+A -> Backspace`).
+- **Raison** : Améliorer l'onboarding utilisateur, clarifier les paramètres vitaux de scan et assurer que le bot peut s'exporter sur n'importe quel marché (Bordeaux, Paris, etc.) sans friction technique.
+
+
 [2026-05-06] [PRO] Robustesse Auth & Scraping: Fix duplication et sécurisation sessions → Résultat :
 - **`src/hooks/useAuth.js`** : Centralisation de l'onboarding via `ensureUserDoc` (DRY). Propagation des erreurs Firestore vers l'UI dans `onAuthStateChanged` (Status Warning).
 - **`backend/scraping/core.py`** : Sécurisation du `finally` (fix `page` non-définie) et clarification du périmètre de `get_city_id_and_coords` (géocodage délégué à Nominatim).

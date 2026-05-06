@@ -25,9 +25,11 @@ class CityFinder:
             loc_button = page.locator("div[role='button']").filter(has_text=re.compile(r"\d+\s*(km|mi)", re.IGNORECASE)).first
             if not loc_button.is_visible(timeout=5000):
                 logger.warning("Bouton de localisation principal non trouvé, essai d'une autre stratégie.")
-                loc_button = page.locator("div[aria-label*='Lieu'], div[aria-label*='Location']").first
+                loc_button = page.locator("div[aria-label*='Lieu'], div[aria-label*='Location'], div[aria-label*='Lugar']").first
             
-            if not loc_button.is_visible(timeout=1000):
+            if not loc_button.is_visible(timeout=3000):
+                 # Fallback sur une icône de map ou un texte spécifique
+                 loc_button = page.locator("i[style*='map-pin'], div:has-text('km')").last
                  logger.error("Bouton de localisation introuvable. Abandon.")
                  return None, None
 
@@ -39,10 +41,13 @@ class CityFinder:
             logger.info("Dialogue de localisation ouvert.")
 
             # Remplissage du champ
-            input_loc = page.locator("input[aria-label='Lieu'], input[aria-label='Location']").first
+            input_loc = page.locator("input[aria-label='Lieu'], input[aria-label='Location'], input[placeholder*='Lieu'], input[placeholder*='Location']").first
+            input_loc.click()
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Backspace")
             input_loc.fill(city_name)
             logger.info(f"Champ rempli avec '{city_name}'.")
-            time.sleep(2) # Attente des suggestions
+            time.sleep(3) # Attente accrue des suggestions pour les connexions lentes ou villes lointaines
 
             # Clic sur la première suggestion
             first_suggestion = page.locator("div[role='option']").first
@@ -63,13 +68,22 @@ class CityFinder:
 
             # Attente du changement d'URL
             try:
-                page.wait_for_url(re.compile(r"/marketplace/\d+/"), timeout=10000)
+                page.wait_for_url(re.compile(r"/marketplace/.*?/"), timeout=10000)
                 current_url = page.url
                 logger.info(f"Nouvelle URL: {current_url}")
+                # Le format peut être /marketplace/123/ ou /marketplace/nom-ville/
+                # On essaie de capturer l'ID numérique en priorité
                 match = re.search(r"/marketplace/(\d+)/", current_url)
                 if match:
                     city_id = match.group(1)
-                    logger.info(f"ID de la ville trouvé: {city_id}")
+                else:
+                    # Si pas d'ID numérique, on prend le segment de l'URL comme fallback
+                    segments = current_url.split('/marketplace/')[1].split('/')
+                    if segments:
+                        city_id = segments[0]
+                
+                if city_id:
+                    logger.info(f"ID ou Alias de la ville trouvé: {city_id}")
                     
                     # --- Extraction des coordonnées de l'URL ---
                     parsed_url = urllib.parse.urlparse(current_url)

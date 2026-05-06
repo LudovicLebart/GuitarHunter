@@ -321,3 +321,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] Ajout d'un bandeau d'erreur dans le Dashboard pour le feedback utilisateur.
     - [x] Assouplissement du géocodage dans le backend (désormais **Totalement Global**, supporte n'importe quelle ville via scraping ID FB + Nominatim mondial).
     - [x] Ajout de texte d'aide dans le panneau de gestion des villes.
+    - [x] **Refonte Help Overlay** : Guide technique en 4 étapes, isolation de l'expertise IA, précision sur le Rayon 0.
+    - [x] **UX City Management** : Ajout direct via champ de recherche, suppression du formulaire `showAddForm`.
+    - [x] **Robustesse CityFinder** : Support multi-langue, capture d'alias d'URL, injection `Control+A` pour nettoyage.
+    - [x] **Scan Manuel** : Bouton "Lancer le scan" intégré au panneau de config.
+
