@@ -165,6 +165,8 @@ const Dashboard = ({ onClose }) => {
     const {
         isRefreshing,
         isCleaning,
+        error,
+        setError,
         handleManualRefresh,
         handleManualCleanup,
     } = useBotConfigContext();
@@ -267,6 +269,7 @@ const Dashboard = ({ onClose }) => {
         ),
         [filteredDeals]
     );
+ 
 
     const activeFilterCount = [
         filterType !== 'ALL' ? 1 : 0,
@@ -308,18 +311,18 @@ const Dashboard = ({ onClose }) => {
             />
 
             {/* Error Banner */}
-            {botConfigContext.error && (
+            {error && (
                 <div className="w-full bg-rose-500/10 border-b border-rose-500/20 py-3 px-4 animate-in slide-in-from-top duration-500">
                     <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3 text-rose-400">
                             <AlertTriangle size={18} className="shrink-0" />
                             <p className="text-xs font-bold uppercase tracking-wide">
                                 <span className="opacity-60 mr-2">Erreur :</span>
-                                {botConfigContext.error}
+                                {error}
                             </p>
                         </div>
                         <button 
-                            onClick={() => botConfigContext.setError(null)}
+                            onClick={() => setError(null)}
                             className="p-1.5 hover:bg-rose-500/20 rounded-lg text-rose-500/50 hover:text-rose-400 transition-colors"
                         >
                             <X size={16} />
