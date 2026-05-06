@@ -18,12 +18,13 @@ export const useCities = (user, setError) => {
     return () => unsubscribe();
   }, [user, setError]);
 
-  const handleAddCity = useCallback(async () => {
-    if (!newCityName || !user) return;
+  const handleAddCity = useCallback(async (cityName) => {
+    const targetName = (typeof cityName === 'string' ? cityName : newCityName).trim();
+    if (!targetName || !user) return;
     const uid = user.uid;
     setIsAddingCity(true);
     try {
-      const commandDocRef = await requestAddCity(newCityName, uid);
+      const commandDocRef = await requestAddCity(targetName, uid);
       
       const unsubscribe = onCommandUpdate(commandDocRef.id, (data) => {
           if (data.status === 'completed') {

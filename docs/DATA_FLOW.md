@@ -6,7 +6,9 @@ Ce document décrit l'architecture événementielle et le cycle de vie des donn�
 L'utilisateur interagit avec l'interface (ex: bouton "Refresh", ajout de ville, analyse forcée).
 - **Service impliqué** : `src/services/firestoreService.js`
 - **Méthode** : `addCommand(type, payload)` ou modification directe de la config utilisateur via `updateUserConfig`.
-- **Exemple** : Un clic sur "Add City" appelle `requestAddCity(cityName)`. Le backend utilise ensuite Playwright pour chercher cette ville sur Facebook Marketplace et extraire son ID interne et ses coordonnées mondiales.
+- **Exemple** : Un clic sur "Add City" (bouton "+" du champ de recherche principal) appelle `requestAddCity(cityName)`. Le backend utilise ensuite Playwright pour chercher cette ville sur Facebook Marketplace et extraire son ID interne et ses coordonnées mondiales.
+- **Scan Manuel** : Le bouton "Lancer le scan" dans le `ConfigPanel` crée une commande `MANUAL_SCAN` qui force le bot à démarrer un cycle de scan complet des villes actives sans attendre le prochain intervalle.
+
 - **Onboarding** : Lors d'un `signUp`, `signIn` ou au chargement d'une session existante dans `src/hooks/useAuth.js`, la fonction centralisée `ensureUserDoc` crée ou met à jour le document utilisateur dans `artifacts/{APP_ID}/users/{USER_ID}`. En cas d'erreur de permission Firestore, un signal visuel (`warning`) est envoyé au frontend. Ce document sert de signal au backend pour démarrer un bot dédié.
 
 ## 2. Structure de la commande (Collection `commands`)

@@ -503,12 +503,13 @@ class GuitarHunterBot:
         variants = city_name_variants(city_name)
         
         # Stratégie de recherche élargie
-        search_queries = []
-        for v in variants:
-            search_queries.append(v) # Global first
-            search_queries.append(v + ", Quebec, Canada")
-            search_queries.append(v + ", Canada")
-            search_queries.append(v + ", France") # Pour Paris par exemple
+        search_queries = [
+            city_name, # Global first
+            city_name + ", France",
+            city_name + ", Canada",
+            city_name + ", USA",
+            city_name + ", Quebec"
+        ]
 
         for query in search_queries:
             params = {"q": query, "format": "json", "limit": 1}
@@ -554,12 +555,15 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"Ville '{city_name}' dans le catalogue mais sans coordonnées. Lancement CityFinder pour enrichissement...")
 
+        city_id = None
+        city_coords = None
+
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
             temp_scraper = FacebookScraper({}, {})
             try:
-                city_id, _ = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
+                city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
             finally:
                 temp_scraper.close_session()
         finally:
