@@ -6,7 +6,7 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
 
 const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
@@ -16,10 +16,30 @@ export const useAuth = () => {
   const [authStatus, setAuthStatus] = useState({ status: 'loading', msg: 'Vérification de la session...' });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
         setAuthStatus({ status: 'success', msg: `Connecté (${firebaseUser.email})` });
+        
+        // S'assurer que le document utilisateur existe pour le backend (cas de persistance session)
+        try {
+          const userDocRef = doc(db, 'artifacts', APP_ID, 'users', firebaseUser.uid);
+          const snap = await getDoc(userDocRef);
+          
+          if (!snap.exists()) {
+            await setDoc(userDocRef, {
+              email: firebaseUser.email,
+              createdAt: serverTimestamp(),
+              botStatus: 'idle'
+            });
+          } else {
+            await updateDoc(userDocRef, { 
+              lastSeen: serverTimestamp() 
+            });
+          }
+        } catch (e) {
+          console.error("Erreur initialisation document utilisateur:", e);
+        }
       } else {
         setAuthStatus({ status: 'unauthenticated', msg: 'Non connecté' });
       }
@@ -30,7 +50,22 @@ export const useAuth = () => {
   const signIn = async (email, password) => {
     setAuthStatus({ status: 'loading', msg: 'Connexion en cours...' });
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const connectedUser = userCredential.user;
+
+      // Initialisation/Mise à jour du document utilisateur
+      const userDocRef = doc(db, 'artifacts', APP_ID, 'users', connectedUser.uid);
+      const snap = await getDoc(userDocRef);
+      if (!snap.exists()) {
+        await setDoc(userDocRef, {
+          email: connectedUser.email,
+          createdAt: serverTimestamp(),
+          botStatus: 'idle'
+        });
+      } else {
+        await updateDoc(userDocRef, { lastLogin: serverTimestamp() });
+      }
+
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });
       throw err;

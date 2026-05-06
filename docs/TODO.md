@@ -75,8 +75,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Architecture : Découplage Frontend/Backend (Onboarding dynamique)** *(2026-05-05)*
     - *Détails :* Le backend scanne désormais Firestore pour découvrir les nouveaux utilisateurs.
-    - *Correctif (Audit 2026-05-05) :* Ajout de l'initialisation auto du doc user lors du signUp (useAuth.js) pour garantir la détection immédiate.
+    - *Correctif (Audit 2026-05-05) :* Ajout de l'initialisation auto du doc user lors du `signUp` et au chargement de session (`useAuth.js`) pour garantir la détection immédiate par le backend.
     - *Correctif (Audit 2026-05-05) :* Watchdog fiabilisé pour recréer le log handler lors des redémarrages de threads.
+    - *Correctif (Audit 2026-05-05) :* Tooltip d'erreur sur le statut "Auth" pour un diagnostic rapide.
     - *Impact :* Plus besoin de modifier le `.env` pour chaque nouvel utilisateur.
 
 
