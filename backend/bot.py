@@ -496,33 +496,40 @@ class GuitarHunterBot:
 
     def _geocode_nominatim(self, city_name: str) -> dict | None:
         """Retourne {'lat': float, 'lon': float} via Nominatim (OSM), ou None.
-        Essaie plusieurs variantes du nom (Mc X, Saint→St, accents, tirets...)."""
+        Essaie plusieurs variantes du nom sans restriction géographique forcée."""
         headers = {"User-Agent": "GuitarHunter/1.0"}
-        # On essaie d'abord avec les suffixes locaux (Canada), puis en mode global
-        for variant in city_name_variants(city_name):
-            for suffix in [", Quebec, Canada", ", Canada", ""]:
-                query = variant + suffix
-                params = {"q": query, "format": "json", "limit": 1}
-                
-                # Si on a un suffixe Canada, on restreint la recherche pour plus de précision
-                if suffix:
-                    params["countrycodes"] = "ca"
-                
-                try:
-                    resp = requests.get(
-                        "https://nominatim.openstreetmap.org/search",
-                        params=params,
-                        headers=headers,
-                        timeout=10,
-                    )
-                    resp.raise_for_status()
-                    results = resp.json()
-                    if results:
-                        self.logger.info(f"Nominatim: '{query}' → lat={float(results[0]['lat']):.4f}, lon={float(results[0]['lon']):.4f}")
-                        return {"lat": float(results[0]["lat"]), "lon": float(results[0]["lon"])}
-                except Exception as e:
-                    self.logger.warning(f"Nominatim erreur pour '{query}': {e}")
-                time.sleep(1)
+        # On essaie d'abord le nom tel quel (le plus probable pour des villes internationales)
+        # Puis des variantes avec suffixes si on est au Canada (historique)
+        variants = city_name_variants(city_name)
+        
+        # Stratégie de recherche élargie
+        search_queries = []
+        for v in variants:
+            search_queries.append(v) # Global first
+            search_queries.append(v + ", Quebec, Canada")
+            search_queries.append(v + ", Canada")
+            search_queries.append(v + ", France") # Pour Paris par exemple
+
+        for query in search_queries:
+            params = {"q": query, "format": "json", "limit": 1}
+            
+            try:
+                resp = requests.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params=params,
+                    headers=headers,
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                results = resp.json()
+                if results:
+                    res = results[0]
+                    return {"lat": float(res["lat"]), "lon": float(res["lon"])}
+            except Exception as e:
+                self.logger.warning(f"Erreur Nominatim pour '{query}': {e}")
+            
+            time.sleep(1) # Respect Nominatim usage policy
+            
         return None
 
     def add_city_auto(self, city_name):
