@@ -165,7 +165,12 @@ const CityManagementSection = () => {
       </div>
 
       <div className="relative pt-2 border-t border-slate-800/50">
-        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 block">Ajouter une zone</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Ajouter une zone</label>
+          {!showAddForm && (
+            <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tight">Cliquer sur + pour une nouvelle ville</span>
+          )}
+        </div>
         <div className="flex gap-2">
           <div className="relative flex-grow">
             <input

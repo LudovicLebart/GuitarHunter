@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart } from 'lucide-react';
+import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart, AlertTriangle } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
 import FilterDrawer from './FilterDrawer';
@@ -306,6 +306,27 @@ const Dashboard = ({ onClose }) => {
                 isCleaning={isCleaning}
                 onOpenHelp={() => setShowHelp(true)}
             />
+
+            {/* Error Banner */}
+            {botConfigContext.error && (
+                <div className="w-full bg-rose-500/10 border-b border-rose-500/20 py-3 px-4 animate-in slide-in-from-top duration-500">
+                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3 text-rose-400">
+                            <AlertTriangle size={18} className="shrink-0" />
+                            <p className="text-xs font-bold uppercase tracking-wide">
+                                <span className="opacity-60 mr-2">Erreur :</span>
+                                {botConfigContext.error}
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => botConfigContext.setError(null)}
+                            className="p-1.5 hover:bg-rose-500/20 rounded-lg text-rose-500/50 hover:text-rose-400 transition-colors"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
 

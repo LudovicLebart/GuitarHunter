@@ -565,16 +565,24 @@ class GuitarHunterBot:
             in_catalog = city_id_str in catalog or existing_id_by_name is not None
             target_id = city_id_str if city_id_str in catalog else (existing_id_by_name or city_id_str)
 
-            # Coordonnées via Nominatim (fiable, pas dépendant de Facebook)
-            city_coords = self._geocode_nominatim(city_name)
-            if city_coords:
-                self.logger.info(f"Coords Nominatim pour '{city_name}': lat={city_coords['lat']:.4f}, lon={city_coords['lon']:.4f}")
+            # --- GESTION DES COORDONNÉES ---
+            # Priorité 1 : Coordonnées extraites directement de l'URL Facebook (très fiable car lié au city_id)
+            # Priorité 2 : Coordonnées via Nominatim
+            
+            final_coords = city_coords # Coordonnées venant de CityFinder (FB URL)
+            
+            if not final_coords:
+                self.logger.info(f"Pas de coords FB pour '{city_name}', tentative Nominatim...")
+                final_coords = self._geocode_nominatim(city_name)
             else:
+                self.logger.info(f"Utilisation des coords Facebook pour '{city_name}': {final_coords}")
+
+            if not final_coords:
                 self.logger.warning(f"Nominatim n'a pas trouvé de coords pour '{city_name}'. Ville ajoutée sans coordonnées.")
 
             city_data = {'name': city_name, 'id': city_id_str}
-            if city_coords:
-                city_data.update({'latitude': city_coords['lat'], 'longitude': city_coords['lon']})
+            if final_coords:
+                city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
 
             if in_catalog:
                 self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")
