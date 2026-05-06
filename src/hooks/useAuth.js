@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import {
+import { 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   signOut as firebaseSignOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { auth } from '../services/firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '../services/firebase';
+
+const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -37,7 +40,18 @@ export const useAuth = () => {
   const signUp = async (email, password) => {
     setAuthStatus({ status: 'loading', msg: 'Création du compte...' });
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newUser = userCredential.user;
+
+      // Initialisation du document utilisateur pour que le backend le découvre
+      const userDocRef = doc(db, 'artifacts', APP_ID, 'users', newUser.uid);
+      await setDoc(userDocRef, {
+        email: newUser.email,
+        createdAt: serverTimestamp(),
+        botStatus: 'idle'
+      }, { merge: true });
+
+      setAuthStatus({ status: 'success', msg: 'Compte créé et initialisé' });
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });
       throw err;

@@ -53,7 +53,7 @@ const LogViewer = ({ onClose }) => {
 
   const handleClearRemoteLogs = () => {
     if (window.confirm("Voulez-vous vraiment supprimer TOUS les logs de la base de données ? Cette action est irréversible.")) {
-      requestClearLogs().catch(err => alert(`Erreur lors de la demande de suppression des logs: ${err.message}`));
+      requestClearLogs(user.uid).catch(err => alert(`Erreur lors de la demande de suppression des logs: ${err.message}`));
     }
   };
 

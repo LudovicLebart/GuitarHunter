@@ -107,7 +107,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                                     with in_flight_lock:
                                         in_flight_command_ids.discard(cid)
 
-                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL']:
+                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY']:
                                 logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
                                 threading.Thread(
                                     target=execute_command_async,
@@ -291,11 +291,23 @@ def main():
             
             # 1. Découverte de nouveaux utilisateurs
             current_uids = discover_users(db_service.db, APP_ID_TARGET)
+            
+            # 2. Suppression des bots obsolètes (utilisateurs supprimés de Firestore)
+            for uid in list(user_contexts.keys()):
+                if uid not in current_uids and uid not in USER_IDS_TARGET:
+                    label = _get_user_label(uid)
+                    logging.getLogger(__name__).info(f"🗑️ Utilisateur {label} retiré de Firestore. Nettoyage du bot...")
+                    ctx = user_contexts.pop(uid)
+                    ctx["stop_event"].set() # On demande l'arrêt (mise en pause)
+                    if ctx.get("firestore_handler"):
+                        ctx["firestore_handler"].close()
+
+            # 3. Lancement des nouveaux bots
             for uid in current_uids:
                 if uid not in user_contexts:
                     start_user_bot(uid, db_service, user_contexts, offline_mode)
 
-            # 2. Watchdog : redémarre les threads morts
+            # 4. Watchdog : redémarre les threads morts
             for user_id, ctx in list(user_contexts.items()):
                 t = ctx["thread"]
                 if not t.is_alive():
@@ -304,10 +316,13 @@ def main():
                         f"⚠️ Thread bot-{label} est mort ! Tentative de redémarrage..."
                     )
                     try:
+                        # On recrée un handler car le précédent a été fermé dans le bloc 'finally' du thread mort
+                        new_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
                         new_bot, new_stop, new_start, new_scan_stop = _create_user_bot(db_service, user_id)
+                        
                         new_t = threading.Thread(
                             target=main_loop,
-                            args=(new_bot, ctx["firestore_handler"], new_stop, new_start, new_scan_stop),
+                            args=(new_bot, new_handler, new_stop, new_start, new_scan_stop),
                             daemon=True,
                             name=f"bot-{label}"
                         )
@@ -317,9 +332,10 @@ def main():
                             "stop_event": new_stop,
                             "start_event": new_start,
                             "scan_stop_event": new_scan_stop,
+                            "firestore_handler": new_handler,
                         })
                         new_t.start()
-                        logging.getLogger(__name__).info(f"✅ Bot pour {label} redémarré.")
+                        logging.getLogger(__name__).info(f"✅ Bot pour {label} redémarré avec un nouveau handler.")
                     except Exception as e:
                         logging.getLogger(__name__).error(
                             f"❌ Redémarrage échoué pour {label}: {e}", exc_info=True

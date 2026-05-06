@@ -130,26 +130,29 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### 🗄️ Firebase Storage
 - **Upload** (`repository.upload_images_to_storage()`) : Télécharge les images depuis leurs URLs CDN Facebook et les stocke dans `deals/{deal_id}/{i}_{uuid}.jpg`. Retourne des URLs publiques pérennes.
-- **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est &gt; `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
+- **Cycle de vie** (`repository.purge_rejected_images()`) : Supprime les images Storage des deals dont le verdict est dans les `rejection_verdicts` et dont le timestamp est > `IMAGE_RETENTION_REJECTED_DAYS` (défaut : 30j). Cible correctement `aiAnalysis.verdict` (et non `status`) pour couvrir les rejets modernes.
 - **Script de migration** (`backend/scripts/migrate_images.py`) : Script pour migrer les annonces historiques. Teste la validité des URL Facebook, re-scrape via Playwright si expirées, puis uploade dans Firebase Storage. Intègre la **Rotation de Session** (redémarrage du navigateur toutes les 15 annonces) et le **Jitter** (délais aléatoires) pour contrer l'anti-botting de Facebook lors d'opérations massives.
 
-## 2.1 🔄 Robustesse & Monitoring (Session 2026-03-29)
+## 2.1 🔄 Robustesse & Monitoring (Audit 2026-05-05)
 
 ### Watchdog — Redémarrage Automatique des Bots Crashés
 
 `main.py` exécute une boucle watchdog qui vérifie tous les 30s si les threads des bots sont vivants.
 
+**Améliorations (Audit 2026-05-05):**
+- **Recréation du Logging** : Le `firestore_handler` est recréé à chaque redémarrage de thread car l'instance précédente est définitivement fermée lors du crash/arrêt du thread précédent.
+- **Hygiène Multi-tenant** : Le watchdog supprime désormais les contextes de bots pour les utilisateurs retirés de Firestore (ou non présents dans `USER_IDS_TARGET`), évitant les fuites de ressources.
+- **Isolation Absolue** : Chaque bot possède son propre logger Python (`bot.{user_id[:8]}`) et son propre `FirestoreHandler` pointant vers `artifacts/{app}/users/{user}/logs`.
+
+**Mécanisme de redémarrage :**
 ```python
-while True:
-    time.sleep(30)
-    for user_id, ctx in list(user_contexts.items()):
-        if not ctx["thread"].is_alive():
-            logger.critical(f"Thread mort pour {user_id}. Redémarrage...")
-            try:
-                new_bot, ... = _create_user_bot(db_service, user_id)
-                # Recréer et relancer le thread
-            except Exception as e:
-                logger.error(f"Redémarrage échoué: {e}")
+if not ctx["thread"].is_alive():
+    # 1. Fermeture propre (si possible) et recréation du handler
+    new_handler = setup_logging(db, app_id, user_id, offline_mode)
+    # 2. Recréation de l'instance du bot et des events
+    new_bot, new_stop, ... = _create_user_bot(db_service, user_id)
+    # 3. Lancement du nouveau thread avec le nouveau handler
+    new_t = threading.Thread(target=main_loop, args=(new_bot, new_handler, ...))
 ```
 
 **Avantages:**
