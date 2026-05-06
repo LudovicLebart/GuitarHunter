@@ -6,7 +6,7 @@ Ce document décrit l'architecture événementielle et le cycle de vie des donn�
 L'utilisateur interagit avec l'interface (ex: bouton "Refresh", ajout de ville, analyse forcée).
 - **Service impliqué** : `src/services/firestoreService.js`
 - **Méthode** : `addCommand(type, payload)` ou modification directe de la config utilisateur via `updateUserConfig`.
-- **Exemple** : Un clic sur "Add City" appelle `requestAddCity(cityName)`.
+- **Exemple** : Un clic sur "Add City" appelle `requestAddCity(cityName)`. Le backend utilise ensuite Playwright pour chercher cette ville sur Facebook Marketplace et extraire son ID interne et ses coordonnées mondiales.
 - **Onboarding** : Lors d'un `signUp` ou au chargement d'une session existante dans `src/hooks/useAuth.js`, un document est créé ou mis à jour dans `artifacts/{APP_ID}/users/{USER_ID}`, servant de signal au backend pour démarrer un bot dédié.
 
 ## 2. Structure de la commande (Collection `commands`)

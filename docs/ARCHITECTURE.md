@@ -88,6 +88,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **`handle_deal_found()`:** Callback appelé par le scraper pour chaque annonce trouvée. Orchestre : (1) upload des images vers Firebase Storage (`repo.upload_images_to_storage()`), (2) injection de `storageImageUrls` dans les données, (3) appel à l'analyseur IA, (4) sauvegarde dans Firestore.
 - **`analyze_single_deal(payload)`:** Méthode spécifique pour traiter une commande de réanalyse (`ANALYZE_DEAL`). Elle récupère l'annonce et appelle `analyzer.analyze_deal`.
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).
+- **`add_city_auto(city_name)`:** Pilote le scraper pour découvrir une nouvelle ville globalement. Utilise `FacebookScraper.get_city_id_and_coords` pour naviguer dans le sélecteur de lieu de Facebook et extraire l'ID numérique de la ville.
 
 ### `backend/analyzer.py` (`DealAnalyzer`)
 - **Responsabilité unique:** Analyser une annonce en cascade.

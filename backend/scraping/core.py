@@ -2,6 +2,7 @@ import time
 import random
 import urllib.parse
 import logging
+import re
 from playwright.sync_api import sync_playwright, Page
 
 # --- AJOUT : Importation de la configuration des proxies ---
@@ -99,6 +100,75 @@ class FacebookScraper:
             permissions=["geolocation"],
             extra_http_headers={"Referer": "https://www.google.com/"}
         )
+
+    def get_city_id_and_coords(self, city_name: str):
+        """
+        Recherche une ville sur Facebook Marketplace pour obtenir son ID interne
+        et ses coordonnées géographiques (via la map statique ou les métadonnées).
+        """
+        self._ensure_session()
+        page = self.context.new_page()
+        city_id = None
+        coords = None
+
+        try:
+            # 1. Navigation vers Marketplace
+            page.goto("https://www.facebook.com/marketplace/", timeout=30000)
+            self._close_login_popup(page)
+            
+            # 2. Ouvrir le sélecteur de lieu
+            # Sélecteur typique : le texte de la ville actuelle à gauche
+            location_button = page.locator("div[role='button']").filter(has_text="·").first
+            if location_button.count() == 0:
+                 # Fallback : chercher par texte "Lieu" ou icône Map
+                 location_button = page.locator("div[role='main']").locator("div[role='button']").first
+            
+            location_button.click()
+            time.sleep(2)
+            
+            # 3. Taper le nom de la ville
+            # L'input est souvent un champ de recherche avec un label "Lieu" ou "Location"
+            input_selector = "input[aria-label='Lieu'], input[aria-label='Location'], input[placeholder='Rechercher un lieu']"
+            search_input = page.locator(input_selector).first
+            search_input.fill(city_name)
+            time.sleep(2)
+            
+            # 4. Sélectionner la première suggestion
+            # Les suggestions sont dans une liste de résultats
+            first_suggestion = page.locator("ul[role='listbox'] li, div[role='option']").first
+            if first_suggestion.count() > 0:
+                first_suggestion.click()
+                time.sleep(1)
+                
+                # 5. Cliquer sur le bouton "Appliquer" (Apply)
+                apply_button = page.locator("div[role='button']").filter(has_text="Appliquer").first
+                if apply_button.count() == 0:
+                    apply_button = page.locator("div[role='button']").filter(has_text="Apply").first
+                
+                if apply_button.count() > 0:
+                    apply_button.click()
+                    # Attendre que l'URL change ou que la page se recharge
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                    time.sleep(2)
+                    
+                    # 6. Extraire l'ID de l'URL
+                    # L'URL devient https://www.facebook.com/marketplace/CITY_ID/
+                    current_url = page.url
+                    match = re.search(r'/marketplace/(\d+)/', current_url)
+                    if match:
+                        city_id = match.group(1)
+                        logger.info(f"✅ ID Facebook trouvé pour '{city_name}': {city_id}")
+                    
+                    # 7. Tenter d'extraire les coordonnées depuis une annonce factice ou la page
+                    # Souvent FB centre la map. Mais le plus simple est de voir si Nominatim peut compléter.
+                    # On peut aussi chercher un élément de map s'il est visible.
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la recherche de ville FB: {e}")
+        finally:
+            page.close()
+            
+        return city_id, coords
 
     def close_session(self):
         """Ferme proprement la session Playwright."""

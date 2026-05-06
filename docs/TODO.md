@@ -313,8 +313,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Feature : Documentation Utilisateur Interactive (Help Overlay)** *(2026-05-05)*
     - Intégration d'un bouton d'aide dans la Navbar.
     - Création d'un overlay interactif documentant les scores IA, les verdicts, les commandes bot et les notifications email.
-- [x] **Correctifs Visibilité & Paris** *(2026-05-06)*
+- [x] **Correctifs Visibilité & Globalisation** *(2026-05-06)*
     - [x] Amélioration visuelle du bouton d'aide (label "Aide" et contraste).
     - [x] Ajout d'un bandeau d'erreur dans le Dashboard pour le feedback utilisateur.
-    - [x] Assouplissement du géocodage "Paris" dans le backend (priorité coords FB).
+    - [x] Assouplissement du géocodage dans le backend (désormais **Totalement Global**, supporte n'importe quelle ville via scraping ID FB + Nominatim mondial).
     - [x] Ajout de texte d'aide dans le panneau de gestion des villes.
