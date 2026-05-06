@@ -254,24 +254,8 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
           });
         });
 
-        marker.addListener("mouseout", () => {
-          infoWindow.close();
-        });
-
         marker.addListener("click", () => {
-          const isMobile = window.innerWidth < 1024;
-          if (isMobile) {
-            // Sur mobile : 1er clic = ouverture de la miniature
-            infoWindow.setContent(contentStr);
-            infoWindow.open({
-              anchor: marker,
-              map,
-              shouldFocus: false,
-            });
-          } else {
-            // Sur Desktop : le hover s'occupe de la miniature, le clic ouvre les détails directs
-            onDealSelect(deal);
-          }
+          onDealSelect(deal);
         });
 
         markersRef.current.push(marker);
@@ -306,7 +290,19 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
           background: #0f172a !important;
           box-shadow: -2px 2px 3px 0 rgba(0, 0, 0, 0.4) !important;
         }
-        .gm-ui-hover-effect { display: none !important; }
+        .gm-ui-hover-effect { 
+          top: 0 !important; 
+          right: 0 !important; 
+          background: rgba(15, 23, 42, 0.8) !important; 
+          border-radius: 0 12px 0 12px !important; 
+          padding: 6px !important;
+        }
+        .gm-ui-hover-effect span {
+          width: 20px !important;
+          height: 20px !important;
+          margin: 0 !important;
+          filter: invert(1) !important;
+        }
         .gm-style-iw-d { overflow: hidden !important; max-height: none !important; }
       `}</style>
       <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-800 overflow-hidden" />

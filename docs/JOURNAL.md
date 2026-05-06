@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-06] [PRO] Correctifs Visibilité UI & Géo-localisation Paris → Résultat :
+- **`src/components/Navbar.jsx`** : Amélioration de la visibilité du bouton d'aide (ajout du label "Aide" sur Desktop et augmentation du contraste).
+- **`src/components/Dashboard.jsx`** : Implémentation d'un bandeau d'erreur global pour fournir un feedback immédiat lors de l'échec des commandes bot (ex: ajout de ville).
+- **`backend/bot.py`** : Fiabilisation de l'ajout de ville. Priorité aux coordonnées extraites de Facebook et élargissement de la recherche Nominatim pour supporter les villes internationales comme Paris (France).
+- **`src/components/MapView.jsx`** : Correction de l'interaction avec les InfoWindows (suppression du `mouseout` agressif) et restauration/styling du bouton de fermeture.
+- **`src/components/ConfigPanel.jsx`** : Ajout de consignes textuelles pour guider l'utilisateur dans l'ajout de nouvelles villes.
+- **Raison** : Résoudre les points de friction utilisateur sur la découverte des fonctionnalités et l'expansion géographique du bot.
+
 [2026-05-05] [FLASH] Intégration de la Documentation Utilisateur → Résultat :
 - **`src/components/HelpOverlay.jsx`** : Création d'un guide interactif premium détaillant le Radar IA (scores Gemini), les Verdicts (badges), les Commandes (Refresh/Cleanup) et les Notifications (Email/Ntfy).
 - **`src/components/Navbar.jsx`** : Ajout du bouton d'aide (`HelpCircle`) à côté des paramètres.

@@ -158,8 +158,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
     - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
 - [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
-- [ ] **Bug : Problème de déplacement sur la carte (MapView)**
-    - *Détails :* Des comportements inattendus ou des blocages sont observés lors de l'interaction avec la carte (zoom, déplacement, sélection de marqueurs).
+- [x] **Bug : Problème de déplacement sur la carte (MapView)** *(Corrigé 2026-05-06)*
+    - *Détails :* Correction de l'interaction InfoWindow (gap mouseout) et restauration du bouton de fermeture.
 
 - [ ] **Problème de la double connexion API (Feature future) :**
     - *Détails :* À lister si le besoin s'en fait sentir.
@@ -313,3 +313,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Feature : Documentation Utilisateur Interactive (Help Overlay)** *(2026-05-05)*
     - Intégration d'un bouton d'aide dans la Navbar.
     - Création d'un overlay interactif documentant les scores IA, les verdicts, les commandes bot et les notifications email.
+- [x] **Correctifs Visibilité & Paris** *(2026-05-06)*
+    - [x] Amélioration visuelle du bouton d'aide (label "Aide" et contraste).
+    - [x] Ajout d'un bandeau d'erreur dans le Dashboard pour le feedback utilisateur.
+    - [x] Assouplissement du géocodage "Paris" dans le backend (priorité coords FB).
+    - [x] Ajout de texte d'aide dans le panneau de gestion des villes.

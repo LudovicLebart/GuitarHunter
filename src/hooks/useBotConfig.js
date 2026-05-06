@@ -115,8 +115,6 @@ export const useBotConfig = (user) => {
 
       if (data.scanError) {
         setError(data.scanError);
-      } else if (error && error.startsWith("Ville")) {
-        setError(null);
       }
     };
 

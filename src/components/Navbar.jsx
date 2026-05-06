@@ -163,10 +163,11 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCoun
                     {/* Aide button */}
                     <button
                         onClick={onOpenHelp}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
                         title="Aide & Documentation"
                     >
-                        <HelpCircle size={16} />
+                        <HelpCircle size={16} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
+                        <span className="hidden md:inline">Aide</span>
                     </button>
 
                     {/* Paramètres button (gear icon) */}
