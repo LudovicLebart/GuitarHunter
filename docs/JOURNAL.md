@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-05] [FLASH] Intégration de la Documentation Utilisateur → Résultat :
+- **`src/components/HelpOverlay.jsx`** : Création d'un guide interactif premium détaillant le Radar IA (scores Gemini), les Verdicts (badges), les Commandes (Refresh/Cleanup) et les Notifications (Email/Ntfy).
+- **`src/components/Navbar.jsx`** : Ajout du bouton d'aide (`HelpCircle`) à côté des paramètres.
+- **`src/components/Dashboard.jsx`** : Gestion de l'état d'affichage de l'aide et rendu de l'overlay.
+- **Raison** : Améliorer l'autonomie de l'utilisateur final et clarifier les fonctionnalités de l'IA et du système d'alertes.
+
 [2026-05-05] [PRO] Audit multi-tenant & correctifs onboarding → Résultat :
 - **`src/hooks/useAuth.js`** : Initialisation automatique du document utilisateur Firestore lors du `signUp` ET du `onAuthStateChanged` (session persistante), garantissant que le backend découvre tout utilisateur actif même s'il existait déjà.
 - **`backend/bot.py`** : Assouplissement du géocodage Nominatim (suppression de la restriction stricte Canada) permettant l'ajout de villes internationales comme Paris.

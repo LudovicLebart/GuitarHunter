@@ -6,6 +6,7 @@ import FilterDrawer from './FilterDrawer';
 import StatsView from './StatsView';
 import ConfigPanel from './ConfigPanel';
 import MapView from './MapView';
+import HelpOverlay from './HelpOverlay';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
 // Contexts & hooks
@@ -148,6 +149,7 @@ const Dashboard = ({ onClose }) => {
     const [showConfig, setShowConfig] = useState(false);
     const [viewMode, setViewMode] = useState('LIST');
     const [openSections, setOpenSections] = useState({ radar: true, market: true, archive: false });
+    const [showHelp, setShowHelp] = useState(false);
 
     // ── Real data & actions ──────────────────────────────────
     const {
@@ -302,7 +304,10 @@ const Dashboard = ({ onClose }) => {
                 onCleanup={handleManualCleanup}
                 isRefreshing={isRefreshing}
                 isCleaning={isCleaning}
+                onOpenHelp={() => setShowHelp(true)}
             />
+
+            {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
 
             <FilterDrawer
                 open={drawerOpen}

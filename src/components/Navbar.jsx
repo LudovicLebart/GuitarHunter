@@ -1,5 +1,5 @@
 import React from 'react';
-import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut } from 'lucide-react';
+import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/firestoreService';
@@ -21,7 +21,7 @@ const BOT_STATUS_CONFIG = {
     stopped: { label: 'Arrêté', color: 'text-rose-400', icon: <Power size={14} className="text-rose-400" /> },
 };
 
-const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
+const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
     const { signOut } = useAuth();
@@ -158,6 +158,15 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
                                 {filterCount}
                             </span>
                         )}
+                    </button>
+                    
+                    {/* Aide button */}
+                    <button
+                        onClick={onOpenHelp}
+                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                        title="Aide & Documentation"
+                    >
+                        <HelpCircle size={16} />
                     </button>
 
                     {/* Paramètres button (gear icon) */}
