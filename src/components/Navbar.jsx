@@ -4,8 +4,8 @@ import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/firestoreService';
 
-const StatusDot = ({ ok, label }) => (
-    <div className="flex items-center gap-1.5 text-[11px] font-bold">
+const StatusDot = ({ ok, label, title }) => (
+    <div className="flex items-center gap-1.5 text-[11px] font-bold" title={title}>
         <div className={`w-1.5 h-1.5 rounded-full ${ok ? 'bg-emerald-400' : 'bg-rose-400'}`} />
         <span className={ok ? 'text-slate-400' : 'text-rose-400'}>{label}</span>
     </div>
@@ -68,7 +68,7 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onClose, filterCount }) => {
                 {/* Center: Interactive system controls */}
                 <div className="flex items-center gap-2 lg:gap-4 flex-1 justify-center">
                     <div className="hidden lg:flex items-center gap-4">
-                        <StatusDot ok={configStatus.status === 'success'} label="Auth" />
+                        <StatusDot ok={configStatus.status === 'success'} label="Auth" title={configStatus.msg} />
                         <div className="w-px h-4 bg-slate-800" />
                     </div>
 
