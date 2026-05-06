@@ -63,6 +63,8 @@ Le système utilise **Firebase Authentication** pour gérer l'accès multi-utili
 - **Méthode :** Email / Mot de passe.
 - **Persistance :** Gérée par le SDK Firebase (Session locale).
 - **Lien avec Firestore :** Le `uid` généré par Firebase Auth sert de `USER_ID` pour l'isolation des données dans Firestore.
+- **Onboarding Automatique :** Le hook `useAuth.js` utilise une fonction centralisée `ensureUserDoc` pour garantir la création/mise à jour du document utilisateur lors du login, signup ou restauration de session. 
+- **Feedback de Robustesse :** En cas d'échec de l'accès Firestore (ex: permissions rules), le statut Auth passe en mode `warning` avec un message d'erreur explicite, alertant l'utilisateur que le bot backend ne pourra pas le découvrir.
 - **Migration :** Un mécanisme spécial dans `firestoreService.js` permet de migrer les données d'un ancien ID statique vers le nouveau UID Firebase d'un utilisateur spécifique (administrateur).
 
 ## 2. 🐍 Backend (Python)

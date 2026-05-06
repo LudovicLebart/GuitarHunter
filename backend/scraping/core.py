@@ -103,15 +103,20 @@ class FacebookScraper:
 
     def get_city_id_and_coords(self, city_name: str):
         """
-        Recherche une ville sur Facebook Marketplace pour obtenir son ID interne
-        et ses coordonnées géographiques (via la map statique ou les métadonnées).
+        Recherche une ville sur Facebook Marketplace pour obtenir son ID interne.
+        Retourne un tuple (city_id, coords) où :
+        - city_id (str|None) : l'ID numérique Facebook extrait de l'URL.
+        - coords (None) : les coordonnées GPS ne sont pas extraites ici.
+          Le fallback Nominatim est géré en amont dans bot.py (_geocode_nominatim).
         """
-        self._ensure_session()
-        page = self.context.new_page()
         city_id = None
-        coords = None
+        coords = None  # Intentionnellement None : géocodage délégué à Nominatim dans bot.py
+        page = None    # Initialisé à None pour sécuriser le bloc finally
 
         try:
+            self._ensure_session()
+            page = self.context.new_page()
+
             # 1. Navigation vers Marketplace
             page.goto("https://www.facebook.com/marketplace/", timeout=30000)
             self._close_login_popup(page)
@@ -158,15 +163,12 @@ class FacebookScraper:
                     if match:
                         city_id = match.group(1)
                         logger.info(f"✅ ID Facebook trouvé pour '{city_name}': {city_id}")
-                    
-                    # 7. Tenter d'extraire les coordonnées depuis une annonce factice ou la page
-                    # Souvent FB centre la map. Mais le plus simple est de voir si Nominatim peut compléter.
-                    # On peut aussi chercher un élément de map s'il est visible.
             
         except Exception as e:
             logger.error(f"Erreur lors de la recherche de ville FB: {e}")
         finally:
-            page.close()
+            if page:
+                page.close()
             
         return city_id, coords
 

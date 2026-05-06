@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-05-06] [PRO] Robustesse Auth & Scraping: Fix duplication et sécurisation sessions → Résultat :
+- **`src/hooks/useAuth.js`** : Centralisation de l'onboarding via `ensureUserDoc` (DRY). Propagation des erreurs Firestore vers l'UI dans `onAuthStateChanged` (Status Warning).
+- **`backend/scraping/core.py`** : Sécurisation du `finally` (fix `page` non-définie) et clarification du périmètre de `get_city_id_and_coords` (géocodage délégué à Nominatim).
+- **Raison** : Éliminer la dette technique de duplication et améliorer le feedback utilisateur en cas d'erreur de permissions Firestore.
+
 [2026-05-06] [PRO] Correctifs Visibilité UI & Géo-localisation Paris → Résultat :
 - **`src/components/Navbar.jsx`** : Amélioration de la visibilité du bouton d'aide (ajout du label "Aide" sur Desktop et augmentation du contraste).
 - **`src/components/Dashboard.jsx`** : Implémentation d'un bandeau d'erreur global et correction d'une `ReferenceError` (contexte mal déstructuré).
