@@ -498,13 +498,20 @@ class GuitarHunterBot:
         """Retourne {'lat': float, 'lon': float} via Nominatim (OSM), ou None.
         Essaie plusieurs variantes du nom (Mc X, Saint→St, accents, tirets...)."""
         headers = {"User-Agent": "GuitarHunter/1.0"}
+        # On essaie d'abord avec les suffixes locaux (Canada), puis en mode global
         for variant in city_name_variants(city_name):
-            for suffix in [", Quebec, Canada", ", Canada"]:
+            for suffix in [", Quebec, Canada", ", Canada", ""]:
                 query = variant + suffix
+                params = {"q": query, "format": "json", "limit": 1}
+                
+                # Si on a un suffixe Canada, on restreint la recherche pour plus de précision
+                if suffix:
+                    params["countrycodes"] = "ca"
+                
                 try:
                     resp = requests.get(
                         "https://nominatim.openstreetmap.org/search",
-                        params={"q": query, "format": "json", "limit": 1, "countrycodes": "ca"},
+                        params=params,
                         headers=headers,
                         timeout=10,
                     )

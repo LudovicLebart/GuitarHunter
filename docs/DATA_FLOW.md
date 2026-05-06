@@ -7,6 +7,7 @@ L'utilisateur interagit avec l'interface (ex: bouton "Refresh", ajout de ville, 
 - **Service impliqué** : `src/services/firestoreService.js`
 - **Méthode** : `addCommand(type, payload)` ou modification directe de la config utilisateur via `updateUserConfig`.
 - **Exemple** : Un clic sur "Add City" appelle `requestAddCity(cityName)`.
+- **Onboarding** : Lors d'un `signUp` dans `src/hooks/useAuth.js`, un document initial est créé dans `artifacts/{APP_ID}/users/{USER_ID}`, ce qui sert de signal au backend pour démarrer un bot dédié pour ce nouvel UID.
 
 ## 2. Structure de la commande (Collection `commands`)
 Les actions asynchrones sont stockées dans la sous-collection `commands` pour être traitées par le bot.
