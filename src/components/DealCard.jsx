@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown, Share2 } from 'lucide-react';
 import ImageGallery from './ImageGallery';
+import { createSharedDeal } from '../services/firestoreService';
 
 // ── Verdict config ───────────────────────────────────────────
 const VERDICT_CONFIG = {
@@ -44,9 +45,15 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const handleShare = async (e) => {
         e.stopPropagation();
-        if (!deal.id) return; // Ensure deal.id exists to construct the shareable link
+        if (!deal.id) return;
 
-        const shareableLink = `${window.location.origin}${window.location.pathname}?dealId=${deal.id}`;
+        try {
+            await createSharedDeal(deal);
+        } catch (err) {
+            console.error('Erreur création shared_deal:', err);
+        }
+
+        const shareableLink = `${window.location.origin}${window.location.pathname}?shareId=${deal.id}`;
 
         const shareData = {
             title: `Guitar Hunter AI : ${deal.title}`,
@@ -63,7 +70,6 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 }
             }
         } else {
-            // Fallback: Copy to clipboard
             try {
                 await navigator.clipboard.writeText(shareableLink);
                 setIsCopying(true);

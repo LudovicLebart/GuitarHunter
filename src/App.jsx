@@ -9,6 +9,7 @@ import { useAuth } from './hooks/useAuth';
 
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
+import SharedDealPage from './components/SharedDealPage';
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
@@ -46,7 +47,11 @@ const AppContent = () => {
   );
 };
 
-const App = () => (
+const App = () => {
+  const shareId = new URLSearchParams(window.location.search).get('shareId');
+  if (shareId) return <SharedDealPage shareId={shareId} />;
+
+  return (
     <AuthProvider>
       <BotConfigProvider>
         <DealsProvider>
@@ -56,6 +61,7 @@ const App = () => (
         </DealsProvider>
       </BotConfigProvider>
     </AuthProvider>
-);
+  );
+};
 
 export default App;

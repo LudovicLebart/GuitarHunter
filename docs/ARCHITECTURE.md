@@ -23,6 +23,11 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if false;
     }
+    // Annonces partagées publiquement (lecture sans auth, écriture auth requise)
+    match /shared_deals/{dealId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
   }
 }
 ```
@@ -207,9 +212,11 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 ### `src/components/Dashboard.jsx`
 - **Gestion de l'URL (`dealId`)**: Au chargement, le composant lit le paramètre `dealId` de l'URL. Si présent, il sélectionne l'annonce correspondante via `dealActions.handleSelectDeal` et force le `viewMode` à `'MAP'` pour afficher la modale de détail. L'URL est ensuite nettoyée pour éviter des ouvertures répétées.
-- **Bouton de Partage**: Le bouton de partage génère une URL spécifique à l'annonce (`${window.location.origin}${window.location.pathname}?dealId=${deal.id}`) qui, une fois ouverte, déclenchera l'ouverture de la modale de détail de l'annonce grâce à la logique ci-dessus.
+- **Bouton de Partage**: Le bouton de partage écrit un snapshot de l'annonce dans la collection publique Firestore `shared_deals/{dealId}`, puis génère un lien `?shareId={dealId}`. Ce lien est accessible sans compte via `SharedDealPage.jsx`.
 
 - **`src/components/HelpOverlay.jsx`**: Guide utilisateur interactif détaillant le fonctionnement de l'IA (Gemini), les scores, les verdicts et les notifications (Email/Ntfy). Accessible via le bouton d'aide dans la Navbar.
+
+- **`src/components/SharedDealPage.jsx`**: Page publique rendue par `App.jsx` quand `?shareId=` est détecté dans l'URL, avant le mur d'auth. Affiche titre, prix, localisation, images, scores IA, analyse et lien FB. Lit depuis la collection Firestore publique `shared_deals/{shareId}`.
 
 ### `src/components/MapView.jsx`
 - **Cartographie Google Maps :** Intègre### 1. Logique de Scraping et de Détection (`backend/scraping/`)
@@ -230,7 +237,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 ### `src/components/DealCard.jsx`
 - **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
 - **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, Partager, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
-- **Partage Intelligent :** Intègre l'API `navigator.share` avec fallback automatique vers la copie dans le presse-papier pour une flexibilité maximale (PC/Mobile).
+- **Partage Public :** `handleShare` écrit un snapshot dans `shared_deals/{dealId}` (Firestore public), puis génère `?shareId={dealId}`. Utilise `navigator.share` avec fallback clipboard. Le destinataire n'a pas besoin de compte.
 - **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
 
 ## 4. 🧠 Système de Prompts Dynamiques

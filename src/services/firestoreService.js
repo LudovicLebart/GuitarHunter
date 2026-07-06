@@ -22,6 +22,32 @@ const unflatten = (data) => {
   return result[""] || result;
 };
 
+// --- Annonces partagées publiquement (sans auth) ---
+
+export const createSharedDeal = async (deal) => {
+  const ref = doc(db, 'shared_deals', deal.id);
+  await setDoc(ref, {
+    title: deal.title || null,
+    price: deal.price || null,
+    location: deal.location || null,
+    link: deal.link || null,
+    description: deal.description || null,
+    storageImageUrls: deal.storageImageUrls || [],
+    imageUrls: deal.imageUrls || [],
+    verdict: deal.verdict || null,
+    scores: deal.scores || null,
+    analysis: deal.analysis || null,
+    tier3_summary: deal.tier3_summary || null,
+    sharedAt: new Date().toISOString(),
+  });
+};
+
+export const getSharedDeal = async (dealId) => {
+  const ref = doc(db, 'shared_deals', dealId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? snap.data() : null;
+};
+
 // Catalogue de villes partagé (indépendant du userId)
 const getSharedCitiesRef = () => {
   if (!APP_ID) throw new Error('firestoreService: APP_ID manquant.');

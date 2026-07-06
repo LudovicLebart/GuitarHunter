@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-05] [PRO] Feature : Partage d'annonce sans authentification → Résultat :
+- **`firebase/firestore.rules`** : Ajout d'une règle de lecture publique sur la collection `shared_deals/{dealId}`. Écriture réservée aux utilisateurs authentifiés.
+- **`firebase.json`** : Correction d'un espace parasite dans le chemin des règles Firestore (empêchait `firebase deploy --only firestore:rules`).
+- **`src/services/firestoreService.js`** : Ajout de `createSharedDeal(deal)` (snapshot public dans `shared_deals/`) et `getSharedDeal(dealId)` (lecture sans auth).
+- **`src/components/DealCard.jsx`** : `handleShare` écrit d'abord le snapshot dans Firestore, puis génère un lien `?shareId={deal.id}` au lieu de `?dealId=`.
+- **`src/components/SharedDealPage.jsx`** : Nouveau composant public affichant titre, prix, localisation, images, scores IA, analyse et lien FB — sans login requis.
+- **`src/App.jsx`** : Détection de `?shareId=` avant le mur d'auth → rendu de `SharedDealPage` directement.
+- **Raison** : Un destinataire qui reçoit un lien partagé ne doit pas être forcé à créer un compte pour consulter l'annonce.
+
 [2026-05-06] [PRO] Refonte Aide UX & Robustesse Internationale → Résultat :
 - **`src/components/HelpOverlay.jsx`** : Refonte totale du guide de prise en main. Transition vers un guide technique en 4 étapes (Cibles, Vigilance, Lancement, Analyse) avec explications précises sur le "Rayon 0" (Recherche Stricte) et la fréquence de scan. Isolation des réglages IA dans une section "Expertise Avancée".
 - **`src/components/ConfigPanel.jsx`** : Ajout d'un bouton **"Lancer le Scan"** direct pour déclencher la recherche après configuration. Simplification radicale de l'ajout de villes : suppression du formulaire secondaire, l'ajout se fait désormais directement via le bouton "+" du champ de recherche principal.

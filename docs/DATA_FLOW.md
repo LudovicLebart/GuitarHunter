@@ -90,7 +90,7 @@ Le Frontend utilise les capacités temps-réel de Firestore pour refléter les c
 2. **Clic InfoWindow** → `MapView` appelle `onSelectDeal(deal)`.
 3. **Changement d'état** → `Dashboard` reçoit le nouveau `selectedDeal` et déclenche l'affichage (Overlay sur Mobile, Sidebar sur Desktop).
 4. **Redirection par URL (`dealId`)** → Si l'URL contient un paramètre `dealId` (ex: `?dealId=123`), le `Dashboard` détecte ce paramètre au chargement, sélectionne l'annonce correspondante et ouvre la modale de détail, en forçant le mode d'affichage "Carte". L'URL est ensuite nettoyée.
-5. **Partage d'Annonce** → Le bouton de partage dans `DealCard.jsx` génère une URL de l'application incluant le `dealId` de l'annonce. Cette URL peut être partagée et, lorsqu'elle est ouverte, déclenchera le flux de redirection par URL décrit ci-dessus.
+5. **Partage d'Annonce (public)** → Le bouton de partage dans `DealCard.jsx` écrit un snapshot de l'annonce dans la collection Firestore publique `shared_deals/{dealId}`, puis génère un lien `?shareId={dealId}`. Lorsque ce lien est ouvert, `App.jsx` détecte `?shareId=` avant le mur d'auth et rend `SharedDealPage.jsx` directement, sans exiger de compte. La collection `shared_deals` est lisible publiquement (`allow read: if true` dans les règles Firestore).
 ## 7. Flux de Logs (Observabilité)
 Le système de logging est désormais isolé par utilisateur pour garantir l'étanchéité des données en mode multi-tenant.
 - **Backend** : `backend/logging_config.py` configure un logger nommé `bot.{user_id[:8]}` pour chaque bot.
