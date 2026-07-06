@@ -138,12 +138,12 @@ class ListingParser:
             return {"title": title, "price": price, "location": spec_loc, "imageUrl": "https://via.placeholder.com/400"}
 
     @staticmethod
-    def parse_details_page(page: Page, initial_title: str, initial_location: str) -> Dict[str, Any]:
+    def parse_details_page(page: Page, initial_title: str, initial_location: str, fb_id: str = None) -> Dict[str, Any]:
         """Extrait les détails complets depuis la page de l'annonce."""
         description = f"Annonce Marketplace. {initial_title}. Localisation: {initial_location}"
         image_urls = []
         coordinates = None
-        
+
         try:
             collected = []
             seen = set()
@@ -156,10 +156,20 @@ class ListingParser:
                         box = img.bounding_box()
                         if box and box['width'] > 300 and box['height'] > 300:
                             src = img.get_attribute("src")
-                            if src and "scontent" in src and src not in seen:
-                                collected.append(src)
-                                seen.add(src)
-                                found = True
+                            if not src or "scontent" not in src or src in seen: continue
+
+                            # --- Exclusion des vignettes de "Suggestions" (autres annonces) ---
+                            # Ces vignettes sont entourées d'un <a href="/marketplace/item/{AUTRE_ID}/...">
+                            # alors que les vraies photos du produit ne le sont pas.
+                            link_ancestor = img.locator("xpath=ancestor::a[1]")
+                            if link_ancestor.count() > 0:
+                                href = link_ancestor.get_attribute("href") or ""
+                                if "/marketplace/item/" in href and (not fb_id or fb_id not in href):
+                                    continue
+
+                            collected.append(src)
+                            seen.add(src)
+                            found = True
                 except: pass
                 if not found and len(collected) > 0: break
                 if len(collected) >= 10: break

@@ -1,5 +1,20 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-06] [PRO] Doc : Migration de `docs/` vers la structure Diataxis → Résultat :
+- **Réorganisation** (`git mv`, historique préservé) : `docs/management/` (`JOURNAL.md`, `TODO.md`, `plans/MULTI_USER_PLAN.md`), `docs/reference/` (`ARCHITECTURE.md`, `DATA_FLOW.md`, `STATE_MODELS.md`, `UI_UX_ANALYSIS.md`), `docs/explanation/` (`PROJECT_OVERVIEW.md`, `STATS_REFLEXION.md`).
+- **`CLAUDE.md`** : Étape 3 et tableau "Fichiers Clés" mis à jour vers les nouveaux chemins ; correction de la référence erronée `backend/main.py` → `main.py` (racine, vrai point d'entrée).
+- **`AI_BRIEFING.md`** : Chemins de l'Étape 3 alignés sur la nouvelle arborescence.
+- **`docs/management/TODO.md`** : Lien relatif vers `STATS_REFLEXION.md` corrigé (`../explanation/STATS_REFLEXION.md`).
+- **Skill partagé `~/.claude/skills/document/SKILL.md`** : Généralisé — ne référence plus une convention figée (ex-MoneyBot) ; lit désormais le `CLAUDE.md`/`AGENTS.md` du projet courant pour suivre sa convention documentaire exacte, avec repli heuristique (Diataxis ou fichiers plats) si rien n'est précisé.
+- **Raison** : Le skill `/document` appliquait par erreur la convention Diataxis propre à MoneyBot lors d'une session Guitar Hunter (qui était encore à plat). Aligner Guitar Hunter sur Diataxis et rendre le skill générique évite ce décalage pour tous les projets.
+
+[2026-07-06] [PRO] Fix : Images sans rapport (véhicules, bateaux...) dans les annonces → Résultat :
+- **`backend/scraping/parser.py`** : `ListingParser.parse_details_page()` accepte désormais un paramètre `fb_id` et exclut du résultat toute image entourée d'un lien `<a href="/marketplace/item/{AUTRE_ID}/...">` — ces vignettes appartiennent au bloc "Suggestions" que Facebook affiche systématiquement sous la description de l'annonce, pas aux vraies photos du produit.
+- **`backend/scraping/core.py`** : Ajout de `_is_valid_detail_page()` (garde-fou détectant une redirection vers `/login`, un captcha, ou une URL ne correspondant plus à l'annonce ciblée) utilisé dans `scan_marketplace()` et `scan_specific_url()` avant l'extraction des détails ; log `debug` temporaire de l'URL de la fiche détail chargée (`[DIAG]`) conservé pour un diagnostic futur.
+- **`backend/scraping/test_core.py`** (nouveau) : 4 tests unitaires couvrant `_is_valid_detail_page` (page valide, redirection feed, redirection login, ID différent).
+- **Diagnostic réel** : reproduit sur une annonce publique (`.../marketplace/item/1680540959879684/`) — 19 images extraites avant correctif (16 étaient des suggestions d'autres annonces : voiture, bateau, meubles...) contre 3 après correctif (toutes les vraies photos du produit).
+- **Raison** : Le filtre initial se basait uniquement sur la taille de l'image (>300×300px) et le domaine CDN (`scontent`), ce qui capturait aussi les vignettes du bloc "Suggestions" — visible surtout sur les annonces ayant peu de vraies photos (le plafond de collecte n'étant alors pas atteint par les vraies photos seules).
+
 [2026-07-05] [PRO] Feature : Partage d'annonce sans authentification → Résultat :
 - **`firebase/firestore.rules`** : Ajout d'une règle de lecture publique sur la collection `shared_deals/{dealId}`. Écriture réservée aux utilisateurs authentifiés.
 - **`firebase.json`** : Correction d'un espace parasite dans le chemin des règles Firestore (empêchait `firebase deploy --only firestore:rules`).

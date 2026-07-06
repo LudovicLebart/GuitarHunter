@@ -197,6 +197,17 @@ class FacebookScraper:
                 time.sleep(1)
         except: pass
 
+    def _is_valid_detail_page(self, page: Page, expected_fb_id: str) -> bool:
+        """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
+        (et non le feed/accueil Marketplace suite à une redirection anti-bot)."""
+        if "/login" in page.url or "captcha" in page.url.lower():
+            logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
+            return False
+        if f"/marketplace/item/{expected_fb_id}" not in page.url:
+            logger.warning(f"⚠️ Page détail invalide (URL inattendue, feed probable): {page.url}")
+            return False
+        return True
+
     def _apply_filters(self, page: Page, min_price: int, max_price: int):
         # Prix
         try:
@@ -376,11 +387,16 @@ class FacebookScraper:
                         try: details_page.wait_for_selector("div[role='main']", timeout=10000)
                         except: pass
                         time.sleep(2)
-                        
-                        details = ListingParser.parse_details_page(details_page, title, location)
+                        logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+
+                        if self._is_valid_detail_page(details_page, fb_id):
+                            details = ListingParser.parse_details_page(details_page, title, location, fb_id)
+                        else:
+                            logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
+                            details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
                     finally:
                         details_page.close()
-                    
+
                     coords = details['coordinates']
                     final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
                     
@@ -431,6 +447,11 @@ class FacebookScraper:
             try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
             except: pass
             time.sleep(2)
+            logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {page.url}")
+
+            if not self._is_valid_detail_page(page, fb_id):
+                logger.error(f"❌ Fiche détail non chargée correctement pour {url} — annonce ignorée.")
+                return
 
             title = "Titre Inconnu"
             price = 0
@@ -452,7 +473,7 @@ class FacebookScraper:
             except: pass
 
             clean_link = page.url.split('?')[0]
-            details = ListingParser.parse_details_page(page, title, location)
+            details = ListingParser.parse_details_page(page, title, location, fb_id)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],

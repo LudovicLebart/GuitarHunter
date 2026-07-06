@@ -45,11 +45,13 @@ Attendre la confirmation de fonctionnement par l'utilisateur avant de passer à 
 
 ### Étape 3 — Documentation (UNIQUEMENT après validation)
 
-Après "C'est bon" ou "Validé" de l'utilisateur, mettre à jour :
-- `docs/JOURNAL.md` — format : `[DATE] [MODÈLE] Action → Résultat`
-- `docs/TODO.md`
-- `docs/ARCHITECTURE.md`
-- `docs/DATA_FLOW.md`
+Après "C'est bon" ou "Validé" de l'utilisateur, mettre à jour (arborescence Diataxis) :
+- `docs/management/JOURNAL.md` — format : `[DATE] [MODÈLE] Action → Résultat`
+- `docs/management/TODO.md`
+- `docs/reference/ARCHITECTURE.md`
+- `docs/reference/DATA_FLOW.md`
+- `docs/explanation/` — si la vision/stratégie évolue (`PROJECT_OVERVIEW.md`, `STATS_REFLEXION.md`)
+- `docs/management/plans/` — pour les plans d'implémentation dédiés (ex : `MULTI_USER_PLAN.md`)
 
 **Interdit** : utiliser `echo`, `sed`, `cat` en terminal pour modifier la doc. Utiliser les outils d'édition directs.
 
@@ -112,7 +114,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 
 | Fichier | Rôle |
 |---------|------|
-| `backend/main.py` | Point d'entrée, boucle principale, watchdog, dispatching commandes |
+| `main.py` (racine) | Point d'entrée, boucle principale, watchdog, dispatching commandes |
 | `backend/bot.py` | `GuitarHunterBot` — orchestration globale |
 | `backend/analyzer.py` | `DealAnalyzer` — pipeline 3-Tiers Gemini |
 | `backend/scraping/` | `FacebookScraper` — Playwright + stealth mode |
@@ -121,4 +123,4 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `src/hooks/useDealsManager.js` | Hook central — tri, filtres, actions |
 | `src/components/Dashboard.jsx` | Interface principale — vues Liste/Carte/Stats |
 | `src/components/DealCard.jsx` | Carte d'annonce avec analyse IA |
-| `docs/` | **Source de vérité prioritaire** |
+| `docs/` (Diataxis : `reference/`, `explanation/`, `management/`) | **Source de vérité prioritaire** |

@@ -126,7 +126,8 @@ Le backend est un "worker" persistant qui tourne en boucle.
         - **Rotation d'IP (Proxies)** : Si la liste `PROXIES` dans `config.py` est remplie, chaque instance du scraper choisira aléatoirement un proxy, permettant une rotation des adresses IP à chaque nouvelle tâche de scraping.
         - **Randomisation** : Liste tournante de User-Agents modernes et viewports (résolutions d'écran) aléatoires à chaque démarrage.
         - **Flags de Furtivité** : Utilisation d'arguments Chromium spécifiques pour masquer le pilotage automatisé (`--disable-blink-features=AutomationControlled`).
-        - **Détection Active** : Surveillance des redirections vers les pages de login ou Captcha, entraînant un arrêt propre de la session.
+        - **Détection Active** : Surveillance des redirections vers les pages de login ou Captcha, entraînant un arrêt propre de la session. Implémentée via `_is_valid_detail_page()`, appelée avant l'extraction des détails dans `scan_marketplace()` et `scan_specific_url()` : si la fiche détail n'a pas chargé correctement, l'annonce retombe sur l'image de la carte (recherche) plutôt que d'aspirer un contenu erroné.
+    - **Extraction d'images filtrée (Anti-Suggestions)** : `ListingParser.parse_details_page()` (dans `parser.py`) exclut les vignettes appartenant au bloc "Suggestions" que Facebook affiche systématiquement sous la description d'une annonce (autres annonces : véhicules, meubles, etc.). Le filtre se base sur le lien ancêtre (`<a href="/marketplace/item/{AUTRE_ID}/...">`) plutôt que sur la taille de l'image, car ces vignettes ont la même taille que de vraies photos de produit. Ce bug touchait surtout les annonces ayant peu de vraies photos (le plafond de collecte de 10 images n'étant alors pas atteint par les vraies photos seules).
 
 ### `backend/resources/` (Nouveau)
 - **`city_coordinates.json`:** Base de données locale des coordonnées des villes pour la cartographie.

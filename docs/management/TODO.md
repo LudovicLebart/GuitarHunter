@@ -158,6 +158,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Feature : Extraire la Date de Mise en Ligne** *(Session 40)*
     - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
 
+- [x] **Bug : Images sans rapport (véhicules, bateaux...) associées à une annonce** *(Corrigé 2026-07-06)*
+    - *Détails :* Le bloc "Suggestions" affiché par Facebook sous la description de chaque annonce était partiellement capturé par le filtre d'extraction d'images (basé uniquement sur la taille >300×300px), surtout pour les annonces ayant peu de vraies photos.
+    - *Solution :* `parser.py::parse_details_page()` exclut désormais les images entourées d'un lien vers une autre annonce (`<a href="/marketplace/item/{AUTRE_ID}/...">`). Ajout d'un garde-fou `_is_valid_detail_page()` dans `core.py` pour les cas de redirection /login réelle.
+    - *Vérifié :* Test réel sur une annonce publique — 19 images (16 suggestions) → 3 images (toutes réelles) après correctif.
+
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
     - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
 - [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
@@ -259,7 +264,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ## 📊 Statistiques & Dashboard
 
 - [ ] **Mettre en place le moteur de statistiques (Impact Tier 3)**
-    - *Plan de travail :* [`docs/STATS_REFLEXION.md`](./STATS_REFLEXION.md)
+    - *Plan de travail :* [`docs/explanation/STATS_REFLEXION.md`](../explanation/STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
 
 - [x] **Feature : Détection des Baisses de Prix** *(Session 05/03/2026)*
