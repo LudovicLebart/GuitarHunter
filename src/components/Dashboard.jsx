@@ -60,22 +60,22 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
     const currentLabel = OPTIONS.find(o => o.id === currentVerdict)?.label || 'Toutes les annonces';
 
     return (
-        <div className="relative shrink-0">
+        <div className="relative flex-1 sm:flex-none min-w-0">
             <button
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full sm:w-auto flex items-center justify-between sm:justify-start gap-2 h-10 px-4 bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-slate-600 rounded-xl text-sm font-bold text-slate-200 transition-all shadow-sm"
             >
-                <div className="whitespace-nowrap">
-                    <span className="text-slate-400 font-normal mr-1.5 hidden sm:inline">Statut :</span>
-                    <span>{currentLabel}</span>
+                <div className="flex items-center min-w-0">
+                    <span className="text-slate-400 font-normal mr-1.5 hidden sm:inline shrink-0">Statut :</span>
+                    <span className="truncate block">{currentLabel}</span>
                 </div>
-                <ChevronDown size={14} className={`text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-                    <div className="absolute top-full left-0 sm:right-0 mt-2 w-56 sm:w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 py-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="absolute top-full left-0 sm:right-0 mt-2 w-56 sm:w-64 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 py-2 animate-in fade-in slide-in-from-top-2">
                         {OPTIONS.map((opt, i) => {
                             if (opt.divider) return <div key={`div-${i}`} className="h-px bg-slate-800 my-1 mx-2" />;
                             const count = counts[opt.id] || 0;
@@ -369,7 +369,7 @@ const Dashboard = ({ onClose }) => {
                         )}
                     </div>
 
-                    <div className="flex flex-row justify-between md:justify-start gap-2 shrink-0">
+                    <div className="flex flex-col sm:flex-row sm:justify-between md:justify-start gap-2 shrink-0">
                         <div className="flex gap-2 shrink-0">
                             {/* Favorite Shortcut Toggle */}
                             <button
@@ -388,7 +388,7 @@ const Dashboard = ({ onClose }) => {
                             />
                         </div>
 
-                        <div className="flex gap-2 shrink-0 md:ml-auto">
+                        <div className="flex justify-between sm:justify-start gap-2 shrink-0 md:ml-auto">
                             {/* View Mode Toggle */}
                             <div className="flex bg-slate-800 p-1 rounded-xl shrink-0 h-10 border border-slate-700">
                                 <button onClick={() => setViewMode('LIST')} className={`px-3 flex items-center justify-center rounded-lg transition-all ${viewMode === 'LIST' ? 'bg-slate-700 shadow-sm text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}><List size={16} /></button>

@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-06] [PRO] Fix : Débordement horizontal en mode mobile (Dashboard) → Résultat :
+- **`index.css`** : Ajout de `overflow-x: hidden` sur `html, body, #root` — filet de sécurité empêchant tout élément fautif de créer un scroll horizontal.
+- **`src/components/Dashboard.jsx`** (`VerdictDropdown`) : Le conteneur du bouton avait `relative shrink-0` (largeur indéfinie) avec un enfant `w-full` — cas ambigu en CSS. Remplacé par `flex-1 sm:flex-none min-w-0` sur le conteneur, avec troncature propre (`truncate`) du libellé au lieu de dépendre du `w-full`.
+- **`src/components/Dashboard.jsx`** (barre Recherche & Actions, lignes ~372-413) : Les deux groupes de boutons (Statut/Favoris, Vue/Compteur/Croix) tenaient sur une seule ligne en mobile (`flex-row justify-between`), ce qui écrasait la croix "Effacer les filtres". Passage à `flex-col sm:flex-row` pour empiler les deux groupes sous 640px.
+- **`src/components/Dashboard.jsx`** et **`src/components/Navbar.jsx`** : Les deux menus déroulants en `position: absolute` (filtre Statut, menu hover du bot) n'avaient aucune limite de largeur liée au viewport — même invisibles, ils pouvaient dépasser l'écran et gonfler la largeur scrollable de la page. Ajout de `max-w-[calc(100vw-2rem)]`.
+- **Vérifié** : build Vite propre, page de connexion testée en viewport mobile (375px) — `document.documentElement.scrollWidth === window.innerWidth`, aucune erreur console. Le rendu du Dashboard authentifié reste à confirmer par l'utilisateur (mur d'authentification, pas de session de test disponible).
+- **Raison** : Aucune contention `overflow-x` n'existait nulle part dans l'app — la page se dimensionnait sur l'élément le plus large (carte, dropdown, menu caché) plutôt que sur la largeur de l'écran, donnant l'impression d'une page "à plat" sans conteneur englobant.
+
 [2026-07-06] [PRO] Feature : Double appartenance "Pépite" + fix critique notifications → Résultat :
 - **Bug critique corrigé (`backend/notifications.py`)** : `notify_deal()` référençait `HIGH_PRIORITY_VERDICTS` (variable commentée) et `profit` (jamais défini dans cette fonction) → `NameError` systématique à chaque Pépite trouvée. Comme `bot.py::run_scan()` n'a pas de `except` sur sa boucle des villes (seulement un `finally`), ce crash interrompait le scan des villes restantes dès qu'une Pépite était détectée. `HIGH_PRIORITY_VERDICTS` réactivé, `profit` recalculé localement.
 - **`prompts.json`** (`main_analysis_prompt`) : Nouveau champ IA `also_qualifies_pepite` (booléen). L'IA le met à `true` quand le verdict principal est `FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION` ET que les critères Pépite sont aussi remplis (Marge > 100% et > 150$ OU Marge > 30% et modèle iconique).

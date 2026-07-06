@@ -9,6 +9,8 @@ body,
   padding: 0;
   background-color: #020617;
   /* slate-950 */
+  overflow-x: hidden;
+  /* Filet de sécurité : empêche tout élément fautif de créer un scroll horizontal */
 }
 
 body {

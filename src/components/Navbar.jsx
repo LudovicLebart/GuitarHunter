@@ -80,7 +80,7 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCoun
                         </div>
 
                         {/* Horizontal Hover Menu */}
-                        <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 opacity-0 group-hover:opacity-100 transition-all pointer-events-none group-hover:pointer-events-auto z-50">
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 pt-2 max-w-[calc(100vw-2rem)] opacity-0 group-hover:opacity-100 transition-all pointer-events-none group-hover:pointer-events-auto z-50">
                             <div className="flex flex-row items-center gap-1.5 bg-slate-800 border border-slate-700 p-1.5 rounded-xl shadow-xl">
 
                                 {/* Scanner maintenant */}

@@ -209,6 +209,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
     - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
     - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
+- [x] **Bug : Débordement horizontal en mode mobile** *(Corrigé 2026-07-06)*
+    - *Détails :* Aucune contention `overflow-x` dans l'app ; la page se dimensionnait sur l'élément le plus large (dropdown à largeur ambiguë, menus `absolute` sans limite de largeur) plutôt que sur l'écran. La barre "Recherche & Actions" était aussi trop étroite en mobile pour contenir la croix "Effacer les filtres".
+    - *Solution :* `overflow-x: hidden` global (`index.css`), largeur explicite sur le dropdown Statut, empilement des groupes de boutons sous 640px, `max-w-[calc(100vw-2rem)]` sur les menus flottants.
+    - *À confirmer par l'utilisateur* : rendu du Dashboard authentifié sur mobile réel (non vérifiable en session, mur d'authentification).
 - [x] **Système de Thème (Dark Mode) global** *(Intégré dans le Mockup)*
 - [/] **Dashboard Analytics & Statistiques** *(Moteur de calcul intégré — `MockupStatsView.jsx`)*
     - *Détails :* Le "moteur" de stats est fonctionnel au sein du composant, utilisant les données réelles de Firestore.
