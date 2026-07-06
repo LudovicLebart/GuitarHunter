@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-06] [PRO] Feature : Double appartenance "Pépite" + fix critique notifications → Résultat :
+- **Bug critique corrigé (`backend/notifications.py`)** : `notify_deal()` référençait `HIGH_PRIORITY_VERDICTS` (variable commentée) et `profit` (jamais défini dans cette fonction) → `NameError` systématique à chaque Pépite trouvée. Comme `bot.py::run_scan()` n'a pas de `except` sur sa boucle des villes (seulement un `finally`), ce crash interrompait le scan des villes restantes dès qu'une Pépite était détectée. `HIGH_PRIORITY_VERDICTS` réactivé, `profit` recalculé localement.
+- **`prompts.json`** (`main_analysis_prompt`) : Nouveau champ IA `also_qualifies_pepite` (booléen). L'IA le met à `true` quand le verdict principal est `FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION` ET que les critères Pépite sont aussi remplis (Marge > 100% et > 150$ OU Marge > 30% et modèle iconique).
+- **`backend/notifications.py`** : `notify_deal()` déclenche aussi la notification (priorité haute) quand `also_qualifies_pepite` est vrai, même si le verdict principal n'est pas `PEPITE`. Sujet/corps mentionnent "(Aussi Pépite ⭐)".
+- **`src/hooks/useDealsManager.js`** : `matchesVerdictFilter` fait apparaître ces annonces aussi dans le filtre "Pépites" ; `verdictCounts` les compte aussi dans ce compteur (sans dupliquer le total `ALL`).
+- **`src/components/DealCard.jsx`** : Badge secondaire "💎 Aussi Pépite" affiché à côté du badge du verdict principal (carte + modale).
+- **Bug annexe corrigé (`backend/notifications.py`)** : `NtfyNotifier.send()` plantait silencieusement (`UnicodeEncodeError`, catchée) sur les titres contenant émojis/accents — headers HTTP en Latin-1 uniquement. Corrigé via encodage RFC 2047 (`email.header.Header`, `maxlinelen=998` pour éviter le repliement multi-ligne invalide en HTTP), conformément à la documentation officielle ntfy.sh.
+- **Raison** : Un projet de lutherie ou un case win peut être *aussi* exceptionnellement rentable ; le figer dans une seule catégorie le rendait invisible du filtre/notifications "Pépites". Le bug de notification découvert au passage minait directement l'objectif du bot (scan interrompu à chaque vraie trouvaille).
+
 [2026-07-06] [PRO] Doc : Migration de `docs/` vers la structure Diataxis → Résultat :
 - **Réorganisation** (`git mv`, historique préservé) : `docs/management/` (`JOURNAL.md`, `TODO.md`, `plans/MULTI_USER_PLAN.md`), `docs/reference/` (`ARCHITECTURE.md`, `DATA_FLOW.md`, `STATE_MODELS.md`, `UI_UX_ANALYSIS.md`), `docs/explanation/` (`PROJECT_OVERVIEW.md`, `STATS_REFLEXION.md`).
 - **`CLAUDE.md`** : Étape 3 et tableau "Fichiers Clés" mis à jour vers les nouveaux chemins ; correction de la référence erronée `backend/main.py` → `main.py` (racine, vrai point d'entrée).

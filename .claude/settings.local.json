@@ -17,7 +17,8 @@
       "Bash(python -W ignore -m backend.scripts.migrate_cities_to_shared_catalog --source-user-id 00737242777130596039 --target-user-id wbPlgZgkW2VcAl0a2l44UMSDTaG2 --dry-run)",
       "Bash(python -c \"import sys; [print\\(l.encode\\('utf-8','replace'\\).decode\\('utf-8'\\)\\) for l in sys.stdin]\")",
       "Bash(python -c ':*)",
-      "Bash(python -m backend.scripts.migrate_cities_to_shared_catalog --source-user-id 00737242777130596039 --target-user-id wbPlgZgkW2VcAl0a2l44UMSDTaG2)"
+      "Bash(python -m backend.scripts.migrate_cities_to_shared_catalog --source-user-id 00737242777130596039 --target-user-id wbPlgZgkW2VcAl0a2l44UMSDTaG2)",
+      "Bash(python -c \" *)"
     ]
   }
 }

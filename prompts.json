@@ -286,6 +286,7 @@
     "   - COLLECTION: Rare, valeur stable ou montante.",
     "   - BAD_DEAL: Prix trop haut ou arnaque.",
     "   - REJECTED_ITEM: Hors sujet ou qualité trop médiocre. REJECTED_SERVICE: Services uniquement.",
+    "   - **also_qualifies_pepite** (champ séparé, booléen) : Si le verdict principal est FAST_FLIP, LUTHIER_PROJ, CASE_WIN ou COLLECTION, ET que l'annonce remplit EN PLUS les critères PEPITE ci-dessus (Marge > 100% et > 150$ OU Marge > 30% et modèle iconique), mets ce champ à true dans le JSON, même si le verdict principal reste inchangé.",
     "",
     "### FORMAT DE RÉPONSE JSON STRICT",
     "Tu dois répondre UNIQUEMENT avec un objet JSON valide :",
@@ -309,6 +310,7 @@
     "  \"restoration_interest_score\": 4,  // OBLIGATOIRE: Intérêt luthier/réparateur (0-10)",
     "  \"confidence\": 0.9,",
     "  \"verdict\": \"VALUE\",",
+    "  \"also_qualifies_pepite\": false,  // true si les criteres PEPITE sont AUSSI remplis (voir section VERDICT)",
     "  \"reasoning\": \"Bref résumé.\",",
     "  \"summary\": \"Résumé court (2 phrases).\"",
     "}"

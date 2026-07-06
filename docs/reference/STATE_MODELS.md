@@ -73,6 +73,10 @@ interface Deal {
     /** Nom du modèle IA ayant produit le résultat final */
     model_used?: string; // Optionnel
 
+    /** Double appartenance (2026-07-06) : true si le verdict est FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION
+        ET que les critères PEPITE sont AUSSI remplis. L'annonce apparaît alors aussi dans le filtre/notifs Pépites. */
+    also_qualifies_pepite?: boolean; // Optionnel (absent = false)
+
     /** Indices numériques (0-10) ajoutés en Session 18 */
     deal_score?: number;
     authenticity_score?: number;

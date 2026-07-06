@@ -10,6 +10,7 @@ récupéré dynamiquement par le bot. Aucune configuration manuelle requise.
 import smtplib
 import logging
 from email.message import EmailMessage
+from email.header import Header
 from email.utils import formataddr
 from typing import Optional
 
@@ -24,7 +25,7 @@ NOTIFY_VERDICTS = {'PEPITE'}
 # Ajouter à NOTIFY_VERDICTS si souhaité.
 
 # Verdicts à haute priorité (ntfy urgent + email avec sujet distinctif)
-# HIGH_PRIORITY_VERDICTS = {'PEPITE'}
+HIGH_PRIORITY_VERDICTS = {'PEPITE'}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ def _is_price_drop_notifiable(deal_data: dict) -> bool:
     return False
 
 
-def _build_subject(verdict: str, deal_data: dict, is_update: bool) -> str:
+def _build_subject(verdict: str, deal_data: dict, is_update: bool, also_pepite: bool = False) -> str:
     """Construit le sujet de l'email."""
     emoji_map = {
         'PEPITE': '⭐', 'GOLD': '🏆', 'FAST_FLIP': '⚡',
@@ -57,14 +58,15 @@ def _build_subject(verdict: str, deal_data: dict, is_update: bool) -> str:
     emoji = emoji_map.get(verdict, '🎸')
     title = deal_data.get('title', 'Annonce')[:50]
     price = deal_data.get('price', 0)
+    suffix = " (Aussi Pépite ⭐)" if also_pepite and verdict != 'PEPITE' else ""
 
     if is_update:
         drop = deal_data.get('price_drop_amount', 0)
-        return f"[GuitarHunter] {emoji} BAISSE DE PRIX ({verdict}) : {title} — {price}$ (-{drop}$)"
-    return f"[GuitarHunter] {emoji} {verdict} : {title} — {price}$"
+        return f"[GuitarHunter] {emoji} BAISSE DE PRIX ({verdict}) : {title} — {price}$ (-{drop}$){suffix}"
+    return f"[GuitarHunter] {emoji} {verdict} : {title} — {price}${suffix}"
 
 
-def _build_body(verdict: str, deal_data: dict, analysis: dict, is_update: bool, deal_link: str) -> str:
+def _build_body(verdict: str, deal_data: dict, analysis: dict, is_update: bool, deal_link: str, also_pepite: bool = False) -> str:
     """Construit le corps texte de l'email (compatible avec tous les clients mail)."""
     price = deal_data.get('price', 0)
     est_val = analysis.get('estimated_value', 0)
@@ -74,9 +76,10 @@ def _build_body(verdict: str, deal_data: dict, analysis: dict, is_update: bool, 
     location = deal_data.get('location', 'N/A')
     brand = analysis.get('brand') or ''
     model = analysis.get('model_name') or ''
+    verdict_line = f"{verdict} (Aussi Pépite ⭐)" if also_pepite and verdict != 'PEPITE' else verdict
 
     lines = [
-        f"{'📉 BAISSE DE PRIX' if is_update else '🎸 NOUVELLE PÉPITE'} — {verdict}",
+        f"{'📉 BAISSE DE PRIX' if is_update else '🎸 NOUVELLE PÉPITE'} — {verdict_line}",
         "=" * 50,
         f"Titre    : {title}",
         f"Marque   : {brand} {model}".strip(),
@@ -124,8 +127,14 @@ class NtfyNotifier:
             return
         url = f"https://ntfy.sh/{NTFY_TOPIC}"
         safe_title = title.replace('\n', ' ').replace('\r', ' ')
+        # ntfy.sh (et `requests`) exigent des headers HTTP en Latin-1 : les émojis/accents
+        # doivent être encodés en RFC 2047 (cf. docs.ntfy.sh/publish), sinon `requests`
+        # lève une UnicodeEncodeError silencieusement catchée plus bas (notif jamais envoyée).
+        # maxlinelen élevé pour éviter le repliement multi-ligne (RFC 2822) : invalide
+        # pour un header HTTP brut, qui doit tenir sur une seule ligne.
+        encoded_title = Header(safe_title, 'utf-8', maxlinelen=998).encode()
         headers = {
-            "Title": safe_title,   # String (pas bytes) — requis par l'API ntfy.sh
+            "Title": encoded_title,
             "Priority": priority,
         }
         if tags:
@@ -205,9 +214,10 @@ class NotificationService:
             user_email   : Email Firebase Auth de l'utilisateur destinataire.
         """
         verdict = analysis.get('verdict', 'UNKNOWN')
+        also_pepite = bool(analysis.get('also_qualifies_pepite')) and verdict != 'PEPITE'
 
         # ── Filtre : verdicts non-notifiables ──────────────────────────────
-        if verdict not in NOTIFY_VERDICTS:
+        if verdict not in NOTIFY_VERDICTS and not also_pepite:
             return
 
         # ── Filtre : mises à jour sans baisse de prix significative ────────
@@ -221,18 +231,22 @@ class NotificationService:
             if deal_id else None
         )
 
-        subject = _build_subject(verdict, deal_data, is_update)
-        body    = _build_body(verdict, deal_data, analysis, is_update, deal_link)
+        subject = _build_subject(verdict, deal_data, is_update, also_pepite)
+        body    = _build_body(verdict, deal_data, analysis, is_update, deal_link, also_pepite)
 
         # ── Canal 1 : ntfy.sh ─────────────────────────────────────────────
-        priority = 'high' if verdict in HIGH_PRIORITY_VERDICTS else 'default'
+        is_high_priority = verdict in HIGH_PRIORITY_VERDICTS or also_pepite
+        priority = 'high' if is_high_priority else 'default'
         tags = ['guitar', 'moneybag']
-        if verdict in HIGH_PRIORITY_VERDICTS:
+        if is_high_priority:
             tags.append('star')
+
+        price = deal_data.get('price', 0) or 0
+        profit = (analysis.get('estimated_value', 0) or 0) - price
 
         ntfy_title = subject.replace("[GuitarHunter] ", "")
         ntfy_msg = (
-            f"Prix: {deal_data.get('price', 0)}$"
+            f"Prix: {price}$"
             + (f" (-{deal_data.get('price_drop_amount')}$)" if is_update and deal_data.get('price_drop_amount') else "")
             + f"\nProfit: {'+' if profit >= 0 else ''}{profit}$"
             + f"\n{(analysis.get('reasoning') or '')[:120]}..."

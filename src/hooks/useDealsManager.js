@@ -179,6 +179,10 @@ export const useDealsManager = (user, setError) => {
     // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
     if (currentFilterType === verdict) return true;
 
+    // Double appartenance : une annonce FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION qui
+    // remplit aussi les critères Pépite doit apparaître dans le filtre Pépites également.
+    if (currentFilterType === 'PEPITE' && analysis.also_qualifies_pepite) return true;
+
     // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
     if (currentFilterType === 'ALL') {
       if (isError) return false;
@@ -319,6 +323,11 @@ export const useDealsManager = (user, setError) => {
 
         if (c.hasOwnProperty(verdict)) {
           c[verdict]++;
+        }
+
+        // Double appartenance : compte aussi dans PEPITE sans dupliquer le total ALL.
+        if (verdict !== 'PEPITE' && deal.aiAnalysis?.also_qualifies_pepite) {
+          c.PEPITE++;
         }
       }
       if (deal.isFavorite) c.FAVORITES++;

@@ -197,6 +197,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const vc = VERDICT_CONFIG[verdict] || VERDICT_CONFIG.DEFAULT;
     const VIcon = vc.icon;
+    const alsoPepite = verdict !== 'PEPITE' && !!ai.also_qualifies_pepite;
 
     const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
 
@@ -210,9 +211,17 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 </div>
 
                 {/* Verdict Badge */}
-                <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg z-10 ${vc.text}`}>
-                    <VIcon size={12} className={isAnalyzing ? 'animate-spin' : ''} />
-                    {isAnalyzing ? 'Analyse...' : vc.label}
+                <div className="absolute top-3 left-3 flex flex-col items-start gap-1 z-10">
+                    <div className={`${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
+                        <VIcon size={12} className={isAnalyzing ? 'animate-spin' : ''} />
+                        {isAnalyzing ? 'Analyse...' : vc.label}
+                    </div>
+                    {alsoPepite && (
+                        <div className="bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider flex items-center gap-1 shadow-lg">
+                            <Gem size={10} />
+                            Aussi Pépite
+                        </div>
+                    )}
                 </div>
                 {/* Price Badge */}
                 {price != null && (
@@ -420,9 +429,17 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                                         className="w-full h-full object-contain"
                                         onError={() => setImageError(true)}
                                     />
-                                    <div className={`absolute top-3 left-3 ${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
-                                        <vc.icon size={12} strokeWidth={3} />
-                                        {vc.label}
+                                    <div className="absolute top-3 left-3 flex flex-col items-start gap-1">
+                                        <div className={`${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
+                                            <vc.icon size={12} strokeWidth={3} />
+                                            {vc.label}
+                                        </div>
+                                        {alsoPepite && (
+                                            <div className="bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider flex items-center gap-1 shadow-lg">
+                                                <Gem size={10} />
+                                                Aussi Pépite
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex justify-between items-end">
                                         <div className="text-white/80 font-mono text-xs shadow-black drop-shadow-md">

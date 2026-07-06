@@ -117,6 +117,13 @@ Le backend est un "worker" persistant qui tourne en boucle.
   4. **Tier 3 — Expert Pro (`gemini-2.5-pro`) [Conditionnel] :** Analyse exhaustive avec rapport Markdown complet. Écrase le résultat du T2. En cas d'échec : fallback sur le T2.
   - Le champ `model_used` retrace le chemin complet (ex: `"gemini-2.5-flash-lite -> gemini-2.5-flash -> gemini-2.5-pro"`).
   - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
+  - **Double appartenance "Pépite" (2026-07-06)** : Le champ `also_qualifies_pepite` (booléen, dans le JSON T2/T3) est positionné par l'IA elle-même quand le verdict principal (`FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION`) remplit *aussi* les critères Pépite (Marge > 100% et > 150$ OU Marge > 30% et modèle iconique). Le verdict principal n'est pas modifié ; le champ traverse tel quel jusqu'à Firestore (`repository.py` ne filtre pas les clés de `aiAnalysis`) et jusqu'au frontend (filtre "Pépites", compteur, badge secondaire dans `DealCard.jsx`).
+
+### `backend/notifications.py` (`NotificationService`)
+- **Déclenchement** : `NOTIFY_VERDICTS = {'PEPITE'}` par défaut, plus toute annonce avec `also_qualifies_pepite=true` (même si son verdict principal diffère).
+- **Canaux** : ntfy.sh (optionnel, `NTFY_TOPIC`) et Email SMTP (optionnel, `SMTP_USER`/`SMTP_PASSWORD`).
+- **Encodage des headers ntfy** : Les headers HTTP (`requests`) n'acceptent que du Latin-1. Le `Title` (qui peut contenir émojis/accents) est encodé en **RFC 2047** (`email.header.Header`, `maxlinelen=998` pour éviter le repliement multi-ligne — invalide sur un header HTTP brut), conformément à `docs.ntfy.sh/publish`.
+- **Point d'attention critique** : `handle_deal_found()` (dans `bot.py`) appelle `notify_deal()` de façon synchrone et non protégée ; `run_scan()` n'a pas de `except` sur sa boucle des villes (seulement un `finally`). Une exception non gérée dans `notify_deal()` interromprait le scan des villes restantes du cycle en cours — c'est ce qui s'est produit avant le correctif du 2026-07-06 (`HIGH_PRIORITY_VERDICTS`/`profit` non définis).
 
 ### `backend/scraping/`
 - **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 

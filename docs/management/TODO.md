@@ -165,6 +165,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
     - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
+
+- [x] **Feature : Double appartenance "Pépite" pour les autres verdicts d'opportunité** *(Corrigé 2026-07-06)*
+    - *Détails :* Un `LUTHIER_PROJ`/`FAST_FLIP`/`CASE_WIN`/`COLLECTION` qui remplit aussi les critères Pépite (marge) restait invisible du filtre/notifications "Pépites".
+    - *Solution :* Nouveau champ IA `also_qualifies_pepite` (`prompts.json`), pris en compte dans le filtre et le compteur Pépites (`useDealsManager.js`), badge secondaire "Aussi Pépite" (`DealCard.jsx`), et déclenchement de la notification (`notifications.py`).
+    - *Bug critique corrigé au passage* : `notify_deal()` plantait (`NameError` sur `HIGH_PRIORITY_VERDICTS`/`profit`) à chaque Pépite trouvée, interrompant le scan des villes restantes (pas de `except` sur la boucle dans `bot.py::run_scan`).
+    - *Bug annexe corrigé* : `NtfyNotifier.send()` plantait silencieusement sur les émojis/accents du titre (headers HTTP Latin-1 uniquement) — corrigé via encodage RFC 2047.
 - [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
 - [x] **Bug : Problème de déplacement sur la carte (MapView)** *(Corrigé 2026-05-06)*
     - *Détails :* Correction de l'interaction InfoWindow (gap mouseout) et restauration du bouton de fermeture.
