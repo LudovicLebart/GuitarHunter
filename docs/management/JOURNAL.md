@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-07] [PRO] Incident : Site en panne suite à l'automatisation du déploiement frontend (`TypeError onAuthStateChanged`) → Résultat :
+- **Symptôme** : Après le premier push déclenchant le nouveau job `deploy-frontend`, le site entier plantait sur tous les appareils avec `TypeError: Cannot read properties of undefined (reading 'onAuthStateChanged')`.
+- **Cause** : `src/services/firebase.js` lit `import.meta.env.VITE_FIREBASE_*`, injectées au build depuis `.env` (fichier local, non versionné). Le job CI `deploy-frontend` buildait sans ce fichier → `firebaseConfig` entièrement `undefined` → `initializeApp()` échoue (catché, juste loggé) → `auth` reste `undefined` → premier appel `auth.onAuthStateChanged(...)` plante.
+- **Réparation immédiate** : `npm run deploy` relancé manuellement en local (avec le vrai `.env`) pour restaurer le site.
+- **Correctif permanent (`.github/workflows/deploy.yml`)** : Ajout d'une étape "Create .env file" dans `deploy-frontend`, écrivant `secrets.DOT_ENV` avant `npm run build` — même mécanisme déjà utilisé par le job backend. Échec explicite (`exit 1`) si le secret est absent, plutôt qu'un build silencieusement cassé.
+- **Raison** : Le job frontend ajouté la veille n'avait pas repris l'injection de secrets déjà en place côté backend — angle mort découvert seulement une fois le déploiement automatique réellement déclenché en production.
+
 [2026-07-07] [PRO] Fix : Viewport mobile fixe (475px) au lieu de device-width → Résultat :
 - **`index.html`** : `<meta name="viewport" content="width=device-width, initial-scale=1.0">` → `<meta name="viewport" content="width=475">`. Sans effet sur desktop (balise ignorée hors navigateurs mobiles).
 - **Mécanisme** : Au lieu de forcer un mappage 1:1 CSS/écran (`device-width`) et de devoir cacher des éléments du `Navbar` pour tenir dans ~375px, le viewport logique est fixé à 475px — le navigateur mobile calcule alors automatiquement un zoom (`visualViewport.scale` ≈ 0.79 sur un écran de 375px) pour l'adapter à l'écran réel. Rien n'est plus caché ni coupé, juste rendu proportionnellement plus petit.
