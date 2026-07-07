@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-07] [PRO] Fix : Viewport mobile fixe (475px) au lieu de device-width → Résultat :
+- **`index.html`** : `<meta name="viewport" content="width=device-width, initial-scale=1.0">` → `<meta name="viewport" content="width=475">`. Sans effet sur desktop (balise ignorée hors navigateurs mobiles).
+- **Mécanisme** : Au lieu de forcer un mappage 1:1 CSS/écran (`device-width`) et de devoir cacher des éléments du `Navbar` pour tenir dans ~375px, le viewport logique est fixé à 475px — le navigateur mobile calcule alors automatiquement un zoom (`visualViewport.scale` ≈ 0.79 sur un écran de 375px) pour l'adapter à l'écran réel. Rien n'est plus caché ni coupé, juste rendu proportionnellement plus petit.
+- **Vérifié** : `document.documentElement.clientWidth` = 475, `scrollWidth` = `clientWidth` partout (nav compris) → zéro débordement. Les 4 boutons du Navbar (Filtres, Aide, Paramètres, Déconnexion) restent tous visibles et cliquables. Testé via émulateur mobile (Chrome DevTools respecte la balise viewport comme un vrai appareil) — confirmation sur téléphone réel en attente.
+- **Raison** : L'utilisateur a proposé cette approche après avoir constaté que le fix précédent (masquer des boutons sous 640px) réglait le débordement mais rendait l'interface "trop petite"/cramped ; fixer un viewport logique plus large et laisser le navigateur zoomer automatiquement est plus simple et n'oblige à cacher aucune fonctionnalité.
+
 [2026-07-07] [PRO] Automatisation du déploiement frontend (GitHub Pages) → Résultat :
 - **Découverte** : Le fix mobile de la veille testé sur le site en ligne (`ludoviclebart.github.io`) ne montrait aucun changement. Cause : le déploiement frontend était **manuel** (`npm run deploy`) et n'avait pas été refait depuis le **2026-05-06** — 2 mois de retard, indépendant du CI backend (qui ne déploie que le service Python via SSH).
 - **Action immédiate** : `npm run deploy` exécuté manuellement pour publier la version à jour (commit `6acd749` sur `gh-pages`).

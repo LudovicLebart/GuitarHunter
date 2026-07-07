@@ -209,10 +209,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
     - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
     - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
-- [x] **Bug : Débordement horizontal en mode mobile** *(Corrigé 2026-07-06)*
-    - *Détails :* Aucune contention `overflow-x` dans l'app ; la page se dimensionnait sur l'élément le plus large (dropdown à largeur ambiguë, menus `absolute` sans limite de largeur) plutôt que sur l'écran. La barre "Recherche & Actions" était aussi trop étroite en mobile pour contenir la croix "Effacer les filtres".
-    - *Solution :* `overflow-x: hidden` global (`index.css`), largeur explicite sur le dropdown Statut, empilement des groupes de boutons sous 640px, `max-w-[calc(100vw-2rem)]` sur les menus flottants.
-    - *À confirmer par l'utilisateur* : rendu du Dashboard authentifié sur mobile réel (non vérifiable en session, mur d'authentification).
+- [x] **Bug : Débordement horizontal en mode mobile** *(Corrigé 2026-07-07)*
+    - *Détails :* Aucune contention `overflow-x` dans l'app ; la page se dimensionnait sur l'élément le plus large (dropdown à largeur ambiguë, menus `absolute` sans limite de largeur, `Navbar` avec 4 boutons + statut + logo totalisant 461px pour 375px d'écran) plutôt que sur l'écran. La barre "Recherche & Actions" était aussi trop étroite en mobile pour contenir la croix "Effacer les filtres".
+    - *Solution (2026-07-06)* : `overflow-x: hidden` global (`index.css`), largeur explicite sur le dropdown Statut, empilement des groupes de boutons sous 640px, `max-w-[calc(100vw-2rem)]` sur les menus flottants.
+    - *Piège de déploiement* : Le fix ne se voyait pas en ligne car le frontend était déployé manuellement et n'avait pas été republié depuis 2 mois (2026-05-06). Déploiement manuel effectué + déploiement automatisé via CI (voir entrée dédiée).
+    - *Solution finale (2026-07-07)* : Une fois déployé, le `Navbar` restait "cramped" (tout tenait mais trop petit). Remplacement du viewport `width=device-width` par `width=475` fixe dans `index.html` — le navigateur mobile zoome automatiquement pour adapter les 475px à l'écran réel, sans avoir à cacher aucun bouton.
+    - *À confirmer par l'utilisateur* : rendu sur téléphone réel après déploiement (vérifié en émulateur mobile en session : aucun débordement, 4 boutons visibles).
 - [x] **Système de Thème (Dark Mode) global** *(Intégré dans le Mockup)*
 - [/] **Dashboard Analytics & Statistiques** *(Moteur de calcul intégré — `MockupStatsView.jsx`)*
     - *Détails :* Le "moteur" de stats est fonctionnel au sein du composant, utilisant les données réelles de Firestore.
