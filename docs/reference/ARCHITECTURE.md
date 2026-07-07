@@ -87,6 +87,11 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
 - **Déploiement Tailscale (OAuth):** Le workflow de déploiement GitHub Actions utilise des identifiants OAuth Tailscale (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) pour se connecter au Tailnet et accéder au serveur via SSH.
 
+### `.github/workflows/deploy.yml`
+- **`deploy` (backend) :** Sur push `master`/`dev`, se connecte au serveur via Tailscale + SSH, `git reset --hard` sur la branche poussée, réinstalle les dépendances Python/Playwright, redémarre le service systemd `guitare-hunter`.
+- **`deploy-frontend` (2026-07-07) :** Job indépendant (en parallèle du backend), sur les mêmes branches. `npm ci` → `npm run build` → publication de `dist/` sur la branche `gh-pages` via `peaceiris/actions-gh-pages@v4` (utilise le `GITHUB_TOKEN` intégré, `permissions: contents: write` scopé à ce job). Avant cet ajout, le déploiement frontend était **manuel** (`npm run deploy`) et le site en ligne pouvait accumuler plusieurs mois de retard sans que personne ne s'en aperçoive — c'est ce qui s'est produit (dernier déploiement manuel : 2026-05-06, redéployé manuellement le 2026-07-07 avant l'automatisation).
+- **Prérequis GitHub** : Settings → Actions → General → "Workflow permissions" doit être sur "Read and write permissions" pour que `deploy-frontend` puisse pousser sur `gh-pages`.
+
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
 - **Multi-utilisateur:** Accepte `app_id`, `user_id`, `browser_semaphore` en paramètres. Logger isolé par user : `logging.getLogger(f"bot.{user_id[:8]}")`.

@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-07] [PRO] Automatisation du déploiement frontend (GitHub Pages) → Résultat :
+- **Découverte** : Le fix mobile de la veille testé sur le site en ligne (`ludoviclebart.github.io`) ne montrait aucun changement. Cause : le déploiement frontend était **manuel** (`npm run deploy`) et n'avait pas été refait depuis le **2026-05-06** — 2 mois de retard, indépendant du CI backend (qui ne déploie que le service Python via SSH).
+- **Action immédiate** : `npm run deploy` exécuté manuellement pour publier la version à jour (commit `6acd749` sur `gh-pages`).
+- **`.github/workflows/deploy.yml`** : Nouveau job `deploy-frontend`, indépendant et parallèle au job backend existant, déclenché sur les mêmes branches (`master`, `dev`). `npm ci` → `npm run build` → publication de `dist/` sur `gh-pages` via `peaceiris/actions-gh-pages@v4` (`GITHUB_TOKEN` intégré, pas de nouveau secret).
+- **Prérequis** : Repo GitHub → Settings → Actions → General → "Workflow permissions" sur "Read and write permissions", sinon le push vers `gh-pages` échoue malgré le `permissions: contents: write` du job.
+- **Raison** : Le déploiement manuel avait permis un décalage de 2 mois entre le code et le site en ligne sans que ça se remarque — source du "ça n'a pas marché" alors que le correctif mobile était déjà en place dans le code.
+
 [2026-07-06] [PRO] Fix : Débordement horizontal en mode mobile (Dashboard) → Résultat :
 - **`index.css`** : Ajout de `overflow-x: hidden` sur `html, body, #root` — filet de sécurité empêchant tout élément fautif de créer un scroll horizontal.
 - **`src/components/Dashboard.jsx`** (`VerdictDropdown`) : Le conteneur du bouton avait `relative shrink-0` (largeur indéfinie) avec un enfant `w-full` — cas ambigu en CSS. Remplacé par `flex-1 sm:flex-none min-w-0` sur le conteneur, avec troncature propre (`truncate`) du libellé au lieu de dépendre du `w-full`.
