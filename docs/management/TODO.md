@@ -86,6 +86,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🛠️ Administration & Gestion Utilisateurs
+
+- [ ] **Dashboard Administrateur** *(Plan sauvegardé 2026-07-08)*
+    - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
+    - *Objectif :* Vue centralisée sur tous les utilisateurs (activité, coût estimé, dernier login, statut du bot) + actions de gestion (désactivation de compte, envoi de courriel, arrêt de bot à distance), protégée par un custom claim Firebase admin.
+    - *Découpage :* Phase 1 (monitoring, lecture seule) puis Phase 2 (actions privilégiées + journal d'audit).
+
+---
+
 ## 🏙️ Villes & Geocodage (2026-04-08)
 
 - [x] **Bug : Backend scannait 0 villes après migration UID** *(Corrigé 2026-04-08)*
@@ -193,6 +202,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Nouvelle option "Avec commentaire..." dans le menu Ré-analyser (`DealCard.jsx`) — permet de corriger l'IA (ex: mauvaise identification de modèle) avant une contre-analyse Expert Pro.
 - [x] **Feature : Alerte email si un modèle Gemini devient indisponible** *(2026-07-07)*
     - *Détails :* `notify_model_error()` — détecte les erreurs "modèle introuvable" et alerte par email/ntfy (utile pour `gemini-3.1-pro-preview`, modèle Preview pouvant être retiré avec 2 semaines de préavis).
+- [ ] **Architecture : Pool d'annonces commun entre utilisateurs (dédoublonnage par ID Facebook)**
+    - *Détails :* Chaque utilisateur possède sa propre sous-collection isolée `users/{uid}/guitar_deals` (architecture multi-tenant, `ARCHITECTURE.md §1`). Quand plusieurs utilisateurs scannent des zones géographiques qui se recoupent, la **même annonce Facebook** (même ID) est scrapée et analysée par l'IA (3 appels Gemini) séparément pour chacun — un pur gaspillage, puisque le contenu de l'annonce est identique.
+    - *Preuve concrète* : `backend/scripts/analyze_funnel_by_user.py` a mis en évidence des annonces identiques (ex: "Guitare Oscar Smith", "Guitare acoustique Madera") analysées 3 fois pour 3 utilisateurs différents (`GEMINI_PROMPT_CACHING_PLAN.md §8.2`).
+    - *Piste* : passer à un **pool d'annonces partagé** (collection globale indexée par ID Facebook, analysée IA une seule fois), avec une couche de **filtrage/affichage par utilisateur** (ville, prix, mots-clés propres à chaque config) qui ne montre que les annonces pertinentes pour ses propres critères de recherche — sans dupliquer ni le scraping ni l'analyse IA.
+    - *Impact estimé* : réduction directe et significative des appels Gemini (donc du coût), plus large que le gain du caching de contexte (`GEMINI_PROMPT_CACHING_PLAN.md`) puisqu'elle élimine l'appel plutôt que de le rendre moins cher. À chiffrer/planifier séparément (refactor architecture significatif : migration des données existantes, règles Firestore, `firestoreService.js`, `bot.py`).
 - [ ] **Problème à documenter...**
     - *Détails :* ...
 

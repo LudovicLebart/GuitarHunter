@@ -52,6 +52,16 @@ const StatsView = ({ deals }) => {
     const marketDeals = deals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
     const archiveDeals = totalDeals - radarDeals.length - marketDeals.length;
 
+    // Funnel réel dérivé de aiAnalysis.model_used (ex: "flash-lite -> flash -> pro")
+    const modelChainTokens = (deal) => {
+        const used = deal.aiAnalysis?.model_used;
+        return (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
+    };
+    // "pro" couvre aussi bien la cascade normale (3 maillons) que les réanalyses "Luthier Expert"
+    // forcées qui sautent le Portier (2 maillons : Analyste -> Expert)
+    const reachedT2Count = deals.filter(d => modelChainTokens(d).length >= 2).length;
+    const reachedT3Count = deals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
+
     // Financials (Only calculating positive margins from radar deals)
     let totalPotentialMargin = 0;
     let totalEstimatedValue = 0;
@@ -194,10 +204,9 @@ const StatsView = ({ deals }) => {
                     </h3>
 
                     <div className="flex flex-col items-center space-y-2 pt-4">
-                        <FunnelStage label="Total Scrappé" count={totalDeals * 4} percentage={100} color="slate" />
-                        <FunnelStage label="Passé Portier (T1)" count={totalDeals} percentage={25} color="blue" />
-                        <FunnelStage label="Qualifié (T2)" count={radarDeals.length + marketDeals.length} percentage={Math.round(((radarDeals.length + marketDeals.length) / totalDeals) * 100)} color="emerald" />
-                        <FunnelStage label="Certifié (T3 Pro)" count={2} percentage={12} color="purple" isLast={true} />
+                        <FunnelStage label="Analysé (Portier T1)" count={totalDeals} percentage={100} color="blue" />
+                        <FunnelStage label="Qualifié (Analyste T2)" count={reachedT2Count} percentage={totalDeals > 0 ? Math.round((reachedT2Count / totalDeals) * 100) : 0} color="emerald" />
+                        <FunnelStage label="Certifié (Expert T3)" count={reachedT3Count} percentage={reachedT2Count > 0 ? Math.round((reachedT3Count / reachedT2Count) * 100) : 0} color="purple" isLast={true} />
                     </div>
                 </div>
 
