@@ -1,5 +1,18 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-07] [PRO] Feature : Mise à jour des modèles Gemini + commentaire personnalisé sur réanalyse + alerte modèle indisponible → Résultat :
+- **`config.py`** : `GEMINI_MODELS["available"]` nettoyé (retrait de `gemini-1.5-flash`/`gemini-1.5-pro`, génération obsolète). Ajout de `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`. `default_expert` (Tier 3 — contre-analyses) → `gemini-3.1-pro-preview` (choix utilisateur : préféré à `gemini-3.5-flash` malgré son statut Preview, jugement qualité > stabilité).
+- **`src/components/ConfigPanel.jsx`** : Liste de repli alignée sur `config.py`.
+- **Important** : La config Firestore d'un utilisateur existant n'est écrite qu'une fois à la création du compte (`ensure_initial_structure` préserve les docs existants) — le nouveau défaut ne s'applique pas rétroactivement, resélection manuelle requise dans le panneau IA.
+- **`backend/analyzer.py`** : `analyze_deal()` accepte `user_comment` (injecté en priorité dans le prompt de base, ex: "Tu as identifié une PRS mais c'est une GWD") et `user_email` (pour l'alerte modèle indisponible ci-dessous).
+- **`backend/bot.py`** : `analyze_single_deal(payload)` lit `payload['userComment']` ; `user_email` transmis aux 3 points d'appel de `analyze_deal`.
+- **`src/services/firestoreService.js`**, **`useDealsManager.js`**, **`Dashboard.jsx`** : `userComment` relayé de bout en bout jusqu'à la commande Firestore `ANALYZE_DEAL`.
+- **`src/components/DealCard.jsx`** : Nouvelle option "Avec commentaire..." dans les deux dropdowns "Ré-analyser" (carte + modale — code dupliqué existant, non refactorisé), ouvrant une modale dédiée (textarea) qui lance une réanalyse Expert avec le commentaire inclus.
+- **`backend/notifications.py`** : Nouvelle fonction `notify_model_error(model_name, error, user_email)` (email + ntfy).
+- **`backend/analyzer.py`** : `_call_gemini_json` détecte les erreurs "modèle introuvable" (404/not found/not supported) et déclenche l'alerte, throttlée à 1×/24h par modèle (`self._model_error_last_notified`).
+- **Découverte technique** : Le SDK Python `google.generativeai` (utilisé par `analyzer.py`) émet désormais un `FutureWarning` explicite — support totalement terminé, remplacé par `google-genai`. Migration non faite ici (hors périmètre, refactor plus large), à planifier séparément.
+- **Raison** : Le Portier/Analyste (Tier 1/2) restent sur leurs modèles 2.5 actuels (stables, non concernés par la demande) ; seul l'Expert Pro (contre-analyses) a été mis à jour vers le modèle jugé le plus puissant.
+
 [2026-07-07] [PRO] Incident : Site en panne suite à l'automatisation du déploiement frontend (`TypeError onAuthStateChanged`) → Résultat :
 - **Symptôme** : Après le premier push déclenchant le nouveau job `deploy-frontend`, le site entier plantait sur tous les appareils avec `TypeError: Cannot read properties of undefined (reading 'onAuthStateChanged')`.
 - **Cause** : `src/services/firebase.js` lit `import.meta.env.VITE_FIREBASE_*`, injectées au build depuis `.env` (fichier local, non versionné). Le job CI `deploy-frontend` buildait sans ce fichier → `firebaseConfig` entièrement `undefined` → `initializeApp()` échoue (catché, juste loggé) → `auth` reste `undefined` → premier appel `auth.onAuthStateChanged(...)` plante.

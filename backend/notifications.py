@@ -255,3 +255,34 @@ class NotificationService:
 
         # ── Canal 2 : Email ───────────────────────────────────────────────
         _email_notifier.send(to_email=user_email, subject=subject, body=body)
+
+    @staticmethod
+    def notify_model_error(model_name: str, error: str, user_email: Optional[str] = None) -> None:
+        """
+        Alerte (email + ntfy) quand un modèle Gemini configuré semble indisponible/retiré
+        (ex: modèle Preview déprécié). Throttlée en amont par l'appelant (1x/24h/modèle).
+
+        Args:
+            model_name : Nom du modèle Gemini en échec (ex: 'gemini-3.1-pro-preview').
+            error      : Message d'erreur brut retourné par l'API.
+            user_email : Email Firebase Auth de l'utilisateur destinataire.
+        """
+        subject = f"[GuitarHunter] ⚠️ Modèle Gemini indisponible : {model_name}"
+        body = (
+            f"⚠️ MODÈLE GEMINI INDISPONIBLE\n"
+            f"{'=' * 50}\n"
+            f"Modèle    : {model_name}\n"
+            f"Erreur    : {error}\n\n"
+            f"Ce modèle semble avoir été retiré ou n'est plus supporté par l'API Gemini "
+            f"(ex: fin de vie d'un modèle Preview). Va dans le panneau de configuration de "
+            f"Guitar Hunter et choisis un autre modèle pour le(s) étage(s) concerné(s) "
+            f"(Portier / Analyste / Expert Pro).\n\n"
+            f"—\nGuitar Hunter Bot"
+        )
+        _ntfy.send(
+            f"⚠️ Modèle indisponible : {model_name}",
+            f"{error[:200]}",
+            priority='high',
+            tags=['warning']
+        )
+        _email_notifier.send(to_email=user_email, subject=subject, body=body)

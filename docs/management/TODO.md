@@ -184,6 +184,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Implémenter une stratégie de rotation d'IP (proxies) pour le scraper**
     - *Détails :* Si les problèmes de détection par Facebook persistent, explorer l'intégration de proxies résidentiels ou d'une rotation d'IP pour le scraper Playwright afin d'améliorer la furtivité et la résilience.
+- [ ] **Migrer `backend/analyzer.py` du SDK `google.generativeai` vers `google-genai`**
+    - *Détails :* Découvert le 2026-07-07 — `google.generativeai` émet désormais un `FutureWarning` explicite indiquant que son support est totalement terminé. Toujours fonctionnel pour l'instant, mais refactor à planifier (signatures d'API différentes entre les deux SDK).
+- [x] **Nettoyer la liste des modèles Gemini obsolètes** *(Corrigé 2026-07-07)*
+    - *Détails :* `gemini-1.5-flash`/`gemini-1.5-pro` retirés de `GEMINI_MODELS["available"]` (`config.py`). Ajout de `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`. Expert Pro (contre-analyses) passé sur `gemini-3.1-pro-preview`.
+    - *Suivi requis* : resélectionner manuellement le nouveau modèle Expert dans le panneau IA (config Firestore existante non affectée automatiquement).
+- [x] **Feature : Commentaire personnalisé lors d'une réanalyse** *(2026-07-07)*
+    - *Détails :* Nouvelle option "Avec commentaire..." dans le menu Ré-analyser (`DealCard.jsx`) — permet de corriger l'IA (ex: mauvaise identification de modèle) avant une contre-analyse Expert Pro.
+- [x] **Feature : Alerte email si un modèle Gemini devient indisponible** *(2026-07-07)*
+    - *Détails :* `notify_model_error()` — détecte les erreurs "modèle introuvable" et alerte par email/ntfy (utile pour `gemini-3.1-pro-preview`, modèle Preview pouvant être retiré avec 2 semaines de préavis).
 - [ ] **Problème à documenter...**
     - *Détails :* ...
 

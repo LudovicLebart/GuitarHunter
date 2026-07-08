@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown, Share2 } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown, Share2, MessageSquarePlus } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import { createSharedDeal } from '../services/firestoreService';
 
@@ -42,6 +42,15 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const [showRescanMenu, setShowRescanMenu] = useState(false);
     const [showModalRescanMenu, setShowModalRescanMenu] = useState(false);
     const [isCopying, setIsCopying] = useState(false);
+    const [showCommentModal, setShowCommentModal] = useState(false);
+    const [commentText, setCommentText] = useState('');
+
+    const openCommentModal = () => setShowCommentModal(true);
+    const submitComment = () => {
+        onForceExpert(commentText.trim());
+        setCommentText('');
+        setShowCommentModal(false);
+    };
 
     const handleShare = async (e) => {
         e.stopPropagation();
@@ -120,10 +129,17 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                             </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onForceExpert(); }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
                             >
                                 <Gem size={14} className="text-purple-400" />
                                 Luthier Expert
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); openCommentModal(); }}
+                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
+                            >
+                                <MessageSquarePlus size={14} className="text-amber-400" />
+                                Avec commentaire...
                             </button>
                         </div>
                     )}
@@ -335,10 +351,17 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                                     </button>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onForceExpert(); }}
-                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 transition-colors"
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
                                     >
                                         <Gem size={14} className="text-purple-400" />
                                         Luthier Expert
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); openCommentModal(); }}
+                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
+                                    >
+                                        <MessageSquarePlus size={14} className="text-amber-400" />
+                                        Avec commentaire...
                                     </button>
                                 </div>
                             )}
@@ -547,6 +570,50 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                                 </div>
 
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modale Commentaire (Réanalyse avec correction utilisateur) */}
+            {showCommentModal && (
+                <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                    onClick={(e) => { e.stopPropagation(); setShowCommentModal(false); }}
+                >
+                    <div
+                        className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-150"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 mb-3">
+                            <MessageSquarePlus size={18} className="text-amber-400" />
+                            <h3 className="text-sm font-black text-slate-100 uppercase tracking-wide">Réanalyse avec commentaire</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-3">
+                            Ex : "Tu as identifié une PRS mais c'est une GWD." Le commentaire est transmis en priorité à l'Expert Pro pour la contre-analyse.
+                        </p>
+                        <textarea
+                            value={commentText}
+                            onChange={(e) => setCommentText(e.target.value)}
+                            placeholder="Ta correction ou précision..."
+                            rows={4}
+                            autoFocus
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all resize-none"
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button
+                                onClick={() => { setCommentText(''); setShowCommentModal(false); }}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={submitComment}
+                                disabled={!commentText.trim()}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-amber-900 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            >
+                                Lancer l'analyse Expert
+                            </button>
                         </div>
                     </div>
                 </div>

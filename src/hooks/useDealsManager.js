@@ -78,16 +78,16 @@ export const useDealsManager = (user, setError) => {
     }
   }, [user, setError]);
 
-  const handleRetryAnalysis = useCallback(async (dealId) => {
+  const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
-    try { await retryDealAnalysis(dealId, user.uid); } catch (e) { setError(e.message); }
+    try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
-  const handleForceExpertAnalysis = useCallback(async (dealId) => {
+  const handleForceExpertAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
     setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing_expert', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
-    try { await forceExpertAnalysis(dealId, user.uid); } catch (e) { setError(e.message); }
+    try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {

@@ -1,10 +1,12 @@
 import json
 import re
+import time
 import requests
 import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
+from backend.notifications import NotificationService
 from config import (
     GEMINI_API_KEY,
     DEFAULT_MAIN_PROMPT,
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 class DealAnalyzer:
     def __init__(self):
         self.models = {}
+        self._model_error_last_notified = {}
         if not GEMINI_API_KEY:
             logger.warning("⚠️ Pas de clé API Gemini fournie.")
             return
@@ -96,7 +99,26 @@ class DealAnalyzer:
             f"- Localisation : {listing_data.get('location', 'N/A')}\n"
         )
         
-    def _call_gemini_json(self, model_name, content_parts):
+    def _is_model_unavailable_error(self, error_text):
+        """Détecte si une erreur Gemini correspond à un modèle introuvable/retiré/non supporté."""
+        needle = str(error_text).lower()
+        return any(marker in needle for marker in ("404", "not found", "not supported", "is not supported for"))
+
+    def _notify_model_unavailable(self, model_name, error_text, user_email):
+        """Alerte email (throttlée à 1x/24h par modèle) si un modèle semble avoir été retiré."""
+        if not user_email:
+            return
+        now = time.time()
+        last_notified = self._model_error_last_notified.get(model_name, 0)
+        if now - last_notified < 86400:  # 24h
+            return
+        self._model_error_last_notified[model_name] = now
+        try:
+            NotificationService.notify_model_error(model_name, error_text, user_email)
+        except Exception as e:
+            logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
+
+    def _call_gemini_json(self, model_name, content_parts, user_email=None):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
         model = self._get_model(model_name)
         if not model:
@@ -107,9 +129,11 @@ class DealAnalyzer:
             return result, None
         except Exception as e:
             logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+            if self._is_model_unavailable_error(e):
+                self._notify_model_unavailable(model_name, str(e), user_email)
             return None, str(e)
 
-    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False):
+    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
@@ -118,11 +142,11 @@ class DealAnalyzer:
         analyst_model_name = config.get('mainModel', 'gemini-2.5-flash')
         # Rétrocompatibilité : 'proModel' est la nouvelle clé, 'expertModel' est l'ancienne (encore écrite par le frontend)
         expert_pro_model_name = config.get('proModel') or config.get('expertModel', 'gemini-2.5-pro')
-        
+
         taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
         rejection_verdicts = config.get('rejectionVerdicts', DEFAULT_REJECTION_VERDICTS)
-        
+
         logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
         # Téléchargement des images
@@ -131,6 +155,13 @@ class DealAnalyzer:
 
         # 1. Construction du Prompt de Base (DRY : Fait une seule fois)
         base_prompt = self._construct_base_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples)
+        if user_comment:
+            base_prompt += (
+                f"\n\n### CORRECTION UTILISATEUR (PRIORITAIRE)\n"
+                f"L'utilisateur a fourni la correction/précision suivante suite à une analyse précédente. "
+                f"Tiens-en compte en priorité, elle prime sur ta propre analyse visuelle si contradiction :\n"
+                f"\"{user_comment}\"\n"
+            )
 
         model_chain = []
         gatekeeper_status = "MANUAL_RETRY"
@@ -147,7 +178,7 @@ class DealAnalyzer:
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
             
-            result_t1, err_t1 = self._call_gemini_json(gatekeeper_model_name, [full_prompt_t1] + images)
+            result_t1, err_t1 = self._call_gemini_json(gatekeeper_model_name, [full_prompt_t1] + images, user_email)
             
             if err_t1 or not result_t1:
                 # Fail-open vers l'Analyste
@@ -180,7 +211,7 @@ class DealAnalyzer:
             analyst_instruction = "\n".join(analyst_instruction)
         full_prompt_t2 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE ANALYSTE ---\n{analyst_instruction}"
         
-        result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images)
+        result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
             return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}", "model_used": " -> ".join(model_chain) + " (Error)"}
@@ -233,7 +264,7 @@ class DealAnalyzer:
             
             full_prompt_t3 = f"{context_t3}\n\n{base_prompt}"
             
-            result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images)
+            result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email)
             
             if err_t3 or not result_t3:
                 logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")

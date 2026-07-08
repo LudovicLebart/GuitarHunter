@@ -236,7 +236,7 @@ class GuitarHunterBot:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return
 
-        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
         deal_id = listing_data.get('id')
         NotificationService.notify_deal(
             deal_id, listing_data, analysis,
@@ -469,7 +469,7 @@ class GuitarHunterBot:
                     continue 
 
                 try:
-                    analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config)
+                    analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
                     self.repo.update_deal_analysis(doc.id, analysis)
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
@@ -628,12 +628,13 @@ class GuitarHunterBot:
         
         deal_id = payload.get('dealId')
         force_expert = payload.get('forceExpert', False)
-        
+        user_comment = payload.get('userComment') or None
+
         if not deal_id:
             self.logger.error("analyze_single_deal: dealId manquant dans le payload.")
             return
 
-        self.logger.info(f"Demande d'analyse manuelle pour l'annonce {deal_id} (Force Expert: {force_expert})")
+        self.logger.info(f"Demande d'analyse manuelle pour l'annonce {deal_id} (Force Expert: {force_expert}, Commentaire: {'oui' if user_comment else 'non'})")
         
         deal_data = self.repo.get_deal_by_id(deal_id)
         if not deal_data:
@@ -655,7 +656,10 @@ class GuitarHunterBot:
         current_config = self.config_manager.current_config_snapshot
         
         try:
-            analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, force_expert=force_expert)
+            analysis = self.analyzer.analyze_deal(
+                listing_data, firestore_config=current_config, force_expert=force_expert,
+                user_comment=user_comment, user_email=self._user_email
+            )
             self.repo.update_deal_analysis(deal_id, analysis)
             self.logger.info(f"Analyse manuelle terminée pour {deal_id}.")
         except Exception as e:

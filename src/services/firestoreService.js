@@ -182,11 +182,11 @@ export const deleteDeal = async (dealId, userId) => {
   }
 };
 
-export const retryDealAnalysis = (dealId, userId) =>
-  addCommand('ANALYZE_DEAL', { dealId, forceExpert: false }, userId);
+export const retryDealAnalysis = (dealId, userId, userComment = '') =>
+  addCommand('ANALYZE_DEAL', { dealId, forceExpert: false, userComment }, userId);
 
-export const forceExpertAnalysis = (dealId, userId) =>
-  addCommand('ANALYZE_DEAL', { dealId, forceExpert: true }, userId);
+export const forceExpertAnalysis = (dealId, userId, userComment = '') =>
+  addCommand('ANALYZE_DEAL', { dealId, forceExpert: true, userComment }, userId);
 
 export const toggleDealFavorite = async (dealId, currentStatus, userId) => {
   try {

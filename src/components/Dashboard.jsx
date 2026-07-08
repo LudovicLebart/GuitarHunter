@@ -288,8 +288,8 @@ const Dashboard = ({ onClose }) => {
         <DealCard
             key={d.id}
             deal={d}
-            onRetry={() => dealActions?.handleRetryAnalysis(d.id)}
-            onForceExpert={() => dealActions?.handleForceExpertAnalysis(d.id)}
+            onRetry={(userComment) => dealActions?.handleRetryAnalysis(d.id, userComment)}
+            onForceExpert={(userComment) => dealActions?.handleForceExpertAnalysis(d.id, userComment)}
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}

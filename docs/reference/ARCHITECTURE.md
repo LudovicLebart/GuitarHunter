@@ -106,9 +106,10 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/analyzer.py` (`DealAnalyzer`)
 - **Responsabilité unique:** Analyser une annonce en cascade.
-- **`_call_gemini_json(model_name, content_parts)`:** Méthode utilitaire DRY. Centralise l'appel Gemini, le parsing JSON et la gestion d'erreur. Utilisée par les 3 Tiers.
+- **SDK (2026-07-07)** : Utilise `google.generativeai`, dont le support est **officiellement terminé** (`FutureWarning` explicite au chargement du module). Remplacé par `google-genai`. Migration non faite — planifiée séparément.
+- **`_call_gemini_json(model_name, content_parts, user_email=None)`:** Méthode utilitaire DRY. Centralise l'appel Gemini, le parsing JSON et la gestion d'erreur. Utilisée par les 3 Tiers. Détecte les erreurs "modèle introuvable" (404/not found/not supported) via `_is_model_unavailable_error()` et déclenche `NotificationService.notify_model_error()` (throttlé à 1×/24h/modèle via `self._model_error_last_notified`) — utile pour les modèles Preview qui peuvent être retirés avec 2 semaines de préavis (préavis envoyé par email Google directement, non interceptable par l'API).
 - **`_construct_base_user_prompt()`:** Construit le prompt de base (taxonomie + détails + few-shot) **une seule fois** par analyse.
-- **`analyze_deal(listing_data, firestore_config, force_expert=False)` — Cascade 3-Tiers :**
+- **`analyze_deal(listing_data, firestore_config, force_expert=False, user_comment=None, user_email=None)` — Cascade 3-Tiers :**
   1. **Tier 1 — Portier (`gemini-2.5-flash-lite`) :** Filtre rapide/peu coûteux. Rejette bruit et services. Produit un verdict statut simple (`PEPITE`, `BAD_DEAL`, etc.). Si rejet → fin immédiate.
   2. **Tier 2 — Analyste (`gemini-2.5-flash`) :** Si T1 passe, analyse structurée avec 5 scores numériques (`deal_score`, `authenticity_score`, `condition_score`, `liquidity_score`, `restoration_interest_score`). Format compacté (puces).
   3. **Carrefour Logique :** Évalue les scores du T2 et le prix extrait via `ListingParser.extract_price_from_text`. Déclenche le T3 si :
@@ -119,9 +120,10 @@ Le backend est un "worker" persistant qui tourne en boucle.
      - confidence < 0.75
      - verdict == 'COLLECTION'
      - `force_expert=True` (demande manuelle)
-  4. **Tier 3 — Expert Pro (`gemini-2.5-pro`) [Conditionnel] :** Analyse exhaustive avec rapport Markdown complet. Écrase le résultat du T2. En cas d'échec : fallback sur le T2.
-  - Le champ `model_used` retrace le chemin complet (ex: `"gemini-2.5-flash-lite -> gemini-2.5-flash -> gemini-2.5-pro"`).
+  4. **Tier 3 — Expert Pro (`gemini-3.1-pro-preview`, 2026-07-07) [Conditionnel] :** Analyse exhaustive avec rapport Markdown complet. Écrase le résultat du T2. En cas d'échec : fallback sur le T2. Modèle Preview choisi pour sa puissance malgré le risque de dépréciation (2 semaines de préavis) — voir alerte email ci-dessus.
+  - Le champ `model_used` retrace le chemin complet (ex: `"gemini-2.5-flash-lite -> gemini-2.5-flash -> gemini-3.1-pro-preview"`).
   - Le champ `tier3_trigger` indique le motif de déclenchement du T3 (si applicable).
+  - **`user_comment` (2026-07-07)** : Si fourni (réanalyse manuelle avec correction utilisateur, ex: "Tu as identifié une PRS mais c'est une GWD"), injecté en priorité dans `base_prompt` — visible par tous les tiers exécutés.
   - **Double appartenance "Pépite" (2026-07-06)** : Le champ `also_qualifies_pepite` (booléen, dans le JSON T2/T3) est positionné par l'IA elle-même quand le verdict principal (`FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION`) remplit *aussi* les critères Pépite (Marge > 100% et > 150$ OU Marge > 30% et modèle iconique). Le verdict principal n'est pas modifié ; le champ traverse tel quel jusqu'à Firestore (`repository.py` ne filtre pas les clés de `aiAnalysis`) et jusqu'au frontend (filtre "Pépites", compteur, badge secondaire dans `DealCard.jsx`).
 
 ### `backend/notifications.py` (`NotificationService`)
@@ -249,9 +251,9 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 ### `src/components/DealCard.jsx`
 - **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
-- **Barre d'Actions unifiée :** Les actions (Favori, Scan, Rejeter, Suppression, Partager, FB) sont factorisées dans une fonction `renderActionButtons` utilisée à la fois dans le footer de la carte et dans le header de la Modale d'Analyse IA.
+- **Barre d'Actions :** `renderActionButtons()` factorise les actions pour la Modale d'Analyse IA (`isModal=true`, seul point d'appel). Le footer de la carte (vue grille) a sa **propre copie indépendante non factorisée** du même bloc — dette technique existante, pas encore unifiée.
 - **Partage Public :** `handleShare` écrit un snapshot dans `shared_deals/{dealId}` (Firestore public), puis génère `?shareId={dealId}`. Utilise `navigator.share` avec fallback clipboard. Le destinataire n'a pas besoin de compte.
-- **Menu de Ré-analyse :** Dropdown dynamique offrant le choix entre "Scan Standard" et "Luthier Expert".
+- **Menu de Ré-analyse :** Dropdown dynamique (présent aux deux endroits ci-dessus) offrant le choix entre "Scan Standard", "Luthier Expert", et "Avec commentaire..." (2026-07-07) — ce dernier ouvre une modale dédiée pour saisir une correction/précision transmise en priorité à l'IA lors d'une réanalyse Expert (`user_comment`, voir `backend/analyzer.py`).
 
 ## 4. 🧠 Système de Prompts Dynamiques
 
