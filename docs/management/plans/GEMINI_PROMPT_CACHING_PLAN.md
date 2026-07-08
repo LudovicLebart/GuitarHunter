@@ -160,7 +160,18 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 
 **Révision de la recommandation (§4)** : avec les vrais taux, le caching **implicite** (§3, gratuit, sans code de gestion de cycle de vie) capture déjà l'essentiel du gain proportionnel (~37%) sans aucun risque de coût de stockage négatif. Le caching **explicite** ne devient clairement rentable qu'à partir de plusieurs utilisateurs actifs partageant le même prompt par défaut à fréquence de scan élevée — à ne développer qu'une fois ce seuil confirmé en pratique (ex : via le compteur d'utilisateurs actifs de `main.py`), pas en anticipation.
 
-**Note** : le calcul ci-dessus utilise encore une hypothèse de fréquence (24 scans/jour = 1 scan/heure). Le volume réel d'annonces analysées par jour n'était pas encore mesuré — voir §8.
+### 7.6 Mesure Réelle du Volume — Verdict Définitif (10 utilisateurs, `analyze_funnel_by_user.py`)
+
+| | Mesuré |
+|---|---|
+| Volume réel global (30j) | **128.10 annonces/jour** (tous utilisateurs confondus) |
+| Utilisateur le plus actif (`wbPlgZgkW2VcAl0a2l44UMSDTaG2`) | 66.13/jour |
+| Ratio économie/stockage agrégé (tous utilisateurs) | **0.12** |
+| Gain net agrégé | **-$0.425/jour** (perte nette) |
+
+Même en cumulant **les 10 utilisateurs réels du projet**, le ratio reste à 0.12 — il faudrait environ **×8 le volume actuel** (~1065 annonces/jour) pour atteindre le seuil de rentabilité (ratio = 1). Aucun utilisateur individuel, ni l'agrégat de tous les utilisateurs actuels, ne s'en approche.
+
+**Conclusion révisée** : le caching explicite **n'est pas rentable à l'échelle actuelle du projet, et un ordre de grandeur de croissance serait nécessaire pour que ça change**. Il ne s'agit plus de "différer" cette étape (§4) mais de la **retirer de la feuille de route à court terme**. Seul le caching implicite (§3, gratuit, ~37% de gain, zéro risque de stockage) est recommandé pour l'instant. Réévaluer uniquement si le volume quotidien global approche l'ordre de grandeur ci-dessus (via une relance périodique de `analyze_funnel_by_user.py`, §8.1).
 
 ---
 
@@ -169,24 +180,25 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 ### 8.1 Volume réel & ratio de rentabilité
 
 `analyze_funnel_by_user.py` calcule désormais, en plus du funnel :
-- Le **volume réel d'annonces analysées par jour** (`recent_count / --days`, fenêtre de 30 jours par défaut), à partir du champ `timestamp` déjà présent sur chaque annonce — remplace l'hypothèse "24 scans/jour" par une moyenne mesurée.
-- Le **ratio de rentabilité du cache explicite** à ce volume (`estimate_profitability()`) : économie de tokens/jour ÷ coût de stockage/jour. Un ratio ≥ 1 signifie que le cache explicite est rentable à l'instant présent ; en dessous, il coûte plus qu'il ne rapporte (cf. §7.5, ratio mesuré = 0.03 pour l'utilisateur principal avec un volume hypothétique de 30/jour — largement en dessous du seuil).
+- Le **volume réel d'annonces analysées par jour** (`recent_count / --days`, fenêtre de 30 jours par défaut), à partir du champ `timestamp` déjà présent sur chaque annonce.
+- Le **ratio de rentabilité du cache explicite** à ce volume (`estimate_profitability()`) : économie de tokens/jour ÷ coût de stockage/jour. Un ratio ≥ 1 signifie que le cache explicite est rentable à l'instant présent. **Mesuré à 0.12 en agrégé sur les 10 utilisateurs actuels (§7.6)** — largement en dessous du seuil.
 
-**Usage recommandé** : relancer ce script **manuellement de temps en temps** (ex : mensuel, ou après un changement notable du nombre d'utilisateurs actifs) plutôt que d'automatiser un job de surveillance dès maintenant — à ce niveau de volume, les montants en jeu se comptent en centimes/jour et ne justifient pas l'effort d'un monitoring temps réel. Réévaluer l'automatisation (ex : log périodique via `TaskScheduler`) si le nombre d'utilisateurs actifs augmente significativement.
+**Usage recommandé** : relancer ce script **manuellement de temps en temps** (ex : mensuel, ou après une forte croissance du nombre d'utilisateurs actifs) plutôt que d'automatiser un job de surveillance dès maintenant — à ce niveau de volume, les montants en jeu se comptent en centimes/jour et ne justifient pas l'effort d'un monitoring temps réel.
 
-### 8.2 Suspicion de faux positifs du Portier
+### 8.2 Faux Positif Confirmé du Portier
 
-Le taux de rejet mesuré (~92%) est élevé. Deux explications possibles, non exclusives :
-1. Filtrage légitime : la mission du Portier est justement de rejeter bruit, services et arnaques — un taux élevé peut simplement refléter la réalité du marché (beaucoup d'annonces hors sujet).
-2. **Faux positifs dus à la faiblesse du modèle** : `gemini-2.5-flash-lite` est le moins capable des 3 modèles de la cascade ; il peut rejeter à tort de vraies bonnes affaires par manque de nuance.
+Le taux de rejet mesuré (~92%) est élevé, mais l'échantillonnage (`--sample-size`) sur les 10 utilisateurs a permis de trancher entre bruit légitime et faux positif :
 
-Le script échantillonne désormais (`--sample-size`, 3 par utilisateur par défaut) des annonces rejetées au Portier (titre + verdict + `reasoning`) pour un contrôle manuel. **Action recommandée** : examiner l'échantillon affiché en fin de rapport ; si une proportion notable semble être de vraies annonces pertinentes rejetées à tort, envisager de faire monter le Portier vers `gemini-2.5-flash` (coût plus élevé par appel, mais volume T1 dominant dans la facture totale — l'arbitrage coût/qualité serait à chiffrer séparément de ce plan, qui porte sur le caching et non sur la précision du modèle).
+- **La grande majorité des rejets sont légitimes** : guitares neuves vendues en magasin sans marge, accessoires hors taxonomie (contrôleurs DJ, jouets vintage), prix supérieur à la valeur estimée — le Portier fait correctement son travail de filtre sur ces cas.
+- **Un faux positif systématique confirmé** : une guitare acoustique 12 cordes ("Oscar Smith") rejetée avec la raison *"ne correspond pas aux critères de recherche pour des projets de guitares électriques ou basses"* — répété identique 3 fois dans l'échantillon (même annonce vue par plusieurs utilisateurs). **Cette restriction n'existe pas dans les instructions** : `taxonomy_master` inclut explicitement `acoustique_acier.specialites.12_Cordes`, et ni `gatekeeper_verbosity_instruction` ni `main_analysis_prompt` ne limitent aux guitares électriques/basses. Le Portier invente une règle absente de son prompt.
+
+**Cause probable** : pas une faiblesse générale du modèle sur le raisonnement, mais un **non-respect d'une instruction explicite** (`gemini-2.5-flash-lite` retombant sur un biais générique "projet guitare = électrique" au lieu de suivre la taxonomie fournie). **Recommandation** : corriger d'abord par un **ajustement de prompt** (clarifier explicitement dans `gatekeeper_verbosity_instruction` que l'acoustique, y compris 12 cordes, est acceptée au même titre que l'électrique) — gratuit et sans risque — avant d'envisager une montée en gamme du modèle Portier (`gemini-2.5-flash`, coût plus élevé, à chiffrer séparément si le correctif de prompt ne suffit pas).
 
 ---
 
 ## Phase de Test et Migration
 
-1. Implémenter d'abord le caching implicite (§3) sans aucune création d'objet — mesurer le taux de hit sur quelques jours via les logs.
-2. Si le taux de hit implicite est faible ou le volume d'appels le justifie, implémenter le caching explicite par Tier (§4) avec la règle TTL/fréquence (§5).
-3. Valider sur un utilisateur "cobaye" à fréquence de scan élevée avant généralisation.
-4. Documenter les résultats mesurés (tokens économisés, coût de stockage réel) dans `docs/management/JOURNAL.md`.
+1. Implémenter le caching **implicite** (§3) sans aucune création d'objet — mesurer le taux de hit sur quelques jours via les logs.
+2. **Le caching explicite (§4) est retiré de la feuille de route à court terme** (§7.6 : ratio de rentabilité mesuré à 0.12 sur les 10 utilisateurs réels, il faudrait ×8 le volume actuel). Ne le reconsidérer que si `analyze_funnel_by_user.py` (§8.1), relancé périodiquement, mesure une approche du seuil de rentabilité.
+3. Documenter les résultats mesurés (tokens économisés via le caching implicite) dans `docs/management/JOURNAL.md`.
+4. Corriger en priorité le faux positif du Portier sur les guitares acoustiques (§8.2) — gain de qualité gratuit, indépendant du caching.
