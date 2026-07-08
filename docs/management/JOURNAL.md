@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-07] [PRO] Fix : Job `deploy-frontend` rejeté par Git (`gh-pages` non fast-forward) → Résultat :
+- **Symptôme** : `git push origin gh-pages` échoue dans le job CI avec `! [rejected] gh-pages -> gh-pages (fetch first)`.
+- **Cause** : Des déploiements manuels (`npm run deploy`) faits en parallèle pendant la session ont fait diverger la branche `gh-pages` de l'état attendu par le job CI, dont le `git push` normal n'est pas `--force`.
+- **`.github/workflows/deploy.yml`** : Ajout de `force_orphan: true` sur l'étape `peaceiris/actions-gh-pages@v4` — republie systématiquement un commit unique et propre sur `gh-pages`, sans jamais dépendre ni tenir compte de son état précédent (adapté à une branche de build, sans historique utile à préserver).
+- **Raison** : `gh-pages` ne contient que des artefacts de build ; `force_orphan` est le pattern recommandé pour ce cas précis et rend le déploiement CI totalement insensible à d'éventuels déploiements manuels intercalés.
+
 [2026-07-07] [PRO] Feature : Mise à jour des modèles Gemini + commentaire personnalisé sur réanalyse + alerte modèle indisponible → Résultat :
 - **`config.py`** : `GEMINI_MODELS["available"]` nettoyé (retrait de `gemini-1.5-flash`/`gemini-1.5-pro`, génération obsolète). Ajout de `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`. `default_expert` (Tier 3 — contre-analyses) → `gemini-3.1-pro-preview` (choix utilisateur : préféré à `gemini-3.5-flash` malgré son statut Preview, jugement qualité > stabilité).
 - **`src/components/ConfigPanel.jsx`** : Liste de repli alignée sur `config.py`.
