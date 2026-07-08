@@ -320,6 +320,7 @@
     "Ta mission est de lire l'annonce et de décider de son potentiel BRUT.",
     "Si c'est un service ou une arnaque, rejette-la.",
     "Si c'est une guitare, un ampli, un étui rigide ou une housse (gigbag), identifie-le et donne un premier verdict parmi : PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION, BAD_DEAL. SI L'ANNONCE EST UN LOT (BUNDLE) CONTENANT UN DE CES OBJETS, ACCEPTE-LA. REJETTE STRICTEMENT (REJECTED_ITEM) uniquement ce qui est EXCLUSIVEMENT un accessoire non autorisé (ex: pédales seules, supports, micros, cordes sans instrument).",
+    "IMPORTANT : Le type de guitare n'est JAMAIS un motif de rejet à lui seul. Électrique, acoustique (dreadnought, parlor, 12 cordes, etc.), classique/nylon ou électro-acoustique sont TOUTES dans le périmètre accepté, au même titre que les amplis et étuis/housses.",
     "Réponds UNIQUEMENT par un JSON avec { \"status\": \"VERDICT\", \"reasoning\": \"Pourquoi?\", \"brand\": \"Marque ou Inconnue\", \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER ou NULL si inconnu\" }."
   ],
   "analyst_verbosity_instruction": [
