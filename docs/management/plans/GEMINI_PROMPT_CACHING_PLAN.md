@@ -160,6 +160,28 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 
 **Révision de la recommandation (§4)** : avec les vrais taux, le caching **implicite** (§3, gratuit, sans code de gestion de cycle de vie) capture déjà l'essentiel du gain proportionnel (~37%) sans aucun risque de coût de stockage négatif. Le caching **explicite** ne devient clairement rentable qu'à partir de plusieurs utilisateurs actifs partageant le même prompt par défaut à fréquence de scan élevée — à ne développer qu'une fois ce seuil confirmé en pratique (ex : via le compteur d'utilisateurs actifs de `main.py`), pas en anticipation.
 
+**Note** : le calcul ci-dessus utilise encore une hypothèse de fréquence (24 scans/jour = 1 scan/heure). Le volume réel d'annonces analysées par jour n'était pas encore mesuré — voir §8.
+
+---
+
+## 8. Monitoring Continu & Qualité du Portier
+
+### 8.1 Volume réel & ratio de rentabilité
+
+`analyze_funnel_by_user.py` calcule désormais, en plus du funnel :
+- Le **volume réel d'annonces analysées par jour** (`recent_count / --days`, fenêtre de 30 jours par défaut), à partir du champ `timestamp` déjà présent sur chaque annonce — remplace l'hypothèse "24 scans/jour" par une moyenne mesurée.
+- Le **ratio de rentabilité du cache explicite** à ce volume (`estimate_profitability()`) : économie de tokens/jour ÷ coût de stockage/jour. Un ratio ≥ 1 signifie que le cache explicite est rentable à l'instant présent ; en dessous, il coûte plus qu'il ne rapporte (cf. §7.5, ratio mesuré = 0.03 pour l'utilisateur principal avec un volume hypothétique de 30/jour — largement en dessous du seuil).
+
+**Usage recommandé** : relancer ce script **manuellement de temps en temps** (ex : mensuel, ou après un changement notable du nombre d'utilisateurs actifs) plutôt que d'automatiser un job de surveillance dès maintenant — à ce niveau de volume, les montants en jeu se comptent en centimes/jour et ne justifient pas l'effort d'un monitoring temps réel. Réévaluer l'automatisation (ex : log périodique via `TaskScheduler`) si le nombre d'utilisateurs actifs augmente significativement.
+
+### 8.2 Suspicion de faux positifs du Portier
+
+Le taux de rejet mesuré (~92%) est élevé. Deux explications possibles, non exclusives :
+1. Filtrage légitime : la mission du Portier est justement de rejeter bruit, services et arnaques — un taux élevé peut simplement refléter la réalité du marché (beaucoup d'annonces hors sujet).
+2. **Faux positifs dus à la faiblesse du modèle** : `gemini-2.5-flash-lite` est le moins capable des 3 modèles de la cascade ; il peut rejeter à tort de vraies bonnes affaires par manque de nuance.
+
+Le script échantillonne désormais (`--sample-size`, 3 par utilisateur par défaut) des annonces rejetées au Portier (titre + verdict + `reasoning`) pour un contrôle manuel. **Action recommandée** : examiner l'échantillon affiché en fin de rapport ; si une proportion notable semble être de vraies annonces pertinentes rejetées à tort, envisager de faire monter le Portier vers `gemini-2.5-flash` (coût plus élevé par appel, mais volume T1 dominant dans la facture totale — l'arbitrage coût/qualité serait à chiffrer séparément de ce plan, qui porte sur le caching et non sur la précision du modèle).
+
 ---
 
 ## Phase de Test et Migration
