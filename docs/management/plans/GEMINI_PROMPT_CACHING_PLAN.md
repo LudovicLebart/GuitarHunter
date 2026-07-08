@@ -131,6 +131,35 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 
 **Recommandation** : avant de figer les hypothèses de funnel de ce plan, corriger `StatsView.jsx` pour dériver les 3 compteurs directement du nombre de maillons de `aiAnalysis.model_used` sur les annonces réelles de l'utilisateur connecté — cela donnerait un funnel exact, affiché dans l'app, et réutilisable pour recalibrer §7.1. C'est un correctif de code ciblé (pas une nouvelle fonctionnalité), à traiter comme une tâche à part si validé.
 
+✅ **Fait** : `StatsView.jsx` corrigé (widget Funnel dérivé de `model_used`), et script `backend/scripts/analyze_funnel_by_user.py` créé et exécuté sur la base réelle — voir §7.5.
+
+### 7.5 Données Réelles Mesurées (`analyze_funnel_by_user.py`, exécuté sur 4 941 annonces)
+
+| | Hypothèse initiale (§7.1) | **Réel mesuré** |
+|---|---|---|
+| Portier (T1) → Analyste (T2) | 60% | **8.3%** (104 / 1 247 annonces post-funnel-3-tiers) |
+| Analyste (T2) → Expert Pro (T3) | 25% | **23.1%** (24 / 104) — proche de l'hypothèse |
+
+3 694 des 4 941 annonces (74.8%) sont antérieures à l'introduction du champ `model_used` (avant le Funnel 3-Tiers, Session 21, 2026-02-24) et sont exclues du calcul des taux — seules les 1 247 annonces "modernes" servent de base.
+
+**Le Portier rejette beaucoup plus large que supposé (~92% vs ~40% hypothétique)** — cohérent avec sa mission de filtre bruit/services/arnaques. Conséquence directe : les Tiers 2 et 3 (les plus chers) sont rarement déclenchés, donc le **coût réel par scan est nettement inférieur** à l'estimation initiale.
+
+#### Coût par scan (30 annonces) — recalculé avec les vrais taux
+
+| | Sans cache | Avec cache explicite (hors stockage) |
+|---|---|---|
+| Coût/scan | **$0.037** (vs $0.137 hypothèse) | **$0.023** |
+| Réduction sur les tokens facturés | — | **~37%** |
+
+#### ⚠️ Le stockage du cache explicite devient un point critique à ce niveau de volume
+
+- Économie brute de tokens à fréquence de scan = 60 min (24 scans/jour, **1 seul utilisateur**) : **~$0.33/jour**.
+- Coût de stockage des 3 caches (§7.2, inchangé) : **~$0.48/jour**.
+- **Gain net pour 1 utilisateur seul : -$0.15/jour → PERTE NETTE.**
+- Point mort : il faut **~1.5 utilisateur actif** à cette fréquence de scan pour que le cache explicite devienne rentable (2 utilisateurs → +$0.17/jour, 5 → +$1.15/jour, 10 → +$2.78/jour).
+
+**Révision de la recommandation (§4)** : avec les vrais taux, le caching **implicite** (§3, gratuit, sans code de gestion de cycle de vie) capture déjà l'essentiel du gain proportionnel (~37%) sans aucun risque de coût de stockage négatif. Le caching **explicite** ne devient clairement rentable qu'à partir de plusieurs utilisateurs actifs partageant le même prompt par défaut à fréquence de scan élevée — à ne développer qu'une fois ce seuil confirmé en pratique (ex : via le compteur d'utilisateurs actifs de `main.py`), pas en anticipation.
+
 ---
 
 ## Phase de Test et Migration
