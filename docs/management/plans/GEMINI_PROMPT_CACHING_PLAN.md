@@ -95,16 +95,18 @@ Estimation illustrative basée sur le contenu réel de `prompts.json` (comptage 
 | Photos/annonce | 4 (donnée utilisateur) |
 | Funnel Portier → Analyste | 60% (18/30) — **hypothèse** |
 | Funnel Analyste → Expert Pro | 25% des 18 (→ 4 annonces) — **hypothèse** |
-| Tarifs $/1M tokens (in/out) | Flash-Lite 0.10/0.40 · Flash 0.30/2.50 · Pro 1.25/10.00 |
+| Tarifs $/1M tokens (in/out) | Flash-Lite 0.10/0.40 · Flash 0.30/2.50 · Expert Pro 2.00/12.00 |
 | Réduction cache explicite | 90% sur la portion mise en cache (tarif officiel) |
 | Stockage cache | ~2$/M tokens/heure (fourchette publique 1-4.50$ selon modèle) |
+
+> **Mise à jour (2026-07-08)** : le modèle Expert Pro par défaut est passé de `gemini-2.5-pro` ($1.25/$10.00 par 1M tokens) à `gemini-3.1-pro-preview` ($2.00/$12.00) suite à un changement fusionné depuis `dev`. Tous les chiffres ci-dessous intègrent ce nouveau tarif. L'impact reste limité car le Tier 3 représente un volume marginal (§7.5-7.6).
 
 ### 7.1 Coût par scan (30 annonces, 4 photos/annonce)
 
 | | Sans cache | Avec cache explicite (hors stockage) |
 |---|---|---|
-| Coût/scan | **$0.137** | **$0.096** |
-| Coût moyen/annonce | $0.0046 | $0.0032 |
+| Coût/scan | **$0.174** | **$0.122** |
+| Coût moyen/annonce | $0.0058 | $0.0041 |
 | Réduction sur les tokens facturés | — | **~30%** |
 
 Le gain plafonne à ~30% (et non 90%) car **les images ne sont jamais cachées** (uniques par annonce) et représentent la majorité des tokens d'entrée (~2 800 sur ~6 200 par appel) — seul le préambule statique (taxonomie/few-shot/prompt) bénéficie du tarif réduit.
@@ -148,15 +150,15 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 
 | | Sans cache | Avec cache explicite (hors stockage) |
 |---|---|---|
-| Coût/scan | **$0.037** (vs $0.137 hypothèse) | **$0.023** |
+| Coût/scan | **$0.041** (vs $0.174 hypothèse) | **$0.026** |
 | Réduction sur les tokens facturés | — | **~37%** |
 
 #### ⚠️ Le stockage du cache explicite devient un point critique à ce niveau de volume
 
-- Économie brute de tokens à fréquence de scan = 60 min (24 scans/jour, **1 seul utilisateur**) : **~$0.33/jour**.
+- Économie brute de tokens à fréquence de scan = 60 min (24 scans/jour, **1 seul utilisateur**) : **~$0.36/jour**.
 - Coût de stockage des 3 caches (§7.2, inchangé) : **~$0.48/jour**.
-- **Gain net pour 1 utilisateur seul : -$0.15/jour → PERTE NETTE.**
-- Point mort : il faut **~1.5 utilisateur actif** à cette fréquence de scan pour que le cache explicite devienne rentable (2 utilisateurs → +$0.17/jour, 5 → +$1.15/jour, 10 → +$2.78/jour).
+- **Gain net pour 1 utilisateur seul : -$0.13/jour → PERTE NETTE.**
+- Point mort : il faut **~1.35 utilisateur actif** à cette fréquence de scan pour que le cache explicite devienne rentable (2 utilisateurs → +$0.23/jour, 5 → +$1.30/jour, 10 → +$3.08/jour).
 
 **Révision de la recommandation (§4)** : avec les vrais taux, le caching **implicite** (§3, gratuit, sans code de gestion de cycle de vie) capture déjà l'essentiel du gain proportionnel (~37%) sans aucun risque de coût de stockage négatif. Le caching **explicite** ne devient clairement rentable qu'à partir de plusieurs utilisateurs actifs partageant le même prompt par défaut à fréquence de scan élevée — à ne développer qu'une fois ce seuil confirmé en pratique (ex : via le compteur d'utilisateurs actifs de `main.py`), pas en anticipation.
 
@@ -166,10 +168,10 @@ Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Por
 |---|---|
 | Volume réel global (30j) | **128.10 annonces/jour** (tous utilisateurs confondus) |
 | Utilisateur le plus actif (`wbPlgZgkW2VcAl0a2l44UMSDTaG2`) | 66.13/jour |
-| Ratio économie/stockage agrégé (tous utilisateurs) | **0.12** |
-| Gain net agrégé | **-$0.425/jour** (perte nette) |
+| Ratio économie/stockage agrégé (tous utilisateurs) | **0.131** |
+| Gain net agrégé | **-$0.419/jour** (perte nette) |
 
-Même en cumulant **les 10 utilisateurs réels du projet**, le ratio reste à 0.12 — il faudrait environ **×8 le volume actuel** (~1065 annonces/jour) pour atteindre le seuil de rentabilité (ratio = 1). Aucun utilisateur individuel, ni l'agrégat de tous les utilisateurs actuels, ne s'en approche.
+Même en cumulant **les 10 utilisateurs réels du projet**, le ratio reste à 0.13 — il faudrait environ **×7.6 le volume actuel** (~975 annonces/jour) pour atteindre le seuil de rentabilité (ratio = 1). Aucun utilisateur individuel, ni l'agrégat de tous les utilisateurs actuels, ne s'en approche.
 
 **Conclusion révisée** : le caching explicite **n'est pas rentable à l'échelle actuelle du projet, et un ordre de grandeur de croissance serait nécessaire pour que ça change**. Il ne s'agit plus de "différer" cette étape (§4) mais de la **retirer de la feuille de route à court terme**. Seul le caching implicite (§3, gratuit, ~37% de gain, zéro risque de stockage) est recommandé pour l'instant. Réévaluer uniquement si le volume quotidien global approche l'ordre de grandeur ci-dessus (via une relance périodique de `analyze_funnel_by_user.py`, §8.1).
 
@@ -181,7 +183,7 @@ Même en cumulant **les 10 utilisateurs réels du projet**, le ratio reste à 0.
 
 `analyze_funnel_by_user.py` calcule désormais, en plus du funnel :
 - Le **volume réel d'annonces analysées par jour** (`recent_count / --days`, fenêtre de 30 jours par défaut), à partir du champ `timestamp` déjà présent sur chaque annonce.
-- Le **ratio de rentabilité du cache explicite** à ce volume (`estimate_profitability()`) : économie de tokens/jour ÷ coût de stockage/jour. Un ratio ≥ 1 signifie que le cache explicite est rentable à l'instant présent. **Mesuré à 0.12 en agrégé sur les 10 utilisateurs actuels (§7.6)** — largement en dessous du seuil.
+- Le **ratio de rentabilité du cache explicite** à ce volume (`estimate_profitability()`) : économie de tokens/jour ÷ coût de stockage/jour. Un ratio ≥ 1 signifie que le cache explicite est rentable à l'instant présent. **Mesuré à 0.13 en agrégé sur les 10 utilisateurs actuels (§7.6)** — largement en dessous du seuil.
 
 **Usage recommandé** : relancer ce script **manuellement de temps en temps** (ex : mensuel, ou après une forte croissance du nombre d'utilisateurs actifs) plutôt que d'automatiser un job de surveillance dès maintenant — à ce niveau de volume, les montants en jeu se comptent en centimes/jour et ne justifient pas l'effort d'un monitoring temps réel.
 
@@ -199,6 +201,6 @@ Le taux de rejet mesuré (~92%) est élevé, mais l'échantillonnage (`--sample-
 ## Phase de Test et Migration
 
 1. Implémenter le caching **implicite** (§3) sans aucune création d'objet — mesurer le taux de hit sur quelques jours via les logs.
-2. **Le caching explicite (§4) est retiré de la feuille de route à court terme** (§7.6 : ratio de rentabilité mesuré à 0.12 sur les 10 utilisateurs réels, il faudrait ×8 le volume actuel). Ne le reconsidérer que si `analyze_funnel_by_user.py` (§8.1), relancé périodiquement, mesure une approche du seuil de rentabilité.
+2. **Le caching explicite (§4) est retiré de la feuille de route à court terme** (§7.6 : ratio de rentabilité mesuré à 0.13 sur les 10 utilisateurs réels, il faudrait ×7.6 le volume actuel). Ne le reconsidérer que si `analyze_funnel_by_user.py` (§8.1), relancé périodiquement, mesure une approche du seuil de rentabilité.
 3. Documenter les résultats mesurés (tokens économisés via le caching implicite) dans `docs/management/JOURNAL.md`.
 4. Corriger en priorité le faux positif du Portier sur les guitares acoustiques (§8.2) — gain de qualité gratuit, indépendant du caching.
