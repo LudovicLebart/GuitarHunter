@@ -83,6 +83,56 @@ C'est le point soulevé explicitement par l'utilisateur : un cache mal dimension
 
 ---
 
+## 7. Estimation Chiffrée du Coût (Avant / Après Caching)
+
+Estimation illustrative basée sur le contenu réel de `prompts.json` (comptage de caractères) et les tarifs publics Gemini (juillet 2026). **Hypothèses explicites, à recalibrer avec des données réelles (§7.4)** :
+
+| Paramètre | Valeur retenue |
+|---|---|
+| Ratio caractères→tokens | 4 car./token (approximation) |
+| Bloc statique partagé (taxonomie + few-shot + prompt principal) | ~3 205 tokens (mesuré) |
+| Tokens/photo | ~700 (2-3 tuiles de 258 tokens, formule officielle, résolution FB moyenne supposée) |
+| Photos/annonce | 4 (donnée utilisateur) |
+| Funnel Portier → Analyste | 60% (18/30) — **hypothèse** |
+| Funnel Analyste → Expert Pro | 25% des 18 (→ 4 annonces) — **hypothèse** |
+| Tarifs $/1M tokens (in/out) | Flash-Lite 0.10/0.40 · Flash 0.30/2.50 · Pro 1.25/10.00 |
+| Réduction cache explicite | 90% sur la portion mise en cache (tarif officiel) |
+| Stockage cache | ~2$/M tokens/heure (fourchette publique 1-4.50$ selon modèle) |
+
+### 7.1 Coût par scan (30 annonces, 4 photos/annonce)
+
+| | Sans cache | Avec cache explicite (hors stockage) |
+|---|---|---|
+| Coût/scan | **$0.137** | **$0.096** |
+| Coût moyen/annonce | $0.0046 | $0.0032 |
+| Réduction sur les tokens facturés | — | **~30%** |
+
+Le gain plafonne à ~30% (et non 90%) car **les images ne sont jamais cachées** (uniques par annonce) et représentent la majorité des tokens d'entrée (~2 800 sur ~6 200 par appel) — seul le préambule statique (taxonomie/few-shot/prompt) bénéficie du tarif réduit.
+
+### 7.2 Coût de stockage du cache
+
+- 3 caches (un par Tier) ≈ 10 057 tokens au total → **~$0.48/jour** si maintenu 24h/24.
+- Économie brute de tokens à fréquence de scan = 60 min (24 scans/jour, **1 seul utilisateur**) : **~$0.97/jour**.
+- **Gain net : ~$0.49/jour pour un utilisateur seul** — rentable mais modeste.
+
+### 7.3 Effet d'échelle (rejoint §5)
+
+Le coût de stockage est **fixe et partagé** entre tous les utilisateurs n'ayant pas personnalisé leur prompt (un seul jeu de 3 caches pour tout le monde), alors que l'économie de tokens **scale linéairement avec le nombre d'utilisateurs actifs**. Avec 5 utilisateurs scannant à fréquence comparable : ~$4.85/jour d'économie brute pour le même $0.48/jour de stockage → **gain net ~$4.37/jour**. Le ROI du cache explicite s'améliore donc surtout avec le nombre d'utilisateurs partageant le prompt par défaut, pas avec le volume d'un seul.
+
+### 7.4 Calibrer avec des données réelles (au lieu des hypothèses de funnel)
+
+Les deux paramètres qui pèsent le plus sur cette estimation (taux de rejet Portier, taux de déclenchement Expert Pro) sont **des hypothèses**, alors que la donnée réelle existe déjà : chaque annonce stockée dans `guitar_deals` porte un champ `aiAnalysis.model_used` (ex : `"gemini-2.5-flash-lite -> gemini-2.5-flash -> gemini-2.5-pro"`, `DATA_FLOW.md §4`). Le nombre de maillons de cette chaîne indique exactement jusqu'où l'annonce est allée dans la cascade (1 = rejetée au Portier, 2 = arrêtée à l'Analyste, 3 = passée par l'Expert Pro) — il suffit de compter les occurrences de `" -> "` sur l'ensemble des annonces pour obtenir le vrai funnel, sans hypothèse.
+
+**Constat en l'examinant** : le widget "Funnel d'Analyse (Tiers)" existe déjà dans `src/components/StatsView.jsx` (lignes 197-200), mais il contient actuellement des **valeurs partiellement figées en dur** plutôt que dérivées de `model_used` :
+- `"Total Scrappé"` : `totalDeals * 4` (facteur arbitraire), `percentage` fixé à `100`.
+- `"Passé Portier (T1)"` : compte `totalDeals` (suppose que 100% des annonces stockées ont passé le Portier), `percentage` fixé à `25` (incohérent avec le compte affiché).
+- `"Certifié (T3 Pro)"` : `count` fixé à `2`, `percentage` fixé à `12` — valeurs manifestement de test/placeholder.
+- Seul `"Qualifié (T2)"` est réellement calculé (`radarDeals.length + marketDeals.length`), mais via le verdict final plutôt que via `model_used`.
+
+**Recommandation** : avant de figer les hypothèses de funnel de ce plan, corriger `StatsView.jsx` pour dériver les 3 compteurs directement du nombre de maillons de `aiAnalysis.model_used` sur les annonces réelles de l'utilisateur connecté — cela donnerait un funnel exact, affiché dans l'app, et réutilisable pour recalibrer §7.1. C'est un correctif de code ciblé (pas une nouvelle fonctionnalité), à traiter comme une tâche à part si validé.
+
+---
+
 ## Phase de Test et Migration
 
 1. Implémenter d'abord le caching implicite (§3) sans aucune création d'objet — mesurer le taux de hit sur quelques jours via les logs.
