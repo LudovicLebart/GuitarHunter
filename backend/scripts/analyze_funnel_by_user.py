@@ -76,10 +76,12 @@ def print_report(user_label, stats):
     if total == 0:
         print("Aucune annonce trouvée.")
         return
-    t2_pct = round(stats["reached_t2"] / total * 100, 1)
+    # Denominateur = annonces post-funnel-3-tiers uniquement (les legacy n'ont jamais pu atteindre T2/T3)
+    tracked_total = total - stats["no_model_used"]
+    t2_pct = round(stats["reached_t2"] / tracked_total * 100, 1) if tracked_total > 0 else 0.0
     t3_pct = round(stats["reached_t3"] / stats["reached_t2"] * 100, 1) if stats["reached_t2"] > 0 else 0.0
     print(f"Total annonces analysées (T1 - Portier) : {total}")
-    print(f"Qualifiées Analyste (T2)                : {stats['reached_t2']} ({t2_pct}% du T1)")
+    print(f"Qualifiées Analyste (T2)                : {stats['reached_t2']} ({t2_pct}% des {tracked_total} annonces suivies)")
     print(f"Certifiées Expert Pro (T3)               : {stats['reached_t3']} ({t3_pct}% du T2)")
     if stats["no_model_used"] > 0:
         print(f"⚠️  Annonces legacy sans 'model_used'    : {stats['no_model_used']} (exclues du calcul %)")
