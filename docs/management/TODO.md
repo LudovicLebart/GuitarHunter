@@ -86,6 +86,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🛠️ Administration & Gestion Utilisateurs
+
+- [ ] **Dashboard Administrateur** *(Plan sauvegardé 2026-07-08)*
+    - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
+    - *Objectif :* Vue centralisée sur tous les utilisateurs (activité, coût estimé, dernier login, statut du bot) + actions de gestion (désactivation de compte, envoi de courriel, arrêt de bot à distance), protégée par un custom claim Firebase admin.
+    - *Découpage :* Phase 1 (monitoring, lecture seule) puis Phase 2 (actions privilégiées + journal d'audit).
+
+---
+
 ## 🏙️ Villes & Geocodage (2026-04-08)
 
 - [x] **Bug : Backend scannait 0 villes après migration UID** *(Corrigé 2026-04-08)*
