@@ -49,7 +49,9 @@ def analyze_user_deals(db, user_id):
     for doc in deals_ref.stream():
         deal = doc.to_dict()
         total += 1
-        tokens = chain_tokens(deal.get('aiAnalysis', {}).get('model_used'))
+        ai_analysis = deal.get('aiAnalysis')
+        model_used = ai_analysis.get('model_used') if isinstance(ai_analysis, dict) else None
+        tokens = chain_tokens(model_used)
         if not tokens:
             no_model_used += 1
             continue
