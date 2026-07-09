@@ -188,10 +188,23 @@ class GuitarHunterBot:
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
+    def _create_price_rejection_analysis(self, price, max_price):
+        return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
+
     def handle_deal_found(self, listing_data):
         self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
+
+        # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
+        # extraits. On ne stocke rien pour ne pas figer une fiche vide comme "déjà traitée" —
+        # l'annonce sera retentée lors d'une prochaine session/scan.
+        has_images = bool(listing_data.get('imageUrls') or listing_data.get('imageUrl'))
+        has_price = self._normalize_price(listing_data.get('price')) > 0
+        if not has_images and not has_price:
+            self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
+            return
+
         self.session_processed_ids.add(listing_data['id'])
-        
+
         is_update = False
         original_price = None
         
@@ -224,10 +237,18 @@ class GuitarHunterBot:
 
         current_config = self.config_manager.current_config_snapshot
         found_keyword = self._check_exclusion(listing_data, current_config)
-        
-        if found_keyword:
-            self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
-            rejection_analysis = self._create_rejection_analysis(found_keyword)
+
+        max_price = current_config.get('scanConfig', {}).get('max_price', 0)
+        listing_price = self._normalize_price(listing_data.get('price'))
+        price_too_high = max_price > 0 and listing_price > max_price
+
+        if found_keyword or price_too_high:
+            if found_keyword:
+                self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
+                rejection_analysis = self._create_rejection_analysis(found_keyword)
+            else:
+                self.logger.info(f"Annonce rejetée : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
+                rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
             if not self.offline_mode:
                 if is_update:
                     # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
