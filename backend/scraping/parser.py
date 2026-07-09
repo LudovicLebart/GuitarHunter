@@ -181,6 +181,23 @@ class ListingParser:
                     time.sleep(0.8)
                 except: pass
             image_urls = collected
+
+            if not image_urls:
+                # --- [DIAG] Aucune image retenue : distinguer "DOM vide" de "images trop
+                # petites/filtrées" pour trancher entre page réellement dégradée et filtre
+                # de taille (>300x300) trop strict sur une mise en page différente. ---
+                try:
+                    all_imgs = page.locator("div[role='main'] img").all()
+                    sizes = []
+                    for img in all_imgs[:20]:
+                        try:
+                            box = img.bounding_box()
+                            visible = img.is_visible()
+                            sizes.append(f"{box['width']:.0f}x{box['height']:.0f}(vis={visible})" if box else f"no-box(vis={visible})")
+                        except: pass
+                    log.warning(f"[DIAG] 0 image retenue — {len(all_imgs)} <img> trouvées dans div[role='main'], tailles: {sizes}")
+                except Exception as diag_e:
+                    log.debug(f"Erreur diagnostic images vides: {diag_e}")
         except Exception as e:
             log.debug(f"Erreur extraction images: {e}")
 
