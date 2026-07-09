@@ -208,15 +208,15 @@ class FacebookScraper:
             return False
         return True
 
-    def _extract_details_with_retry(self, page: Page, title: str, location: str, fb_id: str):
-        """Extrait les détails de la fiche annonce. Si la page semble dégradée (une seule
-        image visible, sans carrousel interactif — cas observé où Facebook sert une version
-        allégée de la fiche détail au premier chargement), tente un reload puis une
-        ré-extraction unique avant d'accepter le résultat."""
-        details = ListingParser.parse_details_page(page, title, location, fb_id)
-
-        if len(details['imageUrls']) <= 1 and not ListingParser.has_photo_carousel(page):
-            logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (1 image, pas de carrousel). URL: {page.url}")
+    def _recover_degraded_page(self, page: Page, fb_id: str, title: str = "") -> bool:
+        """Détecte si la page affiche une version dégradée/preview de la fiche détail
+        (pas de carrousel interactif de photos — cas observé où Facebook sert cette version
+        allégée au premier chargement, cassant l'extraction du titre, du prix ET des images).
+        Si détecté, tente un reload une fois avant de continuer.
+        Retourne True si la page est finalement une fiche détail valide, False sinon.
+        Doit être appelé AVANT toute extraction (titre/prix/localisation/images)."""
+        if not ListingParser.has_photo_carousel(page):
+            logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (pas de carrousel). URL: {page.url}")
             try:
                 debug_path = f"debug_degraded_page_{fb_id or int(time.time())}.png"
                 page.screenshot(path=debug_path)
@@ -230,16 +230,11 @@ class FacebookScraper:
                 try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
                 except: pass
                 time.sleep(2)
-
-                if self._is_valid_detail_page(page, fb_id):
-                    retry_details = ListingParser.parse_details_page(page, title, location, fb_id)
-                    logger.info(f"   🔁 [DIAG] Après reload: {len(retry_details['imageUrls'])} image(s) (avant: {len(details['imageUrls'])}).")
-                    if len(retry_details['imageUrls']) > len(details['imageUrls']):
-                        details = retry_details
+                logger.info(f"   🔁 [DIAG] Reload effectué. Carrousel présent après reload: {ListingParser.has_photo_carousel(page)}")
             except Exception as e:
                 logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
 
-        return details
+        return self._is_valid_detail_page(page, fb_id)
 
     def _apply_filters(self, page: Page, min_price: int, max_price: int):
         # Prix
@@ -422,8 +417,8 @@ class FacebookScraper:
                         time.sleep(2)
                         logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
 
-                        if self._is_valid_detail_page(details_page, fb_id):
-                            details = self._extract_details_with_retry(details_page, title, location, fb_id)
+                        if self._is_valid_detail_page(details_page, fb_id) and self._recover_degraded_page(details_page, fb_id, title):
+                            details = ListingParser.parse_details_page(details_page, title, location, fb_id)
                         else:
                             logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
                             details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
@@ -486,6 +481,10 @@ class FacebookScraper:
                 logger.error(f"❌ Fiche détail non chargée correctement pour {url} — annonce ignorée.")
                 return
 
+            if not self._recover_degraded_page(page, fb_id, title=f"scan_url:{fb_id}"):
+                logger.error(f"❌ Fiche détail dégradée et non récupérable après reload pour {url} — annonce ignorée.")
+                return
+
             title = "Titre Inconnu"
             price = 0
             location = "Inconnue"
@@ -506,7 +505,7 @@ class FacebookScraper:
             except: pass
 
             clean_link = page.url.split('?')[0]
-            details = self._extract_details_with_retry(page, title, location, fb_id)
+            details = ListingParser.parse_details_page(page, title, location, fb_id)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],
