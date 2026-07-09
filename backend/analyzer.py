@@ -126,6 +126,11 @@ class DealAnalyzer:
         try:
             response = model.generate_content(content_parts)
             result = json.loads(self._clean_json_response(response.text))
+            if isinstance(result, list):
+                # Gemini répond parfois avec un tableau JSON au lieu d'un objet
+                # (ex: [{...}]) — on normalise en dict pour que tous les appelants
+                # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
+                result = result[0] if result and isinstance(result[0], dict) else {}
             return result, None
         except Exception as e:
             logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
