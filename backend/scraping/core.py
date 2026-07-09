@@ -22,13 +22,16 @@ from .parser import ListingParser
 logger = logging.getLogger(__name__)
 
 class FacebookScraper:
-    def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None):
+    def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None, logger: logging.Logger = None):
         self.city_coordinates = city_coordinates
         self.city_mapping = city_mapping
         # allowed_cities est supposé contenir des noms de villes déjà normalisés
         self.allowed_cities = set(allowed_cities) if allowed_cities else set()
         self.config = config or ScraperConfig()
-        
+        # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
+        # logger de module pour les scripts autonomes (migrate_images.py, tests, etc.)
+        self.logger = logger or logging.getLogger(__name__)
+
         self.playwright = None
         self.browser = None
         self.context = None
@@ -61,7 +64,7 @@ class FacebookScraper:
         """Démarre la session Playwright et le navigateur."""
         if self.browser: return
 
-        logger.info("Démarrage de la session Playwright...")
+        self.logger.info("Démarrage de la session Playwright...")
         self.playwright = sync_playwright().start()
         
         # Args for stealth
@@ -76,7 +79,7 @@ class FacebookScraper:
         proxy_config = None
         if PROXIES:
             selected_proxy = random.choice(PROXIES)
-            logger.info(f"🌐 Utilisation du proxy : {selected_proxy}")
+            self.logger.info(f"🌐 Utilisation du proxy : {selected_proxy}")
             proxy_config = {"server": selected_proxy}
         # --- FIN AJOUT ---
         
@@ -89,7 +92,7 @@ class FacebookScraper:
         # Pick random UA and Viewport
         ua = random.choice(self._user_agents)
         vp = random.choice(self._viewports)
-        logger.debug(f"Stealth Init -> UA: {ua[:40]}..., VP: {vp['width']}x{vp['height']}")
+        self.logger.debug(f"Stealth Init -> UA: {ua[:40]}..., VP: {vp['width']}x{vp['height']}")
 
         self.context = self.browser.new_context(
             viewport=vp,
@@ -162,10 +165,10 @@ class FacebookScraper:
                     match = re.search(r'/marketplace/(\d+)/', current_url)
                     if match:
                         city_id = match.group(1)
-                        logger.info(f"✅ ID Facebook trouvé pour '{city_name}': {city_id}")
+                        self.logger.info(f"✅ ID Facebook trouvé pour '{city_name}': {city_id}")
             
         except Exception as e:
-            logger.error(f"Erreur lors de la recherche de ville FB: {e}")
+            self.logger.error(f"Erreur lors de la recherche de ville FB: {e}")
         finally:
             if page:
                 page.close()
@@ -183,7 +186,7 @@ class FacebookScraper:
         if self.playwright:
             self.playwright.stop()
             self.playwright = None
-        logger.info("Session Playwright fermée.")
+        self.logger.info("Session Playwright fermée.")
 
     def _ensure_session(self):
         if not self.context: self.start_session()
@@ -201,10 +204,10 @@ class FacebookScraper:
         """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
         (et non le feed/accueil Marketplace suite à une redirection anti-bot)."""
         if "/login" in page.url or "captcha" in page.url.lower():
-            logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
+            self.logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
             return False
         if f"/marketplace/item/{expected_fb_id}" not in page.url:
-            logger.warning(f"⚠️ Page détail invalide (URL inattendue, feed probable): {page.url}")
+            self.logger.warning(f"⚠️ Page détail invalide (URL inattendue, feed probable): {page.url}")
             return False
         return True
 
@@ -216,13 +219,13 @@ class FacebookScraper:
         Retourne True si la page est finalement une fiche détail valide, False sinon.
         Doit être appelé AVANT toute extraction (titre/prix/localisation/images)."""
         if not ListingParser.has_photo_carousel(page):
-            logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (pas de carrousel). URL: {page.url}")
+            self.logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (pas de carrousel). URL: {page.url}")
             try:
                 debug_path = f"debug_degraded_page_{fb_id or int(time.time())}.png"
                 page.screenshot(path=debug_path)
-                logger.warning(f"   ⚠️ [DIAG] Capture enregistrée: {debug_path}")
+                self.logger.warning(f"   ⚠️ [DIAG] Capture enregistrée: {debug_path}")
             except Exception as e:
-                logger.debug(f"Erreur capture diagnostic: {e}")
+                self.logger.debug(f"Erreur capture diagnostic: {e}")
 
             try:
                 page.reload(timeout=self.config.timeout_navigation)
@@ -230,16 +233,16 @@ class FacebookScraper:
                 try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
                 except: pass
                 time.sleep(2)
-                logger.info(f"   🔁 [DIAG] Reload effectué. Carrousel présent après reload: {ListingParser.has_photo_carousel(page)}")
+                self.logger.info(f"   🔁 [DIAG] Reload effectué. Carrousel présent après reload: {ListingParser.has_photo_carousel(page)}")
             except Exception as e:
-                logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
+                self.logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
 
         return self._is_valid_detail_page(page, fb_id)
 
     def _apply_filters(self, page: Page, min_price: int, max_price: int):
         # Prix
         try:
-            logger.info(f"   💰 Application des prix : {min_price}$ - {max_price}$")
+            self.logger.info(f"   💰 Application des prix : {min_price}$ - {max_price}$")
             
             if min_price > 0:
                 min_input = page.locator("input[aria-label='Prix minimum'], input[aria-label='Minimum price'], input[placeholder='Min'], input[placeholder='Min.']").first
@@ -269,13 +272,13 @@ class FacebookScraper:
                 
                 time.sleep(0.5)
                 page.keyboard.press("Enter")
-                logger.info("   ✅ Prix appliqués. Attente du rechargement...")
+                self.logger.info("   ✅ Prix appliqués. Attente du rechargement...")
                 page.wait_for_load_state("networkidle", timeout=10000)
                 time.sleep(3)
             else:
-                logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
+                self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
         except Exception as e:
-            logger.warning(f"Erreur filtre prix: {e}")
+            self.logger.warning(f"Erreur filtre prix: {e}")
 
     def is_city_allowed(self, city_name):
         """Vérifie si une ville est dans la liste blanche (insensible à la casse/accents)."""
@@ -291,7 +294,7 @@ class FacebookScraper:
         # Mais attention aux faux positifs. Pour l'instant, on reste strict.
         
         # Log pour debug si la ville est rejetée
-        logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
+        self.logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
     def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None):
@@ -307,10 +310,10 @@ class FacebookScraper:
         max_price = scan_config['max_price']
         max_ads = scan_config['max_ads']
 
-        logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
+        self.logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
         
         if stop_event and stop_event.is_set():
-            logger.info("🛑 Scan annulé avant de démarrer (STOP_BOT).")
+            self.logger.info("🛑 Scan annulé avant de démarrer (STOP_BOT).")
             return []
             
         norm_loc = ListingParser.normalize_city_name(location)
@@ -318,7 +321,7 @@ class FacebookScraper:
         if not city_id:
             if location.isdigit(): city_id = location
             else:
-                logger.error(f"❌ Ville '{location}' inconnue.")
+                self.logger.error(f"❌ Ville '{location}' inconnue.")
                 return []
 
         page = self.context.new_page()
@@ -330,12 +333,12 @@ class FacebookScraper:
             if max_price > 0:
                  url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={q}&exact=false"
 
-            logger.info(f"   ➡️ Navigation: {url}")
+            self.logger.info(f"   ➡️ Navigation: {url}")
             page.goto(url, timeout=self.config.timeout_navigation)
             
             # --- ANTIBOT: Check for Captcha / Login redirect ---
             if "/login" in page.url or "captcha" in page.url.lower():
-                logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
+                self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
                 return []
 
             try: page.evaluate("document.body.style.zoom = '0.5'")
@@ -348,16 +351,16 @@ class FacebookScraper:
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
 
-            logger.info("   📜 Défilement...")
+            self.logger.info("   📜 Défilement...")
             for _ in range(self.config.scroll_iterations):
                 if stop_event and stop_event.is_set():
-                    logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
+                    self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
                     return []
                 page.mouse.wheel(0, 1000)
                 time.sleep(2)
 
             listings = page.locator("a[href*='/marketplace/item/']").all()
-            logger.info(f"   👀 {len(listings)} éléments trouvés.")
+            self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
             
             count = 0
             seen = set()
@@ -366,7 +369,7 @@ class FacebookScraper:
                 if count >= max_ads: break
                 
                 if stop_event and stop_event.is_set():
-                    logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
+                    self.logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
                     return found_deals
                 
                 href = link.get_attribute("href")
@@ -380,18 +383,18 @@ class FacebookScraper:
                 fb_id = ListingParser.extract_facebook_id(clean_link)
                 if not fb_id: continue
 
-                card_info = ListingParser.parse_listing_card(link, location)
+                card_info = ListingParser.parse_listing_card(link, location, logger=self.logger)
                 
                 # --- NEW, STRICT FILTERING LOGIC ---
                 spec_loc = card_info['location']
                 
                 # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
                 if not spec_loc:
-                    logger.debug(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    self.logger.debug(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
                     continue
 
                 if not self.is_city_allowed(spec_loc):
-                    logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
                     continue
                 # --- END OF NEW LOGIC ---
 
@@ -401,12 +404,12 @@ class FacebookScraper:
 
                 # --- OPTIMIZATION: Check if we should skip this deal ---
                 if should_skip_callback and should_skip_callback(fb_id, price):
-                    logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
+                    self.logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
                     continue
                 # --- END OPTIMIZATION ---
 
                 if price > 0 or "Gratuit" in title or "Free" in title:
-                    logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
+                    self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
                     
                     details_page = self.context.new_page()
                     try:
@@ -415,12 +418,12 @@ class FacebookScraper:
                         try: details_page.wait_for_selector("div[role='main']", timeout=10000)
                         except: pass
                         time.sleep(2)
-                        logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+                        self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
 
                         if self._is_valid_detail_page(details_page, fb_id) and self._recover_degraded_page(details_page, fb_id, title):
-                            details = ListingParser.parse_details_page(details_page, title, location, fb_id)
+                            details = ListingParser.parse_details_page(details_page, title, location, fb_id, logger=self.logger)
                         else:
-                            logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
+                            self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
                             details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
                     finally:
                         details_page.close()
@@ -435,16 +438,16 @@ class FacebookScraper:
                         "id": fb_id, "published_at_raw": details.get('published_at_raw')
                     }
                     if coords:
-                        logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
+                        self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
                         listing_data["latitude"] = coords["lat"]
                         listing_data["longitude"] = coords["lng"]
                     else:
-                        logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
+                        self.logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
                     
                     found_deals.append(listing_data) # Ajout à la liste
                     count += 1
         except Exception as e:
-            logger.error(f"❌ Erreur scan: {e}", exc_info=True)
+            self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
         return found_deals # Retourne la liste des annonces
@@ -452,7 +455,7 @@ class FacebookScraper:
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()
         
-        logger.info(f"\n🔗 Scan URL: {url}")
+        self.logger.info(f"\n🔗 Scan URL: {url}")
         fb_id = ListingParser.extract_facebook_id(url)
         
         page = self.context.new_page()
@@ -463,26 +466,26 @@ class FacebookScraper:
                 fb_id = ListingParser.extract_facebook_id(page.url)
             
             if not fb_id:
-                logger.error("❌ ID introuvable.")
+                self.logger.error("❌ ID introuvable.")
                 return
 
             # --- ANTIBOT: Check for Captcha / Login redirect ---
             if "/login" in page.url or "captcha" in page.url.lower():
-                logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ (Redirection {page.url}). Session compromise.")
+                self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ (Redirection {page.url}). Session compromise.")
                 return
 
             self._close_login_popup(page)
             try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
             except: pass
             time.sleep(2)
-            logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {page.url}")
+            self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {page.url}")
 
             if not self._is_valid_detail_page(page, fb_id):
-                logger.error(f"❌ Fiche détail non chargée correctement pour {url} — annonce ignorée.")
+                self.logger.error(f"❌ Fiche détail non chargée correctement pour {url} — annonce ignorée.")
                 return
 
             if not self._recover_degraded_page(page, fb_id, title=f"scan_url:{fb_id}"):
-                logger.error(f"❌ Fiche détail dégradée et non récupérable après reload pour {url} — annonce ignorée.")
+                self.logger.error(f"❌ Fiche détail dégradée et non récupérable après reload pour {url} — annonce ignorée.")
                 return
 
             title = "Titre Inconnu"
@@ -505,7 +508,7 @@ class FacebookScraper:
             except: pass
 
             clean_link = page.url.split('?')[0]
-            details = ListingParser.parse_details_page(page, title, location, fb_id)
+            details = ListingParser.parse_details_page(page, title, location, fb_id, logger=self.logger)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],
@@ -520,10 +523,10 @@ class FacebookScraper:
                 listing_data["longitude"] = details['coordinates']["lng"]
 
             on_deal_found(listing_data)
-            logger.info(f"✅ Scan URL terminé: {title}")
+            self.logger.info(f"✅ Scan URL terminé: {title}")
 
         except Exception as e:
-            logger.error(f"❌ Erreur scan URL: {e}", exc_info=True)
+            self.logger.error(f"❌ Erreur scan URL: {e}", exc_info=True)
         finally:
             page.close()
 
@@ -534,20 +537,20 @@ class FacebookScraper:
         try:
             # On retire les paramètres de tracking pour la vérification de l'URL brute
             clean_url = url.split('?')[0]
-            logger.info(f"   🔍 Vérification disponibilité: {clean_url}")
+            self.logger.info(f"   🔍 Vérification disponibilité: {clean_url}")
             
             # Augmentation du timeout pour la navigation
             response = page.goto(clean_url, timeout=30000, wait_until="domcontentloaded")
             
             # 1. Vérification du code HTTP (si Facebook renvoie 404/410)
             if response and response.status in [404, 410]:
-                logger.info(f"   🚫 Annonce supprimée (HTTP {response.status})")
+                self.logger.info(f"   🚫 Annonce supprimée (HTTP {response.status})")
                 return False
 
             # 2. Vérification des redirections
             # Facebook redirige vers /marketplace/ (accueil) quand l'item est totalement supprimé
             if "/marketplace/item/" not in page.url:
-                logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
                 return False
 
             import json
@@ -603,11 +606,11 @@ class FacebookScraper:
             }}""")
 
             if found_marker:
-                logger.info(f"   🚫 Marqueur d'indisponibilité trouvé: '{found_marker}'")
+                self.logger.info(f"   🚫 Marqueur d'indisponibilité trouvé: '{found_marker}'")
                 return False
 
         except Exception as e:
-            logger.warning(f"   ⚠️ Erreur durant le check availability: {e}")
+            self.logger.warning(f"   ⚠️ Erreur durant le check availability: {e}")
             # En cas d'erreur (timeout), on préfère garder l'annonce (optimiste)
             return True
         finally:

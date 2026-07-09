@@ -50,7 +50,7 @@ class GuitarHunterBot:
         if self.offline_mode:
             self.logger.warning("Le bot est en mode hors ligne.")
             self.analyzer = DealAnalyzer()
-            self.scraper = FacebookScraper({}, {})
+            self.scraper = FacebookScraper({}, {}, logger=self.logger)
             return
 
         self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
@@ -313,7 +313,7 @@ class GuitarHunterBot:
                     if self._browser_semaphore:
                         self._browser_semaphore.acquire()
                     try:
-                        temp_scraper = FacebookScraper({}, {})
+                        temp_scraper = FacebookScraper({}, {}, logger=self.logger)
                         temp_scraper.city_mapping = {city_norm_name: city_id}
                         temp_scraper.allowed_cities = all_allowed_cities_norm
 
@@ -374,7 +374,7 @@ class GuitarHunterBot:
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
-            temp_scraper = FacebookScraper({}, {})
+            temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
                 temp_scraper.scan_specific_url(url, self.handle_deal_found)
             finally:
@@ -401,7 +401,7 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
-                temp_scraper = FacebookScraper({}, {})
+                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
                 try:
                     docs = self.repo.get_active_listings()
                     listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
@@ -561,7 +561,7 @@ class GuitarHunterBot:
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
-            temp_scraper = FacebookScraper({}, {})
+            temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
                 city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
             finally:

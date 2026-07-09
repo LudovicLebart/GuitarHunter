@@ -5,7 +5,8 @@ import logging
 from typing import Optional, Dict, Any
 from playwright.sync_api import Page, Locator
 
-logger = logging.getLogger(__name__)
+_module_logger = logging.getLogger(__name__)
+logger = _module_logger
 
 class ListingParser:
     """
@@ -86,12 +87,13 @@ class ListingParser:
         return 0
 
     @staticmethod
-    def parse_listing_card(link_element: Locator, location_filter: str) -> Dict[str, Any]:
+    def parse_listing_card(link_element: Locator, location_filter: str, logger: logging.Logger = None) -> Dict[str, Any]:
         """Extrait les infos de base depuis la carte de l'annonce dans la liste."""
+        log = logger or _module_logger
         title = "Titre Inconnu"
         price = 0
         spec_loc = None
-        
+
         try:
             text = link_element.inner_text()
             lines = [l.strip() for l in text.split('\n') if l.strip()]
@@ -134,7 +136,7 @@ class ListingParser:
             
             return {"title": title, "price": price, "location": spec_loc, "imageUrl": img_url}
         except Exception as e:
-            logger.debug(f"Erreur parsing carte annonce: {e}")
+            log.debug(f"Erreur parsing carte annonce: {e}")
             return {"title": title, "price": price, "location": spec_loc, "imageUrl": "https://via.placeholder.com/400"}
 
     @staticmethod
@@ -150,8 +152,9 @@ class ListingParser:
             return False
 
     @staticmethod
-    def parse_details_page(page: Page, initial_title: str, initial_location: str, fb_id: str = None) -> Dict[str, Any]:
+    def parse_details_page(page: Page, initial_title: str, initial_location: str, fb_id: str = None, logger: logging.Logger = None) -> Dict[str, Any]:
         """Extrait les détails complets depuis la page de l'annonce."""
+        log = logger or _module_logger
         description = f"Annonce Marketplace. {initial_title}. Localisation: {initial_location}"
         image_urls = []
         coordinates = None
@@ -191,7 +194,7 @@ class ListingParser:
                 except: pass
             image_urls = collected
         except Exception as e:
-            logger.debug(f"Erreur extraction images: {e}")
+            log.debug(f"Erreur extraction images: {e}")
 
         try:
             map_src = None
@@ -210,7 +213,7 @@ class ListingParser:
                 match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', map_src)
                 if match: coordinates = {"lat": float(match.group(1)), "lng": float(match.group(2))}
         except Exception as e:
-            logger.debug(f"Erreur extraction coordonnées: {e}")
+            log.debug(f"Erreur extraction coordonnées: {e}")
 
         try:
             desc = page.locator('meta[property="og:description"]').get_attribute('content')
@@ -220,7 +223,7 @@ class ListingParser:
                 long_texts = [t.strip() for t in all_texts if len(t.strip()) > 50]
                 if long_texts: description = max(long_texts, key=len)
         except Exception as e:
-            logger.debug(f"Erreur extraction description: {e}")
+            log.debug(f"Erreur extraction description: {e}")
 
         # --- NOUVEAU : Extraction de la date de publication ---
         published_at_raw = None
@@ -231,9 +234,9 @@ class ListingParser:
             if date_element.count() > 0:
                 published_at_raw = date_element.get_attribute('aria-label')
                 if published_at_raw:
-                    logger.info(f"   📅 Date extraite : {published_at_raw}")
+                    log.info(f"   📅 Date extraite : {published_at_raw}")
         except Exception as e:
-            logger.debug(f"Erreur extraction date de publication: {e}")
+            log.debug(f"Erreur extraction date de publication: {e}")
 
         return {
             "description": description[:3000], 
