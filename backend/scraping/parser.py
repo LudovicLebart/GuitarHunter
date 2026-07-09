@@ -140,18 +140,6 @@ class ListingParser:
             return {"title": title, "price": price, "location": spec_loc, "imageUrl": "https://via.placeholder.com/400"}
 
     @staticmethod
-    def has_photo_carousel(page: Page) -> bool:
-        """Détecte la présence du carrousel interactif de photos (fiche détail complète),
-        par opposition à une version allégée/preview ne montrant qu'une seule image."""
-        try:
-            next_btn = page.locator(
-                "[aria-label='Photo suivante'], [aria-label='Next photo'], [aria-label='See next photo']"
-            )
-            return next_btn.count() > 0
-        except Exception:
-            return False
-
-    @staticmethod
     def parse_details_page(page: Page, initial_title: str, initial_location: str, fb_id: str = None, logger: logging.Logger = None) -> Dict[str, Any]:
         """Extrait les détails complets depuis la page de l'annonce."""
         log = logger or _module_logger

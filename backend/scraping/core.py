@@ -3,6 +3,7 @@ import random
 import urllib.parse
 import logging
 import re
+from typing import Dict, Any
 from playwright.sync_api import sync_playwright, Page
 
 # --- AJOUT : Importation de la configuration des proxies ---
@@ -18,8 +19,6 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
-
-logger = logging.getLogger(__name__)
 
 class FacebookScraper:
     def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None, logger: logging.Logger = None):
@@ -211,33 +210,63 @@ class FacebookScraper:
             return False
         return True
 
-    def _recover_degraded_page(self, page: Page, fb_id: str, title: str = "") -> bool:
-        """Détecte si la page affiche une version dégradée/preview de la fiche détail
-        (pas de carrousel interactif de photos — cas observé où Facebook sert cette version
-        allégée au premier chargement, cassant l'extraction du titre, du prix ET des images).
-        Si détecté, tente un reload une fois avant de continuer.
-        Retourne True si la page est finalement une fiche détail valide, False sinon.
-        Doit être appelé AVANT toute extraction (titre/prix/localisation/images)."""
-        if not ListingParser.has_photo_carousel(page):
-            self.logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (pas de carrousel). URL: {page.url}")
+    def _extract_scan_url_fields(self, page: Page):
+        """Extrait titre/prix/localisation depuis la fiche détail (chemin scan_specific_url)."""
+        title = "Titre Inconnu"
+        price = 0
+        location = "Inconnue"
+        try:
+            og_title = page.locator('meta[property="og:title"]').get_attribute('content')
+            if og_title: title = og_title.split(' - ')[0]
+
+            # --- LOGIQUE DE PRIX POUR SCAN_URL (CENTRALISÉE) ---
+            # On essaie de trouver le prix dans le texte visible
+            p_txt = page.locator('div[role="main"] span', has_text="$").first.inner_text()
+
+            # Utilisation de la méthode centralisée et robuste
+            price = ListingParser.extract_price_from_text(p_txt)
+
+            l_txt = page.locator('div[role="main"] span', has_text="·").first.inner_text()
+            location = l_txt.split('·')[0].strip()
+        except: pass
+        return title, price, location
+
+    def _reload_page(self, page: Page):
+        """Recharge la page courante et attend qu'elle soit stabilisée (même séquence
+        que le chargement initial : fermeture popup, attente du conteneur principal, pause)."""
+        page.reload(timeout=self.config.timeout_navigation)
+        self._close_login_popup(page)
+        try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
+        except: pass
+        time.sleep(2)
+
+    def _parse_details_with_reload_retry(self, page: Page, title: str, location: str, fb_id: str) -> Dict[str, Any]:
+        """Parse la fiche détail ; si aucune image n'est extraite (signal fiable d'échec —
+        contrairement à l'absence de carrousel, qui est aussi le cas normal d'une annonce à
+        une seule photo), tente un reload puis une ré-extraction unique, et ne garde le
+        résultat du reload que s'il apporte strictement plus d'images."""
+        details = ListingParser.parse_details_page(page, title, location, fb_id, logger=self.logger)
+
+        if not details['imageUrls']:
+            self.logger.warning(f"   ⚠️ [DIAG] 0 image extraite pour '{title}' (fb_id={fb_id}) — tentative de reload. URL: {page.url}")
             try:
-                debug_path = f"debug_degraded_page_{fb_id or int(time.time())}.png"
+                debug_path = f"debug_no_image_{fb_id or int(time.time())}.png"
                 page.screenshot(path=debug_path)
                 self.logger.warning(f"   ⚠️ [DIAG] Capture enregistrée: {debug_path}")
             except Exception as e:
                 self.logger.debug(f"Erreur capture diagnostic: {e}")
 
             try:
-                page.reload(timeout=self.config.timeout_navigation)
-                self._close_login_popup(page)
-                try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
-                except: pass
-                time.sleep(2)
-                self.logger.info(f"   🔁 [DIAG] Reload effectué. Carrousel présent après reload: {ListingParser.has_photo_carousel(page)}")
+                self._reload_page(page)
+                if self._is_valid_detail_page(page, fb_id):
+                    retry_details = ListingParser.parse_details_page(page, title, location, fb_id, logger=self.logger)
+                    self.logger.info(f"   🔁 [DIAG] Après reload: {len(retry_details['imageUrls'])} image(s) (avant: 0).")
+                    if len(retry_details['imageUrls']) > len(details['imageUrls']):
+                        details = retry_details
             except Exception as e:
                 self.logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
 
-        return self._is_valid_detail_page(page, fb_id)
+        return details
 
     def _apply_filters(self, page: Page, min_price: int, max_price: int):
         # Prix
@@ -420,8 +449,8 @@ class FacebookScraper:
                         time.sleep(2)
                         self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
 
-                        if self._is_valid_detail_page(details_page, fb_id) and self._recover_degraded_page(details_page, fb_id, title):
-                            details = ListingParser.parse_details_page(details_page, title, location, fb_id, logger=self.logger)
+                        if self._is_valid_detail_page(details_page, fb_id):
+                            details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
                         else:
                             self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
                             details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
@@ -484,31 +513,30 @@ class FacebookScraper:
                 self.logger.error(f"❌ Fiche détail non chargée correctement pour {url} — annonce ignorée.")
                 return
 
-            if not self._recover_degraded_page(page, fb_id, title=f"scan_url:{fb_id}"):
-                self.logger.error(f"❌ Fiche détail dégradée et non récupérable après reload pour {url} — annonce ignorée.")
-                return
+            title, price, location = self._extract_scan_url_fields(page)
+            details = ListingParser.parse_details_page(page, title, location, fb_id, logger=self.logger)
 
-            title = "Titre Inconnu"
-            price = 0
-            location = "Inconnue"
-            
-            try:
-                og_title = page.locator('meta[property="og:title"]').get_attribute('content')
-                if og_title: title = og_title.split(' - ')[0]
-                
-                # --- LOGIQUE DE PRIX POUR SCAN_URL (CENTRALISÉE) ---
-                # On essaie de trouver le prix dans le texte visible
-                p_txt = page.locator('div[role="main"] span', has_text="$").first.inner_text()
-                
-                # Utilisation de la méthode centralisée et robuste
-                price = ListingParser.extract_price_from_text(p_txt)
-                
-                l_txt = page.locator('div[role="main"] span', has_text="·").first.inner_text()
-                location = l_txt.split('·')[0].strip()
-            except: pass
+            if not details['imageUrls']:
+                self.logger.warning(f"   ⚠️ [DIAG] 0 image extraite pour fb_id={fb_id} (scan_url) — tentative de reload. URL: {page.url}")
+                try:
+                    debug_path = f"debug_no_image_{fb_id or int(time.time())}.png"
+                    page.screenshot(path=debug_path)
+                    self.logger.warning(f"   ⚠️ [DIAG] Capture enregistrée: {debug_path}")
+                except Exception as e:
+                    self.logger.debug(f"Erreur capture diagnostic: {e}")
+
+                try:
+                    self._reload_page(page)
+                    if self._is_valid_detail_page(page, fb_id):
+                        retry_title, retry_price, retry_location = self._extract_scan_url_fields(page)
+                        retry_details = ListingParser.parse_details_page(page, retry_title, retry_location, fb_id, logger=self.logger)
+                        self.logger.info(f"   🔁 [DIAG] Après reload: {len(retry_details['imageUrls'])} image(s) (avant: 0).")
+                        if len(retry_details['imageUrls']) > len(details['imageUrls']):
+                            title, price, location, details = retry_title, retry_price, retry_location, retry_details
+                except Exception as e:
+                    self.logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
 
             clean_link = page.url.split('?')[0]
-            details = ListingParser.parse_details_page(page, title, location, fb_id, logger=self.logger)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],
