@@ -189,7 +189,9 @@ class GuitarHunterBot:
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
     def _create_price_rejection_analysis(self, price, max_price):
-        return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
+        # Verdict BAD_DEAL (existant, catégorie "Trop Cher") plutôt que REJECTED : l'annonce
+        # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
+        return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
 
     def handle_deal_found(self, listing_data):
         self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
@@ -247,7 +249,7 @@ class GuitarHunterBot:
                 self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
                 rejection_analysis = self._create_rejection_analysis(found_keyword)
             else:
-                self.logger.info(f"Annonce rejetée : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
+                self.logger.info(f"Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
                 rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
             if not self.offline_mode:
                 if is_update:
