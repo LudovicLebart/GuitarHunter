@@ -208,6 +208,39 @@ class FacebookScraper:
             return False
         return True
 
+    def _extract_details_with_retry(self, page: Page, title: str, location: str, fb_id: str):
+        """Extrait les détails de la fiche annonce. Si la page semble dégradée (une seule
+        image visible, sans carrousel interactif — cas observé où Facebook sert une version
+        allégée de la fiche détail au premier chargement), tente un reload puis une
+        ré-extraction unique avant d'accepter le résultat."""
+        details = ListingParser.parse_details_page(page, title, location, fb_id)
+
+        if len(details['imageUrls']) <= 1 and not ListingParser.has_photo_carousel(page):
+            logger.warning(f"   ⚠️ [DIAG] Fiche détail possiblement dégradée pour '{title}' (1 image, pas de carrousel). URL: {page.url}")
+            try:
+                debug_path = f"debug_degraded_page_{fb_id or int(time.time())}.png"
+                page.screenshot(path=debug_path)
+                logger.warning(f"   ⚠️ [DIAG] Capture enregistrée: {debug_path}")
+            except Exception as e:
+                logger.debug(f"Erreur capture diagnostic: {e}")
+
+            try:
+                page.reload(timeout=self.config.timeout_navigation)
+                self._close_login_popup(page)
+                try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
+                except: pass
+                time.sleep(2)
+
+                if self._is_valid_detail_page(page, fb_id):
+                    retry_details = ListingParser.parse_details_page(page, title, location, fb_id)
+                    logger.info(f"   🔁 [DIAG] Après reload: {len(retry_details['imageUrls'])} image(s) (avant: {len(details['imageUrls'])}).")
+                    if len(retry_details['imageUrls']) > len(details['imageUrls']):
+                        details = retry_details
+            except Exception as e:
+                logger.warning(f"   ⚠️ Erreur reload diagnostic: {e}")
+
+        return details
+
     def _apply_filters(self, page: Page, min_price: int, max_price: int):
         # Prix
         try:
@@ -390,7 +423,7 @@ class FacebookScraper:
                         logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
 
                         if self._is_valid_detail_page(details_page, fb_id):
-                            details = ListingParser.parse_details_page(details_page, title, location, fb_id)
+                            details = self._extract_details_with_retry(details_page, title, location, fb_id)
                         else:
                             logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
                             details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
@@ -473,7 +506,7 @@ class FacebookScraper:
             except: pass
 
             clean_link = page.url.split('?')[0]
-            details = ListingParser.parse_details_page(page, title, location, fb_id)
+            details = self._extract_details_with_retry(page, title, location, fb_id)
             
             listing_data = {
                 "title": title, "price": price, "description": details['description'],
