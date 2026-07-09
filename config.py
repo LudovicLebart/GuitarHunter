@@ -52,14 +52,13 @@ PROXIES = [
 GEMINI_MODELS = {
     "available": [
         "gemini-2.5-flash-lite",
-        "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-3.1-flash-lite",
         "gemini-3.5-flash",
         "gemini-3.1-pro-preview"
     ],
     "default_gatekeeper": "gemini-2.5-flash-lite",
-    "default_analyst": "gemini-2.5-flash",
+    "default_analyst": "gemini-3.5-flash",
     "default_expert": "gemini-3.1-pro-preview"
 }
 

@@ -238,7 +238,6 @@ const AiConfigSection = () => {
   // Fallback si la liste n'est pas encore chargée
   const models = availableModels.length > 0 ? availableModels : [
     "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash",
@@ -262,7 +261,7 @@ const AiConfigSection = () => {
           </div>
           <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
             <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-3">Modèle Analyste</label>
-            <select value={analysisConfig.mainModel || 'gemini-2.5-flash'} onChange={(e) => handleAnalysisConfigChange('mainModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.mainModel': analysisConfig.mainModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
+            <select value={analysisConfig.mainModel || 'gemini-3.5-flash'} onChange={(e) => handleAnalysisConfigChange('mainModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.mainModel': analysisConfig.mainModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>

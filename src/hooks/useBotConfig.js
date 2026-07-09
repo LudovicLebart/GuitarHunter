@@ -47,7 +47,7 @@ export const useBotConfig = (user) => {
   // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
     gatekeeperModel: 'gemini-2.5-flash-lite',
-    mainModel: 'gemini-2.5-flash',
+    mainModel: 'gemini-3.5-flash',
     expertModel: 'gemini-2.5-pro',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
@@ -166,7 +166,7 @@ export const useBotConfig = (user) => {
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       const defaultAnalysis = {
         gatekeeperModel: 'gemini-2.5-flash-lite',
-        mainModel: 'gemini-2.5-flash',
+        mainModel: 'gemini-3.5-flash',
         expertModel: 'gemini-2.5-pro',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,

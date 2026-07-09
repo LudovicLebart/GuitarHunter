@@ -144,7 +144,7 @@ class DealAnalyzer:
 
         config = firestore_config.get('analysisConfig', {})
         gatekeeper_model_name = config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
-        analyst_model_name = config.get('mainModel', 'gemini-2.5-flash')
+        analyst_model_name = config.get('mainModel', 'gemini-3.5-flash')
         # Rétrocompatibilité : 'proModel' est la nouvelle clé, 'expertModel' est l'ancienne (encore écrite par le frontend)
         expert_pro_model_name = config.get('proModel') or config.get('expertModel', 'gemini-2.5-pro')
 
