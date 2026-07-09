@@ -172,6 +172,24 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Solution :* `parser.py::parse_details_page()` exclut désormais les images entourées d'un lien vers une autre annonce (`<a href="/marketplace/item/{AUTRE_ID}/...">`). Ajout d'un garde-fou `_is_valid_detail_page()` dans `core.py` pour les cas de redirection /login réelle.
     - *Vérifié :* Test réel sur une annonce publique — 19 images (16 suggestions) → 3 images (toutes réelles) après correctif.
 
+- [x] **Bug : Fiche détail Facebook dégradée → titre/prix/images manquants sur certaines annonces** *(Corrigé/atténué 2026-07-09)*
+    - *Détails :* Sur certaines annonces (notamment via `SCAN_URL`), la fiche détail se charge sans son carrousel photo ni son prix visible, alors que le titre/description (balises `og:*`) restent disponibles. Comportement intermittent (certaines annonces fonctionnent, d'autres non).
+    - *Itérations :* (1) retry basé sur l'absence de carrousel → faux positif sur toute annonce à 1 seule photo légitime, corrigé après code review dédiée ; (2) déclencheur définitif = "0 image extraite après parsing" (signal non ambigu) avec ré-extraction complète (titre/prix/localisation incluses) et reload unique, gardé seulement si strictement meilleur ; (3) diagnostic enrichi confirmant `0 <img>` réellement présentes dans `div[role='main']` (pas un problème de filtre de taille >300×300px).
+    - *Effet de bord corrigé au passage :* bug de raccordement logger (`scraping/core.py`, `parser.py`, `city_finder.py` loguaient sur un logger de module jamais raccordé au `FirestoreHandler` par-utilisateur) — aucun log du scraper n'était visible dans le LogViewer avant ce correctif, ce qui avait masqué la cause réelle pendant plusieurs itérations.
+    - *Effet de bord corrigé au passage :* crash du pipeline IA (`analyzer.py::_call_gemini_json`) quand Gemini répond avec un tableau JSON `[{...}]` au lieu d'un objet.
+    - *Cause probable non résolue* : voir tâche dédiée ci-dessous ("Investiguer : session Facebook non authentifiée").
+
+- [x] **Feature : Ne pas stocker une annonce dont le scraping a manifestement échoué** *(2026-07-09)*
+    - *Détails :* Si `imageUrls` est vide ET prix à 0$, `handle_deal_found()` (`bot.py`) ne stocke ni n'analyse plus l'annonce — elle reste absente de Firestore et sera retraitée comme nouvelle à la prochaine session/scan, au lieu de figer une fiche vide comme "déjà traitée".
+
+- [x] **Feature : Rejet automatique des annonces hors budget (plafond de prix défensif)** *(2026-07-09)*
+    - *Détails :* Vérification de `scanConfig.max_price` côté code dans `handle_deal_found()`, indépendante du filtre de prix Facebook (observé en prod : peut échouer avec un timeout sur le champ de saisie). Réutilise le verdict `BAD_DEAL` existant ("Trop Cher") plutôt qu'un nouveau statut — `status` reste `analyzed`, pas confondu avec un vrai rejet.
+    - *Solution :* `BAD_DEAL` déplacé de `MARKET_GROUP` vers `ARCHIVE_GROUP` (`src/constants.js`) — masqué de la vue par défaut, toujours consultable via son propre filtre "Trop Cher". S'applique uniformément à `scan_marketplace()` et `scan_specific_url()`.
+
+- [ ] **Investiguer : session Facebook non authentifiée → Facebook gate parfois le prix/les photos**
+    - *Détails :* Voir bug "Fiche détail Facebook dégradée" ci-dessus. Le scraper est 100% anonyme (aucun `storage_state`/cookies persistants nulle part dans le backend, vérifié). Comportement intermittent observé sur `SCAN_URL`.
+    - *Options à trancher avec l'utilisateur :* (a) accepter la limitation — les annonces concernées ne sont simplement plus stockées (cf. garde-fou "scraping raté" ci-dessus) ; (b) implémenter une session Facebook authentifiée (identifiants d'un compte dédié, risque de bannissement selon les CGU Facebook, gestion sécurisée des secrets, renouvellement de session).
+
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
     - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
 
@@ -198,6 +216,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Nettoyer la liste des modèles Gemini obsolètes** *(Corrigé 2026-07-07)*
     - *Détails :* `gemini-1.5-flash`/`gemini-1.5-pro` retirés de `GEMINI_MODELS["available"]` (`config.py`). Ajout de `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`. Expert Pro (contre-analyses) passé sur `gemini-3.1-pro-preview`.
     - *Suivi requis* : resélectionner manuellement le nouveau modèle Expert dans le panneau IA (config Firestore existante non affectée automatiquement).
+- [x] **Fix : `gemini-2.5-flash` (Tier 2 Analyste) n'est plus disponible chez Google (404)** *(Corrigé 2026-07-09)*
+    - *Détails :* Remplacé par `gemini-3.5-flash` partout où codé en dur (`analyzer.py`, `config.py`, `ConfigPanel.jsx`, `useBotConfig.js` — y compris le bouton "Réinitialiser par défaut" qui réécrivait le modèle mort). Retiré de la liste des modèles sélectionnables.
+    - *Suivi requis* : comme pour l'Expert Pro en 2026-07-07, resélectionner manuellement le modèle Analyste dans Paramètres → IA si la config Firestore existante a déjà `mainModel` enregistré à l'ancienne valeur.
 - [x] **Feature : Commentaire personnalisé lors d'une réanalyse** *(2026-07-07)*
     - *Détails :* Nouvelle option "Avec commentaire..." dans le menu Ré-analyser (`DealCard.jsx`) — permet de corriger l'IA (ex: mauvaise identification de modèle) avant une contre-analyse Expert Pro.
 - [x] **Feature : Alerte email si un modèle Gemini devient indisponible** *(2026-07-07)*

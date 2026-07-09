@@ -39,10 +39,11 @@ Le script `main.py` surveille Firestore et délègue les tâches à `backend/bot
 Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firestore.
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}`
 - **Étapes de création** :
-  1. `bot.handle_deal_found(listing_data)`
-  2. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
-  3. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
-  4. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté.
+  1. `bot.handle_deal_found(listing_data)` — **(2026-07-09)** si `imageUrls` est vide ET prix à 0$ (scraping manifestement raté), la fonction s'arrête ici : rien n'est écrit dans `guitar_deals`, l'annonce sera retraitée comme nouvelle à la prochaine session.
+  2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`) ou prix > `scanConfig.max_price` (**2026-07-09**, `verdict: BAD_DEAL` → `status` reste `analyzed`, catégorie "Trop Cher" masquée par défaut côté frontend mais pas un vrai rejet).
+  3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
+  4. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
+  5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté.
 - **Format de donnée type** :
   ```json
   {
@@ -95,6 +96,7 @@ Le Frontend utilise les capacités temps-réel de Firestore pour refléter les c
 Le système de logging est désormais isolé par utilisateur pour garantir l'étanchéité des données en mode multi-tenant.
 - **Backend** : `backend/logging_config.py` configure un logger nommé `bot.{user_id[:8]}` pour chaque bot.
 - **Transmission** : Le `FirestoreHandler` capture les logs émis par ce logger et les envoie par lots (batches) vers la sous-collection `logs` de l'utilisateur.
+- **Modules `backend/scraping/*` (2026-07-09)** : `FacebookScraper`, `ListingParser` et `CityFinder` reçoivent désormais ce même logger par-utilisateur (injecté depuis `bot.py` via `FacebookScraper(..., logger=self.logger)`, propagé à `ListingParser`/`CityFinder`). Avant ce correctif, ces modules loguaient sur `logging.getLogger(__name__)` (loggers de module, jamais raccordés au `FirestoreHandler`) — rien de ce qui se passait dans le scraper n'était visible dans le LogViewer.
 - **Chemin Firestore** : `artifacts/{APP_ID}/users/{USER_ID}/logs/{LOG_ID}`
 - **Frontend** : Le composant `LogViewer.jsx` s'abonne à cette collection en temps réel pour afficher la console de débogage spécifique à l'utilisateur connecté.
 - **Nettoyage** : La commande `CLEAR_LOGS` permet à l'utilisateur de vider sa collection de logs sans affecter les autres utilisateurs.
