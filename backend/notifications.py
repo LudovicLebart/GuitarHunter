@@ -17,7 +17,7 @@ from typing import Optional
 import requests
 from config import NTFY_TOPIC, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD
 
-logger = logging.getLogger(__name__)
+_module_logger = logging.getLogger(__name__)
 
 # Verdicts qui déclenchent une notification
 NOTIFY_VERDICTS = {'PEPITE'}
@@ -122,7 +122,8 @@ class NtfyNotifier:
 
     @staticmethod
     def send(title: str, message: str, priority: str = 'default',
-             tags: list = None, click_url: str = None) -> None:
+             tags: list = None, click_url: str = None, logger: logging.Logger = None) -> None:
+        log = logger or _module_logger
         if not NTFY_TOPIC:
             return
         url = f"https://ntfy.sh/{NTFY_TOPIC}"
@@ -144,11 +145,11 @@ class NtfyNotifier:
         try:
             resp = requests.post(url, data=message.encode('utf-8'), headers=headers, timeout=10)
             if resp.status_code == 200:
-                logger.info(f"[ntfy] Notification envoyée : {title}")
+                log.info(f"[ntfy] Notification envoyée : {title}")
             else:
-                logger.error(f"[ntfy] Erreur {resp.status_code}: {resp.text}")
+                log.error(f"[ntfy] Erreur {resp.status_code}: {resp.text}")
         except Exception as e:
-            logger.error(f"[ntfy] Connexion impossible : {e}")
+            log.error(f"[ntfy] Connexion impossible : {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -161,16 +162,20 @@ class EmailNotifier:
     def __init__(self):
         self._enabled = bool(SMTP_USER and SMTP_PASSWORD)
         if not self._enabled:
-            logger.warning(
+            # Ce warning ne part qu'une fois, au chargement du module (avant qu'un logger
+            # par-utilisateur existe) — voir aussi le log répété dans send() ci-dessous.
+            _module_logger.warning(
                 "[Email] SMTP_USER / SMTP_PASSWORD non définis dans .env — "
                 "notifications email désactivées."
             )
 
-    def send(self, to_email: str, subject: str, body: str) -> None:
+    def send(self, to_email: str, subject: str, body: str, logger: logging.Logger = None) -> None:
+        log = logger or _module_logger
         if not self._enabled:
+            log.warning("[Email] Notification ignorée : SMTP_USER/SMTP_PASSWORD non configurés sur le serveur.")
             return
         if not to_email:
-            logger.warning("[Email] Aucun email destinataire fourni. Notification ignorée.")
+            log.warning("[Email] Aucun email destinataire fourni. Notification ignorée.")
             return
         try:
             msg = EmailMessage()
@@ -183,9 +188,9 @@ class EmailNotifier:
                 smtp.starttls()
                 smtp.login(SMTP_USER, SMTP_PASSWORD)
                 smtp.send_message(msg)
-            logger.info(f"[Email] Envoyé → {to_email} | {subject[:60]}")
+            log.info(f"[Email] Envoyé → {to_email} | {subject[:60]}")
         except Exception as e:
-            logger.warning(f"[Email] Échec envoi vers {to_email} : {e}")
+            log.warning(f"[Email] Échec envoi vers {to_email} : {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +207,8 @@ class NotificationService:
 
     @staticmethod
     def notify_deal(deal_id: str, deal_data: dict, analysis: dict,
-                    is_update: bool = False, user_email: Optional[str] = None) -> None:
+                    is_update: bool = False, user_email: Optional[str] = None,
+                    logger: logging.Logger = None) -> None:
         """
         Évalue si l'annonce mérite une notification et l'envoie sur tous les canaux actifs.
 
@@ -212,7 +218,9 @@ class NotificationService:
             analysis     : Dict du résultat d'analyse IA (verdict, reasoning…).
             is_update    : True si c'est une mise à jour de prix.
             user_email   : Email Firebase Auth de l'utilisateur destinataire.
+            logger       : Logger par-utilisateur (Firestore/LogViewer), optionnel.
         """
+        log = logger or _module_logger
         verdict = analysis.get('verdict', 'UNKNOWN')
         also_pepite = bool(analysis.get('also_qualifies_pepite')) and verdict != 'PEPITE'
 
@@ -222,7 +230,7 @@ class NotificationService:
 
         # ── Filtre : mises à jour sans baisse de prix significative ────────
         if is_update and not _is_price_drop_notifiable(deal_data):
-            logger.info(f"[Notif] Ignoré (baisse mineure) pour {deal_id}.")
+            log.info(f"[Notif] Ignoré (baisse mineure) pour {deal_id}.")
             return
 
         # ── Construction du contenu ────────────────────────────────────────
@@ -251,13 +259,14 @@ class NotificationService:
             + f"\nProfit: {'+' if profit >= 0 else ''}{profit}$"
             + f"\n{(analysis.get('reasoning') or '')[:120]}..."
         )
-        _ntfy.send(ntfy_title, ntfy_msg, priority=priority, tags=tags, click_url=deal_link)
+        _ntfy.send(ntfy_title, ntfy_msg, priority=priority, tags=tags, click_url=deal_link, logger=log)
 
         # ── Canal 2 : Email ───────────────────────────────────────────────
-        _email_notifier.send(to_email=user_email, subject=subject, body=body)
+        _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
 
     @staticmethod
-    def notify_model_error(model_name: str, error: str, user_email: Optional[str] = None) -> None:
+    def notify_model_error(model_name: str, error: str, user_email: Optional[str] = None,
+                           logger: logging.Logger = None) -> None:
         """
         Alerte (email + ntfy) quand un modèle Gemini configuré semble indisponible/retiré
         (ex: modèle Preview déprécié). Throttlée en amont par l'appelant (1x/24h/modèle).
@@ -266,7 +275,9 @@ class NotificationService:
             model_name : Nom du modèle Gemini en échec (ex: 'gemini-3.1-pro-preview').
             error      : Message d'erreur brut retourné par l'API.
             user_email : Email Firebase Auth de l'utilisateur destinataire.
+            logger     : Logger par-utilisateur (Firestore/LogViewer), optionnel.
         """
+        log = logger or _module_logger
         subject = f"[GuitarHunter] ⚠️ Modèle Gemini indisponible : {model_name}"
         body = (
             f"⚠️ MODÈLE GEMINI INDISPONIBLE\n"
@@ -283,6 +294,7 @@ class NotificationService:
             f"⚠️ Modèle indisponible : {model_name}",
             f"{error[:200]}",
             priority='high',
-            tags=['warning']
+            tags=['warning'],
+            logger=log
         )
-        _email_notifier.send(to_email=user_email, subject=subject, body=body)
+        _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)

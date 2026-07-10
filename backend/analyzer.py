@@ -28,19 +28,22 @@ from backend.scraping.parser import ListingParser
 logger = logging.getLogger(__name__)
 
 class DealAnalyzer:
-    def __init__(self):
+    def __init__(self, logger: logging.Logger = None):
         self.models = {}
         self._model_error_last_notified = {}
+        # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
+        # logger de module si non fourni (scripts autonomes/tests).
+        self.logger = logger or logging.getLogger(__name__)
         if not GEMINI_API_KEY:
-            logger.warning("⚠️ Pas de clé API Gemini fournie.")
+            self.logger.warning("⚠️ Pas de clé API Gemini fournie.")
             return
         
         genai.configure(api_key=GEMINI_API_KEY)
         try:
             model_list = [f"ID: {m.name} | Display Name: {m.display_name}" for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            logger.info("--- Modèles Gemini Disponibles ---\n" + "\n".join(model_list))
+            self.logger.info("--- Modèles Gemini Disponibles ---\n" + "\n".join(model_list))
         except Exception as e:
-            logger.critical(f"CRITICAL: Impossible de lister les modèles Gemini : {e}", exc_info=True)
+            self.logger.critical(f"CRITICAL: Impossible de lister les modèles Gemini : {e}", exc_info=True)
 
     def _get_model(self, model_name, system_instruction=None):
         cache_key = (model_name, hash(str(system_instruction)))
@@ -51,9 +54,9 @@ class DealAnalyzer:
                     system_instruction=system_instruction,
                     generation_config={"response_mime_type": "application/json", "temperature": 0.1}
                 )
-                logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
+                self.logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
             except Exception as e:
-                logger.error(f"⚠️ Erreur init {model_name} : {e}")
+                self.logger.error(f"⚠️ Erreur init {model_name} : {e}")
                 return None
         return self.models[cache_key]
 
@@ -68,7 +71,7 @@ class DealAnalyzer:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             return img.convert("RGB") if img.mode in ("RGBA", "P") else img
         except Exception as e:
-            logger.warning(f"⚠️ Impossible de traiter l'image {url}: {e}")
+            self.logger.warning(f"⚠️ Impossible de traiter l'image {url}: {e}")
             return None
 
     def _clean_json_response(self, text_response):
@@ -114,9 +117,9 @@ class DealAnalyzer:
             return
         self._model_error_last_notified[model_name] = now
         try:
-            NotificationService.notify_model_error(model_name, error_text, user_email)
+            NotificationService.notify_model_error(model_name, error_text, user_email, logger=self.logger)
         except Exception as e:
-            logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
+            self.logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
 
     def _call_gemini_json(self, model_name, content_parts, user_email=None):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
@@ -133,7 +136,7 @@ class DealAnalyzer:
                 result = result[0] if result and isinstance(result[0], dict) else {}
             return result, None
         except Exception as e:
-            logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+            self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
             if self._is_model_unavailable_error(e):
                 self._notify_model_unavailable(model_name, str(e), user_email)
             return None, str(e)
@@ -152,7 +155,7 @@ class DealAnalyzer:
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
         rejection_verdicts = config.get('rejectionVerdicts', DEFAULT_REJECTION_VERDICTS)
 
-        logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
+        self.logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
         # Téléchargement des images
         image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
@@ -176,7 +179,7 @@ class DealAnalyzer:
         # PHASE 1 : TIER 1 - PORTIER (Flash-Lite)
         # ==========================================
         if not force_expert:
-            logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
+            self.logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
             model_chain.append(gatekeeper_model_name)
             gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
             if isinstance(gatekeeper_instruction, list):
@@ -197,19 +200,19 @@ class DealAnalyzer:
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
                 
-                logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
+                self.logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
                     gatekeeper_classification = result_t1.get('classification')
                     return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "classification": gatekeeper_classification, "model_used": " -> ".join(model_chain)}
         else:
-            logger.info("   ⏩ Portier sauté (Force Expert).")
+            self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
         # ==========================================
         # PHASE 2 : TIER 2 - ANALYSTE (Flash)
         # ==========================================
-        logger.info(f"   🔍 Étape 2 : Analyste ({analyst_model_name}) - Structuration & Scores...")
+        self.logger.info(f"   🔍 Étape 2 : Analyste ({analyst_model_name}) - Structuration & Scores...")
         model_chain.append(analyst_model_name)
         analyst_instruction = config.get('analystVerbosityInstruction', DEFAULT_ANALYST_INSTRUCTION)
         if isinstance(analyst_instruction, list):
@@ -231,7 +234,7 @@ class DealAnalyzer:
         # Extraction du prix
         numeric_price = ListingParser.extract_price_from_text(str(listing_data.get('price', '') or ''))
         
-        logger.info(f"   📊 Scores T2 -> Deal: {deal_score} | Auth: {auth_score} | Resto: {resto_score} | Conf: {confidence} | Prix: {numeric_price}")
+        self.logger.info(f"   📊 Scores T2 -> Deal: {deal_score} | Auth: {auth_score} | Resto: {resto_score} | Conf: {confidence} | Prix: {numeric_price}")
 
         trigger_reason = None
         
@@ -254,7 +257,7 @@ class DealAnalyzer:
         # PHASE 3 : TIER 3 - EXPERT PRO (Conditionnel)
         # ==========================================
         if trigger_reason:
-            logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
+            self.logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
             model_chain.append(expert_pro_model_name)
             
             expert_context_raw = config.get('expertProContextInstruction', DEFAULT_EXPERT_CONTEXT)
@@ -272,17 +275,17 @@ class DealAnalyzer:
             result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email)
             
             if err_t3 or not result_t3:
-                logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
+                self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
                 return result_t2
             
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
-            logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
+            self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
             
         else:
-            logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
+            self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
             return result_t2

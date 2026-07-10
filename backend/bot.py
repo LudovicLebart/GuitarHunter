@@ -49,13 +49,13 @@ class GuitarHunterBot:
 
         if self.offline_mode:
             self.logger.warning("Le bot est en mode hors ligne.")
-            self.analyzer = DealAnalyzer()
+            self.analyzer = DealAnalyzer(logger=self.logger)
             self.scraper = FacebookScraper({}, {}, logger=self.logger)
             return
 
         self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
         self.set_status('idle')
-        self.analyzer = DealAnalyzer()
+        self.analyzer = DealAnalyzer(logger=self.logger)
 
         initial_scan_config = {
             "max_ads": 5, "frequency": 60, "location": "montreal", "distance": 10,
@@ -264,7 +264,8 @@ class GuitarHunterBot:
         NotificationService.notify_deal(
             deal_id, listing_data, analysis,
             is_update=is_update,
-            user_email=self._user_email
+            user_email=self._user_email,
+            logger=self.logger
         )
         
         if not self.offline_mode:
