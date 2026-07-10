@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-09] [FLASH] Ajout : Script de test manuel du pipeline de notifications → Résultat :
+- `backend/scripts/test_notification.py` : déclenche une notification factice (verdict `PEPITE`) sans attendre un vrai scan, avec le vrai logger par-utilisateur (raccordé au LogViewer). Usage : `python3 backend/scripts/test_notification.py` (utilise `USER_ID_TARGET` du `.env` et l'email Firebase Auth associé par défaut ; `--user-id`/`--email` pour surcharger).
+- **Raison** : Suite au signalement "plus d'email reçu, seulement des ntfy", permet de diagnostiquer directement la cause (SMTP mal configuré vs identifiants Gmail révoqués) sans dépendre du hasard d'un scan qui trouve une vraie Pépite.
+
+[2026-07-09] [PRO] Fix : Logs de `notifications.py` et `analyzer.py` invisibles dans le LogViewer (même bug que le scraper) → Résultat :
+- **Contexte** : Signalement "plus d'email reçu, seulement des ntfy". Investigation de l'historique Git de `notifications.py`/`bot.py`/`deploy.yml` — aucun changement de code récent ne touche l'envoi d'email ou les identifiants SMTP, et la résolution de l'email utilisateur fonctionne (confirmé par les logs). Régression probablement externe (identifiants Gmail révoqués/expirés, ou variable d'environnement serveur manquante) — non confirmable tant que l'erreur réelle restait invisible.
+- **Cause** : `notifications.py` et `analyzer.py` loguaient via `logging.getLogger(__name__)` (loggers de module), jamais raccordés au logger par-utilisateur `bot.{user_id}` — même bug que celui déjà corrigé pour `backend/scraping/` (voir plus bas).
+- **`analyzer.py`** : `DealAnalyzer.__init__` accepte un `logger` optionnel ; les 18 appels `logger.x()` de la classe basculés sur `self.logger.x()`. `bot.py` passe `logger=self.logger` aux 2 instanciations.
+- **`notifications.py`** : `NtfyNotifier.send()`/`EmailNotifier.send()`/`NotificationService.notify_deal()`/`notify_model_error()` acceptent tous un paramètre `logger` optionnel, propagé depuis `bot.py` et `analyzer.py`.
+- **Bonus** : `EmailNotifier.send()` logue désormais explicitement quand l'envoi est bloqué par une config SMTP manquante (avant : un seul warning au tout premier chargement du module, jamais revu ensuite — ratait donc silencieusement chaque tentative suivante).
+
 [2026-07-09] [PRO] Fix : `gemini-2.5-flash` (Tier 2 — Analyste) n'est plus disponible chez Google (404) → Résultat :
 - Remplacé par `gemini-3.5-flash` partout où codé en dur : `backend/analyzer.py` (fallback runtime `config.get('mainModel', ...)` — probable cause directe du 404 en prod, puisque `mainModel` n'est jamais initialisé dans la structure Firestore créée pour un nouvel utilisateur), `config.py::GEMINI_MODELS` (`default_analyst` + retrait de la liste `available`), `src/components/ConfigPanel.jsx` (liste de repli + valeur par défaut du `<select>`), `src/hooks/useBotConfig.js` (état initial React ET bouton "Réinitialiser par défaut", qui réécrivait encore le modèle mort dans Firestore).
 - **Suivi requis** : comme pour l'Expert Pro en 2026-07-07, resélection manuelle du modèle Analyste dans Paramètres → IA si la config Firestore existante a déjà `mainModel` enregistré à l'ancienne valeur (non migrée rétroactivement).

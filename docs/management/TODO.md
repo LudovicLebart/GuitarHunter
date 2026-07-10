@@ -193,6 +193,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce**
     - *Détails :* Le lien dans la notification ntfy.sh renvoie à la page principale de l'application plutôt qu'à l'annonce spécifique. (Corrigé par l'implémentation du partage via `dealId` qui génère un lien direct vers l'annonce).
 
+- [x] **Fix : Logs de `notifications.py`/`analyzer.py` invisibles dans le LogViewer (même bug que le scraper)** *(2026-07-09)*
+    - *Détails :* Signalement "plus d'email reçu, seulement des ntfy". Même cause que le bug de logging du scraper (module non raccordé au logger par-utilisateur) — appliqué aux deux fichiers. `EmailNotifier.send()` logue désormais aussi chaque tentative bloquée par une config SMTP manquante (avant : un seul warning au tout premier démarrage du process, jamais revu ensuite).
+    - *Outil de diagnostic* : `backend/scripts/test_notification.py` — déclenche une notification factice pour tester le pipeline sans attendre un vrai scan.
+    - *Suivi requis* : Aucun changement de code récent trouvé qui explique l'arrêt des emails (historique Git vérifié) — cause probablement externe (identifiants Gmail révoqués/expirés, ou variable d'environnement serveur manquante). À confirmer via le LogViewer au prochain envoi réel ou via `test_notification.py`.
+
 - [x] **Feature : Double appartenance "Pépite" pour les autres verdicts d'opportunité** *(Corrigé 2026-07-06)*
     - *Détails :* Un `LUTHIER_PROJ`/`FAST_FLIP`/`CASE_WIN`/`COLLECTION` qui remplit aussi les critères Pépite (marge) restait invisible du filtre/notifications "Pépites".
     - *Solution :* Nouveau champ IA `also_qualifies_pepite` (`prompts.json`), pris en compte dans le filtre et le compteur Pépites (`useDealsManager.js`), badge secondaire "Aussi Pépite" (`DealCard.jsx`), et déclenchement de la notification (`notifications.py`).

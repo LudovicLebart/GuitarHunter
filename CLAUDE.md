@@ -91,8 +91,8 @@ artifacts/{APP_ID}/users/{USER_ID}/
 
 ### Pipeline IA (3-Tiers)
 1. **Tier 1 — Portier** (`gemini-2.5-flash-lite`) : filtre rapide
-2. **Tier 2 — Analyste** (`gemini-2.5-flash`) : 5 scores numériques
-3. **Tier 3 — Expert Pro** (`gemini-2.5-pro`) : analyse exhaustive (conditionnel)
+2. **Tier 2 — Analyste** (`gemini-3.5-flash`, depuis 2026-07-09 — `gemini-2.5-flash` retiré par Google) : 5 scores numériques
+3. **Tier 3 — Expert Pro** (`gemini-3.1-pro-preview`, depuis 2026-07-07) : analyse exhaustive (conditionnel)
 
 ### Commandes Backend
 `REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP`
@@ -107,6 +107,11 @@ artifacts/{APP_ID}/users/{USER_ID}/
 - Les images Facebook expirent → upload systématique vers **Firebase Storage** lors de `handle_deal_found`.
 - `session_processed_ids` est isolé par thread via `threading.local()` pour éviter les collisions.
 - Les prompts IA sont modifiables via Firestore (ConfigPanel) avec double fallback (`prompts.json`).
+- **Piège logger (récurrent, trouvé 2026-07-09 dans `scraping/`, `analyzer.py`, `notifications.py`)** : seul le logger `bot.{user_id[:8]}` (créé dans `bot.py`, raccordé au `FirestoreHandler` de `logging_config.py`) est visible dans le LogViewer de l'app. Tout module qui logue via `logging.getLogger(__name__)` sans recevoir ce logger en paramètre est **invisible pour l'utilisateur**, même si les logs apparaissent bien côté serveur (stdout/journalctl). Tout nouveau module backend qui doit logger quelque chose d'observable par l'utilisateur doit accepter un paramètre `logger` optionnel (repli sur le logger de module) et le faire propager depuis `bot.py`/`analyzer.py` — ne jamais supposer qu'un `logger.info(...)` isolé sera visible.
+- **`GEMINI_MODELS["default_analyst"]` (`config.py`) n'est pas réellement câblé** : `bot.py::_init_firestore_structure()` n'initialise que `gatekeeperModel`/`expertModel` dans le document Firestore d'un nouvel utilisateur, jamais `mainModel`. Le vrai défaut utilisé en pratique est le fallback codé en dur dans `analyzer.py::analyze_deal()` (`config.get('mainModel', '...')`) — à modifier en priorité si un modèle Tier 2 devient indisponible.
+- **Facebook peut gater le prix/les photos pour une session non authentifiée** (comportement intermittent, cause exacte non confirmée) : le scraper est 100% anonyme (aucun `storage_state`/cookies persistants). Une fiche détail peut alors n'exposer que titre/description (balises `og:*`) sans prix ni carrousel photo, même après un reload. `handle_deal_found()` ne stocke pas ces annonces (0 image ET prix à 0$) plutôt que de figer une fiche vide — voir `TODO.md` pour la décision produit non tranchée (accepter la limitation vs session Facebook authentifiée).
+- **Le LogViewer peut afficher les logs dans un ordre différent de leur émission réelle** : `FirestoreHandler` bufferise et envoie par lots toutes les 3s ; des logs émis à quelques centaines de ms d'écart peuvent recevoir un `timestamp` serveur identique/très proche, et leur ordre d'affichage n'est alors pas garanti. Ne pas déduire l'ordre d'exécution réel du code depuis l'ordre d'affichage du LogViewer sans vérifier le code source.
+- **`BAD_DEAL` (verdict IA "Trop Cher") ≠ `REJECTED`** : `BAD_DEAL` garde `status: "analyzed"` (pas `"rejected"`) et est simplement masqué de la vue par défaut via son appartenance à `ARCHIVE_GROUP` (`src/constants.js`) — pas un vrai rejet de fond. Le pré-filtre de prix (`scanConfig.max_price`) dans `handle_deal_found()` réutilise ce même verdict plutôt que `REJECTED`, pour ne pas confondre "hors budget" avec "mauvaise annonce".
 
 ---
 
@@ -118,6 +123,8 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `backend/bot.py` | `GuitarHunterBot` — orchestration globale |
 | `backend/analyzer.py` | `DealAnalyzer` — pipeline 3-Tiers Gemini |
 | `backend/scraping/` | `FacebookScraper` — Playwright + stealth mode |
+| `backend/notifications.py` | `NotificationService` — email SMTP + ntfy.sh |
+| `backend/logging_config.py` | `setup_logging()`/`FirestoreHandler` — logger par-utilisateur → LogViewer |
 | `backend/database.py` | `DatabaseService` — Firestore + Firebase Storage |
 | `src/services/firestoreService.js` | Couche d'abstraction Firestore côté Frontend |
 | `src/hooks/useDealsManager.js` | Hook central — tri, filtres, actions |
