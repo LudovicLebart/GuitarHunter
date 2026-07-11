@@ -1,5 +1,5 @@
 import React from 'react';
-import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle } from 'lucide-react';
+import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, ShieldCheck } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/firestoreService';
@@ -21,10 +21,10 @@ const BOT_STATUS_CONFIG = {
     stopped: { label: 'Arrêté', color: 'text-rose-400', icon: <Power size={14} className="text-rose-400" /> },
 };
 
-const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCount }) => {
+const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
-    const { user, signOut } = useAuth();
+    const { user, signOut, isAdmin } = useAuth();
 
     // Fallback if rendered outside context (for isolated UI tests)
     const { botStatus = 'scanning', configStatus = { status: 'success' }, isRefreshing = false, isCleaning = false, handleManualRefresh = () => { }, handleManualCleanup = () => { } } = botContext || {};
@@ -169,6 +169,17 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCoun
                         <HelpCircle size={16} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
                         <span className="hidden md:inline">Aide</span>
                     </button>
+
+                    {/* Admin button (visible uniquement si custom claim admin) */}
+                    {isAdmin && (
+                        <button
+                            onClick={onOpenAdmin}
+                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all"
+                            title="Dashboard Administrateur"
+                        >
+                            <ShieldCheck size={16} />
+                        </button>
+                    )}
 
                     {/* Paramètres button (gear icon) */}
                     <button

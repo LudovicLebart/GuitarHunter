@@ -2,6 +2,27 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Dashboard Administrateur : accès lecture seule cross-utilisateurs,
+    // gardé par un custom claim Firebase (backend/scripts/set_admin_claim.py).
+    // N'affecte jamais les règles d'isolation existantes ci-dessous (sémantique OR).
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Requêtes collectionGroup('users') / collectionGroup('guitar_deals') pour l'admin.
+    match /{path=**}/users/{userId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/guitar_deals/{dealId} {
+      allow read: if isAdmin();
+    }
+
+    // Snapshot agrégé quotidien (volume, coût estimé) écrit par le backend (Admin SDK bypass).
+    match /artifacts/{appId}/admin_stats/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // Seul le propriétaire authentifié accède à ses propres données.
     // Le backend (Admin SDK) bypass ces règles par design — pas d'impact serveur.
     // Le document utilisateur lui-même (botStatus, config, etc.)

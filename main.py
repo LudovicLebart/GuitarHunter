@@ -3,6 +3,7 @@ import sys
 import time
 import logging
 import threading
+import schedule
 
 print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
@@ -11,6 +12,7 @@ from backend.database import DatabaseService
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
+from backend.admin_stats import run_admin_stats_job
 import firebase_admin.auth as fb_auth
 
 # --- Sémaphore global : limite le nombre de navigateurs Playwright simultanés ---
@@ -284,11 +286,17 @@ def main():
 
     print(f"✅ {len(user_contexts)} bot(s) actif(s). Watchdog et Découverte dynamique activés.", flush=True)
 
+    # Job global (singleton, pas par-utilisateur) : snapshot admin_stats quotidien
+    # pour le Dashboard Administrateur. Tourne au premier passage du watchdog qui
+    # suit l'heure planifiée, peu importe quel(s) thread(s) utilisateur(s) actif(s).
+    schedule.every().day.at("03:00").do(run_admin_stats_job, db_service).tag('admin_stats')
+
     try:
         # Boucle de surveillance (watchdog) + Découverte dynamique
         while True:
             time.sleep(WATCHDOG_INTERVAL)
-            
+            schedule.run_pending()
+
             # 1. Découverte de nouveaux utilisateurs
             current_uids = discover_users(db_service.db, APP_ID_TARGET)
             

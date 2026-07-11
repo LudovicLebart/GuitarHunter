@@ -35,13 +35,24 @@ const ensureUserDoc = async (uid, email, updateField = 'lastSeen') => {
 export const useAuth = () => {
   const [user, setUser] = useState(null);
   const [authStatus, setAuthStatus] = useState({ status: 'loading', msg: 'Vérification de la session...' });
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
         setAuthStatus({ status: 'success', msg: `Connecté (${firebaseUser.email})` });
-        
+
+        // Vérification défensive côté client (custom claim) — la vraie protection
+        // reste les règles Firestore (isAdmin() dans firestore.rules).
+        try {
+          const tokenResult = await firebaseUser.getIdTokenResult();
+          setIsAdmin(tokenResult.claims?.admin === true);
+        } catch (e) {
+          console.error("Erreur lecture du token (claims admin):", e);
+          setIsAdmin(false);
+        }
+
         // S'assurer que le document utilisateur existe pour le backend (cas de persistance session)
         try {
           await ensureUserDoc(firebaseUser.uid, firebaseUser.email, 'lastSeen');
@@ -56,6 +67,7 @@ export const useAuth = () => {
         }
       } else {
         setAuthStatus({ status: 'unauthenticated', msg: 'Non connecté' });
+        setIsAdmin(false);
       }
     });
     return () => unsubscribe();
@@ -106,5 +118,5 @@ export const useAuth = () => {
     setAuthStatus({ status: 'unauthenticated', msg: 'Déconnecté' });
   };
 
-  return { user, authStatus, signIn, signUp, resetPassword, signOut };
+  return { user, authStatus, isAdmin, signIn, signUp, resetPassword, signOut };
 };

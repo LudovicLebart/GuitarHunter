@@ -7,6 +7,7 @@ import StatsView from './StatsView';
 import ConfigPanel from './ConfigPanel';
 import MapView from './MapView';
 import HelpOverlay from './HelpOverlay';
+import AdminDashboard from './AdminDashboard';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
 // Contexts & hooks
@@ -150,6 +151,7 @@ const Dashboard = ({ onClose }) => {
     const [viewMode, setViewMode] = useState('LIST');
     const [openSections, setOpenSections] = useState({ radar: true, market: true, archive: false });
     const [showHelp, setShowHelp] = useState(false);
+    const [showAdmin, setShowAdmin] = useState(false);
 
     // ── Real data & actions ──────────────────────────────────
     const {
@@ -308,7 +310,10 @@ const Dashboard = ({ onClose }) => {
                 isRefreshing={isRefreshing}
                 isCleaning={isCleaning}
                 onOpenHelp={() => setShowHelp(true)}
+                onOpenAdmin={() => setShowAdmin(true)}
             />
+
+            {showAdmin && <AdminDashboard onClose={() => setShowAdmin(false)} />}
 
             {/* Error Banner */}
             {error && (

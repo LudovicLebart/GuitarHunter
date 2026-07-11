@@ -88,10 +88,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🛠️ Administration & Gestion Utilisateurs
 
-- [ ] **Dashboard Administrateur** *(Plan sauvegardé 2026-07-08)*
+- [/] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11)*
     - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
-    - *Objectif :* Vue centralisée sur tous les utilisateurs (activité, coût estimé, dernier login, statut du bot) + actions de gestion (désactivation de compte, envoi de courriel, arrêt de bot à distance), protégée par un custom claim Firebase admin.
-    - *Découpage :* Phase 1 (monitoring, lecture seule) puis Phase 2 (actions privilégiées + journal d'audit).
+    - [x] **Phase 1 — Monitoring (lecture seule)** : custom claim admin, règles Firestore collectionGroup, `AdminDashboard.jsx`, job `admin_stats` quotidien (03:00), bouton Navbar conditionnel.
+    - [ ] **Phase 2 — Actions privilégiées** : bus `admin_commands`, `DISABLE_USER` / `SEND_EMAIL` / `STOP_BOT` admin, journal d'audit (`admin_audit_log`).
 
 ---
 

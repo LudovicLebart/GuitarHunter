@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-11] [PRO] Feature : Dashboard Administrateur — Phase 1 (Monitoring, lecture seule) → Résultat :
+- **`backend/scripts/set_admin_claim.py`** : Script one-shot (Admin SDK) pour poser le custom claim `admin: true` sur un compte Firebase. Usage : `python backend/scripts/set_admin_claim.py --email admin@example.com` (option `--revoke` pour retrait).
+- **`firebase/firestore.rules`** : Ajout de la fonction `isAdmin()` (`request.auth.token.admin == true`) + règles `collectionGroup('users')` et `collectionGroup('guitar_deals')` autorisant la lecture cross-utilisateurs uniquement pour l'admin. Nouvelle collection `admin_stats/{docId}` en lecture admin, écriture interdite au client (Admin SDK only). Les règles d'isolation utilisateur existantes sont inchangées.
+- **`backend/admin_stats.py`** : Job quotidien calculant, par utilisateur, le volume `guitar_deals` des dernières 24h, le funnel Tier 1→2→3 et le coût Gemini estimé. Réutilise les constantes et formules de `analyze_funnel_by_user.py`. Écrit dans `artifacts/{APP_ID}/admin_stats/latest`.
+- **`main.py`** : Intégration du job `run_admin_stats_job` dans la boucle watchdog via `schedule.every().day.at("03:00")` (singleton global, une seule fois quel que soit le nombre de threads utilisateur).
+- **`src/hooks/useAuth.js`** : Nouveau state `isAdmin` initialisé via `firebaseUser.getIdTokenResult()` à chaque changement d'état d'auth. Vérification défensive côté client (la vraie protection reste les règles Firestore). Exposé dans le return du hook.
+- **`src/components/Navbar.jsx`** : Bouton `ShieldCheck` affiché uniquement si `isAdmin === true`. Nouvelle prop `onOpenAdmin`.
+- **`src/components/Dashboard.jsx`** : Import et montage conditionnel de `AdminDashboard` via `showAdmin` state.
+- **`src/components/AdminDashboard.jsx`** : Nouveau composant — tableau des utilisateurs (email, UID, botStatus, villes, fréquence de scan, dernier login), enrichi par les stats de coût/volume du snapshot `admin_stats/latest` (non-bloquant si absent). Bouton Rafraîchir.
+- **Phase 2 non livrée** : Actions privilégiées (`DISABLE_USER`, `SEND_EMAIL`, `STOP_BOT` admin, journal d'audit) restent planifiées dans `ADMIN_DASHBOARD_PLAN.md`.
+
 [2026-07-11] [PRO] Fix : STOP_SCAN/STOP_BOT/START_BOT échouaient toujours ("Erreur lors de l'envoi de la commande") → Résultat :
 - **Symptôme signalé** : clic sur "Interrompre le scan" → alerte `Erreur STOP_SCAN: Erreur lors de l'envoi de la commande.`
 - **Cause** : `src/components/Navbar.jsx` appelle `triggerStopScan()`/`triggerStopBot()`/`triggerStartBot()` (`firestoreService.js`) directement, sans passer par `useBotConfig.js` (qui fournit correctement `user.uid` pour Refresh/Cleanup/Reanalyze). Ces 3 appels n'avaient aucun argument `userId` → `getRefs(undefined)` lève une erreur (fail fast, voir CLAUDE.md), catchée par `addCommand()` et remplacée par le message générique `"Erreur lors de l'envoi de la commande."` — masquant la vraie cause à l'utilisateur comme dans les logs.
