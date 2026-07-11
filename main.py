@@ -295,7 +295,17 @@ def main():
         # Boucle de surveillance (watchdog) + Découverte dynamique
         while True:
             time.sleep(WATCHDOG_INTERVAL)
-            schedule.run_pending()
+            try:
+                # schedule.run_pending() exécute TOUS les jobs dus sur le scheduler global
+                # partagé (pas seulement admin_stats — chaque TaskScheduler par-utilisateur
+                # y enregistre aussi scan/cleanup/purge, voir services.py). Non protégé, une
+                # exception ici sortirait de cette boucle watchdog (seul `except
+                # KeyboardInterrupt` l'entoure) et tuerait tout le process, tous utilisateurs
+                # confondus — contrairement à la boucle par-utilisateur (plus bas) qui capture
+                # déjà ses propres erreurs et survit.
+                schedule.run_pending()
+            except Exception as e:
+                logging.getLogger(__name__).error(f"Erreur dans schedule.run_pending() (watchdog) : {e}", exc_info=True)
 
             # 1. Découverte de nouveaux utilisateurs
             current_uids = discover_users(db_service.db, APP_ID_TARGET)
