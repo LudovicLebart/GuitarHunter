@@ -22,12 +22,14 @@ jobs:
         run: npm ci
 
       - name: Create .env file
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
         run: |
-          if [ -z "${{ secrets.DOT_ENV }}" ]; then
+          if [ -z "$DOT_ENV" ]; then
             echo "❌ Secret DOT_ENV manquant — le build Firebase (VITE_FIREBASE_*) échouera."
             exit 1
           fi
-          echo "${{ secrets.DOT_ENV }}" > .env
+          printf '%s' "$DOT_ENV" > .env
 
       - name: Build
         run: npm run build
@@ -54,32 +56,39 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
           command_timeout: 10m
+          envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
           script: |
             mkdir -p ~/GuitareHunter
             cd ~/GuitareHunter
 
             # Création/Mise à jour du fichier .env à partir du secret GitHub
+            # (transmis en variable d'env via `envs:` ci-dessus, pas interpolé
+            # littéralement dans ce script — immunisé aux guillemets/parenthèses
+            # dans la valeur du secret)
             echo "--- Configuration .env ---"
-            if [ -z "${{ secrets.DOT_ENV }}" ]; then
+            if [ -z "$DOT_ENV" ]; then
               echo "⚠️ Secret DOT_ENV manquant dans GitHub."
             else
-              echo "${{ secrets.DOT_ENV }}" > .env
+              printf '%s' "$DOT_ENV" > .env
               echo "✅ Fichier .env mis à jour."
             fi
 
             # Création/Mise à jour de la clé Firebase
             echo "--- Configuration Firebase ---"
             mkdir -p backend/config
-            if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}" ]; then
+            if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
               echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant."
             else
-              echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}' > backend/config/serviceAccountKey.json
+              printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
               echo "✅ Clé Firebase mise à jour."
             fi
 
