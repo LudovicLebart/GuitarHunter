@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-11] [PRO] Fix : STOP_SCAN/STOP_BOT/START_BOT échouaient toujours ("Erreur lors de l'envoi de la commande") → Résultat :
+- **Symptôme signalé** : clic sur "Interrompre le scan" → alerte `Erreur STOP_SCAN: Erreur lors de l'envoi de la commande.`
+- **Cause** : `src/components/Navbar.jsx` appelle `triggerStopScan()`/`triggerStopBot()`/`triggerStartBot()` (`firestoreService.js`) directement, sans passer par `useBotConfig.js` (qui fournit correctement `user.uid` pour Refresh/Cleanup/Reanalyze). Ces 3 appels n'avaient aucun argument `userId` → `getRefs(undefined)` lève une erreur (fail fast, voir CLAUDE.md), catchée par `addCommand()` et remplacée par le message générique `"Erreur lors de l'envoi de la commande."` — masquant la vraie cause à l'utilisateur comme dans les logs.
+- **`Navbar.jsx`** : `user` récupéré via `useAuth()` (déjà importé pour `signOut`, mais jamais destructuré) et passé en `user?.uid` aux 3 appels.
+- **Non couvert par les tests/lint** : bug uniquement visible à l'usage (clic bouton), invisible en compilation puisque `userId` est un paramètre optionnel côté JS.
+
 [2026-07-11] [PRO] Feature : Stat "Erreurs Portier corrigées" (StatsView) → Résultat :
 - **Contexte** : Suite à un cas réel observé par l'utilisateur (une annonce rejetée par le Portier, réanalysée manuellement, révélée comme une Pépite), constat que `dev` disposait déjà d'un outil de diagnostic ponctuel (`analyze_funnel_by_user.py --sample-size`, §8.2 de `GEMINI_PROMPT_CACHING_PLAN.md`) mais rien d'automatisé/permanent dans l'app pour suivre ce taux d'erreur dans le temps.
 - **`backend/repository.py::create_new_deal()`** : deux nouveaux champs figés à la création, jamais réécrits par les réanalyses ultérieures (contrairement à `aiAnalysis`) : `initialVerdict` (verdict du tout premier passage IA) et `initialModelUsed` (chaîne `model_used` du premier passage, ex: `"gemini-2.5-flash-lite"` si arrêté au Portier seul).

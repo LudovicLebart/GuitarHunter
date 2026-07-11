@@ -24,7 +24,7 @@ const BOT_STATUS_CONFIG = {
 const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
-    const { signOut } = useAuth();
+    const { user, signOut } = useAuth();
 
     // Fallback if rendered outside context (for isolated UI tests)
     const { botStatus = 'scanning', configStatus = { status: 'success' }, isRefreshing = false, isCleaning = false, handleManualRefresh = () => { }, handleManualCleanup = () => { } } = botContext || {};
@@ -33,17 +33,17 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCoun
     const isScanning = botStatus === 'scanning' || botStatus === 'scanning_url';
 
     const handleStopScan = () => {
-        triggerStopScan().catch(err => alert(`Erreur STOP_SCAN: ${err.message}`));
+        triggerStopScan(user?.uid).catch(err => alert(`Erreur STOP_SCAN: ${err.message}`));
     };
 
     const handleStopBot = () => {
         if (window.confirm("⏸️ Mettre le bot en pause (12h max) ? Il sera mis en veille et reprendra automatiquement. Utilisez Start Bot pour réveiller immédiatement.")) {
-            triggerStopBot().catch(err => alert(`Erreur: ${err.message}`));
+            triggerStopBot(user?.uid).catch(err => alert(`Erreur: ${err.message}`));
         }
     };
 
     const handleStartBot = () => {
-        triggerStartBot().catch(err => alert(`Erreur START_BOT: ${err.message}`));
+        triggerStartBot(user?.uid).catch(err => alert(`Erreur START_BOT: ${err.message}`));
     };
 
     return (
