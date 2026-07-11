@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-11] [PRO] Feature : Stat "Erreurs Portier corrigées" (StatsView) → Résultat :
+- **Contexte** : Suite à un cas réel observé par l'utilisateur (une annonce rejetée par le Portier, réanalysée manuellement, révélée comme une Pépite), constat que `dev` disposait déjà d'un outil de diagnostic ponctuel (`analyze_funnel_by_user.py --sample-size`, §8.2 de `GEMINI_PROMPT_CACHING_PLAN.md`) mais rien d'automatisé/permanent dans l'app pour suivre ce taux d'erreur dans le temps.
+- **`backend/repository.py::create_new_deal()`** : deux nouveaux champs figés à la création, jamais réécrits par les réanalyses ultérieures (contrairement à `aiAnalysis`) : `initialVerdict` (verdict du tout premier passage IA) et `initialModelUsed` (chaîne `model_used` du premier passage, ex: `"gemini-2.5-flash-lite"` si arrêté au Portier seul).
+- **`src/components/StatsView.jsx`** : nouvelle stat sous le Funnel — parmi les annonces dont la chaîne `initialModelUsed` ne compte qu'un seul maillon (= arrêtées au Portier seul, jamais passées à l'Analyste), compte celles dont la chaîne `aiAnalysis.model_used` **actuelle** compte 2 maillons ou plus (= réanalysées avec succès depuis). Affichage : `X/Y (Z%)`.
+- **Pourquoi pas une simple comparaison de `verdict`** : `BAD_DEAL` peut provenir soit d'un vrai rejet Portier, soit d'un verdict légitime de l'Analyste (Tier 2) après analyse complète ("trop cher") — les confondre aurait faussé la stat. La longueur de chaîne `model_used` lève l'ambiguïté sans dépendre du texte du verdict (qui est configurable par l'utilisateur via `rejectionVerdicts`).
+- **Limite assumée** : pas de backfill — seules les annonces créées après ce déploiement auront `initialVerdict`/`initialModelUsed` ; la stat démarre à 0/0.
+- **Branche** : rebase (fast-forward) de `claude/claude-md-literate-ovyt5p` sur `dev` avant implémentation (18 commits de retard sur `master`, incluant le fix du faux positif Portier "acoustique 12 cordes" — voir `GEMINI_PROMPT_CACHING_PLAN.md §8.2`).
+
 [2026-07-09] [FLASH] Ajout : Script de test manuel du pipeline de notifications → Résultat :
 - `backend/scripts/test_notification.py` : déclenche une notification factice (verdict `PEPITE`) sans attendre un vrai scan, avec le vrai logger par-utilisateur (raccordé au LogViewer). Usage : `python3 backend/scripts/test_notification.py` (utilise `USER_ID_TARGET` du `.env` et l'email Firebase Auth associé par défaut ; `--user-id`/`--email` pour surcharger).
 - **Raison** : Suite au signalement "plus d'email reçu, seulement des ntfy", permet de diagnostiquer directement la cause (SMTP mal configuré vs identifiants Gmail révoqués) sans dépendre du hasard d'un scan qui trouve une vraie Pépite.

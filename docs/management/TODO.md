@@ -332,6 +332,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 📊 Statistiques & Dashboard
 
+- [x] **Feature : Stat "Erreurs Portier corrigées" (StatsView)** *(2026-07-11)*
+    - *Détails :* `initialVerdict`/`initialModelUsed` figés à la création (`repository.py::create_new_deal`), jamais réécrits par les réanalyses. `StatsView.jsx` compte les annonces arrêtées au Portier seul (Tier 1) puis validées après réanalyse manuelle jusqu'à l'Analyste ou plus.
+    - *Complémentaire à* : l'échantillonnage manuel ponctuel de `analyze_funnel_by_user.py --sample-size` (`GEMINI_PROMPT_CACHING_PLAN.md §8.2`) — cette stat donne un suivi continu dans l'UI plutôt qu'un contrôle à la demande.
+    - *Limite* : pas de backfill, la stat ne compte que les annonces créées après ce déploiement.
+
 - [ ] **Mettre en place le moteur de statistiques (Impact Tier 3)**
     - *Plan de travail :* [`docs/explanation/STATS_REFLEXION.md`](../explanation/STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).

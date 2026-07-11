@@ -43,7 +43,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
   2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`) ou prix > `scanConfig.max_price` (**2026-07-09**, `verdict: BAD_DEAL` → `status` reste `analyzed`, catégorie "Trop Cher" masquée par défaut côté frontend mais pas un vrai rejet).
   3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
   4. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
-  5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté.
+  5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté. **(2026-07-11)** `create_new_deal()` snapshotte en plus `initialVerdict`/`initialModelUsed` (verdict et chaîne `model_used` du tout premier passage) — ces champs ne sont plus jamais réécrits par une réanalyse ultérieure, contrairement à `aiAnalysis`.
 - **Format de donnée type** :
   ```json
   {
@@ -52,6 +52,8 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "original_price": "Number (Optionnel, si baisse de prix)",
     "price_drop_amount": "Number (Optionnel, si baisse de prix)",
     "status": "analyzed" | "rejected" | "sold",
+    "initialVerdict": "Verdict du tout premier passage IA (figé, jamais réécrit)",
+    "initialModelUsed": "Chain of models du tout premier passage (ex: flash-lite seul si arrêté au Portier) - absent sur les annonces créées avant 2026-07-11",
     "imageUrls": ["URL CDN Facebook (temporaire)"],
     "storageImageUrls": ["URL Firebase Storage (pérenne)"],
     "aiAnalysis": { 

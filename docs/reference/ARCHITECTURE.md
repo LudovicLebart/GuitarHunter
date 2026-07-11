@@ -56,6 +56,7 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
 - **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
+  - **`initialVerdict`/`initialModelUsed` (2026-07-11) :** Snapshot du verdict et de la chaîne `model_used` du tout premier passage IA, écrit une seule fois par `repository.py::create_new_deal()` et jamais réécrit par les réanalyses ultérieures (contrairement à `aiAnalysis`, qui est remplacé à chaque réanalyse). Sert de référence pour détecter les annonces initialement arrêtées au Portier (Tier 1) seul puis validées après réanalyse manuelle — voir `StatsView.jsx` ci-dessous. Absent sur les annonces créées avant cette date (pas de backfill).
 - **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`, `STOP_SCAN`, `START_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée.
   - **`STOP_BOT` :** Commande qui déclenche un état de "Sommeil" (pause de 12h interruptible) dans `main.py`. Utilise `stop_event` pour interrompre le travail en cours et change le statut du bot en `paused`. Le bot ne s'éteint plus totalement mais attend un réveil ou l'expiration du délai.
   - **`STOP_SCAN` :** Interrompt uniquement le cycle de scraping Playwright en cours via un `scan_stop_event` dédié. Le bot reste actif et prêt pour d'autres commandes (ex: Refresh, Reanalyse).
@@ -253,6 +254,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Tableau de Bord de Statistiques (`StatsView.jsx`) :** Composant agrégeant les données de Firestore.
     - Calcule dynamiquement le Tunnel de Conversion (Funnel) et les KPIs financiers (Marge nette latente, Score moyen, Marge par pépite) sur l'inventaire en cours.
     - Utilise `recharts` pour visualiser un **Radar Chart** du profil moyen IA (5 scores) et un **Bar Chart** pour la distribution du Top 5 des Marques.
+    - **Erreurs Portier corrigées (2026-07-11) :** Sous le Funnel — compte les annonces dont `initialModelUsed` ne compte qu'un maillon (arrêtées au Portier T1 seul) et dont la chaîne `aiAnalysis.model_used` **actuelle** en compte 2 ou plus (réanalysées avec succès jusqu'à l'Analyste ou l'Expert). Un signal direct du taux de faux positifs du Portier, sans dépendre du texte du verdict (`BAD_DEAL` étant ambigu — voir `initialVerdict`/`initialModelUsed` plus haut).
 
 ### `src/components/DealCard.jsx`
 - **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.

@@ -46,6 +46,13 @@ Pour alimenter ce dashboard en production, le backend Python devra être étendu
 - **`discount_index` (Number) :**
   - **Besoin :** Calcul simplifié : `(Prix Demandé - Valeur Estimée) / Valeur Estimée`. Représente la décote immédiate ressentie.
 
+## 7. Qualité IA : Erreurs du Portier (Implémenté 2026-07-11)
+
+Axe absent de la réflexion initiale ci-dessus, ajouté suite à un cas concret : une annonce rejetée par le Portier (Tier 1) puis validée en Pépite après réanalyse manuelle. Plutôt qu'un axe purement financier ou de volume, celui-ci mesure la **fiabilité du filtre d'entrée lui-même** :
+- **Erreurs Portier corrigées** : parmi les annonces initialement arrêtées au Portier seul, combien ont été réanalysées avec succès jusqu'à l'Analyste ou plus. Implémenté dans `StatsView.jsx` via `initialVerdict`/`initialModelUsed` (`ARCHITECTURE.md`).
+- Complète l'échantillonnage manuel ponctuel déjà existant (`analyze_funnel_by_user.py --sample-size`, `GEMINI_PROMPT_CACHING_PLAN.md §8.2`) par un taux mesuré en continu, sans script à lancer.
+- Limite actuelle : ne capture que les réanalyses **déclenchées manuellement** par l'utilisateur — ne détecte pas les faux positifs jamais revus.
+
 ---
 
 > [!IMPORTANT]

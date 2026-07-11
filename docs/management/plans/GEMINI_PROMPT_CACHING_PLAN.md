@@ -196,6 +196,10 @@ Le taux de rejet mesuré (~92%) est élevé, mais l'échantillonnage (`--sample-
 
 **Cause probable** : pas une faiblesse générale du modèle sur le raisonnement, mais un **non-respect d'une instruction explicite** (`gemini-2.5-flash-lite` retombant sur un biais générique "projet guitare = électrique" au lieu de suivre la taxonomie fournie). **Recommandation** : corriger d'abord par un **ajustement de prompt** (clarifier explicitement dans `gatekeeper_verbosity_instruction` que l'acoustique, y compris 12 cordes, est acceptée au même titre que l'électrique) — gratuit et sans risque — avant d'envisager une montée en gamme du modèle Portier (`gemini-2.5-flash`, coût plus élevé, à chiffrer séparément si le correctif de prompt ne suffit pas).
 
+### 8.3 Suivi Continu dans l'UI (2026-07-11)
+
+L'échantillonnage manuel ci-dessus (§8.2) a confirmé un cas de faux positif mais reste un contrôle ponctuel, à relancer à la main. Un suivi permanent a été ajouté côté produit : `repository.py::create_new_deal()` snapshotte désormais `initialVerdict`/`initialModelUsed` (figés à la création), et `StatsView.jsx` affiche en continu le nombre d'annonces arrêtées au Portier seul puis validées après réanalyse manuelle ("Erreurs Portier corrigées", voir `ARCHITECTURE.md` et `JOURNAL.md`). Ne remplace pas `analyze_funnel_by_user.py --sample-size` pour le diagnostic qualitatif (lire le `reasoning` d'un rejet) mais donne un taux d'erreur mesurable sans script à lancer.
+
 ---
 
 ## Phase de Test et Migration
