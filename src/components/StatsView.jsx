@@ -53,14 +53,22 @@ const StatsView = ({ deals }) => {
     const archiveDeals = totalDeals - radarDeals.length - marketDeals.length;
 
     // Funnel réel dérivé de aiAnalysis.model_used (ex: "flash-lite -> flash -> pro")
-    const modelChainTokens = (deal) => {
-        const used = deal.aiAnalysis?.model_used;
-        return (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
-    };
+    const chainTokens = (used) => (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
+    const modelChainTokens = (deal) => chainTokens(deal.aiAnalysis?.model_used);
     // "pro" couvre aussi bien la cascade normale (3 maillons) que les réanalyses "Luthier Expert"
     // forcées qui sautent le Portier (2 maillons : Analyste -> Expert)
     const reachedT2Count = deals.filter(d => modelChainTokens(d).length >= 2).length;
     const reachedT3Count = deals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
+
+    // Qualité Portier : annonces initialement arrêtées au Tier 1 seul (chaîne à 1 maillon),
+    // puis réanalysées manuellement jusqu'à atteindre l'Analyste ou plus (= rejet initial infirmé).
+    // `initialVerdict`/`initialModelUsed` sont figés à la création (backend/repository.py) et ne
+    // sont jamais réécrits par les réanalyses suivantes - contrairement à `aiAnalysis` actuel.
+    const portierRejectedDeals = deals.filter(d => chainTokens(d.initialModelUsed).length === 1);
+    const portierErrorsCorrected = portierRejectedDeals.filter(d => modelChainTokens(d).length >= 2);
+    const portierErrorRate = portierRejectedDeals.length > 0
+        ? Math.round((portierErrorsCorrected.length / portierRejectedDeals.length) * 100)
+        : 0;
 
     // Financials (Only calculating positive margins from radar deals)
     let totalPotentialMargin = 0;
@@ -207,6 +215,18 @@ const StatsView = ({ deals }) => {
                         <FunnelStage label="Analysé (Portier T1)" count={totalDeals} percentage={100} color="blue" />
                         <FunnelStage label="Qualifié (Analyste T2)" count={reachedT2Count} percentage={totalDeals > 0 ? Math.round((reachedT2Count / totalDeals) * 100) : 0} color="emerald" />
                         <FunnelStage label="Certifié (Expert T3)" count={reachedT3Count} percentage={reachedT2Count > 0 ? Math.round((reachedT3Count / reachedT2Count) * 100) : 0} color="purple" isLast={true} />
+                    </div>
+
+                    {/* Qualité Portier : rejets Tier 1 infirmés par une réanalyse manuelle ultérieure */}
+                    <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-slate-400 text-xs">
+                            <AlertTriangle size={14} className="text-amber-500" />
+                            Erreurs Portier corrigées
+                        </div>
+                        <div className="text-sm font-bold text-slate-200">
+                            {portierErrorsCorrected.length}/{portierRejectedDeals.length}
+                            <span className="text-slate-500 font-normal ml-1">({portierErrorRate}%)</span>
+                        </div>
                     </div>
                 </div>
 

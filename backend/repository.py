@@ -79,7 +79,14 @@ class FirestoreRepository:
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
 
-            data = {**deal_data, "aiAnalysis": analysis_data, "timestamp": firestore.SERVER_TIMESTAMP, "status": status}
+            data = {
+                **deal_data,
+                "aiAnalysis": analysis_data,
+                "timestamp": firestore.SERVER_TIMESTAMP,
+                "status": status,
+                "initialVerdict": analysis_data.get('verdict'),
+                "initialModelUsed": analysis_data.get('model_used'),
+            }
             self.collection_ref.document(deal_id).set(data)
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
