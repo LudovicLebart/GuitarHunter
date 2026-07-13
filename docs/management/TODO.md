@@ -112,6 +112,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Bug : Menu déroulant du statut bot (Navbar) inaccessible au survol sur desktop** *(Corrigé 2026-07-11)*
+    - *Détails :* Les boutons (Scanner maintenant, Vérifier Stocks, Stop Scan/Start Bot) disparaissaient dès que la souris se déplaçait vers un bouton excentré du menu — conteneur de survol (`.group`) plus étroit que le menu affiché en dessous.
+    - *Solution :* `justify-center lg:min-w-[190px]` sur `.group` (`Navbar.jsx`), pour que la zone de survol couvre toute la largeur du menu.
+
 - [x] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)** *(Corrigé 2026-04-10)*
     - *Détails :* Le service de nettoyage (`cleanup_sold_listings`) a été fiabilisé.
     - *Solution :* Migration vers une méthode `mark_deal_as_sold` dans le repository.

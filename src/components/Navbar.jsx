@@ -73,7 +73,11 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                     </div>
 
                     {/* Bot Interactive Status */}
-                    <div className="relative group flex items-center h-full flex-shrink-0">
+                    {/* lg:min-w + justify-center : la zone de survol doit couvrir toute la largeur
+                        du menu déroulant (jusqu'à 4 boutons), plus large que le texte de statut seul —
+                        sinon un déplacement en diagonale vers un bouton excentré sort de :hover avant
+                        d'atteindre le menu, qui redevient invisible en plein trajet. */}
+                    <div className="relative group flex items-center justify-center lg:min-w-[190px] h-full flex-shrink-0">
                         <div className="flex items-center gap-1.5 text-[11px] font-bold cursor-help px-1 sm:px-2 py-1 rounded-lg transition-colors hover:bg-slate-800 whitespace-nowrap">
                             {statusInfo.icon}
                             <span className={statusInfo.color}>{statusInfo.label}</span>
