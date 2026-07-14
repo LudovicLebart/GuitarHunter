@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-14] [PRO] Feature : Note d'intérêt IA par annonce + choix de tri (Date / Intérêt) → Résultat :
+- **Contexte** : Demande utilisateur — pouvoir départager les annonces qui ne sont pas des "Pépites" selon leur intérêt, plutôt que de les subir dans l'ordre chronologique imposé par `onDealsUpdate` (`firestoreService.js`).
+- **`src/constants.js`** : nouvelle fonction `computeInterestScore(aiAnalysis)` — moyenne des 5 scores IA déjà existants (`deal_score`, `authenticity_score`, `condition_score`, `liquidity_score`, `restoration_interest_score`). Purement client-side, aucun nouveau champ Firestore/backend.
+- **`src/hooks/useDealsManager.js`** : nouvel état `sortMode` (`'date'` par défaut, `'interest'` en option), exposé via `filterProps`. `filteredDeals` retrié par note décroissante en mode `'interest'`, avec repli sur l'ordre par date pour les annonces sans scores (erreurs, `PENDING`).
+- **`src/components/FilterDrawer.jsx`** : nouvelle section "Trier par" en tête du tiroir de filtres (options "Plus récentes" / "Plus intéressantes (note IA)").
+- **`src/components/Dashboard.jsx`** : relais `sortMode`/`setSortMode` entre `useDealsManager` et `FilterDrawer` (clé `sort`, sans mapping `'all'`/`'ALL'` contrairement aux autres filtres).
+- **`src/components/DealCard.jsx`** : badge "Note X.X/10" affiché à côté du badge de verdict, absent si aucun score disponible.
+- **Vérification** : `npm run build` (Vite) passe sans erreur après les 5 modifications.
+
 [2026-07-11] [PRO] Fix : Menu déroulant du statut bot (Navbar) inaccessible au survol sur desktop → Résultat :
 - **Symptôme signalé** : sur l'interface ordinateur, les boutons du menu (Scanner maintenant, Vérifier Stocks, Stop Scan/Start Bot) affiché au survol du statut bot disparaissent dès que la souris se déplace vers eux.
 - **Cause confirmée par reproduction isolée (HTML/CSS + Playwright, mouvement de souris simulé hors application)** : le conteneur `.group` (`Navbar.jsx`) qui déclenche l'affichage au survol n'a que la largeur du texte de statut ("Scan en cours", "En attente"...), nettement plus étroit que le menu affiché en dessous (jusqu'à 4 boutons + séparateur). Un déplacement en diagonale vers un bouton excentré (gauche/droite du centre) sort de la zone `:hover` avant d'atteindre le menu, qui redevient invisible/non cliquable en plein trajet — reproduit et confirmé de façon déterministe, pas un problème de souris/OS particulier.

@@ -212,6 +212,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
   2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
   3. **Système de tri hiérarchique :** Gère les filtres dynamiques sur 4 niveaux. Utilise des **chemins complets (dot-notation)** pour les clés de comptage (`typeCounts`) et la résolution des taxonomies, évitant ainsi les collisions entre catégories homonymes (ex: "Solid Body" sous Guitare vs Basse).
   4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
+  5. **`sortMode` (2026-07-14) :** État `'date'` (défaut, ordre déjà appliqué par `onDealsUpdate`) ou `'interest'`. En mode `'interest'`, `filteredDeals` est retrié par `computeInterestScore()` (`constants.js` — moyenne des 5 scores IA) décroissant, avec repli sur l'ordre par date pour les annonces sans scores. Purement client-side, aucun champ Firestore dédié. Exposé via `filterProps.sortMode`/`setSortMode`, piloté depuis la section "Trier par" de `FilterDrawer.jsx`.
 
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
@@ -262,6 +263,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 - **Barre d'Actions :** `renderActionButtons()` factorise les actions pour la Modale d'Analyse IA (`isModal=true`, seul point d'appel). Le footer de la carte (vue grille) a sa **propre copie indépendante non factorisée** du même bloc — dette technique existante, pas encore unifiée.
 - **Partage Public :** `handleShare` écrit un snapshot dans `shared_deals/{dealId}` (Firestore public), puis génère `?shareId={dealId}`. Utilise `navigator.share` avec fallback clipboard. Le destinataire n'a pas besoin de compte.
 - **Menu de Ré-analyse :** Dropdown dynamique (présent aux deux endroits ci-dessus) offrant le choix entre "Scan Standard", "Luthier Expert", et "Avec commentaire..." (2026-07-07) — ce dernier ouvre une modale dédiée pour saisir une correction/précision transmise en priorité à l'IA lors d'une réanalyse Expert (`user_comment`, voir `backend/analyzer.py`).
+- **Badge Note d'Intérêt (2026-07-14) :** À côté du badge de verdict, affiche `computeInterestScore(aiAnalysis)` (`constants.js`, moyenne des 5 scores IA) sous forme "Note X.X/10" — absent si aucun score n'est disponible. Sert de repère visuel complémentaire au tri par intérêt (`useDealsManager.js::sortMode`).
 
 ## 4. 🧠 Système de Prompts Dynamiques
 
