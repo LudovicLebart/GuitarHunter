@@ -108,6 +108,22 @@ export const RADAR_GROUP = ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', '
 export const MARKET_GROUP = ['COLLECTION', 'FAIR'];
 export const ARCHIVE_GROUP = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD'];
 
+// --- NOTE D'INTÉRÊT (moyenne des 5 scores IA) ---
+// Utilisée pour trier les annonces par intérêt plutôt que par date,
+// utile notamment pour départager les annonces qui ne sont pas des Pépites.
+export const computeInterestScore = (aiAnalysis) => {
+  if (!aiAnalysis) return null;
+  const scores = [
+    aiAnalysis.deal_score,
+    aiAnalysis.authenticity_score,
+    aiAnalysis.condition_score,
+    aiAnalysis.liquidity_score,
+    aiAnalysis.restoration_interest_score
+  ].filter(s => typeof s === 'number');
+  if (scores.length === 0) return null;
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+};
+
 // --- ORDRE D'AFFICHAGE DES FILTRES DANS LA BARRE ---
 export const FILTER_ORDER = [
   'ALL',

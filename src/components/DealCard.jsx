@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, MapPin, Gem, Hammer, Briefcase, Package, AlertTriangle, Ban, X, FileText, ExternalLink, ChevronDown, Share2, MessageSquarePlus } from 'lucide-react';
 import ImageGallery from './ImageGallery';
 import { createSharedDeal } from '../services/firestoreService';
+import { computeInterestScore } from '../constants';
 
 // ── Verdict config ───────────────────────────────────────────
 const VERDICT_CONFIG = {
@@ -213,6 +214,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const vc = VERDICT_CONFIG[verdict] || VERDICT_CONFIG.DEFAULT;
     const VIcon = vc.icon;
+    const interestScore = computeInterestScore(ai);
     const alsoPepite = verdict !== 'PEPITE' && !!ai.also_qualifies_pepite;
 
     const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
@@ -236,6 +238,11 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         <div className="bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider flex items-center gap-1 shadow-lg">
                             <Gem size={10} />
                             Aussi Pépite
+                        </div>
+                    )}
+                    {interestScore != null && (
+                        <div className="bg-slate-950/90 backdrop-blur-sm border border-slate-700 text-white px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider shadow-lg">
+                            Note {interestScore.toFixed(1)}/10
                         </div>
                     )}
                 </div>

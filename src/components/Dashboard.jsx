@@ -212,6 +212,8 @@ const Dashboard = ({ onClose }) => {
         setConditionFilter,
         priceFilter = 'ALL',
         setPriceFilter,
+        sortMode = 'date',
+        setSortMode,
         searchQuery = '',
         setSearchQuery,
     } = filterProps || {};
@@ -226,6 +228,7 @@ const Dashboard = ({ onClose }) => {
         level4: level4Filter === 'ALL' ? 'all' : level4Filter,
         condition: conditionFilter === 'ALL' ? 'all' : conditionFilter,
         price: priceFilter === 'ALL' ? 'all' : priceFilter,
+        sort: sortMode,
     };
 
     const handleFilterChange = (key, value) => {
@@ -239,6 +242,7 @@ const Dashboard = ({ onClose }) => {
             case 'level4': setLevel4Filter?.(normalized); break;
             case 'condition': setConditionFilter?.(normalized); break;
             case 'price': setPriceFilter?.(normalized); break;
+            case 'sort': setSortMode?.(value); break; // 'date' | 'interest', pas de mapping 'all'
             default: break;
         }
     };

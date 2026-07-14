@@ -8,7 +8,7 @@ import {
   toggleDealFavorite
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
-import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
@@ -46,6 +46,7 @@ export const useDealsManager = (user, setError) => {
   const [level4Filter, setLevel4Filter] = useState('ALL');
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
+  const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
 
   useEffect(() => {
     if (!user) return;
@@ -337,7 +338,7 @@ export const useDealsManager = (user, setError) => {
 
   // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
-    return deals.filter(deal => {
+    const result = deals.filter(deal => {
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
 
@@ -349,7 +350,23 @@ export const useDealsManager = (user, setError) => {
 
       return verdictMatch && typeMatch && condPriceMatch;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
+
+    // `deals` arrive déjà triés par date décroissante (onDealsUpdate). En mode 'interest',
+    // on retrie par note d'intérêt décroissante, en repliant sur l'ordre par date pour les
+    // annonces sans scores (ex: erreurs, PENDING).
+    if (sortMode === 'interest') {
+      return [...result].sort((a, b) => {
+        const scoreA = computeInterestScore(a.aiAnalysis);
+        const scoreB = computeInterestScore(b.aiAnalysis);
+        if (scoreA == null && scoreB == null) return 0;
+        if (scoreA == null) return 1;
+        if (scoreB == null) return -1;
+        return scoreB - scoreA;
+      });
+    }
+
+    return result;
+  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
@@ -370,6 +387,7 @@ export const useDealsManager = (user, setError) => {
       level4Filter, setLevel4Filter,
       conditionFilter, setConditionFilter,
       priceFilter, setPriceFilter,
+      sortMode, setSortMode,
       level1Options,
       level2Options,
       level3Options,

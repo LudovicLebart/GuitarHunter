@@ -53,6 +53,11 @@ const PRICE_OPTIONS = [
     { value: 'over600', label: '600 $+' },
 ];
 
+const SORT_OPTIONS = [
+    { value: 'date', label: 'Plus récentes' },
+    { value: 'interest', label: 'Plus intéressantes (note IA)' },
+];
+
 // ============================================================
 // Reusable collapsible group
 // ============================================================
@@ -114,7 +119,7 @@ const InlineOption = ({ label, active, onClick, hasChildren, depth = 0, count })
 // Main Drawer — Inline Cascading Taxonomy
 // ============================================================
 const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {} }) => {
-    const { level1, level2, level3, level4, condition, price } = filters;
+    const { level1, level2, level3, level4, condition, price, sort = 'date' } = filters;
 
     const handleLevelSelect = (level, value) => {
         onFilterChange(level, value);
@@ -220,6 +225,19 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
                 {/* Scrollable body */}
                 {/* Scrollable body */}
                 <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6 scrollbar-dark">
+
+                    {/* ── Tri ── */}
+                    <FilterGroup label="Trier par" defaultOpen={true}>
+                        {SORT_OPTIONS.map(opt => (
+                            <InlineOption
+                                key={opt.value}
+                                label={opt.label}
+                                active={sort === opt.value}
+                                onClick={() => onFilterChange('sort', opt.value)}
+                                depth={0}
+                            />
+                        ))}
+                    </FilterGroup>
 
                     {/* ── Taxonomy Tree (Inline Accordion) ── */}
                     <FilterGroup label="Type d'instrument" defaultOpen={true}>
