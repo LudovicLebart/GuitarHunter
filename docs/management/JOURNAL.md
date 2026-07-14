@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-14] [PRO] Fix : Défilement fixe (3 scrolls) limitant le nombre d'annonces scrapées par ville → Résultat :
+- **Symptôme signalé** : l'utilisateur constate que beaucoup d'annonces ne sont pas listées dans l'app, malgré 12 villes configurées et un `max_ads` réglé à 50.
+- **Cause confirmée par lecture du code (pas d'accès aux logs de prod depuis cet environnement)** : `run_scan()` (`bot.py`) applique `max_ads` **par ville** (pas globalement) — avec 12 villes ce n'est donc pas le plafond limitant. Le vrai goulot : `ScraperConfig.scroll_iterations` était fixé en dur à 3 (`backend/scraping/config.py`), non exposé dans Firestore/`ConfigPanel`. `scan_marketplace()` ne scrollait que 3 fois avant de lire les cartes d'annonces chargées dans le DOM (`backend/scraping/core.py`) — ce plafond était atteint bien avant `max_ads`, quel que soit le volume réel de résultats Facebook pour une ville donnée.
+- **Piste écartée par l'utilisateur** : le matching strict de localisation (`is_city_allowed()`, mode `distance=0`) est un choix assumé, pas un bug — non modifié.
+- **`backend/scraping/config.py`** : `scroll_iterations` (fixe) → `max_scroll_iterations` (garde-fou, défaut 20).
+- **`backend/scraping/core.py::scan_marketplace()`** : scroll dynamique — la boucle s'arrête dès que le nombre de cartes chargées atteint `max_ads`, ou stagne sur 2 itérations consécutives (fin de liste réelle), sinon continue jusqu'au plafond de sécurité.
+- **Non testé en conditions réelles depuis cet environnement** (pas d'accès à un compte Facebook/Playwright live) — seule la syntaxe Python a été vérifiée avant de committer ; validation en prod à la charge de l'utilisateur.
+
 [2026-07-14] [PRO] Feature : Note d'intérêt IA par annonce + choix de tri (Date / Intérêt) → Résultat :
 - **Contexte** : Demande utilisateur — pouvoir départager les annonces qui ne sont pas des "Pépites" selon leur intérêt, plutôt que de les subir dans l'ordre chronologique imposé par `onDealsUpdate` (`firestoreService.js`).
 - **`src/constants.js`** : nouvelle fonction `computeInterestScore(aiAnalysis)` — moyenne des 5 scores IA déjà existants (`deal_score`, `authenticity_score`, `condition_score`, `liquidity_score`, `restoration_interest_score`). Purement client-side, aucun nouveau champ Firestore/backend.
