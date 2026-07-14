@@ -380,13 +380,28 @@ class FacebookScraper:
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
 
-            self.logger.info("   📜 Défilement...")
-            for _ in range(self.config.scroll_iterations):
+            self.logger.info("   📜 Défilement dynamique...")
+            previous_count = 0
+            stagnant_iterations = 0
+            for i in range(self.config.max_scroll_iterations):
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
                     return []
                 page.mouse.wheel(0, 1000)
                 time.sleep(2)
+
+                current_count = len(page.locator("a[href*='/marketplace/item/']").all())
+                if current_count >= max_ads:
+                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ max_ads={max_ads}), arrêt du défilement.")
+                    break
+                if current_count <= previous_count:
+                    stagnant_iterations += 1
+                    if stagnant_iterations >= 2:
+                        self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
+                        break
+                else:
+                    stagnant_iterations = 0
+                previous_count = current_count
 
             listings = page.locator("a[href*='/marketplace/item/']").all()
             self.logger.info(f"   👀 {len(listings)} éléments trouvés.")

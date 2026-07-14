@@ -7,7 +7,7 @@ class ScraperConfig:
     headless: bool = True
     timeout_navigation: int = 60000
     timeout_selector: int = 15000
-    scroll_iterations: int = 3
+    max_scroll_iterations: int = 20
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     locale: str = "fr-CA"
     timezone: str = "America/Montreal"
