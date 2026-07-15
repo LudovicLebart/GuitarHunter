@@ -121,6 +121,26 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Cause :* Même famille de bug que le fix Navbar ci-dessus, mais sur un gap **vertical** : le menu était positionné avec un `margin` (`mb-2`/`mt-2`), hors de la boîte du conteneur `.relative` survolé — traverser ce vide déclenchait `onMouseLeave` avant d'atteindre le menu.
     - *Solution :* `DealCard.jsx` (footer de carte + `renderActionButtons`, carte ET modale) : `margin` remplacé par un `padding` sur un wrapper englobant (`pb-2`/`pt-2`), le style visuel du menu déplacé dans un `<div>` interne — le gap fait désormais partie de la zone survolée.
 
+- [ ] **Perf : Chargement complet de `guitar_deals` (annonces vendues/rejetées jamais purgées)** *(Ajouté 2026-07-14)*
+    - *Constat :* `onDealsUpdate` (`firestoreService.js`) charge toute la collection `guitar_deals` à chaque connexion (y compris `sold`/`rejected`, jamais purgées), puis filtre côté client. Cause probable du ralentissement de chargement perçu par l'utilisateur (pas les annonces supprimées de Facebook en tant que telles — voir item suivant).
+    - *Piste :* requête Firestore filtrée côté serveur et/ou pagination, plutôt que de tout streamer puis filtrer en mémoire.
+
+- [ ] **Amélioration : Latence de détection des annonces supprimées/vendues sur Facebook** *(Ajouté 2026-07-14)*
+    - *Constat :* `check_listing_availability`/`cleanup_sold_listings` (`backend/scraping/core.py`, `backend/bot.py`) détectent déjà correctement les annonces supprimées par le vendeur (404, redirection vers l'accueil Marketplace) — fusionnées avec la détection de vente (`status: 'sold'`, pas de statut "supprimé" distinct). Le nettoyage tourne automatiquement toutes les 24h (`schedule.every(24).hours`, `services.py`), donc une annonce disparue de Facebook peut rester visible dans l'app jusqu'à 24h après sa suppression réelle.
+    - *Piste :* réduire l'intervalle de nettoyage (ex: 6-12h) si la latence actuelle gêne trop, ou déclencher un contrôle ciblé plus tôt. Non tranché — décision produit à prendre par l'utilisateur.
+
+- [x] **Bug : Annonce vendue affichée sans indication visuelle** *(Corrigé 2026-07-15)*
+    - *Détails :* `DealCard.jsx` n'affichait aucun badge/opacité pour `deal.status === 'sold'` — le badge de verdict d'origine (ex: "Pépite") restait affiché seul, sans rien signalant que l'annonce était vendue.
+    - *Solution :* Badge "Vendu" (icône `Ban`) + opacité réduite (`opacity-60 saturate-50`), ajoutés dans la carte ET la modale, indépendamment du verdict.
+
+- [x] **Bug : Annonces en échec d'analyse visibles comme "bruit" sans label** *(Corrigé 2026-07-15)*
+    - *Cause :* un double-échec IA (Tier 1 + Tier 2) produit un verdict `ERROR_GATEKEEPER` (`analyzer.py`) qui échappait au filtre `isError` de `useDealsManager.js` (limité à `DEFAULT`/`ERROR` littéraux) et à `ARCHIVE_GROUP` — il atterrissait dans la vue "Toutes" avec le badge par défaut trompeur ("Analyse...").
+    - *Solution :* `isError` élargi à tout verdict absent de la taxonomie connue (`NEW_VERDICTS`/`LEGACY_VERDICTS`/`ARCHIVE_GROUP`), pas seulement les valeurs littérales.
+
+- [x] **Bug : Favoris incluant des annonces classées comme bruit** *(Corrigé 2026-07-15)*
+    - *Détails :* le filtre Favoris montrait `deal.isFavorite` sans tenir compte du verdict — un favori tombé en `REJECTED_ITEM`/erreur restait visible.
+    - *Solution :* Exclusion des verdicts archivés (sauf `BAD_DEAL`, "trop cher" = favori légitime) et des erreurs. Compteur `verdictCounts.FAVORITES` corrigé en cohérence (2 emplacements).
+
 - [x] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)** *(Corrigé 2026-04-10)*
     - *Détails :* Le service de nettoyage (`cleanup_sold_listings`) a été fiabilisé.
     - *Solution :* Migration vers une méthode `mark_deal_as_sold` dans le repository.
@@ -264,6 +284,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] **Lisibilité Financière : Badge Marge sur vue liste** *(Ok en Mockup)*
     - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup)*
     - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
+- [x] **Persistance des filtres/tri par utilisateur (Firestore)** *(Ajouté 2026-07-15)*
+    - *Détails :* Les filtres (type, taxonomie 1-4, condition, prix, tri) repartaient de zéro à chaque connexion.
+    - *Solution :* `useBotConfig.js` (`uiFilters` + `saveUiFilters`, debounce 800ms) → `DealsContext.jsx` → `useDealsManager.js` (hydratation unique au premier chargement, sauvegarde auto ensuite). Recherche texte libre volontairement exclue.
 - [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
 - [x] **Dark Scrollbar pour les Filtres (Mockup)**
     - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.

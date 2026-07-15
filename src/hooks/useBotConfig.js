@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   onBotConfigUpdate,
   updateUserConfig,
@@ -61,6 +61,11 @@ export const useBotConfig = (user) => {
   // Nouvel état pour la limite de logs
   const [logLimit, setLogLimit] = useState(100);
 
+  // Filtres/tri de la vue Deals, persistés par utilisateur (Firestore). `null` = pas encore
+  // reçu du serveur (distinct de "reçu mais vide"), pour ne pas écraser un futur chargement.
+  const [uiFilters, setUiFilters] = useState(null);
+  const uiFiltersSaveTimeout = useRef(null);
+
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
   const isRefreshing = botStatus === 'scanning';
@@ -112,6 +117,9 @@ export const useBotConfig = (user) => {
 
       if (data.logLimit) setLogLimit(data.logLimit);
       if (data.botStatus) setBotStatus(data.botStatus);
+      // Reçu une seule fois utile : Firestore renvoie {} (falsy sur les clés vides) tant que
+      // rien n'a jamais été sauvegardé — on initialise alors à {} pour signaler "chargé, vide".
+      setUiFilters(prev => prev ?? (data.uiFilters || {}));
 
       if (data.scanError) {
         setError(data.scanError);
@@ -126,6 +134,18 @@ export const useBotConfig = (user) => {
     const unsubscribe = onBotConfigUpdate(handleUpdate, handleError, uid);
     return () => unsubscribe();
   }, [user, error]);
+
+  // Sauvegarde des filtres/tri avec debounce (évite un write Firestore à chaque clic de filtre).
+  const saveUiFilters = useCallback((newFilters) => {
+    if (!user) return;
+    setUiFilters(newFilters); // reflète localement tout de suite, sans attendre l'aller-retour serveur
+    clearTimeout(uiFiltersSaveTimeout.current);
+    uiFiltersSaveTimeout.current = setTimeout(() => {
+      updateUserConfig({ uiFilters: newFilters }, user.uid).catch(e => {
+        console.error("Erreur lors de la sauvegarde des filtres:", e);
+      });
+    }, 800);
+  }, [user]);
 
   const saveConfig = useCallback(async (newVal) => {
     if (!user) return;
@@ -204,6 +224,7 @@ export const useBotConfig = (user) => {
     analysisConfig, setAnalysisConfig,
     availableModels,
     logLimit, setLogLimit,
+    uiFilters, saveUiFilters,
     botStatus, // Exposé pour affichage dynamique du statut
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused,
     saveConfig,

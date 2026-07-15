@@ -63,6 +63,7 @@ Toutes les données sont isolées par application et par utilisateur. Le chemin 
   - **`START_BOT` :** Réveil immédiat. Interrompt la boucle de pause via `start_event`. Note : toute autre commande actionnable (`REFRESH`, `SCAN_URL`, `CLEANUP`, `CLEAR_LOGS`, etc.) reçue pendant la pause réveille également le bot automatiquement (sondage Firestore toutes les 5s) et est exécutée immédiatement après le réveil.
   - **`MANUAL_SCAN` :** Déclenche un cycle de scan immédiat (`run_scan`) sans attendre le prochain intervalle du scheduler. Accessible via le bouton "Lancer le scan" dans le panneau de configuration.
 - **`users/{userID}` (Document):** (Chemin: `artifacts/{APP_ID}/users/{USER_ID}`). Contient la configuration et le statut dynamique du bot (`botStatus`: `idle`, `scanning`, `paused`, `stopped`).
+  - **`uiFilters` (2026-07-15) :** Filtres/tri de la vue Deals (`filterType`, niveaux de taxonomie 1-4, `conditionFilter`, `priceFilter`, `sortMode`), persistés par utilisateur pour survivre au rechargement/reconnexion. Écrit avec debounce (800ms) par `useBotConfig.js::saveUiFilters`, hydraté une seule fois au premier chargement par `useDealsManager.js` (les écritures suivantes du même client ne re-déclenchent pas l'hydratation). La recherche texte libre (`searchQuery`) n'est volontairement pas persistée.
 
 
 ## 2. 🔐 Authentification (Firebase Auth)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   onDealsUpdate,
   rejectDeal,
@@ -32,7 +32,7 @@ const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
   return null;
 };
 
-export const useDealsManager = (user, setError) => {
+export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
@@ -47,6 +47,36 @@ export const useDealsManager = (user, setError) => {
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
+
+  // --- Persistance des filtres par utilisateur (Firestore, via useBotConfig) ---
+  const hydratedFiltersRef = useRef(false);
+
+  // Hydratation : au premier chargement de uiFilters depuis Firestore (objet non-null,
+  // potentiellement {} si rien n'a jamais été sauvegardé), on applique les valeurs connues une
+  // seule fois. Les rechargements suivants de uiFilters (ex: nos propres writes) sont ignorés.
+  useEffect(() => {
+    if (uiFilters == null || hydratedFiltersRef.current) return;
+    hydratedFiltersRef.current = true;
+    if (uiFilters.filterType) setFilterType(uiFilters.filterType);
+    if (uiFilters.level1Filter) setLevel1Filter(uiFilters.level1Filter);
+    if (uiFilters.level2Filter) setLevel2Filter(uiFilters.level2Filter);
+    if (uiFilters.level3Filter) setLevel3Filter(uiFilters.level3Filter);
+    if (uiFilters.level4Filter) setLevel4Filter(uiFilters.level4Filter);
+    if (uiFilters.conditionFilter) setConditionFilter(uiFilters.conditionFilter);
+    if (uiFilters.priceFilter) setPriceFilter(uiFilters.priceFilter);
+    if (uiFilters.sortMode) setSortMode(uiFilters.sortMode);
+  }, [uiFilters]);
+
+  // Sauvegarde (debouncée dans saveUiFilters) à chaque changement de filtre, une fois hydraté —
+  // pour ne pas écraser une valeur sauvegardée par la valeur par défaut avant son chargement.
+  useEffect(() => {
+    if (!hydratedFiltersRef.current || !saveUiFilters) return;
+    saveUiFilters({
+      filterType, level1Filter, level2Filter, level3Filter, level4Filter,
+      conditionFilter, priceFilter, sortMode
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, sortMode]);
 
   useEffect(() => {
     if (!user) return;
@@ -165,7 +195,12 @@ export const useDealsManager = (user, setError) => {
     if (deal.status === 'rejected') return false;
     const analysis = deal.aiAnalysis || {};
     const verdict = analysis.verdict || 'PENDING';
-    const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!analysis.reasoning && verdict !== 'PENDING');
+    // Un verdict "connu" est soit PENDING, soit présent dans la taxonomie (NEW/LEGACY), soit
+    // dans ARCHIVE_GROUP (ex: 'SOLD' legacy). Tout le reste (ex: 'ERROR_GATEKEEPER' renvoyé par
+    // le backend en cas de double échec Tier1+Tier2) est traité comme une erreur, même avec un
+    // reasoning non vide, pour ne pas polluer la vue "Toutes" avec un badge par défaut trompeur.
+    const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
+    const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict || (!analysis.reasoning && verdict !== 'PENDING');
 
     if (currentFilterType === 'ERROR') return isError;
     if (currentFilterType === 'REJECTED') return false;
@@ -174,8 +209,13 @@ export const useDealsManager = (user, setError) => {
     // Si l'annonce est vendue et qu'on n'est pas dans le filtre SOLD, on cache (sauf favoris)
     if (deal.status === 'sold' && currentFilterType !== 'FAVORITES') return false;
 
-    // PRIORITÉ ABSOLUE AUX FAVORIS : Si on filtre par favoris, on montre tout ce qui est favori, même le bruit.
-    if (currentFilterType === 'FAVORITES') return deal.isFavorite;
+    // Favoris : on montre le favori sauf s'il est tombé dans le bruit (erreur d'analyse, ou
+    // verdict archivé autre que BAD_DEAL — "trop cher" reste un favori légitime, le reste non).
+    if (currentFilterType === 'FAVORITES') {
+      if (isError) return false;
+      if (ARCHIVE_GROUP.includes(verdict) && verdict !== 'BAD_DEAL') return false;
+      return deal.isFavorite;
+    }
 
     // Si on demande explicitement un verdict (ex: REJECTED_ITEM), on le montre
     if (currentFilterType === verdict) return true;
@@ -312,7 +352,8 @@ export const useDealsManager = (user, setError) => {
       if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
-      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
+      const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
+      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
 
       if (isError) {
         c.ERROR++;
@@ -331,7 +372,10 @@ export const useDealsManager = (user, setError) => {
           c.PEPITE++;
         }
       }
-      if (deal.isFavorite) c.FAVORITES++;
+      // Cohérent avec matchesVerdictFilter('FAVORITES') : on ne compte pas le bruit archivé
+      // (sauf BAD_DEAL) ni les erreurs, même si l'annonce est marquée favorite.
+      const favoriteNoise = isError || (ARCHIVE_GROUP.includes(verdict) && verdict !== 'BAD_DEAL');
+      if (deal.isFavorite && !favoriteNoise) c.FAVORITES++;
     });
     return c;
   }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);

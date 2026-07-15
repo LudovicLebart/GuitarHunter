@@ -222,9 +222,10 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const alsoPepite = verdict !== 'PEPITE' && !!ai.also_qualifies_pepite;
 
     const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
+    const isSold = deal.status === 'sold';
 
     return (
-        <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group">
+        <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold ? 'opacity-60 saturate-50' : ''}`}>
 
             {/* Image Gallery Container */}
             <div className="relative w-full h-[280px] bg-slate-950 overflow-hidden flex items-center justify-center shrink-0">
@@ -234,6 +235,12 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
                 {/* Verdict Badge */}
                 <div className="absolute top-3 left-3 flex flex-col items-start gap-1 z-10">
+                    {isSold && (
+                        <div className="bg-slate-950 border border-slate-500 text-slate-200 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg">
+                            <Ban size={12} />
+                            Vendu
+                        </div>
+                    )}
                     <div className={`${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
                         <VIcon size={12} className={isAnalyzing ? 'animate-spin' : ''} />
                         {isAnalyzing ? 'Analyse...' : vc.label}
@@ -470,6 +477,12 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                                         onError={() => setImageError(true)}
                                     />
                                     <div className="absolute top-3 left-3 flex flex-col items-start gap-1">
+                                        {isSold && (
+                                            <div className="bg-slate-950 border border-slate-500 text-slate-200 px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg">
+                                                <Ban size={12} strokeWidth={3} />
+                                                Vendu
+                                            </div>
+                                        )}
                                         <div className={`${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
                                             <vc.icon size={12} strokeWidth={3} />
                                             {vc.label}
