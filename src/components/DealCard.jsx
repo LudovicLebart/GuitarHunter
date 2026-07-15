@@ -120,28 +120,32 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     </button>
 
                     {menuOpen && (
-                        <div className={`absolute ${isModal ? 'top-full mt-2' : 'bottom-full mb-2'} left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150`}>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRetry(); }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
-                            >
-                                <Sparkles size={14} className="text-blue-400" />
-                                Scan Standard
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onForceExpert(); }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
-                            >
-                                <Gem size={14} className="text-purple-400" />
-                                Luthier Expert
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); openCommentModal(); }}
-                                className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
-                            >
-                                <MessageSquarePlus size={14} className="text-amber-400" />
-                                Avec commentaire...
-                            </button>
+                        // pb-2/pt-2 (padding, pas margin) : cf. commentaire équivalent dans le
+                        // footer de la carte — le gap doit rester dans la boîte survolée.
+                        <div className={`absolute ${isModal ? 'top-full pt-2' : 'bottom-full pb-2'} left-1/2 -translate-x-1/2 w-48 z-50`}>
+                            <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onRetry(); }}
+                                    className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                >
+                                    <Sparkles size={14} className="text-blue-400" />
+                                    Scan Standard
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onForceExpert(); }}
+                                    className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                >
+                                    <Gem size={14} className="text-purple-400" />
+                                    Luthier Expert
+                                </button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); openCommentModal(); }}
+                                    className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
+                                >
+                                    <MessageSquarePlus size={14} className="text-amber-400" />
+                                    Avec commentaire...
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -348,28 +352,34 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                             </button>
 
                             {showRescanMenu && (
-                                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onRetry(); }}
-                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
-                                    >
-                                        <Sparkles size={14} className="text-blue-400" />
-                                        Scan Standard
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onForceExpert(); }}
-                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
-                                    >
-                                        <Gem size={14} className="text-purple-400" />
-                                        Luthier Expert
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); openCommentModal(); }}
-                                        className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
-                                    >
-                                        <MessageSquarePlus size={14} className="text-amber-400" />
-                                        Avec commentaire...
-                                    </button>
+                                // pb-2 (padding, pas margin) : le gap fait partie de la boîte de ce
+                                // wrapper, donc du survol du conteneur .relative parent — sinon la
+                                // souris quitte :hover en traversant l'espace vide avant d'atteindre
+                                // le menu (même mécanisme que le fix Navbar du 2026-07-11).
+                                <div className="absolute bottom-full pb-2 left-1/2 -translate-x-1/2 w-48 z-50">
+                                    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onRetry(); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                        >
+                                            <Sparkles size={14} className="text-blue-400" />
+                                            Scan Standard
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); onForceExpert(); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm font-bold text-purple-300 hover:bg-slate-700 hover:text-purple-200 flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                        >
+                                            <Gem size={14} className="text-purple-400" />
+                                            Luthier Expert
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setShowRescanMenu(false); openCommentModal(); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm font-bold text-amber-300 hover:bg-slate-700 hover:text-amber-200 flex items-center gap-2 transition-colors"
+                                        >
+                                            <MessageSquarePlus size={14} className="text-amber-400" />
+                                            Avec commentaire...
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>

@@ -116,6 +116,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Les boutons (Scanner maintenant, Vérifier Stocks, Stop Scan/Start Bot) disparaissaient dès que la souris se déplaçait vers un bouton excentré du menu — conteneur de survol (`.group`) plus étroit que le menu affiché en dessous.
     - *Solution :* `justify-center lg:min-w-[190px]` sur `.group` (`Navbar.jsx`), pour que la zone de survol couvre toute la largeur du menu.
 
+- [x] **Bug : Menu "Ré-analyser" (options de rescan) de la carte annonce inaccessible au survol sur desktop** *(Corrigé 2026-07-13)*
+    - *Détails :* Le menu (Scan Standard / Luthier Expert / Avec commentaire...) se fermait avant que la souris n'atteigne une option — clic sans effet (ni rescan, ni popup commentaire). Fonctionnait mieux sur mobile.
+    - *Cause :* Même famille de bug que le fix Navbar ci-dessus, mais sur un gap **vertical** : le menu était positionné avec un `margin` (`mb-2`/`mt-2`), hors de la boîte du conteneur `.relative` survolé — traverser ce vide déclenchait `onMouseLeave` avant d'atteindre le menu.
+    - *Solution :* `DealCard.jsx` (footer de carte + `renderActionButtons`, carte ET modale) : `margin` remplacé par un `padding` sur un wrapper englobant (`pb-2`/`pt-2`), le style visuel du menu déplacé dans un `<div>` interne — le gap fait désormais partie de la zone survolée.
+
 - [x] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)** *(Corrigé 2026-04-10)*
     - *Détails :* Le service de nettoyage (`cleanup_sold_listings`) a été fiabilisé.
     - *Solution :* Migration vers une méthode `mark_deal_as_sold` dans le repository.
