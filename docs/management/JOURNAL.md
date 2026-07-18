@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-18] [PRO] Fix : Optimisation massive des coûts de lecture Firestore (Frontend + Backend) → Résultat :
+- **Symptôme signalé** : Coûts anormalement élevés sur "Cloud Firestore Read Ops" (30-40 millions de lectures par mois pour ~15$) et "Egress", dominant la facture globale.
+- **Frontend (`src/services/firestoreService.js`)** : La fonction `onDealsUpdate` lisait intégralement la collection `guitar_deals` sans limite, déclenchant un téléchargement massif de tout l'historique à chaque connexion. Ajout de `limit(300)` combiné à un tri par date (`query(dealsCollectionRef, orderBy('timestamp', 'desc'), limit(300))`).
+- **Backend (`backend/repository.py`)** : La fonction `get_active_listings()` (utilisée par la tâche quotidienne `cleanup_sold_listings`) cherchait `status != 'rejected'`, ce qui chargeait aussi des milliers d'annonces `sold` ou en erreur (au lieu de seulement `analyzed`) — remplacé par un ciblage exact `status == 'analyzed'`.
+- **Backend (`backend/repository.py`)** : La tâche de purge des images de `purge_rejected_images()` lisait 100% des annonces rejetées sans filtrage de date côté serveur, pour filtrer localement en Python. Remplacement par une requête `where('timestamp', '<=', cutoff)` + `limit(200)` pour lisser la consommation.
+- **Indexation (`firestore.indexes.json`)** : Ajout de l'index composite nécessaire à la requête ci-dessus (`aiAnalysis.verdict` ASCENDING + `timestamp` ASCENDING).
+
 [2026-07-15] [PRO] Fix : 4 bugs remontés (vendues non identifiées, bruit non catégorisé, favoris pollués) + persistance des filtres par utilisateur → Résultat :
 - **Contexte** : 5 points remontés par l'utilisateur. Investigation (docs + code frontend/backend + agent Explore sur `bot.py`/`analyzer.py`/`core.py`) avant tout code, conformément au protocole.
 - **Annonce vendue non identifiée (frontend)** : `DealCard.jsx` n'affichait **aucun** indicateur pour `deal.status === 'sold'` (ni badge, ni opacité) — le badge de verdict d'origine restait affiché tel quel. Ajout d'un badge "Vendu" (icône `Ban`) + opacité réduite (`opacity-60 saturate-50`), dans la carte ET la modale, indépendamment du verdict.

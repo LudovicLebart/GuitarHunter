@@ -1,6 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
-  collection, updateDoc, addDoc, deleteDoc, getFirestore
+  collection, updateDoc, addDoc, deleteDoc, getFirestore,
+  query, orderBy, limit
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -146,7 +147,8 @@ export const onCommandUpdate = (commandId, callback, userId) => {
 
 export const onDealsUpdate = (onUpdate, onError, userId) => {
   const { dealsCollectionRef } = getRefs(userId);
-  return onSnapshot(dealsCollectionRef, (snapshot) => {
+  const q = query(dealsCollectionRef, orderBy('timestamp', 'desc'), limit(300));
+  return onSnapshot(q, (snapshot) => {
     const dealsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     dealsData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
     onUpdate(dealsData, snapshot.size);

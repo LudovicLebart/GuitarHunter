@@ -197,7 +197,8 @@ class FacebookScraper:
             if close_btn.count() > 0 and close_btn.is_visible(timeout=2000):
                 close_btn.click()
                 time.sleep(1)
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Popup de login introuvable ou erreur: {e}")
 
     def _is_valid_detail_page(self, page: Page, expected_fb_id: str) -> bool:
         """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
@@ -228,7 +229,8 @@ class FacebookScraper:
 
             l_txt = page.locator('div[role="main"] span', has_text="·").first.inner_text()
             location = l_txt.split('·')[0].strip()
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Erreur extraction champs scan_url: {e}")
         return title, price, location
 
     def _reload_page(self, page: Page):
@@ -237,7 +239,8 @@ class FacebookScraper:
         page.reload(timeout=self.config.timeout_navigation)
         self._close_login_popup(page)
         try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Timeout attente div[role='main']: {e}")
         time.sleep(2)
 
     def _parse_details_with_reload_retry(self, page: Page, title: str, location: str, fb_id: str) -> Dict[str, Any]:
@@ -371,12 +374,12 @@ class FacebookScraper:
                 return []
 
             try: page.evaluate("document.body.style.zoom = '0.5'")
-            except: pass
+            except Exception as e: self.logger.debug(f"Zoom échoué: {e}")
             
             try: page.get_by_role("button", name="Allow all cookies").click(timeout=3000)
-            except: pass
+            except Exception as e: self.logger.debug(f"Bouton cookies 'Allow all' non cliqué: {e}")
             try: page.get_by_role("button", name="Decline optional cookies").click(timeout=3000)
-            except: pass
+            except Exception as e: self.logger.debug(f"Bouton cookies 'Decline' non cliqué: {e}")
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
 
@@ -460,7 +463,8 @@ class FacebookScraper:
                         details_page.goto(clean_link, timeout=self.config.timeout_navigation)
                         self._close_login_popup(details_page)
                         try: details_page.wait_for_selector("div[role='main']", timeout=10000)
-                        except: pass
+                        except Exception as e:
+                            self.logger.debug(f"Timeout fiche détail div[role='main']: {e}")
                         time.sleep(2)
                         self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
 
@@ -520,7 +524,8 @@ class FacebookScraper:
 
             self._close_login_popup(page)
             try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
-            except: pass
+            except Exception as e:
+                self.logger.debug(f"Timeout fiche détail scan_url div[role='main']: {e}")
             time.sleep(2)
             self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {page.url}")
 

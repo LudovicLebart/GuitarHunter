@@ -233,7 +233,7 @@ class FirestoreRepository:
 
     def get_active_listings(self):
         try:
-            return self.collection_ref.where(filter=FieldFilter('status', '!=', 'rejected')).stream()
+            return self.collection_ref.where(filter=FieldFilter('status', '==', 'analyzed')).stream()
         except Exception as e:
             logger.error(f"Failed to get active listings: {e}", exc_info=True)
             return []
@@ -411,34 +411,26 @@ class FirestoreRepository:
         purged_count = 0
 
         try:
-            # Requête sur le champ imbriqué aiAnalysis.verdict
-            # Firestore supporte les champs imbriqués avec FieldFilter
+            # Requête optimisée avec index composite et limite pour étaler la charge
             docs = self.collection_ref.where(
                 filter=FieldFilter('aiAnalysis.verdict', 'in', rejection_verdicts)
-            ).stream()
+            ).where(
+                filter=FieldFilter('timestamp', '<=', cutoff)
+            ).limit(200).stream()
 
             for doc in docs:
                 data = doc.to_dict()
-                # Utilisation du timestamp Firestore
-                ts = data.get('timestamp')
-                if not ts:
-                    continue
                 
-                # Convertir le timestamp Firestore (aware) pour pouvoir comparer
-                if hasattr(ts, 'tzinfo') and ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-
-                if ts <= cutoff:
-                    # Suppression de tous les blobs pour ce deal
-                    prefix = f"deals/{doc.id}/"
-                    blobs = list(self._bucket.list_blobs(prefix=prefix))
-                    if blobs:
-                        for blob in blobs:
-                            blob.delete()
-                        # Nettoyage du champ dans Firestore
-                        doc.reference.update({'storageImageUrls': firestore.DELETE_FIELD})
-                        purged_count += len(blobs)
-                        logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {doc.id} (ancien de {retention_days}j+).")
+                # Suppression de tous les blobs pour ce deal
+                prefix = f"deals/{doc.id}/"
+                blobs = list(self._bucket.list_blobs(prefix=prefix))
+                if blobs:
+                    for blob in blobs:
+                        blob.delete()
+                    # Nettoyage du champ dans Firestore
+                    doc.reference.update({'storageImageUrls': firestore.DELETE_FIELD})
+                    purged_count += len(blobs)
+                    logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {doc.id} (ancien de {retention_days}j+).")
         except Exception as e:
             logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
 
