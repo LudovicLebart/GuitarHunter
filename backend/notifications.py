@@ -298,3 +298,29 @@ class NotificationService:
             logger=log
         )
         _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
+
+    @staticmethod
+    def notify_scan_url_finished(url: str, user_email: Optional[str] = None, logger: logging.Logger = None) -> None:
+        """
+        Notifie l'utilisateur (ntfy + email) que le scan manuel de l'URL demandée est terminé.
+        """
+        log = logger or _module_logger
+        subject = f"[GuitarHunter] 🔎 Scan manuel terminé"
+        body = (
+            f"🔎 SCAN MANUEL TERMINÉ\n"
+            f"{'=' * 50}\n"
+            f"URL : {url}\n\n"
+            f"Le scan manuel de cette annonce est terminé.\n"
+            f"Si elle était valide et dans les critères de prix, elle a été analysée et ajoutée à ton tableau de bord.\n\n"
+            f"—\nGuitar Hunter Bot"
+        )
+        _ntfy.send(
+            f"🔎 Scan manuel terminé",
+            f"Le scan de l'URL demandée est terminé.",
+            priority='default',
+            tags=['mag'],
+            click_url=url,
+            logger=log
+        )
+        _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
+

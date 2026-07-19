@@ -401,6 +401,10 @@ class GuitarHunterBot:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
                 temp_scraper.scan_specific_url(url, self.handle_deal_found)
+                try:
+                    NotificationService.notify_scan_url_finished(url, user_email=self._user_email, logger=self.logger)
+                except Exception as e:
+                    self.logger.warning(f"Erreur envoi notification scan manuel URL: {e}")
             finally:
                 try:
                     temp_scraper.close_session()

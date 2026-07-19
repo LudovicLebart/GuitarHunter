@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart, AlertTriangle } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
@@ -158,6 +158,9 @@ const Dashboard = ({ onClose }) => {
         loading,
         deals,
         filteredDeals,
+        totalFilteredDeals = [],
+        hasMore,
+        loadMore,
         filterProps,
         dealActions,
         selectedDeal,
@@ -172,6 +175,32 @@ const Dashboard = ({ onClose }) => {
         handleManualRefresh,
         handleManualCleanup,
     } = useBotConfigContext();
+
+    const loadMoreRef = useRef(null);
+
+    // Infinite Scroll trigger
+    useEffect(() => {
+        if (!hasMore || !loadMore) return;
+        
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                loadMore();
+            }
+        }, {
+            rootMargin: '300px' // Charge 300px avant le bas pour un scroll fluide
+        });
+
+        const current = loadMoreRef.current;
+        if (current) {
+            observer.observe(current);
+        }
+
+        return () => {
+            if (current) {
+                observer.unobserve(current);
+            }
+        };
+    }, [hasMore, loadMore]);
 
     // Effet pour ouvrir une annonce depuis l'URL au chargement
     useEffect(() => {
@@ -410,7 +439,7 @@ const Dashboard = ({ onClose }) => {
                             {/* Results Count & Clear Filters */}
                             <div className="flex items-center justify-center gap-2 shrink-0">
                                 <span className="text-xs text-slate-500 font-mono hidden xl:block">
-                                    {filteredDeals.length} annonce{filteredDeals.length !== 1 ? 's' : ''}
+                                    {totalFilteredDeals.length} annonce{totalFilteredDeals.length !== 1 ? 's' : ''}
                                 </span>
                                 {(activeFilterCount > 0 || searchQuery) && (
                                     <button onClick={handleReset} className="flex items-center justify-center h-10 w-10 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/20" title="Effacer tous les filtres">
@@ -429,10 +458,10 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={filteredDeals} />
+                    <StatsView deals={totalFilteredDeals} />
                 ) : viewMode === 'MAP' ? (
                     <MapViewOverlay
-                        deals={filteredDeals}
+                        deals={totalFilteredDeals}
                         renderDealCard={renderDealCard}
                         selectedDeal={selectedDeal}
                         onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
@@ -474,7 +503,13 @@ const Dashboard = ({ onClose }) => {
                             </div>
                         )}
 
-                        {filteredDeals.length === 0 && !loading && (
+                        {hasMore && (
+                            <div ref={loadMoreRef} className="flex justify-center items-center py-12 mb-4 shrink-0">
+                                <RefreshCw className="text-blue-500 animate-spin" size={28} />
+                            </div>
+                        )}
+
+                        {totalFilteredDeals.length === 0 && !loading && (
                             <div className="py-20 flex flex-col items-center justify-center bg-slate-900 rounded-2xl border border-dashed border-slate-800">
                                 <Search size={40} className="text-slate-800 mb-4" />
                                 <h3 className="text-base font-black text-slate-500 uppercase tracking-tight">Aucun résultat</h3>

@@ -1,11 +1,21 @@
 # Journal de Bord - Guitar Hunter AI
 
-[2026-07-18] [PRO] Fix : Optimisation massive des coûts de lecture Firestore (Frontend + Backend) → Résultat :
-- **Symptôme signalé** : Coûts anormalement élevés sur "Cloud Firestore Read Ops" (30-40 millions de lectures par mois pour ~15$) et "Egress", dominant la facture globale.
-- **Frontend (`src/services/firestoreService.js`)** : La fonction `onDealsUpdate` lisait intégralement la collection `guitar_deals` sans limite, déclenchant un téléchargement massif de tout l'historique à chaque connexion. Ajout de `limit(300)` combiné à un tri par date (`query(dealsCollectionRef, orderBy('timestamp', 'desc'), limit(300))`).
-- **Backend (`backend/repository.py`)** : La fonction `get_active_listings()` (utilisée par la tâche quotidienne `cleanup_sold_listings`) cherchait `status != 'rejected'`, ce qui chargeait aussi des milliers d'annonces `sold` ou en erreur (au lieu de seulement `analyzed`) — remplacé par un ciblage exact `status == 'analyzed'`.
-- **Backend (`backend/repository.py`)** : La tâche de purge des images de `purge_rejected_images()` lisait 100% des annonces rejetées sans filtrage de date côté serveur, pour filtrer localement en Python. Remplacement par une requête `where('timestamp', '<=', cutoff)` + `limit(200)` pour lisser la consommation.
-- **Indexation (`firestore.indexes.json`)** : Ajout de l'index composite nécessaire à la requête ci-dessus (`aiAnalysis.verdict` ASCENDING + `timestamp` ASCENDING).
+[2026-07-18] [PRO] Fix : Partage d'annonces (Analyse IA tronquée) → Résultat :
+- **Symptôme signalé** : Lorsqu'un utilisateur partageait une annonce, le lien généré affichait une version réduite sans le verdict ni l'analyse complète de l'IA.
+- **`src/services/firestoreService.js`** : Mise à jour de `createSharedDeal` pour qu'il puise correctement le verdict, l'analyse (`reasoning`) et les scores depuis l'objet imbriqué `deal.aiAnalysis` (au lieu de les chercher à la racine de `deal`). Les liens partagés affichent désormais l'intégralité du travail de l'Expert IA.
+
+[2026-07-18] [PRO] Feature : Notification (ntfy + email) à la fin d'un scan d'URL manuel → Résultat :
+- **Contexte** : Demande d'être informé de la fin d'une requête de scan d'URL.
+- **`backend/notifications.py`** : Ajout de la méthode statique `notify_scan_url_finished(url, user_email, logger)` qui envoie un ntfy et un email au demandeur.
+- **`backend/bot.py`** : Appel de la notification dans le bloc `try/finally` de `scan_specific_url` une fois le scraper temporaire terminé.
+
+[2026-07-18] [PRO] Refactor : Optimisation massive des coûts de lecture Firestore via Sharded Index Document et Lazy Loading → Résultat :
+- **Symptôme signalé** : Coûts de lecture Firestore astronomiques (~15$/mois pour 40 millions de lectures) causés par le chargement intégral des 2748 annonces au démarrage.
+- **Architecture d'Index Document Shardé (`deals_index/`)** : Création d'un index allégé contenant uniquement les métadonnées de filtrage/tri/compteurs (10 propriétés, ~100 octets/annonce) divisé uniformément en 20 chunks pour éviter la limite Firestore d'indexation par document (INDEX_ENTRIES_COUNT_LIMIT_EXCEEDED).
+- **Frontend (`src/services/firestoreService.js`, `src/hooks/useDealsManager.js`)** : Hydratation initiale sur l'écouteur d'index (seulement 20 lectures Firestore). Les annonces complètes (images, description, analyse IA longue) sont téléchargées par paquets de 30 uniquement lorsqu'elles entrent dans la zone visible de l'écran (Lazy Loading avec cache local réutilisable).
+- **Backend (`backend/repository.py`)** : Maintien chirurgical de l'index en dot-notation à chaque création, modification ou suppression d'annonce, sans aucune lecture Firestore supplémentaire.
+- **Migration (`scripts/build_deals_index.py`)** : Script de migration exécuté avec succès pour peupler initialement l'index de toutes les annonces existantes et injecter les `chunkId` correspondants.
+- **Optimisation Backend additionnelle (`backend/repository.py`)** : Ciblage strict de `status == 'analyzed'` dans `get_active_listings()`, et limitation de la tâche de purge `purge_rejected_images` via `limit(200)` pour réduire les lectures de maintenance.
 
 [2026-07-15] [PRO] Fix : 4 bugs remontés (vendues non identifiées, bruit non catégorisé, favoris pollués) + persistance des filtres par utilisateur → Résultat :
 - **Contexte** : 5 points remontés par l'utilisateur. Investigation (docs + code frontend/backend + agent Explore sur `bot.py`/`analyzer.py`/`core.py`) avant tout code, conformément au protocole.

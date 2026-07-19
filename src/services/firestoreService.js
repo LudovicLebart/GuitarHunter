@@ -1,7 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
   collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit
+  query, orderBy, limit, where, documentId
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -27,6 +27,16 @@ const unflatten = (data) => {
 
 export const createSharedDeal = async (deal) => {
   const ref = doc(db, 'shared_deals', deal.id);
+  const ai = deal.aiAnalysis || {};
+  
+  const scores = {
+    price_score: ai.price_score ?? null,
+    condition_score: ai.condition_score ?? null,
+    rareness_score: ai.rareness_score ?? null,
+    demand_score: ai.demand_score ?? null,
+    margin_score: ai.margin_score ?? null,
+  };
+
   await setDoc(ref, {
     title: deal.title || null,
     price: deal.price || null,
@@ -35,9 +45,9 @@ export const createSharedDeal = async (deal) => {
     description: deal.description || null,
     storageImageUrls: deal.storageImageUrls || [],
     imageUrls: deal.imageUrls || [],
-    verdict: deal.verdict || null,
-    scores: deal.scores || null,
-    analysis: deal.analysis || null,
+    verdict: ai.verdict || deal.verdict || null,
+    scores: scores,
+    analysis: ai.reasoning || ai.analysis || deal.analysis || null,
     tier3_summary: deal.tier3_summary || null,
     sharedAt: new Date().toISOString(),
   });
@@ -145,17 +155,57 @@ export const onCommandUpdate = (commandId, callback, userId) => {
 
 // --- Deals ---
 
-export const onDealsUpdate = (onUpdate, onError, userId) => {
-  const { dealsCollectionRef } = getRefs(userId);
-  const q = query(dealsCollectionRef, orderBy('timestamp', 'desc'), limit(300));
-  return onSnapshot(q, (snapshot) => {
-    const dealsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-    dealsData.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
-    onUpdate(dealsData, snapshot.size);
-  }, (error) => {
-    console.error("Error listening to deals:", error);
+export const onDealsIndexUpdate = (onUpdate, onError, userId) => {
+  try {
+    const { userDocRef } = getRefs(userId);
+    const dealsIndexCollectionRef = collection(userDocRef, 'deals_index');
+    
+    return onSnapshot(dealsIndexCollectionRef, (snapshot) => {
+      let mergedDeals = {};
+      snapshot.docs.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data && data.deals) {
+          Object.assign(mergedDeals, data.deals);
+        }
+      });
+      onUpdate(mergedDeals, Object.keys(mergedDeals).length);
+    }, (error) => {
+      console.error("Error listening to deals index:", error);
+      onError(error);
+    });
+  } catch (error) {
     onError(error);
-  });
+  }
+};
+
+export const fetchDealsByIds = async (ids, userId) => {
+  if (!ids || ids.length === 0) return [];
+  const { dealsCollectionRef } = getRefs(userId);
+  
+  // Split ids into chunks of 30 because Firestore 'in' query is limited to 30 keys
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 30) {
+    chunks.push(ids.slice(i, i + 30));
+  }
+  
+  try {
+    const promises = chunks.map(chunk => {
+      const q = query(dealsCollectionRef, where(documentId(), 'in', chunk));
+      return getDocs(q);
+    });
+    
+    const snapshots = await Promise.all(promises);
+    const deals = [];
+    snapshots.forEach(snapshot => {
+      snapshot.docs.forEach(d => {
+        deals.push({ id: d.id, ...d.data() });
+      });
+    });
+    return deals;
+  } catch (error) {
+    console.error("Error fetching deals by IDs:", error);
+    throw error;
+  }
 };
 
 const getDealDocRef = (dealId, userId) => {
@@ -163,21 +213,36 @@ const getDealDocRef = (dealId, userId) => {
   return doc(dealsCollectionRef, dealId);
 };
 
-export const rejectDeal = async (dealId, userId) => {
+export const rejectDeal = async (dealId, chunkId, userId) => {
   try {
-    await updateDoc(getDealDocRef(dealId, userId), {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), {
       status: 'rejected',
       'aiAnalysis.verdict': 'REJECTED'
     });
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}.s`]: 'rejected',
+        [`deals.${dealId}.v`]: 'REJECTED'
+      });
+    }
   } catch (error) {
     console.error(`Error rejecting deal ${dealId}:`, error);
     throw new Error("Erreur lors du rejet de l'annonce.");
   }
 };
 
-export const deleteDeal = async (dealId, userId) => {
+export const deleteDeal = async (dealId, chunkId, userId) => {
   try {
-    await deleteDoc(getDealDocRef(dealId, userId));
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    await deleteDoc(doc(dealsCollectionRef, dealId));
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}`]: deleteField()
+      });
+    }
   } catch (error) {
     console.error(`Error deleting deal ${dealId}:`, error);
     throw new Error("Erreur lors de la suppression de l'annonce.");
@@ -190,9 +255,16 @@ export const retryDealAnalysis = (dealId, userId, userComment = '') =>
 export const forceExpertAnalysis = (dealId, userId, userComment = '') =>
   addCommand('ANALYZE_DEAL', { dealId, forceExpert: true, userComment }, userId);
 
-export const toggleDealFavorite = async (dealId, currentStatus, userId) => {
+export const toggleDealFavorite = async (dealId, currentStatus, chunkId, userId) => {
   try {
-    await updateDoc(getDealDocRef(dealId, userId), { isFavorite: !currentStatus });
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), { isFavorite: !currentStatus });
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}.f`]: !currentStatus
+      });
+    }
   } catch (error) {
     console.error(`Error toggling favorite for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la mise à jour des favoris.");

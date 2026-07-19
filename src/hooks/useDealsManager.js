@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  onDealsUpdate,
+  onDealsIndexUpdate,
+  fetchDealsByIds,
   rejectDeal,
   deleteDeal,
   retryDealAnalysis,
@@ -33,7 +34,9 @@ const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
 };
 
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
-  const [deals, setDeals] = useState([]);
+  const [dealsIndexMap, setDealsIndexMap] = useState({});
+  const [loadedDeals, setLoadedDeals] = useState({});
+  const [visibleCount, setVisibleCount] = useState(30);
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
@@ -47,6 +50,27 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
+
+  // Reconstruction des deals légers à partir de l'index
+  const deals = useMemo(() => {
+    return Object.entries(dealsIndexMap).map(([id, entry]) => ({
+      id,
+      status: entry.s,
+      aiAnalysis: {
+        verdict: entry.v,
+        classification: entry.c,
+        condition_score: entry.cs,
+        also_qualifies_pepite: entry.ap,
+        deal_score: entry.is
+      },
+      isFavorite: entry.f,
+      timestamp: entry.t ? { seconds: entry.t } : null,
+      price: entry.p,
+      title: entry.title,
+      chunkId: entry.h,
+      interestScore: entry.is
+    }));
+  }, [dealsIndexMap]);
 
   // --- Persistance des filtres par utilisateur (Firestore, via useBotConfig) ---
   const hydratedFiltersRef = useRef(false);
@@ -78,12 +102,17 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, sortMode]);
 
+  // Reset visibleCount when filters change
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery]);
+
   useEffect(() => {
     if (!user) return;
     const uid = user.uid;
-    const unsubscribe = onDealsUpdate(
-      (dealsData, count) => {
-        setDeals(dealsData.map(d => ({ ...d })));
+    const unsubscribe = onDealsIndexUpdate(
+      (indexMap, count) => {
+        setDealsIndexMap(indexMap);
         setLoading(false);
         setDbStatus({ status: 'success', msg: `${count} annonces` });
       },
@@ -99,32 +128,47 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const handleRejectDeal = useCallback(async (dealId) => {
     if (!user) return;
-    try { await rejectDeal(dealId, user.uid); } catch (e) { setError(e.message); }
-  }, [user, setError]);
+    const chunkId = dealsIndexMap[dealId]?.h;
+    try { await rejectDeal(dealId, chunkId, user.uid); } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, setError]);
 
   const handleDeleteDeal = useCallback(async (dealId) => {
     if (!user) return;
     if (window.confirm("Voulez-vous vraiment supprimer définitivement cette annonce ?")) {
-      try { await deleteDeal(dealId, user.uid); } catch (e) { setError(e.message); }
+      const chunkId = dealsIndexMap[dealId]?.h;
+      try { await deleteDeal(dealId, chunkId, user.uid); } catch (e) { setError(e.message); }
     }
-  }, [user, setError]);
+  }, [user, dealsIndexMap, setError]);
 
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
-    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
+    setDealsIndexMap(prev => {
+      const next = { ...prev };
+      if (next[dealId]) {
+        next[dealId] = { ...next[dealId], s: 'analyzing', v: undefined };
+      }
+      return next;
+    });
     try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
-    setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: 'analyzing_expert', aiAnalysis: { ...d.aiAnalysis, reasoning: undefined, verdict: undefined } } : d));
+    setDealsIndexMap(prev => {
+      const next = { ...prev };
+      if (next[dealId]) {
+        next[dealId] = { ...next[dealId], s: 'analyzing_expert', v: undefined };
+      }
+      return next;
+    });
     try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
-    try { await toggleDealFavorite(dealId, currentStatus, user.uid); } catch (e) { setError(e.message); }
-  }, [user, setError]);
+    const chunkId = dealsIndexMap[dealId]?.h;
+    try { await toggleDealFavorite(dealId, currentStatus, chunkId, user.uid); } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, setError]);
 
   // Construction de la map de chemins normalisés
   const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
@@ -400,8 +444,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // annonces sans scores (ex: erreurs, PENDING).
     if (sortMode === 'interest') {
       return [...result].sort((a, b) => {
-        const scoreA = computeInterestScore(a.aiAnalysis);
-        const scoreB = computeInterestScore(b.aiAnalysis);
+        const scoreA = a.interestScore ?? computeInterestScore(a.aiAnalysis);
+        const scoreB = b.interestScore ?? computeInterestScore(b.aiAnalysis);
         if (scoreA == null && scoreB == null) return 0;
         if (scoreA == null) return 1;
         if (scoreB == null) return -1;
@@ -412,15 +456,87 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return result;
   }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
+  const visibleDeals = useMemo(() => {
+    return filteredDeals.slice(0, visibleCount);
+  }, [filteredDeals, visibleCount]);
+
+  // Effect pour charger les deals visibles manquants
+  useEffect(() => {
+    if (!user || visibleDeals.length === 0) return;
+    const uid = user.uid;
+    const missingIds = visibleDeals
+      .map(d => d.id)
+      .filter(id => !loadedDeals[id]);
+
+    if (missingIds.length === 0) return;
+
+    let isSubscribed = true;
+    fetchDealsByIds(missingIds, uid).then(fetched => {
+      if (!isSubscribed) return;
+      setLoadedDeals(prev => {
+        const next = { ...prev };
+        fetched.forEach(deal => {
+          next[deal.id] = deal;
+        });
+        return next;
+      });
+    }).catch(err => {
+      if (isSubscribed) setError(err.message);
+    });
+
+    return () => { isSubscribed = false; };
+  }, [visibleDeals, loadedDeals, user, setError]);
+
+  // Effect pour charger selectedDeal s'il a été ouvert depuis l'URL et n'est pas dans le cache
+  useEffect(() => {
+    if (!user || !selectedDeal) return;
+    const dealId = selectedDeal.id;
+    if (loadedDeals[dealId]) return;
+
+    let isSubscribed = true;
+    fetchDealsByIds([dealId], user.uid).then(fetched => {
+      if (!isSubscribed) return;
+      if (fetched.length > 0) {
+        setLoadedDeals(prev => ({ ...prev, [dealId]: fetched[0] }));
+      }
+    }).catch(err => {
+      if (isSubscribed) setError(err.message);
+    });
+
+    return () => { isSubscribed = false; };
+  }, [selectedDeal, loadedDeals, user, setError]);
+
+  const finalSelectedDeal = useMemo(() => {
+    if (!selectedDeal) return null;
+    const full = loadedDeals[selectedDeal.id];
+    return full ? { ...selectedDeal, ...full } : { ...selectedDeal, isLoading: true };
+  }, [selectedDeal, loadedDeals]);
+
+  // Fusionner les données légères et les données complètes pour la partie visible
+  const finalFilteredDeals = useMemo(() => {
+    return visibleDeals.map(deal => {
+      const full = loadedDeals[deal.id];
+      return full ? { ...deal, ...full } : { ...deal, isLoading: true };
+    });
+  }, [visibleDeals, loadedDeals]);
+
+  const hasMore = visibleCount < filteredDeals.length;
+  const loadMore = useCallback(() => {
+    setVisibleCount(prev => prev + 50);
+  }, []);
+
   const counts = useMemo(() => ({ ...verdictCounts, ...typeCounts }), [verdictCounts, typeCounts]);
 
   return {
     deals,
     loading,
     dbStatus,
-    selectedDeal,
+    selectedDeal: finalSelectedDeal,
     setSelectedDeal,
-    filteredDeals,
+    filteredDeals: finalFilteredDeals,
+    totalFilteredDeals: filteredDeals,
+    hasMore,
+    loadMore,
     counts,
     filterProps: {
       filterType, setFilterType,
@@ -444,7 +560,6 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleRetryAnalysis,
       handleForceExpertAnalysis,
       handleToggleFavorite,
-      // On expose directement la sélection pour que la carte puisse ouvrir la modale
       handleSelectDeal: setSelectedDeal 
     }
   };

@@ -55,8 +55,8 @@ Le backend n'est plus limité à une liste statique d'UIDs.
 Toutes les données sont isolées par application et par utilisateur. Le chemin de base pour toutes les collections est :
 `artifacts/{APP_ID}/users/{USER_ID}/...`
 
-- **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient toutes les annonces. Le frontend écoute cette collection en temps réel. Les annonces peuvent avoir plusieurs statuts : `analyzed` (par défaut), `rejected` (masqué totalement), ou `sold` (**Soft Delete** - masqué du flux principal mais conservé en base).
-  - **`initialVerdict`/`initialModelUsed` (2026-07-11) :** Snapshot du verdict et de la chaîne `model_used` du tout premier passage IA, écrit une seule fois par `repository.py::create_new_deal()` et jamais réécrit par les réanalyses ultérieures (contrairement à `aiAnalysis`, qui est remplacé à chaque réanalyse). Sert de référence pour détecter les annonces initialement arrêtées au Portier (Tier 1) seul puis validées après réanalyse manuelle — voir `StatsView.jsx` ci-dessous. Absent sur les annonces créées avant cette date (pas de backfill).
+- **`guitar_deals` (Collection):** (Chemin: `.../guitar_deals`). Contient les documents complets de toutes les annonces (avec images, descriptions et analyses IA détaillées). Le frontend ne charge plus cette collection en temps réel pour des raisons de coût, mais l'interroge sélectivement (Lazy Loading) par paquets de 30 uniquement pour les annonces affichées à l'écran.
+- **`deals_index` (Collection sharded):** (Chemin: `.../deals_index/{chunk_0..19}`). Contient l'index global allégé des annonces (10 métadonnées de filtrage/compteurs, ~100 octets/annonce), réparti de manière homogène sur 20 documents via un hachage MD5. Le frontend s'y abonne en temps réel au démarrage (20 lectures Firestore au lieu de 2748) pour calculer tous les compteurs, filtrer et trier en local.
 - **`commands` (Collection):** (Chemin: `.../commands`). Le frontend écrit des documents ici pour demander toutes les actions au backend (ex: `ANALYZE_DEAL`, `REFRESH`, `CLEANUP`, `STOP_BOT`, `STOP_SCAN`, `START_BOT`). Le backend écoute cette collection, traite la commande de manière unifiée, puis la marque comme complétée.
   - **`STOP_BOT` :** Commande qui déclenche un état de "Sommeil" (pause de 12h interruptible) dans `main.py`. Utilise `stop_event` pour interrompre le travail en cours et change le statut du bot en `paused`. Le bot ne s'éteint plus totalement mais attend un réveil ou l'expiration du délai.
   - **`STOP_SCAN` :** Interrompt uniquement le cycle de scraping Playwright en cours via un `scan_stop_event` dédié. Le bot reste actif et prêt pour d'autres commandes (ex: Refresh, Reanalyse).
@@ -210,16 +210,18 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 ### `src/hooks/useDealsManager.js`
 - **Hook central:** C'est le cerveau du frontend pour le tri et l'affichage.
-  1. **`onDealsUpdate()`:** S'abonne aux changements de la collection `guitar_deals` dans Firestore.
-  2. **`setDeals()`:** Met à jour l'état local, ce qui provoque le re-rendu de l'interface.
-  3. **Système de tri hiérarchique :** Gère les filtres dynamiques sur 4 niveaux. Utilise des **chemins complets (dot-notation)** pour les clés de comptage (`typeCounts`) et la résolution des taxonomies, évitant ainsi les collisions entre catégories homonymes (ex: "Solid Body" sous Guitare vs Basse).
-  4. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService`.
-  5. **`sortMode` (2026-07-14) :** État `'date'` (défaut, ordre déjà appliqué par `onDealsUpdate`) ou `'interest'`. En mode `'interest'`, `filteredDeals` est retrié par `computeInterestScore()` (`constants.js` — moyenne des 5 scores IA) décroissant, avec repli sur l'ordre par date pour les annonces sans scores. Purement client-side, aucun champ Firestore dédié. Exposé via `filterProps.sortMode`/`setSortMode`, piloté depuis la section "Trier par" de `FilterDrawer.jsx`.
+  1. **`onDealsIndexUpdate()` :** S'abonne aux 20 chunks de l'index dans Firestore. Reçoit et fusionne les métadonnées légères en mémoire.
+  2. **Lazy Loading (`loadedDeals`) :** Gère un cache local réutilisable de documents d'annonces complets. Il détecte automatiquement les annonces visibles à l'écran (premières 30, 60, etc.) et télécharge les documents complets manquants à la volée.
+  3. **Défilement Infini (`visibleCount`) :** Affiche les deals par paquets de 30 au démarrage, extensible automatiquement de 50 en 50 lorsque l'utilisateur scroll vers le bas de la liste (via `IntersectionObserver` raccordé à `loadMore`).
+  4. **Système de tri hiérarchique :** Gère les filtres dynamiques sur 4 niveaux. Utilise des **chemins complets (dot-notation)** pour les clés de comptage (`typeCounts`) et la résolution des taxonomies, évitant ainsi les collisions entre catégories homonymes.
+  5. **`dealActions`:** Expose des fonctions (`handleRejectDeal`, `handleRetryAnalysis`) qui interagissent avec `firestoreService` en transmettant le `chunkId` requis pour maintenir l'index synchronisé.
+  6. **`sortMode` (2026-07-14) :** État `'date'` ou `'interest'`. En mode `'interest'`, il utilise la note d'intérêt précalculée et stockée dans l'index (`interestScore`) pour trier instantanément en local, avec repli sur `computeInterestScore` en fallback.
 
 ### `src/services/firestoreService.js`
 - **Couche d'abstraction:** Toutes les interactions avec Firestore sont ici.
 - **`getRefs(userId)`:** Factory centralisée créant les références Firestore isolées par user. Valide `userId` avant création → `throw new Error(...)` si absent (fail fast).
-- **`onDealsUpdate()`:** Implémente l'écouteur `onSnapshot` de Firestore.
+- **`onDealsIndexUpdate()` :** Écoute les 20 documents de la collection `deals_index` et fournit un dictionnaire fusionné des métadonnées de toutes les annonces.
+- **`fetchDealsByIds(ids)` :** Charge les documents d'annonces complets par paquets de 30 maximum via une requête `where(documentId(), 'in', chunks)`.
 - **Actions des Boutons (Refresh, Cleanup, etc.) :** Toutes les actions créent désormais un document dans la collection `commands` via `addCommand(type, payload)`.
 - **Migration multi-user:** `migrateOldDataToNewUser(newUserId, userEmail)` → Email admin via `VITE_ADMIN_EMAIL` env var (sécurité). Flag `migrationDone` prévient les remigrés. Try/catch granulaire par étape.
 

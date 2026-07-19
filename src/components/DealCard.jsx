@@ -197,6 +197,20 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     };
 
     // ── Map real deal model to UI fields ──────────────────────
+    if (deal.isLoading) {
+        return (
+            <div className="bg-slate-900 rounded-2xl border border-slate-800 flex flex-col h-[400px] overflow-hidden animate-pulse">
+                <div className="w-full h-[280px] bg-slate-950/50 flex items-center justify-center shrink-0">
+                    <RefreshCw className="text-slate-700 animate-spin" size={24} />
+                </div>
+                <div className="p-4 flex flex-col gap-3 flex-1 justify-center">
+                    <div className="h-4 bg-slate-800 rounded w-3/4"></div>
+                    <div className="h-3 bg-slate-800 rounded w-1/2"></div>
+                </div>
+            </div>
+        );
+    }
+
     const ai = deal.aiAnalysis || {};
     const verdict = ai.verdict || 'DEFAULT';
     const reasoning = ai.analysis || ai.reasoning || null;

@@ -121,9 +121,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Cause :* Même famille de bug que le fix Navbar ci-dessus, mais sur un gap **vertical** : le menu était positionné avec un `margin` (`mb-2`/`mt-2`), hors de la boîte du conteneur `.relative` survolé — traverser ce vide déclenchait `onMouseLeave` avant d'atteindre le menu.
     - *Solution :* `DealCard.jsx` (footer de carte + `renderActionButtons`, carte ET modale) : `margin` remplacé par un `padding` sur un wrapper englobant (`pb-2`/`pt-2`), le style visuel du menu déplacé dans un `<div>` interne — le gap fait désormais partie de la zone survolée.
 
-- [ ] **Perf : Chargement complet de `guitar_deals` (annonces vendues/rejetées jamais purgées)** *(Ajouté 2026-07-14)*
-    - *Constat :* `onDealsUpdate` (`firestoreService.js`) charge toute la collection `guitar_deals` à chaque connexion (y compris `sold`/`rejected`, jamais purgées), puis filtre côté client. Cause probable du ralentissement de chargement perçu par l'utilisateur (pas les annonces supprimées de Facebook en tant que telles — voir item suivant).
-    - *Piste :* requête Firestore filtrée côté serveur et/ou pagination, plutôt que de tout streamer puis filtrer en mémoire.
+- [x] **Perf : Chargement complet de `guitar_deals` via Sharded Index Document et Lazy Loading** *(Corrigé 2026-07-18)*
+    - *Détails :* Le Frontend s'abonne uniquement à un index découpé en 20 chunks (20 lectures Firestore) pour les compteurs et filtres. Les annonces détaillées sont chargées à la demande par paquets de 30 lors de l'affichage.
+    - *Bénéfice :* Coûts de lecture Firestore divisés par 100+ au démarrage, fluidité totale de l'UI.
 
 - [ ] **Amélioration : Latence de détection des annonces supprimées/vendues sur Facebook** *(Ajouté 2026-07-14)*
     - *Constat :* `check_listing_availability`/`cleanup_sold_listings` (`backend/scraping/core.py`, `backend/bot.py`) détectent déjà correctement les annonces supprimées par le vendeur (404, redirection vers l'accueil Marketplace) — fusionnées avec la détection de vente (`status: 'sold'`, pas de statut "supprimé" distinct). Le nettoyage tourne automatiquement toutes les 24h (`schedule.every(24).hours`, `services.py`), donc une annonce disparue de Facebook peut rester visible dans l'app jusqu'à 24h après sa suppression réelle.

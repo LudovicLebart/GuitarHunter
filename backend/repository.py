@@ -72,6 +72,94 @@ class FirestoreRepository:
             logger.error(f"Failed to get deal by ID '{deal_id}': {e}", exc_info=True)
             return None
 
+    def _get_chunk_id(self, deal_id):
+        """Calcule un ID de chunk déterministe (MD5) pour distribuer les annonces sur 20 documents."""
+        import hashlib
+        h = hashlib.md5(deal_id.encode('utf-8')).hexdigest()
+        val = int(h[:8], 16)
+        return f"chunk_{val % 20}"
+
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None):
+        """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
+        try:
+            chunk_id = self._get_chunk_id(deal_id)
+            index_ref = self.user_ref.collection('deals_index').document(chunk_id)
+            
+            update_data = {}
+            prefix = f"deals.{deal_id}"
+            update_data[f"{prefix}.h"] = chunk_id
+            
+            if status is not None:
+                update_data[f"{prefix}.s"] = status
+            
+            if is_favorite is not None:
+                update_data[f"{prefix}.f"] = is_favorite
+                
+            if title is not None:
+                update_data[f"{prefix}.title"] = title
+                
+            if price is not None:
+                update_data[f"{prefix}.p"] = price
+
+            if timestamp is not None:
+                ts = None
+                if isinstance(timestamp, datetime):
+                    ts = int(timestamp.timestamp())
+                elif hasattr(timestamp, 'timestamp'):
+                    ts = int(timestamp.timestamp())
+                if ts is not None:
+                    update_data[f"{prefix}.t"] = ts
+            
+            if ai_analysis is not None:
+                ai = ai_analysis or {}
+                update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
+                update_data[f"{prefix}.c"] = ai.get('classification') or None
+                update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
+                update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
+                
+                # Calcul de la note d'intérêt
+                scores = [
+                    ai.get('deal_score'),
+                    ai.get('authenticity_score'),
+                    ai.get('condition_score'),
+                    ai.get('liquidity_score'),
+                    ai.get('restoration_interest_score')
+                ]
+                valid_scores = [s for s in scores if isinstance(s, (int, float))]
+                interest_score = sum(valid_scores) / len(valid_scores) if valid_scores else None
+                update_data[f"{prefix}.is"] = interest_score
+
+            if not update_data:
+                return
+
+            try:
+                index_ref.update(update_data)
+            except Exception:
+                # Si le document n'existe pas, on l'initialise avec set (merge=True)
+                nested_data = {}
+                for k, v in update_data.items():
+                    parts = k.split('.')
+                    if len(parts) == 3:
+                        field = parts[2]
+                        if "deals" not in nested_data:
+                            nested_data["deals"] = {}
+                        if deal_id not in nested_data["deals"]:
+                            nested_data["deals"][deal_id] = {}
+                        nested_data["deals"][deal_id][field] = v
+                index_ref.set(nested_data, merge=True)
+                
+        except Exception as e:
+            logger.error(f"Failed to update deal index chunk for '{deal_id}': {e}", exc_info=True)
+
+    def _remove_from_deal_index(self, deal_id):
+        """Supprime une annonce de l'index allégé."""
+        try:
+            chunk_id = self._get_chunk_id(deal_id)
+            index_ref = self.user_ref.collection('deals_index').document(chunk_id)
+            index_ref.update({f"deals.{deal_id}": firestore.firestore.DELETE_FIELD})
+        except Exception as e:
+            logger.error(f"Failed to remove deal from index chunk '{deal_id}': {e}", exc_info=True)
+
     def create_new_deal(self, deal_id, deal_data, analysis_data):
         """Crée un nouveau document pour une annonce."""
         try:
@@ -79,6 +167,7 @@ class FirestoreRepository:
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
 
+            chunk_id = self._get_chunk_id(deal_id)
             data = {
                 **deal_data,
                 "aiAnalysis": analysis_data,
@@ -86,8 +175,18 @@ class FirestoreRepository:
                 "status": status,
                 "initialVerdict": analysis_data.get('verdict'),
                 "initialModelUsed": analysis_data.get('model_used'),
+                "chunkId": chunk_id,
             }
             self.collection_ref.document(deal_id).set(data)
+            self._update_deal_index(
+                deal_id, 
+                status=status, 
+                ai_analysis=analysis_data, 
+                is_favorite=deal_data.get('isFavorite', False), 
+                timestamp=datetime.now(timezone.utc), 
+                title=deal_data.get('title', ''), 
+                price=deal_data.get('price')
+            )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
             logger.error(f"Firestore create failed for deal '{deal_id}': {e}", exc_info=True)
@@ -105,6 +204,12 @@ class FirestoreRepository:
                 "status": status
             }
             self.collection_ref.document(deal_id).update(update_data)
+            self._update_deal_index(
+                deal_id,
+                status=status,
+                ai_analysis=analysis_data,
+                timestamp=datetime.now(timezone.utc)
+            )
             logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
         except Exception as e:
             logger.error(f"Firestore update failed for deal '{deal_id}': {e}", exc_info=True)
@@ -117,14 +222,24 @@ class FirestoreRepository:
                 status = "rejected"
                 
             # Fusionner les nouvelles métadonnées de l'annonce (y compris le nouveau prix)
+            chunk_id = self._get_chunk_id(deal_id)
             update_data = {
                 **deal_data,
                 "aiAnalysis": analysis_data,
                 "timestamp": firestore.SERVER_TIMESTAMP,
-                "status": status
+                "status": status,
+                "chunkId": chunk_id,
             }
             
             self.collection_ref.document(deal_id).update(update_data)
+            self._update_deal_index(
+                deal_id,
+                status=status,
+                ai_analysis=analysis_data,
+                timestamp=datetime.now(timezone.utc),
+                title=deal_data.get('title', ''),
+                price=deal_data.get('price')
+            )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:
             logger.error(f"Firestore full update failed for deal '{deal_id}': {e}", exc_info=True)
@@ -141,6 +256,7 @@ class FirestoreRepository:
                 update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'error': error_message, 'timestamp': datetime.now()}])
             
             self.collection_ref.document(deal_id).update(update_data)
+            self._update_deal_index(deal_id, status=status)
             logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
         except Exception as e:
             logger.error(f"Failed to update status for deal '{deal_id}': {e}", exc_info=True)
@@ -158,6 +274,7 @@ class FirestoreRepository:
                 update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
             
             self.collection_ref.document(deal_id).update(update_data)
+            self._update_deal_index(deal_id, status='sold', timestamp=datetime.now(timezone.utc))
             logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
         except Exception as e:
             logger.error(f"Failed to mark deal '{deal_id}' as sold: {e}", exc_info=True)
@@ -241,6 +358,7 @@ class FirestoreRepository:
     def delete_listing(self, listing_id):
         try:
             self.collection_ref.document(listing_id).delete()
+            self._remove_from_deal_index(listing_id)
             logger.info(f"Deleted listing '{listing_id}'.")
         except Exception as e:
             logger.error(f"Failed to delete listing '{listing_id}': {e}", exc_info=True)

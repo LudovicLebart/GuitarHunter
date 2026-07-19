@@ -79,14 +79,26 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
   }
   ```
 
-## 5. Mise à jour automatique du Frontend (Listen UI)
-Le Frontend utilise les capacités temps-réel de Firestore pour refléter les changements sans rechargement.
-- **Mécanisme** : `onSnapshot` de Firebase.
-- **Abonnements** :
-  - `onDealsUpdate` : Écoute les changements dans `guitar_deals` pour mettre à jour la liste des annonces.
+## 5. Rôle de l'Index et Sharding (Collection `deals_index`)
+Pour contourner la limite de taille et les coûts de lecture Firestore, le système maintient un index allégé des annonces.
+- **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/deals_index/{CHUNK_ID}` (de `chunk_0` à `chunk_19`).
+- **Principe** : Les annonces sont distribuées sur 20 chunks via un hachage MD5 déterministe sur le `deal_id`.
+- **Maintenance (Backend)** : À chaque création/modification/suppression/vente, le backend met à jour la clé correspondante dans le chunk d'index via dot-notation (ex: `deals.deal_123.s = "sold"`), sans aucune lecture Firestore supplémentaire.
+- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre) et `is` (interest_score).
+
+## 6. Mise à jour automatique et Lazy Loading du Frontend
+Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.
+- **Abonnements temps réel** :
+  - `onDealsIndexUpdate` : Écoute les 20 documents de `deals_index`. Fusionne localement les dictionnaires de métadonnées de toutes les annonces en un unique tableau léger en mémoire au démarrage (seulement 20 lectures Firestore au lieu de 2748+).
   - `onBotConfigUpdate` : Écoute les changements du document utilisateur (statut du bot, erreurs, config globale).
   - `onCitiesUpdate` : Écoute la liste des villes.
-- **Résultat** : L'UI React réagit instantanément dès que Python écrit dans Firestore.
+- **Lazy Loading des documents complets** :
+  - Le hook `useDealsManager.js` filtre et trie localement les annonces légères à partir de l'index en mémoire.
+  - Il identifie la tranche visible à l'écran (premières 30 annonces au départ, puis étendues de 50 en 50 automatiquement par défilement infini).
+  - Un `IntersectionObserver` dans `Dashboard.jsx` surveille un trigger invisible en bas de liste et appelle `loadMore` dès qu'on s'en approche à moins de 300px.
+  - Il déclenche `fetchDealsByIds(missingIds)` pour charger en une seule fois les documents complets (images, description, analyse IA reasoning) associés uniquement aux annonces visibles.
+  - Les cartes d'annonces affichent un squelette animé (skeleton loader) durant la brève phase de chargement des détails complets (~150ms).
+  - Si l'utilisateur clique sur un marqueur de carte ou ouvre un lien direct `?dealId=`, le document complet est également téléchargé à la volée s'il n'est pas déjà présent dans le cache React local.
 
 ## 6. Flux d'Interactions UI (Exemple : Cartographie)
 1. **Survol/Clic Marqueur** → `MapView` déclenche l'affichage de l'InfoWindow locale (Data issues du `deal` associé).
