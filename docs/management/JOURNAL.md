@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-18] [PRO 3.1] Fix : Tableau de bord vide suite à la mise en place du Lazy Loading → Résultat :
+- **Symptôme signalé** : L'utilisateur ne voyait plus aucune annonce sur son tableau de bord après la migration vers l'index allégé.
+- **Diagnostic** : Le nouveau script de migration `build_deals_index.py` créait un index léger qui retirait intentionnellement le champ `reasoning` de l'IA (trop volumineux) pour économiser l'espace. Or, `useDealsManager.js` vérifiait encore la présence de `analysis.reasoning` pour certifier qu'une annonce n'était pas une erreur IA.
+- **`src/hooks/useDealsManager.js`** : Suppression stricte de la dépendance à `analysis.reasoning` dans `matchesVerdictFilter` et `verdictCounts`. Les filtres s'appuient désormais uniquement sur le verdict et les classifications présentes dans l'index. Le tableau de bord affiche de nouveau toutes les annonces et profite de la fluidité et des économies du Lazy Loading.
+
 [2026-07-18] [PRO] Fix : Partage d'annonces (Analyse IA tronquée) → Résultat :
 - **Symptôme signalé** : Lorsqu'un utilisateur partageait une annonce, le lien généré affichait une version réduite sans le verdict ni l'analyse complète de l'IA.
 - **`src/services/firestoreService.js`** : Mise à jour de `createSharedDeal` pour qu'il puise correctement le verdict, l'analyse (`reasoning`) et les scores depuis l'objet imbriqué `deal.aiAnalysis` (au lieu de les chercher à la racine de `deal`). Les liens partagés affichent désormais l'intégralité du travail de l'Expert IA.

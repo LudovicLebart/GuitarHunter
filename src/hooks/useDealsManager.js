@@ -244,7 +244,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // le backend en cas de double échec Tier1+Tier2) est traité comme une erreur, même avec un
     // reasoning non vide, pour ne pas polluer la vue "Toutes" avec un badge par défaut trompeur.
     const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
-    const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict || (!analysis.reasoning && verdict !== 'PENDING');
+    const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict;
 
     if (currentFilterType === 'ERROR') return isError;
     if (currentFilterType === 'REJECTED') return false;
@@ -397,7 +397,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
-      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict || (!deal.aiAnalysis.reasoning && verdict !== 'PENDING');
+      const isError = !deal.aiAnalysis || verdict === 'DEFAULT' || verdict === 'ERROR' || !knownVerdict;
 
       if (isError) {
         c.ERROR++;

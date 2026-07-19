@@ -124,6 +124,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Perf : Chargement complet de `guitar_deals` via Sharded Index Document et Lazy Loading** *(Corrigé 2026-07-18)*
     - *Détails :* Le Frontend s'abonne uniquement à un index découpé en 20 chunks (20 lectures Firestore) pour les compteurs et filtres. Les annonces détaillées sont chargées à la demande par paquets de 30 lors de l'affichage.
     - *Bénéfice :* Coûts de lecture Firestore divisés par 100+ au démarrage, fluidité totale de l'UI.
+    - *Fix additionnel :* Les annonces apparaissaient invisibles car le front-end vérifiait la présence du texte `reasoning`, retiré de l'index allégé. Cette vérification a été supprimée (`useDealsManager.js`).
 
 - [ ] **Amélioration : Latence de détection des annonces supprimées/vendues sur Facebook** *(Ajouté 2026-07-14)*
     - *Constat :* `check_listing_availability`/`cleanup_sold_listings` (`backend/scraping/core.py`, `backend/bot.py`) détectent déjà correctement les annonces supprimées par le vendeur (404, redirection vers l'accueil Marketplace) — fusionnées avec la détection de vente (`status: 'sold'`, pas de statut "supprimé" distinct). Le nettoyage tourne automatiquement toutes les 24h (`schedule.every(24).hours`, `services.py`), donc une annonce disparue de Facebook peut rester visible dans l'app jusqu'à 24h après sa suppression réelle.
