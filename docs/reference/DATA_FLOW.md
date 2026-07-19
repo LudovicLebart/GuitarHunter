@@ -84,7 +84,7 @@ Pour contourner la limite de taille et les coûts de lecture Firestore, le syst�
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/deals_index/{CHUNK_ID}` (de `chunk_0` à `chunk_19`).
 - **Principe** : Les annonces sont distribuées sur 20 chunks via un hachage MD5 déterministe sur le `deal_id`.
 - **Maintenance (Backend)** : À chaque création/modification/suppression/vente, le backend met à jour la clé correspondante dans le chunk d'index via dot-notation (ex: `deals.deal_123.s = "sold"`), sans aucune lecture Firestore supplémentaire.
-- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre) et `is` (interest_score).
+- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score) et `i` (image_url).
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.

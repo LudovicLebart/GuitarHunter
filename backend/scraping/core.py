@@ -356,6 +356,15 @@ class FacebookScraper:
                 self.logger.error(f"❌ Ville '{location}' inconnue.")
                 return []
 
+        # --- Forcer la géolocalisation pour éviter les annonces "Ship to you" basées sur l'IP ---
+        coords = self.city_coordinates.get(norm_loc)
+        if coords:
+            try:
+                self.context.set_geolocation({"latitude": coords['lat'], "longitude": coords['lng']})
+                self.logger.info(f"   📍 Géolocalisation forcée sur {norm_loc} ({coords['lat']}, {coords['lng']})")
+            except Exception as e:
+                self.logger.debug(f"   ⚠️ Impossible de forcer la géolocalisation: {e}")
+
         page = self.context.new_page()
         found_deals = [] # Liste pour stocker les annonces trouvées
 
@@ -386,6 +395,7 @@ class FacebookScraper:
             self.logger.info("   📜 Défilement dynamique...")
             previous_count = 0
             stagnant_iterations = 0
+            target_ads_to_load = max_ads * 3 + 30  # Marge de sécurité pour survivre au filtrage (ville/prix)
             for i in range(self.config.max_scroll_iterations):
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
@@ -394,8 +404,8 @@ class FacebookScraper:
                 time.sleep(2)
 
                 current_count = len(page.locator("a[href*='/marketplace/item/']").all())
-                if current_count >= max_ads:
-                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ max_ads={max_ads}), arrêt du défilement.")
+                if current_count >= target_ads_to_load:
+                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
                     break
                 if current_count <= previous_count:
                     stagnant_iterations += 1

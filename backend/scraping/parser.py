@@ -275,8 +275,12 @@ class ListingParser:
         m = re.search(r"il y a (\d+)\s*semaine", raw_str)
         if m: return int((now - timedelta(weeks=int(m.group(1)))).timestamp())
         
+        m = re.search(r"il y a (\d+)\s*mois", raw_str)
+        if m: return int((now - timedelta(days=int(m.group(1)) * 30)).timestamp())
+        
         months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
-        m = re.search(r"(\d+)\s+([a-zûé]+)(?:\s+(\d{4}))?", raw_str)
+        month_pattern = "|".join(months)
+        m = re.search(rf"(\d+)\s+({month_pattern})(?:\s+(\d{{4}}))?", raw_str)
         if m:
             day = int(m.group(1))
             month_str = m.group(2)

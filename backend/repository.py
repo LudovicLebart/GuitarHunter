@@ -79,7 +79,7 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None):
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
@@ -100,6 +100,15 @@ class FirestoreRepository:
                 
             if price is not None:
                 update_data[f"{prefix}.p"] = price
+
+            if location is not None:
+                update_data[f"{prefix}.l"] = location
+
+            if initial_model is not None:
+                update_data[f"{prefix}.imu"] = initial_model
+
+            if image_url is not None:
+                update_data[f"{prefix}.i"] = image_url
 
             if timestamp is not None:
                 ts = None
@@ -124,10 +133,17 @@ class FirestoreRepository:
             
             if ai_analysis is not None:
                 ai = ai_analysis or {}
+                if isinstance(ai, list):
+                    ai = ai[0] if len(ai) > 0 else {}
+                if not isinstance(ai, dict):
+                    ai = {}
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
                 update_data[f"{prefix}.c"] = ai.get('classification') or None
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
                 update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
+                update_data[f"{prefix}.ev"] = ai.get('estimated_value') or ai.get('estimated_guitar_value') or None
+                update_data[f"{prefix}.mu"] = ai.get('model_used') or None
+                update_data[f"{prefix}.egm"] = ai.get('estimated_gross_margin') or None
                 
                 # Calcul de la note d'intérêt
                 scores = [
@@ -198,7 +214,10 @@ class FirestoreRepository:
                 timestamp=datetime.now(timezone.utc), 
                 title=deal_data.get('title', ''), 
                 price=deal_data.get('price'),
-                published_at=deal_data.get('published_at_ts')
+                published_at=deal_data.get('published_at_ts'),
+                location=deal_data.get('location'),
+                initial_model=deal_data.get('initialModelUsed'),
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
             )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
@@ -250,9 +269,12 @@ class FirestoreRepository:
                 status=status,
                 ai_analysis=analysis_data,
                 timestamp=datetime.now(timezone.utc),
-                title=deal_data.get('title', ''),
+                title=deal_data.get('title'),
                 price=deal_data.get('price'),
-                published_at=deal_data.get('published_at_ts')
+                location=deal_data.get('location'),
+                initial_model=deal_data.get('initialModelUsed'),
+                published_at=deal_data.get('published_at_ts'),
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:
@@ -541,28 +563,34 @@ class FirestoreRepository:
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         purged_count = 0
+        BATCH_SIZE = 200
 
         try:
-            # Requête optimisée avec index composite et limite pour étaler la charge
-            docs = self.collection_ref.where(
-                filter=FieldFilter('aiAnalysis.verdict', 'in', rejection_verdicts)
-            ).where(
-                filter=FieldFilter('timestamp', '<=', cutoff)
-            ).limit(200).stream()
+            # Boucle jusqu'à épuisement : chaque itération traite au plus BATCH_SIZE docs.
+            # Nécessaire pour rattraper un arriéré si la purge n'a pas tourné pendant plusieurs jours.
+            while True:
+                docs = list(self.collection_ref.where(
+                    filter=FieldFilter('aiAnalysis.verdict', 'in', rejection_verdicts)
+                ).where(
+                    filter=FieldFilter('timestamp', '<=', cutoff)
+                ).limit(BATCH_SIZE).stream())
 
-            for doc in docs:
-                data = doc.to_dict()
-                
-                # Suppression de tous les blobs pour ce deal
-                prefix = f"deals/{doc.id}/"
-                blobs = list(self._bucket.list_blobs(prefix=prefix))
-                if blobs:
-                    for blob in blobs:
-                        blob.delete()
-                    # Nettoyage du champ dans Firestore
-                    doc.reference.update({'storageImageUrls': firestore.DELETE_FIELD})
-                    purged_count += len(blobs)
-                    logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {doc.id} (ancien de {retention_days}j+).")
+                for doc in docs:
+                    # Suppression de tous les blobs pour ce deal
+                    prefix = f"deals/{doc.id}/"
+                    blobs = list(self._bucket.list_blobs(prefix=prefix))
+                    if blobs:
+                        for blob in blobs:
+                            blob.delete()
+                        # Nettoyage du champ dans Firestore
+                        doc.reference.update({'storageImageUrls': firestore.DELETE_FIELD})
+                        purged_count += len(blobs)
+                        logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {doc.id} (ancien de {retention_days}j+).")
+
+                # Arrêt si le batch n'a pas atteint la limite (plus rien à purger)
+                if len(docs) < BATCH_SIZE:
+                    break
+
         except Exception as e:
             logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
 

@@ -144,6 +144,11 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
     // Création d'une InfoWindow partagée globale (pour n'en avoir qu'une seule ouverte à la fois)
     const infoWindow = new window.google.maps.InfoWindow();
 
+    // Fonction globale pour pouvoir la fermer depuis le HTML (onmouseleave)
+    window.closeMapPopup = () => {
+      infoWindow.close();
+    };
+
     // Listener sur domready pour brancher l'événement de clic sur la popup elle-même
     window.google.maps.event.addListener(infoWindow, 'domready', () => {
       const el = document.getElementById('info-window-card');
@@ -153,7 +158,6 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
           const d = deals.find(x => x.id === dealId);
           if (d) {
             onDealSelect(d);
-            infoWindow.close();
           }
         };
       }
@@ -198,17 +202,43 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         const imageSrc = deal.storageImageUrls?.[0] || deal.imageUrls?.[0];
         const placeholderImg = "https://via.placeholder.com/150?text=No+Image";
 
-        const price = deal.price || 0;
-        const estValue = deal.aiAnalysis?.estimated_value || 0;
-        const margin = estValue > 0 ? estValue - (deal.aiAnalysis?.net_guitar_cost || price) : 0;
+        // Calcul exact de la marge comme dans DealCard
+        const price = deal.price ?? null;
+        const estValue = deal.aiAnalysis?.estimated_value ?? deal.aiAnalysis?.estimated_guitar_value ?? null;
+        const computedMargin = (estValue != null && price != null) ? Math.round(estValue - price) : null;
+        const margin = deal.aiAnalysis?.estimated_gross_margin !== undefined ? deal.aiAnalysis?.estimated_gross_margin : computedMargin;
         const marginColor = margin > 0 ? '#10b981' : (margin < 0 ? '#f43f5e' : '#64748b');
 
-        // Remplacement de la condition par le score du Deal ou le statut IA
+        // Config UI du Verdict
+        const vLabels = {
+          PEPITE: 'Pépite', FAST_FLIP: 'Fast Flip', LUTHIER_PROJ: 'Projet Luthier',
+          CASE_WIN: 'Case Win', COLLECTION: 'Collection', BAD_DEAL: 'Trop Cher',
+          REJECTED_ITEM: 'Rejeté', REJECTED_SERVICE: 'Service', ERROR: 'Erreur', DEFAULT: 'Analyse...'
+        };
+        const vColors = {
+          PEPITE: { bg: '#eab308', text: '#713f12' },
+          FAST_FLIP: { bg: '#10b981', text: '#064e3b' },
+          LUTHIER_PROJ: { bg: '#f97316', text: '#7c2d12' },
+          CASE_WIN: { bg: '#0ea5e9', text: '#0c4a6e' },
+          COLLECTION: { bg: '#3b82f6', text: '#1e3a8a' },
+          BAD_DEAL: { bg: '#f43f5e', text: '#881337' },
+          REJECTED_ITEM: { bg: '#475569', text: '#e2e8f0' },
+          REJECTED_SERVICE: { bg: '#475569', text: '#e2e8f0' },
+          ERROR: { bg: '#7f1d1d', text: '#fecaca' },
+          DEFAULT: { bg: '#334155', text: '#e2e8f0' }
+        };
+        
+        const vc = vColors[verdict] || vColors.DEFAULT;
+        const vLabel = vLabels[verdict] || vLabels.DEFAULT;
+        
+        // Note IA et taxonomie
+        // Note IA et taxonomie
         const score = deal.aiAnalysis?.deal_score;
         const scoreDisplay = score ? `${score}/10` : (deal.aiAnalysis?.verdict || 'Analyse en attente');
 
+        // Un design très proche de l'original, compact et simple
         const contentStr = `
-          <div id="info-window-card" data-id="${deal.id}" style="width: 240px; font-family: ui-sans-serif, system-ui, sans-serif; cursor: pointer;">
+          <div id="info-window-card" data-id="${deal.id}" onmouseleave="window.closeMapPopup()" style="width: 240px; font-family: ui-sans-serif, system-ui, sans-serif; cursor: pointer;">
             <div style="height: 140px; width: 100%; background: #1e293b; position: relative;">
               <img src="${imageSrc || placeholderImg}" style="width: 100%; height: 100%; object-fit: cover;" alt="Deal" />
               <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(4px); color: #10b981; font-weight: 900; font-size: 15px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);">
@@ -286,24 +316,19 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
           padding: 0 !important;
           border-radius: 12px !important;
         }
+        .gm-style .gm-style-iw-d {
+          padding: 0 !important;
+          overflow-x: hidden !important;
+          overflow-y: auto !important;
+          max-height: none !important; /* Laisse le contenu s'étendre, ou scroller si Google impose un min */
+        }
         .gm-style .gm-style-iw-t::after {
           background: #0f172a !important;
           box-shadow: -2px 2px 3px 0 rgba(0, 0, 0, 0.4) !important;
         }
         .gm-ui-hover-effect { 
-          top: 0 !important; 
-          right: 0 !important; 
-          background: rgba(15, 23, 42, 0.8) !important; 
-          border-radius: 0 12px 0 12px !important; 
-          padding: 6px !important;
+          display: none !important;
         }
-        .gm-ui-hover-effect span {
-          width: 20px !important;
-          height: 20px !important;
-          margin: 0 !important;
-          filter: invert(1) !important;
-        }
-        .gm-style-iw-d { overflow: hidden !important; max-height: none !important; }
       `}</style>
       <div ref={mapRef} className="w-full h-[600px] rounded-3xl shadow-sm border border-slate-800 overflow-hidden" />
     </>

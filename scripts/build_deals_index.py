@@ -20,6 +20,9 @@ try:
     from backend.scraping.parser import ListingParser
 except ImportError:
     ListingParser = None
+    print("WARNING: ListingParser non disponible (ImportError). Les champs 'published_at_ts' "
+          "ne seront PAS calculés depuis 'published_at_raw' pour les annonces existantes. "
+          "Assurez-vous de lancer le script depuis la racine du projet : python scripts/build_deals_index.py")
 
 cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)

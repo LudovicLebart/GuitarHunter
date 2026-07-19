@@ -40,6 +40,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
+  // Ref pour tracker les IDs en cours de fetch et éviter les double-appels réseau au scroll rapide
+  const fetchingIdsRef = useRef(new Set());
 
   const [filterType, setFilterType] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,12 +58,18 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return Object.entries(dealsIndexMap).map(([id, entry]) => ({
       id,
       status: entry.s,
+      location: entry.l,
+      storageImageUrls: entry.i ? [entry.i] : [],
+      initialModelUsed: entry.imu,
       aiAnalysis: {
         verdict: entry.v,
         classification: entry.c,
         condition_score: entry.cs,
         also_qualifies_pepite: entry.ap,
-        deal_score: entry.is
+        deal_score: entry.is,
+        estimated_value: entry.ev,
+        model_used: entry.mu,
+        estimated_gross_margin: entry.egm
       },
       isFavorite: entry.f,
       timestamp: entry.t ? { seconds: entry.t } : null,
@@ -497,9 +505,12 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     const uid = user.uid;
     const missingIds = visibleDeals
       .map(d => d.id)
-      .filter(id => !loadedDeals[id]);
+      .filter(id => !loadedDeals[id] && !fetchingIdsRef.current.has(id));
 
     if (missingIds.length === 0) return;
+
+    // Marquer les IDs comme "en cours de fetch" pour bloquer les double-appels
+    missingIds.forEach(id => fetchingIdsRef.current.add(id));
 
     let isSubscribed = true;
     fetchDealsByIds(missingIds, uid).then(fetched => {
@@ -513,6 +524,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       });
     }).catch(err => {
       if (isSubscribed) setError(err.message);
+    }).finally(() => {
+      // Libérer les IDs qu'on soit en succès ou erreur
+      missingIds.forEach(id => fetchingIdsRef.current.delete(id));
     });
 
     return () => { isSubscribed = false; };
