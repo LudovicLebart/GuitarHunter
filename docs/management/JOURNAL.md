@@ -1,5 +1,21 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
+- **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
+- **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).
+
+[2026-07-19] [PRO] Fix + Feature : StatsView — Profil Moyen vide, Distribution marques biaisée, Temps de vente figé + nouveau graphique → Résultat :
+- **Radar "Profil Moyen" vide :** `totalFilteredDeals` ne contenait que les champs de l'index léger (scores IA absents). Fix : `enrichedDeals` = fusion index + cache `loadedDeals` (lazy). `loadedDeals` exposé depuis `useDealsManager` et transmis par `Dashboard.jsx` via prop.
+- **Distribution marques → tout dans "Autres" :** Fallback titre limité à 5 marques + troncature `split(' ')[0]` trop agressive. Fix : liste de 25+ marques QC connues dans le fallback titre, invalidation stricte des valeurs génériques (`"Inconnue"`, `"n/a"`…), "Autres" relégué en dernier hors top 6, coloration différenciée via `Cell`.
+- **Temps de vente figé à 48h :** Calcul réel `soldTimestamp - publishTimestamp` (en heures ou jours selon durée). Subtitle indique le nombre de deals tracés (actuellement 1 deal → 59j).
+- **Nouveau graphique "Vitesse de vente par type de guitare" :** Délai moyen de vente par `classification`, trié plus rapide → plus lent, gradient émeraude, min 2 observations par type.
+
+[2026-07-19] [PRO] Fix : Filtre pré-IA annonces "VENDU" → Résultat :
+- **`backend/bot.py`** : Ajout d'un filtre `SOLD_MARKERS` (`vendu`, `sold`, `deal closed`, `plus disponible`, `no longer available`) dans `handle_deal_found()`, vérifié sur titre + 200 premiers chars de description. Rejet **avant** `session_processed_ids.add()` (annonce non marquée comme traitée → re-détectable si le vendeur corrige son titre). Bypass par `is_manual_scan=True`. Log `⏩` visible dans le LogViewer. Aucun token Gemini consommé pour ces rejets.
+- **`docs/management/TODO.md`** : Entrée ajoutée avec les 3 pistes de correction ; piste 1 (filtre pré-IA) marquée ✅ implémentée.
+
+
+
 [2026-07-19] [PRO] Fix : Code review 48h — 4 correctifs appliqués → Résultat :
 - **`backend/scraping/parser.py`** : Ajout du cas `"il y a X mois"` dans `parse_french_date()` (formule Facebook fréquente, sans ce cas les annonces de 1-3 mois n'avaient pas de `publishTimestamp` et tombaient en fond de tri). Remplacement du regex mois générique `[a-zûé]+` par la liste exhaustive des 12 mois français pour éviter les faux positifs sur des mots inattendus.
 - **`backend/repository.py`** : Transformation de `purge_rejected_images()` — passage d'un `.limit(200)` unique à une boucle `while True / break si len(docs) < BATCH_SIZE` pour épuiser un arriéré potentiel si la purge n'a pas tourné pendant plusieurs jours.

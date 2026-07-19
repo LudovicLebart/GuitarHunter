@@ -205,6 +205,18 @@ class GuitarHunterBot:
             self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
             return
 
+        # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
+        # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
+        # On coupe AVANT session_processed_ids.add() pour permettre une re-détection si
+        # le vendeur corrige son titre plus tard (ex: retrait du mot "VENDU").
+        SOLD_MARKERS = ['vendu', 'sold', 'deal closed', 'plus disponible', 'no longer available']
+        title_lower = (listing_data.get('title') or '').lower()
+        desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
+        found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
+        if found_sold_marker and not is_manual_scan:
+            self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
+            return
+
         self.session_processed_ids.add(listing_data['id'])
 
         is_update = False

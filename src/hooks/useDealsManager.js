@@ -576,6 +576,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     deals,
     loading,
     dbStatus,
+    loadedDeals,
     selectedDeal: finalSelectedDeal,
     setSelectedDeal,
     filteredDeals: finalFilteredDeals,

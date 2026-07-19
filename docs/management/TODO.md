@@ -126,9 +126,23 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Bénéfice :* Coûts de lecture Firestore divisés par 100+ au démarrage, fluidité totale de l'UI.
     - *Fix additionnel :* Les annonces apparaissaient invisibles car le front-end vérifiait la présence du texte `reasoning`, retiré de l'index allégé. Cette vérification a été supprimée (`useDealsManager.js`).
 
+- [ ] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19)*
+    - *Symptôme signalé :* Le scraper détecte régulièrement des annonces dont le titre contient le mot "VENDU" (ajouté manuellement par le vendeur), ou des annonces que Facebook retourne encore dans les résultats de listing même si la fiche détail n'existe plus ou redirige. Ces annonces passent le pipeline IA et génèrent des faux positifs.
+    - *Causes probables :*
+        1. Le portier (`gemini-2.5-flash-lite`) n'est pas instruit de rejeter les annonces dont le titre ou la description contient explicitement "VENDU", "SOLD", "vendu!", etc.
+        2. `check_listing_availability` vérifie la redirection 404 mais pas le cas "page existe, mais titre contient VENDU" (vendeur qui ne supprime pas l'annonce).
+    - *Pistes de correction :*
+        1. ✅ **Filtre pré-IA (implémenté 2026-07-19)** : `handle_deal_found()` (`backend/bot.py`) — vérification de `SOLD_MARKERS` (`vendu`, `sold`, `deal closed`…) dans le titre et les 200 premiers chars de description. Rejet avant `session_processed_ids.add()` (pas marqué "traité") pour permettre re-détection si le vendeur corrige son titre. Log visible dans LogViewer.
+        2. [ ] **Filtre scraper** : dans `check_listing_availability()` (`backend/scraping/core.py`), ajouter une vérification du titre récupéré — si le titre de la fiche détail contient "VENDU", traiter comme vendu.
+        3. [ ] **Prompt Tier 1** : ajouter une instruction explicite au portier pour rejeter toute annonce dont le titre/description signale une vente déjà conclue.
+    - *Priorité :* Moyenne — génère du bruit et des lectures Firestore inutiles mais pas de bug critique.
+
+
 - [ ] **Amélioration : Latence de détection des annonces supprimées/vendues sur Facebook** *(Ajouté 2026-07-14)*
     - *Constat :* `check_listing_availability`/`cleanup_sold_listings` (`backend/scraping/core.py`, `backend/bot.py`) détectent déjà correctement les annonces supprimées par le vendeur (404, redirection vers l'accueil Marketplace) — fusionnées avec la détection de vente (`status: 'sold'`, pas de statut "supprimé" distinct). Le nettoyage tourne automatiquement toutes les 24h (`schedule.every(24).hours`, `services.py`), donc une annonce disparue de Facebook peut rester visible dans l'app jusqu'à 24h après sa suppression réelle.
     - *Piste :* réduire l'intervalle de nettoyage (ex: 6-12h) si la latence actuelle gêne trop, ou déclencher un contrôle ciblé plus tôt. Non tranché — décision produit à prendre par l'utilisateur.
+
+
 
 - [x] **Bug : Annonce vendue affichée sans indication visuelle** *(Corrigé 2026-07-15)*
     - *Détails :* `DealCard.jsx` n'affichait aucun badge/opacité pour `deal.status === 'sold'` — le badge de verdict d'origine (ex: "Pépite") restait affiché seul, sans rien signalant que l'annonce était vendue.

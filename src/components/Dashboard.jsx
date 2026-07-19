@@ -159,6 +159,7 @@ const Dashboard = ({ onClose }) => {
         deals,
         filteredDeals,
         totalFilteredDeals = [],
+        loadedDeals,
         hasMore,
         loadMore,
         filterProps,
@@ -458,7 +459,7 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={totalFilteredDeals} />
+                    <StatsView deals={totalFilteredDeals} loadedDeals={loadedDeals} />
                 ) : viewMode === 'MAP' ? (
                     <MapViewOverlay
                         deals={totalFilteredDeals}

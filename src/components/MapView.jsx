@@ -27,6 +27,8 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
   const mapRef = useRef(null);
   const [map, setMap] = useState(null);
   const markersRef = useRef([]);
+  // Stocke la map dealId → marker pour la mise à jour légère du marqueur sélectionné
+  const markerByIdRef = useRef({});
   const [isApiLoaded, setIsApiLoaded] = useState(false);
 
   // Fonction pour obtenir les coordonnées d'une ville (avec jitter)
@@ -130,13 +132,15 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
     }
   }, [isApiLoaded, map]);
 
-  // Mise à jour des marqueurs
+  // ─── Effet 1 : création des marqueurs + fitBounds ───────────────────────
+  // Ne dépend PAS de selectedDealId pour éviter le zoom reset au clic mobile.
   useEffect(() => {
     if (!map || !deals || !window.google) return;
 
     // Nettoyage des anciens marqueurs
     markersRef.current.forEach(marker => marker.setMap(null));
     markersRef.current = [];
+    markerByIdRef.current = {};
 
     const bounds = new window.google.maps.LatLngBounds();
     let hasValidCoords = false;
@@ -178,16 +182,15 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         const verdict = deal.aiAnalysis?.verdict || 'DEFAULT';
         const markerColor = VERDICT_COLORS[verdict] || VERDICT_COLORS.DEFAULT;
 
-        // Création d'une icône SVG personnalisée, agrandie si c'est le marqueur sélectionné
-        const isSelected = selectedDealId === deal.id;
+        // Icône non-sélectionnée par défaut — l'effet 2 ajuste le scale si sélectionné
         const svgMarker = {
           path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
           fillColor: markerColor,
           fillOpacity: 1,
-          strokeWeight: isSelected ? 2 : 1,
+          strokeWeight: 1,
           strokeColor: "#ffffff",
           rotation: 0,
-          scale: isSelected ? 2.0 : 1.5,
+          scale: 1.5,
           anchor: new window.google.maps.Point(12, 22),
         };
 
@@ -231,7 +234,6 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         const vc = vColors[verdict] || vColors.DEFAULT;
         const vLabel = vLabels[verdict] || vLabels.DEFAULT;
         
-        // Note IA et taxonomie
         // Note IA et taxonomie
         const score = deal.aiAnalysis?.deal_score;
         const scoreDisplay = score ? `${score}/10` : (deal.aiAnalysis?.verdict || 'Analyse en attente');
@@ -289,6 +291,7 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         });
 
         markersRef.current.push(marker);
+        markerByIdRef.current[deal.id] = marker;
         bounds.extend(coords);
         hasValidCoords = true;
       }
@@ -303,7 +306,23 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         window.google.maps.event.removeListener(listener);
       });
     }
-  }, [map, deals, onDealSelect, selectedDealId]);
+  }, [map, deals, onDealSelect]);
+
+  // ─── Effet 2 : mise à jour légère de l'icône du marqueur sélectionné ────
+  // Pas de fitBounds ici → le zoom ne se remet jamais à zéro au clic mobile.
+  useEffect(() => {
+    if (!window.google || !map) return;
+    Object.entries(markerByIdRef.current).forEach(([id, marker]) => {
+      const isSelected = selectedDealId === id;
+      const currentIcon = marker.getIcon();
+      if (!currentIcon) return;
+      marker.setIcon({
+        ...currentIcon,
+        strokeWeight: isSelected ? 2 : 1,
+        scale: isSelected ? 2.0 : 1.5,
+      });
+    });
+  }, [selectedDealId, map]);
 
   return (
     <>

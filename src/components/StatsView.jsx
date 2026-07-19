@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle } from 'lucide-react';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap } from 'lucide-react';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -45,32 +45,53 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
     </div>
 );
 
-const StatsView = ({ deals }) => {
-    // Basic Calculations based on real data
-    const totalDeals = deals.length;
-    const radarDeals = deals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
-    const marketDeals = deals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
-    const archiveDeals = totalDeals - radarDeals.length - marketDeals.length;
+// Noms lisibles pour les types de classification
+const TYPE_LABELS = {
+    'Guitare acoustique': 'Acoustique',
+    'Guitare électrique': 'Électrique',
+    'Guitare basse': 'Basse',
+    'Guitare classique': 'Classique',
+    'Guitare folk': 'Folk',
+    'Guitare semi-acoustique': 'Semi-Acoustique',
+    'Guitare résonateur': 'Résonateur',
+    'Ukulélé': 'Ukulélé',
+    'Mandoline': 'Mandoline',
+    'Pedal Steel': 'Pedal Steel',
+};
 
-    // Funnel réel dérivé de aiAnalysis.model_used (ex: "flash-lite -> flash -> pro")
+const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
+
+const StatsView = ({ deals, loadedDeals = {} }) => {
+
+    // ─── Merge : index léger + cache complet ───────────────────────────────
+    // Pour les stats on fusionne ce qu'on a dans le cache avec l'index.
+    // Les deals non encore chargés (lazy) utilisent les champs de l'index.
+    const enrichedDeals = useMemo(() => {
+        return deals.map(d => {
+            const full = loadedDeals[d.id];
+            return full ? { ...d, ...full } : d;
+        });
+    }, [deals, loadedDeals]);
+
+    const totalDeals = enrichedDeals.length;
+
+    const radarDeals = enrichedDeals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
+    const marketDeals = enrichedDeals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
+
+    // Funnel réel dérivé de aiAnalysis.model_used
     const chainTokens = (used) => (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
     const modelChainTokens = (deal) => chainTokens(deal.aiAnalysis?.model_used);
-    // "pro" couvre aussi bien la cascade normale (3 maillons) que les réanalyses "Luthier Expert"
-    // forcées qui sautent le Portier (2 maillons : Analyste -> Expert)
-    const reachedT2Count = deals.filter(d => modelChainTokens(d).length >= 2).length;
-    const reachedT3Count = deals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
+    const reachedT2Count = enrichedDeals.filter(d => modelChainTokens(d).length >= 2).length;
+    const reachedT3Count = enrichedDeals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
 
-    // Qualité Portier : annonces initialement arrêtées au Tier 1 seul (chaîne à 1 maillon),
-    // puis réanalysées manuellement jusqu'à atteindre l'Analyste ou plus (= rejet initial infirmé).
-    // `initialVerdict`/`initialModelUsed` sont figés à la création (backend/repository.py) et ne
-    // sont jamais réécrits par les réanalyses suivantes - contrairement à `aiAnalysis` actuel.
-    const portierRejectedDeals = deals.filter(d => chainTokens(d.initialModelUsed).length === 1);
+    // Qualité Portier
+    const portierRejectedDeals = enrichedDeals.filter(d => chainTokens(d.initialModelUsed).length === 1);
     const portierErrorsCorrected = portierRejectedDeals.filter(d => modelChainTokens(d).length >= 2);
     const portierErrorRate = portierRejectedDeals.length > 0
         ? Math.round((portierErrorsCorrected.length / portierRejectedDeals.length) * 100)
         : 0;
 
-    // Financials (Only calculating positive margins from radar deals)
+    // Financials
     let totalPotentialMargin = 0;
     let totalEstimatedValue = 0;
     let validMarginsCount = 0;
@@ -89,13 +110,32 @@ const StatsView = ({ deals }) => {
     });
 
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
-    const averageScore = Math.round(deals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
+    const averageScore = Math.round(enrichedDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
 
-    // Radar Chart Data Calculation (Averages across all deals with scores)
+    // ─── Temps de vente réel ──────────────────────────────────────────────
+    const sellTimeStats = useMemo(() => {
+        const soldDeals = enrichedDeals.filter(d =>
+            d.soldTimestamp?.seconds && d.publishTimestamp?.seconds
+        );
+        if (soldDeals.length === 0) return { avg: null, count: 0 };
+
+        const deltas = soldDeals.map(d => {
+            const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
+            return diffH;
+        });
+
+        const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+        return {
+            avg: avg < 24 ? `${Math.round(avg)}h` : `${Math.round(avg / 24)}j`,
+            count: soldDeals.length,
+        };
+    }, [enrichedDeals]);
+
+    // ─── Radar Chart : profil moyen IA (utilise enrichedDeals) ────────────
     const radarData = useMemo(() => {
         if (totalDeals === 0) return [];
         let rData = { deal: 0, auth: 0, cond: 0, liq: 0, resto: 0, count: 0 };
-        deals.forEach(d => {
+        enrichedDeals.forEach(d => {
             const ai = d.aiAnalysis;
             if (ai && ai.deal_score != null) {
                 rData.deal += ai.deal_score;
@@ -114,29 +154,54 @@ const StatsView = ({ deals }) => {
             { subject: 'Liquidité', A: Math.round((rData.liq / c) * 10), fullMark: 100 },
             { subject: 'Potentiel Resto.', A: Math.round((rData.resto / c) * 10), fullMark: 100 },
         ];
-    }, [deals, totalDeals]);
+    }, [enrichedDeals, totalDeals]);
 
-    // Brand Distribution Data Calculation
+    const radarHasData = radarData.some(d => d.A > 0);
+
+    // ─── Distribution par marque (source : aiAnalysis.brand sur enrichedDeals) ─
     const brandData = useMemo(() => {
         if (totalDeals === 0) return [];
         const counts = {};
-        deals.forEach(d => {
-            // Priority to the new explicit brand field, fallback to naive text search in title if not available yet (for legacy)
+
+        // Marques connues dans le marché QC — fallback titre si brand absente
+        const KNOWN_BRANDS = [
+            'fender', 'gibson', 'epiphone', 'ibanez', 'squier', 'yamaha',
+            'taylor', 'martin', 'guild', 'norman', 'seagull', 'art&lutherie',
+            'simon&patrick', 'godin', 'parkwood', 'gretsch', 'prs', 'esp',
+            'jackson', 'schecter', 'washburn', 'ovation', 'takamine', 'breedlove',
+        ];
+
+        enrichedDeals.forEach(d => {
             let rawBrand = d.aiAnalysis?.brand;
-            if (!rawBrand || typeof rawBrand !== 'string' || rawBrand.includes('Inconnue') || rawBrand.includes('Unknown')) {
-                // Very naive fallback just to have some data if 'brand' is missing in old deals
+
+            // Invalider les valeurs génériques
+            const isInvalidBrand = !rawBrand
+                || typeof rawBrand !== 'string'
+                || rawBrand.length < 2
+                || rawBrand.toLowerCase().includes('inconnue')
+                || rawBrand.toLowerCase().includes('unknown')
+                || rawBrand.toLowerCase().includes('n/a')
+                || rawBrand.toLowerCase() === 'autre'
+                || rawBrand.toLowerCase() === 'autres';
+
+            if (isInvalidBrand) {
+                // Fallback : recherche dans le titre parmi les marques connues
                 const title = (d.title || '').toLowerCase();
-                if (title.includes('fender')) rawBrand = 'Fender';
-                else if (title.includes('gibson')) rawBrand = 'Gibson';
-                else if (title.includes('epiphone')) rawBrand = 'Epiphone';
-                else if (title.includes('ibanez')) rawBrand = 'Ibanez';
-                else if (title.includes('squier')) rawBrand = 'Squier';
-                else if (title.includes('yamaha')) rawBrand = 'Yamaha';
-                else rawBrand = 'Autres';
+                const found = KNOWN_BRANDS.find(b => title.includes(b));
+                if (found) {
+                    // Capitaliser proprement
+                    rawBrand = found.charAt(0).toUpperCase() + found.slice(1);
+                    // Cas spéciaux
+                    if (found === 'art&lutherie') rawBrand = 'Art&Lutherie';
+                    if (found === 'simon&patrick') rawBrand = 'Simon&Patrick';
+                } else {
+                    counts['Autres'] = (counts['Autres'] || 0) + 1;
+                    return;
+                }
             }
 
-            // Clean up brand name (keep only first word usually to avoid "Fender USA")
-            const cleanBrand = rawBrand.split(' ')[0].replace(/[^a-zA-Z]/g, '');
+            // Normaliser : premier mot, uniquement alpha (évite "Fender USA" → "Fender")
+            const cleanBrand = rawBrand.split(' ')[0].replace(/[^a-zA-Z&]/g, '');
             if (cleanBrand.length > 1) {
                 counts[cleanBrand] = (counts[cleanBrand] || 0) + 1;
             } else {
@@ -144,12 +209,47 @@ const StatsView = ({ deals }) => {
             }
         });
 
-        // Convert to array and sort by count descending
-        return Object.entries(counts)
+        // Top 6 hors "Autres", puis on ajoute Autres si significatif
+        const sorted = Object.entries(counts)
+            .filter(([name]) => name !== 'Autres')
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count)
-            .slice(0, 5); // Take top 5
-    }, [deals, totalDeals]);
+            .slice(0, 6);
+
+        const autresCount = counts['Autres'] || 0;
+        if (autresCount > 0) sorted.push({ name: 'Autres', count: autresCount });
+
+        return sorted;
+    }, [enrichedDeals, totalDeals]);
+
+    // ─── Vitesse de vente par type de guitare ─────────────────────────────
+    const sellSpeedByType = useMemo(() => {
+        // Deals vendus avec les deux timestamps
+        const soldDeals = enrichedDeals.filter(d =>
+            d.soldTimestamp?.seconds &&
+            d.publishTimestamp?.seconds &&
+            d.aiAnalysis?.classification
+        );
+        if (soldDeals.length < 2) return [];
+
+        const byType = {};
+        soldDeals.forEach(d => {
+            const classification = d.aiAnalysis.classification;
+            const label = TYPE_LABELS[classification] || classification.split(' ').slice(-1)[0];
+            const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
+            if (!byType[label]) byType[label] = [];
+            byType[label].push(diffH);
+        });
+
+        return Object.entries(byType)
+            .map(([name, deltas]) => ({
+                name,
+                avgH: Math.round(deltas.reduce((a, b) => a + b, 0) / deltas.length),
+                count: deltas.length,
+            }))
+            .filter(e => e.count >= 2) // Au moins 2 observations
+            .sort((a, b) => a.avgH - b.avgH); // Plus rapide en premier
+    }, [enrichedDeals]);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -160,7 +260,7 @@ const StatsView = ({ deals }) => {
                         <BarChart2 className="text-blue-500" />
                         Intelligence Stratégique
                     </h2>
-                    <p className="text-slate-400 text-sm mt-1">Vue d'ensemble simulée des performances du marché et de l'IA.</p>
+                    <p className="text-slate-400 text-sm mt-1">Statistiques calculées sur {totalDeals} annonce{totalDeals !== 1 ? 's' : ''} · {Object.keys(loadedDeals).length} chargées.</p>
                 </div>
                 <div className="bg-purple-500/10 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">
                     <Activity size={14} className="animate-pulse" />
@@ -193,9 +293,11 @@ const StatsView = ({ deals }) => {
                     colorClass="from-purple-500 to-pink-500"
                 />
                 <StatCard
-                    title="Temps de Vente (Est.)"
-                    value="48h"
-                    subtitle="Requis: 'soldAt' tracker"
+                    title="Temps de Vente Moy."
+                    value={sellTimeStats.avg ?? 'N/A'}
+                    subtitle={sellTimeStats.count > 0
+                        ? `Sur ${sellTimeStats.count} deal${sellTimeStats.count > 1 ? 's' : ''} vendus tracés`
+                        : 'Aucun deal avec soldAt + publishAt'}
                     icon={Clock}
                     colorClass="from-amber-500 to-orange-500"
                 />
@@ -217,7 +319,7 @@ const StatsView = ({ deals }) => {
                         <FunnelStage label="Certifié (Expert T3)" count={reachedT3Count} percentage={reachedT2Count > 0 ? Math.round((reachedT3Count / reachedT2Count) * 100) : 0} color="purple" isLast={true} />
                     </div>
 
-                    {/* Qualité Portier : rejets Tier 1 infirmés par une réanalyse manuelle ultérieure */}
+                    {/* Qualité Portier */}
                     <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
                         <div className="flex items-center gap-2 text-slate-400 text-xs">
                             <AlertTriangle size={14} className="text-amber-500" />
@@ -237,9 +339,10 @@ const StatsView = ({ deals }) => {
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[300px] flex flex-col relative overflow-hidden group">
                         <h4 className="font-bold text-slate-300 mb-2 flex items-center justify-between z-10">
                             Profil Moyen (Scores IA)
+                            {!radarHasData && <span className="text-[10px] text-amber-400 font-normal">Scroll pour charger les deals</span>}
                         </h4>
                         <div className="flex-1 w-full min-h-0 relative z-10 -ml-4">
-                            {radarData.length > 0 ? (
+                            {radarHasData ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
                                         <PolarGrid stroke="#334155" />
@@ -253,7 +356,7 @@ const StatsView = ({ deals }) => {
                                     </RadarChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Pas assez de données</div>
+                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Données en cours de chargement…</div>
                             )}
                         </div>
                     </div>
@@ -269,13 +372,21 @@ const StatsView = ({ deals }) => {
                                     <BarChart data={brandData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
                                         <XAxis type="number" hide />
-                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={70} />
+                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={75} />
                                         <Tooltip
                                             cursor={{ fill: '#1e293b' }}
                                             contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
                                             itemStyle={{ color: '#38bdf8' }}
                                         />
-                                        <Bar dataKey="count" fill="#38bdf8" radius={[0, 4, 4, 0]} barSize={20} />
+                                        <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={18}>
+                                            {brandData.map((entry, index) => (
+                                                <Cell
+                                                    key={`brand-${index}`}
+                                                    fill={entry.name === 'Autres' ? '#334155' : '#38bdf8'}
+                                                    fillOpacity={entry.name === 'Autres' ? 0.5 : 1}
+                                                />
+                                            ))}
+                                        </Bar>
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -285,6 +396,54 @@ const StatsView = ({ deals }) => {
                     </div>
 
                 </div>
+            </div>
+
+            {/* Sell Speed by Guitar Type */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <Zap size={16} className="text-amber-400" />
+                    Vitesse de vente par type de guitare
+                </h3>
+                <p className="text-slate-500 text-xs mb-6">Délai moyen entre publication et vente · Uniquement les types avec ≥2 observations</p>
+
+                {sellSpeedByType.length >= 2 ? (
+                    <div className="h-[220px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={sellSpeedByType} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis
+                                    tick={{ fill: '#64748b', fontSize: 10 }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tickFormatter={v => v < 24 ? `${v}h` : `${Math.round(v / 24)}j`}
+                                />
+                                <Tooltip
+                                    cursor={{ fill: '#1e293b' }}
+                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                    formatter={(value, name) => [
+                                        value < 24 ? `${value}h` : `${Math.round(value / 24)}j`,
+                                        `Délai moy. (${sellSpeedByType.find(d => d.avgH === value)?.count ?? ''} ventes)`
+                                    ]}
+                                />
+                                <Bar dataKey="avgH" radius={[4, 4, 0, 0]} barSize={32}>
+                                    {sellSpeedByType.map((entry, index) => (
+                                        <Cell
+                                            key={`speed-${index}`}
+                                            fill={SELL_SPEED_COLORS[Math.min(index, SELL_SPEED_COLORS.length - 1)]}
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-[120px] flex flex-col items-center justify-center text-slate-600 text-sm gap-2">
+                        <TrendingUp size={24} className="opacity-30" />
+                        <span>Pas encore assez de deals vendus avec timestamp de publication</span>
+                        <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que les ventes sont trackées</span>
+                    </div>
+                )}
             </div>
 
         </div>
