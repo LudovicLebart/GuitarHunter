@@ -232,6 +232,7 @@ class ListingParser:
 
         # --- NOUVEAU : Extraction de la date de publication ---
         published_at_raw = None
+        published_at_ts = None
         try:
             # On cherche la balise abbr qui contient l'âge de l'annonce
             # Le sélecteur cible l'élément tel que fourni par l'utilisateur
@@ -240,6 +241,7 @@ class ListingParser:
                 published_at_raw = date_element.get_attribute('aria-label')
                 if published_at_raw:
                     log.info(f"   📅 Date extraite : {published_at_raw}")
+                    published_at_ts = ListingParser.parse_french_date(published_at_raw)
         except Exception as e:
             log.debug(f"Erreur extraction date de publication: {e}")
 
@@ -247,5 +249,45 @@ class ListingParser:
             "description": description[:3000], 
             "imageUrls": image_urls, 
             "coordinates": coordinates,
-            "published_at_raw": published_at_raw
+            "published_at_raw": published_at_raw,
+            "published_at_ts": published_at_ts
         }
+
+    @staticmethod
+    def parse_french_date(raw_str):
+        if not raw_str: return None
+        import re
+        from datetime import datetime, timedelta, timezone
+        raw_str = raw_str.lower().strip()
+        now = datetime.now(timezone.utc)
+        
+        if "à l'instant" in raw_str: return int(now.timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*min", raw_str)
+        if m: return int((now - timedelta(minutes=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*heure", raw_str)
+        if m: return int((now - timedelta(hours=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*jour", raw_str)
+        if m: return int((now - timedelta(days=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*semaine", raw_str)
+        if m: return int((now - timedelta(weeks=int(m.group(1)))).timestamp())
+        
+        months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+        m = re.search(r"(\d+)\s+([a-zûé]+)(?:\s+(\d{4}))?", raw_str)
+        if m:
+            day = int(m.group(1))
+            month_str = m.group(2)
+            year = int(m.group(3)) if m.group(3) else now.year
+            try:
+                month_idx = months.index(month_str) + 1
+                dt = datetime(year, month_idx, day, tzinfo=timezone.utc)
+                if dt > now and not m.group(3):
+                    dt = dt.replace(year=year-1)
+                return int(dt.timestamp())
+            except ValueError:
+                pass
+                
+        return None

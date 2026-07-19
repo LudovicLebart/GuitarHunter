@@ -15,6 +15,12 @@ if not os.path.exists(cred_path):
 
 from config import APP_ID_TARGET, USER_ID_TARGET
 
+sys.path.append('.')
+try:
+    from backend.scraping.parser import ListingParser
+except ImportError:
+    ListingParser = None
+
 cred = credentials.Certificate(cred_path)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
@@ -77,6 +83,17 @@ def build_index():
         elif isinstance(ts_val, datetime):
             ts = int(ts_val.timestamp())
             
+        pt = data.get('published_at_ts')
+        if not pt and data.get('published_at_raw') and ListingParser:
+            pt = ListingParser.parse_french_date(data.get('published_at_raw'))
+            
+        sold_val = data.get('soldAt')
+        st = None
+        if hasattr(sold_val, 'timestamp'):
+            st = int(sold_val.timestamp())
+        elif isinstance(sold_val, datetime):
+            st = int(sold_val.timestamp())
+
         chunk_id = get_chunk_id(deal_id)
         entry = {
             "s": status,
@@ -96,6 +113,10 @@ def build_index():
             entry["is"] = interest_score
         if ts is not None:
             entry["t"] = ts
+        if pt is not None:
+            entry["pt"] = pt
+        if st is not None:
+            entry["st"] = st
             
         chunks_map[chunk_id][deal_id] = entry
         

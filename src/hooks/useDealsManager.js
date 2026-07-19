@@ -65,6 +65,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       },
       isFavorite: entry.f,
       timestamp: entry.t ? { seconds: entry.t } : null,
+      publishTimestamp: entry.pt ? { seconds: entry.pt } : null,
+      soldTimestamp: entry.st ? { seconds: entry.st } : null,
       price: entry.p,
       title: entry.title,
       chunkId: entry.h,
@@ -439,9 +441,6 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       return verdictMatch && typeMatch && condPriceMatch;
     });
 
-    // `deals` arrive déjà triés par date décroissante (onDealsUpdate). En mode 'interest',
-    // on retrie par note d'intérêt décroissante, en repliant sur l'ordre par date pour les
-    // annonces sans scores (ex: erreurs, PENDING).
     if (sortMode === 'interest') {
       return [...result].sort((a, b) => {
         const scoreA = a.interestScore ?? computeInterestScore(a.aiAnalysis);
@@ -449,11 +448,43 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         if (scoreA == null && scoreB == null) return 0;
         if (scoreA == null) return 1;
         if (scoreB == null) return -1;
+        if (scoreB === scoreA) {
+          const timeA = a.timestamp?.seconds || 0;
+          const timeB = b.timestamp?.seconds || 0;
+          return timeB - timeA;
+        }
         return scoreB - scoreA;
       });
     }
 
-    return result;
+    if (sortMode === 'publish_date') {
+      return [...result].sort((a, b) => {
+        const timeA = a.publishTimestamp?.seconds || 0;
+        const timeB = b.publishTimestamp?.seconds || 0;
+        if (timeA === timeB) {
+          return (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0); // Fallback à la date d'analyse
+        }
+        return timeB - timeA;
+      });
+    }
+
+    if (sortMode === 'sold_date') {
+      return [...result].sort((a, b) => {
+        const timeA = a.soldTimestamp?.seconds || 0;
+        const timeB = b.soldTimestamp?.seconds || 0;
+        if (timeA === timeB) {
+          return (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0);
+        }
+        return timeB - timeA;
+      });
+    }
+
+    // Default: Sort by date descending (analysis date)
+    return [...result].sort((a, b) => {
+      const timeA = a.timestamp?.seconds || 0;
+      const timeB = b.timestamp?.seconds || 0;
+      return timeB - timeA;
+    });
   }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const visibleDeals = useMemo(() => {

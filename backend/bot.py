@@ -193,7 +193,7 @@ class GuitarHunterBot:
         # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
         return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
 
-    def handle_deal_found(self, listing_data):
+    def handle_deal_found(self, listing_data, is_manual_scan=False):
         self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
 
         # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
@@ -238,11 +238,17 @@ class GuitarHunterBot:
                     self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
-        found_keyword = self._check_exclusion(listing_data, current_config)
-
+        
+        found_keyword = None
+        price_too_high = False
         max_price = current_config.get('scanConfig', {}).get('max_price', 0)
         listing_price = self._normalize_price(listing_data.get('price'))
-        price_too_high = max_price > 0 and listing_price > max_price
+
+        if not is_manual_scan:
+            found_keyword = self._check_exclusion(listing_data, current_config)
+            price_too_high = max_price > 0 and listing_price > max_price
+        else:
+            self.logger.info(f"Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
         if found_keyword or price_too_high:
             if found_keyword:
@@ -400,7 +406,9 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
-                temp_scraper.scan_specific_url(url, self.handle_deal_found)
+                def handle_manual_deal(listing_data):
+                    self.handle_deal_found(listing_data, is_manual_scan=True)
+                temp_scraper.scan_specific_url(url, handle_manual_deal)
                 try:
                     NotificationService.notify_scan_url_finished(url, user_email=self._user_email, logger=self.logger)
                 except Exception as e:

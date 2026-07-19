@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-18] [PRO 3.1] Feature : Tri par date de mise en vente et date de vente → Résultat :
+- **Contexte** : L'utilisateur souhaite trier les annonces selon leur date réelle de mise en vente ou de vente, plutôt que uniquement par date d'analyse IA.
+- **`backend/scraping/parser.py`** : Ajout d'une méthode `parse_french_date` pour convertir l'âge de l'annonce affiché par Facebook (ex: "il y a 3 heures", "hier") en timestamp Unix (`published_at_ts`).
+- **`backend/scraping/core.py` & `backend/repository.py`** : Propagation de `published_at_ts` et `soldAt` dans l'index sharded de Firestore (clés `pt` et `st`).
+- **`scripts/build_deals_index.py`** : Mise à jour du script de migration pour populer `pt` et `st` (rétroactivement) sur toutes les annonces existantes. Script exécuté avec succès sur ~2750 annonces.
+- **`src/hooks/useDealsManager.js`** : Implémentation du moteur de tri pour prendre en charge `publish_date` et `sold_date`, avec fallback sur la date d'analyse IA si l'information est manquante.
+- **`src/components/FilterDrawer.jsx`** : Ajout des deux options dans l'UI des filtres.
+- **`src/components/DealCard.jsx`** : Ajout de la date de publication dans le pied de la carte d'annonce, de façon distincte de la date d'analyse, avec indicateur visuel (point bleu pour publication connue, point orange pour estimation d'après analyse).
+
 [2026-07-18] [PRO 3.1] Fix : Tableau de bord vide suite à la mise en place du Lazy Loading → Résultat :
 - **Symptôme signalé** : L'utilisateur ne voyait plus aucune annonce sur son tableau de bord après la migration vers l'index allégé.
 - **Diagnostic** : Le nouveau script de migration `build_deals_index.py` créait un index léger qui retirait intentionnellement le champ `reasoning` de l'IA (trop volumineux) pour économiser l'espace. Or, `useDealsManager.js` vérifiait encore la présence de `analysis.reasoning` pour certifier qu'une annonce n'était pas une erreur IA.

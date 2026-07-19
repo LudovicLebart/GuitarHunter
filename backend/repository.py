@@ -79,7 +79,7 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None):
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
@@ -109,6 +109,18 @@ class FirestoreRepository:
                     ts = int(timestamp.timestamp())
                 if ts is not None:
                     update_data[f"{prefix}.t"] = ts
+
+            if published_at is not None:
+                update_data[f"{prefix}.pt"] = published_at
+
+            if sold_at is not None:
+                ts_sold = None
+                if isinstance(sold_at, datetime):
+                    ts_sold = int(sold_at.timestamp())
+                elif hasattr(sold_at, 'timestamp'):
+                    ts_sold = int(sold_at.timestamp())
+                if ts_sold is not None:
+                    update_data[f"{prefix}.st"] = ts_sold
             
             if ai_analysis is not None:
                 ai = ai_analysis or {}
@@ -185,7 +197,8 @@ class FirestoreRepository:
                 is_favorite=deal_data.get('isFavorite', False), 
                 timestamp=datetime.now(timezone.utc), 
                 title=deal_data.get('title', ''), 
-                price=deal_data.get('price')
+                price=deal_data.get('price'),
+                published_at=deal_data.get('published_at_ts')
             )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
@@ -238,7 +251,8 @@ class FirestoreRepository:
                 ai_analysis=analysis_data,
                 timestamp=datetime.now(timezone.utc),
                 title=deal_data.get('title', ''),
-                price=deal_data.get('price')
+                price=deal_data.get('price'),
+                published_at=deal_data.get('published_at_ts')
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:
@@ -274,7 +288,7 @@ class FirestoreRepository:
                 update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
             
             self.collection_ref.document(deal_id).update(update_data)
-            self._update_deal_index(deal_id, status='sold', timestamp=datetime.now(timezone.utc))
+            self._update_deal_index(deal_id, status='sold', timestamp=datetime.now(timezone.utc), sold_at=datetime.now(timezone.utc))
             logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
         except Exception as e:
             logger.error(f"Failed to mark deal '{deal_id}' as sold: {e}", exc_info=True)

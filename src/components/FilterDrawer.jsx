@@ -54,7 +54,9 @@ const PRICE_OPTIONS = [
 ];
 
 const SORT_OPTIONS = [
-    { value: 'date', label: 'Plus récentes' },
+    { value: 'date', label: 'Date d\'analyse (défaut)' },
+    { value: 'publish_date', label: 'Date de mise en vente' },
+    { value: 'sold_date', label: 'Date de vente' },
     { value: 'interest', label: 'Plus intéressantes (note IA)' },
 ];
 

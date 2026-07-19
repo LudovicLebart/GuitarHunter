@@ -345,10 +345,16 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
                 {/* Footer actions */}
                 <div className="flex items-center justify-between mt-auto pt-3 border-t border-slate-800/50">
-                    <span className="text-[10px] sm:text-xs text-slate-600 font-mono flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60"></div>
-                        {relDate || 'Récent'}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1" title="Date de mise en vente">
+                            <div className={`w-1.5 h-1.5 rounded-full ${deal.publishTimestamp ? 'bg-blue-500/60' : 'bg-amber-500/60'}`}></div>
+                            Publiée: {deal.publishTimestamp ? formatRelativeDate(deal.publishTimestamp) : (relDate ? `${relDate} (estimé)` : 'Inconnue')}
+                        </span>
+                        <span className="text-[10px] text-slate-600 font-mono flex items-center gap-1" title="Date d'analyse par l'IA">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60"></div>
+                            Analysée: {relDate || 'Récent'}
+                        </span>
+                    </div>
                     <div className="flex items-center gap-1.5 sm:gap-2">
                         {/* Favori */}
                         <button
