@@ -27,6 +27,11 @@
 - **Cause de l'erreur JSON Expert Pro :** L'API Gemini (en mode `application/json`) renvoyait l'erreur `Expecting ',' delimiter` car l'IA oubliait d'échapper des guillemets sur des champs longs comme le résumé de l'analyse, ce qui faisait planter `json.loads` et passer le verdict Expert Pro en fallback T2.
 - **Correction `analyzer.py` :** Implémentation d'un mécanisme de `Retry` (1 tentative supplémentaire) dans `_call_gemini_json()`. En cas d'erreur `JSONDecodeError`, le script rajoute automatiquement un prompt strict (`CRITICAL: The previous JSON output was invalid...`) au modèle pour forcer un formatage JSON robuste et valide lors de la seconde tentative.
 
+[2026-07-21] [PRO] Feature : StatsView — Volume de Scraping Quotidien (FB) → Résultat :
+- **Contexte** : Réflexion en cours sur une extension LeBonCoin (voir options d'extraction face à DataDome, non tranchée). Avant toute décision, besoin de visualiser le volume réel actuel scrapé sur Facebook (jugé "extrêmement bas" par l'utilisateur).
+- **`src/components/StatsView.jsx`** : Nouveau `useMemo` `dailyVolumeData` — regroupe `enrichedDeals` par jour sur les 14 derniers jours à partir de `timestamp.seconds`, déjà exposé en temps réel par l'index Firestore (`deals_index` → `useDealsManager.js`) pour 100% des annonces, pas seulement celles chargées en lazy loading. Aucune lecture Firestore supplémentaire. Nouveau panneau `BarChart` (recharts, même style que les graphiques existants) + StatCard "Moyenne/jour".
+- **Suivi requis** : audit du scraper Facebook (mesures anti-bot actuelles/faiblesses) demandé par l'utilisateur, à traiter dans une session suivante.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

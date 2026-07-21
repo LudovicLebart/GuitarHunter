@@ -384,6 +384,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 📊 Statistiques & Dashboard
 
+- [x] **Feature : Volume de Scraping Quotidien (StatsView)** *(2026-07-21)*
+    - *Détails :* Graphique du nombre d'annonces FB découvertes/jour (14 derniers jours), basé sur `timestamp.seconds` déjà présent dans l'index Firestore temps réel — aucune lecture supplémentaire. Sert de référence de volume actuel avant d'évaluer une extension LeBonCoin.
+- [ ] **Audit du scraper Facebook (mesures anti-bot actuelles & faiblesses)** *(Ajouté 2026-07-21)*
+    - *Contexte :* Réflexion en cours sur une extension LeBonCoin, protégée par DataDome (voir échange non documenté formellement — options A-F évaluées, piste retenue : approche Playwright "douce" sans contournement actif de protection). Besoin de cartographier ce qui existe déjà côté FB (`backend/scraping/`) pour évaluer ce qui est réutilisable/insuffisant face à un anti-bot plus agressif.
 - [x] **Feature : Stat "Erreurs Portier corrigées" (StatsView)** *(2026-07-11)*
     - *Détails :* `initialVerdict`/`initialModelUsed` figés à la création (`repository.py::create_new_deal`), jamais réécrits par les réanalyses. `StatsView.jsx` compte les annonces arrêtées au Portier seul (Tier 1) puis validées après réanalyse manuelle jusqu'à l'Analyste ou plus.
     - *Complémentaire à* : l'échantillonnage manuel ponctuel de `analyze_funnel_by_user.py --sample-size` (`GEMINI_PROMPT_CACHING_PLAN.md §8.2`) — cette stat donne un suivi continu dans l'UI plutôt qu'un contrôle à la demande.
