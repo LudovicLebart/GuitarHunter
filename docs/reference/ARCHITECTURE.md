@@ -261,6 +261,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
     - Calcule dynamiquement le Tunnel de Conversion (Funnel) et les KPIs financiers (Marge nette latente, Score moyen, Marge par pépite) sur l'inventaire en cours.
     - Utilise `recharts` pour visualiser un **Radar Chart** du profil moyen IA (5 scores) et un **Bar Chart** pour la distribution du Top 5 des Marques.
     - **Erreurs Portier corrigées (2026-07-11) :** Sous le Funnel — compte les annonces dont `initialModelUsed` ne compte qu'un maillon (arrêtées au Portier T1 seul) et dont la chaîne `aiAnalysis.model_used` **actuelle** en compte 2 ou plus (réanalysées avec succès jusqu'à l'Analyste ou l'Expert). Un signal direct du taux de faux positifs du Portier, sans dépendre du texte du verdict (`BAD_DEAL` étant ambigu — voir `initialVerdict`/`initialModelUsed` plus haut).
+    - **Volume de Scraping Quotidien (2026-07-21) :** `BarChart` regroupant `enrichedDeals` par jour (14 derniers jours) via `timestamp.seconds`, déjà présent sur 100% des annonces de l'index temps réel (`deals_index`) — pas seulement celles chargées en lazy loading. Aucune lecture Firestore additionnelle.
 
 ### `src/components/DealCard.jsx`
 - **Composant de Production :** Version aboutie de la carte d'annonce avec design premium.
