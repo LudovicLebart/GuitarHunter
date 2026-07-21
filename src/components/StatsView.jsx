@@ -222,6 +222,41 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
         return sorted;
     }, [enrichedDeals, totalDeals]);
 
+    // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
+    const VOLUME_WINDOW_DAYS = 14;
+    const dailyVolumeData = useMemo(() => {
+        const days = [];
+        const now = new Date();
+        for (let i = VOLUME_WINDOW_DAYS - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            days.push(d);
+        }
+        const counts = {};
+        days.forEach(d => { counts[d.toISOString().slice(0, 10)] = 0; });
+
+        enrichedDeals.forEach(deal => {
+            const seconds = deal.timestamp?.seconds;
+            if (!seconds) return;
+            const key = new Date(seconds * 1000).toISOString().slice(0, 10);
+            if (key in counts) counts[key]++;
+        });
+
+        return days.map(d => {
+            const key = d.toISOString().slice(0, 10);
+            return {
+                date: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+                count: counts[key],
+            };
+        });
+    }, [enrichedDeals]);
+
+    const avgDailyVolume = useMemo(() => {
+        if (dailyVolumeData.length === 0) return '0';
+        const total = dailyVolumeData.reduce((acc, d) => acc + d.count, 0);
+        return (total / dailyVolumeData.length).toFixed(1);
+    }, [dailyVolumeData]);
+
     // ─── Vitesse de vente par type de guitare ─────────────────────────────
     const sellSpeedByType = useMemo(() => {
         // Deals vendus avec les deux timestamps
@@ -395,6 +430,35 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                         </div>
                     </div>
 
+                </div>
+            </div>
+
+            {/* Volume de scraping quotidien */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                        <TrendingUp size={16} className="text-blue-400" />
+                        Volume de Scraping Quotidien (FB)
+                    </h3>
+                    <span className="text-xs font-bold text-slate-400">Moy. {avgDailyVolume}/jour</span>
+                </div>
+                <p className="text-slate-500 text-xs mb-6">Annonces découvertes par jour · {VOLUME_WINDOW_DAYS} derniers jours</p>
+
+                <div className="h-[200px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dailyVolumeData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                                cursor={{ fill: '#1e293b' }}
+                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                itemStyle={{ color: '#38bdf8' }}
+                                formatter={(value) => [value, 'Annonces']}
+                            />
+                            <Bar dataKey="count" fill="#38bdf8" radius={[4, 4, 0, 0]} barSize={20} />
+                        </BarChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
