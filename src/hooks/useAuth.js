@@ -28,7 +28,10 @@ const ensureUserDoc = async (uid, email, updateField = 'lastSeen') => {
       botStatus: 'idle'
     });
   } else {
-    await updateDoc(userDocRef, { [updateField]: serverTimestamp() });
+    await updateDoc(userDocRef, { 
+      email,
+      [updateField]: serverTimestamp() 
+    });
   }
 };
 

@@ -1,5 +1,32 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-21] [FLASH] Feature : Précision sur l'obligation de configuration initiale dans l'aide → Résultat :
+- **`src/components/HelpOverlay.jsx`** : Ajout d'une "Étape 0 : Configuration Initiale" dans le Guide de Prise en Main, pour rappeler aux nouveaux utilisateurs que le bot ne démarrera pas tant qu'ils n'auront pas configuré leurs villes et fréquence dans les paramètres.
+
+[2026-07-21] [FLASH] Fix : Enregistrement de l'email lors de la mise à jour de session pour les anciens comptes → Résultat :
+- **`src/hooks/useAuth.js`** : La fonction `ensureUserDoc` met dorénavant systématiquement à jour le champ `email` à chaque connexion. Cela corrige l'absence de l'adresse email dans la liste du Dashboard Admin pour les anciens utilisateurs.
+
+[2026-07-21] [PRO] Feature & Fix : Actions d'administration Dashboard + Droits Firestore → Résultat :
+- **Contexte** : Ajout des fonctionnalités permettant à l'administrateur de mettre en pause, modifier la fréquence et supprimer des utilisateurs depuis l'UI du Dashboard Admin, ainsi que l'affichage de leurs villes et de la limite d'annonces.
+- **`src/components/AdminDashboard.jsx`** : Implémentation des boutons et logique pour mettre à jour (`updateDoc`, `deleteDoc`) le statut du bot (`botStatus: 'paused'`), la fréquence de scan et supprimer un document utilisateur. Ajout d'une récupération dynamique du nombre de villes (`collection('cities')`).
+- **`firebase/firestore.rules`** : Correction du blocage d'écriture. L'admin disposait d'un accès en lecture seule via `collectionGroup`. Les règles du path direct `/artifacts/{appId}/users/{userId}` ont été modifiées pour autoriser expressément `read` et `write` si `isAdmin()`, y compris sur ses sous-collections.
+
+[2026-07-21] [PRO] Fix : Données manquantes dans StatsView & message d'erreur UI → Résultat :
+- **Cause :** Les annonces vendues étaient cachées par défaut sur l'onglet "Toutes". De plus, le graphique de vitesse de vente exigeait `count >= 2` et la classification IA (absente pour les vieilles annonces), affichant un message confus sur les timestamps.
+- **Correction `Dashboard.jsx` & `StatsView.jsx` :** Passage de `allDeals` à `StatsView` pour forcer le calcul sur toutes les annonces vendues (2049) peu importe l'onglet. Suppression de la limite `>= 2` observations pour le graphique de vitesse, et correction du texte d'erreur pour pointer l'absence de classification IA au lieu des dates.
+
+[2026-07-20] [PRO] Feature : Dates de publication et de vente en fallback pour stats complètes → Résultat :
+- **Cause :** L'absence de dates `published_at_ts` ou de détection de vente fiable laissait des "trous" dans les statistiques de l'UI (notamment le temps de vente).
+- **`parser.py` :** Si l'âge de l'annonce n'est pas lisible ou absent, le bot utilise désormais la date et l'heure exactes du scraping (`time.time()`) comme `published_at_ts` par défaut.
+- **`bot.py` & `repository.py` :** L'identification d'une annonce vendue est durcie. Si le bot détecte le mot "Vendu" dans une annonce **déjà existante** en base, il la marque officiellement comme `sold` et enregistre le `soldTimestamp` à la date de détection (SERVER_TIMESTAMP). Le script de `cleanup_sold_listings` utilise également la date de sa propre exécution (suppression) comme `soldTimestamp`.
+
+[2026-07-20] [PRO] Fix : Plantage silencieux du scan + Erreur JSON de l'Expert Pro → Résultat :
+- **Cause du plantage silencieux :** Lors du lancement manuel d'un scan, le backend recevait la commande, passait en `scanning`, mais plantait instantanément sans log. Le bug venait d'une `KeyError` sur l'attribut `name` des villes scrapées.
+- **Correction `bot.py` :** Utilisation de `.get('name')` pour éviter un crash et ignore gracieusement l'absence d'attribut `name` ou une liste de villes vide (log d'avertissement au lieu de crasher).
+- **Note (2026-07-20) :** Le correctif de `bot.py` a dû être ré-appliqué lors d'une session de vérification (il avait été perdu du code source malgré cette documentation). Les autres correctifs de cette date étaient bien présents.
+- **Cause de l'erreur JSON Expert Pro :** L'API Gemini (en mode `application/json`) renvoyait l'erreur `Expecting ',' delimiter` car l'IA oubliait d'échapper des guillemets sur des champs longs comme le résumé de l'analyse, ce qui faisait planter `json.loads` et passer le verdict Expert Pro en fallback T2.
+- **Correction `analyzer.py` :** Implémentation d'un mécanisme de `Retry` (1 tentative supplémentaire) dans `_call_gemini_json()`. En cas d'erreur `JSONDecodeError`, le script rajoute automatiquement un prompt strict (`CRITICAL: The previous JSON output was invalid...`) au modèle pour forcer un formatage JSON robuste et valide lors de la seconde tentative.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

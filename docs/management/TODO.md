@@ -64,6 +64,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Chaque bot possède son propre handler vers sa collection `logs` dédiée.
     - Support du redémarrage propre via nettoyage des handlers dans `setup_logging`.
 
+- [x] **Task 2.8 : Correction StatsView & Temps de vente (2026-07-21)**
+    - Calcul du temps de vente global sur toutes les annonces, indépendamment du filtre actif.
+    - Suppression de la limite `count >= 2` pour le graphique de vitesse de vente.
+    - Correction du message d'erreur générique trompeur.
 
 ### Code Review — 3 Rondes ✅
 
@@ -88,10 +92,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🛠️ Administration & Gestion Utilisateurs
 
-- [/] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11)*
+- [x] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11, complétée 2026-07-21)*
     - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
     - [x] **Phase 1 — Monitoring (lecture seule)** : custom claim admin, règles Firestore collectionGroup, `AdminDashboard.jsx`, job `admin_stats` quotidien (03:00), bouton Navbar conditionnel.
-    - [ ] **Phase 2 — Actions privilégiées** : bus `admin_commands`, `DISABLE_USER` / `SEND_EMAIL` / `STOP_BOT` admin, journal d'audit (`admin_audit_log`).
+    - [x] **Phase 2 — Actions privilégiées** : Actions de Pause, Ajustement de la Fréquence, et Suppression implémentées dans l'UI (`AdminDashboard.jsx`) avec permissions Firestore correspondantes.
 
 ---
 

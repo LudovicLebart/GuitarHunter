@@ -175,6 +175,7 @@ const Dashboard = ({ onClose }) => {
         setError,
         handleManualRefresh,
         handleManualCleanup,
+        isNewUser,
     } = useBotConfigContext();
 
     const loadMoreRef = useRef(null);
@@ -223,6 +224,12 @@ const Dashboard = ({ onClose }) => {
         }
     }, [deals, selectedDeal, dealActions, setViewMode]);
 
+    // Effet pour forcer l'affichage de l'aide pour un nouvel utilisateur
+    useEffect(() => {
+        if (isNewUser) {
+            setShowHelp(true);
+        }
+    }, [isNewUser]);
 
     // ── Adapt filterProps to local filter state ───────────────
     // filterProps from useDealsManager exposes: filterType/setFilterType,
@@ -459,7 +466,7 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={totalFilteredDeals} loadedDeals={loadedDeals} />
+                    <StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} />
                 ) : viewMode === 'MAP' ? (
                     <MapViewOverlay
                         deals={totalFilteredDeals}

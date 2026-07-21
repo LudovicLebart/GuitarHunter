@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collectionGroup, getDocs, doc, getDoc } from 'firebase/firestore';
-import { X, ShieldCheck, RefreshCw, AlertTriangle } from 'lucide-react';
+import { collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
+import { X, ShieldCheck, RefreshCw, AlertTriangle, Pause, Clock, Trash2 } from 'lucide-react';
 import { db } from '../services/firebase';
 
 const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
@@ -48,13 +48,22 @@ const AdminDashboard = ({ onClose }) => {
                 console.warn('admin_stats indisponible :', e.message);
             }
 
-            const merged = usersSnap.docs
+            const merged = await Promise.all(usersSnap.docs
                 // collectionGroup('users') retourne toute collection nommée "users" dans la base,
                 // quel que soit l'appId parent — on ne garde que celle de cette app.
                 .filter(d => d.ref.parent.parent?.id === APP_ID)
-                .map(d => {
+                .map(async (d) => {
                     const data = d.data();
                     const stats = statsByUser[d.id] || {};
+                    
+                    let citiesCount = 0;
+                    try {
+                        const citiesSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'users', d.id, 'cities'));
+                        citiesCount = citiesSnap.size;
+                    } catch (e) {
+                        console.warn(`Erreur lecture cities pour ${d.id}:`, e);
+                    }
+
                     return {
                         uid: d.id,
                         email: data.email || '—',
@@ -62,12 +71,14 @@ const AdminDashboard = ({ onClose }) => {
                         lastLogin: data.lastLogin || data.lastSeen,
                         botStatus: data.botStatus || 'inconnu',
                         scanFrequency: data.scanConfig?.frequency,
+                        maxListings: data.scanConfig?.max_listings || 0,
+                        citiesCount,
                         dailyVolume: stats.dailyVolume ?? null,
                         reachedT2: stats.reachedT2 ?? null,
                         reachedT3: stats.reachedT3 ?? null,
                         estimatedDailyCost: stats.estimatedDailyCost ?? null,
                     };
-                });
+                }));
 
             setRows(merged);
         } catch (e) {
@@ -75,6 +86,38 @@ const AdminDashboard = ({ onClose }) => {
             setError(e.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handlePauseUser = async (uid) => {
+        try {
+            await updateDoc(doc(db, 'artifacts', APP_ID, 'users', uid), { botStatus: 'paused' });
+            loadData();
+        } catch (e) {
+            alert('Erreur: ' + e.message);
+        }
+    };
+
+    const handleChangeFreq = async (uid, currentFreq) => {
+        const freq = window.prompt("Nouvelle fréquence en minutes :", currentFreq || 60);
+        if (freq && !isNaN(freq)) {
+            try {
+                await updateDoc(doc(db, 'artifacts', APP_ID, 'users', uid), { 'scanConfig.frequency': parseInt(freq, 10) });
+                loadData();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+            }
+        }
+    };
+
+    const handleDeleteUser = async (uid, email) => {
+        if (window.confirm(`Voulez-vous vraiment supprimer les données de l'utilisateur ${email} (uid: ${uid}) ?\n(Ceci ne supprime pas son compte Firebase Auth)`)) {
+            try {
+                await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', uid));
+                loadData();
+            } catch (e) {
+                alert('Erreur: ' + e.message);
+            }
         }
     };
 
@@ -133,9 +176,12 @@ const AdminDashboard = ({ onClose }) => {
                                     <th className="pb-2 pr-4">Dernier login</th>
                                     <th className="pb-2 pr-4">Statut Bot</th>
                                     <th className="pb-2 pr-4">Fréq. Scan</th>
+                                    <th className="pb-2 pr-4">Villes</th>
+                                    <th className="pb-2 pr-4">Max Ann.</th>
                                     <th className="pb-2 pr-4">Volume/j</th>
                                     <th className="pb-2 pr-4">T2 / T3</th>
                                     <th className="pb-2 pr-4">Coût est./j</th>
+                                    <th className="pb-2">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -151,9 +197,22 @@ const AdminDashboard = ({ onClose }) => {
                                             </span>
                                         </td>
                                         <td className="py-2 pr-4 text-xs">{r.scanFrequency ? `${r.scanFrequency} min` : '—'}</td>
+                                        <td className="py-2 pr-4 text-xs">{r.citiesCount}</td>
+                                        <td className="py-2 pr-4 text-xs">{r.maxListings || '—'}</td>
                                         <td className="py-2 pr-4 text-xs">{r.dailyVolume ?? '—'}</td>
                                         <td className="py-2 pr-4 text-xs">{r.reachedT2 ?? '—'} / {r.reachedT3 ?? '—'}</td>
                                         <td className="py-2 pr-4 text-xs">{r.estimatedDailyCost != null ? `$${r.estimatedDailyCost.toFixed(3)}` : '—'}</td>
+                                        <td className="py-2 flex items-center gap-1.5">
+                                            <button onClick={() => handlePauseUser(r.uid)} className="p-1.5 rounded bg-slate-800 text-slate-400 hover:text-amber-400 hover:bg-amber-400/10 transition-colors" title="Mettre en pause">
+                                                <Pause size={14} />
+                                            </button>
+                                            <button onClick={() => handleChangeFreq(r.uid, r.scanFrequency)} className="p-1.5 rounded bg-slate-800 text-slate-400 hover:text-blue-400 hover:bg-blue-400/10 transition-colors" title="Modifier la fréquence">
+                                                <Clock size={14} />
+                                            </button>
+                                            <button onClick={() => handleDeleteUser(r.uid, r.email)} className="p-1.5 rounded bg-slate-800 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 transition-colors" title="Supprimer l'utilisateur">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

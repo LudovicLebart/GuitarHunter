@@ -205,36 +205,43 @@ class GuitarHunterBot:
             self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
             return
 
+        is_update = False
+        original_price = None
+        existing_deal = None
+        
+        if not self.offline_mode:
+            existing_deal = self.repo.get_deal_by_id(listing_data['id'])
+
         # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
         # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
-        # On coupe AVANT session_processed_ids.add() pour permettre une re-détection si
-        # le vendeur corrige son titre plus tard (ex: retrait du mot "VENDU").
         SOLD_MARKERS = ['vendu', 'sold', 'deal closed', 'plus disponible', 'no longer available']
         title_lower = (listing_data.get('title') or '').lower()
         desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
         found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
+        
         if found_sold_marker and not is_manual_scan:
-            self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
+            if existing_deal and existing_deal.get('status') != 'sold':
+                self.logger.info(f"   📉 Annonce {listing_data['id']} existante marquée VENDUE suite à la détection du marqueur '{found_sold_marker}'.")
+                if not self.offline_mode:
+                    self.repo.mark_deal_as_sold(listing_data['id'], f"Marqueur de vente détecté ('{found_sold_marker}')")
+            else:
+                self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
             return
 
         self.session_processed_ids.add(listing_data['id'])
 
-        is_update = False
-        original_price = None
-        
-        if not self.offline_mode:
-            existing_deal = self.repo.get_deal_by_id(listing_data['id'])
-            if existing_deal:
-                if existing_deal.get('status') == 'rejected':
-                    self.logger.info("Annonce déjà rejetée. Ignorée.")
-                    return
-                    
-                old_p = self._normalize_price(existing_deal.get('price'))
-                new_p = self._normalize_price(listing_data['price'])
+        if existing_deal:
+            is_update = True
+            if existing_deal.get('status') == 'rejected':
+                self.logger.info("Annonce déjà rejetée. Ignorée.")
+                return
                 
-                if old_p > 0 and old_p == new_p:
-                    self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
-                    return
+            old_p = self._normalize_price(existing_deal.get('price'))
+            new_p = self._normalize_price(listing_data['price'])
+            
+            if old_p > 0 and old_p == new_p:
+                self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
+                return
                     
                 # Prix différent !
                 original_price = existing_deal.get('price')
@@ -325,14 +332,14 @@ class GuitarHunterBot:
             # get_cities() retourne directement les villes isScannable du catalogue partagé
             cities_to_scan = self.repo.get_cities()
 
-            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c['name'] for c in cities_to_scan])}")
+            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
 
             if not cities_to_scan:
                 self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
+                all_allowed_cities_norm = [ListingParser.normalize_city_name(c.get('name', '')) for c in cities_to_scan if c.get('name')]
                 
-                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
+                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
                 for city_data in cities_to_scan:
                     if self._is_stop_requested():
                         self.logger.info("🛑 Interruption de la boucle des villes.")

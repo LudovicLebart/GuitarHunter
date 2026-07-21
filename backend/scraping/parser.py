@@ -245,11 +245,17 @@ class ListingParser:
         except Exception as e:
             log.debug(f"Erreur extraction date de publication: {e}")
 
+        if not published_at_ts:
+            import time
+            published_at_ts = int(time.time())
+            log.info("   📅 Date de publication introuvable, utilisation de la date de scraping en fallback.")
+
         return {
             "description": description[:3000], 
             "imageUrls": image_urls, 
             "coordinates": coordinates,
             "published_at_raw": published_at_raw,
+
             "published_at_ts": published_at_ts
         }
 

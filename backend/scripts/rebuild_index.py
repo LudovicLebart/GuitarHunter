@@ -18,13 +18,19 @@ def rebuild():
         logger.error("Erreur de connexion à Firebase.")
         return
 
-    for user_id in USER_IDS_TARGET:
+    # Récupérer tous les utilisateurs dynamiquement
+    users_ref = db_client.collection('artifacts').document(APP_ID_TARGET).collection('users')
+    users = list(users_ref.stream())
+    logger.info(f"Trouvé {len(users)} utilisateurs à réindexer.")
+
+    for user_doc in users:
+        user_id = user_doc.id
         logger.info(f"Reconstruction de l'index pour l'utilisateur {user_id}...")
         repo = FirestoreRepository(db_client, APP_ID_TARGET, user_id)
         
         query = repo.collection_ref.select([
             'status', 'aiAnalysis', 'isFavorite', 'title', 'price', 
-            'published_at_ts', 'location', 'initialModelUsed', 
+            'published_at_ts', 'soldAt', 'location', 'initialModelUsed', 
             'storageImageUrls', 'imageUrls', 'timestamp'
         ]).order_by('__name__').limit(500)
         
@@ -47,6 +53,7 @@ def rebuild():
                 title = deal_data.get('title', '')
                 price = deal_data.get('price')
                 published_at = deal_data.get('published_at_ts')
+                sold_at = deal_data.get('soldAt')
                 location = deal_data.get('location')
                 initial_model = deal_data.get('initialModelUsed')
                 image_url = (deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
@@ -62,6 +69,7 @@ def rebuild():
                     title=title,
                     price=price,
                     published_at=published_at,
+                    sold_at=sold_at,
                     location=location,
                     initial_model=initial_model,
                     image_url=image_url
