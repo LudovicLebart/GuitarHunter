@@ -329,9 +329,19 @@ class FacebookScraper:
         self.logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
+    def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0):
+        """Forme standard retournée par scan_marketplace() à chaque point de sortie,
+        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés)."""
+        return {
+            "deals": deals or [],
+            "anti_bot_blocked": anti_bot_blocked,
+            "rejected_out_of_list": rejected_out_of_list,
+            "total_cards_seen": total_cards_seen,
+        }
+
     def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None):
         self._ensure_session()
-        
+
         # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
         if hasattr(self, 'allowed_cities') and isinstance(self.allowed_cities, list):
              self.allowed_cities = set(self.allowed_cities)
@@ -343,18 +353,18 @@ class FacebookScraper:
         max_ads = scan_config['max_ads']
 
         self.logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
-        
+
         if stop_event and stop_event.is_set():
             self.logger.info("🛑 Scan annulé avant de démarrer (STOP_BOT).")
-            return []
-            
+            return self._scan_result()
+
         norm_loc = ListingParser.normalize_city_name(location)
         city_id = self.city_mapping.get(norm_loc)
         if not city_id:
             if location.isdigit(): city_id = location
             else:
                 self.logger.error(f"❌ Ville '{location}' inconnue.")
-                return []
+                return self._scan_result()
 
         # --- Forcer la géolocalisation pour éviter les annonces "Ship to you" basées sur l'IP ---
         coords = self.city_coordinates.get(norm_loc)
@@ -367,6 +377,8 @@ class FacebookScraper:
 
         page = self.context.new_page()
         found_deals = [] # Liste pour stocker les annonces trouvées
+        rejected_out_of_list = 0
+        listings_count = 0
 
         try:
             q = urllib.parse.quote(search_query)
@@ -380,7 +392,7 @@ class FacebookScraper:
             # --- ANTIBOT: Check for Captcha / Login redirect ---
             if "/login" in page.url or "captcha" in page.url.lower():
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
-                return []
+                return self._scan_result(anti_bot_blocked=True)
 
             try: page.evaluate("document.body.style.zoom = '0.5'")
             except Exception as e: self.logger.debug(f"Zoom échoué: {e}")
@@ -399,7 +411,7 @@ class FacebookScraper:
             for i in range(self.config.max_scroll_iterations):
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
-                    return []
+                    return self._scan_result()
                 page.mouse.wheel(0, 1000)
                 time.sleep(2)
 
@@ -417,17 +429,18 @@ class FacebookScraper:
                 previous_count = current_count
 
             listings = page.locator("a[href*='/marketplace/item/']").all()
-            self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
-            
+            listings_count = len(listings)
+            self.logger.info(f"   👀 {listings_count} éléments trouvés.")
+
             count = 0
             seen = set()
-            
+
             for link in listings:
                 if count >= max_ads: break
-                
+
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
-                    return found_deals
+                    return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count)
                 
                 href = link.get_attribute("href")
                 if not href: continue
@@ -452,6 +465,7 @@ class FacebookScraper:
 
                 if not self.is_city_allowed(spec_loc):
                     self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    rejected_out_of_list += 1
                     continue
                 # --- END OF NEW LOGIC ---
 
@@ -509,7 +523,7 @@ class FacebookScraper:
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
-        return found_deals # Retourne la liste des annonces
+        return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()
