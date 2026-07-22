@@ -189,7 +189,12 @@ class LeboncoinScraper:
         Sinon une chaîne décrivant le problème — soit un vrai blocage DataDome,
         soit un échec d'extraction (préfixé "extraction_failed: ") signalé de la
         même façon pour que l'appelant ne confonde jamais un vrai résultat vide
-        avec une extraction cassée par un changement de structure du site."""
+        avec une extraction cassée par un changement de structure du site.
+
+        Si un blocage ou un échec d'extraction est détecté, la page n'est PAS
+        fermée automatiquement — elle est laissée ouverte pour permettre une
+        intervention manuelle (ex : résoudre un slider DataDome) avant une
+        fermeture explicite de la session par l'appelant."""
         self._ensure_session()
         page = self.context.new_page()
         responses = []
@@ -199,49 +204,49 @@ class LeboncoinScraper:
         page_num = 1
         effective_max_pages = None  # connu seulement après la 1ère page chargée
 
-        try:
-            while True:
-                responses.clear()  # ne garder que les réponses de CETTE page (évite les faux
-                                    # positifs de blocage dus à un vieux 403 d'une page précédente)
-                url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
-                page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
-                self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
-                page.goto(url, timeout=0, wait_until="domcontentloaded")
-                self._human_pause(2.0, 4.5)
+        while True:
+            responses.clear()  # ne garder que les réponses de CETTE page (évite les faux
+                                # positifs de blocage dus à un vieux 403 d'une page précédente)
+            url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
+            page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
+            self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
+            page.goto(url, timeout=0, wait_until="domcontentloaded")
+            self._human_pause(2.0, 4.5)
 
-                blocked, reason = self._looks_blocked(page, responses)
-                if blocked:
-                    self.logger.warning(f"🚨 Blocage LeBonCoin détecté : {reason}")
-                    try:
-                        page.screenshot(path="leboncoin_probe_blocked.png")
-                        self.logger.info("   Capture d'écran sauvegardée : leboncoin_probe_blocked.png")
-                    except Exception as e:
-                        self.logger.debug(f"Capture d'écran échouée : {e}")
-                    return all_ads, reason
+            blocked, reason = self._looks_blocked(page, responses)
+            if blocked:
+                self.logger.warning(f"🚨 Blocage LeBonCoin détecté : {reason}")
+                try:
+                    page.screenshot(path="leboncoin_probe_blocked.png")
+                    self.logger.info("   Capture d'écran sauvegardée : leboncoin_probe_blocked.png")
+                except Exception as e:
+                    self.logger.debug(f"Capture d'écran échouée : {e}")
+                self.logger.info("   Page laissée ouverte (intervention manuelle possible, ex: slider).")
+                return all_ads, reason
 
-                self._simulate_browsing(page)
+            self._simulate_browsing(page)
 
-                ads, max_pages = self.extract_ads(page.content())
-                if ads is None:
-                    reason = "extraction_failed: bloc __NEXT_DATA__ introuvable ou de forme inattendue"
-                    self.logger.warning(f"⚠️ {reason} — arrêt de la pagination.")
-                    try:
-                        with open("leboncoin_probe_page.html", "w", encoding="utf-8") as f:
-                            f.write(page.content())
-                        self.logger.info("   HTML sauvegardé : leboncoin_probe_page.html")
-                    except Exception as e:
-                        self.logger.debug(f"Sauvegarde HTML échouée : {e}")
-                    return all_ads, reason
+            ads, max_pages = self.extract_ads(page.content())
+            if ads is None:
+                reason = "extraction_failed: bloc __NEXT_DATA__ introuvable ou de forme inattendue"
+                self.logger.warning(f"⚠️ {reason} — arrêt de la pagination.")
+                try:
+                    with open("leboncoin_probe_page.html", "w", encoding="utf-8") as f:
+                        f.write(page.content())
+                    self.logger.info("   HTML sauvegardé : leboncoin_probe_page.html")
+                except Exception as e:
+                    self.logger.debug(f"Sauvegarde HTML échouée : {e}")
+                self.logger.info("   Page laissée ouverte (inspection manuelle possible).")
+                return all_ads, reason
 
-                all_ads.extend(ads)
-                effective_max_pages = min(max_pages, max_pages_limit) if max_pages_limit is not None else max_pages
+            all_ads.extend(ads)
+            effective_max_pages = min(max_pages, max_pages_limit) if max_pages_limit is not None else max_pages
 
-                if page_num >= effective_max_pages:
-                    break
-                page_num += 1
-                self._human_pause(1.5, 4.0)  # pause entre deux pages, pas d'enchaînement mécanique
-        finally:
-            self._human_pause(1.0, 3.0)  # temps de présence variable avant de fermer l'onglet
-            page.close()
+            if page_num >= effective_max_pages:
+                break
+            page_num += 1
+            self._human_pause(1.5, 4.0)  # pause entre deux pages, pas d'enchaînement mécanique
 
+        self._human_pause(1.0, 3.0)  # temps de présence variable avant de fermer l'onglet
+        page.close()
         return all_ads, None
