@@ -469,11 +469,16 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
+                scan_result = {}
                 def handle_manual_deal(listing_data):
-                    self.handle_deal_found(listing_data, is_manual_scan=True)
+                    scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True)
+                    scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
                 try:
-                    NotificationService.notify_scan_url_finished(url, user_email=self._user_email, logger=self.logger)
+                    NotificationService.notify_scan_url_finished(
+                        url, user_email=self._user_email, logger=self.logger,
+                        outcome=scan_result.get("outcome"), listing_data=scan_result.get("listing_data")
+                    )
                 except Exception as e:
                     self.logger.warning(f"Erreur envoi notification scan manuel URL: {e}")
             finally:
