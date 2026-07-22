@@ -18,23 +18,9 @@ import random
 sys.path.insert(0, '.')
 
 from playwright.sync_api import sync_playwright
+from backend.scraping_leboncoin.core import USER_AGENTS, VIEWPORTS
 
 DEFAULT_OUTPUT = "backend/scripts/leboncoin_storage_state.json"
-
-# Mêmes flags/UA/viewports que leboncoin_probe.py — la fenêtre de login doit
-# avoir la même posture de furtivité que la sonde, sinon elle risque d'être
-# bloquée avant même que la connexion manuelle ait pu avoir lieu.
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-]
-VIEWPORTS = [
-    {"width": 1920, "height": 1080},
-    {"width": 1366, "height": 768},
-    {"width": 1440, "height": 900},
-]
 
 
 def main():

@@ -80,6 +80,21 @@
 - **Vérifié** : construction d'URL testée en isolation contre 2 vraies URLs fournies par l'utilisateur (recherche à 1 ville puis à 2 villes) — reproduction identique caractère pour caractère.
 - **Décision produit (utilisateur)** : extraction de la description complète non poursuivie (jugée peu utile en pratique) — photos/titre/prix suffisent.
 
+[2026-07-22] [PRO] Feature : Module `backend/scraping_leboncoin/` (classe LeboncoinScraper) + revue de code (8 bugs corrigés) → Résultat :
+- **Contexte** : Restructuration de la logique de `leboncoin_probe.py` en module réutilisable, avec deux ajouts demandés par l'utilisateur : pagination fiable (`max_pages` déjà présent dans le JSON `__NEXT_DATA__`) et comportement anti-prévisibilité — une session qui ouvre/attend un temps fixe/ferme à l'identique à chaque cycle est elle-même un signal comportemental détectable dans la durée (pas seulement le challenge JS initial).
+- **`backend/scraping_leboncoin/core.py`** (nouveau) : classe `LeboncoinScraper` — session Playwright réutilisable sur plusieurs recherches (pas de fermeture systématique), pagination via `max_pages`, délais aléatoires, scroll/mouvement de souris simulés (sans besoin fonctionnel, juste comportemental). `leboncoin_login_once.py` importe désormais ses constantes UA/viewports depuis ce module plutôt que de les dupliquer.
+- **`/code-review` (haute exigence, 8 angles + vérification 1-vote)** : 10 findings retenus (8 confirmés, 2 plausibles). Corrigés :
+  1. Faux positifs de blocage — `responses` (réponses réseau) n'était jamais vidée entre pages de pagination, un vieux 403 d'une ressource tierce (pub/tracker) sur la page 1 pouvait faire échouer à tort la détection sur la page 3. Fix : `responses.clear()` en début de chaque itération.
+  2. `--min-price` seul silencieusement ignoré (`build_url` n'ajoutait le filtre prix que si `max_price > 0`). Fix : déclenché dès qu'une borne est fournie, borne absente laissée vide (`price=50-` / `price=-200`).
+  3. Crash `TypeError` si `searchData.ads` vaut `null` en JSON (clé présente mais valeur nulle, hors du `try/except` existant). Fix : garde-fou explicite.
+  4. `leboncoin_probe.py --repeat` : une exception en cours de boucle faisait perdre les résultats déjà collectés (jamais écrits sur disque). Fix : sauvegarde déplacée dans le `finally`.
+  5. Échec d'extraction et "0 résultat normal" retournaient la même forme, indiscernables pour l'appelant. Fix : raison explicite `"extraction_failed: ..."` retournée au lieu de `None`.
+  6. `max_pages_limit=0` traité comme "pas de limite" (test de vérité sur un entier, faux pour 0). Fix : test `is not None`.
+  7. Log de pagination affichait "page 1/1" même quand la recherche a plusieurs pages (dénominateur affiché avant d'être connu). Fix : n'affiche le total qu'une fois réellement connu.
+  8. Capture d'écran (blocage) et dump HTML (échec d'extraction) — présents dans l'ancien script, disparus lors de la restructuration en module. Restaurés.
+- **2 findings plausibles non corrigés dans le code** (jugements d'architecture, notés dans `TODO.md`) : duplication de mesures anti-bot avec `FacebookScraper` (base commune à envisager, surtout si des règles anti-détection communes — ex: plage horaire humaine — sont appliquées aux deux scrapers) ; réécriture complète de `leboncoin_probe.py` (zone grise sur la règle CLAUDE.md "pas de réécriture de fichier complet", scope explicitement approuvé par l'utilisateur).
+- **Testé** : `build_url` et `extract_ads` corrigés revérifiés en isolation contre le vrai fichier HTML fourni précédemment (35 annonces, `max_pages=4`) et plusieurs cas de bornes de prix (min seul / max seul / les deux / aucun). **Non testé en conditions réelles Playwright/DataDome** depuis cet environnement.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).
