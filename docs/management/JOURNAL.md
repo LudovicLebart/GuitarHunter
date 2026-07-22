@@ -1,5 +1,19 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-21] [PRO] Fix : Curseur "Logs à 500" inopérant + notification de scan manuel enrichie → Résultat :
+- **Symptôme signalé** : Le curseur "Limite Temporaire de Logs" (`ConfigPanel.jsx`) affichait bien 500 localement, mais la valeur restait à 100 côté Firestore/console.
+- **`src/components/ConfigPanel.jsx` (`LogsConfigSection`)** : La sauvegarde ne se déclenchait que sur `onBlur` — un `<input type="range">` manipulé à la souris ne perd pas nécessairement le focus après un glisser-déposer si l'utilisateur ne clique pas ensuite sur un autre champ, donc `saveConfig()` n'était jamais appelé. Ajout de `onMouseUp`/`onKeyUp` (déclenchement fiable en fin d'interaction souris/clavier, sans debounce nécessaire car ils ne se déclenchent qu'une fois par interaction).
+- **Contexte notification** : Question de l'utilisateur — un scan d'URL manuel indique-t-il déjà si l'annonce existait ? Non : `notify_scan_url_finished()` envoyait un message générique ("scan terminé") sans jamais distinguer nouveau/doublon/rejeté/vendu.
+- **`backend/bot.py::scan_specific_url()`** : capture désormais le code de statut retourné par `handle_deal_found(..., is_manual_scan=True)` (introduit lors du fix multi-villes) et le transmet à la notification.
+- **`backend/notifications.py::notify_scan_url_finished()`** : message adapté par code de statut (`processed`, `duplicate_unchanged`, `already_rejected`, `marked_sold`, `rejected_prefilter`, `scrape_failed`, `sold_marker`, ou échec de récupération si l'annonce n'a jamais pu être scrapée). Ajout d'un lien direct vers l'annonce dans Guitar Hunter (`?dealId={id}`, même schéma que `notify_deal()` pour les Pépites) dans l'email, en plus du lien Facebook original.
+- **Non testé en conditions réelles** (pas d'accès Playwright/Facebook/SMTP depuis cet environnement) — à valider en prod par l'utilisateur.
+
+[2026-07-21] [PRO] Fix : Timeout systématique "Erreur filtre prix" pendant le scan → Résultat :
+- **Symptôme signalé** : Log récurrent `WARNING - Erreur filtre prix: Timeout 10000ms exceeded.` observé souvent en production.
+- **Cause** : `backend/scraping/core.py::_apply_filters()` attendait `page.wait_for_load_state("networkidle", timeout=10000)` après validation du prix maximum. Facebook Marketplace (SPA avec trafic de fond permanent — notifications, chat, polling) n'atteint quasiment jamais un vrai silence réseau, donc cet appel expirait quasi systématiquement, gaspillant 10s par ville (~3-4 min/cycle sur 22 villes).
+- **`backend/scraping/core.py`** : `wait_for_load_state("networkidle", ...)` remplacé par `wait_for_load_state("domcontentloaded", ...)` — se déclenche dès que le DOM est prêt, sans dépendre de l'arrêt total du trafic réseau. `time.sleep(3)` conservé juste après pour laisser le re-render se stabiliser.
+- **Non testé en conditions réelles** (pas d'accès Playwright/Facebook depuis cet environnement) — à valider en prod par l'utilisateur.
+
 [2026-07-21] [PRO] Feature : StatsView — Volume de Scraping Quotidien (FB) → Résultat :
 - **Contexte** : Réflexion en cours sur une extension LeBonCoin (voir options d'extraction face à DataDome, non tranchée). Avant toute décision, besoin de visualiser le volume réel actuel scrapé sur Facebook (jugé "extrêmement bas" par l'utilisateur).
 - **`src/components/StatsView.jsx`** : Nouveau `useMemo` `dailyVolumeData` — regroupe `enrichedDeals` par jour sur les 14 derniers jours à partir de `timestamp.seconds`, déjà exposé en temps réel par l'index Firestore (`deals_index` → `useDealsManager.js`) pour 100% des annonces, pas seulement celles chargées en lazy loading. Aucune lecture Firestore supplémentaire. Nouveau panneau `BarChart` (recharts, même style que les graphiques existants) + StatCard "Moyenne/jour".

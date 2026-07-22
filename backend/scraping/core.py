@@ -305,7 +305,7 @@ class FacebookScraper:
                 time.sleep(0.5)
                 page.keyboard.press("Enter")
                 self.logger.info("   ✅ Prix appliqués. Attente du rechargement...")
-                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_load_state("domcontentloaded", timeout=10000)
                 time.sleep(3)
             else:
                 self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
