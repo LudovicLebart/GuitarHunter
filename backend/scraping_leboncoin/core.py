@@ -204,7 +204,7 @@ class LeboncoinScraper:
                 url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
                 page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
                 self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
-                page.goto(url, timeout=30000)
+                page.goto(url, timeout=0, wait_until="domcontentloaded")
                 self._human_pause(2.0, 4.5)
 
                 blocked, reason = self._looks_blocked(page, responses)
