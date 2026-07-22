@@ -53,6 +53,8 @@ class LeboncoinScraper:
         self.playwright = None
         self.browser = None
         self.context = None
+        self.page = None  # onglet réutilisé sur toute la session (pas de nouvel onglet par recherche)
+        self._responses = []
 
     def start_session(self):
         """Démarre la session Playwright. Sans effet si déjà démarrée — permet
@@ -74,8 +76,9 @@ class LeboncoinScraper:
 
     def close_session(self):
         if self.context:
-            self.context.close()
+            self.context.close()  # ferme aussi self.page
             self.context = None
+        self.page = None
         if self.browser:
             self.browser.close()
             self.browser = None
@@ -87,6 +90,16 @@ class LeboncoinScraper:
     def _ensure_session(self):
         if not self.context:
             self.start_session()
+
+    def _get_page(self):
+        """Onglet unique réutilisé pour toutes les recherches de la session — un
+        humain relance des recherches dans le même onglet, il n'en ouvre pas un
+        nouveau à chaque fois. Recréé seulement si absent ou fermé (ex: fermé
+        manuellement par l'utilisateur)."""
+        if self.page is None or self.page.is_closed():
+            self.page = self.context.new_page()
+            self.page.on("response", lambda r: self._responses.append(r))
+        return self.page
 
     def _human_pause(self, low, high):
         time.sleep(random.uniform(low, high))
@@ -191,29 +204,28 @@ class LeboncoinScraper:
         même façon pour que l'appelant ne confonde jamais un vrai résultat vide
         avec une extraction cassée par un changement de structure du site.
 
-        Si un blocage ou un échec d'extraction est détecté, la page n'est PAS
-        fermée automatiquement — elle est laissée ouverte pour permettre une
-        intervention manuelle (ex : résoudre un slider DataDome) avant une
-        fermeture explicite de la session par l'appelant."""
+        La page/l'onglet n'est JAMAIS fermé automatiquement par cette méthode —
+        ni en cas de succès, ni en cas de blocage, ni en cas d'échec d'extraction.
+        Le même onglet est réutilisé d'un appel à l'autre (comportement humain :
+        on relance des recherches dans le même onglet). Seule `close_session()`
+        ferme réellement le navigateur, à la demande explicite de l'appelant."""
         self._ensure_session()
-        page = self.context.new_page()
-        responses = []
-        page.on("response", lambda r: responses.append(r))
+        page = self._get_page()
 
         all_ads = []
         page_num = 1
         effective_max_pages = None  # connu seulement après la 1ère page chargée
 
         while True:
-            responses.clear()  # ne garder que les réponses de CETTE page (évite les faux
-                                # positifs de blocage dus à un vieux 403 d'une page précédente)
+            self._responses.clear()  # ne garder que les réponses de CETTE page (évite les faux
+                                      # positifs de blocage dus à un vieux 403 d'une page précédente)
             url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
             page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
             self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
             page.goto(url, timeout=0, wait_until="domcontentloaded")
             self._human_pause(2.0, 4.5)
 
-            blocked, reason = self._looks_blocked(page, responses)
+            blocked, reason = self._looks_blocked(page, self._responses)
             if blocked:
                 self.logger.warning(f"🚨 Blocage LeBonCoin détecté : {reason}")
                 try:
@@ -247,6 +259,5 @@ class LeboncoinScraper:
             page_num += 1
             self._human_pause(1.5, 4.0)  # pause entre deux pages, pas d'enchaînement mécanique
 
-        self._human_pause(1.0, 3.0)  # temps de présence variable avant de fermer l'onglet
-        page.close()
-        return all_ads, None
+        self._human_pause(1.0, 3.0)  # temps de présence variable sur la page avant de repartir
+        return all_ads, None  # onglet laissé ouvert — réutilisé au prochain appel, fermé seulement via close_session()
