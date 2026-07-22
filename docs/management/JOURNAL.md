@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-22] [PRO] Fix : Timeout Playwright sur page.goto() en conditions réelles → Résultat :
+- **Symptôme signalé** : `playwright._impl._errors.TimeoutError: Page.goto: Timeout 30000ms exceeded` lors d'un test réel — la page semblait pourtant se charger normalement à l'œil.
+- **Cause** : `page.goto()` utilisait le défaut Playwright `wait_until="load"`, qui attend que **toutes** les ressources de la page (pubs, trackers, scripts tiers) aient fini de charger — même famille de piège que le fix `networkidle` du scraper Facebook (`_apply_filters`), une SPA avec du trafic de fond permanent ne déclenche jamais cet événement.
+- **`backend/scraping_leboncoin/core.py::search()`** : `page.goto(url, timeout=30000)` → `page.goto(url, timeout=0, wait_until="domcontentloaded")`. `timeout=0` (convention Playwright "pas de timeout") répond à la demande explicite de l'utilisateur — la page ne se ferme plus jamais automatiquement, fermeture manuelle à sa charge. `wait_until="domcontentloaded"` (au lieu de `"load"`) devrait faire aboutir la navigation rapidement dans la plupart des cas sans même nécessiter d'attente longue.
+- **Non testé en conditions réelles** — validation à la charge de l'utilisateur.
+
 [2026-07-22] [PRO] Feature : Module `backend/scraping_leboncoin/` (classe LeboncoinScraper) + revue de code (8 bugs corrigés) → Résultat :
 - **Contexte** : Restructuration de la logique de `leboncoin_probe.py` en module réutilisable, avec deux ajouts demandés par l'utilisateur : pagination fiable (`max_pages` déjà présent dans le JSON `__NEXT_DATA__`) et comportement anti-prévisibilité — une session qui ouvre/attend un temps fixe/ferme à l'identique à chaque cycle est elle-même un signal comportemental détectable dans la durée (pas seulement le challenge JS initial).
 - **`backend/scraping_leboncoin/core.py`** (nouveau) : classe `LeboncoinScraper` — session Playwright réutilisable sur plusieurs recherches (pas de fermeture systématique), pagination via `max_pages`, délais aléatoires, scroll/mouvement de souris simulés (sans besoin fonctionnel, juste comportemental). `leboncoin_login_once.py` importe désormais ses constantes UA/viewports depuis ce module plutôt que de les dupliquer.
