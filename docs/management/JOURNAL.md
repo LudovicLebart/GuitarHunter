@@ -53,6 +53,14 @@
 - **`backend/scraping/core.py`** : `wait_for_load_state("networkidle", ...)` remplacé par `wait_for_load_state("domcontentloaded", ...)` — se déclenche dès que le DOM est prêt, sans dépendre de l'arrêt total du trafic réseau. `time.sleep(3)` conservé juste après pour laisser le re-render se stabiliser.
 - **Non testé en conditions réelles** (pas d'accès Playwright/Facebook depuis cet environnement) — à valider en prod par l'utilisateur.
 
+[2026-07-21] [PRO] Feature : Scripts de calibration LeBonCoin (étape 1 du chantier d'extension) → Résultat :
+- **Contexte** : Suite à la réflexion sur l'extension LeBonCoin (protégée par DataDome), décision de tester une approche Playwright "douce" (mêmes mesures stealth que le scraper Facebook, sans contournement actif type SSL Pinning/TLS spoofing) avant tout développement plus poussé — cf. options A-F évaluées, F écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial.
+- **`backend/scripts/leboncoin_login_once.py`** (nouveau) : script à lancer une fois en fenêtre visible — connexion manuelle à un compte LeBonCoin réchauffé par navigation préalable, sauvegarde de la session (`storage_state`) dans un fichier local non commité.
+- **`backend/scripts/leboncoin_probe.py`** (nouveau) : charge cette session, ouvre une recherche LeBonCoin (rotation UA/viewport + flags stealth identiques à `FacebookScraper`), détecte explicitement un blocage (redirection `captcha-delivery.com`, HTTP 403/429, titre de page suspect). Aucune écriture Firestore — script de test uniquement, pas encore intégré à `bot.py`/`run_scan()`.
+- **Limite assumée** : aucune extraction de contenu (titre/prix/photos) tentée — la structure DOM réelle de LeBonCoin n'a pas pu être vérifiée depuis l'environnement de développement (aucun accès réseau LeBonCoin possible ici). Si la sonde passe, elle sauvegarde le HTML complet localement pour permettre d'écrire des sélecteurs fiables à l'étape suivante, une fois un résultat réel observé par l'utilisateur.
+- **`.gitignore`** : ajout de `backend/scripts/leboncoin_storage_state.json` (session/cookies, équivalent à des identifiants) et des artefacts de debug (`leboncoin_probe_*.png/html`).
+- **Non testé en conditions réelles** (aucun accès réseau LeBonCoin depuis cet environnement) — calibration à la charge de l'utilisateur.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

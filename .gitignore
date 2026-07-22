@@ -12,3 +12,6 @@ __pycache__/
 venv/
 .venv/
 scratch/
+backend/scripts/leboncoin_storage_state.json
+leboncoin_probe_*.png
+leboncoin_probe_*.html

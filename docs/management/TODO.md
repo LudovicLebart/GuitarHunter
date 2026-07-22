@@ -10,6 +10,18 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
+
+- [/] **Calibration d'une approche Playwright "douce" face à DataDome**
+    - *Contexte :* Options d'extraction évaluées (A-F), Option F (reverse engineering mobile) écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial (2-3 utilisateurs). Piste retenue : tester une approche similaire au scraper Facebook (stealth Playwright, sans contournement actif DataDome type SSL Pinning/TLS spoofing), avec compte réchauffé + session persistée.
+    - [x] `backend/scripts/leboncoin_login_once.py` : génère une session authentifiée réutilisable (`storage_state`).
+    - [x] `backend/scripts/leboncoin_probe.py` : teste si la session passe une recherche sans être bloquée par DataDome (détection captcha/403/429).
+    - [ ] **À faire par l'utilisateur** : lancer la calibration, rapporter si un blocage survient (et lequel) ou si la page charge normalement.
+    - [ ] **Si ça passe** : écrire les sélecteurs d'extraction réels (titre, prix, description, localisation approximative, lien) à partir du HTML observé — non tenté jusqu'ici faute d'accès réseau LeBonCoin depuis l'environnement de développement.
+    - [ ] **Si ça bloque** : réévaluer les options (accepter la limitation, ou reconsidérer une option plus lourde) — décision produit à trancher avec l'utilisateur, pas à l'assistant.
+
+---
+
 ## 🔐 Sécurité & Robustesse Multi-Utilisateur (Validé 2026-03-29)
 
 ### Phase 1 — Sécurité ✅
