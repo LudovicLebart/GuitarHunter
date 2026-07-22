@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-21] [PRO] Fix : leboncoin_login_once.py non furtif → fenêtre de login jamais chargée → Résultat :
+- **Symptôme signalé** : Premier test de calibration — la fenêtre ouverte par `leboncoin_login_once.py` ne chargeait pas `leboncoin.fr`, obligeant l'utilisateur à se connecter dans un autre navigateur (jamais capturé par Playwright). La session sauvegardée était donc anonyme, invalidant le premier test (403 immédiat non concluant sur l'hypothèse "compte réchauffé").
+- **Cause probable** : `leboncoin_login_once.py` lançait Chromium sans aucune des mesures de furtivité déjà présentes dans `leboncoin_probe.py` (pas de flags anti-détection, pas de rotation UA/viewport) — la fenêtre de login elle-même était probablement bloquée par DataDome avant que la connexion manuelle ait pu avoir lieu.
+- **`backend/scripts/leboncoin_login_once.py`** : alignement sur les mêmes flags Chromium (`--disable-blink-features=AutomationControlled`, etc.) et la même rotation UA/viewport que `leboncoin_probe.py`.
+- **Non testé en conditions réelles** — nouvelle tentative de calibration à la charge de l'utilisateur.
+
 [2026-07-21] [PRO] Feature : Scripts de calibration LeBonCoin (étape 1 du chantier d'extension) → Résultat :
 - **Contexte** : Suite à la réflexion sur l'extension LeBonCoin (protégée par DataDome), décision de tester une approche Playwright "douce" (mêmes mesures stealth que le scraper Facebook, sans contournement actif type SSL Pinning/TLS spoofing) avant tout développement plus poussé — cf. options A-F évaluées, F écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial.
 - **`backend/scripts/leboncoin_login_once.py`** (nouveau) : script à lancer une fois en fenêtre visible — connexion manuelle à un compte LeBonCoin réchauffé par navigation préalable, sauvegarde de la session (`storage_state`) dans un fichier local non commité.
