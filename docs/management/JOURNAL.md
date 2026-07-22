@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-21] [PRO] Feature : Filtrage ville(s)/catégorie/prix/tri pour la sonde LeBonCoin → Résultat :
+- **Bug corrigé** : le filtre de prix envoyait `price=min-{max}` (le mot "min" en dur) au lieu du vrai format `price={min}-{max}` (deux nombres) — confirmé via une vraie URL fournie par l'utilisateur.
+- **`backend/scripts/leboncoin_probe.py`** : nouveaux paramètres `--category` (défaut `30`, Instruments de musique), `--locations` (multi-villes via virgule — valeur brute à copier depuis une recherche manuelle sur leboncoin.fr, format non deviné/reconstruit car il varie selon que la ville a un code postal unique ou non), `--min-price`, `--owner-type` (`private`/`pro`). `sort=time&order=desc` (annonces les plus récentes en premier) désormais systématique, cohérent avec l'objectif du projet.
+- **Vérifié** : construction d'URL testée en isolation contre 2 vraies URLs fournies par l'utilisateur (recherche à 1 ville puis à 2 villes) — reproduction identique caractère pour caractère.
+- **Décision produit (utilisateur)** : extraction de la description complète non poursuivie (jugée peu utile en pratique) — photos/titre/prix suffisent.
+
 [2026-07-21] [PRO] Feature : Calibration LeBonCoin réussie + première extraction (JSON __NEXT_DATA__) → Résultat :
 - **Résultat de calibration** : avec une vraie session authentifiée (login corrigé pour utiliser les mêmes mesures stealth que la sonde), une recherche LeBonCoin charge **sans blocage DataDome**. L'approche Playwright "douce" (sans SSL Pinning/TLS spoofing) est donc viable, au moins à ce stade — le premier test bloqué (403 immédiat) était un faux négatif dû à une session anonyme testée par erreur.
 - **Découverte clé** : LeBonCoin (Next.js) embarque les résultats de recherche en JSON structuré dans `<script id="__NEXT_DATA__">` (`props.pageProps.searchData.ads`) — bien plus robuste que des sélecteurs CSS. Confirmé sur un vrai fichier HTML fourni par l'utilisateur (35 annonces, 110 au total pour la recherche).
