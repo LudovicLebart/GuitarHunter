@@ -15,3 +15,4 @@ scratch/
 backend/scripts/leboncoin_storage_state.json
 leboncoin_probe_*.png
 leboncoin_probe_*.html
+leboncoin_probe_*.json

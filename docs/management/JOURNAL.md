@@ -67,6 +67,13 @@
 - **`backend/scripts/leboncoin_login_once.py`** : alignement sur les mêmes flags Chromium (`--disable-blink-features=AutomationControlled`, etc.) et la même rotation UA/viewport que `leboncoin_probe.py`.
 - **Non testé en conditions réelles** — nouvelle tentative de calibration à la charge de l'utilisateur.
 
+[2026-07-21] [PRO] Feature : Calibration LeBonCoin réussie + première extraction (JSON __NEXT_DATA__) → Résultat :
+- **Résultat de calibration** : avec une vraie session authentifiée (login corrigé pour utiliser les mêmes mesures stealth que la sonde), une recherche LeBonCoin charge **sans blocage DataDome**. L'approche Playwright "douce" (sans SSL Pinning/TLS spoofing) est donc viable, au moins à ce stade — le premier test bloqué (403 immédiat) était un faux négatif dû à une session anonyme testée par erreur.
+- **Découverte clé** : LeBonCoin (Next.js) embarque les résultats de recherche en JSON structuré dans `<script id="__NEXT_DATA__">` (`props.pageProps.searchData.ads`) — bien plus robuste que des sélecteurs CSS. Confirmé sur un vrai fichier HTML fourni par l'utilisateur (35 annonces, 110 au total pour la recherche).
+- **`backend/scripts/leboncoin_probe.py`** : nouvelle fonction `extract_ads()` — parse ce JSON et retourne une liste blanche stricte de champs (`id`, `title`, `price`, `description`, `url`, `published_at`, `location.{city,zipcode,lat,lng}`, `image_urls`). Le bloc `owner` (pseudo/user_id/store_id vendeur, présent dans le JSON brut) est **délibérément exclu** — conforme à la règle "pas de données personnelles" fixée dès le départ de ce chantier. Résultats affichés en console + sauvegardés dans un JSON local (`leboncoin_probe_results.json`, gitignore) — toujours aucune écriture Firestore.
+- **Testé** : `extract_ads()` validé directement contre le fichier HTML réel fourni par l'utilisateur (35/35 annonces extraites correctement, aucun champ `owner` présent dans le résultat).
+- **Limite restante** : le `body` (description complète) est vide sur la page de résultats — nécessitera de visiter chaque fiche détail à l'étape suivante, non fait à ce stade.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

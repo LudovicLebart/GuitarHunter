@@ -1,17 +1,20 @@
 """
-Calibration LeBonCoin (étape 2/2) : vérifie uniquement si une session
-Playwright "douce" (mêmes mesures stealth que le scraper Facebook — rotation
-UA/viewport, flags anti-détection — mais SANS contournement actif de
-DataDome type SSL Pinning/TLS spoofing) parvient à charger une page de
-recherche sans être bloquée.
+Calibration LeBonCoin (étape 2/2) : vérifie si une session Playwright "douce"
+(mêmes mesures stealth que le scraper Facebook — rotation UA/viewport, flags
+anti-détection — mais SANS contournement actif de DataDome type SSL
+Pinning/TLS spoofing) parvient à charger une page de recherche sans être
+bloquée, et si oui, extrait les résultats.
 
-Ne fait AUCUNE extraction fiable de contenu à ce stade : la structure DOM
-réelle de LeBonCoin n'a pas pu être vérifiée depuis l'environnement de
-développement (aucun accès réseau LeBonCoin possible ici). La priorité est
-d'observer si ça passe le premier obstacle (challenge JS/captcha DataDome)
-avant d'écrire des sélecteurs d'extraction précis. Si la page charge, le HTML
-complet est sauvegardé localement pour permettre d'écrire ces sélecteurs dans
-une étape suivante. Aucune écriture Firestore — script de test uniquement.
+Extraction : LeBonCoin (Next.js) embarque les résultats de recherche en JSON
+structuré dans <script id="__NEXT_DATA__">, bien plus fiable que des
+sélecteurs CSS. Liste blanche stricte de champs extraits (titre, prix,
+localisation approximative, lien, date, photos) — le bloc "owner" (pseudo,
+user_id, store_id du vendeur) est délibérément exclu, conformément à la
+règle "pas de données personnelles" fixée pour ce chantier. La description
+complète (vide sur la page de résultats) n'est pas encore récupérée — nécessite
+de visiter chaque fiche détail, à faire dans une étape suivante.
+
+Aucune écriture Firestore — script de test uniquement.
 
 Prérequis : avoir généré une session via `backend.scripts.leboncoin_login_once`.
 
@@ -22,6 +25,8 @@ Usage :
 """
 import sys
 import os
+import re
+import json
 import argparse
 import random
 import time
@@ -69,6 +74,46 @@ def looks_blocked(page, responses):
     return False, None
 
 
+def extract_ads(html):
+    """Parse le JSON __NEXT_DATA__ de la page de résultats et retourne une liste
+    d'annonces minimisées (liste blanche de champs). Retourne None si le bloc
+    est absent ou d'une forme inattendue (structure LeBonCoin non confirmée
+    stable dans le temps)."""
+    match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', html, re.DOTALL)
+    if not match:
+        return None
+
+    try:
+        data = json.loads(match.group(1))
+        ads = data["props"]["pageProps"]["searchData"]["ads"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return None
+
+    results = []
+    for ad in ads:
+        location = ad.get("location") or {}
+        images = ad.get("images") or {}
+        price_list = ad.get("price") or []
+        results.append({
+            "id": ad.get("list_id"),
+            "title": ad.get("subject"),
+            "price": price_list[0] if price_list else None,
+            "description": ad.get("body") or None,  # vide sur la page de résultats
+            "url": ad.get("url"),
+            "published_at": ad.get("first_publication_date"),
+            "location": {
+                "city": location.get("city"),
+                "zipcode": location.get("zipcode"),
+                "lat": location.get("lat"),
+                "lng": location.get("lng"),
+            },
+            "image_urls": images.get("urls") or [],
+            # NOTE : le bloc "owner" (pseudo, user_id, store_id du vendeur) est
+            # intentionnellement exclu — aucune donnée personnelle vendeur stockée.
+        })
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Sonde de calibration LeBonCoin — teste si la session passe sans être bloquée")
     parser.add_argument("--query", default="guitare", help="Terme de recherche (défaut: guitare)")
@@ -114,14 +159,27 @@ def main():
             print("✅ Page chargée sans signe de blocage détecté.")
             print(f"   URL finale : {page.url}")
             print(f"   Titre : {page.title()}")
-            html_path = "leboncoin_probe_page.html"
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(page.content())
-            print(f"   HTML complet sauvegardé dans : {html_path}")
-            print("\n⚠️  Extraction de contenu non tentée : la structure DOM réelle de LeBonCoin")
-            print("   n'a pas pu être vérifiée depuis l'environnement de développement. Partage")
-            print("   ce fichier HTML (ou ce que tu observes dans la fenêtre) pour qu'on écrive")
-            print("   des sélecteurs d'extraction fiables à l'étape suivante.")
+
+            html = page.content()
+            ads = extract_ads(html)
+
+            if ads is None:
+                html_path = "leboncoin_probe_page.html"
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(html)
+                print(f"   ⚠️  Bloc __NEXT_DATA__ introuvable ou de forme inattendue.")
+                print(f"   HTML complet sauvegardé dans : {html_path} pour investigation.")
+            else:
+                print(f"\n📋 {len(ads)} annonce(s) extraite(s) :")
+                for ad in ads[:10]:
+                    print(f"   [{ad['id']}] {ad['title']} — {ad['price']}€ — {ad['location']['city']} ({ad['location']['zipcode']})")
+                if len(ads) > 10:
+                    print(f"   ... et {len(ads) - 10} autre(s).")
+
+                results_path = "leboncoin_probe_results.json"
+                with open(results_path, "w", encoding="utf-8") as f:
+                    json.dump(ads, f, ensure_ascii=False, indent=2)
+                print(f"\n   Résultats complets (minimisés, sans données vendeur) sauvegardés dans : {results_path}")
 
         browser.close()
 
