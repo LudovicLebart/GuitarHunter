@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-21] [PRO] Feature : Scripts de calibration LeBonCoin (étape 1 du chantier d'extension) → Résultat :
+- **Contexte** : Suite à la réflexion sur l'extension LeBonCoin (protégée par DataDome), décision de tester une approche Playwright "douce" (mêmes mesures stealth que le scraper Facebook, sans contournement actif type SSL Pinning/TLS spoofing) avant tout développement plus poussé — cf. options A-F évaluées, F écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial.
+- **`backend/scripts/leboncoin_login_once.py`** (nouveau) : script à lancer une fois en fenêtre visible — connexion manuelle à un compte LeBonCoin réchauffé par navigation préalable, sauvegarde de la session (`storage_state`) dans un fichier local non commité.
+- **`backend/scripts/leboncoin_probe.py`** (nouveau) : charge cette session, ouvre une recherche LeBonCoin (rotation UA/viewport + flags stealth identiques à `FacebookScraper`), détecte explicitement un blocage (redirection `captcha-delivery.com`, HTTP 403/429, titre de page suspect). Aucune écriture Firestore — script de test uniquement, pas encore intégré à `bot.py`/`run_scan()`.
+- **Limite assumée** : aucune extraction de contenu (titre/prix/photos) tentée — la structure DOM réelle de LeBonCoin n'a pas pu être vérifiée depuis l'environnement de développement (aucun accès réseau LeBonCoin possible ici). Si la sonde passe, elle sauvegarde le HTML complet localement pour permettre d'écrire des sélecteurs fiables à l'étape suivante, une fois un résultat réel observé par l'utilisateur.
+- **`.gitignore`** : ajout de `backend/scripts/leboncoin_storage_state.json` (session/cookies, équivalent à des identifiants) et des artefacts de debug (`leboncoin_probe_*.png/html`).
+- **Non testé en conditions réelles** (aucun accès réseau LeBonCoin depuis cet environnement) — calibration à la charge de l'utilisateur.
+
 [2026-07-21] [PRO] Fix : Curseur "Logs à 500" inopérant + notification de scan manuel enrichie → Résultat :
 - **Symptôme signalé** : Le curseur "Limite Temporaire de Logs" (`ConfigPanel.jsx`) affichait bien 500 localement, mais la valeur restait à 100 côté Firestore/console.
 - **`src/components/ConfigPanel.jsx` (`LogsConfigSection`)** : La sauvegarde ne se déclenchait que sur `onBlur` — un `<input type="range">` manipulé à la souris ne perd pas nécessairement le focus après un glisser-déposer si l'utilisateur ne clique pas ensuite sur un autre champ, donc `saveConfig()` n'était jamais appelé. Ajout de `onMouseUp`/`onKeyUp` (déclenchement fiable en fin d'interaction souris/clavier, sans debounce nécessaire car ils ne se déclenchent qu'une fois par interaction).
