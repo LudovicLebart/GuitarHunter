@@ -12,13 +12,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
 
-- [/] **Calibration d'une approche Playwright "douce" face à DataDome**
-    - *Contexte :* Options d'extraction évaluées (A-F), Option F (reverse engineering mobile) écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial (2-3 utilisateurs). Piste retenue : tester une approche similaire au scraper Facebook (stealth Playwright, sans contournement actif DataDome type SSL Pinning/TLS spoofing), avec compte réchauffé + session persistée.
+- [x] **Calibration d'une approche Playwright "douce" face à DataDome** *(Réussie 2026-07-21)*
+    - *Contexte :* Options d'extraction évaluées (A-F), Option F (reverse engineering mobile) écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial (2-3 utilisateurs). Piste retenue : approche similaire au scraper Facebook (stealth Playwright, sans contournement actif DataDome type SSL Pinning/TLS spoofing), avec compte réchauffé + session persistée.
     - [x] `backend/scripts/leboncoin_login_once.py` : génère une session authentifiée réutilisable (`storage_state`).
     - [x] `backend/scripts/leboncoin_probe.py` : teste si la session passe une recherche sans être bloquée par DataDome (détection captcha/403/429).
-    - [ ] **À faire par l'utilisateur** : lancer la calibration, rapporter si un blocage survient (et lequel) ou si la page charge normalement.
-    - [ ] **Si ça passe** : écrire les sélecteurs d'extraction réels (titre, prix, description, localisation approximative, lien) à partir du HTML observé — non tenté jusqu'ici faute d'accès réseau LeBonCoin depuis l'environnement de développement.
-    - [ ] **Si ça bloque** : réévaluer les options (accepter la limitation, ou reconsidérer une option plus lourde) — décision produit à trancher avec l'utilisateur, pas à l'assistant.
+    - *Premier essai (bloqué, 403 immédiat)* : faux négatif — la fenêtre de login n'avait pas les mêmes mesures stealth que la sonde, connexion faite dans un autre navigateur jamais capturé par Playwright → session anonyme testée par erreur. Corrigé (flags/UA/viewport alignés entre les deux scripts).
+    - *Second essai, avec une vraie session authentifiée* : ✅ **passe sans blocage.** L'approche "douce" (sans SSL Pinning/TLS spoofing) est donc viable, au moins pour l'instant — à re-tester périodiquement (DataDome évolue).
+    - [x] **Extraction** : LeBonCoin (Next.js) embarque les résultats de recherche en JSON structuré (`<script id="__NEXT_DATA__">`) — bien plus fiable que des sélecteurs CSS. `leboncoin_probe.py::extract_ads()` extrait une liste blanche stricte (titre, prix, localisation approximative ville/code postal, lien, date, photos) ; le bloc `owner` (pseudo/user_id/store_id vendeur) est explicitement exclu. Testé avec succès sur un vrai résultat (35 annonces, aucune donnée vendeur).
+    - [ ] **Reste à faire** : extraction de la description complète (vide sur la page de résultats — nécessite de visiter chaque fiche détail, `body` y est probablement peuplé via le même schéma `__NEXT_DATA__`, à vérifier). Puis : décider de l'intégration réelle (nouveau module scraper dédié, cadence, volume cible ~50-100/jour) — pas encore commencée, scripts actuels = calibration/test uniquement, aucune écriture Firestore.
 
 ---
 
