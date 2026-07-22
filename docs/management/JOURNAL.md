@@ -74,6 +74,12 @@
 - **Testé** : `extract_ads()` validé directement contre le fichier HTML réel fourni par l'utilisateur (35/35 annonces extraites correctement, aucun champ `owner` présent dans le résultat).
 - **Limite restante** : le `body` (description complète) est vide sur la page de résultats — nécessitera de visiter chaque fiche détail à l'étape suivante, non fait à ce stade.
 
+[2026-07-21] [PRO] Feature : Filtrage ville(s)/catégorie/prix/tri pour la sonde LeBonCoin → Résultat :
+- **Bug corrigé** : le filtre de prix envoyait `price=min-{max}` (le mot "min" en dur) au lieu du vrai format `price={min}-{max}` (deux nombres) — confirmé via une vraie URL fournie par l'utilisateur.
+- **`backend/scripts/leboncoin_probe.py`** : nouveaux paramètres `--category` (défaut `30`, Instruments de musique), `--locations` (multi-villes via virgule — valeur brute à copier depuis une recherche manuelle sur leboncoin.fr, format non deviné/reconstruit car il varie selon que la ville a un code postal unique ou non), `--min-price`, `--owner-type` (`private`/`pro`). `sort=time&order=desc` (annonces les plus récentes en premier) désormais systématique, cohérent avec l'objectif du projet.
+- **Vérifié** : construction d'URL testée en isolation contre 2 vraies URLs fournies par l'utilisateur (recherche à 1 ville puis à 2 villes) — reproduction identique caractère pour caractère.
+- **Décision produit (utilisateur)** : extraction de la description complète non poursuivie (jugée peu utile en pratique) — photos/titre/prix suffisent.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

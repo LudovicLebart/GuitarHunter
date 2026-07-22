@@ -21,7 +21,13 @@ Prérequis : avoir généré une session via `backend.scripts.leboncoin_login_on
 Usage :
     python -m backend.scripts.leboncoin_probe
     python -m backend.scripts.leboncoin_probe --query "guitare parlor" --max-price 200
+    python -m backend.scripts.leboncoin_probe --query "guitare acoustique" --min-price 50 --max-price 200 \
+        --locations "bordeaux_33000__44.8367_-0.5810_5000" --owner-type private
     python -m backend.scripts.leboncoin_probe --headless
+
+Le paramètre --locations attend la valeur brute copiée depuis l'URL d'une
+recherche manuelle sur leboncoin.fr (gère nativement le multi-villes via des
+virgules) — non deviné/reconstruit, le format exact varie selon la ville.
 """
 import sys
 import os
@@ -117,7 +123,15 @@ def extract_ads(html):
 def main():
     parser = argparse.ArgumentParser(description="Sonde de calibration LeBonCoin — teste si la session passe sans être bloquée")
     parser.add_argument("--query", default="guitare", help="Terme de recherche (défaut: guitare)")
+    parser.add_argument("--min-price", type=int, default=0, help="Prix minimum (défaut: 0)")
     parser.add_argument("--max-price", type=int, default=0, help="Prix maximum (0 = pas de filtre)")
+    parser.add_argument("--category", default="30", help="ID de catégorie LeBonCoin (défaut: 30, Instruments de musique)")
+    parser.add_argument(
+        "--locations", default=None,
+        help="Valeur brute du paramètre 'locations' copiée depuis une recherche manuelle sur leboncoin.fr "
+             "(gère nativement le multi-villes via des virgules) — non deviné, à fournir tel quel."
+    )
+    parser.add_argument("--owner-type", default=None, choices=["private", "pro"], help="Filtrer par type de vendeur (défaut: aucun filtre)")
     parser.add_argument("--state", default=DEFAULT_STATE, help=f"Chemin du fichier de session (défaut: {DEFAULT_STATE})")
     parser.add_argument("--headless", action="store_true", help="Lancer en mode headless (défaut: fenêtre visible pour observer)")
     args = parser.parse_args()
@@ -141,9 +155,16 @@ def main():
         page.on("response", lambda r: responses.append(r))
 
         query_encoded = urllib.parse.quote(args.query)
-        url = f"https://www.leboncoin.fr/recherche?text={query_encoded}"
+        url = f"https://www.leboncoin.fr/recherche?category={args.category}&text={query_encoded}"
+        if args.locations:
+            # safe="," pour préserver la séparation multi-villes ; le reste (accents, espaces...)
+            # est encodé normalement.
+            url += f"&locations={urllib.parse.quote(args.locations, safe=',')}"
         if args.max_price > 0:
-            url += f"&price=min-{args.max_price}"
+            url += f"&price={args.min_price}-{args.max_price}"
+        if args.owner_type:
+            url += f"&owner_type={args.owner_type}"
+        url += "&sort=time&order=desc"  # annonces les plus récentes en premier
 
         print(f"➡️  Navigation : {url}")
         page.goto(url, timeout=30000)
