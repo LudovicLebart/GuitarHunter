@@ -101,6 +101,12 @@
 - **`backend/scraping_leboncoin/core.py::search()`** : `page.goto(url, timeout=30000)` → `page.goto(url, timeout=0, wait_until="domcontentloaded")`. `timeout=0` (convention Playwright "pas de timeout") répond à la demande explicite de l'utilisateur — la page ne se ferme plus jamais automatiquement, fermeture manuelle à sa charge. `wait_until="domcontentloaded"` (au lieu de `"load"`) devrait faire aboutir la navigation rapidement dans la plupart des cas sans même nécessiter d'attente longue.
 - **Non testé en conditions réelles** — validation à la charge de l'utilisateur.
 
+[2026-07-22] [PRO] Fix : Fenêtre fermée automatiquement malgré la demande + simulation de navigation silencieuse → Résultat :
+- **Symptôme signalé** : après le fix du timeout `page.goto()`, la fenêtre du navigateur se fermait quand même en fin de script — le `timeout=0` ne portait que sur le chargement de la page, pas sur la fin du script. Également : aucun scroll/mouvement de souris visible pendant les tests, alors que `_simulate_browsing()` est censé en produire.
+- **`backend/scripts/leboncoin_probe.py`** : ajout d'un `input("Appuie sur Entrée pour fermer...")` juste avant `scraper.close_session()` dans le `finally` — la fenêtre reste ouverte tant que l'utilisateur ne valide pas lui-même, au lieu d'une fermeture automatique imposée en fin de script.
+- **`backend/scraping_leboncoin/core.py::_simulate_browsing()`** : le `except` loguait en `debug` (invisible au niveau `INFO` utilisé par le script) — passé en `warning` pour qu'un échec silencieux du scroll/mouvement de souris soit désormais visible et diagnosticable.
+- **Non testé en conditions réelles** — validation à la charge de l'utilisateur.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).

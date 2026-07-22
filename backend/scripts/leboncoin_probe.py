@@ -78,6 +78,13 @@ def main():
             if len(ads) > 10:
                 print(f"   ... et {len(ads) - 10} autre(s).")
     finally:
+        # La fenêtre reste ouverte tant que l'utilisateur n'a pas validé lui-même —
+        # utile pour observer visuellement la page (scroll, blocage éventuel...)
+        # avant fermeture, plutôt qu'une fermeture automatique imposée.
+        try:
+            input("\n👉 Appuie sur Entrée pour fermer la fenêtre du navigateur...\n")
+        except EOFError:
+            pass
         scraper.close_session()
         # Dans le finally pour toujours sauvegarder le déjà-collecté, même si une
         # exception (ex: timeout Playwright) interrompt la boucle --repeat en cours de route.

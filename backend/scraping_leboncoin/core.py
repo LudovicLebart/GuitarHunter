@@ -101,7 +101,9 @@ class LeboncoinScraper:
                 self._human_pause(0.5, 1.8)
             page.mouse.move(random.randint(100, 800), random.randint(100, 600))
         except Exception as e:
-            self.logger.debug(f"Simulation de navigation échouée (non bloquant) : {e}")
+            # warning (pas debug) : un échec silencieux ici serait invisible en usage
+            # normal (niveau INFO) alors que c'est un signal utile à diagnostiquer.
+            self.logger.warning(f"Simulation de navigation échouée (non bloquant) : {e}")
 
     @staticmethod
     def build_url(query, locations=None, category="30", min_price=0, max_price=0, owner_type=None, page_num=1):
