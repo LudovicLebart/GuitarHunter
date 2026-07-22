@@ -61,6 +61,12 @@
 - **`.gitignore`** : ajout de `backend/scripts/leboncoin_storage_state.json` (session/cookies, équivalent à des identifiants) et des artefacts de debug (`leboncoin_probe_*.png/html`).
 - **Non testé en conditions réelles** (aucun accès réseau LeBonCoin depuis cet environnement) — calibration à la charge de l'utilisateur.
 
+[2026-07-21] [PRO] Fix : leboncoin_login_once.py non furtif → fenêtre de login jamais chargée → Résultat :
+- **Symptôme signalé** : Premier test de calibration — la fenêtre ouverte par `leboncoin_login_once.py` ne chargeait pas `leboncoin.fr`, obligeant l'utilisateur à se connecter dans un autre navigateur (jamais capturé par Playwright). La session sauvegardée était donc anonyme, invalidant le premier test (403 immédiat non concluant sur l'hypothèse "compte réchauffé").
+- **Cause probable** : `leboncoin_login_once.py` lançait Chromium sans aucune des mesures de furtivité déjà présentes dans `leboncoin_probe.py` (pas de flags anti-détection, pas de rotation UA/viewport) — la fenêtre de login elle-même était probablement bloquée par DataDome avant que la connexion manuelle ait pu avoir lieu.
+- **`backend/scripts/leboncoin_login_once.py`** : alignement sur les mêmes flags Chromium (`--disable-blink-features=AutomationControlled`, etc.) et la même rotation UA/viewport que `leboncoin_probe.py`.
+- **Non testé en conditions réelles** — nouvelle tentative de calibration à la charge de l'utilisateur.
+
 [2026-07-19] [PRO] Fix : MapView — zoom reset au clic mobile → Résultat :
 - **Cause :** Le `useEffect` de création des marqueurs dépendait de `selectedDealId`, ce qui déclenchait un `fitBounds()` à chaque sélection d'annonce sur mobile.
 - **`src/components/MapView.jsx`** : Split en 2 effets indépendants. Effet 1 `[map, deals, onDealSelect]` crée les marqueurs + `fitBounds` (une seule fois à chaque changement de dataset). Effet 2 `[selectedDealId, map]` met uniquement à jour `scale`/`strokeWeight` via `markerByIdRef` — aucun fitBounds déclenché au clic. Ajout de `markerByIdRef` (Map dealId → marker).
