@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-22] [PRO] Fix : Fenêtre fermée automatiquement malgré la demande + simulation de navigation silencieuse → Résultat :
+- **Symptôme signalé** : après le fix du timeout `page.goto()`, la fenêtre du navigateur se fermait quand même en fin de script — le `timeout=0` ne portait que sur le chargement de la page, pas sur la fin du script. Également : aucun scroll/mouvement de souris visible pendant les tests, alors que `_simulate_browsing()` est censé en produire.
+- **`backend/scripts/leboncoin_probe.py`** : ajout d'un `input("Appuie sur Entrée pour fermer...")` juste avant `scraper.close_session()` dans le `finally` — la fenêtre reste ouverte tant que l'utilisateur ne valide pas lui-même, au lieu d'une fermeture automatique imposée en fin de script.
+- **`backend/scraping_leboncoin/core.py::_simulate_browsing()`** : le `except` loguait en `debug` (invisible au niveau `INFO` utilisé par le script) — passé en `warning` pour qu'un échec silencieux du scroll/mouvement de souris soit désormais visible et diagnosticable.
+- **Non testé en conditions réelles** — validation à la charge de l'utilisateur.
+
 [2026-07-22] [PRO] Fix : Timeout Playwright sur page.goto() en conditions réelles → Résultat :
 - **Symptôme signalé** : `playwright._impl._errors.TimeoutError: Page.goto: Timeout 30000ms exceeded` lors d'un test réel — la page semblait pourtant se charger normalement à l'œil.
 - **Cause** : `page.goto()` utilisait le défaut Playwright `wait_until="load"`, qui attend que **toutes** les ressources de la page (pubs, trackers, scripts tiers) aient fini de charger — même famille de piège que le fix `networkidle` du scraper Facebook (`_apply_filters`), une SPA avec du trafic de fond permanent ne déclenche jamais cet événement.
