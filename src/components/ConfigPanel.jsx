@@ -314,6 +314,7 @@ const LogsConfigSection = () => {
             onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
             onMouseUp={(e) => saveConfig({ logLimit: Number(e.target.value) })}
             onKeyUp={(e) => saveConfig({ logLimit: Number(e.target.value) })}
+            onTouchEnd={(e) => saveConfig({ logLimit: Number(e.target.value) })}
             className="flex-grow h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
           <span className="min-w-[40px] text-right font-mono text-xs text-blue-400 font-bold">{logLimit}</span>

@@ -244,8 +244,12 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
 
         return days.map(d => {
             const key = d.toISOString().slice(0, 10);
+            // Libellé dérivé de la même clé UTC que celle utilisée pour le comptage
+            // (pas de toLocaleDateString sur `d` : donnerait la date locale, potentiellement
+            // décalée d'un jour par rapport au bucket UTC réellement compté).
+            const [, month, day] = key.split('-');
             return {
-                date: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+                date: `${day}/${month}`,
                 count: counts[key],
             };
         });

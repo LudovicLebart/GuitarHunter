@@ -213,7 +213,7 @@ class GuitarHunterBot:
         title_lower = (listing_data.get('title') or '').lower()
         desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
         found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
-        if found_sold_marker and not is_manual_scan:
+        if found_sold_marker:
             self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
             return "sold_marker"
 
@@ -379,30 +379,26 @@ class GuitarHunterBot:
                             # --- FILTRAGE PAR RAYON ---
                             radius_km = scan_config.get('distance', 0)
                             if radius_km == 0:
-                                # Mode nom strict, à 3 voies :
+                                # Mode nom strict, à 2 voies (is_city_allowed(), appliqué en amont dans
+                                # scan_marketplace() sur ce même champ 'location', garantit déjà que
+                                # toute annonce ici correspond à une ville de la liste autorisée — donc
+                                # jamais "hors liste" à ce stade) :
                                 # 1) localisation = ville recherchée -> traitée normalement.
                                 # 2) localisation = une AUTRE ville de la liste autorisée -> traitée quand
                                 #    même maintenant (au lieu d'être jetée après avoir payé le coût de la
                                 #    fiche détail) : ça alimente session_processed_ids et évite un refetch
                                 #    complet si Facebook la ressert lors du tour de cette autre ville.
-                                # 3) localisation hors de la liste des 22 villes -> rejetée (inchangé).
                                 norm_city = ListingParser.normalize_city_name(city_name)
-                                own_city_deals, other_city_deals, out_of_scope_count = [], [], 0
+                                own_city_deals, other_city_deals = [], []
                                 for deal in found_deals:
                                     norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
                                     if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
                                         own_city_deals.append(deal)
-                                    elif norm_deal_loc and any(
-                                        norm_deal_loc == other or other in norm_deal_loc or norm_deal_loc.startswith(other)
-                                        for other in all_allowed_cities_norm if other != norm_city
-                                    ):
-                                        other_city_deals.append(deal)
                                     else:
-                                        out_of_scope_count += 1
-                                        self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' hors liste des villes autorisées.")
+                                        other_city_deals.append(deal)
                                 if other_city_deals:
                                     self.logger.info(f"[STRICT] {len(other_city_deals)} annonce(s) d'une autre ville autorisée trouvée(s) pendant le scan de '{city_name}' — traitées maintenant.")
-                                self.logger.info(f"[STRICT] {len(own_city_deals)}/{len(found_deals)} annonces pour '{city_name}', {len(other_city_deals)} pour une autre ville de la liste, {out_of_scope_count} hors liste.")
+                                self.logger.info(f"[STRICT] {len(own_city_deals)}/{len(found_deals)} annonces pour '{city_name}', {len(other_city_deals)} pour une autre ville de la liste.")
                                 cycle_stats["matched_other_city"] += len(other_city_deals)
                                 found_deals = own_city_deals + other_city_deals
                             elif radius_km > 0:

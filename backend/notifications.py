@@ -310,6 +310,10 @@ class NotificationService:
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
     }
 
+    # Ces deux issues sortent de handle_deal_found() AVANT toute lecture/écriture
+    # Firestore — aucun document n'existe pour listing_data['id'], donc pas de lien.
+    _OUTCOMES_WITHOUT_DEAL_LINK = {"scrape_failed", "sold_marker"}
+
     @staticmethod
     def notify_scan_url_finished(url: str, user_email: Optional[str] = None, logger: logging.Logger = None,
                                   outcome: Optional[str] = None, listing_data: Optional[dict] = None) -> None:
@@ -322,7 +326,11 @@ class NotificationService:
         listing_data = listing_data or {}
         title = listing_data.get('title') or "l'annonce"
         deal_id = listing_data.get('id')
-        deal_link = f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}" if deal_id else None
+        deal_link = (
+            f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}"
+            if deal_id and outcome not in NotificationService._OUTCOMES_WITHOUT_DEAL_LINK
+            else None
+        )
 
         template = NotificationService._SCAN_URL_OUTCOME_MESSAGES.get(
             outcome, "❓ Impossible de récupérer les informations de cette annonce (URL invalide ou bloquée)."
