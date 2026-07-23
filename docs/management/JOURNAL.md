@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-22] [PRO] Fix : Sonde LeBonCoin validée en conditions réelles — page persistante + boucle interactive → Résultat :
+- **Blocage réel observé** : après ~4 tests dans la journée, un `--repeat 3` a déclenché un 403 sur `auth.leboncoin.fr/user` accompagné d'un slider DataDome visible à l'écran — mais la page se fermait automatiquement avant que l'utilisateur ait pu tenter de le résoudre à la main.
+- **`backend/scraping_leboncoin/core.py::search()`** : ne ferme plus jamais la page elle-même (ni en cas de succès, ni de blocage, ni d'échec d'extraction) — un onglet unique (`self.page`, créé via `_get_page()`) est désormais réutilisé pour toutes les recherches de la session, au lieu d'un nouvel onglet ouvert puis fermé à chaque appel. Seule `close_session()` ferme réellement le navigateur.
+- **`backend/scripts/leboncoin_probe.py`** : `--repeat` (nombre fixe défini au lancement) remplacé par une boucle interactive — après chaque recherche, l'utilisateur choisit `[Entrée]` relancer la même recherche, `[n]` nouveaux paramètres, ou `[q]` quitter. Une seule fenêtre ouverte du lancement du script jusqu'à la sortie explicite ; plus aucune fermeture/réouverture entre deux tests.
+- **Testé et validé en conditions réelles par l'utilisateur** : pagination, extraction et boucle interactive fonctionnent comme prévu — l'onglet reste ouvert et est réutilisé entre recherches, fermeture uniquement sur `q`.
+
 [2026-07-22] [PRO] Fix : Fenêtre fermée automatiquement malgré la demande + simulation de navigation silencieuse → Résultat :
 - **Symptôme signalé** : après le fix du timeout `page.goto()`, la fenêtre du navigateur se fermait quand même en fin de script — le `timeout=0` ne portait que sur le chargement de la page, pas sur la fin du script. Également : aucun scroll/mouvement de souris visible pendant les tests, alors que `_simulate_browsing()` est censé en produire.
 - **`backend/scripts/leboncoin_probe.py`** : ajout d'un `input("Appuie sur Entrée pour fermer...")` juste avant `scraper.close_session()` dans le `finally` — la fenêtre reste ouverte tant que l'utilisateur ne valide pas lui-même, au lieu d'une fermeture automatique imposée en fin de script.
