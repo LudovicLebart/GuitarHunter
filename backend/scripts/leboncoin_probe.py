@@ -79,14 +79,16 @@ def _print_results(ads):
         print(f"   ... et {len(ads) - 10} autre(s).")
 
 
-def _run_interactive(scraper, params, all_results):
+def _run_interactive(scraper, params, all_results, known_ids):
     while True:
         ads, blocked_reason = scraper.search(
             params["query"], locations=params["locations"], category=params["category"],
             min_price=params["min_price"], max_price=params["max_price"],
             owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
+            known_ids=known_ids,
         )
         all_results.extend(ads)  # même en cas de blocage/échec, on garde le déjà-collecté
+        known_ids.update(ad["id"] for ad in ads)
 
         if blocked_reason:
             print(f"🚨 ARRÊT DE LA RECHERCHE : {blocked_reason}")
@@ -106,7 +108,7 @@ def _run_interactive(scraper, params, all_results):
         # Entrée seule : relance à l'identique, même session/même navigateur.
 
 
-def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results):
+def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results, known_ids):
     clean_count = 0
     blocked_count = 0
     for i in range(cycles):
@@ -121,8 +123,10 @@ def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results):
             params["query"], locations=params["locations"], category=params["category"],
             min_price=params["min_price"], max_price=params["max_price"],
             owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
+            known_ids=known_ids,
         )
         all_results.extend(ads)
+        known_ids.update(ad["id"] for ad in ads)
 
         entry = {
             "cycle": i + 1,
@@ -187,6 +191,9 @@ def main():
 
     scraper = LeboncoinScraper(args.state, logger=logger)
     all_results = []
+    known_ids = set()  # IDs déjà vus dans cette session — pas une vraie base de
+                        # données (pas encore d'intégration Firestore), mais permet
+                        # de tester dès maintenant l'arrêt anticipé de la pagination
     params = {
         "query": args.query, "min_price": args.min_price, "max_price": args.max_price,
         "category": args.category, "locations": args.locations,
@@ -195,9 +202,9 @@ def main():
 
     try:
         if args.soak_cycles:
-            _run_soak(scraper, params, args.soak_cycles, args.soak_min_wait, args.soak_max_wait, all_results)
+            _run_soak(scraper, params, args.soak_cycles, args.soak_min_wait, args.soak_max_wait, all_results, known_ids)
         else:
-            _run_interactive(scraper, params, all_results)
+            _run_interactive(scraper, params, all_results, known_ids)
     except Exception:
         print("\n⚠️ Erreur inattendue pendant la recherche — la fenêtre reste ouverte pour inspection.")
         try:

@@ -383,10 +383,17 @@ class LeboncoinScraper:
         return results, max_pages
 
     def search(self, query, locations=None, category="30", min_price=0, max_price=0,
-               owner_type=None, max_pages_limit=None):
+               owner_type=None, max_pages_limit=None, known_ids=None):
         """Recherche paginée (jusqu'au max_pages annoncé par LeBonCoin lui-même,
         ou max_pages_limit si fourni et plus restrictif — jamais au-delà, aucune
         page inexistante n'est demandée).
+
+        `known_ids` (optionnel) : ensemble d'identifiants déjà connus (ex: déjà
+        en base). Le tri de recherche étant "plus récent d'abord" (sort=time&
+        order=desc), dès qu'une page ne contient plus aucune annonce inconnue,
+        tout ce qui suit est nécessairement encore plus ancien donc déjà connu
+        — la pagination s'arrête alors immédiatement, sans avoir besoin de
+        vérifier les pages suivantes.
 
         Retourne (annonces, blocage) : blocage est None si tout s'est bien passé.
         Sinon une chaîne décrivant le problème — soit un vrai blocage DataDome,
@@ -463,6 +470,11 @@ class LeboncoinScraper:
             self._maybe_open_random_ad(page)
             self._maybe_save_random_ad(page)
             self._maybe_revisit_previous_page(page, page_num)
+
+            if known_ids is not None and ads and all(ad["id"] in known_ids for ad in ads):
+                self.logger.info("   ⏹️  Toutes les annonces de cette page sont déjà connues — "
+                                  "arrêt de la pagination (tri = plus récent d'abord, la suite est forcément plus ancienne).")
+                break
 
             if page_num >= effective_max_pages:
                 break
