@@ -174,10 +174,10 @@ class LeboncoinScraper:
         self._mouse_pos = (target_x, target_y)
 
     def _human_scroll(self, page, total_delta):
-        """Défile de `total_delta` px (signe = direction) en plusieurs paliers
-        suivant une courbe en cloche (accélération puis décélération), au lieu
-        d'un seul saut brutal de `page.mouse.wheel()`."""
-        steps = random.randint(5, 12)
+        """Défile de `total_delta` px (signe = direction) en de nombreux petits
+        paliers suivant une courbe en cloche (accélération puis décélération),
+        pour un mouvement visuellement continu plutôt qu'une poignée de sauts."""
+        steps = random.randint(18, 32)
         weights = [math.sin(math.pi * (i + 0.5) / steps) for i in range(steps)]
         weight_sum = sum(weights)
         remaining = total_delta
@@ -185,7 +185,7 @@ class LeboncoinScraper:
             chunk = remaining if i == steps - 1 else round(total_delta * w / weight_sum)
             page.mouse.wheel(0, chunk)
             remaining -= chunk
-            self._human_pause(0.05, 0.25)
+            time.sleep(random.uniform(0.012, 0.045))
 
     def _simulate_browsing(self, page):
         """Actions décoratives (scroll, survol d'une annonce) tirées au hasard,
@@ -212,6 +212,36 @@ class LeboncoinScraper:
             # warning (pas debug) : un échec silencieux ici serait invisible en usage
             # normal (niveau INFO) alors que c'est un signal utile à diagnostiquer.
             self.logger.warning(f"Simulation de navigation échouée (non bloquant) : {e}")
+
+    def _read_through_page(self, page, min_dwell_s):
+        """Simule la lecture complète d'une page de résultats (une trentaine
+        d'annonces) avant de changer de page : reste un temps minimum, puis
+        termine par une descente jusqu'en bas de la page — c'est là que se
+        trouvent les boutons de pagination, un humain doit physiquement y
+        arriver avant de cliquer "page suivante", pas y sauter directement."""
+        try:
+            started = time.time()
+            cards = page.query_selector_all(AD_CARD_SELECTOR)
+            while time.time() - started < min_dwell_s:
+                action = random.choice(["scroll_down", "hover_card", "idle"])
+                if action == "scroll_down":
+                    self._human_scroll(page, random.randint(200, 600))
+                elif action == "hover_card" and cards:
+                    card = random.choice(cards)
+                    card.scroll_into_view_if_needed()
+                    box = card.bounding_box()
+                    if box:
+                        self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                        self._human_pause(1.0, 3.0)
+                else:
+                    self._human_pause(0.5, 2.0)
+            # Descente jusqu'aux boutons de pagination, en bas de la liste (le
+            # scroll dépasse volontairement le contenu réel — le navigateur
+            # borne lui-même au bas de page réel).
+            self._human_scroll(page, 20000)
+            self._human_pause(0.5, 1.5)
+        except Exception as e:
+            self.logger.warning(f"Lecture de page échouée (non bloquant) : {e}")
 
     def _maybe_open_random_ad(self, page, probability=0.25):
         """Ouvre parfois une annonce au hasard (clic réel sur la liste), puis
@@ -414,7 +444,10 @@ class LeboncoinScraper:
             # Actions décoratives (après extraction, pour ne jamais risquer de
             # perturber la récupération des données réelles) — aucune ne sert à
             # l'extraction, uniquement à la vraisemblance comportementale.
-            self._simulate_browsing(page)
+            # _read_through_page assure un temps de lecture minimum (une trentaine
+            # d'annonces à parcourir) et termine en bas de page, là où se trouvent
+            # les boutons de pagination — jamais un saut direct vers la page suivante.
+            self._read_through_page(page, min_dwell_s=random.uniform(45, 75))
             self._maybe_open_random_ad(page)
             self._maybe_save_random_ad(page)
             self._maybe_revisit_previous_page(page, page_num)
