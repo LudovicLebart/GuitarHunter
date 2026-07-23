@@ -33,6 +33,8 @@ import re
 import json
 import time
 import urllib.parse
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
 
@@ -57,6 +59,35 @@ SUSPICIOUS_TITLE_KEYWORDS = ["just a moment", "vérification", "attention requis
 AD_CARD_SELECTOR = '[data-qa-id="aditem_container"]'
 AD_LINK_SELECTOR = f'{AD_CARD_SELECTOR} a'
 SAVE_AD_BUTTON_SELECTOR = '[data-qa-id="listitem_save_ad"]'
+
+# Plage nocturne (heure de Paris, pas l'heure système de la machine qui exécute
+# le script) — un humain ne consulte pas les petites annonces en pleine nuit.
+# Fonctions réutilisables telles quelles pour la future cadence de scan réelle
+# (bot.py), pas seulement pour le test de charge (--soak-cycles).
+PARIS_TZ = ZoneInfo("Europe/Paris")
+NIGHT_START_HOUR = 0
+NIGHT_END_HOUR = 7
+
+
+def is_night_time(now=None):
+    """True si l'heure actuelle (Europe/Paris) tombe dans la plage nocturne
+    [NIGHT_START_HOUR, NIGHT_END_HOUR)."""
+    now = now or datetime.now(PARIS_TZ)
+    return NIGHT_START_HOUR <= now.hour < NIGHT_END_HOUR
+
+
+def seconds_until_active(now=None):
+    """Secondes à attendre avant la prochaine heure d'activité plausible — 0 si
+    on n'est pas actuellement en plage nocturne. Le réveil est variable (pas un
+    couperet fixe à NIGHT_END_HOUR pile) pour rester plausible."""
+    now = now or datetime.now(PARIS_TZ)
+    if not is_night_time(now):
+        return 0
+    wake_hour = NIGHT_END_HOUR + random.uniform(0, 1.5)  # ex: entre 7h00 et ~8h30
+    target = now.replace(hour=int(wake_hour), minute=int((wake_hour % 1) * 60), second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
 
 
 class LeboncoinScraper:

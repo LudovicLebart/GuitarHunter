@@ -9,9 +9,11 @@ Deux modes :
   intervention manuelle (ex : résoudre un slider DataDome).
 - **Soak test** (`--soak-cycles N`) : enchaîne N cycles de recherche sans
   interaction manuelle, avec un intervalle aléatoire et large entre chaque
-  (pas un délai fixe court, qui serait lui-même un pattern détectable), pour
-  obtenir un vrai signal chiffré (taux de blocage) sur une campagne de test
-  longue plutôt qu'une impression sur quelques essais manuels.
+  (défaut 45-90 min, aligné/au-dessus du rythme Facebook — un test qui bannirait
+  le compte irait à l'encontre de son propre but), pour obtenir un vrai signal
+  chiffré (taux de blocage) sur une campagne de test longue plutôt qu'une
+  impression sur quelques essais manuels. Marque aussi une pause automatique la
+  nuit (heure de Paris) plutôt que de scanner 24h/24.
 
 Aucune écriture Firestore — script de test uniquement.
 
@@ -22,7 +24,7 @@ Usage :
     python -m backend.scripts.leboncoin_probe --query "guitare parlor" --max-price 200
     python -m backend.scripts.leboncoin_probe --query "guitare acoustique" --min-price 50 --max-price 200 \
         --locations "bordeaux_33000__44.8367_-0.5810_5000" --owner-type private --max-pages 2
-    python -m backend.scripts.leboncoin_probe --soak-cycles 20 --soak-min-wait 180 --soak-max-wait 900
+    python -m backend.scripts.leboncoin_probe --soak-cycles 20
 
 Après chaque recherche (mode interactif), un prompt propose :
     [Entrée] relancer la même recherche | [n] nouveaux paramètres | [q] quitter
@@ -38,13 +40,18 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, '.')
 
-from backend.scraping_leboncoin import LeboncoinScraper
+from backend.scraping_leboncoin import LeboncoinScraper, seconds_until_active
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
 logger = logging.getLogger("leboncoin_probe")
 
 DEFAULT_STATE = "backend/scripts/leboncoin_storage_state.json"
 SOAK_LOG_PATH = "leboncoin_soak_log.jsonl"
+
+
+def _max_pages_limit(params):
+    """0 (ou non fourni) = pas de plafond, on suit le max_pages réel du site."""
+    return params["max_pages"] if params["max_pages"] > 0 else None
 
 
 def _prompt_new_params(params):
@@ -60,7 +67,7 @@ def _prompt_new_params(params):
     params["locations"] = ask("Locations (brut, vide = aucun)", params["locations"] or "") or None
     owner = ask("Type vendeur (private/pro, vide = aucun)", params["owner_type"] or "")
     params["owner_type"] = owner if owner in ("private", "pro") else None
-    params["max_pages"] = int(ask("Pages max", params["max_pages"]) or 1)
+    params["max_pages"] = int(ask("Pages max (0 = illimité, suit le site)", params["max_pages"]) or 0)
     return params
 
 
@@ -77,7 +84,7 @@ def _run_interactive(scraper, params, all_results):
         ads, blocked_reason = scraper.search(
             params["query"], locations=params["locations"], category=params["category"],
             min_price=params["min_price"], max_price=params["max_price"],
-            owner_type=params["owner_type"], max_pages_limit=params["max_pages"],
+            owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
         )
         all_results.extend(ads)  # même en cas de blocage/échec, on garde le déjà-collecté
 
@@ -103,12 +110,17 @@ def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results):
     clean_count = 0
     blocked_count = 0
     for i in range(cycles):
+        wait_s = seconds_until_active()
+        if wait_s > 0:
+            logger.info(f"   🌙 Plage nocturne (heure de Paris) — pause avant reprise dans ~{wait_s / 3600:.1f}h...")
+            time.sleep(wait_s)
+
         logger.info(f"=== Cycle soak {i + 1}/{cycles} ===")
         started = time.time()
         ads, blocked_reason = scraper.search(
             params["query"], locations=params["locations"], category=params["category"],
             min_price=params["min_price"], max_price=params["max_price"],
-            owner_type=params["owner_type"], max_pages_limit=params["max_pages"],
+            owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
         )
         all_results.extend(ads)
 
@@ -152,15 +164,20 @@ def main():
              "(gère nativement le multi-villes via des virgules) — non deviné, à fournir tel quel."
     )
     parser.add_argument("--owner-type", default=None, choices=["private", "pro"], help="Filtrer par type de vendeur (défaut: aucun filtre)")
-    parser.add_argument("--max-pages", type=int, default=1, help="Nombre maximum de pages à parcourir (défaut: 1)")
+    parser.add_argument(
+        "--max-pages", type=int, default=0,
+        help="Nombre maximum de pages à parcourir. 0 (défaut) = pas de plafond, suit le nombre réel "
+             "de pages annoncé par le site (searchData.max_pages)."
+    )
     parser.add_argument("--state", default=DEFAULT_STATE, help=f"Chemin du fichier de session (défaut: {DEFAULT_STATE})")
     parser.add_argument(
         "--soak-cycles", type=int, default=None,
         help="Mode test de charge : lance N cycles de recherche automatiques (sans prompt interactif), "
-             "avec un intervalle aléatoire entre chaque. Journalise chaque cycle dans leboncoin_soak_log.jsonl."
+             "avec un intervalle aléatoire entre chaque, et une pause automatique la nuit (heure de Paris). "
+             "Journalise chaque cycle dans leboncoin_soak_log.jsonl."
     )
-    parser.add_argument("--soak-min-wait", type=int, default=180, help="Intervalle minimum en secondes entre deux cycles soak (défaut: 180 = 3min)")
-    parser.add_argument("--soak-max-wait", type=int, default=900, help="Intervalle maximum en secondes entre deux cycles soak (défaut: 900 = 15min)")
+    parser.add_argument("--soak-min-wait", type=int, default=2700, help="Intervalle minimum en secondes entre deux cycles soak (défaut: 2700 = 45min)")
+    parser.add_argument("--soak-max-wait", type=int, default=5400, help="Intervalle maximum en secondes entre deux cycles soak (défaut: 5400 = 90min)")
     args = parser.parse_args()
 
     if not os.path.exists(args.state):
