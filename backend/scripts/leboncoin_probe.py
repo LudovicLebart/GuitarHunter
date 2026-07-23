@@ -1,11 +1,17 @@
 """
-Script de test interactif pour `backend.scraping_leboncoin.LeboncoinScraper` :
-une seule session/fenêtre reste ouverte du lancement du script jusqu'à ce que
-l'utilisateur choisisse explicitement de quitter — jamais de fermeture/
-réouverture automatique entre deux recherches (voir docstring du module pour
-le raisonnement anti-prévisibilité). En cas de blocage détecté, la page reste
-ouverte pour permettre une intervention manuelle (ex : résoudre un slider
-DataDome) avant de continuer ou de quitter.
+Script de test pour `backend.scraping_leboncoin.LeboncoinScraper`.
+
+Deux modes :
+- **Interactif** (défaut) : une seule session/fenêtre reste ouverte du
+  lancement du script jusqu'à ce que l'utilisateur choisisse explicitement de
+  quitter — jamais de fermeture/réouverture automatique entre deux recherches.
+  En cas de blocage détecté, la page reste ouverte pour permettre une
+  intervention manuelle (ex : résoudre un slider DataDome).
+- **Soak test** (`--soak-cycles N`) : enchaîne N cycles de recherche sans
+  interaction manuelle, avec un intervalle aléatoire et large entre chaque
+  (pas un délai fixe court, qui serait lui-même un pattern détectable), pour
+  obtenir un vrai signal chiffré (taux de blocage) sur une campagne de test
+  longue plutôt qu'une impression sur quelques essais manuels.
 
 Aucune écriture Firestore — script de test uniquement.
 
@@ -16,8 +22,9 @@ Usage :
     python -m backend.scripts.leboncoin_probe --query "guitare parlor" --max-price 200
     python -m backend.scripts.leboncoin_probe --query "guitare acoustique" --min-price 50 --max-price 200 \
         --locations "bordeaux_33000__44.8367_-0.5810_5000" --owner-type private --max-pages 2
+    python -m backend.scripts.leboncoin_probe --soak-cycles 20 --soak-min-wait 180 --soak-max-wait 900
 
-Après chaque recherche, un prompt propose :
+Après chaque recherche (mode interactif), un prompt propose :
     [Entrée] relancer la même recherche | [n] nouveaux paramètres | [q] quitter
 """
 import sys
@@ -25,6 +32,9 @@ import os
 import argparse
 import json
 import logging
+import random
+import time
+from datetime import datetime, timezone
 
 sys.path.insert(0, '.')
 
@@ -34,6 +44,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
 logger = logging.getLogger("leboncoin_probe")
 
 DEFAULT_STATE = "backend/scripts/leboncoin_storage_state.json"
+SOAK_LOG_PATH = "leboncoin_soak_log.jsonl"
 
 
 def _prompt_new_params(params):
@@ -53,8 +64,84 @@ def _prompt_new_params(params):
     return params
 
 
+def _print_results(ads):
+    print(f"\n📋 {len(ads)} annonce(s) extraite(s) :")
+    for ad in ads[:10]:
+        print(f"   [{ad['id']}] {ad['title']} — {ad['price']}€ — {ad['location']['city']} ({ad['location']['zipcode']})")
+    if len(ads) > 10:
+        print(f"   ... et {len(ads) - 10} autre(s).")
+
+
+def _run_interactive(scraper, params, all_results):
+    while True:
+        ads, blocked_reason = scraper.search(
+            params["query"], locations=params["locations"], category=params["category"],
+            min_price=params["min_price"], max_price=params["max_price"],
+            owner_type=params["owner_type"], max_pages_limit=params["max_pages"],
+        )
+        all_results.extend(ads)  # même en cas de blocage/échec, on garde le déjà-collecté
+
+        if blocked_reason:
+            print(f"🚨 ARRÊT DE LA RECHERCHE : {blocked_reason}")
+            print("   La page reste ouverte : résous un éventuel slider/captcha dans la fenêtre si besoin.")
+        else:
+            _print_results(ads)
+
+        try:
+            choice = input("\n👉 [Entrée] relancer la même recherche | [n] nouveaux paramètres | [q] quitter : ").strip().lower()
+        except EOFError:
+            choice = "q"
+
+        if choice == "q":
+            break
+        if choice == "n":
+            params = _prompt_new_params(params)
+        # Entrée seule : relance à l'identique, même session/même navigateur.
+
+
+def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results):
+    clean_count = 0
+    blocked_count = 0
+    for i in range(cycles):
+        logger.info(f"=== Cycle soak {i + 1}/{cycles} ===")
+        started = time.time()
+        ads, blocked_reason = scraper.search(
+            params["query"], locations=params["locations"], category=params["category"],
+            min_price=params["min_price"], max_price=params["max_price"],
+            owner_type=params["owner_type"], max_pages_limit=params["max_pages"],
+        )
+        all_results.extend(ads)
+
+        entry = {
+            "cycle": i + 1,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "duration_s": round(time.time() - started, 1),
+            "ads_found": len(ads),
+            "blocked": bool(blocked_reason),
+            "reason": blocked_reason,
+        }
+        with open(SOAK_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        if blocked_reason:
+            blocked_count += 1
+            print(f"🚨 Cycle {i + 1}/{cycles} bloqué : {blocked_reason} — arrêt du soak test.")
+            print("   La page reste ouverte : résous un éventuel slider/captcha dans la fenêtre si besoin.")
+            break
+
+        clean_count += 1
+        print(f"✅ Cycle {i + 1}/{cycles} : {len(ads)} annonce(s), aucun blocage.")
+
+        if i < cycles - 1:
+            wait_s = random.uniform(min_wait, max_wait)
+            logger.info(f"   Prochain cycle dans ~{wait_s / 60:.1f} min...")
+            time.sleep(wait_s)
+
+    print(f"\n📊 Bilan soak test : {clean_count} cycle(s) propre(s), {blocked_count} bloqué(s) — journal complet dans {SOAK_LOG_PATH}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Test interactif du module LeboncoinScraper")
+    parser = argparse.ArgumentParser(description="Test du module LeboncoinScraper")
     parser.add_argument("--query", default="guitare", help="Terme de recherche (défaut: guitare)")
     parser.add_argument("--min-price", type=int, default=0, help="Prix minimum (défaut: 0)")
     parser.add_argument("--max-price", type=int, default=0, help="Prix maximum (0 = pas de filtre)")
@@ -67,6 +154,13 @@ def main():
     parser.add_argument("--owner-type", default=None, choices=["private", "pro"], help="Filtrer par type de vendeur (défaut: aucun filtre)")
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre maximum de pages à parcourir (défaut: 1)")
     parser.add_argument("--state", default=DEFAULT_STATE, help=f"Chemin du fichier de session (défaut: {DEFAULT_STATE})")
+    parser.add_argument(
+        "--soak-cycles", type=int, default=None,
+        help="Mode test de charge : lance N cycles de recherche automatiques (sans prompt interactif), "
+             "avec un intervalle aléatoire entre chaque. Journalise chaque cycle dans leboncoin_soak_log.jsonl."
+    )
+    parser.add_argument("--soak-min-wait", type=int, default=180, help="Intervalle minimum en secondes entre deux cycles soak (défaut: 180 = 3min)")
+    parser.add_argument("--soak-max-wait", type=int, default=900, help="Intervalle maximum en secondes entre deux cycles soak (défaut: 900 = 15min)")
     args = parser.parse_args()
 
     if not os.path.exists(args.state):
@@ -83,34 +177,10 @@ def main():
     }
 
     try:
-        while True:
-            ads, blocked_reason = scraper.search(
-                params["query"], locations=params["locations"], category=params["category"],
-                min_price=params["min_price"], max_price=params["max_price"],
-                owner_type=params["owner_type"], max_pages_limit=params["max_pages"],
-            )
-            all_results.extend(ads)  # même en cas de blocage/échec, on garde le déjà-collecté
-
-            if blocked_reason:
-                print(f"🚨 ARRÊT DE LA RECHERCHE : {blocked_reason}")
-                print("   La page reste ouverte : résous un éventuel slider/captcha dans la fenêtre si besoin.")
-            else:
-                print(f"\n📋 {len(ads)} annonce(s) extraite(s) :")
-                for ad in ads[:10]:
-                    print(f"   [{ad['id']}] {ad['title']} — {ad['price']}€ — {ad['location']['city']} ({ad['location']['zipcode']})")
-                if len(ads) > 10:
-                    print(f"   ... et {len(ads) - 10} autre(s).")
-
-            try:
-                choice = input("\n👉 [Entrée] relancer la même recherche | [n] nouveaux paramètres | [q] quitter : ").strip().lower()
-            except EOFError:
-                choice = "q"
-
-            if choice == "q":
-                break
-            if choice == "n":
-                params = _prompt_new_params(params)
-            # Entrée seule : relance à l'identique, même session/même navigateur.
+        if args.soak_cycles:
+            _run_soak(scraper, params, args.soak_cycles, args.soak_min_wait, args.soak_max_wait, all_results)
+        else:
+            _run_interactive(scraper, params, all_results)
     except Exception:
         print("\n⚠️ Erreur inattendue pendant la recherche — la fenêtre reste ouverte pour inspection.")
         try:
