@@ -422,14 +422,19 @@ class LeboncoinScraper:
             try:
                 page.goto(url, timeout=0, wait_until="domcontentloaded")
             except PlaywrightError as e:
-                if "crashed" not in str(e).lower():
-                    raise
-                # Crash du processus de rendu Chromium (pas un blocage DataDome) —
-                # on recrée l'onglet et on retente une seule fois avant d'abandonner,
-                # pour ne pas perdre toute une campagne de test à cause d'un seul crash.
-                self.logger.warning(f"⚠️ Page Chromium crashée — recréation de l'onglet et nouvelle tentative : {e}")
-                self.page = None
-                page = self._get_page()
+                # Erreur Playwright transitoire (crash du rendu Chromium, navigation
+                # interrompue par une autre navigation concurrente — ex: go_back()/
+                # go_forward() d'une action décorative pas encore stabilisée, etc.) —
+                # une seule nouvelle tentative avant d'abandonner, pour ne pas perdre
+                # toute une campagne de test à cause d'un seul incident transitoire.
+                # Recréation de l'onglet seulement si c'est un vrai crash du rendu ;
+                # sinon une simple pause suffit, le même onglet reste utilisable.
+                self.logger.warning(f"⚠️ Navigation échouée, nouvelle tentative : {e}")
+                if "crashed" in str(e).lower():
+                    self.page = None
+                    page = self._get_page()
+                else:
+                    self._human_pause(1.0, 2.5)
                 page.goto(url, timeout=0, wait_until="domcontentloaded")
             self._human_pause(2.0, 4.5)
 
