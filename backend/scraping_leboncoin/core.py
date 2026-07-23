@@ -36,7 +36,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
 # Mêmes familles que FacebookScraper (backend/scraping/core.py) — cohérence
 # de posture de furtivité entre les deux scrapers.
@@ -235,10 +235,11 @@ class LeboncoinScraper:
                         self._human_pause(1.0, 3.0)
                 else:
                     self._human_pause(0.5, 2.0)
-            # Descente jusqu'aux boutons de pagination, en bas de la liste (le
-            # scroll dépasse volontairement le contenu réel — le navigateur
-            # borne lui-même au bas de page réel).
-            self._human_scroll(page, 20000)
+            # Descente jusqu'aux boutons de pagination, en bas de la liste —
+            # largement suffisant pour ~35 annonces, sans excès (un scroll trop
+            # massif d'un coup peut forcer le chargement de beaucoup d'images
+            # lazy-load en rafale et faire monter la charge mémoire/rendu).
+            self._human_scroll(page, random.randint(4000, 8000))
             self._human_pause(0.5, 1.5)
         except Exception as e:
             self.logger.warning(f"Lecture de page échouée (non bloquant) : {e}")
@@ -411,7 +412,18 @@ class LeboncoinScraper:
             url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
             page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
             self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
-            page.goto(url, timeout=0, wait_until="domcontentloaded")
+            try:
+                page.goto(url, timeout=0, wait_until="domcontentloaded")
+            except PlaywrightError as e:
+                if "crashed" not in str(e).lower():
+                    raise
+                # Crash du processus de rendu Chromium (pas un blocage DataDome) —
+                # on recrée l'onglet et on retente une seule fois avant d'abandonner,
+                # pour ne pas perdre toute une campagne de test à cause d'un seul crash.
+                self.logger.warning(f"⚠️ Page Chromium crashée — recréation de l'onglet et nouvelle tentative : {e}")
+                self.page = None
+                page = self._get_page()
+                page.goto(url, timeout=0, wait_until="domcontentloaded")
             self._human_pause(2.0, 4.5)
 
             blocked, reason = self._looks_blocked(page, self._responses)
