@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-22] [PRO] Fix : Lecture de page trop rapide + crash Chromium + arrêt anticipé de la pagination → Résultat :
+- **Symptôme signalé (temps de lecture)** : passage à la page suivante beaucoup trop rapide pour ~35 annonces, et changement de page "téléporté" alors qu'un humain doit d'abord scroller jusqu'aux boutons de pagination en bas de liste.
+- **`core.py::_human_scroll()`** : 18-32 paliers (au lieu de 5-12) avec des pauses plus courtes et régulières — défilement visuellement continu plutôt qu'une poignée de sauts.
+- **`core.py::_read_through_page()`** (nouveau) : reste sur la page un temps minimum (~45-75s) en alternant scroll/survol/pause, puis descend jusqu'en bas de la page avant de changer de page — remplace l'appel direct à `_simulate_browsing()` dans la boucle de pagination de `search()`.
+- **Crash Chromium rencontré en test réel** (`Page.goto: Page crashed` à la page 2) : cause probable — la descente finale scrollait de 20000px d'un coup, forçant potentiellement le chargement en rafale de beaucoup d'images lazy-load. Ramené à 4000-8000px (largement suffisant pour ~35 annonces). `search()` recrée aussi l'onglet et retente une fois la navigation si un crash Chromium survient, au lieu de laisser tout le test planter.
+- **Testé et validé en conditions réelles par l'utilisateur** (soak test lancé avec succès après ces deux fixes).
+- **`search(known_ids=None)`** (nouveau) : le tri `sort=time&order=desc` garantissant que les résultats sont du plus récent au plus ancien, la pagination s'arrête dès qu'une page ne contient plus aucune annonce absente de `known_ids` — inutile de vérifier les pages suivantes, forcément encore plus anciennes. `leboncoin_probe.py` alimente cet ensemble avec les IDs déjà vus dans la session (pas encore une vraie base de données — Firestore pas intégré — mais réutilisable tel quel pour l'intégration `bot.py`). **Non testé en conditions réelles.**
+
 [2026-07-22] [PRO] Fix : Sonde LeBonCoin validée en conditions réelles — page persistante + boucle interactive → Résultat :
 - **Blocage réel observé** : après ~4 tests dans la journée, un `--repeat 3` a déclenché un 403 sur `auth.leboncoin.fr/user` accompagné d'un slider DataDome visible à l'écran — mais la page se fermait automatiquement avant que l'utilisateur ait pu tenter de le résoudre à la main.
 - **`backend/scraping_leboncoin/core.py::search()`** : ne ferme plus jamais la page elle-même (ni en cas de succès, ni de blocage, ni d'échec d'extraction) — un onglet unique (`self.page`, créé via `_get_page()`) est désormais réutilisé pour toutes les recherches de la session, au lieu d'un nouvel onglet ouvert puis fermé à chaque appel. Seule `close_session()` ferme réellement le navigateur.
