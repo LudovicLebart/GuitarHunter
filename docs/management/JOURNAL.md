@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-07-23] [PRO] Fix : 5 findings du /code-review (lien scan manuel, sold_marker, dates stats, slider tactile, code mort) → Résultat :
+- **`backend/notifications.py`** : `deal_link` n'est plus construit pour les issues `scrape_failed`/`sold_marker` (sorties de `handle_deal_found()` avant toute lecture/écriture Firestore) — évite un lien cassé qui remplaçait l'URL Facebook d'origine dans la notification de scan manuel.
+- **`backend/bot.py`** : la détection de marqueur "vendu" ne contourne plus les scans manuels (`is_manual_scan`) — aucune justification pour ce bypass, contrairement au filtre prix/mot-clé qui reste intentionnellement contourné pour les scans manuels (comportement voulu, non touché). Un scan manuel d'une annonce déjà vendue affiche désormais le bon message au lieu d'un "✅ analysée" trompeur.
+- **`backend/bot.py`** : simplification du filtrage STRICT par ville (3 voies → 2) — la branche "hors liste" était du code mort, `is_city_allowed()` filtrant déjà en amont sur le même champ `location`.
+- **`src/components/StatsView.jsx`** : le libellé du graphique de volume quotidien est désormais dérivé de la même clé UTC que celle utilisée pour le comptage (au lieu de `toLocaleDateString` sur la date locale), pour éviter un décalage d'un jour selon l'heure de consultation.
+- **`src/components/ConfigPanel.jsx`** : ajout de `onTouchEnd` sur le slider "limite de logs" pour couvrir le glisser tactile (mobile), non couvert par `onMouseUp`/`onKeyUp`.
+- **6e finding (duplication `scraping_leboncoin/core.py` vs `scraping/core.py`)** : dette technique déjà trackée en TODO, non corrigée ici (décision produit déjà actée).
+
 [2026-07-22] [PRO] Fix : Lecture de page trop rapide + crash Chromium + arrêt anticipé de la pagination → Résultat :
 - **Symptôme signalé (temps de lecture)** : passage à la page suivante beaucoup trop rapide pour ~35 annonces, et changement de page "téléporté" alors qu'un humain doit d'abord scroller jusqu'aux boutons de pagination en bas de liste.
 - **`core.py::_human_scroll()`** : 18-32 paliers (au lieu de 5-12) avec des pauses plus courtes et régulières — défilement visuellement continu plutôt qu'une poignée de sauts.
