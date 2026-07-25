@@ -205,6 +205,14 @@ _email_notifier = EmailNotifier()
 class NotificationService:
     """Point d'entrée unique pour toutes les notifications GuitarHunter."""
 
+    _APP_BASE_URL = "https://ludoviclebart.github.io/GuitarHunter/"
+
+    @staticmethod
+    def _build_deal_link(deal_id: Optional[str]) -> Optional[str]:
+        """Lien direct vers une annonce dans l'app — source unique pour ne pas
+        dupliquer le schéma d'URL (?dealId=) à plusieurs endroits."""
+        return f"{NotificationService._APP_BASE_URL}?dealId={deal_id}" if deal_id else None
+
     @staticmethod
     def notify_deal(deal_id: str, deal_data: dict, analysis: dict,
                     is_update: bool = False, user_email: Optional[str] = None,
@@ -234,10 +242,7 @@ class NotificationService:
             return
 
         # ── Construction du contenu ────────────────────────────────────────
-        deal_link = (
-            f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}"
-            if deal_id else None
-        )
+        deal_link = NotificationService._build_deal_link(deal_id)
 
         subject = _build_subject(verdict, deal_data, is_update, also_pepite)
         body    = _build_body(verdict, deal_data, analysis, is_update, deal_link, also_pepite)
@@ -302,10 +307,12 @@ class NotificationService:
     # Messages adaptés au code de statut retourné par bot.py::handle_deal_found()
     _SCAN_URL_OUTCOME_MESSAGES = {
         "processed": "✅ Nouvelle annonce ajoutée et analysée : {title}",
+        "processed_update": "🔄 Annonce déjà connue, prix mis à jour et réanalysée : {title}",
         "duplicate_unchanged": "ℹ️ Annonce déjà connue, prix inchangé : {title}",
         "already_rejected": "⏩ Annonce déjà rejetée précédemment : {title}",
-        "marked_sold": "📉 Annonce existante marquée vendue : {title}",
-        "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé ou hors budget) : {title}",
+        # BAD_DEAL (hors budget) != REJECTED (mot-clé) — deux messages distincts, voir CLAUDE.md.
+        "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé exclu) : {title}",
+        "over_budget_prefilter": "💰 Annonce hors budget (prix supérieur au plafond configuré) : {title}",
         "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
     }
@@ -327,8 +334,8 @@ class NotificationService:
         title = listing_data.get('title') or "l'annonce"
         deal_id = listing_data.get('id')
         deal_link = (
-            f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}"
-            if deal_id and outcome not in NotificationService._OUTCOMES_WITHOUT_DEAL_LINK
+            NotificationService._build_deal_link(deal_id)
+            if outcome not in NotificationService._OUTCOMES_WITHOUT_DEAL_LINK
             else None
         )
 

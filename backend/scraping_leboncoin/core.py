@@ -61,10 +61,7 @@ class LeboncoinScraper(BaseMarketplaceScraper):
                     self._human_scroll(page, -random.randint(150, 500))
                 elif action == "hover_card" and cards:
                     card = random.choice(cards)
-                    card.scroll_into_view_if_needed()
-                    box = card.bounding_box()
-                    if box:
-                        self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    if self._move_mouse_to_element(page, card):
                         self._human_pause(0.8, 2.5)  # "s'arrête" sur l'annonce
                 elif action == "idle":
                     self._human_pause(0.5, 1.5)
@@ -88,10 +85,7 @@ class LeboncoinScraper(BaseMarketplaceScraper):
                     self._human_scroll(page, random.randint(200, 600))
                 elif action == "hover_card" and cards:
                     card = random.choice(cards)
-                    card.scroll_into_view_if_needed()
-                    box = card.bounding_box()
-                    if box:
-                        self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    if self._move_mouse_to_element(page, card):
                         self._human_pause(1.0, 3.0)
                 else:
                     self._human_pause(0.5, 2.0)
@@ -116,10 +110,7 @@ class LeboncoinScraper(BaseMarketplaceScraper):
             if not links:
                 return
             link = random.choice(links)
-            link.scroll_into_view_if_needed()
-            box = link.bounding_box()
-            if box:
-                self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            self._move_mouse_to_element(page, link)
             self._human_pause(0.3, 1.0)
             link.click()
             self.logger.info("   👀 Ouverture d'une annonce au hasard (comportement décoratif).")
@@ -142,10 +133,7 @@ class LeboncoinScraper(BaseMarketplaceScraper):
             if not buttons:
                 return
             button = random.choice(buttons)
-            button.scroll_into_view_if_needed()
-            box = button.bounding_box()
-            if box:
-                self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            self._move_mouse_to_element(page, button)
             self._human_pause(0.3, 1.0)
             button.click()
             self.logger.info("   ❤️  Annonce ajoutée aux favoris (comportement décoratif).")
@@ -192,9 +180,14 @@ class LeboncoinScraper(BaseMarketplaceScraper):
     def _looks_blocked(self, page, responses):
         if any(marker in page.url for marker in DATADOME_CHALLENGE_MARKERS):
             return True, f"Redirection vers un domaine de challenge DataDome : {page.url}"
-        for resp in responses:
-            if resp.status in (403, 429):
-                return True, f"Réponse HTTP {resp.status} sur {resp.url}"
+        # `responses` ne contient déjà que des (status, url) 403/429 (filtré à la
+        # source dans _get_page()) — uniquement celles de leboncoin.fr lui-même
+        # (domaine principal + sous-domaines type auth.leboncoin.fr) : une ressource
+        # tierce (pub, tracker, CDN) qui répond 403/429 est fréquente et n'indique
+        # aucun blocage réel de la page elle-même.
+        for status, resp_url in responses:
+            if "leboncoin.fr" in resp_url:
+                return True, f"Réponse HTTP {status} sur {resp_url}"
         title = (page.title() or "").lower()
         if any(kw in title for kw in SUSPICIOUS_TITLE_KEYWORDS):
             return True, f"Titre de page suspect : '{page.title()}'"
@@ -274,28 +267,43 @@ class LeboncoinScraper(BaseMarketplaceScraper):
         effective_max_pages = None  # connu seulement après la 1ère page chargée
 
         while True:
-            self._responses.clear()  # ne garder que les réponses de CETTE page (évite les faux
-                                      # positifs de blocage dus à un vieux 403 d'une page précédente)
             url = self.build_url(query, locations, category, min_price, max_price, owner_type, page_num)
             page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
             self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
-            try:
-                page.goto(url, timeout=0, wait_until="domcontentloaded")
-            except PlaywrightError as e:
-                # Erreur Playwright transitoire (crash du rendu Chromium, navigation
-                # interrompue par une autre navigation concurrente — ex: go_back()/
-                # go_forward() d'une action décorative pas encore stabilisée, etc.) —
-                # une seule nouvelle tentative avant d'abandonner, pour ne pas perdre
-                # toute une campagne de test à cause d'un seul incident transitoire.
-                # Recréation de l'onglet seulement si c'est un vrai crash du rendu ;
-                # sinon une simple pause suffit, le même onglet reste utilisable.
-                self.logger.warning(f"⚠️ Navigation échouée, nouvelle tentative : {e}")
-                if "crashed" in str(e).lower():
-                    self.page = None
-                    page = self._get_page()
-                else:
-                    self._human_pause(1.0, 2.5)
-                page.goto(url, timeout=0, wait_until="domcontentloaded")
+
+            # Erreur Playwright transitoire (crash du rendu Chromium, navigation
+            # interrompue par une autre navigation concurrente — ex: go_back()/
+            # go_forward() d'une action décorative pas encore stabilisée, etc.) —
+            # une seule nouvelle tentative avant d'abandonner, pour ne pas perdre
+            # toute une campagne de test à cause d'un seul incident transitoire.
+            # Ne doit JAMAIS remonter d'exception hors de search() (contrat de la
+            # méthode : toujours (annonces, blocage), jamais une exception).
+            nav_error = None
+            for attempt in range(2):
+                self._responses.clear()  # ne garder que les réponses de CETTE tentative (évite
+                                          # les faux positifs dus à un vieux 403 d'une tentative précédente)
+                try:
+                    page.goto(url, timeout=0, wait_until="domcontentloaded")
+                    nav_error = None
+                    break
+                except PlaywrightError as e:
+                    nav_error = e
+                    self.logger.warning(f"⚠️ Navigation échouée (tentative {attempt + 1}/2) : {e}")
+                    if "crashed" in str(e).lower():
+                        try:
+                            page.close()
+                        except Exception:
+                            pass  # la page est déjà instable, l'échec de fermeture est sans conséquence
+                        self.page = None
+                        page = self._get_page()
+                    else:
+                        self._human_pause(1.0, 2.5)
+
+            if nav_error is not None:
+                reason = f"navigation_failed: {nav_error}"
+                self.logger.warning(f"🚨 {reason} — abandon après 2 tentatives.")
+                return all_ads, reason
+
             self._human_pause(2.0, 4.5)
 
             blocked, reason = self._looks_blocked(page, self._responses)

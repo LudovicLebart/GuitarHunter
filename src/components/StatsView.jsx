@@ -224,36 +224,43 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
 
     // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
     const VOLUME_WINDOW_DAYS = 14;
+    // Dépendance qui change une fois par jour, pour que le graphique avance
+    // même si aucune nouvelle annonce n'arrive (le cas même visé par ce
+    // graphique — volume de scraping bas) ; sans elle, `enrichedDeals`
+    // inchangé pendant >1 jour gèlerait le rendu sur la fenêtre du dernier calcul.
+    const todayKey = Math.floor(Date.now() / 86400000);
     const dailyVolumeData = useMemo(() => {
-        const days = [];
         const now = new Date();
-        for (let i = VOLUME_WINDOW_DAYS - 1; i >= 0; i--) {
+        // Clés UTC (YYYY-MM-DD) calculées une seule fois, réutilisées pour amorcer
+        // les compteurs et pour le libellé final (pas de toLocaleDateString sur une
+        // date locale : décalage possible d'un jour par rapport au bucket UTC réel).
+        const dayKeys = Array.from({ length: VOLUME_WINDOW_DAYS }, (_, idx) => {
             const d = new Date(now);
-            d.setDate(d.getDate() - i);
-            days.push(d);
-        }
+            d.setDate(d.getDate() - (VOLUME_WINDOW_DAYS - 1 - idx));
+            return d.toISOString().slice(0, 10);
+        });
         const counts = {};
-        days.forEach(d => { counts[d.toISOString().slice(0, 10)] = 0; });
+        dayKeys.forEach(key => { counts[key] = 0; });
 
+        // Filtre numérique bon marché (pas d'allocation Date/toISOString) avant de
+        // ne traiter que les annonces potentiellement dans la fenêtre de 14 jours —
+        // évite de scanner tout l'historique à chaque recalcul.
+        const cutoffSeconds = Math.floor(now.getTime() / 1000) - VOLUME_WINDOW_DAYS * 86400;
         enrichedDeals.forEach(deal => {
             const seconds = deal.timestamp?.seconds;
-            if (!seconds) return;
+            if (!seconds || seconds < cutoffSeconds) return;
             const key = new Date(seconds * 1000).toISOString().slice(0, 10);
             if (key in counts) counts[key]++;
         });
 
-        return days.map(d => {
-            const key = d.toISOString().slice(0, 10);
-            // Libellé dérivé de la même clé UTC que celle utilisée pour le comptage
-            // (pas de toLocaleDateString sur `d` : donnerait la date locale, potentiellement
-            // décalée d'un jour par rapport au bucket UTC réellement compté).
+        return dayKeys.map(key => {
             const [, month, day] = key.split('-');
             return {
                 date: `${day}/${month}`,
                 count: counts[key],
             };
         });
-    }, [enrichedDeals]);
+    }, [enrichedDeals, todayKey]);
 
     const avgDailyVolume = useMemo(() => {
         if (dailyVolumeData.length === 0) return '0';

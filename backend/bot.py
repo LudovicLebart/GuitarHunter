@@ -263,19 +263,25 @@ class GuitarHunterBot:
             self.logger.info(f"Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
         if found_keyword or price_too_high:
+            # BAD_DEAL (hors budget) != REJECTED (mot-clé exclu) — deux codes de sortie
+            # distincts pour ne pas confondre "hors budget" avec "mauvaise annonce" au
+            # niveau des notifications/stats non plus (déjà distinct au niveau du verdict
+            # Firestore, voir CLAUDE.md).
             if found_keyword:
                 self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
                 rejection_analysis = self._create_rejection_analysis(found_keyword)
+                outcome = "rejected_prefilter"
             else:
                 self.logger.info(f"Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
                 rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
+                outcome = "over_budget_prefilter"
             if not self.offline_mode:
                 if is_update:
                     # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
                     self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, rejection_analysis)
                 else:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
-            return "rejected_prefilter"
+            return outcome
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
         deal_id = listing_data.get('id')
@@ -300,7 +306,10 @@ class GuitarHunterBot:
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
-        return "processed"
+        # Distingue une vraie nouvelle annonce d'une réanalyse suite à baisse de prix —
+        # la notification de scan manuel ne doit pas annoncer "nouvelle annonce" pour
+        # une annonce déjà connue dont seul le prix a changé.
+        return "processed_update" if is_update else "processed"
 
     def _is_stop_requested(self):
         """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
@@ -338,8 +347,10 @@ class GuitarHunterBot:
                 # sert à distinguer "peu d'annonces sur Facebook" d'"annonces perdues côté scraper".
                 cycle_stats = {
                     "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
+                    "total_cards_seen": 0,
                     "scrape_failed": 0, "sold_marker": 0, "already_rejected": 0,
-                    "duplicate_unchanged": 0, "rejected_prefilter": 0, "processed": 0,
+                    "duplicate_unchanged": 0, "rejected_prefilter": 0, "over_budget_prefilter": 0,
+                    "processed": 0, "processed_update": 0, "unknown": 0,
                 }
 
                 self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
@@ -373,6 +384,7 @@ class GuitarHunterBot:
                             scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
                             found_deals = scan_result["deals"]
                             cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
+                            cycle_stats["total_cards_seen"] += scan_result["total_cards_seen"]
                             if scan_result["anti_bot_blocked"]:
                                 cycle_stats["anti_bot_blocked_cities"].append(city_name)
 
@@ -388,7 +400,7 @@ class GuitarHunterBot:
                                 #    même maintenant (au lieu d'être jetée après avoir payé le coût de la
                                 #    fiche détail) : ça alimente session_processed_ids et évite un refetch
                                 #    complet si Facebook la ressert lors du tour de cette autre ville.
-                                norm_city = ListingParser.normalize_city_name(city_name)
+                                norm_city = city_norm_name  # déjà normalisé plus haut dans la boucle
                                 own_city_deals, other_city_deals = [], []
                                 for deal in found_deals:
                                     norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
@@ -433,16 +445,26 @@ class GuitarHunterBot:
                     time.sleep(2)
 
                 blocked = cycle_stats["anti_bot_blocked_cities"]
+                # "unknown" ne devrait jamais arriver (chaque chemin de handle_deal_found
+                # retourne un code) — mais s'il arrive un jour, il doit être visible ici,
+                # pas juste compté silencieusement dans cycle_stats.
+                unknown_note = (
+                    f", {cycle_stats['unknown']} outcome(s) non reconnu(s) (bug potentiel, à investiguer)"
+                    if cycle_stats["unknown"] else ""
+                )
                 self.logger.info(
                     "📊 Résumé du cycle : "
-                    f"{cycle_stats['processed']} traitée(s) (analyse IA), "
-                    f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé/prix), "
+                    f"{cycle_stats['total_cards_seen']} annonce(s) vue(s) au total, "
+                    f"{cycle_stats['processed'] + cycle_stats['processed_update']} traitée(s) (analyse IA, "
+                    f"dont {cycle_stats['processed_update']} mise(s) à jour de prix), "
+                    f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
+                    f"{cycle_stats['over_budget_prefilter']} hors budget (BAD_DEAL), "
                     f"{cycle_stats['matched_other_city']} récupérée(s) via une autre ville de la liste, "
                     f"{cycle_stats['rejected_out_of_list']} hors liste de villes, "
                     f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
                     f"{cycle_stats['sold_marker']} marquée(s) vendue(s) (pré-filtre), "
                     f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
-                    f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + "."
+                    f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + unknown_note + "."
                 )
             self.logger.info("Scan planifié terminé.")
         finally:

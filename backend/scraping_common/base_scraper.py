@@ -95,8 +95,13 @@ class BaseMarketplaceScraper(HumanBehaviorMixin):
         """Onglet unique réutilisé pour toutes les recherches de la session — un
         humain relance des recherches dans le même onglet, il n'en ouvre pas un
         nouveau à chaque fois. Recréé seulement si absent ou fermé (ex: fermé
-        manuellement par l'utilisateur)."""
+        manuellement par l'utilisateur).
+
+        Le listener ne retient que (status, url) des réponses 403/429 — pas
+        l'objet Response complet (headers/corps) de CHAQUE requête (images, JS,
+        CSS...), qui s'accumulerait inutilement pendant les dizaines de secondes
+        de lecture décorative sur chaque page."""
         if self.page is None or self.page.is_closed():
             self.page = self.context.new_page()
-            self.page.on("response", lambda r: self._responses.append(r))
+            self.page.on("response", lambda r: self._responses.append((r.status, r.url)) if r.status in (403, 429) else None)
         return self.page

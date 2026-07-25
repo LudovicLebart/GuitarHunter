@@ -18,7 +18,7 @@ import random
 sys.path.insert(0, '.')
 
 from playwright.sync_api import sync_playwright
-from backend.scraping_common.base_scraper import DEFAULT_USER_AGENTS, DEFAULT_VIEWPORTS
+from backend.scraping_common.base_scraper import DEFAULT_USER_AGENTS, DEFAULT_VIEWPORTS, DEFAULT_STEALTH_LAUNCH_ARGS
 
 DEFAULT_OUTPUT = "backend/scripts/leboncoin_storage_state.json"
 
@@ -29,10 +29,7 @@ def main():
     args = parser.parse_args()
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled", "--disable-infobars", "--no-sandbox"],
-        )
+        browser = p.chromium.launch(headless=False, args=DEFAULT_STEALTH_LAUNCH_ARGS)
         ua = random.choice(DEFAULT_USER_AGENTS)
         vp = random.choice(DEFAULT_VIEWPORTS)
         context = browser.new_context(locale="fr-FR", user_agent=ua, viewport=vp)

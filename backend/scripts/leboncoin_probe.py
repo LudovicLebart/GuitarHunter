@@ -79,14 +79,18 @@ def _print_results(ads):
         print(f"   ... et {len(ads) - 10} autre(s).")
 
 
+def _do_search(scraper, params, known_ids):
+    return scraper.search(
+        params["query"], locations=params["locations"], category=params["category"],
+        min_price=params["min_price"], max_price=params["max_price"],
+        owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
+        known_ids=known_ids,
+    )
+
+
 def _run_interactive(scraper, params, all_results, known_ids):
     while True:
-        ads, blocked_reason = scraper.search(
-            params["query"], locations=params["locations"], category=params["category"],
-            min_price=params["min_price"], max_price=params["max_price"],
-            owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
-            known_ids=known_ids,
-        )
+        ads, blocked_reason = _do_search(scraper, params, known_ids)
         all_results.extend(ads)  # même en cas de blocage/échec, on garde le déjà-collecté
         known_ids.update(ad["id"] for ad in ads)
 
@@ -119,12 +123,7 @@ def _run_soak(scraper, params, cycles, min_wait, max_wait, all_results, known_id
 
         logger.info(f"=== Cycle soak {i + 1}/{cycles} ===")
         started = time.time()
-        ads, blocked_reason = scraper.search(
-            params["query"], locations=params["locations"], category=params["category"],
-            min_price=params["min_price"], max_price=params["max_price"],
-            owner_type=params["owner_type"], max_pages_limit=_max_pages_limit(params),
-            known_ids=known_ids,
-        )
+        ads, blocked_reason = _do_search(scraper, params, known_ids)
         all_results.extend(ads)
         known_ids.update(ad["id"] for ad in ads)
 

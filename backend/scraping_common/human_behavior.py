@@ -77,6 +77,18 @@ class HumanBehaviorMixin:
             time.sleep(random.uniform(0.008, 0.03))
         self._mouse_pos = (target_x, target_y)
 
+    def _move_mouse_to_element(self, page, element):
+        """Scrolle l'élément dans le viewport puis y déplace la souris (trajectoire
+        humaine) — factorise le survol/positionnement avant un clic ou une pause
+        décorative, répété par toutes les actions qui interagissent avec une
+        annonce (survol, ouverture, favoris). Retourne le bounding_box (ou None
+        si l'élément n'est pas visible)."""
+        element.scroll_into_view_if_needed()
+        box = element.bounding_box()
+        if box:
+            self._human_mouse_move(page, box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        return box
+
     def _human_scroll(self, page, total_delta):
         """Défile de `total_delta` px (signe = direction) en de nombreux petits
         paliers suivant une courbe en cloche (accélération puis décélération),
