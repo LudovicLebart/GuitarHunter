@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -9,9 +8,6 @@ from playwright.sync_api import Locator, Page
 from ..parser import ListingParser
 
 _module_logger = logging.getLogger(__name__)
-
-# URL d'une annonce Kijiji : /v-<slug>/<ville-slug>/<titre-slug>/<id numérique>
-_ID_PATTERN = re.compile(r"/v-[^?]*?/(\d+)(?:[/?]|$)")
 
 
 class KijijiListingParser:
@@ -26,10 +22,17 @@ class KijijiListingParser:
 
     @staticmethod
     def extract_kijiji_id(url: str) -> Optional[str]:
-        if not url:
+        """
+        L'ID d'une annonce Kijiji est toujours le DERNIER segment du chemin
+        (`/v-<categorie>/<lieu>/<titre>/<id>`), jamais le premier segment
+        numérique rencontré après `/v-` — un slug intermédiaire (lieu, année de
+        fabrication dans le titre, etc.) peut lui aussi être purement numérique.
+        """
+        if not url or "/v-" not in url:
             return None
-        match = _ID_PATTERN.search(url)
-        return match.group(1) if match else None
+        path = url.split("?")[0].rstrip("/")
+        last_segment = path.rsplit("/", 1)[-1]
+        return last_segment if last_segment.isdigit() else None
 
     @staticmethod
     def parse_listing_card(link_element: Locator, logger: logging.Logger = None) -> Dict[str, Any]:
@@ -104,8 +107,10 @@ class KijijiListingParser:
         """
         log = logger or _module_logger
         description = f"Annonce Kijiji. {initial_title}."
+        description_from_json_ld = False
         image_urls: List[str] = []
         price = 0
+        price_found = False
         location = None
 
         json_ld = KijijiListingParser._extract_json_ld(page, log)
@@ -113,21 +118,23 @@ class KijijiListingParser:
             desc = json_ld.get("description")
             if desc and len(desc.strip()) > 10:
                 description = desc.strip()
+                description_from_json_ld = True
 
-            images = json_ld.get("image")
-            if isinstance(images, str):
-                image_urls = [images]
-            elif isinstance(images, list):
-                image_urls = [i for i in images if isinstance(i, str)]
+            image_urls = KijijiListingParser._extract_images_from_json_ld(json_ld)
 
             offers = json_ld.get("offers")
-            if isinstance(offers, dict):
-                raw_price = offers.get("price")
+            offer_list = offers if isinstance(offers, list) else ([offers] if isinstance(offers, dict) else [])
+            for offer in offer_list:
+                if not isinstance(offer, dict):
+                    continue
+                raw_price = offer.get("price")
                 if raw_price is not None:
                     try:
                         price = int(float(raw_price))
+                        price_found = True
+                        break
                     except (TypeError, ValueError):
-                        pass
+                        continue
 
             area = json_ld.get("areaServed")
             if isinstance(area, dict):
@@ -138,7 +145,7 @@ class KijijiListingParser:
         if not image_urls:
             image_urls = KijijiListingParser._extract_images_from_dom(page, log)
 
-        if description.startswith("Annonce Kijiji."):
+        if not description_from_json_ld:
             try:
                 meta_desc = page.locator('meta[property="og:description"]').get_attribute("content")
                 if meta_desc and len(meta_desc.strip()) > 10:
@@ -146,11 +153,18 @@ class KijijiListingParser:
             except Exception as e:
                 log.debug(f"Erreur extraction meta og:description: {e}")
 
-        if price == 0:
+        if not price_found:
             try:
                 price_el = page.locator("[data-testid='vip-price'], [data-testid='price']").first
                 if price_el.count() > 0:
-                    price = ListingParser.extract_price_from_text(price_el.inner_text())
+                    text = price_el.inner_text()
+                    has_digits = any(c.isdigit() for c in text)
+                    is_free = "Free" in text or "Gratuit" in text
+                    # Distingue "prix trouvé mais gratuit (0$)" d'un "prix introuvable" (repose
+                    # sinon sur card_price côté core.py) — même logique que ListingParser (FB).
+                    if has_digits or is_free:
+                        price = ListingParser.extract_price_from_text(text)
+                        price_found = True
             except Exception as e:
                 log.debug(f"Erreur extraction prix fiche détail: {e}")
 
@@ -166,6 +180,7 @@ class KijijiListingParser:
             "description": description[:3000],
             "imageUrls": image_urls[:10],
             "price": price,
+            "price_found": price_found,
             "location": location,
         }
 
@@ -183,11 +198,38 @@ class KijijiListingParser:
                     continue
                 candidates = data if isinstance(data, list) else [data]
                 for candidate in candidates:
-                    if isinstance(candidate, dict) and candidate.get("@type") in ("Product", "Offer"):
+                    if not isinstance(candidate, dict):
+                        continue
+                    type_val = candidate.get("@type")
+                    # @type est valide en chaîne unique OU en tableau de types (schema.org).
+                    types = type_val if isinstance(type_val, list) else [type_val]
+                    if any(t in ("Product", "Offer") for t in types):
                         return candidate
         except Exception as e:
             log.debug(f"Erreur extraction JSON-LD: {e}")
         return None
+
+    @staticmethod
+    def _extract_images_from_json_ld(json_ld: Dict[str, Any]) -> List[str]:
+        """Le champ `image` schema.org accepte une URL, une liste d'URLs, ou une liste
+        d'objets `ImageObject` (`{"url": "..."}`) — les 3 formes sont légales."""
+        images = json_ld.get("image")
+        urls: List[str] = []
+        if isinstance(images, str):
+            urls.append(images)
+        elif isinstance(images, dict):
+            url = images.get("url") or images.get("contentUrl")
+            if url:
+                urls.append(url)
+        elif isinstance(images, list):
+            for item in images:
+                if isinstance(item, str):
+                    urls.append(item)
+                elif isinstance(item, dict):
+                    url = item.get("url") or item.get("contentUrl")
+                    if url:
+                        urls.append(url)
+        return urls
 
     @staticmethod
     def _extract_images_from_dom(page: Page, log: logging.Logger) -> List[str]:

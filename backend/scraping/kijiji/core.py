@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import re
@@ -24,9 +25,23 @@ class KijijiScraper:
     doivent être vérifiés/ajustés lors d'un premier run réel (voir
     `scan_specific_url()` pour tester une annonce isolément sans dépendre du
     scroll de recherche).
+
+    Écarts assumés par rapport à `FacebookScraper` (non des oublis) : pas de
+    rotation de proxy, pas de géolocalisation forcée, pas de filtre par liste
+    blanche de villes — ces trois éléments dépendent d'un mapping ville→ID
+    Kijiji qui n'existe pas encore côté produit (contrairement à
+    `city_mapping` sur Facebook). `check_listing_availability()` est en
+    revanche fourni, pour la tâche de nettoyage périodique.
+
+    Note d'API : `config` et `logger` sont volontairement **keyword-only**
+    (contrairement à `FacebookScraper.__init__(city_coordinates, city_mapping,
+    ...)`) car cette classe n'a pas d'équivalent positionnel à
+    `city_coordinates`/`city_mapping` — ça évite qu'un futur appel copié-collé
+    depuis `bot.py` (ex: `KijijiScraper({}, {}, logger=...)`) lie silencieusement
+    les mauvais arguments ; il échouera bruyamment à l'appel à la place.
     """
 
-    def __init__(self, config: KijijiScraperConfig = None, logger: logging.Logger = None):
+    def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None):
         self.config = config or KijijiScraperConfig()
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module pour les scripts autonomes/tests.
@@ -108,12 +123,15 @@ class KijijiScraper:
 
     def _is_valid_detail_page(self, page: Page, expected_id: str) -> bool:
         """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
-        (et non le feed/accueil suite à une redirection anti-bot)."""
+        (et non le feed/accueil suite à une redirection anti-bot). Compare l'ID exact
+        du dernier segment de chemin plutôt qu'une simple sous-chaîne (un ID court comme
+        "123" serait sinon "trouvé" par accident dans une URL contenant "45123")."""
         if "/login" in page.url or "captcha" in page.url.lower():
             self.logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
             return False
-        if expected_id and expected_id not in page.url:
-            self.logger.warning(f"⚠️ Page détail invalide (ID inattendu): {page.url}")
+        actual_id = KijijiListingParser.extract_kijiji_id(page.url)
+        if expected_id and actual_id != expected_id:
+            self.logger.warning(f"⚠️ Page détail invalide (ID inattendu: {actual_id}, attendu: {expected_id}): {page.url}")
             return False
         return True
 
@@ -151,6 +169,9 @@ class KijijiScraper:
             keyword_input = page.locator(
                 "input#keywordSearch, input[name='keywords'], input[placeholder*='Search' i], input[placeholder*='Rechercher' i]"
             ).first
+            if keyword_input.count() == 0:
+                self.logger.error("❌ Champ de recherche Kijiji introuvable — sélecteurs à vérifier (voir docstring de classe).")
+                return []
             keyword_input.fill(search_query)
 
             if location:
@@ -160,11 +181,24 @@ class KijijiScraper:
                 if location_input.count() > 0:
                     location_input.fill(location)
                     time.sleep(1)
-                    page.keyboard.press("Escape")  # ferme la suggestion d'autocomplétion
+                    # Le filtre de lieu de Kijiji se lie généralement à une suggestion
+                    # d'autocomplétion (pas au texte brut saisi) : on tente de la
+                    # sélectionner ; à défaut, on ferme juste le menu et on continue
+                    # (le filtre de lieu risque alors de ne pas s'appliquer).
+                    suggestion = page.locator("[role='option'], li[role='option'], ul[role='listbox'] li").first
+                    if suggestion.count() > 0:
+                        suggestion.click()
+                        time.sleep(0.5)
+                    else:
+                        self.logger.debug("Aucune suggestion de localisation Kijiji trouvée — le filtre de lieu pourrait ne pas s'appliquer.")
+                        page.keyboard.press("Escape")
 
             keyword_input.click()
             page.keyboard.press("Enter")
-            page.wait_for_load_state("networkidle", timeout=self.config.timeout_navigation)
+            try:
+                page.wait_for_load_state("networkidle", timeout=self.config.timeout_navigation)
+            except Exception as e:
+                self.logger.debug(f"Timeout networkidle après soumission recherche Kijiji: {e}")
             time.sleep(2)
 
             if "/login" in page.url or "captcha" in page.url.lower():
@@ -182,7 +216,7 @@ class KijijiScraper:
                 page.mouse.wheel(0, 1000)
                 time.sleep(1.5)
 
-                current_count = len(page.locator("a[href^='/v-']").all())
+                current_count = page.locator("a[href^='/v-']").count()
                 if current_count >= target_ads_to_load:
                     self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
                     break
@@ -239,7 +273,7 @@ class KijijiScraper:
                     details_page.goto(clean_link, timeout=self.config.timeout_navigation)
                     self._accept_cookies(details_page)
                     try:
-                        details_page.wait_for_load_state("networkidle", timeout=10000)
+                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
                     except Exception as e:
                         self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
                     time.sleep(1.5)
@@ -248,11 +282,15 @@ class KijijiScraper:
                         details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
                     else:
                         self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
-                        details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "location": None}
+                        details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None}
                 finally:
                     details_page.close()
 
-                final_price = details["price"] or card_price
+                # Un prix de 0$ trouvé sur la fiche détail (annonce gratuite) est légitime et
+                # ne doit pas être écrasé par le prix de la carte — d'où le flag `price_found`
+                # plutôt qu'un simple `details["price"] or card_price` (qui traiterait 0 comme
+                # un échec d'extraction).
+                final_price = details["price"] if details.get("price_found") else card_price
                 final_location = details["location"] or card_location
                 final_img = details["imageUrls"][0] if details["imageUrls"] else img_url
 
@@ -338,3 +376,68 @@ class KijijiScraper:
             self.logger.error(f"❌ Erreur scan URL Kijiji: {e}", exc_info=True)
         finally:
             page.close()
+
+    def check_listing_availability(self, url: str) -> bool:
+        """Vérifie si une annonce Kijiji est toujours active, pour la tâche de nettoyage
+        périodique. Miroir de `FacebookScraper.check_listing_availability` : repli
+        optimiste (annonce considérée disponible) en cas d'erreur/timeout."""
+        self._ensure_session()
+        is_available = True
+        page = self.context.new_page()
+        try:
+            clean_url = url.split("?")[0]
+            self.logger.info(f"   🔍 Vérification disponibilité Kijiji: {clean_url}")
+
+            response = page.goto(clean_url, timeout=30000, wait_until="domcontentloaded")
+
+            if response and response.status in (404, 410):
+                self.logger.info(f"   🚫 Annonce supprimée (HTTP {response.status})")
+                return False
+
+            if "/v-" not in page.url:
+                self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                return False
+
+            unavailable_patterns = [
+                r"cette annonce n.est plus disponible",
+                r"this ad is no longer available",
+                r"^(?:est )?vendu\s*!?$",
+                r"^(?:is )?sold\s*!?$",
+                r"plus disponible",
+                r"no longer available",
+                r"^expired$",
+                r"^expir[ée]e?$",
+            ]
+            patterns_json = json.dumps(unavailable_patterns)
+
+            found_marker = page.evaluate(f"""() => {{
+                const patterns = {patterns_json}.map(p => new RegExp(p, 'i'));
+                const elements = document.querySelectorAll('span, div, h1, h2');
+                for (const el of elements) {{
+                    const text = el.innerText ? el.innerText.trim() : '';
+                    if (!text) continue;
+
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {{
+                        continue;
+                    }}
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) continue;
+
+                    for (const regex of patterns) {{
+                        if (regex.test(text)) return text;
+                    }}
+                }}
+                return null;
+            }}""")
+
+            if found_marker:
+                self.logger.info(f"   🚫 Marqueur d'indisponibilité trouvé: '{found_marker}'")
+                return False
+
+        except Exception as e:
+            self.logger.warning(f"   ⚠️ Erreur durant le check availability Kijiji: {e}")
+            return True
+        finally:
+            page.close()
+        return is_available
