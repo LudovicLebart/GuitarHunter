@@ -13,11 +13,12 @@ fixée pour ce chantier.
 Comportement anti-prévisibilité (délibéré) : une session qui ouvre une page,
 attend un temps fixe puis ferme, répétée à l'identique à chaque cycle, est
 elle-même un signal comportemental détectable dans la durée — DataDome ne se
-limite pas à un challenge JS ponctuel, il réévalue en continu. Ce module
-introduit donc : délais non-uniformes (jamais fixes, avec de rares hésitations
-plus longues), trajectoires de souris interpolées et scroll par paliers (pas
-de téléportation ni de saut brutal), et une session réutilisable sur plusieurs
-recherches (pas de fermeture systématique du navigateur après chaque appel).
+limite pas à un challenge JS ponctuel, il réévalue en continu. Le cycle de
+session et le comportement "humain" générique (pauses, souris, scroll, pause
+nocturne) vivent dans `backend/scraping_common/` (partagés avec les futurs
+modules — Kijiji, Reverb...) ; ce module ne garde que ce qui est propre à
+LeBonCoin : construction d'URL, extraction, détection de blocage, et les
+actions décoratives spécifiques (ouverture d'annonce, favoris).
 
 Toutes ces actions (scroll, survol, ouverture d'annonce, ajout favori) sont
 purement décoratives — aucun besoin fonctionnel, les résultats de recherche
@@ -26,31 +27,15 @@ de la page. Leur seul critère est de ressembler à un humain qui parcourt une
 liste d'annonces ; elles sont tirées au hasard, pas exécutées systématiquement
 dans le même ordre/nombre à chaque page.
 """
-import logging
-import math
 import random
 import re
 import json
 import time
 import urllib.parse
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright, Error as PlaywrightError
+from playwright.sync_api import Error as PlaywrightError
 
-# Mêmes familles que FacebookScraper (backend/scraping/core.py) — cohérence
-# de posture de furtivité entre les deux scrapers.
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-]
-VIEWPORTS = [
-    {"width": 1920, "height": 1080},
-    {"width": 1366, "height": 768},
-    {"width": 1440, "height": 900},
-]
+from backend.scraping_common import BaseMarketplaceScraper
 
 DATADOME_CHALLENGE_MARKERS = ["captcha-delivery.com"]
 SUSPICIOUS_TITLE_KEYWORDS = ["just a moment", "vérification", "attention requise", "access denied", "pardon our interruption"]
@@ -60,133 +45,8 @@ AD_CARD_SELECTOR = '[data-qa-id="aditem_container"]'
 AD_LINK_SELECTOR = f'{AD_CARD_SELECTOR} a'
 SAVE_AD_BUTTON_SELECTOR = '[data-qa-id="listitem_save_ad"]'
 
-# Plage nocturne (heure de Paris, pas l'heure système de la machine qui exécute
-# le script) — un humain ne consulte pas les petites annonces en pleine nuit.
-# Fonctions réutilisables telles quelles pour la future cadence de scan réelle
-# (bot.py), pas seulement pour le test de charge (--soak-cycles).
-PARIS_TZ = ZoneInfo("Europe/Paris")
-NIGHT_START_HOUR = 0
-NIGHT_END_HOUR = 7
 
-
-def is_night_time(now=None):
-    """True si l'heure actuelle (Europe/Paris) tombe dans la plage nocturne
-    [NIGHT_START_HOUR, NIGHT_END_HOUR)."""
-    now = now or datetime.now(PARIS_TZ)
-    return NIGHT_START_HOUR <= now.hour < NIGHT_END_HOUR
-
-
-def seconds_until_active(now=None):
-    """Secondes à attendre avant la prochaine heure d'activité plausible — 0 si
-    on n'est pas actuellement en plage nocturne. Le réveil est variable (pas un
-    couperet fixe à NIGHT_END_HOUR pile) pour rester plausible."""
-    now = now or datetime.now(PARIS_TZ)
-    if not is_night_time(now):
-        return 0
-    wake_hour = NIGHT_END_HOUR + random.uniform(0, 1.5)  # ex: entre 7h00 et ~8h30
-    target = now.replace(hour=int(wake_hour), minute=int((wake_hour % 1) * 60), second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
-
-
-class LeboncoinScraper:
-    def __init__(self, storage_state_path, logger=None):
-        self.storage_state_path = storage_state_path
-        self.logger = logger or logging.getLogger(__name__)
-        self.playwright = None
-        self.browser = None
-        self.context = None
-        self.page = None  # onglet réutilisé sur toute la session (pas de nouvel onglet par recherche)
-        self._responses = []
-        self._mouse_pos = (640, 400)  # position de départ arbitraire, mise à jour à chaque déplacement
-
-    def start_session(self):
-        """Démarre la session Playwright. Sans effet si déjà démarrée — permet
-        d'appeler search() plusieurs fois dans la même session (comportement
-        humain : l'onglet reste ouvert, on relance des recherches)."""
-        if self.context:
-            return
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled", "--disable-infobars", "--no-sandbox"],
-        )
-        ua = random.choice(USER_AGENTS)
-        vp = random.choice(VIEWPORTS)
-        self.context = self.browser.new_context(
-            storage_state=self.storage_state_path, user_agent=ua, viewport=vp, locale="fr-FR"
-        )
-        self.logger.info("Session LeBonCoin démarrée.")
-
-    def close_session(self):
-        if self.context:
-            self.context.close()  # ferme aussi self.page
-            self.context = None
-        self.page = None
-        if self.browser:
-            self.browser.close()
-            self.browser = None
-        if self.playwright:
-            self.playwright.stop()
-            self.playwright = None
-        self.logger.info("Session LeBonCoin fermée.")
-
-    def _ensure_session(self):
-        if not self.context:
-            self.start_session()
-
-    def _get_page(self):
-        """Onglet unique réutilisé pour toutes les recherches de la session — un
-        humain relance des recherches dans le même onglet, il n'en ouvre pas un
-        nouveau à chaque fois. Recréé seulement si absent ou fermé (ex: fermé
-        manuellement par l'utilisateur)."""
-        if self.page is None or self.page.is_closed():
-            self.page = self.context.new_page()
-            self.page.on("response", lambda r: self._responses.append(r))
-        return self.page
-
-    def _human_pause(self, low, high):
-        """Pause à distribution non-uniforme (asymétrique vers le bas, avec de
-        rares hésitations plus longues) plutôt qu'un `random.uniform` plat — une
-        signature statistique trop régulière est elle-même détectable dans la
-        durée sur de nombreux cycles."""
-        if random.random() < 0.12:
-            time.sleep(random.uniform(high, high * 2.0))
-        else:
-            time.sleep(random.triangular(low, high, low))
-
-    def _human_mouse_move(self, page, target_x, target_y):
-        """Déplace la souris vers (target_x, target_y) en plusieurs étapes
-        intermédiaires (courbe lissée + micro-jitter), au lieu de la
-        téléportation instantanée d'un simple `page.mouse.move()`."""
-        start_x, start_y = self._mouse_pos
-        steps = random.randint(8, 20)
-        for i in range(1, steps + 1):
-            t = i / steps
-            eased = t * t * (3 - 2 * t)  # smoothstep : accélération puis décélération
-            jitter_x = random.uniform(-3, 3) if 0 < i < steps else 0
-            jitter_y = random.uniform(-3, 3) if 0 < i < steps else 0
-            x = start_x + (target_x - start_x) * eased + jitter_x
-            y = start_y + (target_y - start_y) * eased + jitter_y
-            page.mouse.move(x, y)
-            time.sleep(random.uniform(0.008, 0.03))
-        self._mouse_pos = (target_x, target_y)
-
-    def _human_scroll(self, page, total_delta):
-        """Défile de `total_delta` px (signe = direction) en de nombreux petits
-        paliers suivant une courbe en cloche (accélération puis décélération),
-        pour un mouvement visuellement continu plutôt qu'une poignée de sauts."""
-        steps = random.randint(18, 32)
-        weights = [math.sin(math.pi * (i + 0.5) / steps) for i in range(steps)]
-        weight_sum = sum(weights)
-        remaining = total_delta
-        for i, w in enumerate(weights):
-            chunk = remaining if i == steps - 1 else round(total_delta * w / weight_sum)
-            page.mouse.wheel(0, chunk)
-            remaining -= chunk
-            time.sleep(random.uniform(0.012, 0.045))
-
+class LeboncoinScraper(BaseMarketplaceScraper):
     def _simulate_browsing(self, page):
         """Actions décoratives (scroll, survol d'une annonce) tirées au hasard,
         pas exécutées systématiquement dans le même ordre/nombre à chaque page."""

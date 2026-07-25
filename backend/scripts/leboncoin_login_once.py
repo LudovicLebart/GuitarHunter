@@ -18,7 +18,7 @@ import random
 sys.path.insert(0, '.')
 
 from playwright.sync_api import sync_playwright
-from backend.scraping_leboncoin.core import USER_AGENTS, VIEWPORTS
+from backend.scraping_common.base_scraper import DEFAULT_USER_AGENTS, DEFAULT_VIEWPORTS
 
 DEFAULT_OUTPUT = "backend/scripts/leboncoin_storage_state.json"
 
@@ -33,8 +33,8 @@ def main():
             headless=False,
             args=["--disable-blink-features=AutomationControlled", "--disable-infobars", "--no-sandbox"],
         )
-        ua = random.choice(USER_AGENTS)
-        vp = random.choice(VIEWPORTS)
+        ua = random.choice(DEFAULT_USER_AGENTS)
+        vp = random.choice(DEFAULT_VIEWPORTS)
         context = browser.new_context(locale="fr-FR", user_agent=ua, viewport=vp)
         page = context.new_page()
         page.goto("https://www.leboncoin.fr/", timeout=60000)
