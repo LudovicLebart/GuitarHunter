@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright, Page
 
 from .config import KijijiScraperConfig
 from .parser import KijijiListingParser
+from .locations import load_location_lookup, resolve_location, build_search_url
 
 
 class KijijiScraper:
@@ -41,26 +42,38 @@ class KijijiScraper:
         tous deux lisibles dans `__NEXT_DATA__` (`Category:{id}.searchSeoUrl`,
         `location.id`) d'une annonce déjà scrapée dans cette zone.
 
-    Écarts assumés par rapport à `FacebookScraper` (non des oublis) : pas de
-    rotation de proxy, pas de géolocalisation forcée, pas de filtre par liste
-    blanche de villes — ces trois éléments dépendent d'un mapping ville→ID
-    Kijiji qui n'existe pas encore côté produit (contrairement à
-    `city_mapping` sur Facebook). `check_listing_availability()` est en
-    revanche fourni, pour la tâche de nettoyage périodique.
+    Résolution ville -> ID de lieu (`locations.py`) : contrairement à Facebook
+    (`get_city_id_and_coords()`, doit piloter le sélecteur de lieu du site une
+    ville à la fois), Kijiji publie un arbre statique et complet de tous ses
+    lieux par province (`https://www.kijiji.ca/j-locations.json?q=<province>`,
+    confirmé en test live du 2026-07-26). `scan_city()` combine cette
+    résolution + `locations.build_search_url()` + `scan_search_url()` pour
+    scraper une ville par son nom, sans jamais construire d'URL à la main ni
+    piloter de champ de formulaire. Voir `backend/scripts/fetch_kijiji_locations.py`
+    pour (ré)générer `backend/resources/kijiji_locations.json`.
 
-    Note d'API : `config` et `logger` sont volontairement **keyword-only**
-    (contrairement à `FacebookScraper.__init__(city_coordinates, city_mapping,
-    ...)`) car cette classe n'a pas d'équivalent positionnel à
+    Écarts assumés par rapport à `FacebookScraper` (non des oublis) : pas de
+    rotation de proxy, pas de géolocalisation forcée. `check_listing_availability()`
+    est en revanche fourni, pour la tâche de nettoyage périodique.
+
+    Note d'API : `config`, `logger` et `location_lookup` sont volontairement
+    **keyword-only** (contrairement à `FacebookScraper.__init__(city_coordinates,
+    city_mapping, ...)`) car cette classe n'a pas d'équivalent positionnel à
     `city_coordinates`/`city_mapping` — ça évite qu'un futur appel copié-collé
     depuis `bot.py` (ex: `KijijiScraper({}, {}, logger=...)`) lie silencieusement
     les mauvais arguments ; il échouera bruyamment à l'appel à la place.
     """
 
-    def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None):
+    def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None,
+                 location_lookup: Dict[str, Dict[str, Any]] = None):
         self.config = config or KijijiScraperConfig()
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module pour les scripts autonomes/tests.
         self.logger = logger or logging.getLogger(__name__)
+        # Chargé depuis backend/resources/kijiji_locations.json par défaut (vide si le
+        # fichier n'a pas encore été généré — voir fetch_kijiji_locations.py) ; peut être
+        # injecté explicitement (ex: rechargé depuis Firestore plus tard).
+        self.location_lookup = location_lookup if location_lookup is not None else load_location_lookup()
 
         self.playwright = None
         self.browser = None
@@ -281,6 +294,31 @@ class KijijiScraper:
         finally:
             page.close()
         return found_deals
+
+    def scan_city(self, city_name: str, category_id: int, query: str, max_ads: int = 20,
+                   should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
+        """
+        Scanne une ville par son nom : résout `city_name` vers son ID de lieu Kijiji via
+        `self.location_lookup` (voir `locations.resolve_location`), construit l'URL de
+        résultats correspondante (`locations.build_search_url`) et scrape dessus
+        (`scan_search_url`) — combine la fiabilité de `scan_search_url` (aucun champ de
+        formulaire à piloter) avec une interface simple par nom de ville.
+
+        `category_id` : ID de catégorie Kijiji, global et stable pour tout le site (ex:
+        613 = Guitars — pas de mapping de catégories dans ce module pour l'instant, à
+        fournir par l'appelant).
+        """
+        location = resolve_location(city_name, self.location_lookup)
+        if not location:
+            self.logger.error(
+                f"❌ Ville Kijiji introuvable dans le lookup: '{city_name}' "
+                f"({len(self.location_lookup)} lieu(x) chargé(s) — voir "
+                f"backend/scripts/fetch_kijiji_locations.py pour (ré)générer le lookup)."
+            )
+            return []
+
+        url = build_search_url(category_id, location["id"], query, location_slug=location.get("slug") or "lieu")
+        return self.scan_search_url(url, max_ads=max_ads, should_skip_callback=should_skip_callback, stop_event=stop_event)
 
     def _scrape_results_page(self, page: Page, max_ads: int, should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
         """Extraction des annonces sur une page de résultats Kijiji déjà chargée (recherche

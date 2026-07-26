@@ -1,0 +1,146 @@
+import json
+import unittest
+
+from scraping.parser import ListingParser
+from scraping.kijiji.locations import (
+    parse_locations_response,
+    flatten_locations_tree,
+    location_slug_from_seo_url,
+    build_location_lookup,
+    resolve_location,
+    build_search_url,
+)
+
+# Extrait réel de https://www.kijiji.ca/j-locations.json?q=Quebec (test live du
+# 2026-07-26) : 3 régions du Québec (Grand Montréal, Abitibi-Témiscamingue,
+# Chaudière-Appalaches), chacune avec ses villes terminales (leaf: true).
+SAMPLE_TREE = {
+    "migratedLocation": True,
+    "children": [
+        {
+            "migratedLocation": True,
+            "children": [
+                {"migratedLocation": True, "children": [], "nameFr": "Laval/Rive Nord", "regionLabel": None, "id": 1700278, "nameEn": "Laval / North Shore", "homePageSEOUrl": "/h-laval-rive-nord/1700278", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "Longueuil/Rive Sud", "regionLabel": None, "id": 1700279, "nameEn": "Longueuil / South Shore", "homePageSEOUrl": "/h-longueuil-rive-sud/1700279", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "Ouest de l'Île", "regionLabel": None, "id": 1700280, "nameEn": "West Island", "homePageSEOUrl": "/h-ouest-de-lile-qc/1700280", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "Ville de Montréal", "regionLabel": None, "id": 1700281, "nameEn": "City of Montréal", "homePageSEOUrl": "/h-ville-de-montreal/1700281", "leaf": True},
+            ],
+            "nameFr": "Grand Montréal", "regionLabel": "Québec", "id": 80002, "nameEn": "Greater Montréal", "homePageSEOUrl": "/h-grand-montreal/80002", "leaf": False,
+        },
+        {
+            "migratedLocation": True,
+            "children": [
+                {"migratedLocation": True, "children": [], "nameFr": "Rouyn-Noranda", "regionLabel": None, "id": 1700060, "nameEn": "Rouyn-Noranda", "homePageSEOUrl": "/h-rouyn-noranda/1700060", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "Val-d'Or", "regionLabel": None, "id": 1700061, "nameEn": "Val-d'Or", "homePageSEOUrl": "/h-val-dor/1700061", "leaf": True},
+            ],
+            "nameFr": "Abitibi-Témiscamingue", "regionLabel": "Québec", "id": 1700059, "nameEn": "Abitibi-Témiscamingue", "homePageSEOUrl": "/h-abitibi-temiscamingue/1700059", "leaf": False,
+        },
+        {
+            "migratedLocation": True,
+            "children": [
+                {"migratedLocation": True, "children": [], "nameFr": "Lévis", "regionLabel": None, "id": 1700063, "nameEn": "Lévis", "homePageSEOUrl": "/h-levis/1700063", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "Thetford Mines", "regionLabel": None, "id": 1700064, "nameEn": "Thetford Mines", "homePageSEOUrl": "/h-thetford-mines/1700064", "leaf": True},
+                {"migratedLocation": True, "children": [], "nameFr": "St-Georges-de-Beauce", "regionLabel": None, "id": 1700065, "nameEn": "St-Georges-de-Beauce", "homePageSEOUrl": "/h-st-georges-de-beauce/1700065", "leaf": True},
+            ],
+            "nameFr": "Chaudière-Appalaches", "regionLabel": "Québec", "id": 1700062, "nameEn": "Chaudière-Appalaches", "homePageSEOUrl": "/h-chaudiere-appalaches/1700062", "leaf": False,
+        },
+    ],
+}
+
+
+class TestParseLocationsResponse(unittest.TestCase):
+    def test_strips_js_var_wrapper(self):
+        raw = "var locationsTree = " + json.dumps(SAMPLE_TREE) + ";"
+        self.assertEqual(parse_locations_response(raw), SAMPLE_TREE)
+
+    def test_accepts_pure_json(self):
+        raw = json.dumps(SAMPLE_TREE)
+        self.assertEqual(parse_locations_response(raw), SAMPLE_TREE)
+
+
+class TestFlattenLocationsTree(unittest.TestCase):
+    def test_collects_only_leaves(self):
+        leaves = flatten_locations_tree(SAMPLE_TREE)
+        ids = {leaf["id"] for leaf in leaves}
+        # Les régions (Grand Montréal=80002, Abitibi-Témiscamingue=1700059,
+        # Chaudière-Appalaches=1700062) ne sont PAS des lieux de recherche valides.
+        self.assertNotIn(80002, ids)
+        self.assertNotIn(1700059, ids)
+        self.assertNotIn(1700062, ids)
+        self.assertEqual(len(leaves), 9)
+        self.assertIn(1700279, ids)  # Longueuil / South Shore
+
+    def test_leaf_has_expected_fields(self):
+        leaves = flatten_locations_tree(SAMPLE_TREE)
+        longueuil = next(l for l in leaves if l["id"] == 1700279)
+        self.assertEqual(longueuil["nameEn"], "Longueuil / South Shore")
+        self.assertEqual(longueuil["nameFr"], "Longueuil/Rive Sud")
+        self.assertEqual(longueuil["homePageSEOUrl"], "/h-longueuil-rive-sud/1700279")
+
+
+class TestLocationSlugFromSeoUrl(unittest.TestCase):
+    def test_extracts_slug(self):
+        self.assertEqual(location_slug_from_seo_url("/h-longueuil-rive-sud/1700279"), "longueuil-rive-sud")
+
+    def test_returns_none_for_empty(self):
+        self.assertIsNone(location_slug_from_seo_url(None))
+        self.assertIsNone(location_slug_from_seo_url(""))
+
+
+class TestBuildLocationLookup(unittest.TestCase):
+    def setUp(self):
+        self.lookup = build_location_lookup(flatten_locations_tree(SAMPLE_TREE))
+
+    def test_english_name_resolves(self):
+        key = ListingParser.normalize_city_name("Longueuil / South Shore")
+        self.assertEqual(self.lookup[key]["id"], 1700279)
+
+    def test_french_name_resolves(self):
+        key = ListingParser.normalize_city_name("Longueuil/Rive Sud")
+        self.assertEqual(self.lookup[key]["id"], 1700279)
+
+    def test_slug_captured(self):
+        key = ListingParser.normalize_city_name("Val-d'Or")
+        self.assertEqual(self.lookup[key]["slug"], "val-dor")
+
+
+class TestResolveLocation(unittest.TestCase):
+    def setUp(self):
+        self.lookup = build_location_lookup(flatten_locations_tree(SAMPLE_TREE))
+
+    def test_exact_match(self):
+        result = resolve_location("Rouyn-Noranda", self.lookup)
+        self.assertEqual(result["id"], 1700060)
+
+    def test_prefix_match_for_slash_grouped_regions(self):
+        """Régression : Kijiji regroupe Longueuil sous "Longueuil / South Shore" — une
+        recherche pour juste "Longueuil" doit quand même résoudre vers 1700279."""
+        result = resolve_location("Longueuil", self.lookup)
+        self.assertEqual(result["id"], 1700279)
+
+    def test_no_match_returns_none(self):
+        self.assertIsNone(resolve_location("Ville Inexistante Xyz", self.lookup))
+
+    def test_empty_lookup_returns_none(self):
+        self.assertIsNone(resolve_location("Longueuil", {}))
+
+    def test_empty_city_name_returns_none(self):
+        self.assertIsNone(resolve_location("", self.lookup))
+
+
+class TestBuildSearchUrl(unittest.TestCase):
+    def test_builds_expected_pattern(self):
+        url = build_search_url(613, 1700279, "guitare électrique", category_slug="guitar", location_slug="longueuil-rive-sud")
+        self.assertEqual(url, "https://www.kijiji.ca/b-guitar/longueuil-rive-sud/guitare-electrique/k0c613l1700279")
+
+    def test_query_with_special_characters_is_slugified(self):
+        url = build_search_url(613, 1700279, "Ampli 100W (Marshall)!")
+        self.assertIn("ampli-100w-marshall", url)
+
+    def test_defaults_used_when_slugs_not_provided(self):
+        url = build_search_url(613, 1700279, "guitare")
+        self.assertEqual(url, "https://www.kijiji.ca/b-recherche/lieu/guitare/k0c613l1700279")
+
+
+if __name__ == "__main__":
+    unittest.main()

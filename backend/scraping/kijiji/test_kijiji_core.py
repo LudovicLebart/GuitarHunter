@@ -226,6 +226,17 @@ class TestConstructorIsKeywordOnly(unittest.TestCase):
             KijijiScraper({}, {})
 
 
+class TestScanCity(unittest.TestCase):
+    def test_returns_empty_list_when_city_not_found(self):
+        """Ne doit pas planter, ni tenter de démarrer une session Playwright, si la ville
+        n'est pas dans le lookup (ex: fichier ressource pas encore généré par
+        fetch_kijiji_locations.py)."""
+        scraper = KijijiScraper(location_lookup={})
+        result = scraper.scan_city("Ville Inconnue Xyz", category_id=613, query="guitare")
+        self.assertEqual(result, [])
+        self.assertIsNone(scraper.context)  # aucune session Playwright démarrée
+
+
 class TestExtractImagesFromJsonLd(unittest.TestCase):
     def test_single_string_image(self):
         result = KijijiListingParser._extract_images_from_json_ld({"image": "https://x/1.jpg"})

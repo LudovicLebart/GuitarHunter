@@ -29,6 +29,10 @@ Modes disponibles :
      d'entrée contenant un prix — pour savoir si les cartes de résultats (prix/
      lieu par annonce) sont, comme la fiche détail, lisibles directement en JSON
      plutôt que via des sélecteurs DOM fragiles sur chaque carte.
+  7. --scan-city VILLE (+ --category-id / --query / --max-ads) : résout la ville
+     via backend/resources/kijiji_locations.json (généré par
+     fetch_kijiji_locations.py) et scrape directement — pas d'URL à construire
+     à la main, pas de champ de recherche à piloter.
 
 Par défaut le navigateur est visible (non headless) pour repérer d'un coup
 d'œil où un sélecteur ne matche plus rien.
@@ -40,6 +44,7 @@ Usage :
     python -m backend.scripts.test_kijiji_scraper --diag-search
     python -m backend.scripts.test_kijiji_scraper --diag-images "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
     python -m backend.scripts.test_kijiji_scraper --diag-search-data "https://www.kijiji.ca/b-guitar/longueuil-rive-sud/c613l1700279?..."
+    python -m backend.scripts.test_kijiji_scraper --scan-city Longueuil --category-id 613 --query "guitare électrique" --max-ads 5
 """
 import sys
 import argparse
@@ -61,10 +66,15 @@ def main():
     parser.add_argument("--diag-search", action="store_true", help="Dump des <input> de la page d'accueil kijiji.ca")
     parser.add_argument("--diag-images", default=None, metavar="URL", help="Dump de la structure DOM de la galerie photo d'une fiche détail")
     parser.add_argument("--diag-search-data", default=None, metavar="URL", help="Dump de l'état Apollo (__NEXT_DATA__) d'une page de résultats de recherche")
+    parser.add_argument("--scan-city", default=None, metavar="VILLE", help="Nom de ville à résoudre puis scraper (scan_city)")
+    parser.add_argument("--category-id", type=int, default=613, help="ID de catégorie Kijiji pour --scan-city (défaut: 613 = Guitars)")
     args = parser.parse_args()
 
-    if not any([args.url, args.query, args.search_url, args.diag_search, args.diag_images, args.diag_search_data]):
-        print("❌ Fournis --url, --query, --search-url, --diag-search, --diag-images ou --diag-search-data.")
+    if not any([args.url, args.query, args.search_url, args.diag_search, args.diag_images, args.diag_search_data, args.scan_city]):
+        print("❌ Fournis --url, --query, --search-url, --diag-search, --diag-images, --diag-search-data ou --scan-city.")
+        sys.exit(1)
+    if args.scan_city and not args.query:
+        print("❌ --scan-city requiert aussi --query.")
         sys.exit(1)
 
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
@@ -92,7 +102,7 @@ def main():
             if not results:
                 print("⚠️ Aucune annonce retournée — vérifier les logs ci-dessus (page invalide, ID introuvable...).")
 
-        if args.query:
+        if args.query and not args.scan_city:
             print(f"\n🌍 Test scan_marketplace : '{args.query}' @ {args.location or 'Canada'} (max {args.max_ads})\n")
             deals = scraper.scan_marketplace({
                 "search_query": args.query,
@@ -106,6 +116,14 @@ def main():
         if args.search_url:
             print(f"\n🌍 Test scan_search_url : {args.search_url} (max {args.max_ads})\n")
             deals = scraper.scan_search_url(args.search_url, max_ads=args.max_ads)
+            print(f"\n✅ {len(deals)} annonce(s) trouvée(s).\n")
+            for deal in deals:
+                _print_deal(deal)
+
+        if args.scan_city:
+            print(f"\n🌍 Test scan_city : '{args.scan_city}' (catégorie {args.category_id}, requête '{args.query}', max {args.max_ads})\n")
+            print(f"   {len(scraper.location_lookup)} lieu(x) chargé(s) dans le lookup.")
+            deals = scraper.scan_city(args.scan_city, args.category_id, args.query, max_ads=args.max_ads)
             print(f"\n✅ {len(deals)} annonce(s) trouvée(s).\n")
             for deal in deals:
                 _print_deal(deal)
