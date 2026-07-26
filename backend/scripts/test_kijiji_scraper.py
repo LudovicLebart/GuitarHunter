@@ -235,6 +235,17 @@ def _diag_search_data(scraper: KijijiScraper, url: str):
         for t, keys in sorted(typenames.items(), key=lambda kv: -len(kv[1])):
             print(f"  - {t}: {len(keys)} — ex: {keys[:3]}")
 
+        # Complétude : les StandardListing de la page de résultats sont-ils aussi
+        # complets que sur la fiche détail individuelle (mêmes images/description), ou
+        # tronqués (aperçu seulement) ? Décisif pour savoir si on peut se passer
+        # entièrement de visiter chaque fiche détail.
+        standard_listings = {k: v for k, v in apollo_state.items() if k.startswith("StandardListing:")}
+        if standard_listings:
+            print(f"\n{len(standard_listings)} StandardListing trouvé(s) sur la page de résultats. Exemple complet (le premier) :")
+            first_key, first_value = next(iter(standard_listings.items()))
+            print(f"--- {first_key} ---")
+            print(json.dumps(first_value, ensure_ascii=False, indent=2)[:3000])
+
         # Un exemple complet de la première entrée qui ressemble à une annonce de résultats
         # (contient à la fois un prix et un id, mais n'est pas la fiche StandardListing complète).
         for key, value in apollo_state.items():
