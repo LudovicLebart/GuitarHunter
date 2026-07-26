@@ -36,6 +36,20 @@ class TestExtractKijijiId(unittest.TestCase):
         self.assertEqual(KijijiListingParser.extract_kijiji_id(url), "1234567890")
 
 
+class TestExtractLocationSlug(unittest.TestCase):
+    def test_real_url_from_live_test(self):
+        """URL testée en conditions réelles le 2026-07-26 — JSON-LD/DOM ne donnaient pas
+        de localisation, ce repli doit la fournir."""
+        url = "https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650"
+        self.assertEqual(KijijiListingParser.extract_location_slug(url), "Longueuil Rive Sud")
+
+    def test_non_ad_url_returns_none(self):
+        self.assertIsNone(KijijiListingParser.extract_location_slug("https://www.kijiji.ca/b-canada/guitare/k0"))
+
+    def test_empty_url_returns_none(self):
+        self.assertIsNone(KijijiListingParser.extract_location_slug(""))
+
+
 class TestIsValidDetailPage(unittest.TestCase):
     def setUp(self):
         self.scraper = KijijiScraper()

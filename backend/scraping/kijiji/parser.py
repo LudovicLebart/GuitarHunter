@@ -35,6 +35,27 @@ class KijijiListingParser:
         return last_segment if last_segment.isdigit() else None
 
     @staticmethod
+    def extract_location_slug(url: str) -> Optional[str]:
+        """
+        Dérive un lieu approximatif depuis le 2e segment du chemin de l'URL
+        (`/v-<catégorie>/<lieu>/<titre>/<id>`, ex: "longueuil-rive-sud" -> "Longueuil
+        Rive Sud"). Utilisé en dernier repli quand ni le JSON-LD ni le DOM n'exposent
+        la localisation (constaté en test live : Kijiji encode systématiquement le
+        lieu dans l'URL, contrairement à Facebook).
+        """
+        if not url or "/v-" not in url:
+            return None
+        path = url.split("?")[0].rstrip("/")
+        parts = [p for p in path.split("/") if p]
+        for i, part in enumerate(parts):
+            if part.startswith("v-") and i + 1 < len(parts):
+                candidate = parts[i + 1]
+                if candidate.isdigit():
+                    return None
+                return candidate.replace("-", " ").title()
+        return None
+
+    @staticmethod
     def parse_listing_card(link_element: Locator, logger: logging.Logger = None) -> Dict[str, Any]:
         """Extrait les infos de base depuis la carte de l'annonce dans la liste de résultats."""
         log = logger or _module_logger
@@ -175,6 +196,13 @@ class KijijiListingParser:
                     location = loc_el.inner_text().strip()
             except Exception as e:
                 log.debug(f"Erreur extraction localisation fiche détail: {e}")
+
+        if not location:
+            # Dernier repli : Kijiji encode systématiquement le lieu dans l'URL elle-même
+            # (`/v-<catégorie>/<lieu>/<titre>/<id>`) — fiable même quand JSON-LD et le DOM
+            # n'exposent pas la localisation (constaté en test live du 2026-07-26 : titre/
+            # prix/images/description corrects via JSON-LD, mais aucune localisation).
+            location = KijijiListingParser.extract_location_slug(page.url)
 
         return {
             "description": description[:3000],
