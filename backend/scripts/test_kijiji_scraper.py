@@ -24,6 +24,11 @@ Modes disponibles :
   5. --diag-images URL : dump de la structure DOM de la galerie photo d'une
      fiche détail (chaîne de classes/data-testid, dimensions, compteurs style
      "3/9") — à utiliser si le nombre d'images extraites semble incomplet.
+  6. --diag-search-data URL : dump des __typename présents dans l'état Apollo
+     (__NEXT_DATA__) d'une page de résultats de recherche, + un exemple complet
+     d'entrée contenant un prix — pour savoir si les cartes de résultats (prix/
+     lieu par annonce) sont, comme la fiche détail, lisibles directement en JSON
+     plutôt que via des sélecteurs DOM fragiles sur chaque carte.
 
 Par défaut le navigateur est visible (non headless) pour repérer d'un coup
 d'œil où un sélecteur ne matche plus rien.
@@ -34,6 +39,7 @@ Usage :
     python -m backend.scripts.test_kijiji_scraper --search-url "https://www.kijiji.ca/b-guitar/longueuil-rive-sud/c613l1700279?..." --max-ads 5
     python -m backend.scripts.test_kijiji_scraper --diag-search
     python -m backend.scripts.test_kijiji_scraper --diag-images "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
+    python -m backend.scripts.test_kijiji_scraper --diag-search-data "https://www.kijiji.ca/b-guitar/longueuil-rive-sud/c613l1700279?..."
 """
 import sys
 import argparse
@@ -54,10 +60,11 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Navigateur invisible (défaut: visible pour debug)")
     parser.add_argument("--diag-search", action="store_true", help="Dump des <input> de la page d'accueil kijiji.ca")
     parser.add_argument("--diag-images", default=None, metavar="URL", help="Dump de la structure DOM de la galerie photo d'une fiche détail")
+    parser.add_argument("--diag-search-data", default=None, metavar="URL", help="Dump de l'état Apollo (__NEXT_DATA__) d'une page de résultats de recherche")
     args = parser.parse_args()
 
-    if not args.url and not args.query and not args.search_url and not args.diag_search and not args.diag_images:
-        print("❌ Fournis --url, --query, --search-url, --diag-search ou --diag-images.")
+    if not any([args.url, args.query, args.search_url, args.diag_search, args.diag_images, args.diag_search_data]):
+        print("❌ Fournis --url, --query, --search-url, --diag-search, --diag-images ou --diag-search-data.")
         sys.exit(1)
 
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
@@ -72,6 +79,9 @@ def main():
 
         if args.diag_images:
             _diag_images(scraper, args.diag_images)
+
+        if args.diag_search_data:
+            _diag_search_data(scraper, args.diag_search_data)
 
         if args.url:
             print(f"\n🔗 Test scan_specific_url : {args.url}\n")
@@ -185,6 +195,57 @@ def _diag_images(scraper: KijijiScraper, url: str):
         print(f"Boutons liés aux photos trouvés : {info['buttons']}")
     except Exception as e:
         print(f"❌ Erreur diagnostic images : {e}")
+    finally:
+        page.close()
+
+
+def _diag_search_data(scraper: KijijiScraper, url: str):
+    """Dump des __typename présents dans l'état Apollo (__NEXT_DATA__) d'une page de
+    résultats de recherche, + un exemple complet d'entrée contenant un prix — pour savoir
+    si les cartes de résultats (prix/lieu par annonce) sont, comme la fiche détail,
+    lisibles directement en JSON plutôt que via des sélecteurs DOM fragiles par carte."""
+    print(f"\n🔬 Diagnostic __NEXT_DATA__ (page de résultats) : {url}\n")
+    scraper._ensure_session()
+    page = scraper.context.new_page()
+    try:
+        page.goto(url, timeout=scraper.config.timeout_navigation)
+        scraper._accept_cookies(page)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception as e:
+            print(f"(timeout networkidle, on continue quand même : {e})")
+
+        raw = page.evaluate("document.querySelector('script#__NEXT_DATA__')?.textContent || null")
+        if not raw:
+            print("❌ __NEXT_DATA__ introuvable sur cette page.")
+            return
+
+        data = json.loads(raw)
+        apollo_state = data.get("props", {}).get("pageProps", {}).get("__APOLLO_STATE__", {})
+        if not isinstance(apollo_state, dict):
+            print("❌ __APOLLO_STATE__ introuvable ou de forme inattendue.")
+            return
+
+        print(f"{len(apollo_state)} clé(s) dans __APOLLO_STATE__. __typename rencontrés :")
+        typenames: dict = {}
+        for key, value in apollo_state.items():
+            if isinstance(value, dict):
+                t = value.get("__typename", "?")
+                typenames.setdefault(t, []).append(key)
+        for t, keys in sorted(typenames.items(), key=lambda kv: -len(kv[1])):
+            print(f"  - {t}: {len(keys)} — ex: {keys[:3]}")
+
+        # Un exemple complet de la première entrée qui ressemble à une annonce de résultats
+        # (contient à la fois un prix et un id, mais n'est pas la fiche StandardListing complète).
+        for key, value in apollo_state.items():
+            if isinstance(value, dict) and "price" in value and value.get("__typename") != "StandardListing":
+                print(f"\nExemple ({key}) :")
+                print(json.dumps(value, ensure_ascii=False, indent=2)[:2500])
+                break
+        else:
+            print("\n(Aucune entrée avec un champ 'price' trouvée en dehors de StandardListing.)")
+    except Exception as e:
+        print(f"❌ Erreur diagnostic search data : {e}")
     finally:
         page.close()
 
