@@ -166,8 +166,12 @@ class KijijiScraper:
             page.goto("https://www.kijiji.ca/", timeout=self.config.timeout_navigation)
             self._accept_cookies(page)
 
+            # "global-header-search-bar-input" confirmé par diagnostic live (--diag-search,
+            # 2026-07-26) — c'est le SEUL <input> présent sur la page d'accueil. Les
+            # sélecteurs suivants restent en repli au cas où l'ID changerait.
             keyword_input = page.locator(
-                "input#keywordSearch, input[name='keywords'], input[placeholder*='Search' i], input[placeholder*='Rechercher' i]"
+                "input#global-header-search-bar-input, input#keywordSearch, input[name='keywords'], "
+                "input[placeholder*='Search' i], input[placeholder*='Rechercher' i]"
             ).first
             if keyword_input.count() == 0:
                 self.logger.error("❌ Champ de recherche Kijiji introuvable — sélecteurs à vérifier (voir docstring de classe).")
@@ -175,6 +179,12 @@ class KijijiScraper:
             keyword_input.fill(search_query)
 
             if location:
+                # Diagnostic live (2026-07-26) : aucun champ de lieu visible sur la page
+                # d'accueil (un seul <input> au total, le champ mots-clés) — le filtre de
+                # lieu de Kijiji semble caché derrière une modale ("Set location") non
+                # encore identifiée. Ces sélecteurs resteront donc `count() == 0` tant que
+                # cette modale n'est pas ouverte au préalable ; log explicite pour ne pas
+                # laisser croire silencieusement que le filtre de lieu s'est appliqué.
                 location_input = page.locator(
                     "input#locationAutoComplete, input[name='location'], input[placeholder*='Location' i], input[placeholder*='Lieu' i]"
                 ).first
@@ -192,11 +202,18 @@ class KijijiScraper:
                     else:
                         self.logger.debug("Aucune suggestion de localisation Kijiji trouvée — le filtre de lieu pourrait ne pas s'appliquer.")
                         page.keyboard.press("Escape")
+                else:
+                    self.logger.warning(f"⚠️ Champ de lieu introuvable (recherche probablement non filtrée par lieu — '{location}' ignoré).")
 
             keyword_input.click()
             page.keyboard.press("Enter")
             try:
-                page.wait_for_load_state("networkidle", timeout=self.config.timeout_navigation)
+                # Kijiji charge en continu des pubs/trackers en arrière-plan : le réseau
+                # n'atteint quasiment jamais l'état "idle" (confirmé en test live —
+                # timeout systématique). timeout_selector (15s) plutôt que
+                # timeout_navigation (60s) pour ne pas perdre une minute par scan sur une
+                # attente qui échoue de toute façon presque à chaque fois.
+                page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
             except Exception as e:
                 self.logger.debug(f"Timeout networkidle après soumission recherche Kijiji: {e}")
             time.sleep(2)
@@ -341,7 +358,11 @@ class KijijiScraper:
                 return
 
             try:
-                page.wait_for_load_state("networkidle", timeout=self.config.timeout_navigation)
+                # timeout_selector (15s) plutôt que timeout_navigation (60s) : Kijiji
+                # n'atteint quasiment jamais l'état "idle" (pubs/trackers en continu),
+                # cette attente échoue systématiquement en test live — pas la peine de
+                # perdre une minute par scrape dessus.
+                page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
             except Exception as e:
                 self.logger.debug(f"Timeout networkidle scan_url Kijiji: {e}")
             time.sleep(1.5)
