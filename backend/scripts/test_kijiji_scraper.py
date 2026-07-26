@@ -6,13 +6,19 @@ sélecteurs Playwright contre le vrai DOM de kijiji.ca, chose impossible à
 faire depuis un environnement de développement sans accès réseau au site
 (voir la note de validation en tête de `KijijiScraper`).
 
-Deux modes, à utiliser dans cet ordre :
+Modes disponibles :
 
   1. --url : scrape une seule annonce connue (le plus rapide à valider —
      isole la fiche détail : JSON-LD, images, prix, sans dépendre des
      sélecteurs de recherche/scroll).
   2. --query (+ --location / --max-ads) : recherche complète, teste le champ
      de recherche, le filtre de lieu et le scroll dynamique.
+  3. --diag-search : dump de tous les <input> de la page d'accueil kijiji.ca
+     (id/name/placeholder/aria-label) — à utiliser si le mode 2 échoue avec
+     "Champ de recherche Kijiji introuvable" pour identifier le vrai sélecteur.
+  4. --diag-images URL : dump de la structure DOM de la galerie photo d'une
+     fiche détail (chaîne de classes/data-testid, dimensions, compteurs style
+     "3/9") — à utiliser si le nombre d'images extraites semble incomplet.
 
 Par défaut le navigateur est visible (non headless) pour repérer d'un coup
 d'œil où un sélecteur ne matche plus rien.
@@ -20,11 +26,13 @@ d'œil où un sélecteur ne matche plus rien.
 Usage :
     python -m backend.scripts.test_kijiji_scraper --url "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
     python -m backend.scripts.test_kijiji_scraper --query "guitare électrique" --location "Montreal" --max-ads 5
-    python -m backend.scripts.test_kijiji_scraper --query "guitare électrique" --headless
+    python -m backend.scripts.test_kijiji_scraper --diag-search
+    python -m backend.scripts.test_kijiji_scraper --diag-images "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
 """
 import sys
 import argparse
 import logging
+import json
 
 sys.path.insert(0, '.')
 from backend.scraping.kijiji import KijijiScraper, KijijiScraperConfig
@@ -37,10 +45,12 @@ def main():
     parser.add_argument("--location", default=None, help="Lieu (texte libre tapé dans le champ de recherche)")
     parser.add_argument("--max-ads", type=int, default=5, help="Nombre max d'annonces à scraper (défaut: 5)")
     parser.add_argument("--headless", action="store_true", help="Navigateur invisible (défaut: visible pour debug)")
+    parser.add_argument("--diag-search", action="store_true", help="Dump des <input> de la page d'accueil kijiji.ca")
+    parser.add_argument("--diag-images", default=None, metavar="URL", help="Dump de la structure DOM de la galerie photo d'une fiche détail")
     args = parser.parse_args()
 
-    if not args.url and not args.query:
-        print("❌ Fournis --url (test d'une annonce) ou --query (test de recherche).")
+    if not args.url and not args.query and not args.diag_search and not args.diag_images:
+        print("❌ Fournis --url, --query, --diag-search ou --diag-images.")
         sys.exit(1)
 
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
@@ -50,6 +60,12 @@ def main():
     scraper = KijijiScraper(config=config, logger=log)
 
     try:
+        if args.diag_search:
+            _diag_search(scraper)
+
+        if args.diag_images:
+            _diag_images(scraper, args.diag_images)
+
         if args.url:
             print(f"\n🔗 Test scan_specific_url : {args.url}\n")
             results = []
@@ -71,6 +87,89 @@ def main():
                 _print_deal(deal)
     finally:
         scraper.close_session()
+
+
+def _diag_search(scraper: KijijiScraper):
+    """Dump de tous les <input> de la page d'accueil kijiji.ca — pour retrouver le vrai
+    sélecteur du champ de recherche quand celui codé en dur ne matche plus rien."""
+    print("\n🔬 Diagnostic recherche (page d'accueil kijiji.ca)\n")
+    scraper._ensure_session()
+    page = scraper.context.new_page()
+    try:
+        page.goto("https://www.kijiji.ca/", timeout=scraper.config.timeout_navigation)
+        scraper._accept_cookies(page)
+        page.wait_for_load_state("networkidle", timeout=10000)
+        inputs = page.evaluate("""() => {
+            return Array.from(document.querySelectorAll('input')).map(el => ({
+                id: el.id || null,
+                name: el.name || null,
+                type: el.type || null,
+                placeholder: el.placeholder || null,
+                ariaLabel: el.getAttribute('aria-label'),
+                visible: !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length),
+            }));
+        }""")
+        print(f"{len(inputs)} <input> trouvé(s) :")
+        for i in inputs:
+            print(f"  - {json.dumps(i, ensure_ascii=False)}")
+    except Exception as e:
+        print(f"❌ Erreur diagnostic recherche : {e}")
+    finally:
+        page.close()
+
+
+def _diag_images(scraper: KijijiScraper, url: str):
+    """Dump de la structure DOM des grandes images (>200px) d'une fiche détail, avec leur
+    chaîne parent (classes/data-testid) et tout compteur texte style "3/9" — pour identifier
+    la vraie galerie/le bon mécanisme de navigation (clic vs clavier) quand le nombre
+    d'images extraites est incomplet."""
+    print(f"\n🔬 Diagnostic images : {url}\n")
+    scraper._ensure_session()
+    page = scraper.context.new_page()
+    try:
+        page.goto(url, timeout=scraper.config.timeout_navigation)
+        scraper._accept_cookies(page)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception as e:
+            print(f"(timeout networkidle, on continue quand même : {e})")
+
+        info = page.evaluate(r"""() => {
+            const imgs = Array.from(document.querySelectorAll('img'));
+            const bigImgs = imgs.filter(img => (img.naturalWidth > 150 || img.width > 150));
+            const summary = bigImgs.slice(0, 20).map(img => {
+                let el = img;
+                let chain = [];
+                for (let i = 0; i < 4 && el; i++) {
+                    const cls = el.className ? '.' + String(el.className).trim().split(/\s+/).join('.') : '';
+                    const testid = el.getAttribute && el.getAttribute('data-testid');
+                    chain.push((el.tagName || '') + cls + (testid ? `[data-testid=${testid}]` : ''));
+                    el = el.parentElement;
+                }
+                return { src: img.src.slice(0, 90), w: img.width, h: img.height, chain: chain.join(' < ') };
+            });
+            const counterRegex = /\d+\s*\/\s*\d+|\d+\s*(photos?|images?)/i;
+            const counters = Array.from(document.querySelectorAll('body *'))
+                .filter(el => el.children.length === 0 && counterRegex.test(el.innerText || ''))
+                .map(el => el.innerText.trim())
+                .slice(0, 8);
+            const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
+                .filter(el => /photo|image|suivant|next|voir tout/i.test((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')))
+                .map(el => (el.getAttribute('aria-label') || el.innerText || '').trim())
+                .slice(0, 8);
+            return { totalImgTags: imgs.length, bigCount: bigImgs.length, images: summary, counters, buttons };
+        }""")
+        print(f"Total <img> sur la page : {info['totalImgTags']} — dont >150px : {info['bigCount']}")
+        print("\nImages (chaîne parent, 4 niveaux) :")
+        for im in info["images"]:
+            print(f"  - {im['w']}x{im['h']} src={im['src']}")
+            print(f"    chain: {im['chain']}")
+        print(f"\nCompteurs texte trouvés (ex: '3/9', '9 photos') : {info['counters']}")
+        print(f"Boutons liés aux photos trouvés : {info['buttons']}")
+    except Exception as e:
+        print(f"❌ Erreur diagnostic images : {e}")
+    finally:
+        page.close()
 
 
 def _print_deal(deal: dict):
