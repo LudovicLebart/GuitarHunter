@@ -114,6 +114,46 @@ NEXT_DATA_SEARCH_RESULTS_SAMPLE = {
     }
 }
 
+# Deux villes différentes pour vérifier que l'extraction du lieu/prix n'est pas figée
+# sur une seule ville (Longueuil, dans les échantillons ci-dessus) — Sainte-Julie est
+# une vraie annonce vue dans les résultats "hors rayon" du test live du 2026-07-26 ;
+# Québec est une entrée synthétique (même schéma StandardListing) pour couvrir une
+# ville bien plus éloignée, toutes deux étant des villes réellement configurables comme
+# zones de scan dans l'app (docs/reference/ARCHITECTURE.md § Villes & Géocodage).
+STANDARD_LISTING_SAINTE_JULIE = {
+    "__typename": "StandardListing",
+    "id": "1732987805",
+    "title": "Pédale de guitare Marshall Bluesbreaker II ( BB-2 )",
+    "description": "Le son Blues d'un Marshall dans une pédale. Vérifiée et tout fonctionne.",
+    "imageCount": 3,
+    "imageUrls": ["https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/bb/1.jpg"],
+    "url": "https://www.kijiji.ca/v-guitar/longueuil-rive-sud/pedale-de-guitare-marshall-bluesbreaker-ii-bb-2/1732987805",
+    "price": {"__typename": "StandardAmountPrice", "amount": 10000},
+    "location": {"__typename": "ListingLocation", "id": 1700433, "name": "Sainte-Julie"},
+}
+STANDARD_LISTING_QUEBEC = {
+    "__typename": "StandardListing",
+    "id": "9999999999",
+    "title": "Guitare classique Québec",
+    "description": "Guitare classique en bon état, à vendre à Québec.",
+    "imageCount": 2,
+    "imageUrls": ["https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/qc/1.jpg"],
+    "url": "https://www.kijiji.ca/v-guitar/quebec-city/guitare-classique-quebec/9999999999",
+    "price": {"__typename": "StandardAmountPrice", "amount": 15000},
+    "location": {"__typename": "ListingLocation", "id": 1700423, "name": "Québec"},
+}
+NEXT_DATA_MULTI_CITY_SAMPLE = {
+    "props": {
+        "pageProps": {
+            "__APOLLO_STATE__": {
+                "StandardListing:1732987805": STANDARD_LISTING_SAINTE_JULIE,
+                "StandardListing:9999999999": STANDARD_LISTING_QUEBEC,
+                "Category:613": {"__typename": "Category", "id": 613},
+            },
+        }
+    }
+}
+
 
 class TestExtractKijijiId(unittest.TestCase):
     def test_standard_ad_url(self):
@@ -253,6 +293,23 @@ class TestPickAllStandardListings(unittest.TestCase):
         self.assertEqual(KijijiListingParser._pick_all_standard_listings({}), {})
 
 
+class TestPickAllStandardListingsMultipleCities(unittest.TestCase):
+    """Régression : l'extraction ne doit pas être accidentellement figée sur une seule
+    ville (Longueuil, dans les autres échantillons de ce fichier) — vérifié ici avec
+    Sainte-Julie et Québec, deux villes réellement configurables comme zones de scan
+    dans l'app (voir docs/reference/ARCHITECTURE.md § Villes & Géocodage)."""
+
+    def test_extracts_distinct_locations_per_listing(self):
+        result = KijijiListingParser._pick_all_standard_listings(NEXT_DATA_MULTI_CITY_SAMPLE)
+        self.assertEqual(result["1732987805"]["location"]["name"], "Sainte-Julie")
+        self.assertEqual(result["9999999999"]["location"]["name"], "Québec")
+
+    def test_extracts_distinct_prices_per_listing(self):
+        result = KijijiListingParser._pick_all_standard_listings(NEXT_DATA_MULTI_CITY_SAMPLE)
+        self.assertEqual(result["1732987805"]["price"]["amount"], 10000)
+        self.assertEqual(result["9999999999"]["price"]["amount"], 15000)
+
+
 class TestParseDetailsPageViaNextData(unittest.TestCase):
     """Test de bout en bout basé sur la structure réelle observée en test live du
     2026-07-26 (annonce Kijiji 1740804650, Longueuil) — régression sur le bug où le
@@ -272,6 +329,50 @@ class TestParseDetailsPageViaNextData(unittest.TestCase):
         self.assertEqual(result["longitude"], -73.32)
         self.assertEqual(len(result["imageUrls"]), 2)
         self.assertIn("Guitare fonctionne parfaitement", result["description"])
+
+
+class TestParseDetailsPageMultipleCities(unittest.TestCase):
+    """Même test de bout en bout que TestParseDetailsPageViaNextData, mais sur deux
+    autres villes (Sainte-Julie, Québec) pour confirmer que le prix et le lieu ne sont
+    pas juste corrects par coïncidence pour l'annonce de Longueuil testée en premier."""
+
+    def test_sainte_julie_listing(self):
+        next_data = {
+            "props": {
+                "pageProps": {
+                    "listingId": "1732987805",
+                    "__APOLLO_STATE__": {"StandardListing:1732987805": STANDARD_LISTING_SAINTE_JULIE},
+                }
+            }
+        }
+        page = FakeNextDataPage(
+            url=STANDARD_LISTING_SAINTE_JULIE["url"],
+            next_data_json_text=json.dumps(next_data),
+        )
+        result = KijijiListingParser.parse_details_page(page, "Pédale de guitare Marshall Bluesbreaker II", "1732987805")
+
+        self.assertEqual(result["price"], 100)
+        self.assertTrue(result["price_found"])
+        self.assertEqual(result["location"], "Sainte-Julie")
+
+    def test_quebec_city_listing(self):
+        next_data = {
+            "props": {
+                "pageProps": {
+                    "listingId": "9999999999",
+                    "__APOLLO_STATE__": {"StandardListing:9999999999": STANDARD_LISTING_QUEBEC},
+                }
+            }
+        }
+        page = FakeNextDataPage(
+            url=STANDARD_LISTING_QUEBEC["url"],
+            next_data_json_text=json.dumps(next_data),
+        )
+        result = KijijiListingParser.parse_details_page(page, "Guitare classique Québec", "9999999999")
+
+        self.assertEqual(result["price"], 150)
+        self.assertTrue(result["price_found"])
+        self.assertEqual(result["location"], "Québec")
 
 
 if __name__ == "__main__":
