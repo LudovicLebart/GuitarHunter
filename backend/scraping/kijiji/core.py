@@ -299,7 +299,7 @@ class KijijiScraper:
             page.mouse.wheel(0, 1000)
             time.sleep(1.5)
 
-            current_count = page.locator("a[href^='/v-']").count()
+            current_count = page.locator("a[href*='/v-']").count()
             if current_count >= target_ads_to_load:
                 self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
                 break
@@ -312,7 +312,7 @@ class KijijiScraper:
                 stagnant_iterations = 0
             previous_count = current_count
 
-        listings = page.locator("a[href^='/v-']").all()
+        listings = page.locator("a[href*='/v-']").all()
         self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
 
         count = 0
