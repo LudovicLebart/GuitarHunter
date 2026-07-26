@@ -11,12 +11,17 @@ Modes disponibles :
   1. --url : scrape une seule annonce connue (le plus rapide à valider —
      isole la fiche détail : JSON-LD, images, prix, sans dépendre des
      sélecteurs de recherche/scroll).
-  2. --query (+ --location / --max-ads) : recherche complète, teste le champ
-     de recherche, le filtre de lieu et le scroll dynamique.
-  3. --diag-search : dump de tous les <input> de la page d'accueil kijiji.ca
+  2. --query (+ --location / --max-ads) : recherche complète via le champ de
+     recherche de la page d'accueil (fragile : le filtre de lieu dépend d'une
+     modale non encore identifiée, voir --diag-search).
+  3. --search-url (+ --max-ads) : scrape directement une URL de résultats de
+     recherche déjà construite (ex: copiée depuis une recherche manuelle dans
+     un navigateur : `.../b-guitar/longueuil-rive-sud/c613l1700279?...`) —
+     évite complètement le champ de recherche/la modale de lieu.
+  4. --diag-search : dump de tous les <input> de la page d'accueil kijiji.ca
      (id/name/placeholder/aria-label) — à utiliser si le mode 2 échoue avec
      "Champ de recherche Kijiji introuvable" pour identifier le vrai sélecteur.
-  4. --diag-images URL : dump de la structure DOM de la galerie photo d'une
+  5. --diag-images URL : dump de la structure DOM de la galerie photo d'une
      fiche détail (chaîne de classes/data-testid, dimensions, compteurs style
      "3/9") — à utiliser si le nombre d'images extraites semble incomplet.
 
@@ -26,6 +31,7 @@ d'œil où un sélecteur ne matche plus rien.
 Usage :
     python -m backend.scripts.test_kijiji_scraper --url "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
     python -m backend.scripts.test_kijiji_scraper --query "guitare électrique" --location "Montreal" --max-ads 5
+    python -m backend.scripts.test_kijiji_scraper --search-url "https://www.kijiji.ca/b-guitar/longueuil-rive-sud/c613l1700279?..." --max-ads 5
     python -m backend.scripts.test_kijiji_scraper --diag-search
     python -m backend.scripts.test_kijiji_scraper --diag-images "https://www.kijiji.ca/v-guitars-amps/.../1234567890"
 """
@@ -43,14 +49,15 @@ def main():
     parser.add_argument("--url", default=None, help="URL d'une annonce Kijiji précise (scan_specific_url)")
     parser.add_argument("--query", default=None, help="Mots-clés de recherche (scan_marketplace)")
     parser.add_argument("--location", default=None, help="Lieu (texte libre tapé dans le champ de recherche)")
+    parser.add_argument("--search-url", default=None, metavar="URL", help="URL de résultats de recherche déjà construite (scan_search_url)")
     parser.add_argument("--max-ads", type=int, default=5, help="Nombre max d'annonces à scraper (défaut: 5)")
     parser.add_argument("--headless", action="store_true", help="Navigateur invisible (défaut: visible pour debug)")
     parser.add_argument("--diag-search", action="store_true", help="Dump des <input> de la page d'accueil kijiji.ca")
     parser.add_argument("--diag-images", default=None, metavar="URL", help="Dump de la structure DOM de la galerie photo d'une fiche détail")
     args = parser.parse_args()
 
-    if not args.url and not args.query and not args.diag_search and not args.diag_images:
-        print("❌ Fournis --url, --query, --diag-search ou --diag-images.")
+    if not args.url and not args.query and not args.search_url and not args.diag_search and not args.diag_images:
+        print("❌ Fournis --url, --query, --search-url, --diag-search ou --diag-images.")
         sys.exit(1)
 
     logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
@@ -82,6 +89,13 @@ def main():
                 "location": args.location,
                 "max_ads": args.max_ads,
             })
+            print(f"\n✅ {len(deals)} annonce(s) trouvée(s).\n")
+            for deal in deals:
+                _print_deal(deal)
+
+        if args.search_url:
+            print(f"\n🌍 Test scan_search_url : {args.search_url} (max {args.max_ads})\n")
+            deals = scraper.scan_search_url(args.search_url, max_ads=args.max_ads)
             print(f"\n✅ {len(deals)} annonce(s) trouvée(s).\n")
             for deal in deals:
                 _print_deal(deal)

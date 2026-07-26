@@ -26,6 +26,21 @@ class KijijiScraper:
     `scan_specific_url()` pour tester une annonce isolément sans dépendre du
     scroll de recherche).
 
+    Deux façons d'obtenir une page de résultats de recherche (`_scrape_results_page()`
+    fait le travail commun de défilement/extraction une fois dessus) :
+      - `scan_marketplace()` : pilote le champ de recherche de la page d'accueil. Le
+        filtre de lieu y est actuellement non fonctionnel (modale de sélection de lieu
+        non identifiée en test live du 2026-07-26 — aucun `<input>` de lieu visible sur
+        la page d'accueil).
+      - `scan_search_url()` : scrape directement une URL de résultats déjà construite
+        (capturée depuis une recherche manuelle dans un navigateur, ex:
+        `.../b-guitar/longueuil-rive-sud/c613l1700279?...`) — évite complètement le
+        problème du filtre de lieu puisqu'il est déjà encodé dans l'URL. `c<id>` est un
+        ID de catégorie global (stable pour tout le site, ex: 613 = Guitars) et
+        `l<id>` un ID de lieu par ville (confirmé : 1700279 = Longueuil / South Shore),
+        tous deux lisibles dans `__NEXT_DATA__` (`Category:{id}.searchSeoUrl`,
+        `location.id`) d'une annonce déjà scrapée dans cette zone.
+
     Écarts assumés par rapport à `FacebookScraper` (non des oublis) : pas de
     rotation de proxy, pas de géolocalisation forcée, pas de filtre par liste
     blanche de villes — ces trois éléments dépendent d'un mapping ville→ID
@@ -222,116 +237,164 @@ class KijijiScraper:
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan Kijiji (Redirection {page.url}).")
                 return []
 
-            self.logger.info("   📜 Défilement dynamique...")
-            previous_count = 0
-            stagnant_iterations = 0
-            target_ads_to_load = max_ads + 10
-            for i in range(self.config.max_scroll_iterations):
-                if stop_event and stop_event.is_set():
-                    self.logger.info("🛑 Scan Kijiji annulé pendant le défilement (STOP_BOT).")
-                    return found_deals
-                page.mouse.wheel(0, 1000)
-                time.sleep(1.5)
-
-                current_count = page.locator("a[href^='/v-']").count()
-                if current_count >= target_ads_to_load:
-                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
-                    break
-                if current_count <= previous_count:
-                    stagnant_iterations += 1
-                    if stagnant_iterations >= 2:
-                        self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
-                        break
-                else:
-                    stagnant_iterations = 0
-                previous_count = current_count
-
-            listings = page.locator("a[href^='/v-']").all()
-            self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
-
-            count = 0
-            seen = set()
-
-            for link in listings:
-                if count >= max_ads:
-                    break
-                if stop_event and stop_event.is_set():
-                    self.logger.info("🛑 Scan Kijiji annulé pendant le traitement des annonces (STOP_BOT).")
-                    return found_deals
-
-                href = link.get_attribute("href")
-                if not href:
-                    continue
-                full_link = f"https://www.kijiji.ca{href}" if href.startswith("/") else href
-                clean_link = full_link.split("?")[0]
-
-                if clean_link in seen:
-                    continue
-                seen.add(clean_link)
-
-                kijiji_id = KijijiListingParser.extract_kijiji_id(clean_link)
-                if not kijiji_id:
-                    continue
-
-                card_info = KijijiListingParser.parse_listing_card(link, logger=self.logger)
-                title = card_info["title"]
-                card_price = card_info["price"]
-                card_location = card_info["location"]
-                img_url = card_info["imageUrl"]
-
-                if should_skip_callback and should_skip_callback(kijiji_id, card_price):
-                    self.logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
-                    continue
-
-                self.logger.info(f"   ✨ Trouvé: {title} ({card_price}$) dans {card_location or '?'}")
-
-                details_page = self.context.new_page()
-                try:
-                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                    self._accept_cookies(details_page)
-                    try:
-                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
-                    except Exception as e:
-                        self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
-                    time.sleep(1.5)
-
-                    if self._is_valid_detail_page(details_page, kijiji_id):
-                        details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
-                    else:
-                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
-                        details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None, "latitude": None, "longitude": None}
-                finally:
-                    details_page.close()
-
-                # Un prix de 0$ trouvé sur la fiche détail (annonce gratuite) est légitime et
-                # ne doit pas être écrasé par le prix de la carte — d'où le flag `price_found`
-                # plutôt qu'un simple `details["price"] or card_price` (qui traiterait 0 comme
-                # un échec d'extraction).
-                final_price = details["price"] if details.get("price_found") else card_price
-                final_location = details["location"] or card_location
-                final_img = details["imageUrls"][0] if details["imageUrls"] else img_url
-
-                listing_data = {
-                    "title": title,
-                    "price": final_price,
-                    "description": details["description"],
-                    "imageUrl": final_img,
-                    "imageUrls": details["imageUrls"],
-                    "link": clean_link,
-                    "location": final_location,
-                    "id": kijiji_id,
-                    "source": "kijiji",
-                }
-                if details.get("latitude") is not None and details.get("longitude") is not None:
-                    listing_data["latitude"] = details["latitude"]
-                    listing_data["longitude"] = details["longitude"]
-
-                found_deals.append(listing_data)
-                count += 1
+            found_deals = self._scrape_results_page(page, max_ads, should_skip_callback, stop_event)
         except Exception as e:
             self.logger.error(f"❌ Erreur scan Kijiji: {e}", exc_info=True)
         finally:
             page.close()
+        return found_deals
+
+    def scan_search_url(self, url: str, max_ads: int = 20, should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
+        """
+        Scrape directement une URL de résultats de recherche Kijiji déjà construite
+        (ex: `https://www.kijiji.ca/b-guitar/longueuil-rive-sud/c613l1700279?...`),
+        sans passer par le champ de recherche ni le filtre de lieu de la page d'accueil
+        — utile tant que la modale de sélection de lieu n'est pas identifiée (voir
+        `scan_marketplace`), et globalement plus robuste puisqu'il n'y a alors aucun
+        champ de formulaire à piloter.
+
+        L'URL peut être construite à la main à partir d'une recherche faite une fois
+        manuellement dans un navigateur (le lien affiche `c<categoryId>l<locationId>`
+        dans le chemin — ces deux ID sont stables et réutilisables).
+        """
+        self._ensure_session()
+
+        self.logger.info(f"\n🌍 Scan Kijiji (URL directe): {url}")
+
+        if stop_event and stop_event.is_set():
+            self.logger.info("🛑 Scan Kijiji annulé avant de démarrer (STOP_BOT).")
+            return []
+
+        page = self.context.new_page()
+        found_deals: List[Dict[str, Any]] = []
+        try:
+            page.goto(url, timeout=self.config.timeout_navigation)
+            self._accept_cookies(page)
+
+            if "/login" in page.url or "captcha" in page.url.lower():
+                self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan Kijiji (Redirection {page.url}).")
+                return []
+
+            found_deals = self._scrape_results_page(page, max_ads, should_skip_callback, stop_event)
+        except Exception as e:
+            self.logger.error(f"❌ Erreur scan Kijiji (URL directe): {e}", exc_info=True)
+        finally:
+            page.close()
+        return found_deals
+
+    def _scrape_results_page(self, page: Page, max_ads: int, should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
+        """Défilement dynamique + extraction des annonces sur une page de résultats
+        Kijiji déjà chargée (recherche via champ de saisie ou URL directe — commun aux
+        deux : `scan_marketplace` et `scan_search_url`)."""
+        found_deals: List[Dict[str, Any]] = []
+
+        self.logger.info("   📜 Défilement dynamique...")
+        previous_count = 0
+        stagnant_iterations = 0
+        target_ads_to_load = max_ads + 10
+        for i in range(self.config.max_scroll_iterations):
+            if stop_event and stop_event.is_set():
+                self.logger.info("🛑 Scan Kijiji annulé pendant le défilement (STOP_BOT).")
+                return found_deals
+            page.mouse.wheel(0, 1000)
+            time.sleep(1.5)
+
+            current_count = page.locator("a[href^='/v-']").count()
+            if current_count >= target_ads_to_load:
+                self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
+                break
+            if current_count <= previous_count:
+                stagnant_iterations += 1
+                if stagnant_iterations >= 2:
+                    self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
+                    break
+            else:
+                stagnant_iterations = 0
+            previous_count = current_count
+
+        listings = page.locator("a[href^='/v-']").all()
+        self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
+
+        count = 0
+        seen = set()
+
+        for link in listings:
+            if count >= max_ads:
+                break
+            if stop_event and stop_event.is_set():
+                self.logger.info("🛑 Scan Kijiji annulé pendant le traitement des annonces (STOP_BOT).")
+                return found_deals
+
+            href = link.get_attribute("href")
+            if not href:
+                continue
+            full_link = f"https://www.kijiji.ca{href}" if href.startswith("/") else href
+            clean_link = full_link.split("?")[0]
+
+            if clean_link in seen:
+                continue
+            seen.add(clean_link)
+
+            kijiji_id = KijijiListingParser.extract_kijiji_id(clean_link)
+            if not kijiji_id:
+                continue
+
+            card_info = KijijiListingParser.parse_listing_card(link, logger=self.logger)
+            title = card_info["title"]
+            card_price = card_info["price"]
+            card_location = card_info["location"]
+            img_url = card_info["imageUrl"]
+
+            if should_skip_callback and should_skip_callback(kijiji_id, card_price):
+                self.logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
+                continue
+
+            self.logger.info(f"   ✨ Trouvé: {title} ({card_price}$) dans {card_location or '?'}")
+
+            details_page = self.context.new_page()
+            try:
+                details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                self._accept_cookies(details_page)
+                try:
+                    details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
+                except Exception as e:
+                    self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
+                time.sleep(1.5)
+
+                if self._is_valid_detail_page(details_page, kijiji_id):
+                    details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
+                else:
+                    self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
+                    details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None, "latitude": None, "longitude": None}
+            finally:
+                details_page.close()
+
+            # Un prix de 0$ trouvé sur la fiche détail (annonce gratuite) est légitime et
+            # ne doit pas être écrasé par le prix de la carte — d'où le flag `price_found`
+            # plutôt qu'un simple `details["price"] or card_price` (qui traiterait 0 comme
+            # un échec d'extraction).
+            final_price = details["price"] if details.get("price_found") else card_price
+            final_location = details["location"] or card_location
+            final_img = details["imageUrls"][0] if details["imageUrls"] else img_url
+
+            listing_data = {
+                "title": title,
+                "price": final_price,
+                "description": details["description"],
+                "imageUrl": final_img,
+                "imageUrls": details["imageUrls"],
+                "link": clean_link,
+                "location": final_location,
+                "id": kijiji_id,
+                "source": "kijiji",
+            }
+            if details.get("latitude") is not None and details.get("longitude") is not None:
+                listing_data["latitude"] = details["latitude"]
+                listing_data["longitude"] = details["longitude"]
+
+            found_deals.append(listing_data)
+            count += 1
+
         return found_deals
 
     def scan_specific_url(self, url: str, on_deal_found):
