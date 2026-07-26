@@ -1011,3 +1011,20 @@ Le projet Ã©volue avec succÃ¨s vers un systÃ¨me d'analyse IA en cascade et
 #### 2. Raisonnement
 La carte interactive n'affichait plus les images des annonces car la structure de l'index Firebase (deals_index) n'incluait pas l'URL des images. En ajoutant cette information compressée, le chargement reste très rapide tout en offrant un rendu visuel.
 La refonte de la popup MapView a été itérative pour finalement revenir à une ergonomie épurée (hover sur le marqueur, fermeture naturelle en quittant la zone, clic pour ouvrir les détails).
+
+---
+
+---
+
+[2026-07-26] [PRO] Action effectuée -> Création du scraper Kijiji autonome (module non branché au pipeline) + corrections de code review.
+
+### Session : Mise en place du scraping Kijiji
+
+#### 1. Objectif : Poser l'architecture d'un scraper Kijiji, en préparation d'une future prise en charge multi-plateforme (Facebook + Kijiji)
+- **Backend (`backend/scraping/kijiji/`, nouveau)** : `KijijiScraper`, `KijijiListingParser`, `KijijiScraperConfig` — calqués sur `FacebookScraper`, même forme de `listing_data` en sortie (+ `source: "kijiji"`) pour faciliter une intégration future dans `bot.py::run_scan()`. Recherche via le champ de recherche du site (pas d'équivalent `city_mapping`/ID de lieu numérique Kijiji à ce stade). Extraction de la fiche détail en 2 temps : JSON-LD en priorité (standard schema.org, plus stable qu'un sélecteur CSS), repli DOM sinon. `scan_specific_url()` (test isolé d'une annonce) et `check_listing_availability()` fournis en miroir de l'API Facebook.
+- **Tests** : `test_kijiji_core.py`, 19 tests unitaires (extraction d'ID, validation de fiche détail, parsing JSON-LD, garde-fou constructeur).
+- **Corrections post-review** (`/code-review`) : bug d'extraction d'ID (premier segment numérique au lieu du dernier), validation de fiche détail par sous-chaîne au lieu d'exact match, ambiguïté prix 0$/introuvable (flag `price_found`), gestion des variantes JSON-LD en tableau (`@type`/`image`/`offers`), garde manquante sur le champ de recherche, sélection de suggestion pour le filtre de lieu, `try/except` manquant après soumission de recherche, `.count()` au lieu de `.all()` dans la boucle de scroll, ajout de `check_listing_availability`, constructeur passé en keyword-only pour éviter un futur appel positionnel erroné copié depuis `FacebookScraper`.
+
+#### 2. Raisonnement
+Le protocole du projet a été suivi (plan validé avant code). L'utilisateur a choisi l'option "scraper autonome d'abord, testable seul" plutôt qu'une intégration complète immédiate dans `bot.py`.
+**Point d'attention** : cet environnement de développement n'a pas d'accès réseau à `kijiji.ca` (bloqué par la politique d'egress de la session, confirmé via le proxy) — les sélecteurs CSS/`data-testid` et le parcours de recherche n'ont donc pas pu être vérifiés contre le DOM réel du site. Une validation manuelle sur kijiji.ca reste nécessaire avant toute intégration au pipeline de production.

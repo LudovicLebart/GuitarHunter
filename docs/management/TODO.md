@@ -110,6 +110,18 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🛒 Multi-plateforme — Scraper Kijiji (2026-07-26)
+
+- [ ] **Feature : Scraper Kijiji autonome** *(Module créé 2026-07-26, non branché au pipeline)*
+    - *Détails :* Nouveau module `backend/scraping/kijiji/` (`KijijiScraper`, `KijijiListingParser`, `KijijiScraperConfig`), calqué sur `FacebookScraper` pour faciliter une intégration future dans `bot.py::run_scan()` (même forme de `listing_data` en sortie + `source: "kijiji"`). Recherche via le champ de recherche du site (pas d'équivalent `city_mapping`/ID de lieu numérique pour Kijiji à ce stade). Extraction fiche détail via JSON-LD en priorité, repli DOM sinon. `scan_specific_url()` et `check_listing_availability()` fournis en miroir de l'API Facebook.
+    - *Tests :* `backend/scraping/kijiji/test_kijiji_core.py` — 19 tests unitaires (extraction d'ID, validation de fiche détail, parsing JSON-LD, garde-fou constructeur), tous verts.
+    - ⚠️ **Non validé en conditions réelles** : développé dans un environnement dont la politique réseau bloque `kijiji.ca` — les sélecteurs CSS/`data-testid` et le parcours de recherche n'ont pas pu être vérifiés contre le DOM live du site.
+    - [ ] **Prochaine étape** : validation manuelle des sélecteurs sur kijiji.ca réel (via `scan_specific_url()` sur une annonce test), ajustements attendus.
+    - [ ] **Intégration `bot.py`** (hors scope de cette itération) : brancher `KijijiScraper` dans `run_scan()`, définir un `scan_config` Kijiji dédié côté Firestore/ConfigPanel, décider de la fusion ou de la séparation des annonces Facebook/Kijiji dans `guitar_deals`.
+    - [ ] **Écarts assumés vs `FacebookScraper`** : pas de rotation de proxy, pas de géolocalisation forcée, pas de filtre par liste blanche de villes — nécessitent un mapping ville→ID Kijiji qui n'existe pas encore côté produit.
+
+---
+
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [x] **Bug : Menu déroulant du statut bot (Navbar) inaccessible au survol sur desktop** *(Corrigé 2026-07-11)*
