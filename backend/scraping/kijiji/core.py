@@ -282,7 +282,7 @@ class KijijiScraper:
                         details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
                     else:
                         self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
-                        details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None}
+                        details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None, "latitude": None, "longitude": None}
                 finally:
                     details_page.close()
 
@@ -305,6 +305,9 @@ class KijijiScraper:
                     "id": kijiji_id,
                     "source": "kijiji",
                 }
+                if details.get("latitude") is not None and details.get("longitude") is not None:
+                    listing_data["latitude"] = details["latitude"]
+                    listing_data["longitude"] = details["longitude"]
 
                 found_deals.append(listing_data)
                 count += 1
@@ -369,6 +372,9 @@ class KijijiScraper:
                 "id": kijiji_id,
                 "source": "kijiji",
             }
+            if details.get("latitude") is not None and details.get("longitude") is not None:
+                listing_data["latitude"] = details["latitude"]
+                listing_data["longitude"] = details["longitude"]
 
             on_deal_found(listing_data)
             self.logger.info(f"✅ Scan URL Kijiji terminé: {title}")

@@ -121,52 +121,91 @@ class KijijiListingParser:
     def parse_details_page(page: Page, initial_title: str, kijiji_id: str = None, logger: logging.Logger = None) -> Dict[str, Any]:
         """
         Extrait les détails complets depuis la fiche annonce Kijiji.
-        Stratégie en 2 temps : JSON-LD (balise <script type="application/ld+json">,
-        présente sur la plupart des sites de petites annonces pour le SEO — plus
-        stable qu'un sélecteur CSS car standardisée par schema.org) en priorité,
-        repli sur le DOM sinon.
+        Stratégie en cascade, du plus fiable au moins fiable :
+          1. `#__NEXT_DATA__` (état Apollo SSR de Next.js — confirmé en test live du
+             2026-07-26 : contient title/description/price/location (nom + coordonnées
+             GPS)/imageUrls exacts pour l'annonce, structuré et garanti présent puisque
+             requis à l'hydratation React. Plus fiable que JSON-LD ou tout sélecteur CSS.
+          2. JSON-LD (`<script type="application/ld+json">`, standard schema.org).
+          3. Repli DOM (sélecteurs `data-testid`) et, pour le lieu, le slug d'URL.
         """
         log = logger or _module_logger
         description = f"Annonce Kijiji. {initial_title}."
-        description_from_json_ld = False
+        description_found = False
         image_urls: List[str] = []
         price = 0
         price_found = False
         location = None
+        latitude = None
+        longitude = None
 
-        json_ld = KijijiListingParser._extract_json_ld(page, log)
-        if json_ld:
-            desc = json_ld.get("description")
-            if desc and len(desc.strip()) > 10:
+        next_listing = KijijiListingParser._extract_next_data_listing(page, log)
+        if next_listing:
+            desc = next_listing.get("description")
+            if desc and desc.strip():
                 description = desc.strip()
-                description_from_json_ld = True
+                description_found = True
 
-            image_urls = KijijiListingParser._extract_images_from_json_ld(json_ld)
+            image_urls = [u for u in (next_listing.get("imageUrls") or []) if isinstance(u, str)]
 
-            offers = json_ld.get("offers")
-            offer_list = offers if isinstance(offers, list) else ([offers] if isinstance(offers, dict) else [])
-            for offer in offer_list:
-                if not isinstance(offer, dict):
-                    continue
-                raw_price = offer.get("price")
-                if raw_price is not None:
-                    try:
-                        price = int(float(raw_price))
-                        price_found = True
-                        break
-                    except (TypeError, ValueError):
+            price_obj = next_listing.get("price")
+            if isinstance(price_obj, dict) and price_obj.get("amount") is not None:
+                try:
+                    # `amount` est exprimé en cents (ex: 22000 -> 220.00 $).
+                    price = int(round(float(price_obj["amount"]) / 100))
+                    price_found = True
+                except (TypeError, ValueError):
+                    pass
+
+            loc_obj = next_listing.get("location")
+            if isinstance(loc_obj, dict):
+                if loc_obj.get("name"):
+                    location = loc_obj["name"]
+                coords = loc_obj.get("coordinates")
+                if isinstance(coords, dict) and coords.get("latitude") is not None and coords.get("longitude") is not None:
+                    latitude = coords["latitude"]
+                    longitude = coords["longitude"]
+
+        json_ld = None
+        if not image_urls or not price_found or not description_found:
+            json_ld = KijijiListingParser._extract_json_ld(page, log)
+
+        if json_ld:
+            if not description_found:
+                desc = json_ld.get("description")
+                if desc and len(desc.strip()) > 10:
+                    description = desc.strip()
+                    description_found = True
+
+            if not image_urls:
+                image_urls = KijijiListingParser._extract_images_from_json_ld(json_ld)
+
+            if not price_found:
+                offers = json_ld.get("offers")
+                offer_list = offers if isinstance(offers, list) else ([offers] if isinstance(offers, dict) else [])
+                for offer in offer_list:
+                    if not isinstance(offer, dict):
                         continue
+                    raw_price = offer.get("price")
+                    if raw_price is not None:
+                        try:
+                            price = int(float(raw_price))
+                            price_found = True
+                            break
+                        except (TypeError, ValueError):
+                            continue
 
-            area = json_ld.get("areaServed")
-            if isinstance(area, dict):
-                location = area.get("name")
-            elif isinstance(area, str):
-                location = area
+            if not location:
+                area = json_ld.get("areaServed")
+                if isinstance(area, dict):
+                    location = area.get("name")
+                elif isinstance(area, str):
+                    location = area
 
         if not image_urls:
             image_urls = KijijiListingParser._extract_images_from_dom(page, log)
 
-        if not description_from_json_ld:
+        if not description_found:
             try:
                 meta_desc = page.locator('meta[property="og:description"]').get_attribute("content")
                 if meta_desc and len(meta_desc.strip()) > 10:
@@ -199,9 +238,8 @@ class KijijiListingParser:
 
         if not location:
             # Dernier repli : Kijiji encode systématiquement le lieu dans l'URL elle-même
-            # (`/v-<catégorie>/<lieu>/<titre>/<id>`) — fiable même quand JSON-LD et le DOM
-            # n'exposent pas la localisation (constaté en test live du 2026-07-26 : titre/
-            # prix/images/description corrects via JSON-LD, mais aucune localisation).
+            # (`/v-<catégorie>/<lieu>/<titre>/<id>`) — fiable même quand ni __NEXT_DATA__,
+            # ni JSON-LD, ni le DOM n'exposent la localisation.
             location = KijijiListingParser.extract_location_slug(page.url)
 
         return {
@@ -210,7 +248,55 @@ class KijijiListingParser:
             "price": price,
             "price_found": price_found,
             "location": location,
+            "latitude": latitude,
+            "longitude": longitude,
         }
+
+    @staticmethod
+    def _extract_next_data_listing(page: Page, log: logging.Logger) -> Optional[Dict[str, Any]]:
+        """Lit `#__NEXT_DATA__` (état SSR Next.js/Apollo, injecté dans toute page rendue
+        par le framework — pas un détail d'implémentation fragile) et retourne l'objet
+        `StandardListing:{id}` correspondant à l'annonce affichée."""
+        try:
+            script = page.locator('script#__NEXT_DATA__').first
+            if script.count() == 0:
+                return None
+            raw = script.inner_text()
+            if not raw:
+                return None
+            data = json.loads(raw)
+        except Exception as e:
+            log.debug(f"Erreur lecture __NEXT_DATA__: {e}")
+            return None
+        return KijijiListingParser._pick_standard_listing(data, log)
+
+    @staticmethod
+    def _pick_standard_listing(next_data: Dict[str, Any], log: logging.Logger = None) -> Optional[Dict[str, Any]]:
+        """Logique pure (testable sans Page réelle) : extrait l'objet `StandardListing:{id}`
+        depuis le JSON déjà parsé de `#__NEXT_DATA__`."""
+        log = log or _module_logger
+        try:
+            page_props = next_data.get("props", {}).get("pageProps", {})
+            listing_id = page_props.get("listingId")
+            apollo_state = page_props.get("__APOLLO_STATE__")
+            if listing_id and isinstance(apollo_state, dict):
+                entry = apollo_state.get(f"StandardListing:{listing_id}")
+                if isinstance(entry, dict):
+                    return entry
+        except Exception as e:
+            log.debug(f"Erreur lecture chemin direct __NEXT_DATA__: {e}")
+
+        # Repli robuste si la structure exacte évolue : premier StandardListing trouvé
+        # dans l'état Apollo, quel que soit le chemin pour y accéder.
+        try:
+            apollo_state = next_data.get("props", {}).get("pageProps", {}).get("__APOLLO_STATE__")
+            if isinstance(apollo_state, dict):
+                for key, value in apollo_state.items():
+                    if key.startswith("StandardListing:") and isinstance(value, dict):
+                        return value
+        except Exception as e:
+            log.debug(f"Erreur repli scan __NEXT_DATA__: {e}")
+        return None
 
     @staticmethod
     def _extract_json_ld(page: Page, log: logging.Logger) -> Optional[Dict[str, Any]]:

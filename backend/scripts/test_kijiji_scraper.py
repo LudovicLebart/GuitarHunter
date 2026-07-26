@@ -98,7 +98,10 @@ def _diag_search(scraper: KijijiScraper):
     try:
         page.goto("https://www.kijiji.ca/", timeout=scraper.config.timeout_navigation)
         scraper._accept_cookies(page)
-        page.wait_for_load_state("networkidle", timeout=10000)
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception as e:
+            print(f"(timeout networkidle, on continue quand même : {e})")
         inputs = page.evaluate("""() => {
             return Array.from(document.querySelectorAll('input')).map(el => ({
                 id: el.id || null,
@@ -150,8 +153,8 @@ def _diag_images(scraper: KijijiScraper, url: str):
             });
             const counterRegex = /\d+\s*\/\s*\d+|\d+\s*(photos?|images?)/i;
             const counters = Array.from(document.querySelectorAll('body *'))
-                .filter(el => el.children.length === 0 && counterRegex.test(el.innerText || ''))
-                .map(el => el.innerText.trim())
+                .filter(el => el.children.length === 0 && el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE' && counterRegex.test(el.innerText || ''))
+                .map(el => el.innerText.trim().slice(0, 100))
                 .slice(0, 8);
             const buttons = Array.from(document.querySelectorAll('button, [role="button"]'))
                 .filter(el => /photo|image|suivant|next|voir tout/i.test((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '')))

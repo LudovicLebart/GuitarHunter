@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from scraping.kijiji.core import KijijiScraper
@@ -8,6 +9,74 @@ class FakePage:
     """Double minimal de playwright.sync_api.Page — seul `.url` est lu par _is_valid_detail_page."""
     def __init__(self, url):
         self.url = url
+
+
+class FakeLocator:
+    """Double minimal de playwright.sync_api.Locator — juste ce dont parse_details_page a besoin."""
+    def __init__(self, text=None, count=0):
+        self._text = text
+        self._count = count
+
+    @property
+    def first(self):
+        return self
+
+    def count(self):
+        return self._count
+
+    def inner_text(self):
+        return self._text or ""
+
+    def get_attribute(self, name):
+        return None
+
+    def all(self):
+        return []
+
+
+class FakeNextDataPage:
+    """Double minimal de Page pour tester parse_details_page via __NEXT_DATA__. Seuls
+    `.url` et `.locator('script#__NEXT_DATA__')` sont exercés dans le cas nominal
+    observé en test live (__NEXT_DATA__ fournit déjà title/description/price/location/
+    images, donc les autres sélecteurs — JSON-LD, DOM — ne sont jamais appelés)."""
+    def __init__(self, url, next_data_json_text):
+        self.url = url
+        self._next_data_json_text = next_data_json_text
+
+    def locator(self, selector):
+        if selector == "script#__NEXT_DATA__":
+            return FakeLocator(text=self._next_data_json_text, count=1)
+        return FakeLocator(count=0)
+
+
+# Structure réelle observée en test live du 2026-07-26 (annonce Kijiji 1740804650,
+# Longueuil), simplifiée aux champs consommés par KijijiListingParser.
+NEXT_DATA_SAMPLE = {
+    "props": {
+        "pageProps": {
+            "listingId": "1740804650",
+            "__APOLLO_STATE__": {
+                "StandardListing:1740804650": {
+                    "__typename": "StandardListing",
+                    "id": "1740804650",
+                    "description": "Guitare fonctionne parfaitement viens avec un ampli et des corde de rechange.",
+                    "imageUrls": [
+                        "https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/4e/1.jpg",
+                        "https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/83/2.jpg",
+                    ],
+                    "price": {"__typename": "StandardAmountPrice", "amount": 22000, "currency": "CAD"},
+                    "location": {
+                        "__typename": "ListingLocation",
+                        "id": 1700279,
+                        "name": "Longueuil / South Shore",
+                        "coordinates": {"__typename": "LocationCoordinates", "latitude": 45.58, "longitude": -73.32},
+                    },
+                },
+                "Category:613": {"__typename": "Category", "id": 613},
+            },
+        }
+    }
+}
 
 
 class TestExtractKijijiId(unittest.TestCase):
@@ -100,6 +169,49 @@ class TestExtractImagesFromJsonLd(unittest.TestCase):
 
     def test_missing_image_key_returns_empty_list(self):
         self.assertEqual(KijijiListingParser._extract_images_from_json_ld({}), [])
+
+
+class TestPickStandardListing(unittest.TestCase):
+    def test_direct_path(self):
+        result = KijijiListingParser._pick_standard_listing(NEXT_DATA_SAMPLE)
+        self.assertEqual(result["id"], "1740804650")
+        self.assertEqual(result["location"]["name"], "Longueuil / South Shore")
+
+    def test_fallback_scan_when_listing_id_missing(self):
+        """Régression : si le chemin direct (pageProps.listingId) change/disparaît, on
+        retrouve quand même l'annonce en scannant les clés StandardListing: de l'état Apollo."""
+        data = json.loads(json.dumps(NEXT_DATA_SAMPLE))  # copie profonde
+        del data["props"]["pageProps"]["listingId"]
+        result = KijijiListingParser._pick_standard_listing(data)
+        self.assertEqual(result["id"], "1740804650")
+
+    def test_returns_none_when_no_standard_listing(self):
+        data = {"props": {"pageProps": {"__APOLLO_STATE__": {"Category:613": {"__typename": "Category"}}}}}
+        self.assertIsNone(KijijiListingParser._pick_standard_listing(data))
+
+    def test_returns_none_on_malformed_input(self):
+        self.assertIsNone(KijijiListingParser._pick_standard_listing({}))
+
+
+class TestParseDetailsPageViaNextData(unittest.TestCase):
+    """Test de bout en bout basé sur la structure réelle observée en test live du
+    2026-07-26 (annonce Kijiji 1740804650, Longueuil) — régression sur le bug où le
+    lieu revenait `None` malgré un __NEXT_DATA__ complet."""
+
+    def test_extracts_price_location_coordinates_from_next_data(self):
+        page = FakeNextDataPage(
+            url="https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650",
+            next_data_json_text=json.dumps(NEXT_DATA_SAMPLE),
+        )
+        result = KijijiListingParser.parse_details_page(page, "Guitare electrique", "1740804650")
+
+        self.assertEqual(result["price"], 220)
+        self.assertTrue(result["price_found"])
+        self.assertEqual(result["location"], "Longueuil / South Shore")
+        self.assertEqual(result["latitude"], 45.58)
+        self.assertEqual(result["longitude"], -73.32)
+        self.assertEqual(len(result["imageUrls"]), 2)
+        self.assertIn("Guitare fonctionne parfaitement", result["description"])
 
 
 if __name__ == "__main__":
