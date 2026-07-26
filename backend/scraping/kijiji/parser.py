@@ -299,6 +299,53 @@ class KijijiListingParser:
         return None
 
     @staticmethod
+    def extract_all_standard_listings(page: Page, log: logging.Logger = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Extrait tous les `StandardListing:{id}` présents dans l'état Apollo
+        (`__NEXT_DATA__`) d'une page de RÉSULTATS de recherche — même source que
+        `parse_details_page()`, mais couvrant toutes les annonces affichées en un seul
+        accès, sans sélecteur DOM par carte (confirmé en test live du 2026-07-26 :
+        title/description/price/location/url exacts pour chacune).
+
+        ⚠️ Ne contient qu'UNE URL d'image par annonce (aperçu — `imageCount` indique le
+        vrai total) : la fiche détail individuelle reste nécessaire pour la galerie
+        complète. Retourne un dict vide si `__NEXT_DATA__`/`__APOLLO_STATE__` est absent
+        (repli DOM alors nécessaire côté appelant).
+        """
+        log = log or _module_logger
+        try:
+            script = page.locator('script#__NEXT_DATA__').first
+            if script.count() == 0:
+                return {}
+            raw = script.inner_text()
+            if not raw:
+                return {}
+            data = json.loads(raw)
+        except Exception as e:
+            log.debug(f"Erreur lecture __NEXT_DATA__ (résultats): {e}")
+            return {}
+        return KijijiListingParser._pick_all_standard_listings(data, log)
+
+    @staticmethod
+    def _pick_all_standard_listings(next_data: Dict[str, Any], log: logging.Logger = None) -> Dict[str, Dict[str, Any]]:
+        """Logique pure (testable sans Page réelle) : extrait tous les `StandardListing:{id}`
+        de l'état Apollo déjà parsé, indexés par ID."""
+        log = log or _module_logger
+        results: Dict[str, Dict[str, Any]] = {}
+        try:
+            apollo_state = next_data.get("props", {}).get("pageProps", {}).get("__APOLLO_STATE__")
+            if not isinstance(apollo_state, dict):
+                return results
+            for key, value in apollo_state.items():
+                if key.startswith("StandardListing:") and isinstance(value, dict):
+                    listing_id = value.get("id")
+                    if listing_id:
+                        results[str(listing_id)] = value
+        except Exception as e:
+            log.debug(f"Erreur extraction de tous les StandardListing: {e}")
+        return results
+
+    @staticmethod
     def _extract_json_ld(page: Page, log: logging.Logger) -> Optional[Dict[str, Any]]:
         try:
             scripts = page.locator('script[type="application/ld+json"]').all()

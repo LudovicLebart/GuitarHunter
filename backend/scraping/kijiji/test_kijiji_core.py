@@ -78,6 +78,42 @@ NEXT_DATA_SAMPLE = {
     }
 }
 
+# Structure réelle observée en test live du 2026-07-26 sur une page de RÉSULTATS de
+# recherche (b-guitare/longueuil-rive-sud/.../k0c613l1700279) : plusieurs StandardListing
+# au même niveau, chacun avec une seule URL d'aperçu (contrairement à la fiche détail).
+NEXT_DATA_SEARCH_RESULTS_SAMPLE = {
+    "props": {
+        "pageProps": {
+            "__APOLLO_STATE__": {
+                "StandardListing:1740804650": {
+                    "__typename": "StandardListing",
+                    "id": "1740804650",
+                    "title": "Guitare electrique ",
+                    "description": "Guitare fonctionne parfaitement viens avec un ampli et des corde de rechange.",
+                    "imageCount": 4,
+                    "imageUrls": ["https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/4e/1.jpg"],
+                    "url": "https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650",
+                    "price": {"__typename": "StandardAmountPrice", "amount": 22000},
+                    "location": {"__typename": "ListingLocation", "id": 1700279, "name": "Longueuil / South Shore"},
+                },
+                "StandardListing:1741128618": {
+                    "__typename": "StandardListing",
+                    "id": "1741128618",
+                    "title": "Ensemble Guitare acoustique et accessoires",
+                    "description": "A vendre guitare Beaver Creek et accessoires",
+                    "imageCount": 6,
+                    "imageUrls": ["https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/aa/1.jpg"],
+                    "url": "https://www.kijiji.ca/v-guitar/longueuil-rive-sud/ensemble-guitare-acoustique-et-accessoires/1741128618",
+                    "price": {"__typename": "StandardAmountPrice", "amount": 12000},
+                    "location": {"__typename": "ListingLocation", "id": 1700279, "name": "Saint-Bruno-de-Montarville"},
+                },
+                "Category:613": {"__typename": "Category", "id": 613},
+                "Location:1700279": {"__typename": "Location", "id": 1700279},
+            },
+        }
+    }
+}
+
 
 class TestExtractKijijiId(unittest.TestCase):
     def test_standard_ad_url(self):
@@ -191,6 +227,30 @@ class TestPickStandardListing(unittest.TestCase):
 
     def test_returns_none_on_malformed_input(self):
         self.assertIsNone(KijijiListingParser._pick_standard_listing({}))
+
+
+class TestPickAllStandardListings(unittest.TestCase):
+    """Basé sur la structure réelle d'une page de résultats de recherche Kijiji
+    (test live du 2026-07-26, b-guitare/longueuil-rive-sud/.../k0c613l1700279) —
+    plusieurs StandardListing au même niveau, indexés par ID."""
+
+    def test_extracts_all_listings_indexed_by_id(self):
+        result = KijijiListingParser._pick_all_standard_listings(NEXT_DATA_SEARCH_RESULTS_SAMPLE)
+        self.assertEqual(set(result.keys()), {"1740804650", "1741128618"})
+        self.assertEqual(result["1740804650"]["title"], "Guitare electrique ")
+        self.assertEqual(result["1741128618"]["price"]["amount"], 12000)
+
+    def test_ignores_non_listing_entries(self):
+        result = KijijiListingParser._pick_all_standard_listings(NEXT_DATA_SEARCH_RESULTS_SAMPLE)
+        self.assertNotIn("613", result)
+        self.assertNotIn("1700279", result)
+
+    def test_returns_empty_dict_when_no_standard_listing(self):
+        data = {"props": {"pageProps": {"__APOLLO_STATE__": {"Category:613": {"__typename": "Category"}}}}}
+        self.assertEqual(KijijiListingParser._pick_all_standard_listings(data), {})
+
+    def test_returns_empty_dict_on_malformed_input(self):
+        self.assertEqual(KijijiListingParser._pick_all_standard_listings({}), {})
 
 
 class TestParseDetailsPageViaNextData(unittest.TestCase):
