@@ -40,7 +40,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}`
 - **Étapes de création** :
   1. `bot.handle_deal_found(listing_data)` — **(2026-07-09)** si `imageUrls` est vide ET prix à 0$ (scraping manifestement raté), la fonction s'arrête ici : rien n'est écrit dans `guitar_deals`, l'annonce sera retraitée comme nouvelle à la prochaine session.
-  2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`) ou prix > `scanConfig.max_price` (**2026-07-09**, `verdict: BAD_DEAL` → `status` reste `analyzed`, catégorie "Trop Cher" masquée par défaut côté frontend mais pas un vrai rejet).
+  2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`, stocké) ou prix > `scanConfig.max_price` (**2026-07-27** : annonce ignorée, rien n'est écrit dans `guitar_deals` — hors budget = hors périmètre de recherche, pas un verdict `BAD_DEAL` comme avant cette date).
   3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
   4. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
   5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté. **(2026-07-11)** `create_new_deal()` snapshotte en plus `initialVerdict`/`initialModelUsed` (verdict et chaîne `model_used` du tout premier passage) — ces champs ne sont plus jamais réécrits par une réanalyse ultérieure, contrairement à `aiAnalysis`.
