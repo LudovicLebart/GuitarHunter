@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright, Page
 
 from .config import KijijiScraperConfig
 from .parser import KijijiListingParser
-from .locations import load_location_lookup, resolve_location, build_search_url
+from .locations import load_location_lookup, build_search_url
 
 
 class KijijiScraper:
@@ -302,11 +302,14 @@ class KijijiScraper:
                    min_price: int = 0, max_price: int = 0,
                    lat: float = None, lng: float = None, radius_km: float = None) -> List[Dict[str, Any]]:
         """
-        Scanne une ville par son nom : résout `city_name` vers son ID de lieu Kijiji via
-        `self.location_lookup` (voir `locations.resolve_location`), construit l'URL de
-        résultats correspondante (`locations.build_search_url`) et scrape dessus
-        (`scan_search_url`) — combine la fiabilité de `scan_search_url` (aucun champ de
-        formulaire à piloter) avec une interface simple par nom de ville.
+        Scanne une ville par son nom : construit une URL de résultats ancrée sur le Canada
+        entier (`location_id=0`, toujours valide) puis précisée par géolocalisation
+        (`address`/`lat`/`lng`/`radius_km`, voir `locations.build_search_url`) et scrape
+        dessus (`scan_search_url`) — évite de dépendre d'une résolution par nom vers l'une
+        des ~192 sous-zones larges de Kijiji (`locations.resolve_location()`), qui échoue
+        pour la plupart des petites municipalités (aucun équivalent Kijiji par nom, voir
+        `resolve_location()`) : chaque ville du catalogue obtient une recherche précise,
+        qu'elle ait ou non sa propre sous-zone nommée.
 
         `category_id` : ID de catégorie Kijiji, global et stable pour tout le site (ex:
         613 = Guitars — pas de mapping de catégories dans ce module pour l'instant, à
@@ -314,20 +317,13 @@ class KijijiScraper:
 
         `min_price`/`max_price`/`lat`/`lng`/`radius_km` : filtres appliqués côté recherche
         Kijiji plutôt qu'après coup — voir `locations.build_search_url` pour le détail des
-        paramètres d'URL.
+        paramètres d'URL. `lat`/`lng`/`radius_km` doivent être fournis pour un ciblage
+        géographique précis (sinon la recherche reste "Canada entier").
         """
-        location = resolve_location(city_name, self.location_lookup, log=self.logger)
-        if not location:
-            self.logger.error(
-                f"❌ Ville Kijiji introuvable dans le lookup: '{city_name}' "
-                f"({len(self.location_lookup)} lieu(x) chargé(s) — voir "
-                f"backend/scripts/fetch_kijiji_locations.py pour (ré)générer le lookup)."
-            )
-            return []
-
         url = build_search_url(
-            category_id, location["id"], query, location_slug=location.get("slug") or "lieu",
-            min_price=min_price, max_price=max_price, lat=lat, lng=lng, radius_km=radius_km,
+            category_id, 0, query,
+            address=city_name, min_price=min_price, max_price=max_price,
+            lat=lat, lng=lng, radius_km=radius_km,
         )
         return self.scan_search_url(url, max_ads=max_ads, should_skip_callback=should_skip_callback, stop_event=stop_event)
 

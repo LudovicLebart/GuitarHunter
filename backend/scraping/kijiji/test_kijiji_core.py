@@ -1,5 +1,6 @@
 import json
 import unittest
+import unittest.mock
 
 from scraping.kijiji.core import KijijiScraper
 from scraping.kijiji.parser import KijijiListingParser
@@ -227,14 +228,23 @@ class TestConstructorIsKeywordOnly(unittest.TestCase):
 
 
 class TestScanCity(unittest.TestCase):
-    def test_returns_empty_list_when_city_not_found(self):
-        """Ne doit pas planter, ni tenter de démarrer une session Playwright, si la ville
-        n'est pas dans le lookup (ex: fichier ressource pas encore généré par
-        fetch_kijiji_locations.py)."""
+    def test_builds_canada_wide_url_regardless_of_city_recognition(self):
+        """scan_city() (2026-07-27) ne dépend plus de `location_lookup`/`resolve_location` —
+        même une ville absente des ~192 sous-zones larges de Kijiji doit produire une
+        recherche valide (ancrée `location_id=0`, précisée par address/ll/radius), pas un
+        échec silencieux comme avant ce changement."""
         scraper = KijijiScraper(location_lookup={})
-        result = scraper.scan_city("Ville Inconnue Xyz", category_id=613, query="guitare")
-        self.assertEqual(result, [])
-        self.assertIsNone(scraper.context)  # aucune session Playwright démarrée
+        with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
+            scraper.scan_city(
+                "Ville Inconnue Xyz", category_id=613, query="guitare",
+                lat=45.5, lng=-73.5, radius_km=2,
+            )
+        mock_scan.assert_called_once()
+        called_url = mock_scan.call_args[0][0]
+        self.assertIn("k0c613l0", called_url)  # ancré Canada entier, pas une sous-zone résolue
+        self.assertIn("address=Ville%20Inconnue%20Xyz", called_url)
+        self.assertIn("ll=45.5%2C-73.5", called_url)
+        self.assertIn("radius=2", called_url)
 
 
 class TestExtractImagesFromJsonLd(unittest.TestCase):

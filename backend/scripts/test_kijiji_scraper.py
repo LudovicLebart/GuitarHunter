@@ -66,8 +66,13 @@ def main():
     parser.add_argument("--diag-search", action="store_true", help="Dump des <input> de la page d'accueil kijiji.ca")
     parser.add_argument("--diag-images", default=None, metavar="URL", help="Dump de la structure DOM de la galerie photo d'une fiche détail")
     parser.add_argument("--diag-search-data", default=None, metavar="URL", help="Dump de l'état Apollo (__NEXT_DATA__) d'une page de résultats de recherche")
-    parser.add_argument("--scan-city", default=None, metavar="VILLE", help="Nom de ville à résoudre puis scraper (scan_city)")
+    parser.add_argument("--scan-city", default=None, metavar="VILLE", help="Nom de ville à scraper (scan_city, ancré Canada + address/ll/radius)")
     parser.add_argument("--category-id", type=int, default=613, help="ID de catégorie Kijiji pour --scan-city (défaut: 613 = Guitars)")
+    parser.add_argument("--lat", type=float, default=None, help="Latitude pour --scan-city (ciblage géographique précis)")
+    parser.add_argument("--lng", type=float, default=None, help="Longitude pour --scan-city (ciblage géographique précis)")
+    parser.add_argument("--radius-km", type=float, default=1.0, help="Rayon en km pour --scan-city (défaut: 1, minimum accepté par le site)")
+    parser.add_argument("--min-price", type=int, default=0, help="Prix minimum pour --scan-city")
+    parser.add_argument("--max-price", type=int, default=0, help="Prix maximum pour --scan-city")
     args = parser.parse_args()
 
     if not any([args.url, args.query, args.search_url, args.diag_search, args.diag_images, args.diag_search_data, args.scan_city]):
@@ -122,8 +127,13 @@ def main():
 
         if args.scan_city:
             print(f"\n🌍 Test scan_city : '{args.scan_city}' (catégorie {args.category_id}, requête '{args.query}', max {args.max_ads})\n")
-            print(f"   {len(scraper.location_lookup)} lieu(x) chargé(s) dans le lookup.")
-            deals = scraper.scan_city(args.scan_city, args.category_id, args.query, max_ads=args.max_ads)
+            if args.lat is None or args.lng is None:
+                print("   ⚠️ Pas de --lat/--lng fournis : recherche non ciblée géographiquement (Canada entier).")
+            deals = scraper.scan_city(
+                args.scan_city, args.category_id, args.query, max_ads=args.max_ads,
+                min_price=args.min_price, max_price=args.max_price,
+                lat=args.lat, lng=args.lng, radius_km=args.radius_km,
+            )
             print(f"\n✅ {len(deals)} annonce(s) trouvée(s).\n")
             for deal in deals:
                 _print_deal(deal)
