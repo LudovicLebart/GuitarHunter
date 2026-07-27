@@ -358,7 +358,7 @@ const ConfigPanel = ({ showConfig, onClose }) => {
         </div>
       </div>
       <div className="flex-grow overflow-y-auto scrollbar-dark p-6 space-y-4">
-        <CollapsibleSection title="Scraping & Facebook"><FacebookSearchSection /></CollapsibleSection>
+        <CollapsibleSection title="Scraping"><FacebookSearchSection /></CollapsibleSection>
         <CollapsibleSection title="Géo-Localisation"><CityManagementSection /></CollapsibleSection>
         <CollapsibleSection title="Nettoyage & Mots-clés"><ExclusionKeywordsSection /></CollapsibleSection>
         <CollapsibleSection title="Intelligence Artificielle V2"><AiConfigSection /></CollapsibleSection>

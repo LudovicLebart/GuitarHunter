@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { MapPin, FileText, RefreshCw } from 'lucide-react';
+import { MapPin, FileText, RefreshCw, Facebook } from 'lucide-react';
 import { computeInterestScore } from '../../constants';
 import { VERDICT_CONFIG, toTitleCase, formatRelativeDate } from './utils';
 import DealCardImage from './DealCardImage';
@@ -51,6 +51,10 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
     const isSold = deal.status === 'sold';
+    // Déduit du domaine du lien plutôt que de deal.source : ce dernier n'existe que pour
+    // les annonces Kijiji (source), jamais pour Facebook (historique et futures) — l'URL
+    // est la seule source de vérité fiable pour les deux origines.
+    const isKijiji = (deal.link || '').includes('kijiji.ca');
 
     return (
         <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold ? 'opacity-60 saturate-50' : ''}`}>
@@ -76,6 +80,11 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         {toTitleCase(deal.title || '')}
                     </h3>
                     <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 flex-wrap">
+                        {isKijiji ? (
+                            <span className="w-3.5 h-3.5 rounded-full bg-orange-600 text-white text-[8px] font-black flex items-center justify-center shrink-0" title="Kijiji">K</span>
+                        ) : (
+                            <Facebook size={12} className="text-blue-500 shrink-0" title="Facebook Marketplace" />
+                        )}
                         <MapPin size={11} />
                         <span>{deal.location}</span>
                         {taxonomy && (
