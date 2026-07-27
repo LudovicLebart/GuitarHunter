@@ -159,8 +159,25 @@ const FacebookSearchSection = () => {
   );
 };
 
+const CityKijijiRadiusInput = ({ city, onSave }) => {
+  const [value, setValue] = useState(city.kijijiRadiusKm ?? '');
+  useEffect(() => { setValue(city.kijijiRadiusKm ?? ''); }, [city.kijijiRadiusKm]);
+  return (
+    <input
+      type="number"
+      min="1"
+      placeholder="auto"
+      title="Rayon de recherche Kijiji (km) pour cette ville — vide = défaut automatique selon la taille de la ville"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onSave(city.docId, value ? Number(value) : null)}
+      className="w-10 bg-transparent text-blue-300 text-[10px] text-center border-b border-blue-500/30 focus:border-blue-400 outline-none placeholder:text-blue-500/40"
+    />
+  );
+};
+
 const CityManagementSection = () => {
-  const { cities, handleToggleScannable, handleAddCity, isAddingCity } = useCitiesContext();
+  const { cities, handleToggleScannable, handleSetCityKijijiRadius, handleAddCity, isAddingCity } = useCitiesContext();
   const [searchTerm, setSearchTerm] = useState('');
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
@@ -176,10 +193,13 @@ const CityManagementSection = () => {
     <div className="pt-2 space-y-4">
       <div className="space-y-2">
         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Villes Actives</label>
+        <p className="text-[9px] text-slate-600">Le champ "km" (Kijiji) est optionnel — laissé vide, un rayon automatique s'applique selon la taille de la ville.</p>
         <div className="flex flex-wrap gap-2">
           {scannableCities.map(city => (
             <div key={city.docId} className="flex items-center gap-2 bg-blue-500/10 px-3 py-1.5 rounded-full text-xs border border-blue-500/30 group">
               <span className="font-bold text-blue-400">{city.name}</span>
+              <CityKijijiRadiusInput city={city} onSave={handleSetCityKijijiRadius} />
+              <span className="text-[9px] text-blue-500/50">km</span>
               <button onClick={() => removeCityFromWhitelist(city)} className="text-blue-500/50 hover:text-rose-500 transition-colors">
                 <X size={14} />
               </button>

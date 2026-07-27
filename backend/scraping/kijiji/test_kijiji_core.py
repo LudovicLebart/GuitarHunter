@@ -270,6 +270,40 @@ class TestScanCity(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertIsNone(scraper.context)
 
+    def test_default_radius_when_resolved_directly(self):
+        """`radius_km` non fourni + ville résolue directement (sa propre sous-zone) :
+        applique `DEFAULT_RADIUS_KM_RESOLVED` (le palier "grande ville")."""
+        lookup = {"longueuil": {"id": 1700279, "slug": "longueuil-rive-sud"}}
+        scraper = KijijiScraper(location_lookup=lookup, resolvable_hubs={})
+        with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
+            scraper.scan_city("Longueuil", category_id=613, query="guitare", lat=45.53, lng=-73.51)
+        called_url = mock_scan.call_args[0][0]
+        self.assertIn(f"radius={scraper.DEFAULT_RADIUS_KM_RESOLVED}", called_url)
+
+    def test_default_radius_when_falling_back_to_hub(self):
+        """`radius_km` non fourni + ville via `nearest_resolvable_hub()` (petite
+        municipalité satellite) : applique `DEFAULT_RADIUS_KM_HUB_FALLBACK` (le palier
+        "petite ville"), plus petit que le palier "résolue directement"."""
+        resolvable_hubs = {
+            "longueuil": {"lat": 45.5369, "lng": -73.5105, "location": {"id": 1700279, "slug": "longueuil-rive-sud"}},
+        }
+        scraper = KijijiScraper(location_lookup={}, resolvable_hubs=resolvable_hubs)
+        with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
+            scraper.scan_city("Brossard", category_id=613, query="guitare", lat=45.4554579, lng=-73.4678695)
+        called_url = mock_scan.call_args[0][0]
+        self.assertIn(f"radius={scraper.DEFAULT_RADIUS_KM_HUB_FALLBACK}", called_url)
+        self.assertLess(scraper.DEFAULT_RADIUS_KM_HUB_FALLBACK, scraper.DEFAULT_RADIUS_KM_RESOLVED)
+
+    def test_explicit_radius_km_overrides_default(self):
+        """Un `radius_km` explicite (réglage par ville ou global) prime toujours sur le
+        défaut à deux paliers."""
+        lookup = {"longueuil": {"id": 1700279, "slug": "longueuil-rive-sud"}}
+        scraper = KijijiScraper(location_lookup=lookup, resolvable_hubs={})
+        with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
+            scraper.scan_city("Longueuil", category_id=613, query="guitare", lat=45.53, lng=-73.51, radius_km=8)
+        called_url = mock_scan.call_args[0][0]
+        self.assertIn("radius=8", called_url)
+
 
 class TestExtractImagesFromJsonLd(unittest.TestCase):
     def test_single_string_image(self):

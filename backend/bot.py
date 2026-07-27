@@ -568,6 +568,14 @@ class GuitarHunterBot:
         dans cette itération. Source activable/désactivable via `scanConfig.kijiji_enabled`
         (ConfigPanel), module autonome (`backend/scraping/kijiji/`), non fusionné avec
         `FacebookScraper`.
+
+        Rayon de recherche Kijiji (`radius_km` de `scan_city()`), priorité décroissante
+        (2026-07-27) : `city_data['kijijiRadiusKm']` (réglage par ville, Firestore) >
+        `scan_config['distance']` si > 0 (réglage global explicite, partagé avec Facebook)
+        > défaut à deux paliers appliqué par `scan_city()` elle-même (`None` transmis ici).
+        Un seul rayon fixe pour toutes les villes serait soit trop petit pour une grande
+        ville, soit trop large (faux positifs) pour une petite — voir `KijijiScraper.
+        DEFAULT_RADIUS_KM_RESOLVED`/`DEFAULT_RADIUS_KM_HUB_FALLBACK`.
         """
         self.logger.info("--- Scan Kijiji (source additionnelle) ---")
 
@@ -581,11 +589,6 @@ class GuitarHunterBot:
         }
         radius_km = scan_config.get('distance', 0)
         max_radius_km = radius_km if radius_km > 0 else None
-        # Le sélecteur de rayon du site Kijiji n'autorise pas 0km (contrairement à
-        # `distance=0` côté Facebook, qui veut dire "correspondance exacte de ville" — un
-        # concept qui n'existe pas pour Kijiji) : on plafonne au minimum du site plutôt que
-        # d'envoyer une valeur invalide.
-        kijiji_search_radius_km = radius_km if radius_km > 0 else 1
         min_price = scan_config.get('min_price', 0)
         max_price = scan_config.get('max_price', 0)
 
@@ -613,6 +616,19 @@ class GuitarHunterBot:
                         continue
                     city_lat = city_data.get('latitude')
                     city_lon = city_data.get('longitude')
+                    # Priorité : réglage par ville (`kijijiRadiusKm`, Firestore) > réglage
+                    # global explicite (`scanConfig.distance`, partagé avec Facebook) >
+                    # défaut à deux paliers de `scan_city()` (None -> laissé à sa charge).
+                    # Le sélecteur de rayon du site Kijiji n'autorise pas 0km, contrairement
+                    # à `distance=0` côté Facebook ("correspondance exacte de ville", un
+                    # concept qui n'existe pas pour Kijiji) — jamais 0 envoyé ici.
+                    city_radius_km = city_data.get('kijijiRadiusKm')
+                    if city_radius_km and city_radius_km > 0:
+                        kijiji_search_radius_km = city_radius_km
+                    elif radius_km > 0:
+                        kijiji_search_radius_km = radius_km
+                    else:
+                        kijiji_search_radius_km = None
 
                     self.logger.info(f"--- Scan Kijiji : {city_name} ---")
                     try:

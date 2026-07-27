@@ -69,6 +69,17 @@ class KijijiScraper:
     les mauvais arguments ; il échouera bruyamment à l'appel à la place.
     """
 
+    # Défauts de rayon de recherche (`scan_city()`, quand l'appelant ne fournit pas
+    # `radius_km`) à deux paliers, faute de donnée de taille/population par ville : une
+    # ville résolue DIRECTEMENT (sa propre sous-zone Kijiji nommée, ex: Montréal, Québec,
+    # Longueuil) est en pratique toujours assez grande pour ça -> rayon plus généreux ;
+    # une ville qui retombe sur `nearest_resolvable_hub()` (aucune sous-zone propre, ex:
+    # Brossard, Sainte-Julie) est par construction une petite municipalité satellite ->
+    # rayon modeste suffisant. Proxy imparfait (Longueuil n'est pas Montréal) mais ne
+    # nécessite aucune nouvelle donnée à maintenir (2026-07-27).
+    DEFAULT_RADIUS_KM_RESOLVED = 15
+    DEFAULT_RADIUS_KM_HUB_FALLBACK = 5
+
     def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None,
                  location_lookup: Dict[str, Dict[str, Any]] = None,
                  resolvable_hubs: Dict[str, Any] = None):
@@ -335,9 +346,12 @@ class KijijiScraper:
         paramètres d'URL. `lat`/`lng` sont aussi nécessaires pour trouver un ancrage de
         repli si `city_name` n'a pas sa propre sous-zone Kijiji — sans eux (et sans
         sous-zone nommée), la ville est ignorée (`[]`) plutôt que de chercher sans aucun
-        ciblage géographique (résultat national non pertinent).
+        ciblage géographique (résultat national non pertinent). `radius_km` non fourni
+        (`None`) ou <= 0 : défaut à deux paliers selon le type d'ancrage trouvé, voir
+        `DEFAULT_RADIUS_KM_RESOLVED`/`DEFAULT_RADIUS_KM_HUB_FALLBACK`.
         """
         location = resolve_location(city_name, self.location_lookup, log=self.logger)
+        resolved_directly = location is not None
         if not location:
             location = nearest_resolvable_hub(lat, lng, self.resolvable_hubs, log=self.logger)
         if not location:
@@ -347,6 +361,9 @@ class KijijiScraper:
                 f"candidat(s) disponible(s) — lat/lng fourni(s) : {lat is not None and lng is not None})."
             )
             return []
+
+        if radius_km is None or radius_km <= 0:
+            radius_km = self.DEFAULT_RADIUS_KM_RESOLVED if resolved_directly else self.DEFAULT_RADIUS_KM_HUB_FALLBACK
 
         url = build_search_url(
             category_id, location["id"], query, location_slug=location.get("slug") or "lieu",

@@ -88,6 +88,45 @@ class TestRunKijijiScan(unittest.TestCase):
         self.bot.should_skip_deal.assert_called_once_with("kijiji_999", 100)
 
     @patch("backend.bot.KijijiScraper")
+    def test_radius_km_defaults_to_none_when_nothing_configured(self, mock_scraper_cls, _sleep):
+        """`scanConfig.distance=0` (défaut) et pas de `kijijiRadiusKm` par ville : `None`
+        transmis à `scan_city()`, qui applique elle-même son défaut à deux paliers plutôt
+        que de recevoir un plancher arbitraire côté `bot.py` (voir JOURNAL.md 2026-07-27)."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+
+        _, kwargs = mock_scraper.scan_city.call_args
+        self.assertIsNone(kwargs["radius_km"])
+
+    @patch("backend.bot.KijijiScraper")
+    def test_radius_km_uses_global_distance_when_configured(self, mock_scraper_cls, _sleep):
+        """`scanConfig.distance` > 0 (réglage global explicite) transmis tel quel."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        scan_config = {**self.scan_config, "distance": 12}
+        self.bot._run_kijiji_scan(scan_config, [LONGUEUIL])
+
+        _, kwargs = mock_scraper.scan_city.call_args
+        self.assertEqual(kwargs["radius_km"], 12)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_radius_km_per_city_overrides_global_distance(self, mock_scraper_cls, _sleep):
+        """`city_data['kijijiRadiusKm']` prime sur `scanConfig.distance` — réglage le plus
+        spécifique gagne."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        city_with_override = {**LONGUEUIL, "kijijiRadiusKm": 3}
+        scan_config = {**self.scan_config, "distance": 12}
+        self.bot._run_kijiji_scan(scan_config, [city_with_override])
+
+        _, kwargs = mock_scraper.scan_city.call_args
+        self.assertEqual(kwargs["radius_km"], 3)
+
+    @patch("backend.bot.KijijiScraper")
     def test_out_of_radius_deal_is_dropped_when_radius_configured(self, mock_scraper_cls, _sleep):
         mock_scraper = mock_scraper_cls.return_value
         # Coordonnées de Toronto alors que seul Longueuil est configuré, avec un rayon de 25km.

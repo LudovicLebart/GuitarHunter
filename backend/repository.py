@@ -345,7 +345,9 @@ class FirestoreRepository:
         Nouvelle architecture : fusionne le catalogue partagé avec les préférences user.
         Fallback ancienne architecture : si le catalogue est vide, lit directement
         users/{uid}/cities (données complètes dans un seul document).
-        Retourne une liste de dicts (name, id, latitude, longitude, isScannable).
+        Retourne une liste de dicts (name, id, latitude, longitude, isScannable,
+        kijijiRadiusKm — préférence user optionnelle, `None` si non réglée, voir
+        `bot.py::_run_kijiji_scan()`).
         """
         try:
             catalog = {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
@@ -357,7 +359,7 @@ class FirestoreRepository:
                 for city_id, city_data in catalog.items():
                     pref = user_prefs.get(city_id, {})
                     if pref.get('isScannable', False):
-                        result.append({**city_data, 'isScannable': True})
+                        result.append({**city_data, 'isScannable': True, 'kijijiRadiusKm': pref.get('kijijiRadiusKm')})
                 logger.info(f"Cities loaded from shared catalog: {len(result)} scannable / {len(catalog)} total.")
                 return result
             else:
