@@ -31,6 +31,17 @@ _module_logger = logging.getLogger(__name__)
 _DEFAULT_RESOURCE_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "resources", "kijiji_locations.json")
 )
+_DEFAULT_CITY_COORDINATES_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "resources", "city_coordinates.json")
+)
+
+# Homonymes confirmés entre une municipalité québécoise (présente dans
+# `city_coordinates.json`) et un lieu Kijiji d'une AUTRE province portant le même nom —
+# `resolve_location()` ne peut pas les détecter (correspondance exacte, pas ambiguë au
+# sens du matching), donc exclus explicitement des candidats d'ancrage. Confirmé en
+# vérification directe le 2026-07-27 : "richmond" (QC, Estrie) résout vers l'ID Kijiji de
+# Richmond, BC — pas garanti exhaustif, à enrichir si d'autres collisions sont trouvées.
+_HUB_CANDIDATE_EXCLUSIONS = {"richmond"}
 
 
 def parse_locations_response(raw_text: str) -> Dict[str, Any]:
@@ -106,6 +117,79 @@ def load_location_lookup(path: str = None) -> Dict[str, Dict[str, Any]]:
     except (FileNotFoundError, json.JSONDecodeError) as e:
         _module_logger.debug(f"Lookup de lieux Kijiji introuvable/invalide ({resolved_path}): {e}")
         return {}
+
+
+def load_city_coordinates(path: str = None) -> Dict[str, Dict[str, float]]:
+    """Charge `backend/resources/city_coordinates.json` (~839 municipalités québécoises,
+    format `{"nom_ville": {"lat": ..., "lng": ...}, ...}`) — sert de bassin de candidats
+    pour `build_resolvable_hubs()`. Retourne un dict vide si absent."""
+    resolved_path = path or _DEFAULT_CITY_COORDINATES_PATH
+    try:
+        with open(resolved_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        _module_logger.debug(f"Coordonnées de villes introuvables/invalides ({resolved_path}): {e}")
+        return {}
+
+
+def build_resolvable_hubs(lookup: Dict[str, Dict[str, Any]],
+                           city_coordinates: Dict[str, Dict[str, float]],
+                           log: logging.Logger = None) -> Dict[str, Any]:
+    """
+    Précalcule, parmi `city_coordinates` (ex: `city_coordinates.json`), le sous-ensemble
+    des villes qui résolvent réellement vers un lieu Kijiji (`resolve_location()`) —
+    typiquement les grandes villes/régions (~24 sur les 839 municipalités québécoises).
+    Sert de point d'ancrage de repli (`nearest_resolvable_hub()`) pour une ville sans
+    équivalent Kijiji par nom, à ne calculer qu'une fois (coûteux à refaire à chaque
+    ville scannée : ~839 × résolution).
+    """
+    log = log or _module_logger
+    hubs = {}
+    for name, coords in (city_coordinates or {}).items():
+        if name in _HUB_CANDIDATE_EXCLUSIONS or not isinstance(coords, dict):
+            continue
+        lat, lng = coords.get("lat"), coords.get("lng")
+        if not _is_number(lat) or not _is_number(lng):
+            continue
+        location = resolve_location(name, lookup, log=log)
+        if location:
+            hubs[name] = {"lat": lat, "lng": lng, "location": location}
+    return hubs
+
+
+def nearest_resolvable_hub(latitude: Optional[float], longitude: Optional[float],
+                            resolvable_hubs: Dict[str, Any],
+                            log: logging.Logger = None) -> Optional[Dict[str, Any]]:
+    """
+    Pour une ville sans sous-zone Kijiji reconnue par son propre nom (`resolve_location()`
+    a échoué), trouve la plus proche (distance Haversine) parmi `resolvable_hubs` (voir
+    `build_resolvable_hubs()`) et retourne son `{id, slug}` Kijiji comme point d'ancrage
+    pour `build_search_url()`.
+
+    ⚠️ **`location_id=0` (Canada) ne suffit PAS** : validé en live le 2026-07-27
+    (annonce réelle) — `address=`/`ll=`/`radius=` sont silencieusement ignorés par Kijiji
+    quand le lieu du chemin d'URL est `l0`, peu importe le format de `address` (testé avec
+    et sans la province). Un `location_id` non-nul, même approximatif (une grande région
+    proche plutôt que la ville exacte), est nécessaire pour que le raffinement géographique
+    (`address`/`ll`/`radius`) soit honoré — le raffinement précis reste porté par ces
+    paramètres, l'ancrage n'a besoin d'être que "raisonnablement proche".
+    """
+    log = log or _module_logger
+    if not _is_number(latitude) or not _is_number(longitude) or not resolvable_hubs:
+        return None
+
+    nearest_hub = None
+    nearest_distance = None
+    for name, hub in resolvable_hubs.items():
+        distance = calculate_distance(latitude, longitude, hub["lat"], hub["lng"])
+        if nearest_distance is None or distance < nearest_distance:
+            nearest_distance = distance
+            nearest_hub = hub
+
+    if nearest_hub is None:
+        return None
+    log.debug(f"Point d'ancrage Kijiji le plus proche : {nearest_hub['location']} ({round(nearest_distance, 2)}km)")
+    return nearest_hub["location"]
 
 
 def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]], log: logging.Logger = None) -> Optional[Dict[str, Any]]:

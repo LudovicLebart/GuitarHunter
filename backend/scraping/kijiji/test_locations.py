@@ -10,6 +10,8 @@ from scraping.kijiji.locations import (
     resolve_location,
     build_search_url,
     nearest_configured_city,
+    build_resolvable_hubs,
+    nearest_resolvable_hub,
 )
 
 # Coordonnées réelles reprises de backend/resources/city_coordinates.json.
@@ -259,6 +261,58 @@ class TestNearestConfiguredCity(unittest.TestCase):
         être acceptés comme coordonnées valides."""
         bad_coords = {"faux": {"lat": True, "lng": False}}
         self.assertIsNone(nearest_configured_city(45.5369, -73.5105, bad_coords))
+
+
+class TestBuildResolvableHubs(unittest.TestCase):
+    """`build_resolvable_hubs` sert de bassin de repli pour `scan_city()` quand une ville
+    n'a pas sa propre sous-zone Kijiji (cas fréquent — voir `resolve_location`) : validé
+    en live le 2026-07-27 que `location_id=0` (Canada) seul ne suffit pas, il faut un
+    ancrage non-nul, même approximatif."""
+
+    def setUp(self):
+        self.lookup = build_location_lookup(flatten_locations_tree(SAMPLE_TREE))
+
+    def test_keeps_only_resolvable_cities(self):
+        city_coordinates = {
+            "longueuil": {"lat": 45.5369, "lng": -73.5105},  # résout (leaf direct)
+            "brossard": {"lat": 45.4554, "lng": -73.4679},   # absent de l'arbre, ne résout pas
+        }
+        hubs = build_resolvable_hubs(self.lookup, city_coordinates)
+        self.assertEqual(set(hubs.keys()), {"longueuil"})
+        self.assertEqual(hubs["longueuil"]["location"]["id"], 1700279)
+
+    def test_excludes_known_homonym_collisions(self):
+        """Régression : "richmond" (QC) résout réellement vers l'ID Kijiji de Richmond, BC
+        (confirmé en vérification directe le 2026-07-27) — exclu explicitement même s'il
+        seraît par ailleurs résolvable."""
+        lookup_with_richmond = dict(self.lookup)
+        lookup_with_richmond["richmond"] = {"id": 999999, "slug": "richmond-bc"}
+        hubs = build_resolvable_hubs(lookup_with_richmond, {"richmond": {"lat": 45.6667, "lng": -72.15}})
+        self.assertEqual(hubs, {})
+
+    def test_ignores_malformed_coordinates(self):
+        hubs = build_resolvable_hubs(self.lookup, {"longueuil": {"lat": "invalide", "lng": -73.5105}})
+        self.assertEqual(hubs, {})
+
+
+class TestNearestResolvableHub(unittest.TestCase):
+    def setUp(self):
+        self.hubs = {
+            "longueuil": {"lat": 45.5369, "lng": -73.5105, "location": {"id": 1700279, "slug": "longueuil-rive-sud"}},
+            "levis": {"lat": 46.8033, "lng": -71.1779, "location": {"id": 1700063, "slug": "levis"}},
+        }
+
+    def test_returns_nearest_hub_location(self):
+        # Brossard, à ~10km de Longueuil (bien plus proche que Lévis).
+        result = nearest_resolvable_hub(45.4554579, -73.4678695, self.hubs)
+        self.assertEqual(result["id"], 1700279)
+
+    def test_returns_none_for_missing_coordinates(self):
+        self.assertIsNone(nearest_resolvable_hub(None, -73.5, self.hubs))
+        self.assertIsNone(nearest_resolvable_hub(45.5, None, self.hubs))
+
+    def test_returns_none_for_empty_hubs(self):
+        self.assertIsNone(nearest_resolvable_hub(45.5, -73.5, {}))
 
 
 if __name__ == "__main__":

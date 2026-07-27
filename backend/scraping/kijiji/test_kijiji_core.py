@@ -228,23 +228,47 @@ class TestConstructorIsKeywordOnly(unittest.TestCase):
 
 
 class TestScanCity(unittest.TestCase):
-    def test_builds_canada_wide_url_regardless_of_city_recognition(self):
-        """scan_city() (2026-07-27) ne dépend plus de `location_lookup`/`resolve_location` —
-        même une ville absente des ~192 sous-zones larges de Kijiji doit produire une
-        recherche valide (ancrée `location_id=0`, précisée par address/ll/radius), pas un
-        échec silencieux comme avant ce changement."""
-        scraper = KijijiScraper(location_lookup={})
+    def test_uses_resolved_location_when_city_has_its_own_subzone(self):
+        """Ville reconnue directement par `resolve_location()` (via `location_lookup`) :
+        ancrage sur son propre ID, pas sur un point d'ancrage de repli."""
+        lookup = {"longueuil": {"id": 1700279, "slug": "longueuil-rive-sud"}}
+        scraper = KijijiScraper(location_lookup=lookup, resolvable_hubs={})
+        with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
+            scraper.scan_city("Longueuil", category_id=613, query="guitare", lat=45.53, lng=-73.51, radius_km=2)
+        called_url = mock_scan.call_args[0][0]
+        self.assertIn("k0c613l1700279", called_url)
+        self.assertIn("address=Longueuil", called_url)
+
+    def test_falls_back_to_nearest_resolvable_hub_when_city_unrecognized(self):
+        """Ville absente des ~192 sous-zones Kijiji (cas fréquent, voir `resolve_location()`)
+        mais avec lat/lng fournis : ancrage sur le point d'ancrage de repli le plus proche
+        (`nearest_resolvable_hub`, ex: "Brossard" -> Longueuil, validé en live le
+        2026-07-27 — `location_id=0` seul ne suffit PAS, Kijiji ignore silencieusement
+        `address=`/`ll=`/`radius=` dans ce cas). `address` reste la ville d'origine
+        (Brossard), pas le nom du hub — seul l'ID d'ancrage change."""
+        resolvable_hubs = {
+            "longueuil": {"lat": 45.5369, "lng": -73.5105, "location": {"id": 1700279, "slug": "longueuil-rive-sud"}},
+        }
+        scraper = KijijiScraper(location_lookup={}, resolvable_hubs=resolvable_hubs)
         with unittest.mock.patch.object(scraper, "scan_search_url", return_value=[]) as mock_scan:
             scraper.scan_city(
-                "Ville Inconnue Xyz", category_id=613, query="guitare",
-                lat=45.5, lng=-73.5, radius_km=2,
+                "Brossard", category_id=613, query="guitare",
+                lat=45.4554579, lng=-73.4678695, radius_km=1,
             )
         mock_scan.assert_called_once()
         called_url = mock_scan.call_args[0][0]
-        self.assertIn("k0c613l0", called_url)  # ancré Canada entier, pas une sous-zone résolue
-        self.assertIn("address=Ville%20Inconnue%20Xyz", called_url)
-        self.assertIn("ll=45.5%2C-73.5", called_url)
-        self.assertIn("radius=2", called_url)
+        self.assertIn("k0c613l1700279", called_url)  # ancré sur Longueuil, pas Canada (l0)
+        self.assertIn("address=Brossard", called_url)  # adresse = ville réelle, pas le hub
+        self.assertIn("ll=45.4554579%2C-73.4678695", called_url)
+
+    def test_returns_empty_list_when_no_anchor_can_be_found(self):
+        """Ni sous-zone propre, ni point d'ancrage de repli (aucun candidat, ou pas de
+        lat/lng fourni) : ignorée proprement (`[]`), pas de recherche nationale non ciblée
+        ni de session Playwright démarrée."""
+        scraper = KijijiScraper(location_lookup={}, resolvable_hubs={})
+        result = scraper.scan_city("Ville Inconnue Xyz", category_id=613, query="guitare", lat=45.5, lng=-73.5)
+        self.assertEqual(result, [])
+        self.assertIsNone(scraper.context)
 
 
 class TestExtractImagesFromJsonLd(unittest.TestCase):

@@ -9,7 +9,10 @@ from playwright.sync_api import sync_playwright, Page
 
 from .config import KijijiScraperConfig
 from .parser import KijijiListingParser
-from .locations import load_location_lookup, build_search_url
+from .locations import (
+    load_location_lookup, load_city_coordinates, build_resolvable_hubs,
+    resolve_location, nearest_resolvable_hub, build_search_url,
+)
 
 
 class KijijiScraper:
@@ -67,7 +70,8 @@ class KijijiScraper:
     """
 
     def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None,
-                 location_lookup: Dict[str, Dict[str, Any]] = None):
+                 location_lookup: Dict[str, Dict[str, Any]] = None,
+                 resolvable_hubs: Dict[str, Any] = None):
         self.config = config or KijijiScraperConfig()
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module pour les scripts autonomes/tests.
@@ -76,6 +80,12 @@ class KijijiScraper:
         # fichier n'a pas encore été généré — voir fetch_kijiji_locations.py) ; peut être
         # injecté explicitement (ex: rechargé depuis Firestore plus tard).
         self.location_lookup = location_lookup if location_lookup is not None else load_location_lookup()
+        # Points d'ancrage de repli pour scan_city() (voir locations.nearest_resolvable_hub)
+        # — précalculé une fois par instance (coûteux à refaire à chaque ville scannée).
+        self.resolvable_hubs = (
+            resolvable_hubs if resolvable_hubs is not None
+            else build_resolvable_hubs(self.location_lookup, load_city_coordinates(), log=self.logger)
+        )
 
         self.playwright = None
         self.browser = None
@@ -302,14 +312,19 @@ class KijijiScraper:
                    min_price: int = 0, max_price: int = 0,
                    lat: float = None, lng: float = None, radius_km: float = None) -> List[Dict[str, Any]]:
         """
-        Scanne une ville par son nom : construit une URL de résultats ancrée sur le Canada
-        entier (`location_id=0`, toujours valide) puis précisée par géolocalisation
-        (`address`/`lat`/`lng`/`radius_km`, voir `locations.build_search_url`) et scrape
-        dessus (`scan_search_url`) — évite de dépendre d'une résolution par nom vers l'une
-        des ~192 sous-zones larges de Kijiji (`locations.resolve_location()`), qui échoue
-        pour la plupart des petites municipalités (aucun équivalent Kijiji par nom, voir
-        `resolve_location()`) : chaque ville du catalogue obtient une recherche précise,
-        qu'elle ait ou non sa propre sous-zone nommée.
+        Scanne une ville par son nom : résout un point d'ancrage Kijiji non-nul (
+        `locations.resolve_location()` si la ville a sa propre sous-zone, sinon
+        `locations.nearest_resolvable_hub()` — la sous-zone résolvable la plus proche par
+        GPS, voir `self.resolvable_hubs`), construit l'URL de résultats correspondante
+        (précisée par `address`/`lat`/`lng`/`radius_km`, voir `locations.build_search_url`)
+        et scrape dessus (`scan_search_url`).
+
+        ⚠️ **`location_id=0` (Canada) ne suffit PAS** : validé en live le 2026-07-27 —
+        Kijiji ignore silencieusement `address=`/`ll=`/`radius=` quand le lieu du chemin
+        d'URL est `l0`, peu importe le format de `address`. Un ancrage non-nul est donc
+        **obligatoire** pour que le ciblage géographique fonctionne, même approximatif
+        (une grande région proche plutôt que la ville exacte) — c'est `address`/`ll`/
+        `radius` qui portent la précision réelle, pas le choix de l'ancrage lui-même.
 
         `category_id` : ID de catégorie Kijiji, global et stable pour tout le site (ex:
         613 = Guitars — pas de mapping de catégories dans ce module pour l'instant, à
@@ -317,11 +332,24 @@ class KijijiScraper:
 
         `min_price`/`max_price`/`lat`/`lng`/`radius_km` : filtres appliqués côté recherche
         Kijiji plutôt qu'après coup — voir `locations.build_search_url` pour le détail des
-        paramètres d'URL. `lat`/`lng`/`radius_km` doivent être fournis pour un ciblage
-        géographique précis (sinon la recherche reste "Canada entier").
+        paramètres d'URL. `lat`/`lng` sont aussi nécessaires pour trouver un ancrage de
+        repli si `city_name` n'a pas sa propre sous-zone Kijiji — sans eux (et sans
+        sous-zone nommée), la ville est ignorée (`[]`) plutôt que de chercher sans aucun
+        ciblage géographique (résultat national non pertinent).
         """
+        location = resolve_location(city_name, self.location_lookup, log=self.logger)
+        if not location:
+            location = nearest_resolvable_hub(lat, lng, self.resolvable_hubs, log=self.logger)
+        if not location:
+            self.logger.error(
+                f"❌ Impossible d'ancrer la recherche Kijiji pour '{city_name}' : ni sous-zone "
+                f"propre, ni point d'ancrage proche trouvé ({len(self.resolvable_hubs)} "
+                f"candidat(s) disponible(s) — lat/lng fourni(s) : {lat is not None and lng is not None})."
+            )
+            return []
+
         url = build_search_url(
-            category_id, 0, query,
+            category_id, location["id"], query, location_slug=location.get("slug") or "lieu",
             address=city_name, min_price=min_price, max_price=max_price,
             lat=lat, lng=lng, radius_km=radius_km,
         )
