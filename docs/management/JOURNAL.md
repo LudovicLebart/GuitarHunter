@@ -1182,3 +1182,21 @@ Le réseau vers `kijiji.ca` restant bloqué dans cet environnement de développe
 
 #### 2. Raisonnement
 `nearest_configured_city` est un utilitaire pur (pas d'accès réseau/DOM), donc pleinement testable dans cet environnement malgré l'absence d'accès à `kijiji.ca`. Les correctifs de code review touchent tous à des cas limites silencieux (donnée malformée "gagnant" par défaut, ambiguïté résolue au hasard) plutôt qu'à des bugs déjà observés en usage réel — traités avant intégration au pipeline plutôt qu'après.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> Merge de `dev` dans la branche Kijiji (résolution de conflit + bug de signature corrigé) + validation live du scan Kijiji intégré + clarification des logs + icône du bouton "voir l'annonce d'origine".
+
+### Session : Merge `dev`, validation live, lisibilité des logs et icône Kijiji
+
+#### 1. Objectif : Rattraper le retard pris par la branche Kijiji sur `dev` (LeBonCoin, corrections diverses) avant de valider le scan Kijiji en conditions réelles, puis lever les points de friction remontés par l'utilisateur pendant cette validation
+- **Merge `origin/dev` → branche Kijiji** : un seul conflit réel, dans `bot.py::run_scan()` — la branche Kijiji avait remplacé la boucle séquentielle par ville par `_run_sources_in_parallel()` (threads Facebook/Kijiji), pendant que `dev` avait enrichi cette même boucle séquentielle d'une comptabilisation de cycle (`cycle_stats`) et d'un filtrage "autre ville autorisée" plus fin. Résolu en gardant l'architecture parallèle et en portant les apports de `dev` (stats de cycle, villes bloquées par anti-bot, logique à 3 voies du filtre STRICT) dans `_run_facebook_scan()`.
+- **Bug de merge non conflictuel découvert et corrigé** : `dev` avait aussi changé la signature de retour de `FacebookScraper.scan_marketplace()` (dict `{deals, anti_bot_blocked, rejected_out_of_list, total_cards_seen}` au lieu d'une simple liste) dans un fichier qui a fusionné sans marqueur de conflit — `_run_facebook_scan()` (code propre à la branche Kijiji, absent de `dev`) continuait de traiter le retour comme une liste brute et aurait planté au premier scan. Détecté en retraçant manuellement tous les appelants de `scan_marketplace()` après le merge, pas par Git. Corrigé avant tout commit ; 76 tests (`backend/test_bot.py`, `scraping/test_core.py`, `scraping/kijiji/test_*.py`) verts après coup.
+- **Validation live confirmée par l'utilisateur** : le scan Kijiji intégré au pipeline (`_run_kijiji_scan()`, déjà présent dans l'historique de la branche avant cette session — commits `edbe8a4`/`7e0797a`, jamais documentés) fonctionne de bout en bout en conditions réelles. Doc mise à jour en conséquence (`ARCHITECTURE.md`, `TODO.md` : la mention "non branché au pipeline" était obsolète).
+- **Lisibilité des logs (`bot.py`)** : Facebook et Kijiji tournant désormais en parallèle et écrivant dans le même logger, leurs lignes s'entremêlaient dans le LogViewer sans indication d'origine — `handle_deal_found()` prend un paramètre `source` (`"Facebook"` par défaut, pour ne pas casser `scan_specific_url()`) et préfixe tous ses logs (`[Facebook]`/`[Kijiji]`). `_run_kijiji_scan()` reçoit un `cycle_stats` + un résumé de fin de cycle (`📊 Résumé du cycle Kijiji : ...`), symétrique à celui déjà présent côté Facebook.
+- **Icône du bouton "voir l'annonce d'origine" (`DealCardActions.jsx`)** : affichait toujours l'icône/couleur Facebook, y compris pour une annonce Kijiji. Détection `isKijiji` via `deal.link.includes('kijiji.ca')` (même logique que le badge source de `DealCard/index.jsx`, `deal.source` n'existant que pour Kijiji) ; badge orange "K" + tooltip "Voir sur Kijiji" à la place de l'icône Facebook bleue quand pertinent.
+
+#### 2. Raisonnement
+Un merge avec conflit apparent (un seul marqueur dans `bot.py`) peut masquer des changements de signature dans des fichiers fusionnés sans friction — la seule façon fiable de les détecter est de retracer manuellement chaque appelant des fonctions modifiées par l'autre branche plutôt que de faire confiance à l'absence de marqueur `<<<<<<<`. Les logs de deux sources parallèles partageant un seul logger utilisateur (contrainte du `FirestoreHandler`, voir plus haut) doivent systématiquement s'auto-identifier plutôt que de compter sur l'ordre d'affichage (déjà documenté comme non fiable) pour distinguer leur origine.
