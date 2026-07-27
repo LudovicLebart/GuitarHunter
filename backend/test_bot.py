@@ -1,8 +1,13 @@
-"""Tests pour GuitarHunterBot._run_kijiji_scan() — orchestration du scan Kijiji comme
-source additionnelle (préfixage d'ID, correction GPS de la localisation, tolérance aux
-pannes par ville). Le reste de GuitarHunterBot (Firestore, Playwright Facebook, IA) n'est
+"""Tests pour l'orchestration de scan de GuitarHunterBot :
+- _run_kijiji_scan() : source additionnelle Kijiji (préfixage d'ID, correction GPS de la
+  localisation, tolérance aux pannes par ville).
+- _run_sources_in_parallel() : dispatche Facebook et Kijiji chacun dans son propre thread
+  au lieu de les enchaîner en séquence.
+Le reste de GuitarHunterBot (Firestore, Playwright Facebook, IA, _run_facebook_scan) n'est
 pas testé ici : aucun test unitaire n'existait encore pour bot.py avant ce module, le
-périmètre est volontairement limité à la nouvelle méthode."""
+périmètre reste volontairement limité à l'orchestration ajoutée pour Kijiji."""
+import queue
+import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +22,7 @@ def _make_bot():
     (déjà hors scope du module Kijiji autonome)."""
     bot = GuitarHunterBot.__new__(GuitarHunterBot)
     bot.logger = MagicMock()
+    bot._user_id = "test_user_id"
     bot.stop_event = None
     bot.scan_stop_event = None
     bot._browser_semaphore = None
@@ -123,6 +129,68 @@ class TestRunKijijiScan(unittest.TestCase):
 
         mock_scraper.scan_city.assert_not_called()
         self.bot.handle_deal_found.assert_not_called()
+
+
+class TestRunSourcesInParallel(unittest.TestCase):
+    """_run_sources_in_parallel() dispatche Facebook et Kijiji chacun dans son propre
+    thread (au lieu de les enchaîner en séquence) — voir demande utilisateur du
+    2026-07-27. Les scans réels (_run_facebook_scan/_run_kijiji_scan) sont mockés : ce
+    qui est testé ici est l'orchestration (les deux tournent bien EN MÊME TEMPS, pas
+    juste "les deux sont appelés"), pas leur logique interne (déjà couverte ailleurs
+    pour Kijiji, jamais testée pour Facebook avant ce module)."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._run_facebook_scan = MagicMock()
+        self.bot._run_kijiji_scan = MagicMock()
+        self.cities = [LONGUEUIL]
+
+    def test_both_sources_called_when_kijiji_enabled(self):
+        self.bot._run_sources_in_parallel({"kijiji_enabled": True}, self.cities)
+
+        self.bot._run_facebook_scan.assert_called_once_with({"kijiji_enabled": True}, self.cities)
+        self.bot._run_kijiji_scan.assert_called_once_with({"kijiji_enabled": True}, self.cities)
+
+    def test_only_facebook_called_when_kijiji_disabled(self):
+        self.bot._run_sources_in_parallel({"kijiji_enabled": False}, self.cities)
+
+        self.bot._run_facebook_scan.assert_called_once()
+        self.bot._run_kijiji_scan.assert_not_called()
+
+    def test_sources_actually_overlap_in_time_not_sequential(self):
+        """Preuve de parallélisme réel (pas juste 'les deux mocks ont été appelés') :
+        chaque cible signale son propre démarrage puis attend celui de l'autre — un
+        timeout indique un enchaînement séquentiel plutôt qu'un vrai parallélisme
+        (l'un ne peut démarrer qu'après le retour du premier)."""
+        fb_started = threading.Event()
+        kijiji_started = threading.Event()
+        results = queue.Queue()
+
+        def fb_target(scan_config, cities):
+            fb_started.set()
+            results.put(("fb", kijiji_started.wait(timeout=2)))
+
+        def kijiji_target(scan_config, cities):
+            kijiji_started.set()
+            results.put(("kijiji", fb_started.wait(timeout=2)))
+
+        self.bot._run_facebook_scan.side_effect = fb_target
+        self.bot._run_kijiji_scan.side_effect = kijiji_target
+
+        self.bot._run_sources_in_parallel({"kijiji_enabled": True}, self.cities)
+
+        outcomes = dict(results.get_nowait() for _ in range(2))
+        self.assertTrue(outcomes["fb"], "Le thread Facebook n'a jamais vu Kijiji démarrer — pas de vrai parallélisme.")
+        self.assertTrue(outcomes["kijiji"], "Le thread Kijiji n'a jamais vu Facebook démarrer — pas de vrai parallélisme.")
+
+    def test_exception_in_one_source_does_not_prevent_the_other(self):
+        self.bot._run_facebook_scan.side_effect = Exception("boom Facebook")
+        # _run_kijiji_scan (mock par défaut) réussit normalement.
+
+        self.bot._run_sources_in_parallel({"kijiji_enabled": True}, self.cities)  # ne doit pas lever
+
+        self.bot._run_kijiji_scan.assert_called_once()
+        self.bot.logger.error.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -332,88 +332,119 @@ class GuitarHunterBot:
             if not cities_to_scan:
                 self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
-                
                 self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
-                for city_data in cities_to_scan:
-                    if self._is_stop_requested():
-                        self.logger.info("🛑 Interruption de la boucle des villes.")
-                        break
-
-                    city_name = city_data.get('name')
-                    city_id = city_data.get('id')
-                    city_lat = city_data.get('latitude')
-                    city_lon = city_data.get('longitude')
-                    city_norm_name = ListingParser.normalize_city_name(city_name)
-                    
-                    if not all([city_name, city_id, city_lat is not None, city_lon is not None]):
-                        self.logger.warning(f"Données incomplètes pour la ville {city_name or 'inconnue'}. Scan de cette ville ignoré.")
-                        continue
-
-                    city_specific_config = scan_config.copy()
-                    city_specific_config['location'] = city_norm_name
-                    self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
-
-                    if self._browser_semaphore:
-                        self._browser_semaphore.acquire()
-                    try:
-                        temp_scraper = FacebookScraper({}, {}, logger=self.logger)
-                        temp_scraper.city_mapping = {city_norm_name: city_id}
-                        temp_scraper.allowed_cities = all_allowed_cities_norm
-
-                        try:
-                            found_deals = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
-
-                            # --- FILTRAGE PAR RAYON ---
-                            radius_km = scan_config.get('distance', 0)
-                            if radius_km == 0:
-                                # Mode nom strict : ne conserver que les annonces dont la localisation correspond à la ville
-                                norm_city = ListingParser.normalize_city_name(city_name)
-                                strict_filtered = []
-                                for deal in found_deals:
-                                    norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
-                                    if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
-                                        strict_filtered.append(deal)
-                                    else:
-                                        self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' ≠ '{city_name}'.")
-                                self.logger.info(f"[STRICT] {len(strict_filtered)}/{len(found_deals)} annonces conservées (correspondance exacte ville).")
-                                found_deals = strict_filtered
-                            elif radius_km > 0:
-                                deals_in_radius = []
-                                for deal in found_deals:
-                                    deal_lat = deal.get('latitude')
-                                    deal_lon = deal.get('longitude')
-                                    if deal_lat is not None and deal_lon is not None:
-                                        distance = calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
-                                        if distance <= radius_km:
-                                            deals_in_radius.append(deal)
-                                        else:
-                                            self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km).")
-                                    else:
-                                        deals_in_radius.append(deal)
-
-                                self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
-                                found_deals = deals_in_radius
-
-                            # --- TRAITEMENT DES ANNONCES FILTRÉES ---
-                            for deal in found_deals:
-                                if self._is_stop_requested(): break
-                                self.handle_deal_found(deal)
-
-                        finally:
-                            temp_scraper.close_session()
-                    finally:
-                        if self._browser_semaphore:
-                            self._browser_semaphore.release()
-                    
-                    time.sleep(2)
-
-                if scan_config.get('kijiji_enabled'):
-                    self._run_kijiji_scan(scan_config, cities_to_scan)
+                self._run_sources_in_parallel(scan_config, cities_to_scan)
             self.logger.info("Scan planifié terminé.")
         finally:
             if not self.offline_mode:
                 self.set_status('idle', task_name='scanning')
+
+    def _run_sources_in_parallel(self, scan_config, cities_to_scan):
+        """Lance Facebook et Kijiji (si `scanConfig.kijiji_enabled`) chacun dans son
+        propre thread plutôt qu'en séquence — le cycle complet dure max(FB, Kijiji) au
+        lieu de FB + Kijiji. Sûr à paralléliser : les deux sources n'écrivent jamais le
+        même document Firestore (IDs Kijiji préfixés `kijiji_`, voir _run_kijiji_scan),
+        `session_processed_ids` est déjà isolé par thread (`threading.local()`, voir sa
+        docstring), et `_browser_semaphore` (déjà thread-safe) continue de plafonner le
+        nombre réel de navigateurs Playwright simultanés — 2 threads ne veut pas dire 2
+        navigateurs ouverts en même temps si la limite est à 1.
+        """
+        def _run_and_log(name, target):
+            try:
+                target(scan_config, cities_to_scan)
+            except Exception as e:
+                self.logger.error(f"❌ Erreur non gérée dans le thread de scan {name}: {e}", exc_info=True)
+
+        threads = [threading.Thread(
+            target=_run_and_log, args=("Facebook", self._run_facebook_scan),
+            name=f"scan-facebook-{self._user_id[:8]}", daemon=True,
+        )]
+        if scan_config.get('kijiji_enabled'):
+            threads.append(threading.Thread(
+                target=_run_and_log, args=("Kijiji", self._run_kijiji_scan),
+                name=f"scan-kijiji-{self._user_id[:8]}", daemon=True,
+            ))
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    def _run_facebook_scan(self, scan_config, cities_to_scan):
+        all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
+
+        for city_data in cities_to_scan:
+            if self._is_stop_requested():
+                self.logger.info("🛑 Interruption de la boucle des villes.")
+                break
+
+            city_name = city_data.get('name')
+            city_id = city_data.get('id')
+            city_lat = city_data.get('latitude')
+            city_lon = city_data.get('longitude')
+            city_norm_name = ListingParser.normalize_city_name(city_name)
+
+            if not all([city_name, city_id, city_lat is not None, city_lon is not None]):
+                self.logger.warning(f"Données incomplètes pour la ville {city_name or 'inconnue'}. Scan de cette ville ignoré.")
+                continue
+
+            city_specific_config = scan_config.copy()
+            city_specific_config['location'] = city_norm_name
+            self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
+
+            if self._browser_semaphore:
+                self._browser_semaphore.acquire()
+            try:
+                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
+                temp_scraper.city_mapping = {city_norm_name: city_id}
+                temp_scraper.allowed_cities = all_allowed_cities_norm
+
+                try:
+                    found_deals = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+
+                    # --- FILTRAGE PAR RAYON ---
+                    radius_km = scan_config.get('distance', 0)
+                    if radius_km == 0:
+                        # Mode nom strict : ne conserver que les annonces dont la localisation correspond à la ville
+                        norm_city = ListingParser.normalize_city_name(city_name)
+                        strict_filtered = []
+                        for deal in found_deals:
+                            norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
+                            if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
+                                strict_filtered.append(deal)
+                            else:
+                                self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' ≠ '{city_name}'.")
+                        self.logger.info(f"[STRICT] {len(strict_filtered)}/{len(found_deals)} annonces conservées (correspondance exacte ville).")
+                        found_deals = strict_filtered
+                    elif radius_km > 0:
+                        deals_in_radius = []
+                        for deal in found_deals:
+                            deal_lat = deal.get('latitude')
+                            deal_lon = deal.get('longitude')
+                            if deal_lat is not None and deal_lon is not None:
+                                distance = calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
+                                if distance <= radius_km:
+                                    deals_in_radius.append(deal)
+                                else:
+                                    self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km).")
+                            else:
+                                deals_in_radius.append(deal)
+
+                        self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
+                        found_deals = deals_in_radius
+
+                    # --- TRAITEMENT DES ANNONCES FILTRÉES ---
+                    for deal in found_deals:
+                        if self._is_stop_requested(): break
+                        self.handle_deal_found(deal)
+
+                finally:
+                    temp_scraper.close_session()
+            finally:
+                if self._browser_semaphore:
+                    self._browser_semaphore.release()
+
+            time.sleep(2)
 
     def _run_kijiji_scan(self, scan_config, cities_to_scan):
         """Scanne Kijiji.ca en plus de Facebook Marketplace, ville par ville, sur le même
