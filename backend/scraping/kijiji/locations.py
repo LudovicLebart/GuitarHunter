@@ -112,11 +112,21 @@ def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]], log: log
     Résout un nom de ville vers `{id, slug}`. Kijiji regroupe certaines grandes villes
     sous un nom "Ville / Région" (ex: "Longueuil / South Shore") — une recherche pour
     "Longueuil" seul ne matche donc pas exactement la clé normalisée complète ; on
-    compare aussi contre la partie avant le "/". Dernier repli : correspondance
-    partielle (best-effort) — si plusieurs LIEUX DIFFÉRENTS (id distincts) matchent
-    partiellement, la résolution est ambiguë et on retourne `None` plutôt que de
-    trancher au hasard selon l'ordre d'itération du dict (silencieusement vers le
-    mauvais lieu, sans avertissement).
+    compare aussi contre la partie avant le "/".
+
+    Volontairement STRICT au-delà de ces deux cas (pas de repli par correspondance
+    partielle/substring) : validé empiriquement contre les 192 lieux Kijiji réels
+    (`backend/resources/kijiji_locations.json`) et les 839 municipalités QC
+    (`city_coordinates.json`) — un simple test `normalized in key` matchait à tort des
+    villes québécoises vers des lieux homonymes d'AUTRES provinces (ex: "Waterloo" (QC)
+    → "Kitchener / Waterloo" (ON), "Abbotsford" (QC, Saint-Paul-d'Abbotsford) →
+    "Abbotsford" (BC), "Stoke" (QC) → "Revelstoke" (BC), "Oka" (QC) → "Muskoka" (ON)),
+    et rendait "Québec" ambigu contre "Chibougamau / Nord-du-Québec" (mot "quebec"
+    partagé, lieu totalement différent). Kijiji ne couvrant qu'~192 grandes sous-zones
+    pour tout le pays, la plupart des petites municipalités n'ont simplement AUCUN
+    équivalent Kijiji par nom — retourner `None` (ville ignorée pour Kijiji, journalisé
+    par l'appelant) est le comportement correct dans ce cas, pas un bug à contourner par
+    du matching plus permissif.
     """
     log = log or _module_logger
     if not city_name or not lookup:
@@ -130,19 +140,6 @@ def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]], log: log
         prefix = key.split("/")[0].strip()
         if prefix == normalized:
             return value
-
-    partial_matches = {
-        value["id"]: value
-        for key, value in lookup.items()
-        if normalized in key or key in normalized
-    }
-    if len(partial_matches) == 1:
-        return next(iter(partial_matches.values()))
-    if len(partial_matches) > 1:
-        log.warning(
-            f"Résolution de lieu ambiguë pour '{city_name}' : {len(partial_matches)} "
-            f"lieux distincts correspondent partiellement — aucun retenu."
-        )
 
     return None
 

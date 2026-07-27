@@ -136,30 +136,53 @@ class TestResolveLocation(unittest.TestCase):
     def test_empty_city_name_returns_none(self):
         self.assertIsNone(resolve_location("", self.lookup))
 
-    def test_ambiguous_partial_match_returns_none(self):
-        """Régression : si le repli par correspondance partielle matche plusieurs LIEUX
-        DIFFÉRENTS, on ne doit pas trancher au hasard selon l'ordre du dict — mieux vaut
-        ne rien résoudre qu'un lieu potentiellement faux et silencieux."""
-        ambiguous_lookup = {
-            "springfield nord": {"id": 111, "slug": "springfield-nord"},
-            "springfield sud": {"id": 222, "slug": "springfield-sud"},
-        }
-        self.assertIsNone(resolve_location("Springfield", ambiguous_lookup))
-
-    def test_single_partial_match_still_resolves(self):
+    def test_partial_substring_match_no_longer_resolves(self):
+        """Régression (2026-07-27) : un ancien 3e palier de repli par correspondance
+        partielle/substring a été retiré — validé empiriquement contre les 192 lieux
+        Kijiji réels et les 839 municipalités QC (`city_coordinates.json`), il matchait
+        à tort des villes québécoises vers des lieux homonymes d'AUTRES provinces (voir
+        les cas ci-dessous, tous réellement observés). Un simple lien "un seul candidat
+        partiel" (ex: "springfield nord" pour "Springfield") ne doit plus résoudre du
+        tout : mieux vaut ignorer la ville pour Kijiji (loggé par l'appelant) qu'un
+        risque de scanner la mauvaise province silencieusement."""
         lookup = {"springfield nord": {"id": 111, "slug": "springfield-nord"}}
-        result = resolve_location("Springfield", lookup)
-        self.assertEqual(result["id"], 111)
+        self.assertIsNone(resolve_location("Springfield", lookup))
 
-    def test_multiple_keys_same_id_not_treated_as_ambiguous(self):
-        """Plusieurs clés (variantes FR/EN) pointant vers le MÊME lieu ne doivent pas
-        être comptées comme une ambiguïté."""
+    def test_cross_province_homonym_no_longer_false_matches(self):
+        """Régression (2026-07-27) : cas réels observés avec l'ancien palier substring —
+        des municipalités québécoises matchaient à tort un lieu Kijiji homonyme d'une
+        autre province, faute de contexte géographique dans une simple comparaison de
+        chaînes ("Waterloo" (QC) vers "Kitchener / Waterloo" (ON), "Abbotsford" (QC,
+        Saint-Paul-d'Abbotsford) vers "Abbotsford" (BC), "Stoke" (QC) vers "Revelstoke"
+        (BC), "Oka" (QC) vers "Muskoka" (ON))."""
         lookup = {
-            "quebec city": {"id": 999, "slug": "quebec-city"},
-            "ville de quebec": {"id": 999, "slug": "quebec-city"},
+            "kitchener / waterloo": {"id": 1, "slug": "kitchener-waterloo"},
+            "abbotsford": {"id": 2, "slug": "abbotsford"},
+            "revelstoke": {"id": 3, "slug": "revelstoke"},
+            "muskoka": {"id": 4, "slug": "muskoka"},
         }
-        result = resolve_location("Quebec", lookup)
-        self.assertEqual(result["id"], 999)
+        self.assertIsNone(resolve_location("Waterloo", lookup))
+        self.assertIsNone(resolve_location("Saint-Paul-d'Abbotsford", lookup))
+        self.assertIsNone(resolve_location("Stoke", lookup))
+        self.assertIsNone(resolve_location("Oka", lookup))
+
+    def test_quebec_city_no_longer_ambiguous_with_chibougamau(self):
+        """Régression (2026-07-27) : cas réel observé avec les 192 lieux Kijiji —
+        "Québec" matchait partiellement à la fois "Ville de Québec" (le bon lieu) ET
+        "Chibougamau / Nord-du-Québec" (mot "quebec" partagé, lieu totalement
+        différent), rendant la résolution ambiguë (`None`) pour l'une des villes les
+        plus probables à être configurées dans cette appli. Sans palier substring, plus
+        d'ambiguïté possible — mais "Québec" seul (sans "City"/"Ville de") ne matche
+        plus non plus (aucun des deux paliers restants ne le couvre) : limitation
+        connue, voir TODO.md."""
+        lookup = {
+            "chibougamau / nord du quebec": {"id": 1700284, "slug": "chibougamau-nord-du-quebec"},
+            "quebec city": {"id": 1700124, "slug": "ville-de-quebec"},
+            "ville de quebec": {"id": 1700124, "slug": "ville-de-quebec"},
+        }
+        self.assertEqual(resolve_location("Quebec City", lookup)["id"], 1700124)
+        self.assertEqual(resolve_location("Ville de Quebec", lookup)["id"], 1700124)
+        self.assertIsNone(resolve_location("Quebec", lookup))
 
 
 class TestBuildSearchUrl(unittest.TestCase):
