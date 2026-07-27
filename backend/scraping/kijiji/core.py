@@ -387,20 +387,28 @@ class KijijiScraper:
 
             details_page = self.context.new_page()
             try:
-                details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                self._accept_cookies(details_page)
                 try:
-                    details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
-                except Exception as e:
-                    self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
-                time.sleep(1.5)
+                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                    self._accept_cookies(details_page)
+                    try:
+                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
+                    except Exception as e:
+                        self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
+                    time.sleep(1.5)
 
-                if self._is_valid_detail_page(details_page, kijiji_id):
-                    details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
-                else:
-                    self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la recherche uniquement.")
-                    fallback_desc = listing.get("description") or f"Annonce Kijiji. {title}."
-                    details = {"description": fallback_desc, "imageUrls": [], "price": 0, "price_found": False, "location": None, "latitude": None, "longitude": None}
+                    if self._is_valid_detail_page(details_page, kijiji_id):
+                        details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
+                    else:
+                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la recherche uniquement.")
+                        details = self._fallback_details(title, listing.get("description"))
+                except Exception as e:
+                    # Une fiche détail qui ne charge pas du tout (timeout réseau, page
+                    # cassée...) ne doit pas faire perdre les annonces déjà collectées ni
+                    # interrompre le reste du scan — repli sur les infos de la recherche,
+                    # comme pour une fiche détail invalide (vécu en test live du
+                    # 2026-07-26 sur une annonce de Toronto : Page.goto timeout 60s).
+                    self.logger.warning(f"   ⚠️ Erreur en visitant la fiche détail de '{title}' ({e}) — repli sur les infos de la recherche uniquement.")
+                    details = self._fallback_details(title, listing.get("description"))
             finally:
                 details_page.close()
 
@@ -480,19 +488,25 @@ class KijijiScraper:
 
             details_page = self.context.new_page()
             try:
-                details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                self._accept_cookies(details_page)
                 try:
-                    details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
-                except Exception as e:
-                    self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
-                time.sleep(1.5)
+                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                    self._accept_cookies(details_page)
+                    try:
+                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
+                    except Exception as e:
+                        self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
+                    time.sleep(1.5)
 
-                if self._is_valid_detail_page(details_page, kijiji_id):
-                    details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
-                else:
-                    self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
-                    details = {"description": f"Annonce Kijiji. {title}.", "imageUrls": [], "price": 0, "price_found": False, "location": None, "latitude": None, "longitude": None}
+                    if self._is_valid_detail_page(details_page, kijiji_id):
+                        details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
+                    else:
+                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
+                        details = self._fallback_details(title)
+                except Exception as e:
+                    # Voir _scrape_from_next_data : une fiche détail qui ne charge pas du
+                    # tout ne doit pas interrompre le reste du scan.
+                    self.logger.warning(f"   ⚠️ Erreur en visitant la fiche détail de '{title}' ({e}) — repli sur les infos de la carte uniquement.")
+                    details = self._fallback_details(title)
             finally:
                 details_page.close()
 
@@ -501,6 +515,21 @@ class KijijiScraper:
             count += 1
 
         return found_deals
+
+    @staticmethod
+    def _fallback_details(title: str, extra_description: str = None) -> Dict[str, Any]:
+        """Détails de repli quand la fiche détail est invalide/inaccessible — les infos de
+        carte/recherche (déjà fusionnées ensuite par `_build_listing_data`) restent la
+        seule source pour cette annonce."""
+        return {
+            "description": extra_description or f"Annonce Kijiji. {title}.",
+            "imageUrls": [],
+            "price": 0,
+            "price_found": False,
+            "location": None,
+            "latitude": None,
+            "longitude": None,
+        }
 
     @staticmethod
     def _build_listing_data(title: str, clean_link: str, kijiji_id: str, card_price: int, card_location, img_url: str, details: Dict[str, Any]) -> Dict[str, Any]:
