@@ -9,7 +9,16 @@ from scraping.kijiji.locations import (
     build_location_lookup,
     resolve_location,
     build_search_url,
+    nearest_configured_city,
 )
+
+# Coordonnées réelles reprises de backend/resources/city_coordinates.json.
+CITY_COORDINATES = {
+    "montreal": {"lat": 45.5017, "lng": -73.5673},
+    "quebec": {"lat": 46.8139, "lng": -71.2080},
+    "longueuil": {"lat": 45.5369, "lng": -73.5105},
+    "sherbrooke": {"lat": 45.4010, "lng": -71.8824},
+}
 
 # Extrait réel de https://www.kijiji.ca/j-locations.json?q=Quebec (test live du
 # 2026-07-26) : 3 régions du Québec (Grand Montréal, Abitibi-Témiscamingue,
@@ -140,6 +149,44 @@ class TestBuildSearchUrl(unittest.TestCase):
     def test_defaults_used_when_slugs_not_provided(self):
         url = build_search_url(613, 1700279, "guitare")
         self.assertEqual(url, "https://www.kijiji.ca/b-recherche/lieu/guitare/k0c613l1700279")
+
+
+class TestNearestConfiguredCity(unittest.TestCase):
+    """`nearest_configured_city` sert à contourner l'imprécision de `location.name`
+    (choix du vendeur, incohérent — voir docs/reference/ARCHITECTURE.md § kijiji/) en
+    utilisant les coordonnées GPS de l'annonce à la place."""
+
+    # Sainte-Julie, QC (~15 km de Longueuil, la plus proche des 4 villes configurées).
+    SAINTE_JULIE = (45.5906, -73.3306)
+
+    def test_returns_nearest_city(self):
+        lat, lng = self.SAINTE_JULIE
+        result = nearest_configured_city(lat, lng, CITY_COORDINATES)
+        self.assertEqual(result["city"], "longueuil")
+        self.assertTrue(10 < result["distance_km"] < 20, result)
+
+    def test_respects_max_radius_km_excludes_too_far(self):
+        lat, lng = self.SAINTE_JULIE
+        result = nearest_configured_city(lat, lng, CITY_COORDINATES, max_radius_km=10)
+        self.assertIsNone(result)
+
+    def test_respects_max_radius_km_includes_within_range(self):
+        lat, lng = self.SAINTE_JULIE
+        result = nearest_configured_city(lat, lng, CITY_COORDINATES, max_radius_km=20)
+        self.assertEqual(result["city"], "longueuil")
+
+    def test_returns_none_for_missing_coordinates(self):
+        self.assertIsNone(nearest_configured_city(None, -73.5105, CITY_COORDINATES))
+        self.assertIsNone(nearest_configured_city(45.5369, None, CITY_COORDINATES))
+
+    def test_returns_none_for_empty_city_coordinates(self):
+        self.assertIsNone(nearest_configured_city(45.5369, -73.5105, {}))
+
+    def test_ignores_malformed_entries(self):
+        malformed = {"broken": {"lat": 45.5}, "longueuil": {"lat": 45.5369, "lng": -73.5105}}
+        lat, lng = self.SAINTE_JULIE
+        result = nearest_configured_city(lat, lng, malformed)
+        self.assertEqual(result["city"], "longueuil")
 
 
 if __name__ == "__main__":

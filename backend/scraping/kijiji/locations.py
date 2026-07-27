@@ -21,6 +21,8 @@ import re
 import unicodedata
 from typing import Any, Dict, List, Optional
 
+from ..utils import calculate_distance
+
 from ..parser import ListingParser
 
 _module_logger = logging.getLogger(__name__)
@@ -155,3 +157,44 @@ def _slugify(text: str) -> str:
     remplacer tout caractère non alphanumérique par un tiret."""
     ascii_text = unicodedata.normalize("NFD", text).encode("ascii", "ignore").decode("utf-8")
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
+
+
+def nearest_configured_city(latitude: Optional[float], longitude: Optional[float],
+                             city_coordinates: Dict[str, Dict[str, float]],
+                             max_radius_km: float = None) -> Optional[Dict[str, Any]]:
+    """
+    Retourne la ville configurée la plus proche de (latitude, longitude), par distance
+    Haversine (`scraping.utils.calculate_distance`).
+
+    Plus fiable que `location.name`/`location.address` d'une annonce Kijiji pour savoir
+    à quelle ville configurée elle appartient : `location.name` reflète le choix du
+    VENDEUR au moment de poster l'annonce (parfois son village exact, parfois une grande
+    région Kijiji comme "Longueuil / South Shore" — constaté en test live du 2026-07-26,
+    incohérent d'une annonce à l'autre), alors que les coordonnées GPS sont toujours
+    présentes et précises.
+
+    `city_coordinates` : même format que `backend/resources/city_coordinates.json`
+    (`{"nom_ville": {"lat": ..., "lng": ...}, ...}`).
+    `max_radius_km` : si fourni, retourne `None` plutôt que la ville la plus proche si
+    celle-ci est quand même à plus de cette distance (évite de rattacher une annonce
+    lointaine à une ville configurée qui n'est en réalité pas pertinente pour elle).
+    """
+    if latitude is None or longitude is None or not city_coordinates:
+        return None
+
+    nearest_name = None
+    nearest_distance = None
+    for city_name, coords in city_coordinates.items():
+        if not isinstance(coords, dict) or coords.get("lat") is None or coords.get("lng") is None:
+            continue
+        distance = calculate_distance(latitude, longitude, coords["lat"], coords["lng"])
+        if nearest_distance is None or distance < nearest_distance:
+            nearest_distance = distance
+            nearest_name = city_name
+
+    if nearest_name is None:
+        return None
+    if max_radius_km is not None and nearest_distance > max_radius_km:
+        return None
+
+    return {"city": nearest_name, "distance_km": round(nearest_distance, 2)}
