@@ -195,8 +195,8 @@ class GuitarHunterBot:
         # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
         return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
 
-    def handle_deal_found(self, listing_data, is_manual_scan=False):
-        self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
+    def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
+        self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
 
         # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
         # extraits. On ne stocke rien pour ne pas figer une fiche vide comme "déjà traitée" —
@@ -204,7 +204,7 @@ class GuitarHunterBot:
         has_images = bool(listing_data.get('imageUrls') or listing_data.get('imageUrl'))
         has_price = self._normalize_price(listing_data.get('price')) > 0
         if not has_images and not has_price:
-            self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
+            self.logger.warning(f"⏩ [{source}] Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
             return "scrape_failed"
 
         is_update = False
@@ -223,12 +223,12 @@ class GuitarHunterBot:
         
         if found_sold_marker and not is_manual_scan:
             if existing_deal and existing_deal.get('status') != 'sold':
-                self.logger.info(f"   📉 Annonce {listing_data['id']} existante marquée VENDUE suite à la détection du marqueur '{found_sold_marker}'.")
+                self.logger.info(f"   📉 [{source}] Annonce {listing_data['id']} existante marquée VENDUE suite à la détection du marqueur '{found_sold_marker}'.")
                 if not self.offline_mode:
                     self.repo.mark_deal_as_sold(listing_data['id'], f"Marqueur de vente détecté ('{found_sold_marker}')")
                 return "marked_sold"
             else:
-                self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
+                self.logger.info(f"⏩ [{source}] Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
                 return "sold_marker"
 
         self.session_processed_ids.add(listing_data['id'])
@@ -236,19 +236,19 @@ class GuitarHunterBot:
         if existing_deal:
             is_update = True
             if existing_deal.get('status') == 'rejected':
-                self.logger.info("Annonce déjà rejetée. Ignorée.")
+                self.logger.info(f"[{source}] Annonce déjà rejetée. Ignorée.")
                 return "already_rejected"
 
             old_p = self._normalize_price(existing_deal.get('price'))
             new_p = self._normalize_price(listing_data['price'])
 
             if old_p > 0 and old_p == new_p:
-                self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
+                self.logger.info(f"[{source}] Annonce déjà existante avec le même prix nettoyé. Ignorée.")
                 return "duplicate_unchanged"
 
             # Prix différent !
             original_price = existing_deal.get('price')
-            self.logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
+            self.logger.info(f"[{source}] Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
 
             # Enrichissement des données avec les infos de baisse de prix
             try:
@@ -269,14 +269,14 @@ class GuitarHunterBot:
             found_keyword = self._check_exclusion(listing_data, current_config)
             price_too_high = max_price > 0 and listing_price > max_price
         else:
-            self.logger.info(f"Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
+            self.logger.info(f"[{source}] Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
         if found_keyword or price_too_high:
             if found_keyword:
-                self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
+                self.logger.info(f"[{source}] Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
                 rejection_analysis = self._create_rejection_analysis(found_keyword)
             else:
-                self.logger.info(f"Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
+                self.logger.info(f"[{source}] Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
                 rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
             if not self.offline_mode:
                 if is_update:
@@ -472,7 +472,7 @@ class GuitarHunterBot:
                     # --- TRAITEMENT DES ANNONCES FILTRÉES ---
                     for deal in found_deals:
                         if self._is_stop_requested(): break
-                        outcome = self.handle_deal_found(deal) or "unknown"
+                        outcome = self.handle_deal_found(deal, source="Facebook") or "unknown"
                         cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
 
                 finally:
@@ -517,6 +517,14 @@ class GuitarHunterBot:
         }
         radius_km = scan_config.get('distance', 0)
         max_radius_km = radius_km if radius_km > 0 else None
+
+        # Comptabilisation du cycle Kijiji, symétrique à celle du scan Facebook — les deux
+        # threads tournent en parallèle et écrivent dans le même logger, donc chaque entrée
+        # (et le résumé final) doit porter son origine pour rester lisible dans le LogViewer.
+        cycle_stats = {
+            "rejected_out_of_radius": 0, "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0,
+            "already_rejected": 0, "duplicate_unchanged": 0, "rejected_prefilter": 0, "processed": 0,
+        }
 
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
@@ -565,9 +573,11 @@ class GuitarHunterBot:
                             deal['location'] = nearest['city']
                         elif max_radius_km is not None:
                             self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
+                            cycle_stats["rejected_out_of_radius"] += 1
                             continue
 
-                        self.handle_deal_found(deal)
+                        outcome = self.handle_deal_found(deal, source="Kijiji") or "unknown"
+                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
 
                     time.sleep(2)
             finally:
@@ -575,6 +585,17 @@ class GuitarHunterBot:
         finally:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
+
+        self.logger.info(
+            "📊 Résumé du cycle Kijiji : "
+            f"{cycle_stats['processed']} traitée(s) (analyse IA), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé/prix), "
+            f"{cycle_stats['rejected_out_of_radius']} hors rayon de toute ville configurée, "
+            f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
+            f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
+            f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
+            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues)."
+        )
 
     def scan_specific_url(self, url):
         if not self.offline_mode:
