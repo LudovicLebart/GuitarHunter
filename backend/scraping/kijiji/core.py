@@ -44,13 +44,15 @@ class KijijiScraper:
 
     Résolution ville -> ID de lieu (`locations.py`) : contrairement à Facebook
     (`get_city_id_and_coords()`, doit piloter le sélecteur de lieu du site une
-    ville à la fois), Kijiji publie un arbre statique et complet de tous ses
-    lieux par province (`https://www.kijiji.ca/j-locations.json?q=<province>`,
-    confirmé en test live du 2026-07-26). `scan_city()` combine cette
-    résolution + `locations.build_search_url()` + `scan_search_url()` pour
-    scraper une ville par son nom, sans jamais construire d'URL à la main ni
-    piloter de champ de formulaire. Voir `backend/scripts/fetch_kijiji_locations.py`
-    pour (ré)générer `backend/resources/kijiji_locations.json`.
+    ville à la fois), Kijiji publie un arbre statique et complet de TOUS ses
+    lieux, pour tout le Canada, en un seul appel
+    (`https://www.kijiji.ca/j-locations.json` — confirmé en test live du
+    2026-07-26, y compris que le paramètre `q` ne filtre en réalité rien).
+    `scan_city()` combine cette résolution + `locations.build_search_url()` +
+    `scan_search_url()` pour scraper une ville par son nom, sans jamais
+    construire d'URL à la main ni piloter de champ de formulaire. Voir
+    `backend/scripts/fetch_kijiji_locations.py` pour (ré)générer
+    `backend/resources/kijiji_locations.json`.
 
     Écarts assumés par rapport à `FacebookScraper` (non des oublis) : pas de
     rotation de proxy, pas de géolocalisation forcée. `check_listing_availability()`

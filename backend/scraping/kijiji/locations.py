@@ -1,13 +1,15 @@
 """
 Résolution ville -> ID de lieu Kijiji.
 
-Kijiji publie un arbre statique et complet de tous ses lieux (province > région >
-ville) via `https://www.kijiji.ca/j-locations.json?q=<province>` (confirmé en test live
-du 2026-07-26 — `q` filtre par nom de PROVINCE, pas par ville : `q=Quebec` retourne tout
-l'arbre de la province de Québec, `q=Ontario` tout l'Ontario). Contrairement à Facebook
+Kijiji publie un arbre statique et complet de TOUS ses lieux, pour tout le Canada, via
+`https://www.kijiji.ca/j-locations.json` (confirmé en test live du 2026-07-26 : le
+paramètre `q` (ex: `?q=Quebec`, `?q=Ontario`) ne filtre en réalité rien — vérifié par
+diagnostic comparatif [`diag_kijiji_locations_scope.py`] puis confirmé par recherche
+directe de l'ID de Toronto, 1700273, présent dans la réponse peu importe `q`). Un seul
+appel HTTP couvre donc déjà toutes les provinces. Contrairement à Facebook
 (`FacebookScraper.get_city_id_and_coords()`, qui doit piloter le sélecteur de lieu du
-site une ville à la fois), on peut donc résoudre n'importe quelle ville d'une province
-en une seule requête HTTP, sans navigateur.
+site une ville à la fois), on peut résoudre n'importe quelle ville canadienne sans
+navigateur.
 
 Voir `backend/scripts/fetch_kijiji_locations.py` pour télécharger/actualiser le fichier
 ressource (`backend/resources/kijiji_locations.json`) consommé par `load_location_lookup()`.
