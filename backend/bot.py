@@ -1,4 +1,6 @@
 import time
+import re
+import unicodedata
 import threading
 import logging
 import requests
@@ -21,6 +23,11 @@ from backend.services import ConfigManager
 from backend.notifications import NotificationService
 
 class GuitarHunterBot:
+    # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
+    # de même prix/même ville venant d'une AUTRE source (Facebook vs Kijiji, distinguées
+    # via le préfixe `kijiji_` de l'ID) est considérée comme le même objet déjà analysé.
+    CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD = 0.6
+
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
         self.stop_event = stop_event
@@ -159,6 +166,50 @@ class GuitarHunterBot:
         except Exception:
             return 0.0
 
+    @staticmethod
+    def _title_tokens(title):
+        """Normalise un titre en un set de tokens (minuscules, sans accents) pour un
+        calcul de similarité de Jaccard bon marché — pas de dépendance NLP."""
+        if not title:
+            return set()
+        normalized = unicodedata.normalize('NFD', title.lower()).encode('ascii', 'ignore').decode('utf-8')
+        return set(re.findall(r'[a-z0-9]+', normalized))
+
+    def _find_cross_platform_duplicate(self, listing_data, source):
+        """Cherche dans l'index léger (`deals_index`) une annonce déjà analysée venant
+        d'une AUTRE source, avec le même prix, la même ville normalisée et un titre
+        suffisamment similaire. Retourne l'ID du doublon trouvé, ou None.
+        Placé avant l'appel IA dans `handle_deal_found()` pour éviter de payer le pipeline
+        Gemini deux fois sur la même annonce postée sur Facebook et Kijiji."""
+        if self.offline_mode:
+            return None
+
+        new_price = self._normalize_price(listing_data.get('price'))
+        new_location = ListingParser.normalize_city_name(listing_data.get('location'))
+        new_tokens = self._title_tokens(listing_data.get('title'))
+        if new_price <= 0 or not new_location or not new_tokens:
+            return None
+
+        is_kijiji = (source == "Kijiji")
+        for deal_id, entry in self.repo.get_deals_index_snapshot().items():
+            if deal_id.startswith('kijiji_') == is_kijiji:
+                continue  # même source : pas un doublon cross-plateforme (déjà géré par ID exact)
+
+            if self._normalize_price(entry.get('p')) != new_price:
+                continue
+            if ListingParser.normalize_city_name(entry.get('l')) != new_location:
+                continue
+
+            candidate_tokens = self._title_tokens(entry.get('title'))
+            if not candidate_tokens:
+                continue
+
+            similarity = len(new_tokens & candidate_tokens) / len(new_tokens | candidate_tokens)
+            if similarity >= self.CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD:
+                return deal_id
+
+        return None
+
     def should_skip_deal(self, deal_id, price):
         if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
@@ -201,6 +252,16 @@ class GuitarHunterBot:
         if not has_images and not has_price:
             self.logger.warning(f"⏩ [{source}] Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
             return "scrape_failed"
+
+        # Doublon cross-plateforme (même annonce postée sur Facebook ET Kijiji) : détecté
+        # avant tout appel IA via l'index léger (prix + ville + similarité de titre). Ignoré
+        # pour les scans manuels (`is_manual_scan`), où l'utilisateur demande explicitement
+        # une analyse de cette URL précise.
+        if not is_manual_scan:
+            cross_dup_id = self._find_cross_platform_duplicate(listing_data, source)
+            if cross_dup_id:
+                self.logger.info(f"⏩ [{source}] Doublon cross-plateforme détecté (déjà analysée sous '{cross_dup_id}'). Ignorée, aucun token IA consommé.")
+                return "duplicate_cross_platform"
 
         is_update = False
         original_price = None
@@ -387,7 +448,8 @@ class GuitarHunterBot:
         cycle_stats = {
             "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
             "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0, "already_rejected": 0,
-            "duplicate_unchanged": 0, "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
+            "duplicate_unchanged": 0, "duplicate_cross_platform": 0, "rejected_prefilter": 0,
+            "out_of_budget": 0, "processed": 0,
         }
 
         for city_data in cities_to_scan:
@@ -495,6 +557,7 @@ class GuitarHunterBot:
             f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
             f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
             f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
+            f"{cycle_stats['duplicate_cross_platform']} doublon(s) cross-plateforme, "
             f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + "."
         )
 
@@ -531,8 +594,8 @@ class GuitarHunterBot:
         # (et le résumé final) doit porter son origine pour rester lisible dans le LogViewer.
         cycle_stats = {
             "rejected_out_of_radius": 0, "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0,
-            "already_rejected": 0, "duplicate_unchanged": 0, "rejected_prefilter": 0,
-            "out_of_budget": 0, "processed": 0,
+            "already_rejected": 0, "duplicate_unchanged": 0, "duplicate_cross_platform": 0,
+            "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
         }
 
         if self._browser_semaphore:
@@ -608,7 +671,8 @@ class GuitarHunterBot:
             f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
             f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
             f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
-            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues)."
+            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
+            f"{cycle_stats['duplicate_cross_platform']} doublon(s) cross-plateforme."
         )
 
     def scan_specific_url(self, url):

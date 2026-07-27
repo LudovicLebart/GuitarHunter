@@ -22,6 +22,10 @@ class FirestoreRepository:
 
         self.collection_ref = self.user_ref.collection('guitar_deals')
 
+        # Index léger (sharding sur 20 docs, voir _get_chunk_id) pour des recherches
+        # transverses peu coûteuses sans charger les documents complets de guitar_deals.
+        self.deals_index_ref = self.user_ref.collection('deals_index')
+
         # Catalogue de villes partagé entre tous les utilisateurs.
         # DocId = Facebook city ID (unique). Contient: name, id, latitude, longitude.
         self.shared_cities_ref = self.db.collection('artifacts').document(self.app_id) \
@@ -71,6 +75,19 @@ class FirestoreRepository:
         except Exception as e:
             logger.error(f"Failed to get deal by ID '{deal_id}': {e}", exc_info=True)
             return None
+
+    def get_deals_index_snapshot(self):
+        """Lit les 20 chunks de l'index léger et retourne un dict {deal_id: {champs...}}
+        fusionné (title, p=price, l=location, s=status, ...). Utilisé pour des recherches
+        transverses (ex: détection de doublons cross-plateforme) sans lire guitar_deals."""
+        merged = {}
+        try:
+            for chunk_doc in self.deals_index_ref.stream():
+                chunk_data = chunk_doc.to_dict() or {}
+                merged.update(chunk_data.get('deals', {}))
+        except Exception as e:
+            logger.error(f"Failed to read deals_index snapshot: {e}", exc_info=True)
+        return merged
 
     def _get_chunk_id(self, deal_id):
         """Calcule un ID de chunk déterministe (MD5) pour distribuer les annonces sur 20 documents."""
