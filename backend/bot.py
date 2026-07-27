@@ -7,14 +7,15 @@ import firebase_admin.auth as fb_auth
 
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
-    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
+    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
-    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS
+    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID
 )
 from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
+from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
@@ -59,7 +60,8 @@ class GuitarHunterBot:
 
         initial_scan_config = {
             "max_ads": 5, "frequency": 60, "location": "montreal", "distance": 10,
-            "min_price": 0, "max_price": 150, "search_query": "electric guitar"
+            "min_price": 0, "max_price": 150, "search_query": "electric guitar",
+            "kijiji_enabled": False,
         }
 
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
@@ -405,10 +407,92 @@ class GuitarHunterBot:
                             self._browser_semaphore.release()
                     
                     time.sleep(2)
+
+                if scan_config.get('kijiji_enabled'):
+                    self._run_kijiji_scan(scan_config, cities_to_scan)
             self.logger.info("Scan planifié terminé.")
         finally:
             if not self.offline_mode:
                 self.set_status('idle', task_name='scanning')
+
+    def _run_kijiji_scan(self, scan_config, cities_to_scan):
+        """Scanne Kijiji.ca en plus de Facebook Marketplace, ville par ville, sur le même
+        catalogue de villes (`cities_to_scan`) et les mêmes filtres partagés (`max_ads`,
+        `search_query`, `distance`) que le scan Facebook — pas de config Kijiji séparée
+        dans cette itération. Source activable/désactivable via `scanConfig.kijiji_enabled`
+        (ConfigPanel), module autonome (`backend/scraping/kijiji/`), non fusionné avec
+        `FacebookScraper`.
+        """
+        self.logger.info("--- Scan Kijiji (source additionnelle) ---")
+
+        # Coordonnées des villes configurées, pour nearest_configured_city() — corrige
+        # 'location' (souvent une région Kijiji élargie, pas la ville précise, voir
+        # ARCHITECTURE.md) en la rattachant à la ville configurée la plus proche par GPS.
+        city_coordinates = {
+            ListingParser.normalize_city_name(c['name']): {"lat": c['latitude'], "lng": c['longitude']}
+            for c in cities_to_scan
+            if c.get('latitude') is not None and c.get('longitude') is not None
+        }
+        radius_km = scan_config.get('distance', 0)
+        max_radius_km = radius_km if radius_km > 0 else None
+
+        if self._browser_semaphore:
+            self._browser_semaphore.acquire()
+        try:
+            temp_scraper = KijijiScraper(logger=self.logger)
+            try:
+                for city_data in cities_to_scan:
+                    if self._is_stop_requested():
+                        self.logger.info("🛑 Interruption du scan Kijiji.")
+                        break
+
+                    city_name = city_data.get('name')
+                    if not city_name:
+                        continue
+
+                    self.logger.info(f"--- Scan Kijiji : {city_name} ---")
+                    try:
+                        # ID préfixé avant même le check de dédup (pas seulement après coup
+                        # sur `found_deals`) : `should_skip_deal` compare contre
+                        # `session_processed_ids`/Firestore, qui utilisent tous deux l'ID
+                        # préfixé — sinon aucune annonce déjà connue n'y matcherait jamais,
+                        # et chaque cycle revisiterait inutilement sa fiche détail.
+                        found_deals = temp_scraper.scan_city(
+                            city_name,
+                            category_id=KIJIJI_GUITARS_CATEGORY_ID,
+                            query=scan_config.get('search_query', 'electric guitar'),
+                            max_ads=scan_config.get('max_ads', 5),
+                            should_skip_callback=lambda kijiji_id, price: self.should_skip_deal(f"kijiji_{kijiji_id}", price),
+                            stop_event=self.stop_event or self.scan_stop_event,
+                        )
+                    except Exception as e:
+                        self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
+                        continue
+
+                    for deal in found_deals:
+                        if self._is_stop_requested():
+                            break
+                        # Préfixé pour ne jamais collisionner avec un ID Facebook (les deux
+                        # sites utilisent de simples entiers, dans des espaces différents).
+                        deal['id'] = f"kijiji_{deal['id']}"
+
+                        nearest = nearest_configured_city(
+                            deal.get('latitude'), deal.get('longitude'), city_coordinates, max_radius_km=max_radius_km
+                        )
+                        if nearest:
+                            deal['location'] = nearest['city']
+                        elif max_radius_km is not None:
+                            self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
+                            continue
+
+                        self.handle_deal_found(deal)
+
+                    time.sleep(2)
+            finally:
+                temp_scraper.close_session()
+        finally:
+            if self._browser_semaphore:
+                self._browser_semaphore.release()
 
     def scan_specific_url(self, url):
         if not self.offline_mode:

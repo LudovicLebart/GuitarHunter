@@ -117,7 +117,24 @@ const FacebookSearchSection = () => {
       </div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Fréquence Scan (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Mots-clés de recherche</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
-      
+
+      <label className="flex items-center justify-between gap-3 p-3 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer">
+        <span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Source Kijiji (bêta)</span>
+          <span className="text-[10px] text-slate-500 mt-1 block leading-relaxed">Scanne aussi Kijiji.ca, avec les mêmes villes et filtres que Facebook Marketplace ci-dessus.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={!!scanConfig.kijiji_enabled}
+          onChange={(e) => {
+            const next = { ...scanConfig, kijiji_enabled: e.target.checked };
+            setScanConfig(next);
+            saveConfig({ scanConfig: next });
+          }}
+          className="w-5 h-5 shrink-0 accent-blue-500 cursor-pointer"
+        />
+      </label>
+
       <div className="pt-2">
         <button 
           onClick={handleManualRefresh}
