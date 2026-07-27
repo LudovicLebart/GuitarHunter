@@ -61,7 +61,7 @@ const TYPE_LABELS = {
 
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
-const StatsView = ({ deals, loadedDeals = {} }) => {
+const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
     // ─── Merge : index léger + cache complet ───────────────────────────────
     // Pour les stats on fusionne ce qu'on a dans le cache avec l'index.
@@ -112,9 +112,18 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
     const averageScore = Math.round(enrichedDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
 
+    const enrichedAllDeals = useMemo(() => {
+        if (!allDeals) return [];
+        return allDeals.map(d => {
+            const full = loadedDeals[d.id];
+            return full ? { ...d, ...full } : d;
+        });
+    }, [allDeals, loadedDeals]);
+
     // ─── Temps de vente réel ──────────────────────────────────────────────
     const sellTimeStats = useMemo(() => {
-        const soldDeals = enrichedDeals.filter(d =>
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const soldDeals = targetDeals.filter(d =>
             d.soldTimestamp?.seconds && d.publishTimestamp?.seconds
         );
         if (soldDeals.length === 0) return { avg: null, count: 0 };
@@ -129,7 +138,7 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             avg: avg < 24 ? `${Math.round(avg)}h` : `${Math.round(avg / 24)}j`,
             count: soldDeals.length,
         };
-    }, [enrichedDeals]);
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
 
     // ─── Radar Chart : profil moyen IA (utilise enrichedDeals) ────────────
     const radarData = useMemo(() => {
@@ -222,10 +231,46 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
         return sorted;
     }, [enrichedDeals, totalDeals]);
 
+    // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
+    const VOLUME_WINDOW_DAYS = 14;
+    const dailyVolumeData = useMemo(() => {
+        const days = [];
+        const now = new Date();
+        for (let i = VOLUME_WINDOW_DAYS - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            days.push(d);
+        }
+        const counts = {};
+        days.forEach(d => { counts[d.toISOString().slice(0, 10)] = 0; });
+
+        enrichedDeals.forEach(deal => {
+            const seconds = deal.timestamp?.seconds;
+            if (!seconds) return;
+            const key = new Date(seconds * 1000).toISOString().slice(0, 10);
+            if (key in counts) counts[key]++;
+        });
+
+        return days.map(d => {
+            const key = d.toISOString().slice(0, 10);
+            return {
+                date: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+                count: counts[key],
+            };
+        });
+    }, [enrichedDeals]);
+
+    const avgDailyVolume = useMemo(() => {
+        if (dailyVolumeData.length === 0) return '0';
+        const total = dailyVolumeData.reduce((acc, d) => acc + d.count, 0);
+        return (total / dailyVolumeData.length).toFixed(1);
+    }, [dailyVolumeData]);
+
     // ─── Vitesse de vente par type de guitare ─────────────────────────────
     const sellSpeedByType = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         // Deals vendus avec les deux timestamps
-        const soldDeals = enrichedDeals.filter(d =>
+        const soldDeals = targetDeals.filter(d =>
             d.soldTimestamp?.seconds &&
             d.publishTimestamp?.seconds &&
             d.aiAnalysis?.classification
@@ -249,7 +294,7 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             }))
             .filter(e => e.count >= 2) // Au moins 2 observations
             .sort((a, b) => a.avgH - b.avgH); // Plus rapide en premier
-    }, [enrichedDeals]);
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -398,15 +443,44 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                 </div>
             </div>
 
+            {/* Volume de scraping quotidien */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                        <TrendingUp size={16} className="text-blue-400" />
+                        Volume de Scraping Quotidien (FB)
+                    </h3>
+                    <span className="text-xs font-bold text-slate-400">Moy. {avgDailyVolume}/jour</span>
+                </div>
+                <p className="text-slate-500 text-xs mb-6">Annonces découvertes par jour · {VOLUME_WINDOW_DAYS} derniers jours</p>
+
+                <div className="h-[200px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dailyVolumeData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                                cursor={{ fill: '#1e293b' }}
+                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                itemStyle={{ color: '#38bdf8' }}
+                                formatter={(value) => [value, 'Annonces']}
+                            />
+                            <Bar dataKey="count" fill="#38bdf8" radius={[4, 4, 0, 0]} barSize={20} />
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+            </div>
+
             {/* Sell Speed by Guitar Type */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                 <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                     <Zap size={16} className="text-amber-400" />
                     Vitesse de vente par type de guitare
                 </h3>
-                <p className="text-slate-500 text-xs mb-6">Délai moyen entre publication et vente · Uniquement les types avec ≥2 observations</p>
+                <p className="text-slate-500 text-xs mb-6">Délai moyen entre publication et vente</p>
 
-                {sellSpeedByType.length >= 2 ? (
+                {sellSpeedByType.length > 0 ? (
                     <div className="h-[220px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={sellSpeedByType} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -438,10 +512,10 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                         </ResponsiveContainer>
                     </div>
                 ) : (
-                    <div className="h-[120px] flex flex-col items-center justify-center text-slate-600 text-sm gap-2">
+                    <div className="h-[120px] flex flex-col items-center justify-center text-slate-600 text-sm gap-2 text-center px-4">
                         <TrendingUp size={24} className="opacity-30" />
-                        <span>Pas encore assez de deals vendus avec timestamp de publication</span>
-                        <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que les ventes sont trackées</span>
+                        <span>Pas encore assez de deals vendus ayant été classifiés par l'IA</span>
+                        <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que de nouvelles ventes scannées trouveront preneur</span>
                     </div>
                 )}
             </div>

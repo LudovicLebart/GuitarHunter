@@ -205,51 +205,58 @@ class GuitarHunterBot:
         has_price = self._normalize_price(listing_data.get('price')) > 0
         if not has_images and not has_price:
             self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
-            return
+            return "scrape_failed"
+
+        is_update = False
+        original_price = None
+        existing_deal = None
+        
+        if not self.offline_mode:
+            existing_deal = self.repo.get_deal_by_id(listing_data['id'])
 
         # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
         # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
-        # On coupe AVANT session_processed_ids.add() pour permettre une re-détection si
-        # le vendeur corrige son titre plus tard (ex: retrait du mot "VENDU").
         SOLD_MARKERS = ['vendu', 'sold', 'deal closed', 'plus disponible', 'no longer available']
         title_lower = (listing_data.get('title') or '').lower()
         desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
         found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
+        
         if found_sold_marker and not is_manual_scan:
-            self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
-            return
+            if existing_deal and existing_deal.get('status') != 'sold':
+                self.logger.info(f"   📉 Annonce {listing_data['id']} existante marquée VENDUE suite à la détection du marqueur '{found_sold_marker}'.")
+                if not self.offline_mode:
+                    self.repo.mark_deal_as_sold(listing_data['id'], f"Marqueur de vente détecté ('{found_sold_marker}')")
+                return "marked_sold"
+            else:
+                self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
+                return "sold_marker"
 
         self.session_processed_ids.add(listing_data['id'])
 
-        is_update = False
-        original_price = None
-        
-        if not self.offline_mode:
-            existing_deal = self.repo.get_deal_by_id(listing_data['id'])
-            if existing_deal:
-                if existing_deal.get('status') == 'rejected':
-                    self.logger.info("Annonce déjà rejetée. Ignorée.")
-                    return
-                    
-                old_p = self._normalize_price(existing_deal.get('price'))
-                new_p = self._normalize_price(listing_data['price'])
-                
-                if old_p > 0 and old_p == new_p:
-                    self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
-                    return
-                    
-                # Prix différent !
-                original_price = existing_deal.get('price')
-                self.logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
-                is_update = True
-                
-                # Enrichissement des données avec les infos de baisse de prix
-                try:
-                    if old_p > new_p > 0:
-                        listing_data['original_price'] = original_price
-                        listing_data['price_drop_amount'] = old_p - new_p
-                except Exception as e:
-                    self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
+        if existing_deal:
+            is_update = True
+            if existing_deal.get('status') == 'rejected':
+                self.logger.info("Annonce déjà rejetée. Ignorée.")
+                return "already_rejected"
+
+            old_p = self._normalize_price(existing_deal.get('price'))
+            new_p = self._normalize_price(listing_data['price'])
+
+            if old_p > 0 and old_p == new_p:
+                self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
+                return "duplicate_unchanged"
+
+            # Prix différent !
+            original_price = existing_deal.get('price')
+            self.logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
+
+            # Enrichissement des données avec les infos de baisse de prix
+            try:
+                if old_p > new_p > 0:
+                    listing_data['original_price'] = original_price
+                    listing_data['price_drop_amount'] = old_p - new_p
+            except Exception as e:
+                self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
         
@@ -277,7 +284,7 @@ class GuitarHunterBot:
                     self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, rejection_analysis)
                 else:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
-            return
+            return "rejected_prefilter"
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
         deal_id = listing_data.get('id')
@@ -301,6 +308,8 @@ class GuitarHunterBot:
                 self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, analysis)
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
+
+        return "processed"
 
     def _is_stop_requested(self):
         """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
@@ -327,12 +336,12 @@ class GuitarHunterBot:
             # get_cities() retourne directement les villes isScannable du catalogue partagé
             cities_to_scan = self.repo.get_cities()
 
-            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c['name'] for c in cities_to_scan])}")
+            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
 
             if not cities_to_scan:
                 self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
+                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
                 self._run_sources_in_parallel(scan_config, cities_to_scan)
             self.logger.info("Scan planifié terminé.")
         finally:
@@ -371,11 +380,19 @@ class GuitarHunterBot:
             t.join()
 
     def _run_facebook_scan(self, scan_config, cities_to_scan):
-        all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
+        all_allowed_cities_norm = [ListingParser.normalize_city_name(c.get('name', '')) for c in cities_to_scan if c.get('name')]
+
+        # Comptabilisation des échecs sur tout le cycle (pas seulement les deals trouvés) —
+        # sert à distinguer "peu d'annonces sur Facebook" d'"annonces perdues côté scraper".
+        cycle_stats = {
+            "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
+            "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0, "already_rejected": 0,
+            "duplicate_unchanged": 0, "rejected_prefilter": 0, "processed": 0,
+        }
 
         for city_data in cities_to_scan:
             if self._is_stop_requested():
-                self.logger.info("🛑 Interruption de la boucle des villes.")
+                self.logger.info("🛑 Interruption de la boucle des villes (Facebook).")
                 break
 
             city_name = city_data.get('name')
@@ -400,22 +417,41 @@ class GuitarHunterBot:
                 temp_scraper.allowed_cities = all_allowed_cities_norm
 
                 try:
-                    found_deals = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    found_deals = scan_result["deals"]
+                    cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
+                    if scan_result["anti_bot_blocked"]:
+                        cycle_stats["anti_bot_blocked_cities"].append(city_name)
 
                     # --- FILTRAGE PAR RAYON ---
                     radius_km = scan_config.get('distance', 0)
                     if radius_km == 0:
-                        # Mode nom strict : ne conserver que les annonces dont la localisation correspond à la ville
+                        # Mode nom strict, à 3 voies :
+                        # 1) localisation = ville recherchée -> traitée normalement.
+                        # 2) localisation = une AUTRE ville de la liste autorisée -> traitée quand
+                        #    même maintenant (au lieu d'être jetée après avoir payé le coût de la
+                        #    fiche détail) : ça alimente session_processed_ids et évite un refetch
+                        #    complet si Facebook la ressert lors du tour de cette autre ville.
+                        # 3) localisation hors de la liste des villes -> rejetée (inchangé).
                         norm_city = ListingParser.normalize_city_name(city_name)
-                        strict_filtered = []
+                        own_city_deals, other_city_deals, out_of_scope_count = [], [], 0
                         for deal in found_deals:
                             norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
                             if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
-                                strict_filtered.append(deal)
+                                own_city_deals.append(deal)
+                            elif norm_deal_loc and any(
+                                norm_deal_loc == other or other in norm_deal_loc or norm_deal_loc.startswith(other)
+                                for other in all_allowed_cities_norm if other != norm_city
+                            ):
+                                other_city_deals.append(deal)
                             else:
-                                self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' ≠ '{city_name}'.")
-                        self.logger.info(f"[STRICT] {len(strict_filtered)}/{len(found_deals)} annonces conservées (correspondance exacte ville).")
-                        found_deals = strict_filtered
+                                out_of_scope_count += 1
+                                self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' hors liste des villes autorisées.")
+                        if other_city_deals:
+                            self.logger.info(f"[STRICT] {len(other_city_deals)} annonce(s) d'une autre ville autorisée trouvée(s) pendant le scan de '{city_name}' — traitées maintenant.")
+                        self.logger.info(f"[STRICT] {len(own_city_deals)}/{len(found_deals)} annonces pour '{city_name}', {len(other_city_deals)} pour une autre ville de la liste, {out_of_scope_count} hors liste.")
+                        cycle_stats["matched_other_city"] += len(other_city_deals)
+                        found_deals = own_city_deals + other_city_deals
                     elif radius_km > 0:
                         deals_in_radius = []
                         for deal in found_deals:
@@ -436,7 +472,8 @@ class GuitarHunterBot:
                     # --- TRAITEMENT DES ANNONCES FILTRÉES ---
                     for deal in found_deals:
                         if self._is_stop_requested(): break
-                        self.handle_deal_found(deal)
+                        outcome = self.handle_deal_found(deal) or "unknown"
+                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
 
                 finally:
                     temp_scraper.close_session()
@@ -445,6 +482,20 @@ class GuitarHunterBot:
                     self._browser_semaphore.release()
 
             time.sleep(2)
+
+        blocked = cycle_stats["anti_bot_blocked_cities"]
+        self.logger.info(
+            "📊 Résumé du cycle Facebook : "
+            f"{cycle_stats['processed']} traitée(s) (analyse IA), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé/prix), "
+            f"{cycle_stats['matched_other_city']} récupérée(s) via une autre ville de la liste, "
+            f"{cycle_stats['rejected_out_of_list']} hors liste de villes, "
+            f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
+            f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
+            f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
+            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
+            f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + "."
+        )
 
     def _run_kijiji_scan(self, scan_config, cities_to_scan):
         """Scanne Kijiji.ca en plus de Facebook Marketplace, ville par ville, sur le même
@@ -533,11 +584,16 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
+                scan_result = {}
                 def handle_manual_deal(listing_data):
-                    self.handle_deal_found(listing_data, is_manual_scan=True)
+                    scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True)
+                    scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
                 try:
-                    NotificationService.notify_scan_url_finished(url, user_email=self._user_email, logger=self.logger)
+                    NotificationService.notify_scan_url_finished(
+                        url, user_email=self._user_email, logger=self.logger,
+                        outcome=scan_result.get("outcome"), listing_data=scan_result.get("listing_data")
+                    )
                 except Exception as e:
                     self.logger.warning(f"Erreur envoi notification scan manuel URL: {e}")
             finally:

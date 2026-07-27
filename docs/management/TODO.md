@@ -10,6 +10,33 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
+
+- [x] **Calibration d'une approche Playwright "douce" face à DataDome** *(Réussie 2026-07-21)*
+    - *Contexte :* Options d'extraction évaluées (A-F), Option F (reverse engineering mobile) écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial (2-3 utilisateurs). Piste retenue : approche similaire au scraper Facebook (stealth Playwright, sans contournement actif DataDome type SSL Pinning/TLS spoofing), avec compte réchauffé + session persistée.
+    - [x] `backend/scripts/leboncoin_login_once.py` : génère une session authentifiée réutilisable (`storage_state`).
+    - [x] `backend/scripts/leboncoin_probe.py` : teste si la session passe une recherche sans être bloquée par DataDome (détection captcha/403/429).
+    - *Premier essai (bloqué, 403 immédiat)* : faux négatif — la fenêtre de login n'avait pas les mêmes mesures stealth que la sonde, connexion faite dans un autre navigateur jamais capturé par Playwright → session anonyme testée par erreur. Corrigé (flags/UA/viewport alignés entre les deux scripts).
+    - *Second essai, avec une vraie session authentifiée* : ✅ **passe sans blocage.** L'approche "douce" (sans SSL Pinning/TLS spoofing) est donc viable, au moins pour l'instant — à re-tester périodiquement (DataDome évolue).
+    - [x] **Extraction** : LeBonCoin (Next.js) embarque les résultats de recherche en JSON structuré (`<script id="__NEXT_DATA__">`) — bien plus fiable que des sélecteurs CSS. `leboncoin_probe.py::extract_ads()` extrait une liste blanche stricte (titre, prix, localisation approximative ville/code postal, lien, date, photos) ; le bloc `owner` (pseudo/user_id/store_id vendeur) est explicitement exclu. Testé avec succès sur un vrai résultat (35 annonces, aucune donnée vendeur).
+    - [x] **Filtrage ville(s)/catégorie/prix/tri (2026-07-21)** : `leboncoin_probe.py` supporte désormais `--category`, `--locations` (multi-villes via virgule, valeur brute fournie par l'utilisateur — format non deviné/reconstruit, varie selon la ville), `--min-price`/`--max-price` (bug corrigé : `price={min}-{max}`, pas `price=min-{max}`), `--owner-type`. Tri `sort=time&order=desc` (plus récent en premier) désormais systématique. Construction d'URL vérifiée contre 2 vraies URLs fournies par l'utilisateur (1 et 2 villes).
+    - *Décision produit* : description complète jugée peu utile par l'utilisateur (souvent peu éclairante) — non poursuivie pour l'instant, les photos/titre/prix suffisent à l'usage réel.
+    - [x] **Module dédié `backend/scraping_leboncoin/` (2026-07-22)** : classe `LeboncoinScraper` (pagination fiable via `max_pages` du JSON, session réutilisable sur plusieurs recherches, comportement anti-prévisibilité — délais aléatoires, scroll/mouvement de souris simulés). `leboncoin_probe.py` réécrit pour l'utiliser au lieu de dupliquer la logique.
+    - [x] **Revue de code (2026-07-22)** : 8 bugs confirmés corrigés — faux positifs de blocage (liste des réponses réseau non vidée entre pages de pagination), `--min-price` seul silencieusement ignoré, crash sur `ads: null`, perte de résultats si une recherche plante en cours de `--repeat`, échec d'extraction indiscernable d'un vrai résultat vide, `max_pages_limit=0` ignoré (bug du falsy-zero), log de pagination trompeur ("page 1/1"), capture d'écran/dump HTML de debug restaurés.
+    - [x] **Fix : page fermée automatiquement + boucle interactive (2026-07-22)** : `search()` ne ferme plus jamais la page elle-même (succès/blocage/échec) — un onglet unique est réutilisé pour toute la session ; `leboncoin_probe.py` passe d'un `--repeat` figé à une boucle interactive (`[Entrée]` relancer / `[n]` nouveaux paramètres / `[q]` quitter). **Testé et validé en conditions réelles par l'utilisateur** (pagination, extraction et persistance de session confirmées ; un blocage DataDome réel — slider + 403 sur `auth.leboncoin.fr` — a aussi été observé après ~4 tests dans la journée).
+    - [ ] **Reste à faire** : décider de l'intégration réelle (cadence, volume cible ~50-100/jour) — pas encore commencée, scripts actuels = calibration/test uniquement, aucune écriture Firestore. Voir aussi les 2 points ci-dessous, à traiter avant/pendant cette intégration.
+
+- [ ] **Dette technique : base commune scraper LeBonCoin/Facebook (mesures anti-bot)** *(Ajouté 2026-07-22, revue de code)*
+    - *Détails :* `backend/scraping_leboncoin/core.py` (`LeboncoinScraper`) duplique actuellement des éléments déjà présents dans `backend/scraping/core.py` (`FacebookScraper`) : listes UA/viewports, flags de lancement stealth, cycle de vie de session (`start_session`/`close_session`/`_ensure_session`). Accepté pour l'instant (deux sites, deux stratégies d'extraction différentes — JSON structuré vs sélecteurs CSS), mais deviendra un vrai risque de dérive dès qu'on appliquera des règles anti-détection **communes** aux deux scrapers (cadence non-uniforme, plages horaires humaines — voir point suivant) : un correctif appliqué à un seul des deux modules ne se propage pas automatiquement à l'autre.
+    - *Piste* : extraire une classe de base commune (session Playwright, stealth, human-pause/jitter) que les deux scrapers spécialisent, plutôt que deux implémentations parallèles à maintenir en synchronisation manuelle.
+
+- [ ] **Cadence de scan calquée sur un rythme humain (pas d'activité nocturne)** *(Ajouté 2026-07-22)*
+    - *Détails :* Un bot qui scanne à un rythme uniforme 24h/24 (y compris la nuit, ex: 3h du matin) est lui-même un signal comportemental détectable dans la durée — un humain ne consulte pas les petites annonces en pleine nuit. Point soulevé par l'utilisateur, pas encore pris en compte.
+    - *Piste* : lors de l'intégration réelle (bot.py/scheduling), prévoir une plage horaire d'activité réaliste (ex: pas de scan ou volume fortement réduit entre ~00h-7h), idéalement avec une légère variation aléatoire des bornes plutôt qu'un couperet fixe (qui serait lui-même un pattern détectable).
+    - *Portée* : concerne potentiellement les deux scrapers — Facebook tourne déjà 24h/24 via `TaskScheduler` à cadence fixe en minutes (`schedule.every(X).minutes`), sans notion de plage horaire. À évaluer si ça vaut la peine de l'appliquer aussi côté Facebook, ou seulement pour LeBonCoin où le risque de détection est plus aigu (DataDome vs protections plus légères de Facebook) — décision produit à trancher avec l'utilisateur.
+
+---
+
 ## 🔐 Sécurité & Robustesse Multi-Utilisateur (Validé 2026-03-29)
 
 ### Phase 1 — Sécurité ✅
@@ -64,6 +91,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - Chaque bot possède son propre handler vers sa collection `logs` dédiée.
     - Support du redémarrage propre via nettoyage des handlers dans `setup_logging`.
 
+- [x] **Task 2.8 : Correction StatsView & Temps de vente (2026-07-21)**
+    - Calcul du temps de vente global sur toutes les annonces, indépendamment du filtre actif.
+    - Suppression de la limite `count >= 2` pour le graphique de vitesse de vente.
+    - Correction du message d'erreur générique trompeur.
 
 ### Code Review — 3 Rondes ✅
 
@@ -88,10 +119,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🛠️ Administration & Gestion Utilisateurs
 
-- [/] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11)*
+- [x] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11, complétée 2026-07-21)*
     - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
     - [x] **Phase 1 — Monitoring (lecture seule)** : custom claim admin, règles Firestore collectionGroup, `AdminDashboard.jsx`, job `admin_stats` quotidien (03:00), bouton Navbar conditionnel.
-    - [ ] **Phase 2 — Actions privilégiées** : bus `admin_commands`, `DISABLE_USER` / `SEND_EMAIL` / `STOP_BOT` admin, journal d'audit (`admin_audit_log`).
+    - [x] **Phase 2 — Actions privilégiées** : Actions de Pause, Ajustement de la Fréquence, et Suppression implémentées dans l'UI (`AdminDashboard.jsx`) avec permissions Firestore correspondantes.
 
 ---
 
@@ -397,6 +428,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 📊 Statistiques & Dashboard
 
+- [x] **Feature : Volume de Scraping Quotidien (StatsView)** *(2026-07-21)*
+    - *Détails :* Graphique du nombre d'annonces FB découvertes/jour (14 derniers jours), basé sur `timestamp.seconds` déjà présent dans l'index Firestore temps réel — aucune lecture supplémentaire. Sert de référence de volume actuel avant d'évaluer une extension LeBonCoin.
+- [x] **Audit du scraper Facebook (mesures anti-bot actuelles & faiblesses)** *(2026-07-21)*
+    - *Contexte :* Réflexion en cours sur une extension LeBonCoin, protégée par DataDome (options A-F évaluées, piste retenue : approche Playwright "douce" sans contournement actif de protection). Cartographie de ce qui existe côté FB (`backend/scraping/`) : rotation UA/viewport et flag stealth Chromium réels, mais `PROXIES` vide (`config.py`) et aucune session authentifiée — posture insuffisante face à DataDome, cohérent avec ce qu'on savait déjà.
+    - *Constat concret sur le volume* : matching ville strict (`is_city_allowed`) écarté par l'utilisateur comme cause principale ; en revanche, annonces d'une autre ville autorisée jetées après coup dans `run_scan()` (gaspillage confirmé et corrigé, voir tâche ci-dessous) et absence totale de comptage des échecs (anti-bot, scraping raté) identifiés comme causes réelles.
+- [x] **Fix : Traitement multi-villes gaspillé + comptage des échecs de scan** *(2026-07-21)*
+    - *Détails :* `backend/scraping/core.py::scan_marketplace()` retourne un dict de stats (`anti_bot_blocked`, `rejected_out_of_list`, `total_cards_seen`) en plus des annonces. `backend/bot.py::run_scan()` — le filtre STRICT (mode `distance=0`) traite désormais immédiatement une annonce trouvée pour une **autre ville autorisée** de la liste au lieu de la jeter (évite la perte + le refetch complet au tour de cette ville). `handle_deal_found()` retourne un code de statut par annonce, agrégé dans un résumé de cycle loggé en fin de scan.
+    - *Non testé en conditions réelles* (pas d'accès Playwright/Facebook depuis l'environnement de développement) — à valider en prod par l'utilisateur.
 - [x] **Feature : Stat "Erreurs Portier corrigées" (StatsView)** *(2026-07-11)*
     - *Détails :* `initialVerdict`/`initialModelUsed` figés à la création (`repository.py::create_new_deal`), jamais réécrits par les réanalyses. `StatsView.jsx` compte les annonces arrêtées au Portier seul (Tier 1) puis validées après réanalyse manuelle jusqu'à l'Analyste ou plus.
     - *Complémentaire à* : l'échantillonnage manuel ponctuel de `analyze_funnel_by_user.py --sample-size` (`GEMINI_PROMPT_CACHING_PLAN.md §8.2`) — cette stat donne un suivi continu dans l'UI plutôt qu'un contrôle à la demande.

@@ -121,25 +121,41 @@ class DealAnalyzer:
         except Exception as e:
             self.logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
 
-    def _call_gemini_json(self, model_name, content_parts, user_email=None):
+    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
         model = self._get_model(model_name)
         if not model:
             return None, f"Modèle {model_name} non disponible."
-        try:
-            response = model.generate_content(content_parts)
-            result = json.loads(self._clean_json_response(response.text))
-            if isinstance(result, list):
-                # Gemini répond parfois avec un tableau JSON au lieu d'un objet
-                # (ex: [{...}]) — on normalise en dict pour que tous les appelants
-                # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
-                result = result[0] if result and isinstance(result[0], dict) else {}
-            return result, None
-        except Exception as e:
-            self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
-            if self._is_model_unavailable_error(e):
-                self._notify_model_unavailable(model_name, str(e), user_email)
-            return None, str(e)
+            
+        current_parts = list(content_parts)
+        for attempt in range(max_retries + 1):
+            try:
+                response = model.generate_content(current_parts)
+                cleaned_text = self._clean_json_response(response.text)
+                result = json.loads(cleaned_text)
+                if isinstance(result, list):
+                    # Gemini répond parfois avec un tableau JSON au lieu d'un objet
+                    # (ex: [{...}]) — on normalise en dict pour que tous les appelants
+                    # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
+                    result = result[0] if result and isinstance(result[0], dict) else {}
+                return result, None
+            except json.decoder.JSONDecodeError as e:
+                self.logger.warning(f"⚠️ JSON invalide généré par {model_name} (tentative {attempt+1}/{max_retries+1}) : {e}")
+                if attempt == max_retries:
+                    self.logger.error(f"❌ Impossible de parser le JSON après {max_retries+1} tentatives. Réponse brute: {getattr(response, 'text', 'Aucun texte')[:500]}...")
+                    return None, f"Erreur de format JSON: {e}"
+                
+                # Ajout d'une directive forte pour la tentative suivante
+                retry_warning = "CRITICAL: The previous JSON output was invalid. Ensure ALL strings are properly escaped (e.g. use \\\" for quotes inside strings) and NO trailing commas exist. Output ONLY valid JSON."
+                if isinstance(current_parts[0], str):
+                    current_parts[0] = current_parts[0] + "\n\n" + retry_warning
+                else:
+                    current_parts.insert(0, retry_warning)
+            except Exception as e:
+                self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+                if self._is_model_unavailable_error(e):
+                    self._notify_model_unavailable(model_name, str(e), user_email)
+                return None, str(e)
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         if not GEMINI_API_KEY:
