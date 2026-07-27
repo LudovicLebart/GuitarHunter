@@ -145,7 +145,9 @@ def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]], log: log
 
 
 def build_search_url(category_id: int, location_id: int, query: str,
-                      category_slug: str = "recherche", location_slug: str = "lieu") -> str:
+                      category_slug: str = "recherche", location_slug: str = "lieu",
+                      min_price: int = 0, max_price: int = 0,
+                      lat: float = None, lng: float = None, radius_km: float = None) -> str:
     """
     Construit une URL de résultats de recherche Kijiji à partir d'IDs de catégorie et de
     lieu déjà résolus (catégorie : ID global stable pour tout le site, ex: 613 = Guitars ;
@@ -157,9 +159,33 @@ def build_search_url(category_id: int, location_id: int, query: str,
     déterminer les résultats. Non vérifié avec un slug complètement arbitraire : utiliser
     les vrais slugs quand disponibles (`resolve_location(...)["slug"]`) reste le choix le
     plus sûr.
+
+    `min_price`/`max_price` : filtre de prix côté recherche (format `price=min__max`,
+    déduit d'une URL de résultats réelle — non confirmé par diagnostic live, voir
+    `test_kijiji_scraper.py --search-url` pour valider). Filtre au moins un des deux bords
+    déjà appliqué avant d'ajouter le paramètre ; un bord absent est laissé vide (ex:
+    `price=100__` pour "100$ et plus").
+
+    `lat`/`lng`/`radius_km` : filtre géographique (`ll=lat,lng&radius=...`, même mécanisme
+    que celui utilisé par le site pour "Within Xkm" — voir `searchQuery.area` dans
+    `__NEXT_DATA__`). Le sélecteur de rayon du site Kijiji n'autorise pas 0km : l'appelant
+    doit passer une valeur >= 1 (voir `bot.py::_run_kijiji_scan`).
     """
     query_slug = _slugify(query) or "recherche"
-    return f"https://www.kijiji.ca/b-{category_slug}/{location_slug}/{query_slug}/k0c{category_id}l{location_id}"
+    url = f"https://www.kijiji.ca/b-{category_slug}/{location_slug}/{query_slug}/k0c{category_id}l{location_id}"
+
+    params = []
+    if min_price > 0 or max_price > 0:
+        min_part = str(min_price) if min_price > 0 else ""
+        max_part = str(max_price) if max_price > 0 else ""
+        params.append(f"price={min_part}__{max_part}")
+    if lat is not None and lng is not None and radius_km is not None and radius_km > 0:
+        params.append(f"ll={lat}%2C{lng}")
+        params.append(f"radius={radius_km}")
+
+    if params:
+        url += "?" + "&".join(params)
+    return url
 
 
 def _is_number(value: Any) -> bool:

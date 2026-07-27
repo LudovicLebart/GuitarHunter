@@ -305,7 +305,7 @@ class NotificationService:
         "duplicate_unchanged": "ℹ️ Annonce déjà connue, prix inchangé : {title}",
         "already_rejected": "⏩ Annonce déjà rejetée précédemment : {title}",
         "marked_sold": "📉 Annonce existante marquée vendue : {title}",
-        "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé ou hors budget) : {title}",
+        "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé exclu) : {title}",
         "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
     }

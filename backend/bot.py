@@ -190,11 +190,6 @@ class GuitarHunterBot:
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
-    def _create_price_rejection_analysis(self, price, max_price):
-        # Verdict BAD_DEAL (existant, catégorie "Trop Cher") plutôt que REJECTED : l'annonce
-        # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
-        return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
-
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
 
@@ -271,13 +266,18 @@ class GuitarHunterBot:
         else:
             self.logger.info(f"[{source}] Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
-        if found_keyword or price_too_high:
-            if found_keyword:
-                self.logger.info(f"[{source}] Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
-                rejection_analysis = self._create_rejection_analysis(found_keyword)
-            else:
-                self.logger.info(f"[{source}] Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
-                rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
+        if price_too_high:
+            # Hors budget = hors du périmètre de recherche, pas une "mauvaise annonce" —
+            # ignorée sans être stockée ni analysée (aucune écriture Firestore), contrairement
+            # à un rejet par mot-clé. Comportement uniforme Facebook/Kijiji : le filtre de prix
+            # côté recherche (URL Facebook/Kijiji) est censé éviter ce cas en amont, ceci n'est
+            # qu'un filet de sécurité pour ce qu'il laisse passer.
+            self.logger.info(f"[{source}] Annonce ignorée (hors budget) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
+            return "out_of_budget"
+
+        if found_keyword:
+            self.logger.info(f"[{source}] Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
+            rejection_analysis = self._create_rejection_analysis(found_keyword)
             if not self.offline_mode:
                 if is_update:
                     # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
@@ -387,7 +387,7 @@ class GuitarHunterBot:
         cycle_stats = {
             "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
             "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0, "already_rejected": 0,
-            "duplicate_unchanged": 0, "rejected_prefilter": 0, "processed": 0,
+            "duplicate_unchanged": 0, "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
         }
 
         for city_data in cities_to_scan:
@@ -487,7 +487,8 @@ class GuitarHunterBot:
         self.logger.info(
             "📊 Résumé du cycle Facebook : "
             f"{cycle_stats['processed']} traitée(s) (analyse IA), "
-            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé/prix), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
+            f"{cycle_stats['out_of_budget']} ignorée(s) (hors budget), "
             f"{cycle_stats['matched_other_city']} récupérée(s) via une autre ville de la liste, "
             f"{cycle_stats['rejected_out_of_list']} hors liste de villes, "
             f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
@@ -517,13 +518,21 @@ class GuitarHunterBot:
         }
         radius_km = scan_config.get('distance', 0)
         max_radius_km = radius_km if radius_km > 0 else None
+        # Le sélecteur de rayon du site Kijiji n'autorise pas 0km (contrairement à
+        # `distance=0` côté Facebook, qui veut dire "correspondance exacte de ville" — un
+        # concept qui n'existe pas pour Kijiji) : on plafonne au minimum du site plutôt que
+        # d'envoyer une valeur invalide.
+        kijiji_search_radius_km = radius_km if radius_km > 0 else 1
+        min_price = scan_config.get('min_price', 0)
+        max_price = scan_config.get('max_price', 0)
 
         # Comptabilisation du cycle Kijiji, symétrique à celle du scan Facebook — les deux
         # threads tournent en parallèle et écrivent dans le même logger, donc chaque entrée
         # (et le résumé final) doit porter son origine pour rester lisible dans le LogViewer.
         cycle_stats = {
             "rejected_out_of_radius": 0, "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0,
-            "already_rejected": 0, "duplicate_unchanged": 0, "rejected_prefilter": 0, "processed": 0,
+            "already_rejected": 0, "duplicate_unchanged": 0, "rejected_prefilter": 0,
+            "out_of_budget": 0, "processed": 0,
         }
 
         if self._browser_semaphore:
@@ -539,6 +548,8 @@ class GuitarHunterBot:
                     city_name = city_data.get('name')
                     if not city_name:
                         continue
+                    city_lat = city_data.get('latitude')
+                    city_lon = city_data.get('longitude')
 
                     self.logger.info(f"--- Scan Kijiji : {city_name} ---")
                     try:
@@ -554,6 +565,8 @@ class GuitarHunterBot:
                             max_ads=scan_config.get('max_ads', 5),
                             should_skip_callback=lambda kijiji_id, price: self.should_skip_deal(f"kijiji_{kijiji_id}", price),
                             stop_event=self.stop_event or self.scan_stop_event,
+                            min_price=min_price, max_price=max_price,
+                            lat=city_lat, lng=city_lon, radius_km=kijiji_search_radius_km,
                         )
                     except Exception as e:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
@@ -589,7 +602,8 @@ class GuitarHunterBot:
         self.logger.info(
             "📊 Résumé du cycle Kijiji : "
             f"{cycle_stats['processed']} traitée(s) (analyse IA), "
-            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé/prix), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
+            f"{cycle_stats['out_of_budget']} ignorée(s) (hors budget), "
             f"{cycle_stats['rejected_out_of_radius']} hors rayon de toute ville configurée, "
             f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
             f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "

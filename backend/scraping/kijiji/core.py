@@ -298,7 +298,9 @@ class KijijiScraper:
         return found_deals
 
     def scan_city(self, city_name: str, category_id: int, query: str, max_ads: int = 20,
-                   should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
+                   should_skip_callback=None, stop_event=None,
+                   min_price: int = 0, max_price: int = 0,
+                   lat: float = None, lng: float = None, radius_km: float = None) -> List[Dict[str, Any]]:
         """
         Scanne une ville par son nom : résout `city_name` vers son ID de lieu Kijiji via
         `self.location_lookup` (voir `locations.resolve_location`), construit l'URL de
@@ -309,6 +311,10 @@ class KijijiScraper:
         `category_id` : ID de catégorie Kijiji, global et stable pour tout le site (ex:
         613 = Guitars — pas de mapping de catégories dans ce module pour l'instant, à
         fournir par l'appelant).
+
+        `min_price`/`max_price`/`lat`/`lng`/`radius_km` : filtres appliqués côté recherche
+        Kijiji plutôt qu'après coup — voir `locations.build_search_url` pour le détail des
+        paramètres d'URL.
         """
         location = resolve_location(city_name, self.location_lookup, log=self.logger)
         if not location:
@@ -319,7 +325,10 @@ class KijijiScraper:
             )
             return []
 
-        url = build_search_url(category_id, location["id"], query, location_slug=location.get("slug") or "lieu")
+        url = build_search_url(
+            category_id, location["id"], query, location_slug=location.get("slug") or "lieu",
+            min_price=min_price, max_price=max_price, lat=lat, lng=lng, radius_km=radius_km,
+        )
         return self.scan_search_url(url, max_ads=max_ads, should_skip_callback=should_skip_callback, stop_event=stop_event)
 
     def _scrape_results_page(self, page: Page, max_ads: int, should_skip_callback=None, stop_event=None) -> List[Dict[str, Any]]:
