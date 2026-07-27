@@ -1220,3 +1220,39 @@ Un merge avec conflit apparent (un seul marqueur dans `bot.py`) peut masquer des
 
 #### 2. Raisonnement
 Un signalement utilisateur "le prix est faux" n'impliquait pas forcément un bug de parsing — remonter jusqu'à la donnée source (page Kijiji réelle vs résultat du scraper sur la même URL) a permis de distinguer une extraction correcte d'une donnée simplement obsolète, plutôt que de corriger un chemin d'extraction qui n'était pas le coupable. La demande produit qui a suivi ("hors budget = pas traité, point") a explicitement guidé vers la réutilisation du calcul de prix déjà centralisé dans `handle_deal_found()` plutôt qu'une nouvelle vérification dupliquée dans le chemin Kijiji — la duplication de logique métier entre les deux sources scraper (déjà visible dans `_run_facebook_scan()`/`_run_kijiji_scan()`) est un point de friction récurrent de cette session, à garder en tête pour une éventuelle factorisation future.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> Détecte les doublons cross-plateforme (Facebook/Kijiji) avant l'analyse IA (commit `d890393`, jamais documenté) → Résultat : plus de double appel Gemini sur une même annonce postée sur les deux sites.
+
+### Session : Détection de doublon cross-plateforme
+
+#### 1. Objectif : Éviter de repayer le pipeline IA (3-Tiers Gemini) sur une même annonce postée à la fois sur Facebook et Kijiji, désormais scannés en parallèle
+- **`backend/bot.py::_find_cross_platform_duplicate(listing_data, source)`** (nouveau) : compare prix normalisé (`_normalize_price`), ville normalisée (`ListingParser.normalize_city_name`) et similarité de titre (Jaccard sur tokens ASCII sans accents, `_title_tokens`, seuil `CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD=0.6`) contre chaque entrée de `repo.get_deals_index_snapshot()`, en ignorant les entrées de la **même** source (préfixe `kijiji_` de l'ID) — un doublon même-source est déjà couvert par `should_skip_deal()` (comparaison par ID exact). Retourne l'ID du doublon trouvé, ou `None`.
+- **`backend/repository.py::get_deals_index_snapshot()`** (nouveau) : fusionne les 20 chunks de l'index léger `deals_index` en un seul dict `{deal_id: {champs...}}`, sans lire les documents complets de `guitar_deals` — réutilise l'infrastructure de sharding déjà en place pour le Frontend (`DATA_FLOW.md` § 5) pour une recherche transverse côté backend.
+- **`handle_deal_found()`** : appel en tout début de fonction (avant tout appel IA), après le garde-fou "scraping raté" mais avant l'upsert Firestore. Court-circuité pour un scan manuel (`is_manual_scan=True`) — l'utilisateur demande explicitement l'analyse de cette URL précise, pas question de la sauter au prétexte qu'elle ressemble à une annonce déjà connue. Retourne `"duplicate_cross_platform"` (nouveau code de statut, sans écriture Firestore) si un doublon est trouvé.
+
+#### 2. Raisonnement
+Cette entrée documente un changement déjà commité (`d890393`) par une autre session avant cette passe de documentation — même angle mort que celui déjà rencontré pour `_run_kijiji_scan()` (commits `edbe8a4`/`7e0797a`, voir plus haut) : du code fonctionnel peut atterrir sur la branche sans jamais transiter par l'étape 3 du protocole `CLAUDE.md`. Consigné ici pour que `ARCHITECTURE.md`/`TODO.md` reflètent l'état réel du code plutôt que l'état du dernier commit documenté.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> `scan_city()` Kijiji ancré Canada entier + `address`/`ll`/`radius` pour toute ville, plus dépendant de la résolution par nom → Résultat : validé en live, chaque ville du catalogue obtient désormais une recherche Kijiji précise.
+
+### Session : Recherche Kijiji indépendante de la résolution de sous-zone par nom
+
+#### 1. Objectif : Répondre à une limitation découverte en creusant "pourquoi ne pas toujours configurer le champ adresse par défaut" — beaucoup de petites municipalités du catalogue n'ont aucune sous-zone Kijiji qui leur soit propre
+- **Constat** : `kijiji_locations.json` (~192 entrées) recense de larges sous-régions (ex: "Longueuil / South Shore" couvre aussi Saint-Bruno, Sainte-Julie, etc.), pas une ville par entrée — ni coordonnées GPS ni niveau intermédiaire province/région dans ce lookup (vérifié : "Québec"/"Greater Montréal" absents en tant que clés, seules les feuilles de l'arbre ont été aplaties par `fetch_kijiji_locations.py`). `resolve_location()` échouait donc silencieusement pour la plupart des petites villes configurées, et `scan_city()` retournait `[]` sans lancer de recherche.
+- **`backend/scraping/kijiji/locations.py::build_search_url()`** : nouveau paramètre `address` (encodé via `urllib.parse.quote`), envoyé **uniquement avec** `ll=`/`radius=` — jamais seul, faute de preuve que `ll=`/`radius=` suffisent sans `address=` (les deux URLs testées en live avaient toujours les trois ensemble).
+- **`backend/scraping/kijiji/core.py::scan_city()`** : n'appelle plus `resolve_location()`. Ancre désormais toujours l'URL sur `location_id=0` (Canada, toujours valide) + `address=<ville>`/`ll=`/`radius=` — chaque ville du catalogue obtient une vraie recherche Kijiji précise, qu'elle ait ou non sa propre sous-zone nommée.
+- **`backend/scripts/test_kijiji_scraper.py`** : `--scan-city` gagne `--lat`/`--lng`/`--radius-km`/`--min-price`/`--max-price` pour rester utilisable en diagnostic (`scan_city()` ne fonctionne plus "gratuitement" sans coordonnées).
+- **Test obsolète remplacé** : l'ancien test (`TestScanCity::test_returns_empty_list_when_city_not_found`) vérifiait qu'une ville inconnue retournait `[]` sans lancer de session Playwright — comportement qui n'existe plus par design. Remplacé par un test vérifiant la construction de l'URL (`k0c613l0` + `address=`/`ll=`/`radius=`) via `unittest.mock.patch.object(scraper, "scan_search_url")` plutôt qu'un vrai lancement de navigateur.
+- **Validation live (Saint-Bruno-de-Montarville, aucune sous-zone Kijiji propre)** : `--scan-city "Saint-Bruno-de-Montarville" --lat 45.5298901 --lng -73.3453766 --radius-km 2` → 3/3 annonces trouvées, toutes correctement ciblées sur cette ville précise (l'étiquette "Longueuil / South Shore" affichée sur les annonces est juste la région assignée par Kijiji à l'annonce elle-même, pas un signe d'échec du filtre géographique).
+- **Tests** : 76 tests (`backend/test_bot.py`, `scraping/test_core.py`, `scraping/kijiji/test_*.py`) verts après les changements.
+
+#### 2. Raisonnement
+La question de l'utilisateur ("pourquoi ne pas toujours configurer `address` par défaut") a fait ressortir que la distinction "résolution réussie vs repli" envisagée initialement n'apportait aucun bénéfice démontré (aucune preuve qu'une sous-zone déjà ciblée améliore la pertinence des résultats une fois `address`/`ll`/`radius` présents) pour un coût réel (deux chemins de code à maintenir) — simplifié vers un chemin unique, uniforme pour toutes les villes. Deuxième question de l'utilisateur ("je ne comprends pas pourquoi `address=` devient redondant") a corrigé une affirmation non vérifiée avancée dans le plan initial (que `ll=`/`radius=` suffiraient seuls) — les trois paramètres sont maintenus ensemble par prudence, faute de test live isolant leur nécessité individuelle.
