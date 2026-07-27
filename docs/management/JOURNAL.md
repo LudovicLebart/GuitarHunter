@@ -1049,3 +1049,23 @@ Le protocole du projet a été suivi (plan validé avant code). L'utilisateur a 
 
 #### 2. Raisonnement
 Le réseau vers `kijiji.ca` restant bloqué dans cet environnement de développement, toute la validation s'est faite via l'utilisateur exécutant `backend/scripts/test_kijiji_scraper.py` (et ses flags `--diag-*`) en local et collant les résultats. Plusieurs hypothèses de conception se sont révélées fausses à l'usage (sélecteurs devinés, filtrage par province) — corrigées au fur et à mesure plutôt que supposées correctes après coup. Le scraper reste **non branché** à `bot.py::run_scan()` (scope volontairement limité à un module autonome et testable) — reste à décider : mapping de catégories au-delà de 613 (Guitars), config Firestore dédiée, fusion ou séparation des annonces Facebook/Kijiji.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> `nearest_configured_city` (tri GPS) + corrections de `/code-review` (locations.py, core.py) sur le module Kijiji.
+
+### Session : Résolution de ville par GPS + correctifs de code review
+
+#### 1. Objectif : Répondre à l'imprécision documentée de `location.name` et corriger les findings remontés par `/code-review`
+- **`backend/scraping/kijiji/locations.py::nearest_configured_city(latitude, longitude, city_coordinates, max_radius_km=None)`** (nouveau) : calcule la distance Haversine (réutilise `scraping.utils.calculate_distance`, déjà utilisé côté Facebook) de l'annonce vers chaque ville configurée (même format que `city_coordinates.json`) et retourne la plus proche — les coordonnées GPS de l'annonce, contrairement à `location.name`, sont toujours présentes et fiables. `max_radius_km` optionnel pour ne pas rattacher une annonce trop lointaine à une ville non pertinente. **Pas encore branché au pipeline de scan** (en attendant que la forme du futur `scan_config` Kijiji soit tranchée) — utilitaire disponible, appel à faire depuis le futur code d'intégration `bot.py`.
+- **Corrections post-`/code-review`** :
+  - `nearest_configured_city` : une entrée `city_coordinates` avec des `lat`/`lng` non numériques faisait planter `math.radians()` dans `calculate_distance()`, qui capture l'exception et retourne 0 — cette entrée "gagnait" alors silencieusement comme ville la plus proche. Ajout de `_is_number()` (exclut aussi `bool`, sous-classe d'`int`) validant explicitement les coordonnées d'entrée ET celles de chaque ville avant de les utiliser. Type hint `max_radius_km` corrigé (`float = None` → `Optional[float] = None`).
+  - `resolve_location()` : le repli par correspondance partielle pouvait matcher plusieurs lieux différents et retournait le premier trouvé selon l'ordre d'itération du dict — silencieux, non déterministe. Déduplication par `id` : un seul lieu distinct → résolu normalement ; plusieurs → ambigu, retourne `None` avec un `warning` loggé plutôt que de deviner. Accepte désormais un `log` optionnel (repli sur le logger de module) ; `core.py::scan_city()` y passe `self.logger`.
+  - `core.py` : la visite de fiche détail (`goto` + repli sur erreur), dupliquée quasi à l'identique dans `_scrape_from_next_data` et `_scrape_from_dom`, extraite dans une méthode partagée `_visit_detail_page()`.
+  - `.gitattributes` (nouveau) : `docs/management/JOURNAL.md` fixé en `eol=lf`. Un des findings signalait que `JOURNAL.md` avait été réécrit en CRLF via un script Bash lors d'une session précédente, en violation de la consigne d'éditer la doc uniquement via les outils directs. Investigation : Edit/Write ne peuvent produire que du LF dans cet environnement (confirmé empiriquement) — préserver le CRLF historique du fichier sans passer par un script terminal est donc impossible avec les outils autorisés. Plutôt que de perpétuer l'instabilité (reconversion partielle à chaque édition, ou script CRLF ponctuel à chaque session), LF est fixé comme convention officielle pour ce fichier allant de l'avant. Contenu textuel non affecté (vérifié octet à octet hors fins de ligne).
+- **Tests** : 6 tests de régression ajoutés (`backend/scraping/kijiji/test_locations.py`) — coordonnées non numériques (chaîne, booléen) n'emportant plus faussement la résolution, résolution ambiguë (plusieurs lieux distincts) vs non ambiguë (plusieurs clés vers un même id). 65 tests au total dans le module Kijiji, tous verts.
+
+#### 2. Raisonnement
+`nearest_configured_city` est un utilitaire pur (pas d'accès réseau/DOM), donc pleinement testable dans cet environnement malgré l'absence d'accès à `kijiji.ca`. Les correctifs de code review touchent tous à des cas limites silencieux (donnée malformée "gagnant" par défaut, ambiguïté résolue au hasard) plutôt qu'à des bugs déjà observés en usage réel — traités avant intégration au pipeline plutôt qu'après.
