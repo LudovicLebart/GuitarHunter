@@ -136,6 +136,31 @@ class TestResolveLocation(unittest.TestCase):
     def test_empty_city_name_returns_none(self):
         self.assertIsNone(resolve_location("", self.lookup))
 
+    def test_ambiguous_partial_match_returns_none(self):
+        """Régression : si le repli par correspondance partielle matche plusieurs LIEUX
+        DIFFÉRENTS, on ne doit pas trancher au hasard selon l'ordre du dict — mieux vaut
+        ne rien résoudre qu'un lieu potentiellement faux et silencieux."""
+        ambiguous_lookup = {
+            "springfield nord": {"id": 111, "slug": "springfield-nord"},
+            "springfield sud": {"id": 222, "slug": "springfield-sud"},
+        }
+        self.assertIsNone(resolve_location("Springfield", ambiguous_lookup))
+
+    def test_single_partial_match_still_resolves(self):
+        lookup = {"springfield nord": {"id": 111, "slug": "springfield-nord"}}
+        result = resolve_location("Springfield", lookup)
+        self.assertEqual(result["id"], 111)
+
+    def test_multiple_keys_same_id_not_treated_as_ambiguous(self):
+        """Plusieurs clés (variantes FR/EN) pointant vers le MÊME lieu ne doivent pas
+        être comptées comme une ambiguïté."""
+        lookup = {
+            "quebec city": {"id": 999, "slug": "quebec-city"},
+            "ville de quebec": {"id": 999, "slug": "quebec-city"},
+        }
+        result = resolve_location("Quebec", lookup)
+        self.assertEqual(result["id"], 999)
+
 
 class TestBuildSearchUrl(unittest.TestCase):
     def test_builds_expected_pattern(self):
@@ -187,6 +212,30 @@ class TestNearestConfiguredCity(unittest.TestCase):
         lat, lng = self.SAINTE_JULIE
         result = nearest_configured_city(lat, lng, malformed)
         self.assertEqual(result["city"], "longueuil")
+
+    def test_non_numeric_coordinates_do_not_win_as_false_zero_distance(self):
+        """Régression : scraping.utils.calculate_distance() capture toute exception et
+        retourne 0 — sans validation de type explicite, une entrée avec des lat/lng non
+        numériques (ex: chaîne malformée dans city_coordinates) ferait planter
+        math.radians(), calculate_distance renverrait 0, et cette entrée "gagnerait"
+        silencieusement comme ville la plus proche (0 étant la distance minimale
+        possible), peu importe la vraie ville la plus proche."""
+        bad_coords = {
+            "faux": {"lat": "not-a-number", "lng": -73.5},
+            "longueuil": {"lat": 45.5369, "lng": -73.5105},
+        }
+        lat, lng = self.SAINTE_JULIE
+        result = nearest_configured_city(lat, lng, bad_coords)
+        self.assertEqual(result["city"], "longueuil")
+
+    def test_non_numeric_input_coordinates_return_none(self):
+        self.assertIsNone(nearest_configured_city("not-a-number", -73.5105, CITY_COORDINATES))
+
+    def test_boolean_coordinates_are_not_treated_as_numbers(self):
+        """`bool` est une sous-classe d'`int` en Python — `True`/`False` ne doivent pas
+        être acceptés comme coordonnées valides."""
+        bad_coords = {"faux": {"lat": True, "lng": False}}
+        self.assertIsNone(nearest_configured_city(45.5369, -73.5105, bad_coords))
 
 
 if __name__ == "__main__":

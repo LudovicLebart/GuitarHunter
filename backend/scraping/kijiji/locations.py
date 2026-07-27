@@ -107,14 +107,18 @@ def load_location_lookup(path: str = None) -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]], log: logging.Logger = None) -> Optional[Dict[str, Any]]:
     """
     Résout un nom de ville vers `{id, slug}`. Kijiji regroupe certaines grandes villes
     sous un nom "Ville / Région" (ex: "Longueuil / South Shore") — une recherche pour
     "Longueuil" seul ne matche donc pas exactement la clé normalisée complète ; on
     compare aussi contre la partie avant le "/". Dernier repli : correspondance
-    partielle (best-effort, peut être ambiguë sur de grandes listes de lieux).
+    partielle (best-effort) — si plusieurs LIEUX DIFFÉRENTS (id distincts) matchent
+    partiellement, la résolution est ambiguë et on retourne `None` plutôt que de
+    trancher au hasard selon l'ordre d'itération du dict (silencieusement vers le
+    mauvais lieu, sans avertissement).
     """
+    log = log or _module_logger
     if not city_name or not lookup:
         return None
     normalized = ListingParser.normalize_city_name(city_name)
@@ -127,9 +131,18 @@ def resolve_location(city_name: str, lookup: Dict[str, Dict[str, Any]]) -> Optio
         if prefix == normalized:
             return value
 
-    for key, value in lookup.items():
-        if normalized in key or key in normalized:
-            return value
+    partial_matches = {
+        value["id"]: value
+        for key, value in lookup.items()
+        if normalized in key or key in normalized
+    }
+    if len(partial_matches) == 1:
+        return next(iter(partial_matches.values()))
+    if len(partial_matches) > 1:
+        log.warning(
+            f"Résolution de lieu ambiguë pour '{city_name}' : {len(partial_matches)} "
+            f"lieux distincts correspondent partiellement — aucun retenu."
+        )
 
     return None
 
@@ -152,6 +165,11 @@ def build_search_url(category_id: int, location_id: int, query: str,
     return f"https://www.kijiji.ca/b-{category_slug}/{location_slug}/{query_slug}/k0c{category_id}l{location_id}"
 
 
+def _is_number(value: Any) -> bool:
+    """`bool` est une sous-classe d'`int` en Python mais n'est pas une coordonnée valide."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _slugify(text: str) -> str:
     """Retire les accents (ex: "électrique" -> "electrique", pas "lectrique") avant de
     remplacer tout caractère non alphanumérique par un tiret."""
@@ -161,7 +179,7 @@ def _slugify(text: str) -> str:
 
 def nearest_configured_city(latitude: Optional[float], longitude: Optional[float],
                              city_coordinates: Dict[str, Dict[str, float]],
-                             max_radius_km: float = None) -> Optional[Dict[str, Any]]:
+                             max_radius_km: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Retourne la ville configurée la plus proche de (latitude, longitude), par distance
     Haversine (`scraping.utils.calculate_distance`).
@@ -179,15 +197,23 @@ def nearest_configured_city(latitude: Optional[float], longitude: Optional[float
     celle-ci est quand même à plus de cette distance (évite de rattacher une annonce
     lointaine à une ville configurée qui n'est en réalité pas pertinente pour elle).
     """
-    if latitude is None or longitude is None or not city_coordinates:
+    if not _is_number(latitude) or not _is_number(longitude) or not city_coordinates:
         return None
 
     nearest_name = None
     nearest_distance = None
     for city_name, coords in city_coordinates.items():
-        if not isinstance(coords, dict) or coords.get("lat") is None or coords.get("lng") is None:
+        if not isinstance(coords, dict):
             continue
-        distance = calculate_distance(latitude, longitude, coords["lat"], coords["lng"])
+        city_lat, city_lng = coords.get("lat"), coords.get("lng")
+        if not _is_number(city_lat) or not _is_number(city_lng):
+            # Un lat/lng non numérique ferait planter math.radians() dans
+            # calculate_distance(), qui capture l'exception et retourne 0 — une entrée
+            # malformée "gagnerait" alors silencieusement comme ville la plus proche
+            # (0 étant la distance minimale possible). On l'exclut explicitement au lieu
+            # de laisser ce faux 0 concourir.
+            continue
+        distance = calculate_distance(latitude, longitude, city_lat, city_lng)
         if nearest_distance is None or distance < nearest_distance:
             nearest_distance = distance
             nearest_name = city_name

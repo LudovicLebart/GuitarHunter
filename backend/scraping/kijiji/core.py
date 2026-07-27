@@ -310,7 +310,7 @@ class KijijiScraper:
         613 = Guitars — pas de mapping de catégories dans ce module pour l'instant, à
         fournir par l'appelant).
         """
-        location = resolve_location(city_name, self.location_lookup)
+        location = resolve_location(city_name, self.location_lookup, log=self.logger)
         if not location:
             self.logger.error(
                 f"❌ Ville Kijiji introuvable dans le lookup: '{city_name}' "
@@ -385,33 +385,7 @@ class KijijiScraper:
 
             self.logger.info(f"   ✨ Trouvé: {title} ({card_price}$) dans {card_location or '?'}")
 
-            details_page = self.context.new_page()
-            try:
-                try:
-                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                    self._accept_cookies(details_page)
-                    try:
-                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
-                    except Exception as e:
-                        self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
-                    time.sleep(1.5)
-
-                    if self._is_valid_detail_page(details_page, kijiji_id):
-                        details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
-                    else:
-                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la recherche uniquement.")
-                        details = self._fallback_details(title, listing.get("description"))
-                except Exception as e:
-                    # Une fiche détail qui ne charge pas du tout (timeout réseau, page
-                    # cassée...) ne doit pas faire perdre les annonces déjà collectées ni
-                    # interrompre le reste du scan — repli sur les infos de la recherche,
-                    # comme pour une fiche détail invalide (vécu en test live du
-                    # 2026-07-26 sur une annonce de Toronto : Page.goto timeout 60s).
-                    self.logger.warning(f"   ⚠️ Erreur en visitant la fiche détail de '{title}' ({e}) — repli sur les infos de la recherche uniquement.")
-                    details = self._fallback_details(title, listing.get("description"))
-            finally:
-                details_page.close()
-
+            details = self._visit_detail_page(clean_link, title, kijiji_id, listing.get("description"))
             listing_data = self._build_listing_data(title, clean_link, kijiji_id, card_price, card_location, img_url, details)
             found_deals.append(listing_data)
             count += 1
@@ -486,35 +460,40 @@ class KijijiScraper:
 
             self.logger.info(f"   ✨ Trouvé: {title} ({card_price}$) dans {card_location or '?'}")
 
-            details_page = self.context.new_page()
-            try:
-                try:
-                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                    self._accept_cookies(details_page)
-                    try:
-                        details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
-                    except Exception as e:
-                        self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
-                    time.sleep(1.5)
-
-                    if self._is_valid_detail_page(details_page, kijiji_id):
-                        details = KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
-                    else:
-                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos de la carte uniquement.")
-                        details = self._fallback_details(title)
-                except Exception as e:
-                    # Voir _scrape_from_next_data : une fiche détail qui ne charge pas du
-                    # tout ne doit pas interrompre le reste du scan.
-                    self.logger.warning(f"   ⚠️ Erreur en visitant la fiche détail de '{title}' ({e}) — repli sur les infos de la carte uniquement.")
-                    details = self._fallback_details(title)
-            finally:
-                details_page.close()
-
+            details = self._visit_detail_page(clean_link, title, kijiji_id)
             listing_data = self._build_listing_data(title, clean_link, kijiji_id, card_price, card_location, img_url, details)
             found_deals.append(listing_data)
             count += 1
 
         return found_deals
+
+    def _visit_detail_page(self, clean_link: str, title: str, kijiji_id: str, fallback_extra_description: str = None) -> Dict[str, Any]:
+        """Visite la fiche détail d'une annonce et retourne ses détails, avec repli sur
+        `_fallback_details()` si la fiche ne charge pas (timeout réseau, page cassée...)
+        ou n'est pas valide (redirection anti-bot) — factorisé entre `_scrape_from_next_data`
+        et `_scrape_from_dom`. Un échec ici ne doit ni faire perdre les annonces déjà
+        collectées ni interrompre le reste du scan (vécu en test live du 2026-07-26 sur
+        une annonce de Toronto : `Page.goto` timeout 60s)."""
+        details_page = self.context.new_page()
+        try:
+            try:
+                details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                self._accept_cookies(details_page)
+                try:
+                    details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
+                except Exception as e:
+                    self.logger.debug(f"Timeout networkidle fiche détail Kijiji: {e}")
+                time.sleep(1.5)
+
+                if self._is_valid_detail_page(details_page, kijiji_id):
+                    return KijijiListingParser.parse_details_page(details_page, title, kijiji_id, logger=self.logger)
+                self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur les infos connues.")
+                return self._fallback_details(title, fallback_extra_description)
+            except Exception as e:
+                self.logger.warning(f"   ⚠️ Erreur en visitant la fiche détail de '{title}' ({e}) — repli sur les infos connues.")
+                return self._fallback_details(title, fallback_extra_description)
+        finally:
+            details_page.close()
 
     @staticmethod
     def _fallback_details(title: str, extra_description: str = None) -> Dict[str, Any]:
