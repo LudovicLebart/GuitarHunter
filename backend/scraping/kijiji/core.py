@@ -304,7 +304,17 @@ class KijijiScraper:
         page = self.context.new_page()
         found_deals: List[Dict[str, Any]] = []
         try:
-            page.goto(url, timeout=self.config.timeout_navigation)
+            # `wait_until="domcontentloaded"` plutôt que le défaut Playwright ("load") :
+            # Kijiji charge en continu des pubs/trackers en arrière-plan (déjà documenté
+            # ailleurs dans ce module, voir `wait_for_load_state("networkidle", ...)`
+            # tolérants ci-dessous) — "load" attend la fin de TOUTES les ressources de la
+            # page, ce qui peut dépasser `timeout_navigation` (60s) même quand le contenu
+            # utile est déjà là. `__NEXT_DATA__` (dont dépend `_scrape_results_page()`) est
+            # rendu côté serveur, donc déjà présent dans le HTML initial dès
+            # `domcontentloaded` — pas besoin d'attendre le "load" complet. Vécu en
+            # production le 2026-07-27 : `Page.goto: Timeout 60000ms exceeded` sur une
+            # recherche par ailleurs valide, faisant échouer tout le scan de la ville.
+            page.goto(url, timeout=self.config.timeout_navigation, wait_until="domcontentloaded")
             self._accept_cookies(page)
 
             if "/login" in page.url or "captcha" in page.url.lower():
@@ -527,7 +537,9 @@ class KijijiScraper:
         details_page = self.context.new_page()
         try:
             try:
-                details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                # domcontentloaded plutôt que "load" (défaut) : même raison que
+                # scan_search_url() — __NEXT_DATA__ est déjà dans le HTML initial (SSR).
+                details_page.goto(clean_link, timeout=self.config.timeout_navigation, wait_until="domcontentloaded")
                 self._accept_cookies(details_page)
                 try:
                     details_page.wait_for_load_state("networkidle", timeout=self.config.timeout_selector)
@@ -596,7 +608,9 @@ class KijijiScraper:
 
         page = self.context.new_page()
         try:
-            page.goto(url, timeout=self.config.timeout_navigation)
+            # domcontentloaded plutôt que "load" (défaut) : même raison que
+            # scan_search_url() — __NEXT_DATA__ est déjà dans le HTML initial (SSR).
+            page.goto(url, timeout=self.config.timeout_navigation, wait_until="domcontentloaded")
             self._accept_cookies(page)
 
             if not kijiji_id:

@@ -1292,3 +1292,19 @@ Un signalement de production sur une annonce réelle a invalidé une hypothèse 
 
 #### 2. Raisonnement
 Le rayon Kijiji n'a jamais eu de donnée fiable pour distinguer une petite d'une grande ville (contrairement à `location.name`, qui a sa propre imprécision documentée plus haut) — plutôt que d'acquérir une nouvelle source de données (population, superficie), le proxy choisi réutilise une information déjà calculée par le mécanisme de résolution de lieu lui-même (`resolve_location()` réussit ou échoue), gratuite et déjà disponible à cet endroit précis du code. Le réglage par ville comble le cas où ce proxy se trompe (ex: Longueuil, résolue directement mais pas réellement "grande" au sens Montréal) sans bloquer sur la précision du défaut automatique — les deux mécanismes demandés par l'utilisateur ("oui les deux") se complètent : l'un comme filet de sécurité raisonnable partout, l'autre comme correction ciblée là où c'est nécessaire.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> Fix : `Page.goto` Kijiji basculé sur `wait_until="domcontentloaded"` (3 sites d'appel) → Résultat : évite un échec total de scan sur un simple ralentissement des pubs/trackers Kijiji.
+
+### Session : Timeout `Page.goto` 60s en production sur une recherche Kijiji valide
+
+#### 1. Objectif : Corriger un signalement utilisateur — `❌ Erreur scan Kijiji (URL directe): Page.goto: Timeout 60000ms exceeded` sur une URL de recherche par ailleurs correcte (Mont-Saint-Hilaire, ancrée sur Saint-Hyacinthe), faisant échouer tout le scan de la ville sans résultat partiel
+- **Cause** : `scan_search_url()`, `_visit_detail_page()` et `scan_specific_url()` appelaient `page.goto(url, timeout=self.config.timeout_navigation)` sans `wait_until` explicite — défaut Playwright `"load"`, qui attend la fin de **toutes** les ressources de la page. Kijiji charge en continu des pubs/trackers en arrière-plan (déjà documenté dans ce module via les `wait_for_load_state("networkidle", ...)` tolérants existants, jamais pour le `goto()` initial lui-même) : `"load"` peut donc dépasser les 60s de `timeout_navigation` même quand le contenu utile (résultats de recherche) est déjà disponible.
+- **`backend/scraping/kijiji/core.py`** : les 3 `page.goto()` concernés passent désormais `wait_until="domcontentloaded"` — suffisant puisque `__NEXT_DATA__` (dont dépendent `_scrape_results_page()`/`parse_details_page()`) est rendu côté serveur (SSR), donc déjà présent dans le HTML initial avant même le "load" complet. Même précédent que `check_listing_availability()` (déjà en `domcontentloaded` dans ce même fichier) et que le fix Facebook analogue (`_apply_filters()`, 2026-07-21, voir plus haut).
+- **Tests** : 90 tests toujours verts (aucun test unitaire ne couvrait directement `wait_until`, changement de configuration Playwright pure — pas de comportement testable sans navigateur réel).
+
+#### 2. Raisonnement
+Le même symptôme ("load"/"networkidle" qui n'aboutit jamais sur un site à trafic de fond permanent) avait déjà été diagnostiqué et corrigé côté Facebook (2026-07-21) et partiellement côté Kijiji (les `wait_for_load_state("networkidle", ...)` secondaires, déjà tolérants) — mais le `goto()` initial de `scan_search_url()`, point d'entrée de **tout** scan Kijiji (`scan_city()` en dépend), restait exposé à une attente bloquante de 60s sur l'événement le plus strict ("load"). Un signalement de production a révélé cet angle mort resté non couvert malgré le précédent déjà établi ailleurs dans le même fichier (`check_listing_availability()`) — la leçon du 2026-07-21 n'avait pas été appliquée de façon uniforme à tous les points d'entrée équivalents.
