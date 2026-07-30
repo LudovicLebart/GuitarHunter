@@ -254,5 +254,67 @@ class TestRunSourcesInParallel(unittest.TestCase):
         self.bot.logger.error.assert_called_once()
 
 
+class TestScanSpecificUrl(unittest.TestCase):
+    """scan_specific_url() ("Scanner une URL spécifique") doit dispatcher vers le bon
+    scraper selon le domaine de l'URL — avant ce correctif (2026-07-27), `FacebookScraper`
+    était utilisé sans condition, y compris pour une URL kijiji.ca : échec silencieux
+    (mauvais site/sélecteurs), notification générique "Impossible de récupérer les
+    informations..." mal étiquetée "URL Facebook" — signalé par l'utilisateur."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot.offline_mode = True
+        self.bot._user_email = ''
+        self.bot.handle_deal_found = MagicMock(return_value="processed")
+
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
+    @patch("backend.bot.FacebookScraper")
+    def test_facebook_url_uses_facebook_scraper(self, mock_fb_cls, mock_kj_cls, _mock_notif):
+        mock_fb = mock_fb_cls.return_value
+        self.bot.scan_specific_url("https://www.facebook.com/marketplace/item/123456")
+
+        mock_fb_cls.assert_called_once()
+        mock_kj_cls.assert_not_called()
+        mock_fb.scan_specific_url.assert_called_once()
+
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
+    @patch("backend.bot.FacebookScraper")
+    def test_kijiji_url_uses_kijiji_scraper(self, mock_fb_cls, mock_kj_cls, _mock_notif):
+        mock_kj = mock_kj_cls.return_value
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650")
+
+        mock_kj_cls.assert_called_once()
+        mock_fb_cls.assert_not_called()
+        mock_kj.scan_specific_url.assert_called_once()
+
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
+    @patch("backend.bot.FacebookScraper")
+    def test_kijiji_deal_id_is_prefixed_and_source_passed(self, _mock_fb_cls, mock_kj_cls, _mock_notif):
+        mock_kj = mock_kj_cls.return_value
+
+        def fake_scan(url, on_deal_found):
+            on_deal_found({"id": "1740804650", "title": "Guitare électrique"})
+        mock_kj.scan_specific_url.side_effect = fake_scan
+
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650")
+
+        (listing_data,), kwargs = self.bot.handle_deal_found.call_args
+        self.assertEqual(listing_data["id"], "kijiji_1740804650")
+        self.assertEqual(kwargs["source"], "Kijiji")
+        self.assertTrue(kwargs["is_manual_scan"])
+
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
+    @patch("backend.bot.FacebookScraper")
+    def test_notification_labeled_with_correct_source(self, _mock_fb_cls, mock_kj_cls, mock_notif):
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650")
+
+        _, kwargs = mock_notif.notify_scan_url_finished.call_args
+        self.assertEqual(kwargs["source"], "Kijiji")
+
+
 if __name__ == "__main__":
     unittest.main()

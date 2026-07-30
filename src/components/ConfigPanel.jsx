@@ -166,7 +166,7 @@ const FacebookSearchSection = () => {
       <div className="pt-4 border-t border-slate-800/50">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Scan d'URL Direct</label>
         <div className="flex gap-2">
-          <input type="text" placeholder="URL Facebook Marketplace..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
+          <input type="text" placeholder="URL Facebook Marketplace ou Kijiji..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
           <button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 transition-all flex items-center justify-center">
             {isScanningUrl ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
           </button>

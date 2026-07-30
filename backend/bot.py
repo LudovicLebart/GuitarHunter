@@ -702,22 +702,37 @@ class GuitarHunterBot:
         )
 
     def scan_specific_url(self, url):
+        """Scan manuel d'une URL précise ("Scanner une URL spécifique") — dispatche vers
+        `KijijiScraper` ou `FacebookScraper` selon le domaine de `url` (2026-07-27 : avant
+        ce correctif, `FacebookScraper` était utilisé sans condition, y compris pour une
+        URL kijiji.ca — échec silencieux, "❓ Impossible de récupérer les informations..."
+        générique, notification mal étiquetée "URL Facebook" — signalé par l'utilisateur).
+        """
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
-            temp_scraper = FacebookScraper({}, {}, logger=self.logger)
+            is_kijiji = "kijiji.ca" in url.lower()
+            source = "Kijiji" if is_kijiji else "Facebook"
+            temp_scraper = KijijiScraper(logger=self.logger) if is_kijiji else FacebookScraper({}, {}, logger=self.logger)
             try:
                 scan_result = {}
                 def handle_manual_deal(listing_data):
-                    scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True)
+                    if is_kijiji:
+                        # Préfixe requis avant handle_deal_found() (voir _run_kijiji_scan) :
+                        # Facebook et Kijiji utilisent tous deux de simples entiers comme
+                        # ID, dans des espaces différents — sans préfixe, une collision
+                        # entre les deux sources écraserait la mauvaise annonce.
+                        listing_data['id'] = f"kijiji_{listing_data['id']}"
+                    scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)
                     scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
                 try:
                     NotificationService.notify_scan_url_finished(
                         url, user_email=self._user_email, logger=self.logger,
-                        outcome=scan_result.get("outcome"), listing_data=scan_result.get("listing_data")
+                        outcome=scan_result.get("outcome"), listing_data=scan_result.get("listing_data"),
+                        source=source,
                     )
                 except Exception as e:
                     self.logger.warning(f"Erreur envoi notification scan manuel URL: {e}")

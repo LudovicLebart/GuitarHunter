@@ -312,11 +312,14 @@ class NotificationService:
 
     @staticmethod
     def notify_scan_url_finished(url: str, user_email: Optional[str] = None, logger: logging.Logger = None,
-                                  outcome: Optional[str] = None, listing_data: Optional[dict] = None) -> None:
+                                  outcome: Optional[str] = None, listing_data: Optional[dict] = None,
+                                  source: str = "Facebook") -> None:
         """
         Notifie l'utilisateur (ntfy + email) du résultat réel du scan manuel de l'URL demandée
         (nouveau/doublon/rejeté/vendu/échec), avec un lien direct vers l'annonce dans Guitar Hunter
-        si elle a pu être identifiée.
+        si elle a pu être identifiée. `source` ("Facebook"/"Kijiji", voir bot.py::scan_specific_url)
+        étiquette correctement l'URL dans le message — auparavant toujours "URL Facebook",
+        y compris pour un scan Kijiji.
         """
         log = logger or _module_logger
         listing_data = listing_data or {}
@@ -333,7 +336,7 @@ class NotificationService:
         body = (
             f"🔎 SCAN MANUEL TERMINÉ\n"
             f"{'=' * 50}\n"
-            f"URL Facebook : {url}\n"
+            f"URL {source} : {url}\n"
             f"Résultat : {result_line}\n"
             + (f"\nVoir dans Guitar Hunter : {deal_link}\n" if deal_link else "")
             + f"\n—\nGuitar Hunter Bot"
