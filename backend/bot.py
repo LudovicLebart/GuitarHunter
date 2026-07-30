@@ -410,14 +410,18 @@ class GuitarHunterBot:
                 self.set_status('idle', task_name='scanning')
 
     def _run_sources_in_parallel(self, scan_config, cities_to_scan):
-        """Lance Facebook et Kijiji (si `scanConfig.kijiji_enabled`) chacun dans son
-        propre thread plutôt qu'en séquence — le cycle complet dure max(FB, Kijiji) au
-        lieu de FB + Kijiji. Sûr à paralléliser : les deux sources n'écrivent jamais le
-        même document Firestore (IDs Kijiji préfixés `kijiji_`, voir _run_kijiji_scan),
-        `session_processed_ids` est déjà isolé par thread (`threading.local()`, voir sa
-        docstring), et `_browser_semaphore` (déjà thread-safe) continue de plafonner le
-        nombre réel de navigateurs Playwright simultanés — 2 threads ne veut pas dire 2
-        navigateurs ouverts en même temps si la limite est à 1.
+        """Lance Facebook (si `scanConfig.facebook_enabled`, activé par défaut — absent
+        pour tout compte existant avant ce réglage) et Kijiji (si `scanConfig.kijiji_enabled`)
+        chacun dans son propre thread plutôt qu'en séquence — le cycle complet dure
+        max(FB, Kijiji) au lieu de FB + Kijiji. Les deux sources sont désactivables
+        indépendamment (ex: isoler un scan Kijiji seul en désactivant Facebook, pour
+        déboguer sans le bruit de l'autre source dans les logs partagés). Sûr à
+        paralléliser : les deux sources n'écrivent jamais le même document Firestore (IDs
+        Kijiji préfixés `kijiji_`, voir _run_kijiji_scan), `session_processed_ids` est déjà
+        isolé par thread (`threading.local()`, voir sa docstring), et `_browser_semaphore`
+        (déjà thread-safe) continue de plafonner le nombre réel de navigateurs Playwright
+        simultanés — 2 threads ne veut pas dire 2 navigateurs ouverts en même temps si la
+        limite est à 1.
         """
         def _run_and_log(name, target):
             try:
@@ -425,15 +429,21 @@ class GuitarHunterBot:
             except Exception as e:
                 self.logger.error(f"❌ Erreur non gérée dans le thread de scan {name}: {e}", exc_info=True)
 
-        threads = [threading.Thread(
-            target=_run_and_log, args=("Facebook", self._run_facebook_scan),
-            name=f"scan-facebook-{self._user_id[:8]}", daemon=True,
-        )]
+        threads = []
+        if scan_config.get('facebook_enabled', True):
+            threads.append(threading.Thread(
+                target=_run_and_log, args=("Facebook", self._run_facebook_scan),
+                name=f"scan-facebook-{self._user_id[:8]}", daemon=True,
+            ))
         if scan_config.get('kijiji_enabled'):
             threads.append(threading.Thread(
                 target=_run_and_log, args=("Kijiji", self._run_kijiji_scan),
                 name=f"scan-kijiji-{self._user_id[:8]}", daemon=True,
             ))
+
+        if not threads:
+            self.logger.warning("⚠️ Aucune source de scan activée (Facebook et Kijiji désactivés) — cycle ignoré.")
+            return
 
         for t in threads:
             t.start()

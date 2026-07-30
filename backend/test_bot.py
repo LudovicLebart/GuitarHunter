@@ -196,6 +196,28 @@ class TestRunSourcesInParallel(unittest.TestCase):
         self.bot._run_facebook_scan.assert_called_once()
         self.bot._run_kijiji_scan.assert_not_called()
 
+    def test_facebook_enabled_by_default_when_absent(self):
+        """`facebook_enabled` absent (comptes existants avant ce réglage, 2026-07-27) :
+        Facebook tourne quand même — pas de désactivation silencieuse."""
+        self.bot._run_sources_in_parallel({}, self.cities)
+
+        self.bot._run_facebook_scan.assert_called_once()
+
+    def test_only_kijiji_called_when_facebook_disabled(self):
+        """Facebook désactivable indépendamment — utile pour isoler un scan Kijiji seul
+        en debug (demande utilisateur du 2026-07-27)."""
+        self.bot._run_sources_in_parallel({"facebook_enabled": False, "kijiji_enabled": True}, self.cities)
+
+        self.bot._run_facebook_scan.assert_not_called()
+        self.bot._run_kijiji_scan.assert_called_once()
+
+    def test_no_scan_when_both_sources_disabled(self):
+        self.bot._run_sources_in_parallel({"facebook_enabled": False, "kijiji_enabled": False}, self.cities)
+
+        self.bot._run_facebook_scan.assert_not_called()
+        self.bot._run_kijiji_scan.assert_not_called()
+        self.bot.logger.warning.assert_called_once()
+
     def test_sources_actually_overlap_in_time_not_sequential(self):
         """Preuve de parallélisme réel (pas juste 'les deux mocks ont été appelés') :
         chaque cible signale son propre démarrage puis attend celui de l'autre — un

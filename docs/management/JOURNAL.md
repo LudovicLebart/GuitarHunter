@@ -1308,3 +1308,20 @@ Le rayon Kijiji n'a jamais eu de donnée fiable pour distinguer une petite d'une
 
 #### 2. Raisonnement
 Le même symptôme ("load"/"networkidle" qui n'aboutit jamais sur un site à trafic de fond permanent) avait déjà été diagnostiqué et corrigé côté Facebook (2026-07-21) et partiellement côté Kijiji (les `wait_for_load_state("networkidle", ...)` secondaires, déjà tolérants) — mais le `goto()` initial de `scan_search_url()`, point d'entrée de **tout** scan Kijiji (`scan_city()` en dépend), restait exposé à une attente bloquante de 60s sur l'événement le plus strict ("load"). Un signalement de production a révélé cet angle mort resté non couvert malgré le précédent déjà établi ailleurs dans le même fichier (`check_listing_availability()`) — la leçon du 2026-07-21 n'avait pas été appliquée de façon uniforme à tous les points d'entrée équivalents.
+
+---
+
+---
+
+[2026-07-27] [PRO] Action effectuée -> Source Facebook désactivable indépendamment de Kijiji (`scanConfig.facebook_enabled`) → Résultat : possibilité d'isoler un scan Kijiji seul pour déboguer.
+
+### Session : Facebook optionnel, symétrique à Kijiji
+
+#### 1. Objectif : L'utilisateur a l'impression qu'aucun scraping Kijiji ne se produit malgré les correctifs récents (rayon, ancrage, timeout `Page.goto`) — plutôt que de continuer à deviner depuis les logs partagés Facebook+Kijiji, il demande de pouvoir isoler un scan Kijiji seul comme moyen de diagnostic direct
+- **Vérification Git au passage** : `dev` local strictement à jour avec `origin/dev` (`32a6577`), rien en attente. `master` en retard de plusieurs commits (dernier push explicite sur `master` antérieur aux correctifs Kijiji récents) — normal, aucun push `master` demandé depuis.
+- **`src/components/ConfigPanel.jsx`** : nouveau toggle "Source Facebook" (`scanConfig.facebook_enabled`), symétrique au toggle "Source Kijiji (bêta)" déjà existant — activé par défaut (case cochée tant que le champ n'est pas explicitement à `false`), pour qu'un compte existant (créé avant ce réglage, champ absent de Firestore) continue de scanner Facebook sans interruption.
+- **`backend/bot.py::_run_sources_in_parallel()`** : le thread Facebook n'est plus systématique — construit seulement si `scan_config.get('facebook_enabled', True)`, symétrique au thread Kijiji (déjà conditionnel à `kijiji_enabled`). Si aucune des deux sources n'est activée, log un `warning` explicite et retourne sans rien faire, plutôt qu'un cycle silencieusement vide (pas de thread démarré, pas d'erreur, mais aussi aucune trace claire de pourquoi).
+- **Tests** : 4 nouveaux dans `TestRunSourcesInParallel` — `facebook_enabled` absent = Facebook tourne quand même (pas de désactivation silencieuse rétroactive), Facebook désactivé seul = Kijiji continue, les deux désactivés = aucun thread + warning loggé. 93 tests au total (`backend/test_bot.py`, `scraping/test_core.py`, `scraping/kijiji/`), tous verts. Frontend : `npm run build` (Vite) réussi.
+
+#### 2. Raisonnement
+Face à un signalement flou ("j'ai l'impression que...") sans log d'erreur précis à investiguer, la demande de l'utilisateur elle-même est le bon outil de diagnostic : plutôt que de deviner depuis les logs entremêlés Facebook/Kijiji (déjà connus pour se chevaucher, voir le préfixage `[Facebook]`/`[Kijiji]` du 2026-07-27 plus haut, motivé par le même problème de lisibilité), isoler la source à observer élimine une variable entière d'un coup. Le défaut `True` pour `facebook_enabled` absent est le seul choix qui ne casse rien rétroactivement — un défaut `False` aurait désactivé Facebook pour tout compte existant à la prochaine lecture de config, une régression silencieuse bien plus grave que le problème qu'on essaie de diagnostiquer.

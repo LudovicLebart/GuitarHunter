@@ -120,6 +120,23 @@ const FacebookSearchSection = () => {
 
       <label className="flex items-center justify-between gap-3 p-3 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer">
         <span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Source Facebook</span>
+          <span className="text-[10px] text-slate-500 mt-1 block leading-relaxed">Désactiver pour isoler un scan sur Kijiji seul (debug) — activé par défaut.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={scanConfig.facebook_enabled !== false}
+          onChange={(e) => {
+            const next = { ...scanConfig, facebook_enabled: e.target.checked };
+            setScanConfig(next);
+            saveConfig({ scanConfig: next });
+          }}
+          className="w-5 h-5 shrink-0 accent-blue-500 cursor-pointer"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3 p-3 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer">
+        <span>
           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Source Kijiji (bêta)</span>
           <span className="text-[10px] text-slate-500 mt-1 block leading-relaxed">Scanne aussi Kijiji.ca, avec les mêmes villes et filtres que Facebook Marketplace ci-dessus.</span>
         </span>
