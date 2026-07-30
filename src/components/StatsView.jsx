@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 
@@ -62,6 +62,17 @@ const TYPE_LABELS = {
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
 const StatsView = ({ deals, loadedDeals = {} }) => {
+
+    // `todayKey` (plus bas) est calculé au rendu, pas par un timer propre — si le
+    // composant reste monté sans le moindre changement de `deals`/`loadedDeals`
+    // pendant plus de 24h (le cas même visé par le graphique de volume bas), rien
+    // ne déclenche de nouveau rendu et la fenêtre glissante resterait figée malgré
+    // la dépendance. Ce tick force un rendu au moins une fois par heure.
+    const [, forceHourlyTick] = useState(0);
+    useEffect(() => {
+        const interval = setInterval(() => forceHourlyTick(t => t + 1), 60 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, []);
 
     // ─── Merge : index léger + cache complet ───────────────────────────────
     // Pour les stats on fusionne ce qu'on a dans le cache avec l'index.
@@ -247,6 +258,10 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
         // évite de scanner tout l'historique à chaque recalcul.
         const cutoffSeconds = Math.floor(now.getTime() / 1000) - VOLUME_WINDOW_DAYS * 86400;
         enrichedDeals.forEach(deal => {
+            // Ce graphique est étiqueté "(FB)" — exclure les annonces LeBonCoin
+            // (id préfixé "lbc_") pour ne pas fausser silencieusement le volume
+            // Facebook une fois leboncoinConfig.enabled activé.
+            if (deal.id?.startsWith('lbc_')) return;
             const seconds = deal.timestamp?.seconds;
             if (!seconds || seconds < cutoffSeconds) return;
             const key = new Date(seconds * 1000).toISOString().slice(0, 10);

@@ -3,6 +3,7 @@ import time
 import threading
 import logging
 import requests
+from datetime import datetime
 from firebase_admin import firestore
 import firebase_admin.auth as fb_auth
 
@@ -18,6 +19,7 @@ from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping_leboncoin import LeboncoinScraper
 from backend.scraping_common import is_night_time
+from backend.scraping_common.human_behavior import PARIS_TZ
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
@@ -54,6 +56,11 @@ class GuitarHunterBot:
         # vivant pour toute la durée du thread bot — pas de fermeture/réouverture
         # entre deux scans (comportement anti-détection délibéré).
         self._leboncoin_scraper = None
+        # Garde contre un double déclenchement concurrent (schedule.run_pending()
+        # est appelé à la fois par la boucle du thread bot et par le watchdog global
+        # sur le même scheduler process-wide — Playwright n'étant pas thread-safe,
+        # deux exécutions simultanées sur le même _leboncoin_scraper seraient dangereuses).
+        self._leboncoin_scan_lock = threading.Lock()
 
         if self.offline_mode:
             self.logger.warning("Le bot est en mode hors ligne.")
@@ -345,6 +352,20 @@ class GuitarHunterBot:
         return False
 
     @staticmethod
+    def _parse_leboncoin_published_at(raw):
+        """Convertit le format LeBonCoin ('YYYY-MM-DD HH:MM:SS', heure de Paris,
+        confirmé sur un vrai résultat) en epoch secondes (int) — même type que
+        `published_at_ts` pour Facebook (`ListingParser.parse_french_date()`).
+        Une valeur manquante/invalide ne doit jamais planter le mapping."""
+        if not raw:
+            return None
+        try:
+            dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=PARIS_TZ)
+            return int(dt.timestamp())
+        except (ValueError, TypeError):
+            return None
+
+    @staticmethod
     def _map_leboncoin_ad(ad):
         """Convertit une annonce LeBonCoin (LeboncoinScraper.extract_ads()) vers le
         même schéma `listing_data` que les annonces Facebook, pour réutiliser
@@ -366,7 +387,7 @@ class GuitarHunterBot:
             "location": location.get("city") or "",
             "searchDistance": 0,
             "published_at_raw": ad.get("published_at"),
-            "published_at_ts": None,
+            "published_at_ts": GuitarHunterBot._parse_leboncoin_published_at(ad.get("published_at")),
         }
         if location.get("lat") and location.get("lng"):
             listing_data["latitude"] = location["lat"]
@@ -390,17 +411,41 @@ class GuitarHunterBot:
             self.logger.info("🌙 Plage nocturne — scan LeBonCoin ignoré, retenté au prochain cycle après le réveil.")
             return
 
+        # schedule.run_pending() est appelé à la fois par la boucle du thread bot ET
+        # par le watchdog global (main.py) sur le même scheduler process-wide — si les
+        # deux déclenchent ce job avant que schedule n'ait mis à jour son next_run, on
+        # se retrouverait avec deux exécutions concurrentes sur le même
+        # _leboncoin_scraper (Playwright n'est pas thread-safe). Non-bloquant : on
+        # ignore ce déclenchement plutôt que d'attendre, un nouveau cycle est de toute
+        # façon déjà replanifié.
+        if not self._leboncoin_scan_lock.acquire(blocking=False):
+            self.logger.warning("Scan LeBonCoin déjà en cours (double déclenchement détecté) — ignoré.")
+            return
+
         self.set_status('scanning', task_name='scanning_leboncoin')
-        if self._browser_semaphore:
-            self._browser_semaphore.acquire()
         try:
             if self._leboncoin_scraper is None:
                 if not os.path.exists(LEBONCOIN_STORAGE_STATE_PATH):
                     self.logger.error(f"Session LeBonCoin introuvable ({LEBONCOIN_STORAGE_STATE_PATH}) — scan ignoré.")
                     return
-                self._leboncoin_scraper = LeboncoinScraper(LEBONCOIN_STORAGE_STATE_PATH, logger=self.logger)
+                # Sémaphore acquis une seule fois, pour toute la durée de vie du
+                # navigateur LeBonCoin (gardé ouvert entre les cycles, jamais fermé/
+                # rouvert) — pas juste pendant ce cycle, pour que MAX_CONCURRENT_BROWSERS
+                # reflète correctement sa présence tant qu'il existe.
+                if self._browser_semaphore:
+                    self._browser_semaphore.acquire()
+                try:
+                    self._leboncoin_scraper = LeboncoinScraper(LEBONCOIN_STORAGE_STATE_PATH, logger=self.logger)
+                except Exception:
+                    if self._browser_semaphore:
+                        self._browser_semaphore.release()
+                    raise
 
-            known_ids = self.repo.get_known_deal_ids(prefix="lbc_")
+            # known_ids : search() compare ses propres ID bruts (non préfixés, voir
+            # extract_ads()) — retirer le préfixe "lbc_" ajouté pour Firestore avant
+            # de les lui passer, sinon la comparaison ne correspond jamais et l'arrêt
+            # anticipé de pagination ne se déclenche jamais.
+            known_ids = {kid[len("lbc_"):] for kid in self.repo.get_known_deal_ids(prefix="lbc_")}
 
             ads, blocked_reason = self._leboncoin_scraper.search(
                 lbc_config.get('query', 'guitare'),
@@ -430,9 +475,11 @@ class GuitarHunterBot:
         except Exception as e:
             self.logger.error(f"Erreur pendant le scan LeBonCoin : {e}", exc_info=True)
         finally:
-            if self._browser_semaphore:
-                self._browser_semaphore.release()
+            # Le sémaphore n'est PAS relâché ici : il reste tenu tant que
+            # self._leboncoin_scraper existe (voir son acquisition ci-dessus), pas
+            # seulement pendant ce cycle.
             self.set_status('idle', task_name='scanning_leboncoin')
+            self._leboncoin_scan_lock.release()
 
     def run_scan(self):
         if self._is_stop_requested():

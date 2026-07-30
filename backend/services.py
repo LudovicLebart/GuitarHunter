@@ -3,6 +3,7 @@ import logging
 import random
 import schedule
 import time
+import uuid
 from typing import Optional, Callable, List, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,13 @@ class TaskScheduler:
         # intervalle fixe (voir _schedule_next_leboncoin_run).
         self.leboncoin_scan_func = leboncoin_scan_func
         self.leboncoin_base_frequency_func = leboncoin_base_frequency_func
+        # `schedule` est un scheduler process-wide unique, partagé par TOUTES les
+        # instances de TaskScheduler (une par utilisateur, voir main.py) et par le
+        # watchdog global. Un tag littéral partagé ('leboncoin_scan') ferait que
+        # schedule.clear() d'une instance efface aussi le job d'une autre (ex: un
+        # redémarrage watchdog qui recrée un TaskScheduler, ou un futur 2e
+        # utilisateur avec LeBonCoin activé) — tag unique par instance.
+        self._leboncoin_tag = f"leboncoin_scan_{uuid.uuid4().hex}"
         self._setup_schedules()
 
     def _setup_schedules(self):
@@ -109,7 +117,7 @@ class TaskScheduler:
         base_minutes = self.leboncoin_base_frequency_func() if self.leboncoin_base_frequency_func else self.scan_frequency
         jittered_seconds = max(60, base_minutes * 60 * random.uniform(0.7, 1.3))
         logger.info(f"Prochain scan LeBonCoin dans ~{jittered_seconds / 60:.1f} min (base Facebook : {base_minutes} min).")
-        schedule.every(jittered_seconds).seconds.do(self._run_leboncoin_once).tag('leboncoin_scan')
+        schedule.every(jittered_seconds).seconds.do(self._run_leboncoin_once).tag(self._leboncoin_tag)
 
     def _run_leboncoin_once(self):
         """Exécute le scan LeBonCoin puis reprogramme le suivant avec un nouvel
@@ -120,7 +128,7 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"Erreur pendant le scan LeBonCoin planifié : {e}", exc_info=True)
         finally:
-            schedule.clear('leboncoin_scan')
+            schedule.clear(self._leboncoin_tag)
             self._schedule_next_leboncoin_run()
         return schedule.CancelJob
 
