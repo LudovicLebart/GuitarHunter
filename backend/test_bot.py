@@ -315,6 +315,138 @@ class TestScanSpecificUrl(unittest.TestCase):
         _, kwargs = mock_notif.notify_scan_url_finished.call_args
         self.assertEqual(kwargs["source"], "Kijiji")
 
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
+    def test_kijiji_manual_scan_corrects_location_via_gps(self, mock_kj_cls, _mock_notif):
+        """Régression : le scan manuel Kijiji ne corrigeait pas `location` (imprécis par
+        nature, ex: "Longueuil / South Shore") via GPS, contrairement au scan automatique
+        (`_run_kijiji_scan`) — signalé par l'utilisateur (empêchait la dédup
+        cross-plateforme de repli par nom de ville de fonctionner)."""
+        mock_kj = mock_kj_cls.return_value
+
+        def fake_scan(url, on_deal_found):
+            on_deal_found({"id": "1740804650", "title": "Guitare", "latitude": 45.58, "longitude": -73.32, "location": "Longueuil / South Shore"})
+        mock_kj.scan_specific_url.side_effect = fake_scan
+
+        self.bot.offline_mode = False
+        self.bot.set_status = MagicMock()
+        self.bot.repo = MagicMock()
+        self.bot.repo.get_cities.return_value = [
+            {"name": "Sainte-Julie", "latitude": 45.5906, "longitude": -73.3306},
+            {"name": "Longueuil", "latitude": 45.5369, "longitude": -73.5105},
+        ]
+
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650")
+
+        (listing_data,), _ = self.bot.handle_deal_found.call_args
+        self.assertEqual(listing_data["location"], "sainte julie")  # nearest_configured_city() retourne un nom normalisé
+
+
+class TestFindCrossPlatformDuplicate(unittest.TestCase):
+    """`_find_cross_platform_duplicate()` repère une même annonce postée sur Facebook et
+    Kijiji avant de payer le pipeline IA une seconde fois. Localisation comparée par
+    distance GPS (précise même quand `location.name` Kijiji ne l'est pas), avec repli sur
+    le nom de ville normalisé si les coordonnées manquent d'un côté — voir sa docstring
+    pour le contexte complet (2026-07-27, signalé par l'utilisateur : faux négatif d'abord,
+    puis risque de faux positif sur titre générique identifié avant d'implémenter)."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot.offline_mode = False
+        self.bot.repo = MagicMock()
+
+    def _set_index(self, entries):
+        self.bot.repo.get_deals_index_snapshot.return_value = entries
+
+    def test_returns_none_when_offline(self):
+        self.bot.offline_mode = True
+        self._set_index({"123": {"p": 200, "title": "Guitare"}})
+        result = self.bot._find_cross_platform_duplicate({"price": 200, "title": "Guitare"}, "Kijiji")
+        self.assertIsNone(result)
+
+    def test_matches_via_gps_distance_when_both_have_coordinates(self):
+        """Même prix/titre, coordonnées à quelques centaines de mètres (jitter de
+        géocodage) : doublon détecté même si les noms de ville diffèrent (l'annonce
+        Kijiji "Longueuil / South Shore" vs Facebook "Sainte-Julie", cas réel signalé)."""
+        self._set_index({
+            "999": {"p": 220, "title": "Guitare électrique", "l": "sainte-julie", "la": 45.5906, "lo": -73.3306},
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 220, "title": "Guitare électrique", "location": "Longueuil / South Shore",
+             "latitude": 45.58, "longitude": -73.32},
+            "Kijiji",
+        )
+        self.assertEqual(result, "999")
+
+    def test_no_match_via_gps_when_too_far_even_with_generic_title(self):
+        """Régression clé (signalé par l'utilisateur) : même prix et titre générique
+        identique ("guitare électrique") ne doit PAS suffire si les coordonnées GPS des
+        deux côtés montrent des villes clairement différentes — sans ce garde-fou, deux
+        guitares différentes à Montréal et Québec seraient à tort fusionnées."""
+        self._set_index({
+            "999": {"p": 200, "title": "Guitare électrique", "la": 46.8139, "lo": -71.2080},  # Québec
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 200, "title": "Guitare électrique", "latitude": 45.5017, "longitude": -73.5673},  # Montréal
+            "Kijiji",
+        )
+        self.assertIsNone(result)
+
+    def test_falls_back_to_location_name_when_coordinates_missing(self):
+        """Coordonnées absentes d'un côté : repli sur la comparaison par nom de ville
+        (comportement historique, préservé pour ne pas perdre tout filtre géographique)."""
+        self._set_index({
+            "999": {"p": 200, "title": "Guitare électrique", "l": "sainte-julie"},  # pas de la/lo
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 200, "title": "Guitare électrique", "location": "Sainte-Julie"},  # pas de latitude/longitude
+            "Kijiji",
+        )
+        self.assertEqual(result, "999")
+
+    def test_no_match_via_location_fallback_when_cities_differ(self):
+        self._set_index({
+            "999": {"p": 200, "title": "Guitare électrique", "l": "quebec"},
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 200, "title": "Guitare électrique", "location": "Montreal"},
+            "Kijiji",
+        )
+        self.assertIsNone(result)
+
+    def test_same_source_entries_are_skipped(self):
+        """Un doublon même-source (même préfixe `kijiji_` ou son absence) est déjà géré
+        par ID exact (`should_skip_deal`) — ne doit jamais matcher ici."""
+        self._set_index({
+            "kijiji_999": {"p": 200, "title": "Guitare électrique", "la": 45.58, "lo": -73.32},
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 200, "title": "Guitare électrique", "latitude": 45.58, "longitude": -73.32},
+            "Kijiji",  # même source que "kijiji_999"
+        )
+        self.assertIsNone(result)
+
+    def test_returns_none_when_price_or_title_missing(self):
+        self._set_index({"999": {"p": 200, "title": "Guitare électrique"}})
+        self.assertIsNone(self.bot._find_cross_platform_duplicate({"price": 0, "title": "Guitare électrique"}, "Kijiji"))
+        self.assertIsNone(self.bot._find_cross_platform_duplicate({"price": 200, "title": ""}, "Kijiji"))
+
+    def test_ignores_non_numeric_coordinates(self):
+        """Régression : une coordonnée non numérique (chaîne, `None`) ne doit pas être
+        traitée comme "0,0" par calculate_distance() — même piège que
+        nearest_configured_city(), voir `_is_number()`."""
+        self._set_index({
+            "999": {"p": 200, "title": "Guitare électrique", "l": "sainte-julie", "la": "invalide", "lo": -73.3306},
+        })
+        result = self.bot._find_cross_platform_duplicate(
+            {"price": 200, "title": "Guitare électrique", "location": "Sainte-Julie",
+             "latitude": 45.5906, "longitude": -73.3306},
+            "Kijiji",
+        )
+        # Repli sur le nom de ville (coordonnées invalides côté candidat) plutôt que de
+        # planter ou de considérer "invalide" comme une coordonnée valide.
+        self.assertEqual(result, "999")
+
 
 if __name__ == "__main__":
     unittest.main()

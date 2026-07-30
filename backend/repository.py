@@ -78,8 +78,9 @@ class FirestoreRepository:
 
     def get_deals_index_snapshot(self):
         """Lit les 20 chunks de l'index léger et retourne un dict {deal_id: {champs...}}
-        fusionné (title, p=price, l=location, s=status, ...). Utilisé pour des recherches
-        transverses (ex: détection de doublons cross-plateforme) sans lire guitar_deals."""
+        fusionné (title, p=price, l=location, la=latitude, lo=longitude, s=status, ...).
+        Utilisé pour des recherches transverses (ex: détection de doublons
+        cross-plateforme, comparaison par distance GPS) sans lire guitar_deals."""
         merged = {}
         try:
             for chunk_doc in self.deals_index_ref.stream():
@@ -96,30 +97,36 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None):
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
             index_ref = self.user_ref.collection('deals_index').document(chunk_id)
-            
+
             update_data = {}
             prefix = f"deals.{deal_id}"
             update_data[f"{prefix}.h"] = chunk_id
-            
+
             if status is not None:
                 update_data[f"{prefix}.s"] = status
-            
+
             if is_favorite is not None:
                 update_data[f"{prefix}.f"] = is_favorite
-                
+
             if title is not None:
                 update_data[f"{prefix}.title"] = title
-                
+
             if price is not None:
                 update_data[f"{prefix}.p"] = price
 
             if location is not None:
                 update_data[f"{prefix}.l"] = location
+
+            if latitude is not None:
+                update_data[f"{prefix}.la"] = latitude
+
+            if longitude is not None:
+                update_data[f"{prefix}.lo"] = longitude
 
             if initial_model is not None:
                 update_data[f"{prefix}.imu"] = initial_model
@@ -234,7 +241,9 @@ class FirestoreRepository:
                 published_at=deal_data.get('published_at_ts'),
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
             )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
@@ -291,7 +300,9 @@ class FirestoreRepository:
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
                 published_at=deal_data.get('published_at_ts'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:

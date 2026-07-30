@@ -24,9 +24,12 @@ from backend.notifications import NotificationService
 
 class GuitarHunterBot:
     # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
-    # de même prix/même ville venant d'une AUTRE source (Facebook vs Kijiji, distinguées
-    # via le préfixe `kijiji_` de l'ID) est considérée comme le même objet déjà analysé.
+    # de même prix venant d'une AUTRE source (Facebook vs Kijiji, distinguées via le
+    # préfixe `kijiji_` de l'ID) est considérée comme le même objet déjà analysé.
     CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD = 0.6
+    # Distance GPS max (km) entre deux annonces de même prix/titre pour les considérer
+    # comme le même objet — voir _find_cross_platform_duplicate().
+    CROSS_PLATFORM_MAX_DISTANCE_KM = 5
 
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
@@ -167,6 +170,15 @@ class GuitarHunterBot:
             return 0.0
 
     @staticmethod
+    def _is_number(value):
+        """`bool` est une sous-classe d'`int` en Python mais n'est pas une coordonnée
+        valide — même piège que celui déjà documenté pour
+        `scraping.kijiji.locations.nearest_configured_city` (calculate_distance() capture
+        une exception sur une entrée non numérique et retourne 0, qui gagnerait alors
+        silencieusement comme "distance minimale")."""
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @staticmethod
     def _title_tokens(title):
         """Normalise un titre en un set de tokens (minuscules, sans accents) pour un
         calcul de similarité de Jaccard bon marché — pas de dépendance NLP."""
@@ -177,18 +189,37 @@ class GuitarHunterBot:
 
     def _find_cross_platform_duplicate(self, listing_data, source):
         """Cherche dans l'index léger (`deals_index`) une annonce déjà analysée venant
-        d'une AUTRE source, avec le même prix, la même ville normalisée et un titre
-        suffisamment similaire. Retourne l'ID du doublon trouvé, ou None.
-        Placé avant l'appel IA dans `handle_deal_found()` pour éviter de payer le pipeline
-        Gemini deux fois sur la même annonce postée sur Facebook et Kijiji."""
+        d'une AUTRE source, avec le même prix, un titre suffisamment similaire et une
+        localisation compatible. Retourne l'ID du doublon trouvé, ou None. Placé avant
+        l'appel IA dans `handle_deal_found()` pour éviter de payer le pipeline Gemini
+        deux fois sur la même annonce postée sur Facebook et Kijiji.
+
+        **Localisation par distance GPS plutôt que par nom de ville exact (2026-07-27,
+        signalé par l'utilisateur — faux négatif confirmé sur un vrai doublon)** :
+        `location` (nom) côté Kijiji est structurellement moins précis que côté Facebook
+        (grande sous-région Kijiji type "Longueuil / South Shore" vs ville précise, voir
+        ARCHITECTURE.md § kijiji/), y compris après correction GPS
+        (`nearest_configured_city()`) — rien ne garantit que la ville configurée la plus
+        proche corresponde à celle que Facebook affiche pour la même annonce. `latitude`/
+        `longitude`, quand disponibles des deux côtés, sont nettement plus fiables (le
+        `location.coordinates` Kijiji est précis même quand `location.name` ne l'est pas)
+        — comparées par distance Haversine (`CROSS_PLATFORM_MAX_DISTANCE_KM=5`) plutôt que
+        par égalité de texte. Coordonnées absentes d'un côté (arrive côté Facebook, moins
+        systématiquement extraites) : repli sur l'ancienne comparaison par nom de ville
+        normalisé, pour ne pas perdre tout filtre géographique (garde-fou contre un faux
+        positif sur un titre générique + prix identique par coïncidence, entre deux villes
+        différentes)."""
         if self.offline_mode:
             return None
 
         new_price = self._normalize_price(listing_data.get('price'))
-        new_location = ListingParser.normalize_city_name(listing_data.get('location'))
         new_tokens = self._title_tokens(listing_data.get('title'))
-        if new_price <= 0 or not new_location or not new_tokens:
+        if new_price <= 0 or not new_tokens:
             return None
+
+        new_lat, new_lng = listing_data.get('latitude'), listing_data.get('longitude')
+        has_new_coords = self._is_number(new_lat) and self._is_number(new_lng)
+        new_location = ListingParser.normalize_city_name(listing_data.get('location'))
 
         is_kijiji = (source == "Kijiji")
         for deal_id, entry in self.repo.get_deals_index_snapshot().items():
@@ -197,15 +228,23 @@ class GuitarHunterBot:
 
             if self._normalize_price(entry.get('p')) != new_price:
                 continue
-            if ListingParser.normalize_city_name(entry.get('l')) != new_location:
-                continue
 
             candidate_tokens = self._title_tokens(entry.get('title'))
             if not candidate_tokens:
                 continue
-
             similarity = len(new_tokens & candidate_tokens) / len(new_tokens | candidate_tokens)
-            if similarity >= self.CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD:
+            if similarity < self.CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD:
+                continue
+
+            entry_lat, entry_lng = entry.get('la'), entry.get('lo')
+            has_entry_coords = self._is_number(entry_lat) and self._is_number(entry_lng)
+            if has_new_coords and has_entry_coords:
+                distance = calculate_distance(new_lat, new_lng, entry_lat, entry_lng)
+                if distance <= self.CROSS_PLATFORM_MAX_DISTANCE_KM:
+                    return deal_id
+                continue  # coordonnées fiables des deux côtés mais trop éloignées : pas un doublon
+
+            if new_location and ListingParser.normalize_city_name(entry.get('l')) == new_location:
                 return deal_id
 
         return None
@@ -716,6 +755,17 @@ class GuitarHunterBot:
             is_kijiji = "kijiji.ca" in url.lower()
             source = "Kijiji" if is_kijiji else "Facebook"
             temp_scraper = KijijiScraper(logger=self.logger) if is_kijiji else FacebookScraper({}, {}, logger=self.logger)
+            # Coordonnées des villes configurées, pour nearest_configured_city() — même
+            # correction que _run_kijiji_scan() (voir sa docstring : `location` Kijiji est
+            # souvent une grande sous-région, pas la ville précise), jusqu'ici absente du
+            # scan manuel (2026-07-27, corrigé — signalé par l'utilisateur).
+            city_coordinates = {}
+            if is_kijiji and not self.offline_mode:
+                city_coordinates = {
+                    ListingParser.normalize_city_name(c['name']): {"lat": c['latitude'], "lng": c['longitude']}
+                    for c in self.repo.get_cities()
+                    if c.get('latitude') is not None and c.get('longitude') is not None
+                }
             try:
                 scan_result = {}
                 def handle_manual_deal(listing_data):
@@ -725,6 +775,11 @@ class GuitarHunterBot:
                         # ID, dans des espaces différents — sans préfixe, une collision
                         # entre les deux sources écraserait la mauvaise annonce.
                         listing_data['id'] = f"kijiji_{listing_data['id']}"
+                        nearest = nearest_configured_city(
+                            listing_data.get('latitude'), listing_data.get('longitude'), city_coordinates
+                        )
+                        if nearest:
+                            listing_data['location'] = nearest['city']
                     scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)
                     scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
