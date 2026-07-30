@@ -34,6 +34,16 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FIREBASE_KEY_PATH = os.path.join(BASE_DIR, "backend", "config", "serviceAccountKey.json")
 FIREBASE_STORAGE_BUCKET = os.getenv("VITE_FIREBASE_STORAGE_BUCKET", "guitarehunter-d6e35.firebasestorage.app")
 
+# --- SESSION LEBONCOIN (compte personnel unique, pas multi-utilisateurs) ---
+# Fichier généré manuellement une fois via `backend.scripts.leboncoin_login_once`
+# (jamais commité — voir .gitignore) et déposé sur le serveur de production, comme
+# serviceAccountKey.json. Le scan LeBonCoin reste désactivé (leboncoinConfig.enabled)
+# tant que ce fichier n'existe pas.
+LEBONCOIN_STORAGE_STATE_PATH = os.getenv(
+    "LEBONCOIN_STORAGE_STATE_PATH",
+    os.path.join(BASE_DIR, "backend", "scripts", "leboncoin_storage_state.json")
+)
+
 # --- POLITIQUE DE CYCLE DE VIE DES IMAGES ---
 # Nombre de jours après lequel les images des annonces rejetées sont purgées de Firebase Storage.
 IMAGE_RETENTION_REJECTED_DAYS = int(os.getenv("IMAGE_RETENTION_REJECTED_DAYS", 30))

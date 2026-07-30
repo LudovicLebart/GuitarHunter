@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import logging
+import random
 import schedule
 import time
 from typing import Optional, Callable, List, Dict, Any
@@ -77,11 +78,16 @@ class ConfigManager:
 
 class TaskScheduler:
     """Gère la planification et l'exécution des tâches du bot."""
-    def __init__(self, scan_func: Callable, cleanup_func: Callable, initial_frequency: int, purge_func: Optional[Callable] = None):
+    def __init__(self, scan_func: Callable, cleanup_func: Callable, initial_frequency: int, purge_func: Optional[Callable] = None,
+                 leboncoin_scan_func: Optional[Callable] = None, leboncoin_base_frequency_func: Optional[Callable] = None):
         self.scan_func = scan_func
         self.cleanup_func = cleanup_func
         self.purge_func = purge_func
         self.scan_frequency = initial_frequency
+        # Scan LeBonCoin : cadence indépendante du scan Facebook, jamais un
+        # intervalle fixe (voir _schedule_next_leboncoin_run).
+        self.leboncoin_scan_func = leboncoin_scan_func
+        self.leboncoin_base_frequency_func = leboncoin_base_frequency_func
         self._setup_schedules()
 
     def _setup_schedules(self):
@@ -92,6 +98,31 @@ class TaskScheduler:
         if self.purge_func:
             schedule.every().week.do(self.purge_func)
             logger.info("Purge lifecycle des images planifiée hebdomadairement.")
+        if self.leboncoin_scan_func:
+            self._schedule_next_leboncoin_run()
+
+    def _schedule_next_leboncoin_run(self):
+        """Planifie le prochain scan LeBonCoin avec un intervalle jitterisé
+        (+/-30% de la fréquence de scan Facebook courante) — jamais un
+        intervalle fixe, pour ne pas introduire un nouveau pattern régulier
+        détectable dans la durée."""
+        base_minutes = self.leboncoin_base_frequency_func() if self.leboncoin_base_frequency_func else self.scan_frequency
+        jittered_seconds = max(60, base_minutes * 60 * random.uniform(0.7, 1.3))
+        logger.info(f"Prochain scan LeBonCoin dans ~{jittered_seconds / 60:.1f} min (base Facebook : {base_minutes} min).")
+        schedule.every(jittered_seconds).seconds.do(self._run_leboncoin_once).tag('leboncoin_scan')
+
+    def _run_leboncoin_once(self):
+        """Exécute le scan LeBonCoin puis reprogramme le suivant avec un nouvel
+        intervalle jitterisé — chaque exécution est un "one-shot" qui se
+        replanifie lui-même, plutôt qu'une récurrence à intervalle fixe."""
+        try:
+            self.leboncoin_scan_func()
+        except Exception as e:
+            logger.error(f"Erreur pendant le scan LeBonCoin planifié : {e}", exc_info=True)
+        finally:
+            schedule.clear('leboncoin_scan')
+            self._schedule_next_leboncoin_run()
+        return schedule.CancelJob
 
     def run_pending(self):
         """Exécute les tâches en attente."""

@@ -1,3 +1,4 @@
+import os
 import time
 import threading
 import logging
@@ -7,14 +8,16 @@ import firebase_admin.auth as fb_auth
 
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
-    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
+    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
-    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS
+    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, LEBONCOIN_STORAGE_STATE_PATH
 )
 from backend.analyzer import DealAnalyzer
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
+from backend.scraping_leboncoin import LeboncoinScraper
+from backend.scraping_common import is_night_time
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
@@ -46,6 +49,11 @@ class GuitarHunterBot:
 
         # Email de destination pour les notifications (résolu après init Firebase)
         self._user_email = ''  # Valeur par défaut : notifications email silencieusement désactivées
+
+        # LeboncoinScraper : créé à la demande (voir run_leboncoin_scan) et gardé
+        # vivant pour toute la durée du thread bot — pas de fermeture/réouverture
+        # entre deux scans (comportement anti-détection délibéré).
+        self._leboncoin_scraper = None
 
         if self.offline_mode:
             self.logger.warning("Le bot est en mode hors ligne.")
@@ -138,7 +146,19 @@ class GuitarHunterBot:
                 'analystVerbosityInstruction': DEFAULT_ANALYST_INSTRUCTION,
                 'expertProContextInstruction': DEFAULT_EXPERT_CONTEXT,
             },
-            'availableModels': GEMINI_MODELS["available"]
+            'availableModels': GEMINI_MODELS["available"],
+            # Désactivé par défaut pour tout le monde — compte LeBonCoin personnel
+            # unique (pas de session par utilisateur), à activer manuellement.
+            'leboncoinConfig': {
+                'enabled': False,
+                'query': 'guitare',
+                'locations': None,
+                'category': '30',
+                'min_price': 0,
+                'max_price': 0,
+                'owner_type': 'private',
+                'max_pages': 0,
+            },
         }
         self.logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
         self.repo.ensure_initial_structure(initial_config)
@@ -193,7 +213,7 @@ class GuitarHunterBot:
         # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
         return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
 
-    def handle_deal_found(self, listing_data, is_manual_scan=False):
+    def handle_deal_found(self, listing_data, is_manual_scan=False, skip_price_prefilter=False):
         self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
 
         # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
@@ -258,7 +278,12 @@ class GuitarHunterBot:
 
         if not is_manual_scan:
             found_keyword = self._check_exclusion(listing_data, current_config)
-            price_too_high = max_price > 0 and listing_price > max_price
+            # skip_price_prefilter : la recherche LeBonCoin filtre déjà par prix côté
+            # site (leboncoinConfig.min_price/max_price, appliqués à l'URL de
+            # recherche elle-même) — réappliquer scanConfig.max_price (Facebook,
+            # potentiellement une valeur différente) rejetterait à tort des annonces
+            # LeBonCoin légitimes selon un plafond qui ne les concerne pas.
+            price_too_high = (not skip_price_prefilter) and max_price > 0 and listing_price > max_price
         else:
             self.logger.info(f"Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
@@ -318,6 +343,96 @@ class GuitarHunterBot:
         if self.scan_stop_event and self.scan_stop_event.is_set():
             return True
         return False
+
+    @staticmethod
+    def _map_leboncoin_ad(ad):
+        """Convertit une annonce LeBonCoin (LeboncoinScraper.extract_ads()) vers le
+        même schéma `listing_data` que les annonces Facebook, pour réutiliser
+        handle_deal_found() tel quel sans dupliquer le pipeline de traitement.
+        Retourne None si l'annonce n'a pas d'identifiant exploitable."""
+        if not ad.get("id"):
+            return None
+        location = ad.get("location") or {}
+        listing_data = {
+            # Préfixe pour namespacer — les ID numériques LeBonCoin et Facebook
+            # pourraient sinon entrer en collision dans la même collection guitar_deals.
+            "id": f"lbc_{ad['id']}",
+            "title": ad.get("title") or "Annonce LeBonCoin",
+            "price": ad.get("price") or 0,
+            "description": ad.get("description") or "",
+            "imageUrl": (ad.get("image_urls") or [None])[0] or "",
+            "imageUrls": ad.get("image_urls") or [],
+            "link": ad.get("url"),
+            "location": location.get("city") or "",
+            "searchDistance": 0,
+            "published_at_raw": ad.get("published_at"),
+            "published_at_ts": None,
+        }
+        if location.get("lat") and location.get("lng"):
+            listing_data["latitude"] = location["lat"]
+            listing_data["longitude"] = location["lng"]
+        return listing_data
+
+    def run_leboncoin_scan(self):
+        """Scan LeBonCoin réel (compte personnel unique, voir config.py). Réutilise
+        handle_deal_found() pour tout le pipeline (dédup, pré-filtres, analyse IA,
+        Firestore, notifications) via _map_leboncoin_ad(). Appelé par le scheduler
+        à une cadence indépendante et jitterisée (voir services.py)."""
+        if self.offline_mode or self._is_stop_requested():
+            return
+
+        lbc_config = self.config_manager.current_config_snapshot.get('leboncoinConfig', {})
+        if not lbc_config.get('enabled'):
+            self.logger.debug("Scan LeBonCoin désactivé (leboncoinConfig.enabled=False). Ignoré.")
+            return
+
+        if is_night_time():
+            self.logger.info("🌙 Plage nocturne — scan LeBonCoin ignoré, retenté au prochain cycle après le réveil.")
+            return
+
+        self.set_status('scanning', task_name='scanning_leboncoin')
+        if self._browser_semaphore:
+            self._browser_semaphore.acquire()
+        try:
+            if self._leboncoin_scraper is None:
+                if not os.path.exists(LEBONCOIN_STORAGE_STATE_PATH):
+                    self.logger.error(f"Session LeBonCoin introuvable ({LEBONCOIN_STORAGE_STATE_PATH}) — scan ignoré.")
+                    return
+                self._leboncoin_scraper = LeboncoinScraper(LEBONCOIN_STORAGE_STATE_PATH, logger=self.logger)
+
+            known_ids = self.repo.get_known_deal_ids(prefix="lbc_")
+
+            ads, blocked_reason = self._leboncoin_scraper.search(
+                lbc_config.get('query', 'guitare'),
+                locations=lbc_config.get('locations'),
+                category=lbc_config.get('category', '30'),
+                min_price=lbc_config.get('min_price', 0),
+                max_price=lbc_config.get('max_price', 0),
+                owner_type=lbc_config.get('owner_type'),
+                max_pages_limit=lbc_config.get('max_pages') or None,
+                known_ids=known_ids,
+            )
+            if blocked_reason:
+                self.logger.warning(f"🚨 Scan LeBonCoin interrompu : {blocked_reason}")
+
+            outcome_counts = {}
+            for ad in ads:
+                if self._is_stop_requested():
+                    break
+                listing_data = self._map_leboncoin_ad(ad)
+                if not listing_data:
+                    continue
+                outcome = self.handle_deal_found(listing_data, skip_price_prefilter=True) or "unknown"
+                outcome_counts[outcome] = outcome_counts.get(outcome, 0) + 1
+
+            processed = outcome_counts.get("processed", 0) + outcome_counts.get("processed_update", 0)
+            self.logger.info(f"📊 Scan LeBonCoin terminé : {len(ads)} annonce(s) vue(s), {processed} traitée(s) — détail : {outcome_counts}")
+        except Exception as e:
+            self.logger.error(f"Erreur pendant le scan LeBonCoin : {e}", exc_info=True)
+        finally:
+            if self._browser_semaphore:
+                self._browser_semaphore.release()
+            self.set_status('idle', task_name='scanning_leboncoin')
 
     def run_scan(self):
         if self._is_stop_requested():

@@ -72,6 +72,24 @@ class FirestoreRepository:
             logger.error(f"Failed to get deal by ID '{deal_id}': {e}", exc_info=True)
             return None
 
+    def get_known_deal_ids(self, prefix=None):
+        """Lit les 20 chunks de `deals_index` et retourne l'ensemble des deal_id
+        connus (filtrés par préfixe si fourni, ex: 'lbc_') — 20 lectures fixes,
+        comme le frontend, plutôt qu'un scan complet de `guitar_deals`."""
+        known_ids = set()
+        try:
+            for i in range(20):
+                chunk_doc = self.user_ref.collection('deals_index').document(f'chunk_{i}').get()
+                if not chunk_doc.exists:
+                    continue
+                deals = (chunk_doc.to_dict() or {}).get('deals', {})
+                for deal_id in deals.keys():
+                    if prefix is None or deal_id.startswith(prefix):
+                        known_ids.add(deal_id)
+        except Exception as e:
+            logger.error(f"Failed to read known deal IDs from deals_index: {e}", exc_info=True)
+        return known_ids
+
     def _get_chunk_id(self, deal_id):
         """Calcule un ID de chunk déterministe (MD5) pour distribuer les annonces sur 20 documents."""
         import hashlib

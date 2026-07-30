@@ -80,7 +80,9 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
             scan_func=bot.run_scan,
             cleanup_func=bot.cleanup_sold_listings,
             initial_frequency=bot.config_manager.get_valid_scan_frequency(),
-            purge_func=bot.purge_rejected_images
+            purge_func=bot.purge_rejected_images,
+            leboncoin_scan_func=bot.run_leboncoin_scan,
+            leboncoin_base_frequency_func=bot.config_manager.get_valid_scan_frequency,
         )
         while True:
             try:
