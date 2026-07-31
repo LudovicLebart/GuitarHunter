@@ -37,6 +37,15 @@ const DealAnalysisModal = ({
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose]);
+
+    const specs = [
+        { label: 'Marque', value: deal.aiAnalysis?.brand },
+        { label: 'Modèle', value: deal.aiAnalysis?.model_name },
+        { label: 'Année', value: deal.aiAnalysis?.production_year },
+        { label: 'Pays', value: deal.aiAnalysis?.country_of_origin },
+        { label: 'Couleur', value: deal.aiAnalysis?.color },
+    ].filter(spec => spec.value && !/^inconnu(e)?$/i.test(String(spec.value).trim()));
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
             <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md cursor-pointer" onClick={onClose}></div>
@@ -147,6 +156,21 @@ const DealAnalysisModal = ({
                         <div className="text-sm sm:text-base text-slate-200 font-medium leading-relaxed pl-4 mb-6">
                             {deal.aiAnalysis?.summary || 'Résumé global non fourni par l\'IA pour cette annonce. Ouvrez l\'analyse détaillée pour lire le raisonnement textuel.'}
                         </div>
+
+                        {/* Fiche Technique */}
+                        {specs.length > 0 && (
+                            <div className="pl-4 mb-6">
+                                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-2">Fiche Technique</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {specs.map(spec => (
+                                        <div key={spec.label} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+                                            <span className="text-[10px] text-slate-500 font-bold uppercase mr-1.5">{spec.label} :</span>
+                                            <span className="text-xs text-slate-200 font-semibold">{spec.value}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Separator */}
                         <div className="border-t border-slate-800/60 ml-4 mb-6"></div>

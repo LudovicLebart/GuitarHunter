@@ -231,6 +231,31 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         return sorted;
     }, [enrichedDeals, totalDeals]);
 
+    // ─── Distribution par couleur/finition (source : aiAnalysis.color) ────
+    const colorData = useMemo(() => {
+        if (totalDeals === 0) return [];
+        const counts = {};
+
+        enrichedDeals.forEach(d => {
+            const rawColor = d.aiAnalysis?.color;
+            const isInvalid = !rawColor
+                || typeof rawColor !== 'string'
+                || rawColor.trim().length < 2
+                || rawColor.toLowerCase().includes('inconnue')
+                || rawColor.toLowerCase().includes('unknown')
+                || rawColor.toLowerCase() === 'n/a';
+            if (isInvalid) return;
+
+            const cleanColor = rawColor.trim();
+            counts[cleanColor] = (counts[cleanColor] || 0) + 1;
+        });
+
+        return Object.entries(counts)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 8);
+    }, [enrichedDeals, totalDeals]);
+
     // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
     const VOLUME_WINDOW_DAYS = 14;
     const dailyVolumeData = useMemo(() => {
@@ -432,6 +457,32 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                                                 />
                                             ))}
                                         </Bar>
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Pas assez de données</div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Bar Chart - Color Distribution */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[300px] flex flex-col relative overflow-hidden group">
+                        <h4 className="font-bold text-slate-300 mb-2 flex items-center justify-between z-10">
+                            Distribution (Couleurs / Finitions)
+                        </h4>
+                        <div className="flex-1 w-full min-h-0 relative z-10">
+                            {colorData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={colorData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                        <XAxis type="number" hide />
+                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={95} />
+                                        <Tooltip
+                                            cursor={{ fill: '#1e293b' }}
+                                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                            itemStyle={{ color: '#f472b6' }}
+                                        />
+                                        <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16} fill="#f472b6" />
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (

@@ -164,6 +164,9 @@ class FirestoreRepository:
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
                 update_data[f"{prefix}.c"] = ai.get('classification') or None
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
+                update_data[f"{prefix}.b"] = ai.get('brand') or None
+                update_data[f"{prefix}.mn"] = ai.get('model_name') or None
+                update_data[f"{prefix}.co"] = ai.get('color') or None
                 update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
                 update_data[f"{prefix}.ev"] = ai.get('estimated_value') or ai.get('estimated_guitar_value') or None
                 update_data[f"{prefix}.mu"] = ai.get('model_used') or None
