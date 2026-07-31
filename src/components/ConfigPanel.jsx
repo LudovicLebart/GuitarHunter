@@ -289,11 +289,11 @@ const AiConfigSection = () => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
   };
 
-  // Fallback si la liste n'est pas encore chargée
+  // Fallback si la liste n'est pas encore chargée (aligné sur GEMINI_MODELS["available"], config.py)
   const models = availableModels.length > 0 ? availableModels : [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-pro",
+    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview"
   ];

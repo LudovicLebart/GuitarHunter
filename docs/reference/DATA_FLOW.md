@@ -41,7 +41,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
 - **Étapes de création** :
   1. `bot.handle_deal_found(listing_data)` — **(2026-07-09)** si `imageUrls` est vide ET prix à 0$ (scraping manifestement raté), la fonction s'arrête ici : rien n'est écrit dans `guitar_deals`, l'annonce sera retraitée comme nouvelle à la prochaine session.
   2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`, stocké) ou prix > `scanConfig.max_price` (**2026-07-27** : annonce ignorée, rien n'est écrit dans `guitar_deals` — hors budget = hors périmètre de recherche, pas un verdict `BAD_DEAL` comme avant cette date).
-  3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
+  3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne un tuple `(storageImageUrls, storageImageGsUris)` (2026-07-31) : URLs HTTPS publiques pérennes **et** URIs `gs://bucket/chemin` correspondantes (mêmes objets Storage, déjà publics via `blob.make_public()`) — ces dernières permettent au chat Gemini (Firebase AI Logic, frontend) de lire les images directement sur Cloud Storage sans les re-télécharger/encoder en base64.
   4. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
   5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté. **(2026-07-11)** `create_new_deal()` snapshotte en plus `initialVerdict`/`initialModelUsed` (verdict et chaîne `model_used` du tout premier passage) — ces champs ne sont plus jamais réécrits par une réanalyse ultérieure, contrairement à `aiAnalysis`.
 - **Format de donnée type** :
@@ -55,7 +55,8 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "initialVerdict": "Verdict du tout premier passage IA (figé, jamais réécrit)",
     "initialModelUsed": "Chain of models du tout premier passage (ex: flash-lite seul si arrêté au Portier) - absent sur les annonces créées avant 2026-07-11",
     "imageUrls": ["URL CDN Facebook (temporaire)"],
-    "storageImageUrls": ["URL Firebase Storage (pérenne)"],
+    "storageImageUrls": ["URL Firebase Storage HTTPS (pérenne)"],
+    "storageImageGsUris": ["gs://bucket/deals/{id}/... — 2026-07-31, pour le chat Gemini (Firebase AI Logic)"],
     "aiAnalysis": { 
        "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | "REJECTED_ITEM" | ...,
        "classification": "Valeur hiérarchique (dot-notation, ex: guitare.electrique.solid_body)",
@@ -88,6 +89,21 @@ Pour contourner la limite de taille et les coûts de lecture Firestore, le syst�
 - **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score), `i` (image_url), `l` (location), `la`/`lo` (latitude/longitude, 2026-07-27), `b`/`mn`/`co` (brand/model_name/color, 2026-07-31 — voir ci-dessous).
 - **Consommateur Backend (2026-07-27)** : `repository.py::get_deals_index_snapshot()` lit et fusionne les 20 chunks côté backend (pas seulement le Frontend) pour une recherche transverse bon marché — utilisé par `bot.py::_find_cross_platform_duplicate()` pour repérer une même annonce postée sur Facebook et Kijiji sans lire les documents complets de `guitar_deals`. `la`/`lo` (latitude/longitude) ajoutés à l'index pour cet usage précis : comparer deux annonces par distance GPS plutôt que par nom de ville (`l`), moins fiable pour Kijiji (voir `ARCHITECTURE.md` § kijiji/).
 - **`b`/`mn`/`co` (brand/model_name/color, 2026-07-31)** : ajoutés pour que la recherche texte libre (`useDealsManager.js`) et les stats de distribution (`StatsView.jsx`) portent sur **toutes** les annonces via l'index temps réel, pas seulement celles chargées en cache (`loadedDeals`, lazy loading par paquets de 30). Avant cet ajout, `aiAnalysis.brand` n'existait que sur les annonces déjà ouvertes par l'utilisateur — le graphique "Distribution (Top Marques)" de `StatsView.jsx` était donc partiel silencieusement.
+
+## 5.1 Chat Gemini (Collection `guitar_deals/{dealId}/chat`, 2026-07-31)
+Historique de conversation persisté par annonce, écrit **directement par le frontend** (aucun aller-retour backend Python — le chat appelle Gemini via Firebase AI Logic, côté client).
+- **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}/chat/{MSG_ID}`.
+- **Couverte par les règles Firestore existantes** : `match /artifacts/{appId}/users/{userId}/{document=**}` (wildcard générique) — aucune règle dédiée nécessaire.
+- **Format de donnée** :
+  ```json
+  {
+    "role": "user" | "model",
+    "parts": [{ "text": "..." }, { "fileData": { "fileUri": "gs://...", "mimeType": "image/jpeg" } }],
+    "displayText": "Texte réellement affiché dans la bulle de chat",
+    "createdAt": "Timestamp"
+  }
+  ```
+  `parts` est le payload exact envoyé/reçu par l'API Gemini — sur le premier tour utilisateur, il inclut le contexte de l'annonce (titre/prix/analyse IA existante, texte injecté invisible) suivi des pièces image `gs://`. `displayText` est le texte "propre" (sans le contexte injecté) affiché dans l'UI. Rejouer `parts` dans `startChat({history})` après un rechargement de page reconstruit la session Gemini à l'identique, images comprises, sans re-upload.
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.

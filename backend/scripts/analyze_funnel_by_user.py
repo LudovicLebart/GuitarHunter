@@ -52,8 +52,8 @@ TOKENS_PER_IMAGE = 700
 IMAGES_PER_DEAL = 4
 OUTPUT_TOKENS = {"t1": 130, "t2": 350, "t3": 900}
 PRICE = {
-    "t1": {"in": 0.10, "out": 0.40},    # gemini-2.5-flash-lite
-    "t2": {"in": 0.30, "out": 2.50},    # gemini-2.5-flash
+    "t1": {"in": 0.30, "out": 2.50},    # gemini-3.5-flash-lite (config.py, MAJ 2026-07-31 ; était gemini-2.5-flash-lite, retiré par Google en octobre 2026)
+    "t2": {"in": 1.50, "out": 7.50},    # gemini-3.6-flash (config.py, MAJ 2026-07-31 ; était gemini-2.5-flash)
     "t3": {"in": 2.00, "out": 12.00},   # gemini-3.1-pro-preview (config.py, MAJ 2026-07-08 ; était gemini-2.5-pro à 1.25/10.00)
 }
 CACHE_DISCOUNT = 0.10

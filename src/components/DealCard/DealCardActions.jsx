@@ -1,25 +1,20 @@
 import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle } from 'lucide-react';
 import { createSharedDeal } from '../../services/firestoreService';
-import { buildGeminiChatPrompt } from './utils';
 
-// gemini.google.com n'expose pas de mécanisme de préremplissage par URL (`?q=` testé en
-// conditions réelles, sans effet) — le presse-papier est le seul mécanisme de transfert fiable.
-const GEMINI_URL = 'https://gemini.google.com/app';
-
-const DealCardActions = ({ 
-    deal, 
-    isAnalyzing, 
-    onToggleFavorite, 
-    onReject, 
-    onDelete, 
-    onRetry, 
-    onForceExpert, 
-    isModal = false
+const DealCardActions = ({
+    deal,
+    isAnalyzing,
+    onToggleFavorite,
+    onReject,
+    onDelete,
+    onRetry,
+    onForceExpert,
+    isModal = false,
+    onOpenChat
 }) => {
     const [showRescanMenu, setShowRescanMenu] = useState(false);
     const [isCopying, setIsCopying] = useState(false);
-    const [isPromptCopied, setIsPromptCopied] = useState(false);
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
 
@@ -74,22 +69,6 @@ const DealCardActions = ({
             console.error('Erreur de copie:', err);
             alert("Impossible de copier le lien. Copiez-le manuellement depuis la barre d'adresse.");
         }
-    };
-
-    const handleDiscussGemini = async (e) => {
-        e.stopPropagation();
-        const prompt = buildGeminiChatPrompt(deal);
-
-        try {
-            await navigator.clipboard.writeText(prompt);
-            setIsPromptCopied(true);
-            setTimeout(() => setIsPromptCopied(false), 2000);
-        } catch (err) {
-            console.error('Erreur de copie du prompt Gemini:', err);
-            alert("Impossible de copier le prompt. Réessayez ou copiez-le manuellement.");
-        }
-
-        window.open(GEMINI_URL, '_blank', 'noopener,noreferrer');
     };
 
     return (
@@ -172,14 +151,16 @@ const DealCardActions = ({
                 >
                     <Share2 size={18} className="sm:w-4 sm:h-4" />
                 </button>
-                {/* Discuter sur Gemini */}
-                <button
-                    onClick={handleDiscussGemini}
-                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isPromptCopied ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-purple-400 hover:bg-purple-500/10'}`}
-                    title={isPromptCopied ? "Prompt copié ! Collez-le si besoin dans Gemini" : "Discuter de cette annonce sur Gemini"}
-                >
-                    <MessageCircle size={18} className="sm:w-4 sm:h-4" />
-                </button>
+                {/* Discuter avec Gemini (chat intégré) — uniquement dans la modale, pas sur la carte liste */}
+                {isModal && onOpenChat && (
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onOpenChat(); }}
+                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-purple-400 hover:bg-purple-500/10"
+                        title="Discuter de cette annonce avec Gemini"
+                    >
+                        <MessageCircle size={18} className="sm:w-4 sm:h-4" />
+                    </button>
+                )}
                 {/* Voir l'annonce d'origine (Facebook ou Kijiji) */}
                 {deal.link ? (
                     <a

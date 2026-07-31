@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Ban, Gem, ChevronDown } from 'lucide-react';
 import { toTitleCase } from './utils';
 import DealCardActions from './DealCardActions';
+import DealChatPanel from './DealChatPanel';
 
 const DealAnalysisModal = ({
     deal,
@@ -27,6 +28,8 @@ const DealAnalysisModal = ({
     onDelete,
     isAnalyzing
 }) => {
+    const [showChat, setShowChat] = useState(false);
+
     // Escape key listener for closing modal
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -71,6 +74,7 @@ const DealAnalysisModal = ({
                             onRetry={onRetry}
                             onForceExpert={onForceExpert}
                             isModal={true}
+                            onOpenChat={() => setShowChat(true)}
                         />
                         <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
                         <button
@@ -83,6 +87,11 @@ const DealAnalysisModal = ({
                 </div>
 
                 {/* Modal Body */}
+                {showChat ? (
+                    <div className="flex-1 min-h-0">
+                        <DealChatPanel deal={deal} onBack={() => setShowChat(false)} />
+                    </div>
+                ) : (
                 <div className="flex-1 flex flex-col md:flex-row min-h-0">
                     {/* Left column: Image only */}
                     <div className="hidden md:flex flex-col w-1/3 bg-slate-950 border-r border-slate-800 p-6 items-center justify-start shrink-0 overflow-y-auto scrollbar-dark">
@@ -233,6 +242,7 @@ const DealAnalysisModal = ({
 
                     </div>
                 </div>
+                )}
             </div>
         </div>
     );

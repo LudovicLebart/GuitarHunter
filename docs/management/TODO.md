@@ -405,8 +405,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
     - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`). Reste à faire : matcher la taxonomie elle-même et l'autocomplétion de catégories.
 
-- [ ] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini")*
-    - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumule maintenant Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée : l'utilisateur veut réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
+- [/] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini")*
+    - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumulait Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée à l'origine : l'utilisateur voulait réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
+    - *Progrès (2026-07-31, chat Gemini intégré)* : le bouton "Discuter avec Gemini" a été retiré de la carte liste (visible uniquement dans la modale, `isModal` + `onOpenChat`) — un bouton en moins sur la vue liste. Reste ouvert : la barre d'actions de la modale elle-même (7 boutons) n'a pas été réorganisée/regroupée.
+
+- [ ] **Activation manuelle Firebase AI Logic + App Check** *(Ajouté 2026-07-31, requis pour que le chat Gemini fonctionne réellement)*
+    - *Détails :* Deux étapes console/CLI Firebase non faisables depuis un environnement automatisé (nécessite le compte Firebase du projet) :
+        1. Activer Firebase AI Logic (Gemini Developer API) — console Firebase, section AI Logic, ou `firebase init` (choisir "AI Logic").
+        2. Créer une clé reCAPTCHA Enterprise (Google Cloud Console) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` (`VITE_RECAPTCHA_SITE_KEY`).
+    - *Sans ces deux étapes* : le chat affichera une erreur à l'envoi du premier message (modèle/API non activé), et App Check restera désactivé (avertissement console, pas de blocage).
+    - *Test en conditions réelles requis* : non vérifiable depuis l'environnement de développement (pas de compte Firebase) — login, chargement des annonces (upgrade `firebase` v10→v12) et chat lui-même à valider par l'utilisateur.
 
 ### 🪟 Modale d'Analyse IA (Mockup V2)
 

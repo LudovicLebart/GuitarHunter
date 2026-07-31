@@ -524,12 +524,15 @@ class FirestoreRepository:
         """
         Télécharge les images depuis leurs URLs d'origine et les stocke
         de manière pérenne dans Firebase Storage.
-        Retourne la liste des URLs Firebase stables.
+        Retourne un tuple (URLs publiques HTTPS stables, URIs gs:// correspondantes) —
+        les URIs gs:// (2026-07-31) permettent au chat Gemini (Firebase AI Logic, frontend)
+        de lire les images directement sur Cloud Storage sans les re-télécharger/encoder.
         """
         if not self._bucket:
-            return []
-        
+            return [], []
+
         stable_urls = []
+        gs_uris = []
         for i, url in enumerate(image_urls):
             if not url:
                 continue
@@ -538,17 +541,18 @@ class FirestoreRepository:
                 if response.status_code != 200:
                     logger.warning(f"Image {i+1}/{len(image_urls)} non téléchargeable (HTTP {response.status_code}) pour deal {deal_id}.")
                     continue
-                
+
                 blob_path = f"deals/{deal_id}/{i}_{uuid.uuid4().hex[:8]}.jpg"
                 blob = self._bucket.blob(blob_path)
                 blob.upload_from_string(response.content, content_type='image/jpeg')
                 blob.make_public()
                 stable_urls.append(blob.public_url)
+                gs_uris.append(f"gs://{self._bucket.name}/{blob_path}")
                 logger.info(f"   ☁️ Image {i+1} uploadée pour deal {deal_id}: {blob_path}")
             except Exception as e:
                 logger.warning(f"Erreur upload image {i+1} pour deal {deal_id}: {e}")
-        
-        return stable_urls
+
+        return stable_urls, gs_uris
 
     def delete_deal_images(self, deal_id):
         """

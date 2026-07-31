@@ -271,6 +271,39 @@ export const toggleDealFavorite = async (dealId, currentStatus, chunkId, userId)
   }
 };
 
+// --- Chat IA (2026-07-31, Firebase AI Logic) ---
+// Historique persisté par annonce : guitar_deals/{dealId}/chat/{msgId}, écrit directement
+// depuis le frontend (le chat n'implique aucun aller-retour backend Python — voir
+// docs/reference/ARCHITECTURE.md § Chat Gemini).
+
+const getDealChatCollectionRef = (dealId, userId) => {
+  const { dealsCollectionRef } = getRefs(userId);
+  return collection(doc(dealsCollectionRef, dealId), 'chat');
+};
+
+export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
+  const chatQuery = query(getDealChatCollectionRef(dealId, userId), orderBy('createdAt', 'asc'));
+  return onSnapshot(chatQuery, (snapshot) => {
+    onUpdate(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, (error) => {
+    console.error(`Error listening to chat for deal ${dealId}:`, error);
+    onError?.(error);
+  });
+};
+
+// `parts` = payload complet envoyé/reçu de l'API Gemini (peut inclure le contexte injecté +
+// les pièces image gs://, invisibles à l'utilisateur) ; `displayText` = ce qui est réellement
+// affiché dans la bulle de chat (le texte tapé par l'utilisateur, ou la réponse du modèle).
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await addDoc(chatCollectionRef, { role, parts, displayText, createdAt: new Date() });
+  } catch (error) {
+    console.error(`Error saving chat message for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la sauvegarde du message.");
+  }
+};
+
 // --- Cities ---
 
 /**

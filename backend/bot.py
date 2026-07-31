@@ -399,9 +399,10 @@ class GuitarHunterBot:
             # Upload des images dans Firebase Storage avant la sauvegarde
             image_urls = listing_data.get('imageUrls') or ([listing_data.get('imageUrl')] if listing_data.get('imageUrl') else [])
             if image_urls:
-                stable_urls = self.repo.upload_images_to_storage(image_urls, listing_data['id'])
+                stable_urls, gs_uris = self.repo.upload_images_to_storage(image_urls, listing_data['id'])
                 if stable_urls:
                     listing_data['storageImageUrls'] = stable_urls
+                    listing_data['storageImageGsUris'] = gs_uris
             
             if is_update:
                 # Appel de la nouvelle méthode pour écraser le prix Firestore et ajouter l'historique

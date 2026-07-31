@@ -54,16 +54,19 @@ KIJIJI_GUITARS_CATEGORY_ID = 613
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 # Note : gemini-3.1-pro-preview est un modèle Preview (préavis de dépréciation
 # de 2 semaines par email Google, non interceptable par l'API - voir notify_model_error).
+# Migration 2026-07-31 : gemini-2.5-* (flash-lite, pro) est retiré par Google en octobre 2026 —
+# remplacés par gemini-3.5-flash-lite (Portier) et gemini-3.6-flash (Analyste, capacité égale à
+# 3.5-flash mais moins cher/plus rapide — voir JOURNAL.md pour le détail des benchmarks).
 GEMINI_MODELS = {
     "available": [
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-pro",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
         "gemini-3.5-flash",
         "gemini-3.1-pro-preview"
     ],
-    "default_gatekeeper": "gemini-2.5-flash-lite",
-    "default_analyst": "gemini-3.5-flash",
+    "default_gatekeeper": "gemini-3.5-flash-lite",
+    "default_analyst": "gemini-3.6-flash",
     "default_expert": "gemini-3.1-pro-preview"
 }
 
