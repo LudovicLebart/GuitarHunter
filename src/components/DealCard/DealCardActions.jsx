@@ -3,9 +3,9 @@ import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSqua
 import { createSharedDeal } from '../../services/firestoreService';
 import { buildGeminiChatPrompt } from './utils';
 
-// gemini.google.com n'expose pas de mécanisme officiel/documenté de préremplissage par URL —
-// tentative en best-effort (ignorée si non supportée), le presse-papier reste le repli garanti.
-const GEMINI_URL_PREFILL_LIMIT = 6000;
+// gemini.google.com n'expose pas de mécanisme de préremplissage par URL (`?q=` testé en
+// conditions réelles, sans effet) — le presse-papier est le seul mécanisme de transfert fiable.
+const GEMINI_URL = 'https://gemini.google.com/app';
 
 const DealCardActions = ({ 
     deal, 
@@ -89,12 +89,7 @@ const DealCardActions = ({
             alert("Impossible de copier le prompt. Réessayez ou copiez-le manuellement.");
         }
 
-        // Tentative de préremplissage du champ de saisie Gemini (non garanti, voir note plus haut) ;
-        // le prompt reste de toute façon dans le presse-papier si l'utilisateur doit coller manuellement.
-        const geminiUrl = prompt.length < GEMINI_URL_PREFILL_LIMIT
-            ? `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`
-            : 'https://gemini.google.com/app';
-        window.open(geminiUrl, '_blank', 'noopener,noreferrer');
+        window.open(GEMINI_URL, '_blank', 'noopener,noreferrer');
     };
 
     return (

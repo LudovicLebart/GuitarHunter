@@ -1403,3 +1403,21 @@ L'utilisateur voulait pouvoir poursuivre la conversation sur une annonce déjà 
 
 #### 2. Raisonnement
 Face à la proposition initiale (chat intégré), la question de l'utilisateur ("on ne peut pas faire plus simple ?") a été le bon réflexe : un chat complet aurait ajouté une collection Firestore, un nouveau type de commande, et surtout une latence par message calquée sur le cycle de polling du backend (pensé pour des opérations lentes en arrière-plan, pas pour un aller-retour conversationnel) — un mauvais fit architectural pour l'usage demandé. Déléguer la conversation à Gemini lui-même élimine tout ce chantier : zéro backend, zéro coût API supplémentaire, zéro latence anormale. Le point non garanti (préremplissage par URL) a été traité par un repli qui fonctionne à coup sûr (presse-papier) plutôt que de faire reposer toute la fonctionnalité sur un comportement non documenté d'un service tiers — si `?q=` ne marche pas, l'utilisateur colle simplement le texte déjà copié. Ne pas prétendre avoir validé ce qui ne pouvait pas l'être depuis cet environnement (limite du sandbox déjà rencontrée sur Kijiji) plutôt que de deviner un résultat.
+
+---
+
+---
+
+[2026-07-31] [PRO] Action effectuée -> Retours utilisateur post-test du bouton "Discuter sur Gemini" : préremplissage `?q=` retiré (confirmé inefficace), photos ajoutées en liens publics dans le prompt.
+
+### Session : Itération sur le hand-off Gemini après test en conditions réelles
+
+#### 1. Objectif
+L'utilisateur a testé le bouton fusionné sur `dev` et remonté 3 points : (1) le texte reste dans le presse-papier, il faut coller manuellement — confirmation que `?q=` ne préremplit rien sur gemini.google.com ; (2) il manque les images de l'annonce dans le prompt ; (3) la barre d'actions a maintenant trop de boutons — décision de placement différée par l'utilisateur lui-même, aucune action demandée sur ce point.
+- **Point 1** : proposition initiale (garder `?q=` en best-effort) devenue obsolète une fois le fait confirmé en conditions réelles — `DealCardActions.jsx::handleDiscussGemini()` simplifié : ouvre systématiquement `https://gemini.google.com/app` sans paramètre, `GEMINI_URL_PREFILL_LIMIT`/construction d'URL encodée supprimés (code mort).
+- **Point 2** : plutôt que la piste initialement envisagée (`navigator.share` avec fichiers images, mobile uniquement, complexité CORS/blob), l'utilisateur a suggéré une solution plus simple — les images sont déjà uploadées vers Firebase Storage avec des **URLs publiques pérennes** (`deal.storageImageUrls`, voir `handle_deal_found()`/`repository.py`). `buildGeminiChatPrompt()` (`utils.js`) les ajoute désormais comme liens cliquables numérotés dans le prompt copié, avec repli sur `deal.imageUrls` si `storageImageUrls` est absent. Fonctionne identiquement sur desktop et mobile, aucune nouvelle surface d'API.
+- **Point 3** : consigné dans `TODO.md` (décision de placement UI non tranchée) — aucun changement de code, le sujet a été explicitement reporté par l'utilisateur.
+- **Build** : `npm run build` réussi.
+
+#### 2. Raisonnement
+Le test réel de l'utilisateur a résolu en une phrase une incertitude que l'environnement de développement ne pouvait pas trancher (le sandbox bloquant toute navigation externe pour Playwright) — la bonne réaction a été de retirer immédiatement le code mort plutôt que de le garder "au cas où". Pour les images, la suggestion de l'utilisateur (lien public plutôt que transfert de fichier) illustre le même principe que la session précédente : préférer un mécanisme déjà existant et fiable (`storageImageUrls`, conçu à l'origine pour survivre à l'expiration des CDN Facebook/Kijiji) à une nouvelle API plus complexe et moins prévisible (`navigator.share` + fichiers, limité au mobile, dépendant du support de partage de l'app Gemini). Le point 3 (encombrement de la barre d'actions) n'a délibérément reçu aucune tentative de solution non demandée — l'utilisateur a explicitement indiqué vouloir y réfléchir lui-même, et CLAUDE.md interdit d'ajouter des changements non sollicités.

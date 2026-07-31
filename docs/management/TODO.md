@@ -405,6 +405,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
     - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`). Reste à faire : matcher la taxonomie elle-même et l'autocomplétion de catégories.
 
+- [ ] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini")*
+    - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumule maintenant Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée : l'utilisateur veut réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
+
 ### 🪟 Modale d'Analyse IA (Mockup V2)
 
 - [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*

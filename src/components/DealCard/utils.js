@@ -30,6 +30,13 @@ export const buildGeminiChatPrompt = (deal) => {
     if (deal.description) lines.push(`Description : ${deal.description}`);
     if (deal.link) lines.push(`Lien annonce : ${deal.link}`);
 
+    // URLs publiques pérennes (Firebase Storage) — permettent à l'utilisateur de partager les
+    // photos avec Gemini (clic sur les liens) sans avoir à les joindre manuellement.
+    const photoUrls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);
+    if (photoUrls.length) {
+        lines.push('', `Photos (${photoUrls.length}) :`, ...photoUrls.map((url, i) => `${i + 1}. ${url}`));
+    }
+
     const specs = [
         a.brand && `Marque : ${a.brand}`,
         a.model_name && `Modèle : ${a.model_name}`,
