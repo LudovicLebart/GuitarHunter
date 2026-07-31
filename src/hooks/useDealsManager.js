@@ -23,14 +23,33 @@ const normalize = (str) => {
     .replace(/[^a-z0-9]/g, ''); // Ne garde que alphanumérique
 };
 
-// Recherche floue : retourne le path le PLUS SPÉCIFIQUE (le plus profond) parmi toutes les clés
-// normalisées de la taxonomie contenues dans la string — évite qu'une clé générique comme
-// "electrique" (sous-chaîne de presque tout) masque une correspondance plus précise trouvée plus loin.
+// Recherche floue : retourne le path dont la CLÉ TEXTUELLE est la plus longue (donc la plus
+// spécifique) parmi toutes les clés de taxonomie contenues dans la string. Les clés trop courtes
+// (< FUZZY_MIN_KEY_LENGTH, ex: "sg", "aer") sont exclues de cette recherche par sous-chaîne : comme
+// normalize() supprime les espaces, un texte comme "cordes guitare" devient "cordesguitare" et
+// contiendrait accidentellement "sg" à la jonction des deux mots. Ces clés courtes ne doivent être
+// résolues que par correspondance EXACTE (déjà tentée avant cet appel), jamais en sous-chaîne floue.
+// Idem pour la branche "etui_housse" : ses leafs ("Guitare Electrique", "Guitare Acoustique", "Basse")
+// reprennent tels quels les mots des types d'instruments qu'ils contiennent, donc entrent quasi
+// systématiquement en collision avec le texte décrivant une vraie guitare. Ses valeurs sont un
+// ensemble fixe et restreint que l'IA cible déjà en correspondance exacte — la recherche floue n'y
+// apporte rien et n'y introduit que du risque.
+// Enfin, les clés de profondeur 1 (ex: "guitare" seul) sont exclues : ce sont les noms de branches
+// racines, présents dans la quasi-totalité des textes du domaine, donc sans pouvoir discriminant —
+// et un match sur la branche racine seule n'apporte rien ici, puisque tout chemin plus profond qui
+// matche déjà satisfait le préfixe "guitare." attendu par un filtre sur la catégorie racine.
+const FUZZY_MIN_KEY_LENGTH = 5;
+const FUZZY_EXCLUDED_BRANCHES = ['etui_housse'];
 const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
+  let bestKey = null;
   let bestPath = null;
   for (const [key, path] of Object.entries(taxonomyPaths)) {
+    if (key.length < FUZZY_MIN_KEY_LENGTH) continue;
+    if (path.length < 2) continue;
+    if (FUZZY_EXCLUDED_BRANCHES.includes(path[0])) continue;
     if (normalizedSearchStr.includes(key)) {
-      if (!bestPath || path.length > bestPath.length) {
+      if (!bestKey || key.length > bestKey.length) {
+        bestKey = key;
         bestPath = path;
       }
     }
