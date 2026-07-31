@@ -56,17 +56,35 @@ export const buildDealContextText = (deal) => {
 // (backend, 2026-07-31) reste en base pour une éventuelle migration future vers Vertex AI, mais
 // n'est plus utilisé ici : chaque image est téléchargée depuis son URL HTTPS publique
 // (`storageImageUrls`) puis encodée en base64 côté navigateur.
+//
+// Redimensionnement côté navigateur (2026-08-01) : les photos Marketplace peuvent être en haute
+// résolution (plusieurs Mo chacune) ; envoyées telles quelles en base64 (×1.33 la taille), une
+// annonce à 8-10 photos peut dépasser ce que la requête peut transporter de façon fiable,
+// observé en test réel ("Failed to fetch" générique côté navigateur sur l'appel generateContent).
+// Repasser par un canvas (max 1024px de long côté, JPEG 80%) reste léger tout en gardant assez de
+// détail pour repérer un défaut visuel — même principe que `_download_and_optimize_image()` côté
+// backend (PIL), simplement appliqué ici côté client.
+const MAX_IMAGE_DIMENSION = 1024;
+const JPEG_QUALITY = 0.8;
+
 const fetchImageAsInlinePart = async (url) => {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
-    const base64Data = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result.split(',')[1]);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(blob);
-    });
-    return { inlineData: { data: base64Data, mimeType: blob.type || 'image/jpeg' } };
+
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const width = Math.round(bitmap.width * scale);
+    const height = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+
+    const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+    return { inlineData: { data: dataUrl.split(',')[1], mimeType: 'image/jpeg' } };
 };
 
 export const buildDealImageParts = async (deal) => {

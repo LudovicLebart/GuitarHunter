@@ -1531,3 +1531,12 @@ Le script `migrate_images.py` existant semblait à première vue être le bon ou
 
 #### Raisonnement
 La vérification initiale (recherche web confirmant "gs:// fonctionne") était correcte mais insuffisamment précise : elle validait la capacité générale de la plateforme Google (Vertex AI) sans vérifier qu'elle s'appliquait bien au backend *spécifique* retenu dans la décision d'architecture (`GoogleAIBackend`, choisi pour d'autres raisons — cohérence avec le backend existant). Une confirmation "la plateforme le permet" ne garantit pas "le produit/SDK/backend precis configuré le permet" — les deux doivent être vérifiés ensemble, particulièrement pour un écosystème (Firebase AI Logic) qui expose plusieurs backends avec des capacités différentes sous une API unifiée en apparence. Le correctif (inlineData) est une solution connue et documentée pour ce même SDK, donc un repli fiable plutôt qu'une nouvelle inconnue.
+
+---
+
+---
+
+[2026-08-01] [FLASH] Action effectuée -> Redimensionnement/compression des photos avant envoi en base64 → Résultat : "Failed to fetch" générique sur l'appel Gemini, cause probable identifiée (taille de requête) sur la première annonce testée avec le correctif inlineData.
+- **Symptôme** : sur une annonce jamais utilisée en chat (donc hors des bugs précédents), premier message → `Failed to fetch (AI/error)`, une erreur réseau générique sans code HTTP précis, cohérente avec une requête trop volumineuse (plusieurs photos Marketplace en haute résolution, base64 = ×1.33 la taille déjà conséquente des originaux).
+- **`src/services/geminiChatService.js::fetchImageAsInlinePart()`** : chaque image est désormais redimensionnée via `createImageBitmap()` + `<canvas>` (plafond 1024px de long côté, réencodage JPEG qualité 80%) avant l'encodage base64 — même principe que `_download_and_optimize_image()` côté backend (PIL), côté navigateur cette fois. Le passage par un blob local (`fetch()` puis `createImageBitmap(blob)`) évite le "tainted canvas" qu'aurait causé un chargement direct via `<img src>` cross-origin sans CORS.
+- **Non confirmé comme cause définitive** : "Failed to fetch" est trop générique pour l'affirmer avec certitude sans inspection de l'onglet réseau du navigateur — traité comme la piste la plus probable et une amélioration de toute façon justifiée (coût/latence réduits), pas comme un diagnostic certain.
