@@ -46,7 +46,7 @@ const DealChatPanel = ({ deal, onBack }) => {
     };
 
     return (
-        <div className="flex flex-col h-full min-h-0">
+        <div className="flex-1 flex flex-col min-h-0">
             {/* Header */}
             <div className="flex items-center gap-2 p-4 border-b border-slate-800 shrink-0">
                 <button
