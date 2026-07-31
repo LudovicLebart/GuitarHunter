@@ -353,11 +353,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Mockup complet avec Dark Mode, Map Split-Screen, et Filtres en cascade. Validé en Session 29-31.
     - [x] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(Ok en Mockup)*
     - [x] **Lisibilité Financière : Badge Marge sur vue liste** *(Ok en Mockup)*
-    - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup)*
+    - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup — remplacé par une sélection multiple de catégories le 2026-07-31, voir entrée dédiée ci-dessous)*
     - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
 - [x] **Persistance des filtres/tri par utilisateur (Firestore)** *(Ajouté 2026-07-15)*
     - *Détails :* Les filtres (type, taxonomie 1-4, condition, prix, tri) repartaient de zéro à chaque connexion.
     - *Solution :* `useBotConfig.js` (`uiFilters` + `saveUiFilters`, debounce 800ms) → `DealsContext.jsx` → `useDealsManager.js` (hydratation unique au premier chargement, sauvegarde auto ensuite). Recherche texte libre volontairement exclue.
+- [x] **Filtres de type en multi-sélection** *(Ajouté 2026-07-31)*
+    - *Détails :* Demande utilisateur — pouvoir sélectionner plusieurs catégories à la fois (ex: Parlor ET Baby/Mini), même dans des branches différentes de la taxonomie.
+    - *Solution :* `selectedTypePaths` (tableau de chemins dot-notation) remplace le quadruplet `level1-4Filter` (un seul chemin en cascade). `FilterDrawer.jsx` passe en cases à cocher, navigation (déplier/replier) indépendante de la sélection. Migration douce du format `uiFilters` déjà persisté. Voir `ARCHITECTURE.md`/`DATA_FLOW.md` pour le détail technique.
 - [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
 - [x] **Dark Scrollbar pour les Filtres (Mockup)**
     - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
@@ -383,7 +386,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] Afficher les KPIs financiers (Marges, Scores, Volumes).
     - [x] Implémenter le Tunnel de Conversion (Funnel) 3-Tiers.
     - [x] Implémenter le Radar Chart des 5 scores Gemini (recharts).
-    - [x] Distribution par Marque (fallback textuel en attendant extraction `brand` backend).
+    - [x] Distribution par Marque (fallback textuel en attendant extraction `brand` backend) — `brand` indexé côté backend depuis le 2026-07-31 (`deals_index`), le fallback textuel (recherche du nom de marque dans le titre) reste en secours si absent. Distribution par Couleur/Finition ajoutée le même jour.
 - [x] **Revoir l'affichage du bloc de prix / Actions** *(Complété Session 34)*
     - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
@@ -400,6 +403,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
+    - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`). Reste à faire : matcher la taxonomie elle-même et l'autocomplétion de catégories.
 
 ### 🪟 Modale d'Analyse IA (Mockup V2)
 

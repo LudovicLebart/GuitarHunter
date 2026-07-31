@@ -63,6 +63,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
        "model_name": "Modèle exact (ex: Stratocaster)",
        "production_year": "Année/Décennie",
        "country_of_origin": "Pays de fabrication",
+       "color": "Couleur/finition (ex: Sunburst 3-tons) — ajouté 2026-07-31, affiché dans la Fiche Technique de DealAnalysisModal.jsx",
        "reasoning": "Markdown text",
        "deal_score": 0-10,
        "authenticity_score": 0-10,
@@ -84,8 +85,9 @@ Pour contourner la limite de taille et les coûts de lecture Firestore, le syst�
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/deals_index/{CHUNK_ID}` (de `chunk_0` à `chunk_19`).
 - **Principe** : Les annonces sont distribuées sur 20 chunks via un hachage MD5 déterministe sur le `deal_id`.
 - **Maintenance (Backend)** : À chaque création/modification/suppression/vente, le backend met à jour la clé correspondante dans le chunk d'index via dot-notation (ex: `deals.deal_123.s = "sold"`), sans aucune lecture Firestore supplémentaire.
-- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score), `i` (image_url), `l` (location), `la`/`lo` (latitude/longitude, 2026-07-27 — voir ci-dessous).
+- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score), `i` (image_url), `l` (location), `la`/`lo` (latitude/longitude, 2026-07-27), `b`/`mn`/`co` (brand/model_name/color, 2026-07-31 — voir ci-dessous).
 - **Consommateur Backend (2026-07-27)** : `repository.py::get_deals_index_snapshot()` lit et fusionne les 20 chunks côté backend (pas seulement le Frontend) pour une recherche transverse bon marché — utilisé par `bot.py::_find_cross_platform_duplicate()` pour repérer une même annonce postée sur Facebook et Kijiji sans lire les documents complets de `guitar_deals`. `la`/`lo` (latitude/longitude) ajoutés à l'index pour cet usage précis : comparer deux annonces par distance GPS plutôt que par nom de ville (`l`), moins fiable pour Kijiji (voir `ARCHITECTURE.md` § kijiji/).
+- **`b`/`mn`/`co` (brand/model_name/color, 2026-07-31)** : ajoutés pour que la recherche texte libre (`useDealsManager.js`) et les stats de distribution (`StatsView.jsx`) portent sur **toutes** les annonces via l'index temps réel, pas seulement celles chargées en cache (`loadedDeals`, lazy loading par paquets de 30). Avant cet ajout, `aiAnalysis.brand` n'existait que sur les annonces déjà ouvertes par l'utilisateur — le graphique "Distribution (Top Marques)" de `StatsView.jsx` était donc partiel silencieusement.
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.
