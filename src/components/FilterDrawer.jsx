@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, ChevronRight, Check } from 'lucide-react';
 
 import promptsData from '../../prompts.json';
 
@@ -81,13 +81,11 @@ const FilterGroup = ({ label, children, defaultOpen = false }) => {
 };
 
 // ============================================================
-// Inline Option with dynamic depth styling
+// Inline Option — single-select (radio-style, ex: condition/prix/tri)
 // ============================================================
-const InlineOption = ({ label, active, onClick, hasChildren, depth = 0, count }) => {
-    // Dynamic styling based on depth
-    const paddingLeft = depth === 0 ? 'px-2' : depth === 1 ? 'pl-6 pr-2' : depth === 2 ? 'pl-10 pr-2' : 'pl-14 pr-2';
-    const textSize = depth === 0 ? 'text-sm' : depth === 1 ? 'text-[13px]' : depth === 2 ? 'text-xs' : 'text-[11px]';
-    const indicatorSize = depth >= 2 ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5';
+const InlineOption = ({ label, active, onClick, depth = 0 }) => {
+    const paddingLeft = depth === 0 ? 'px-2' : 'pl-6 pr-2';
+    const indicatorSize = 'w-3.5 h-3.5';
 
     return (
         <button
@@ -97,61 +95,90 @@ const InlineOption = ({ label, active, onClick, hasChildren, depth = 0, count })
         >
             <div className={`${indicatorSize} shrink-0 rounded-full border-2 flex items-center justify-center transition-all ${active ? 'border-blue-500 bg-blue-500' : 'border-slate-600'
                 }`}>
-                {active && depth < 2 && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
+                {active && <div className="w-1.5 h-1.5 bg-white rounded-full" />}
             </div>
-
-            <span className={`flex-1 leading-tight ${textSize} ${active ? 'text-white font-semibold' : depth === 0 ? 'text-slate-300' : 'text-slate-400'
-                }`}>
+            <span className={`flex-1 leading-tight text-sm ${active ? 'text-white font-semibold' : 'text-slate-300'}`}>
                 {label}
             </span>
-
-            {count > 0 && (
-                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-md ${active ? 'bg-blue-500/20 text-blue-200' : 'bg-slate-800 text-slate-500'}`}>
-                    {count}
-                </span>
-            )}
-
-            {hasChildren && <ChevronRight size={14} className={active ? 'text-blue-400' : 'text-slate-600'} />}
         </button>
+    );
+};
+
+// ============================================================
+// Taxonomy Option — multi-select checkbox, expand/collapse indépendant
+// de la sélection (plusieurs catégories peuvent être cochées à la fois,
+// même dans des branches différentes, ex: "Parlor" + "Baby / Mini")
+// ============================================================
+const TaxonomyOption = ({ label, checked, onToggleCheck, hasChildren, expanded, onToggleExpand, depth = 0, count }) => {
+    const paddingLeft = depth === 0 ? 'px-2' : depth === 1 ? 'pl-6 pr-2' : depth === 2 ? 'pl-10 pr-2' : 'pl-14 pr-2';
+    const textSize = depth === 0 ? 'text-sm' : depth === 1 ? 'text-[13px]' : depth === 2 ? 'text-xs' : 'text-[11px]';
+
+    return (
+        <div className={`flex items-center gap-2.5 rounded-lg transition-all w-full ${paddingLeft} ${checked ? 'bg-blue-600/10 border border-blue-500/20' : 'hover:bg-slate-800 border border-transparent'
+            }`}>
+            <button
+                onClick={onToggleCheck}
+                aria-pressed={checked}
+                className={`shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${checked ? 'border-blue-500 bg-blue-500' : 'border-slate-600'
+                    }`}
+            >
+                {checked && <Check size={11} strokeWidth={3} className="text-white" />}
+            </button>
+
+            <button
+                onClick={onToggleExpand || onToggleCheck}
+                className="flex-1 flex items-center gap-2 min-w-0 text-left py-2.5 sm:py-2"
+            >
+                <span className={`flex-1 leading-tight truncate ${textSize} ${checked ? 'text-white font-semibold' : depth === 0 ? 'text-slate-300' : 'text-slate-400'
+                    }`}>
+                    {label}
+                </span>
+
+                {count > 0 && (
+                    <span className={`shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md ${checked ? 'bg-blue-500/20 text-blue-200' : 'bg-slate-800 text-slate-500'}`}>
+                        {count}
+                    </span>
+                )}
+
+                {hasChildren && (
+                    <ChevronRight size={14} className={`shrink-0 transition-transform ${expanded ? 'rotate-90' : ''} ${checked ? 'text-blue-400' : 'text-slate-600'}`} />
+                )}
+            </button>
+        </div>
     );
 };
 
 
 // ============================================================
-// Main Drawer — Inline Cascading Taxonomy
+// Main Drawer — Taxonomie en Multi-Sélection
 // ============================================================
-const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {} }) => {
-    const { level1, level2, level3, level4, condition, price, sort = 'date' } = filters;
+const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {}, selectedTypePaths = [], onToggleType, onClearTypes }) => {
+    const { condition, price, sort = 'date' } = filters;
 
-    const handleLevelSelect = (level, value) => {
-        onFilterChange(level, value);
-        // Reset all deeper levels
-        if (level === 'level1') {
-            onFilterChange('level2', 'all');
-            onFilterChange('level3', 'all');
-            onFilterChange('level4', 'all');
-        } else if (level === 'level2') {
-            onFilterChange('level3', 'all');
-            onFilterChange('level4', 'all');
-        } else if (level === 'level3') {
-            onFilterChange('level4', 'all');
-        }
-    };
+    // État d'expansion (navigation) — indépendant de la sélection : un noeud peut être
+    // déplié pour naviguer sans être coché, et coché sans être déplié.
+    const [expandedPaths, setExpandedPaths] = React.useState(() => new Set());
+    const toggleExpand = (path) => setExpandedPaths(prev => {
+        const next = new Set(prev);
+        if (next.has(path)) next.delete(path); else next.add(path);
+        return next;
+    });
 
     const activeCount = [
-        level1 !== 'all', level2 !== 'all', level3 !== 'all', level4 !== 'all',
-        condition !== 'all', price !== 'all',
-    ].filter(Boolean).length;
+        selectedTypePaths.length,
+        condition !== 'all' ? 1 : 0,
+        price !== 'all' ? 1 : 0,
+    ].reduce((a, b) => a + b, 0);
 
     // Recursive render function for the taxonomy tree
     const renderTaxonomyTree = (node = TAXONOMY_TREE, parentPath = "") => {
         return (
             <div className="flex flex-col gap-0.5">
                 {parentPath === "" && (
-                    <InlineOption
+                    <TaxonomyOption
                         label="Tous les types"
-                        active={level1 === 'all'}
-                        onClick={() => handleLevelSelect('level1', 'all')}
+                        checked={selectedTypePaths.length === 0}
+                        onToggleCheck={() => onClearTypes?.()}
                         depth={0}
                         count={counts.all}
                     />
@@ -160,23 +187,22 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
                 {Object.entries(node).map(([key, cfg]) => {
                     const currentPath = parentPath ? `${parentPath}.${key}` : key;
                     const depth = parentPath.split('.').filter(Boolean).length;
-                    
-                    // Logic to determine if this specific node is "active" based on levels
-                    const isActive = (depth === 0 && level1 === key) ||
-                                   (depth === 1 && level2 === key && level1 === parentPath) ||
-                                   (depth === 2 && level3 === key && level2 === parentPath.split('.')[1]) ||
-                                   (depth === 3 && level4 === key);
 
+                    const isChecked = selectedTypePaths.includes(currentPath);
                     const hasChildren = cfg.children && Object.keys(cfg.children).length > 0;
-                    const showChildren = isActive && hasChildren;
+                    // Une catégorie cochée se déplie automatiquement pour révéler ses sous-catégories.
+                    const isExpanded = expandedPaths.has(currentPath) || isChecked;
+                    const showChildren = isExpanded && hasChildren;
 
                     return (
                         <React.Fragment key={key}>
-                            <InlineOption
+                            <TaxonomyOption
                                 label={cfg.label}
-                                active={isActive}
-                                onClick={() => handleLevelSelect(`level${depth + 1}`, key)}
-                                hasChildren={hasChildren && !isActive}
+                                checked={isChecked}
+                                onToggleCheck={() => onToggleType?.(currentPath)}
+                                hasChildren={hasChildren}
+                                expanded={isExpanded}
+                                onToggleExpand={hasChildren ? () => toggleExpand(currentPath) : undefined}
                                 depth={depth}
                                 count={counts[currentPath] || 0}
                             />

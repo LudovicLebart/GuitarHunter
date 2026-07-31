@@ -310,24 +310,28 @@ class NotificationService:
         "processed_update": "🔄 Annonce déjà connue, prix mis à jour et réanalysée : {title}",
         "duplicate_unchanged": "ℹ️ Annonce déjà connue, prix inchangé : {title}",
         "already_rejected": "⏩ Annonce déjà rejetée précédemment : {title}",
-        # BAD_DEAL (hors budget) != REJECTED (mot-clé) — deux messages distincts, voir CLAUDE.md.
+        "marked_sold": "📉 Annonce existante marquée vendue : {title}",
         "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé exclu) : {title}",
+        # Hors budget = hors périmètre de recherche, jamais stocké (voir bot.py::handle_deal_found).
         "over_budget_prefilter": "💰 Annonce hors budget (prix supérieur au plafond configuré) : {title}",
         "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
     }
 
-    # Ces deux issues sortent de handle_deal_found() AVANT toute lecture/écriture
-    # Firestore — aucun document n'existe pour listing_data['id'], donc pas de lien.
-    _OUTCOMES_WITHOUT_DEAL_LINK = {"scrape_failed", "sold_marker"}
+    # Ces issues sortent de handle_deal_found() AVANT toute écriture Firestore — aucun
+    # document n'existe pour listing_data['id'], donc pas de lien à construire.
+    _OUTCOMES_WITHOUT_DEAL_LINK = {"scrape_failed", "sold_marker", "over_budget_prefilter", "duplicate_cross_platform"}
 
     @staticmethod
     def notify_scan_url_finished(url: str, user_email: Optional[str] = None, logger: logging.Logger = None,
-                                  outcome: Optional[str] = None, listing_data: Optional[dict] = None) -> None:
+                                  outcome: Optional[str] = None, listing_data: Optional[dict] = None,
+                                  source: str = "Facebook") -> None:
         """
         Notifie l'utilisateur (ntfy + email) du résultat réel du scan manuel de l'URL demandée
         (nouveau/doublon/rejeté/vendu/échec), avec un lien direct vers l'annonce dans Guitar Hunter
-        si elle a pu être identifiée.
+        si elle a pu être identifiée. `source` ("Facebook"/"Kijiji"/"LeBonCoin", voir
+        bot.py::scan_specific_url) étiquette correctement l'URL dans le message — auparavant
+        toujours "URL Facebook", y compris pour un scan Kijiji.
         """
         log = logger or _module_logger
         listing_data = listing_data or {}
@@ -348,7 +352,7 @@ class NotificationService:
         body = (
             f"🔎 SCAN MANUEL TERMINÉ\n"
             f"{'=' * 50}\n"
-            f"URL Facebook : {url}\n"
+            f"URL {source} : {url}\n"
             f"Résultat : {result_line}\n"
             + (f"\nVoir dans Guitar Hunter : {deal_link}\n" if deal_link else "")
             + f"\n—\nGuitar Hunter Bot"

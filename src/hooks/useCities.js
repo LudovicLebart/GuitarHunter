@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { onCitiesUpdate, requestAddCity, deleteCity, toggleCityScannable, onCommandUpdate } from '../services/firestoreService';
+import { onCitiesUpdate, requestAddCity, deleteCity, toggleCityScannable, setCityKijijiRadius, onCommandUpdate } from '../services/firestoreService';
 
 export const useCities = (user, setError) => {
   const [cities, setCities] = useState([]);
@@ -65,12 +65,22 @@ export const useCities = (user, setError) => {
       }
   }, [user, setError]);
 
+  const handleSetCityKijijiRadius = useCallback(async (id, radiusKm) => {
+      if (!user) return;
+      try {
+          await setCityKijijiRadius(id, radiusKm, user.uid);
+      } catch (e) {
+          setError(e.message);
+      }
+  }, [user, setError]);
+
   return {
     cities,
     newCityName, setNewCityName,
     isAddingCity,
     handleAddCity,
     handleDeleteCity,
-    handleToggleScannable
+    handleToggleScannable,
+    handleSetCityKijijiRadius
   };
 };

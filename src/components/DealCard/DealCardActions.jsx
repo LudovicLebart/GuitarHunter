@@ -17,6 +17,10 @@ const DealCardActions = ({
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
 
+    // Même logique que DealCard/index.jsx : l'URL est la seule source de vérité fiable
+    // pour distinguer Facebook/Kijiji (deal.source n'existe que pour Kijiji).
+    const isKijiji = (deal.link || '').includes('kijiji.ca');
+
     const openCommentModal = () => setShowCommentModal(true);
     const submitComment = () => {
         onForceExpert(commentText.trim());
@@ -146,16 +150,20 @@ const DealCardActions = ({
                 >
                     <Share2 size={18} className="sm:w-4 sm:h-4" />
                 </button>
-                {/* Facebook */}
+                {/* Voir l'annonce d'origine (Facebook ou Kijiji) */}
                 {deal.link ? (
                     <a
                         href={deal.link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-blue-700 text-white hover:bg-blue-600 border border-blue-600 transition-all"
-                        title="Voir sur Facebook"
+                        className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl text-white border transition-all ${isKijiji ? 'bg-orange-600 hover:bg-orange-500 border-orange-500' : 'bg-blue-700 hover:bg-blue-600 border-blue-600'}`}
+                        title={isKijiji ? "Voir sur Kijiji" : "Voir sur Facebook"}
                     >
-                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                        {isKijiji ? (
+                            <span className="text-xs font-black">K</span>
+                        ) : (
+                            <Facebook size={18} className="sm:w-4 sm:h-4" />
+                        )}
                     </a>
                 ) : (
                     <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>

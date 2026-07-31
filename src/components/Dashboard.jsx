@@ -175,6 +175,7 @@ const Dashboard = ({ onClose }) => {
         setError,
         handleManualRefresh,
         handleManualCleanup,
+        isNewUser,
     } = useBotConfigContext();
 
     const loadMoreRef = useRef(null);
@@ -223,21 +224,22 @@ const Dashboard = ({ onClose }) => {
         }
     }, [deals, selectedDeal, dealActions, setViewMode]);
 
+    // Effet pour forcer l'affichage de l'aide pour un nouvel utilisateur
+    useEffect(() => {
+        if (isNewUser) {
+            setShowHelp(true);
+        }
+    }, [isNewUser]);
 
     // ── Adapt filterProps to local filter state ───────────────
     // filterProps from useDealsManager exposes: filterType/setFilterType,
-    //   level1Filter/setLevel1Filter, ..., searchQuery, setSearchQuery
+    //   selectedTypePaths/toggleTypePath (multi-sélection de catégories), searchQuery, setSearchQuery
     const {
         filterType = 'ALL',
         setFilterType,
-        level1Filter = 'ALL',
-        setLevel1Filter,
-        level2Filter = 'ALL',
-        setLevel2Filter,
-        level3Filter = 'ALL',
-        setLevel3Filter,
-        level4Filter = 'ALL',
-        setLevel4Filter,
+        selectedTypePaths = [],
+        toggleTypePath,
+        setSelectedTypePaths,
         conditionFilter = 'ALL',
         setConditionFilter,
         priceFilter = 'ALL',
@@ -252,10 +254,6 @@ const Dashboard = ({ onClose }) => {
     // MockupFilterDrawer uses lowercase 'all', useDealsManager uses uppercase 'ALL'
     const filters = {
         verdict: filterType,
-        level1: level1Filter === 'ALL' ? 'all' : level1Filter,
-        level2: level2Filter === 'ALL' ? 'all' : level2Filter,
-        level3: level3Filter === 'ALL' ? 'all' : level3Filter,
-        level4: level4Filter === 'ALL' ? 'all' : level4Filter,
         condition: conditionFilter === 'ALL' ? 'all' : conditionFilter,
         price: priceFilter === 'ALL' ? 'all' : priceFilter,
         sort: sortMode,
@@ -266,10 +264,6 @@ const Dashboard = ({ onClose }) => {
         const normalized = value === 'all' ? 'ALL' : value;
         switch (key) {
             case 'verdict': setFilterType?.(normalized); break;
-            case 'level1': setLevel1Filter?.(normalized); break;
-            case 'level2': setLevel2Filter?.(normalized); break;
-            case 'level3': setLevel3Filter?.(normalized); break;
-            case 'level4': setLevel4Filter?.(normalized); break;
             case 'condition': setConditionFilter?.(normalized); break;
             case 'price': setPriceFilter?.(normalized); break;
             case 'sort': setSortMode?.(value); break; // 'date' | 'interest', pas de mapping 'all'
@@ -279,10 +273,7 @@ const Dashboard = ({ onClose }) => {
 
     const handleReset = () => {
         setFilterType?.('ALL');
-        setLevel1Filter?.('ALL');
-        setLevel2Filter?.('ALL');
-        setLevel3Filter?.('ALL');
-        setLevel4Filter?.('ALL');
+        setSelectedTypePaths?.([]);
         setConditionFilter?.('ALL');
         setPriceFilter?.('ALL');
         setSearchQuery?.('');
@@ -309,10 +300,7 @@ const Dashboard = ({ onClose }) => {
 
     const activeFilterCount = [
         filterType !== 'ALL' ? 1 : 0,
-        level1Filter !== 'ALL' ? 1 : 0,
-        level2Filter !== 'ALL' ? 1 : 0,
-        level3Filter !== 'ALL' ? 1 : 0,
-        level4Filter !== 'ALL' ? 1 : 0,
+        selectedTypePaths.length,
         conditionFilter !== 'ALL' ? 1 : 0,
         priceFilter !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
@@ -379,6 +367,9 @@ const Dashboard = ({ onClose }) => {
                 onFilterChange={handleFilterChange}
                 onReset={handleReset}
                 counts={counts || {}}
+                selectedTypePaths={selectedTypePaths}
+                onToggleType={toggleTypePath}
+                onClearTypes={() => setSelectedTypePaths?.([])}
             />
 
             {/* Real ConfigPanel — opens via gear icon */}
@@ -459,7 +450,7 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={totalFilteredDeals} loadedDeals={loadedDeals} />
+                    <StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} />
                 ) : viewMode === 'MAP' ? (
                     <MapViewOverlay
                         deals={totalFilteredDeals}

@@ -358,6 +358,22 @@ export const toggleCityScannable = async (docId, currentStatus, userId) => {
   }
 };
 
+/**
+ * Définit le rayon de recherche Kijiji (km) pour cette ville, pour cet utilisateur —
+ * prime sur le défaut à deux paliers appliqué côté backend (voir bot.py::_run_kijiji_scan).
+ * radiusKm null/0 efface le réglage (repli sur le défaut).
+ * docId = Facebook city ID
+ */
+export const setCityKijijiRadius = async (docId, radiusKm, userId) => {
+  try {
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await setDoc(doc(userCitiesPrefsRef, docId), { kijijiRadiusKm: radiusKm || null }, { merge: true });
+  } catch (error) {
+    console.error(`Error setting Kijiji radius for city ${docId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du rayon Kijiji.");
+  }
+};
+
 // --- Migration Automatique V2 ---
 export const migrateOldDataToNewUser = async (newUserId, userEmail) => {
   const OLD_USER_ID = import.meta.env.VITE_USER_ID_TARGET;

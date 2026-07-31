@@ -275,7 +275,8 @@ class FacebookScraper:
         # Prix
         try:
             self.logger.info(f"   💰 Application des prix : {min_price}$ - {max_price}$")
-            
+            filled_any = False
+
             if min_price > 0:
                 min_input = page.locator("input[aria-label='Prix minimum'], input[aria-label='Minimum price'], input[placeholder='Min'], input[placeholder='Min.']").first
                 if min_input.is_visible(timeout=3000):
@@ -288,27 +289,32 @@ class FacebookScraper:
                         page.keyboard.type(digit)
                         time.sleep(0.1)
                     time.sleep(0.5)
+                    filled_any = True
 
-            max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max'], input[placeholder='Max.']").first
-            
-            if max_input.is_visible(timeout=3000):
-                max_input.click()
-                time.sleep(0.5)
-                page.keyboard.press("Control+A")
-                page.keyboard.press("Backspace")
-                time.sleep(0.2)
-                
-                for digit in str(max_price):
-                    page.keyboard.type(digit)
-                    time.sleep(0.1)
-                
-                time.sleep(0.5)
+            if max_price > 0:
+                max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max'], input[placeholder='Max.']").first
+
+                if max_input.is_visible(timeout=3000):
+                    max_input.click()
+                    time.sleep(0.5)
+                    page.keyboard.press("Control+A")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+
+                    for digit in str(max_price):
+                        page.keyboard.type(digit)
+                        time.sleep(0.1)
+
+                    time.sleep(0.5)
+                    filled_any = True
+                else:
+                    self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
+
+            if filled_any:
                 page.keyboard.press("Enter")
                 self.logger.info("   ✅ Prix appliqués. Attente du rechargement...")
                 page.wait_for_load_state("domcontentloaded", timeout=10000)
                 time.sleep(3)
-            else:
-                self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
         except Exception as e:
             self.logger.warning(f"Erreur filtre prix: {e}")
 

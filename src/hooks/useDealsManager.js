@@ -45,10 +45,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const [filterType, setFilterType] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [level1Filter, setLevel1Filter] = useState('ALL');
-  const [level2Filter, setLevel2Filter] = useState('ALL');
-  const [level3Filter, setLevel3Filter] = useState('ALL');
-  const [level4Filter, setLevel4Filter] = useState('ALL');
+  // Chemins de taxonomie sélectionnés (multi-sélection, ex: ["guitare.acoustique_acier.formes_standard.Parlor",
+  // "guitare.acoustique_acier.specialites.Travel.Baby / Mini"]) — un tableau vide = "Tous les types".
+  // Un deal correspond si son chemin de classification égale ou descend (préfixe) d'AU MOINS un chemin sélectionné.
+  const [selectedTypePaths, setSelectedTypePaths] = useState([]);
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
@@ -69,7 +69,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         deal_score: entry.is,
         estimated_value: entry.ev,
         model_used: entry.mu,
-        estimated_gross_margin: entry.egm
+        estimated_gross_margin: entry.egm,
+        brand: entry.b,
+        model_name: entry.mn,
+        color: entry.co
       },
       isFavorite: entry.f,
       timestamp: entry.t ? { seconds: entry.t } : null,
@@ -92,10 +95,20 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (uiFilters == null || hydratedFiltersRef.current) return;
     hydratedFiltersRef.current = true;
     if (uiFilters.filterType) setFilterType(uiFilters.filterType);
-    if (uiFilters.level1Filter) setLevel1Filter(uiFilters.level1Filter);
-    if (uiFilters.level2Filter) setLevel2Filter(uiFilters.level2Filter);
-    if (uiFilters.level3Filter) setLevel3Filter(uiFilters.level3Filter);
-    if (uiFilters.level4Filter) setLevel4Filter(uiFilters.level4Filter);
+    if (Array.isArray(uiFilters.selectedTypePaths)) {
+      setSelectedTypePaths(uiFilters.selectedTypePaths);
+    } else if (uiFilters.level1Filter && uiFilters.level1Filter !== 'ALL') {
+      // Migration douce depuis l'ancien format (un seul chemin en cascade level1..4) :
+      // reconstruit le chemin déjà sélectionné par l'utilisateur plutôt que de le perdre.
+      if (uiFilters.level1Filter === 'OTHER') {
+        setSelectedTypePaths(['OTHER']);
+      } else {
+        const legacyPath = [uiFilters.level1Filter, uiFilters.level2Filter, uiFilters.level3Filter, uiFilters.level4Filter]
+          .filter(v => v && v !== 'ALL')
+          .join('.');
+        if (legacyPath) setSelectedTypePaths([legacyPath]);
+      }
+    }
     if (uiFilters.conditionFilter) setConditionFilter(uiFilters.conditionFilter);
     if (uiFilters.priceFilter) setPriceFilter(uiFilters.priceFilter);
     if (uiFilters.sortMode) setSortMode(uiFilters.sortMode);
@@ -106,16 +119,16 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   useEffect(() => {
     if (!hydratedFiltersRef.current || !saveUiFilters) return;
     saveUiFilters({
-      filterType, level1Filter, level2Filter, level3Filter, level4Filter,
+      filterType, selectedTypePaths,
       conditionFilter, priceFilter, sortMode
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, sortMode]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, sortMode]);
 
   // Reset visibleCount when filters change
   useEffect(() => {
     setVisibleCount(30);
-  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, searchQuery]);
 
   useEffect(() => {
     if (!user) return;
@@ -210,37 +223,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
   }, []);
 
-  const level1Options = useMemo(() => ['ALL', ...Object.keys(MASTER_TAXONOMY), 'OTHER'], []);
-
-  const level2Options = useMemo(() => {
-    if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !MASTER_TAXONOMY[level1Filter]) return ['ALL'];
-    const node = MASTER_TAXONOMY[level1Filter];
-    return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
-  }, [level1Filter]);
-
-  const level3Options = useMemo(() => {
-    if (level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
-    const node1 = MASTER_TAXONOMY[level1Filter];
-    if (Array.isArray(node1)) return ['ALL'];
-    const node2 = node1[level2Filter];
-    if (!node2 || Array.isArray(node2)) return ['ALL'];
-    return ['ALL', ...Object.keys(node2)];
-  }, [level1Filter, level2Filter]);
-
-  const level4Options = useMemo(() => {
-    if (level3Filter === 'ALL' || level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
-    const node1 = MASTER_TAXONOMY[level1Filter];
-    if (!node1 || Array.isArray(node1)) return ['ALL'];
-    const node2 = node1[level2Filter];
-    if (!node2 || Array.isArray(node2)) return ['ALL'];
-    const node3 = node2[level3Filter];
-    if (!node3 || Array.isArray(node3)) return ['ALL'];
-    return ['ALL', ...Object.keys(node3)];
-  }, [level1Filter, level2Filter, level3Filter]);
-
-  useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level1Filter]);
-  useEffect(() => { setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level2Filter]);
-  useEffect(() => { setLevel4Filter('ALL'); }, [level3Filter]);
+  // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
+  const toggleTypePath = useCallback((path) => {
+    setSelectedTypePaths(prev => prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]);
+  }, []);
 
   // --- LOGIQUE DE FILTRAGE ET COMPTAGE DYNAMIQUE ---
 
@@ -289,18 +275,25 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return false;
   }, []);
 
-  // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
-  const matchesTypeFilter = useCallback((deal, l1, l2, l3, l4, search) => {
+  // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE (multi-sélection)
+  const matchesTypeFilter = useCallback((deal, typePaths, search) => {
     if (deal.status === 'rejected') return false;
     // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
 
-    // Recherche textuelle
-    if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
+    // Recherche textuelle (titre + marque/modèle/couleur identifiés par l'IA)
+    const analysis = deal.aiAnalysis || {};
+    if (search) {
+      const needle = search.toLowerCase();
+      const haystack = [deal.title, analysis.brand, analysis.model_name, analysis.color]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+
+    if (!typePaths || typePaths.length === 0) return true; // Aucune sélection = Tous les types
 
     // Classification
-    const analysis = deal.aiAnalysis || {};
     const classification = analysis.classification;
-    if (!classification) return l1 === 'ALL' || l1 === 'OTHER';
+    if (!classification) return typePaths.includes('OTHER');
 
     const normalizedClass = normalize(classification);
     // 1. Try exact full path lookup
@@ -309,18 +302,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (!path) path = taxonomyLeafPaths[normalizedClass];
     // 3. Last resort fuzzy search
     if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+    if (!path) return typePaths.includes('OTHER');
 
-    if (l1 !== 'ALL') {
-      if (l1 === 'OTHER') {
-        if (path) return false;
-      } else {
-        if (!path || path[0] !== l1) return false;
-        if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
-        if (l3 !== 'ALL' && (path.length < 3 || path[2] !== l3)) return false;
-        if (l4 !== 'ALL' && (path.length < 4 || path[3] !== l4)) return false;
-      }
-    }
-    return true;
+    // Un deal correspond si son chemin égale ou descend (préfixe) d'AU MOINS un des chemins
+    // sélectionnés — permet de cocher "Parlor" ET "Baby / Mini" simultanément même si ces deux
+    // catégories se trouvent dans des branches différentes de la taxonomie.
+    const fullPathStr = path.join('.');
+    return typePaths.some(selected =>
+      selected === fullPathStr || fullPathStr.startsWith(`${selected}.`)
+    );
   }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
   // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
@@ -402,7 +392,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
 
       // On n'inclut que les deals qui passent les filtres de type, condition et prix actuels
-      if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery)) return;
+      if (!matchesTypeFilter(deal, selectedTypePaths, searchQuery)) return;
       if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
@@ -432,7 +422,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       if (deal.isFavorite && !favoriteNoise) c.FAVORITES++;
     });
     return c;
-  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, selectedTypePaths, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
 
   // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
@@ -443,7 +433,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
       // Pour les autres filtres, on combine verdict, type, condition et prix
       const verdictMatch = matchesVerdictFilter(deal, filterType);
-      const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery);
+      const typeMatch = matchesTypeFilter(deal, selectedTypePaths, searchQuery);
       const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter);
 
       return verdictMatch && typeMatch && condPriceMatch;
@@ -493,7 +483,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       const timeB = b.timestamp?.seconds || 0;
       return timeB - timeA;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, filterType, selectedTypePaths, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const visibleDeals = useMemo(() => {
     return filteredDeals.slice(0, visibleCount);
@@ -587,17 +577,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     filterProps: {
       filterType, setFilterType,
       searchQuery, setSearchQuery,
-      level1Filter, setLevel1Filter,
-      level2Filter, setLevel2Filter,
-      level3Filter, setLevel3Filter,
-      level4Filter, setLevel4Filter,
+      selectedTypePaths, setSelectedTypePaths, toggleTypePath,
       conditionFilter, setConditionFilter,
       priceFilter, setPriceFilter,
       sortMode, setSortMode,
-      level1Options,
-      level2Options,
-      level3Options,
-      level4Options,
       counts,
     },
     dealActions: {

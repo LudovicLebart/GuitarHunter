@@ -27,11 +27,11 @@ service cloud.firestore {
     // Le backend (Admin SDK) bypass ces règles par design — pas d'impact serveur.
     // Le document utilisateur lui-même (botStatus, config, etc.)
     match /artifacts/{appId}/users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if (request.auth != null && request.auth.uid == userId) || isAdmin();
     }
     // Toutes les sous-collections (guitar_deals, commands, cities, logs)
     match /artifacts/{appId}/users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if (request.auth != null && request.auth.uid == userId) || isAdmin();
     }
 
     // Catalogue de villes partagé entre tous les utilisateurs.

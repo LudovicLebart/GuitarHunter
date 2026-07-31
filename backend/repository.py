@@ -22,6 +22,10 @@ class FirestoreRepository:
 
         self.collection_ref = self.user_ref.collection('guitar_deals')
 
+        # Index léger (sharding sur 20 docs, voir _get_chunk_id) pour des recherches
+        # transverses peu coûteuses sans charger les documents complets de guitar_deals.
+        self.deals_index_ref = self.user_ref.collection('deals_index')
+
         # Catalogue de villes partagé entre tous les utilisateurs.
         # DocId = Facebook city ID (unique). Contient: name, id, latitude, longitude.
         self.shared_cities_ref = self.db.collection('artifacts').document(self.app_id) \
@@ -90,6 +94,20 @@ class FirestoreRepository:
             logger.error(f"Failed to read known deal IDs from deals_index: {e}", exc_info=True)
         return known_ids
 
+    def get_deals_index_snapshot(self):
+        """Lit les 20 chunks de l'index léger et retourne un dict {deal_id: {champs...}}
+        fusionné (title, p=price, l=location, la=latitude, lo=longitude, s=status, ...).
+        Utilisé pour des recherches transverses (ex: détection de doublons
+        cross-plateforme, comparaison par distance GPS) sans lire guitar_deals."""
+        merged = {}
+        try:
+            for chunk_doc in self.deals_index_ref.stream():
+                chunk_data = chunk_doc.to_dict() or {}
+                merged.update(chunk_data.get('deals', {}))
+        except Exception as e:
+            logger.error(f"Failed to read deals_index snapshot: {e}", exc_info=True)
+        return merged
+
     def _get_chunk_id(self, deal_id):
         """Calcule un ID de chunk déterministe (MD5) pour distribuer les annonces sur 20 documents."""
         import hashlib
@@ -97,30 +115,36 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None):
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
             index_ref = self.user_ref.collection('deals_index').document(chunk_id)
-            
+
             update_data = {}
             prefix = f"deals.{deal_id}"
             update_data[f"{prefix}.h"] = chunk_id
-            
+
             if status is not None:
                 update_data[f"{prefix}.s"] = status
-            
+
             if is_favorite is not None:
                 update_data[f"{prefix}.f"] = is_favorite
-                
+
             if title is not None:
                 update_data[f"{prefix}.title"] = title
-                
+
             if price is not None:
                 update_data[f"{prefix}.p"] = price
 
             if location is not None:
                 update_data[f"{prefix}.l"] = location
+
+            if latitude is not None:
+                update_data[f"{prefix}.la"] = latitude
+
+            if longitude is not None:
+                update_data[f"{prefix}.lo"] = longitude
 
             if initial_model is not None:
                 update_data[f"{prefix}.imu"] = initial_model
@@ -158,6 +182,9 @@ class FirestoreRepository:
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
                 update_data[f"{prefix}.c"] = ai.get('classification') or None
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
+                update_data[f"{prefix}.b"] = ai.get('brand') or None
+                update_data[f"{prefix}.mn"] = ai.get('model_name') or None
+                update_data[f"{prefix}.co"] = ai.get('color') or None
                 update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
                 update_data[f"{prefix}.ev"] = ai.get('estimated_value') or ai.get('estimated_guitar_value') or None
                 update_data[f"{prefix}.mu"] = ai.get('model_used') or None
@@ -235,7 +262,9 @@ class FirestoreRepository:
                 published_at=deal_data.get('published_at_ts'),
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
             )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
@@ -292,7 +321,9 @@ class FirestoreRepository:
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
                 published_at=deal_data.get('published_at_ts'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:
@@ -346,7 +377,9 @@ class FirestoreRepository:
         Nouvelle architecture : fusionne le catalogue partagé avec les préférences user.
         Fallback ancienne architecture : si le catalogue est vide, lit directement
         users/{uid}/cities (données complètes dans un seul document).
-        Retourne une liste de dicts (name, id, latitude, longitude, isScannable).
+        Retourne une liste de dicts (name, id, latitude, longitude, isScannable,
+        kijijiRadiusKm — préférence user optionnelle, `None` si non réglée, voir
+        `bot.py::_run_kijiji_scan()`).
         """
         try:
             catalog = {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
@@ -358,7 +391,7 @@ class FirestoreRepository:
                 for city_id, city_data in catalog.items():
                     pref = user_prefs.get(city_id, {})
                     if pref.get('isScannable', False):
-                        result.append({**city_data, 'isScannable': True})
+                        result.append({**city_data, 'isScannable': True, 'kijijiRadiusKm': pref.get('kijijiRadiusKm')})
                 logger.info(f"Cities loaded from shared catalog: {len(result)} scannable / {len(catalog)} total.")
                 return result
             else:

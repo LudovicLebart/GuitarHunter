@@ -56,6 +56,11 @@ PROXIES = [
     # "http://proxy2.com:8000",
 ]
 
+# --- KIJIJI ---
+# ID de catégorie Kijiji, global et stable pour tout le site (voir backend/scraping/kijiji/).
+# Pas de mapping au-delà de "Guitars" pour l'instant.
+KIJIJI_GUITARS_CATEGORY_ID = 613
+
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 # Note : gemini-3.1-pro-preview est un modèle Preview (préavis de dépréciation
 # de 2 semaines par email Google, non interceptable par l'API - voir notify_model_error).

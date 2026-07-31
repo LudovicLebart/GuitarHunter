@@ -41,7 +41,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
 - **Deux sources (2026-07-24)** : Facebook (`scan_marketplace()`/`scan_specific_url()`) et LeBonCoin (`bot.run_leboncoin_scan()`, compte personnel unique, `leboncoinConfig.enabled` désactivé par défaut). Les deux convergent vers le même `handle_deal_found()` — LeBonCoin passe par un adaptateur (`_map_leboncoin_ad()`) qui convertit son schéma d'annonce vers celui de Facebook, et ses ID sont préfixés `lbc_` pour éviter toute collision avec les ID Facebook dans cette même collection.
 - **Étapes de création** :
   1. `bot.handle_deal_found(listing_data)` — **(2026-07-09)** si `imageUrls` est vide ET prix à 0$ (scraping manifestement raté), la fonction s'arrête ici : rien n'est écrit dans `guitar_deals`, l'annonce sera retraitée comme nouvelle à la prochaine session.
-  2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`) ou prix > `scanConfig.max_price` (**2026-07-09**, `verdict: BAD_DEAL` → `status` reste `analyzed`, catégorie "Trop Cher" masquée par défaut côté frontend mais pas un vrai rejet ; **2026-07-24** : ce second pré-filtre est ignorable via `skip_price_prefilter=True`, utilisé par LeBonCoin dont la recherche filtre déjà par prix côté site).
+  2. Pré-filtres : mot-clé d'exclusion (`verdict: REJECTED` → `status: rejected`, stocké) ou prix > `scanConfig.max_price` (**2026-07-27** : annonce ignorée, rien n'est écrit dans `guitar_deals` — hors budget = hors périmètre de recherche, pas un verdict `BAD_DEAL` comme avant cette date ; ce second pré-filtre est ignorable via `skip_price_prefilter=True`, utilisé par LeBonCoin dont la recherche filtre déjà par prix côté site).
   3. `repo.upload_images_to_storage(image_urls, deal_id)` → retourne `storageImageUrls` (URLs Firebase pérennes).
   4. `analyzer.analyze_deal(listing_data)` -> Génère un verdict (Good Deal, Rejected, etc.).
   5. `repo.create_new_deal(...)` ou `repo.update_deal_analysis(...)` avec `storageImageUrls` injecté. **(2026-07-11)** `create_new_deal()` snapshotte en plus `initialVerdict`/`initialModelUsed` (verdict et chaîne `model_used` du tout premier passage) — ces champs ne sont plus jamais réécrits par une réanalyse ultérieure, contrairement à `aiAnalysis`.
@@ -64,6 +64,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
        "model_name": "Modèle exact (ex: Stratocaster)",
        "production_year": "Année/Décennie",
        "country_of_origin": "Pays de fabrication",
+       "color": "Couleur/finition (ex: Sunburst 3-tons) — ajouté 2026-07-31, affiché dans la Fiche Technique de DealAnalysisModal.jsx",
        "reasoning": "Markdown text",
        "deal_score": 0-10,
        "authenticity_score": 0-10,
@@ -85,7 +86,9 @@ Pour contourner la limite de taille et les coûts de lecture Firestore, le syst�
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/deals_index/{CHUNK_ID}` (de `chunk_0` à `chunk_19`).
 - **Principe** : Les annonces sont distribuées sur 20 chunks via un hachage MD5 déterministe sur le `deal_id`.
 - **Maintenance (Backend)** : À chaque création/modification/suppression/vente, le backend met à jour la clé correspondante dans le chunk d'index via dot-notation (ex: `deals.deal_123.s = "sold"`), sans aucune lecture Firestore supplémentaire.
-- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score) et `i` (image_url).
+- **Propriétés indexées** : `s` (statut), `v` (verdict), `f` (isFavorite), `t` (timestamp), `p` (prix), `c` (classification), `cs` (condition_score), `ap` (also_qualifies_pepite), `title` (titre), `is` (interest_score), `i` (image_url), `l` (location), `la`/`lo` (latitude/longitude, 2026-07-27), `b`/`mn`/`co` (brand/model_name/color, 2026-07-31 — voir ci-dessous).
+- **Consommateur Backend (2026-07-27)** : `repository.py::get_deals_index_snapshot()` lit et fusionne les 20 chunks côté backend (pas seulement le Frontend) pour une recherche transverse bon marché — utilisé par `bot.py::_find_cross_platform_duplicate()` pour repérer une même annonce postée sur Facebook et Kijiji sans lire les documents complets de `guitar_deals`. `la`/`lo` (latitude/longitude) ajoutés à l'index pour cet usage précis : comparer deux annonces par distance GPS plutôt que par nom de ville (`l`), moins fiable pour Kijiji (voir `ARCHITECTURE.md` § kijiji/).
+- **`b`/`mn`/`co` (brand/model_name/color, 2026-07-31)** : ajoutés pour que la recherche texte libre (`useDealsManager.js`) et les stats de distribution (`StatsView.jsx`) portent sur **toutes** les annonces via l'index temps réel, pas seulement celles chargées en cache (`loadedDeals`, lazy loading par paquets de 30). Avant cet ajout, `aiAnalysis.brand` n'existait que sur les annonces déjà ouvertes par l'utilisateur — le graphique "Distribution (Top Marques)" de `StatsView.jsx` était donc partiel silencieusement.
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.
