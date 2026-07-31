@@ -412,8 +412,9 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Activation manuelle Firebase AI Logic + App Check** *(Ajouté 2026-07-31, requis pour que le chat Gemini fonctionne réellement)*
     - *Détails :* Deux étapes console/CLI Firebase non faisables depuis un environnement automatisé (nécessite le compte Firebase du projet) :
         1. Activer Firebase AI Logic (Gemini Developer API) — console Firebase, section AI Logic, ou `firebase init` (choisir "AI Logic").
-        2. Créer une clé reCAPTCHA Enterprise (Google Cloud Console) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` (`VITE_RECAPTCHA_SITE_KEY`).
-    - *Sans ces deux étapes* : le chat affichera une erreur à l'envoi du premier message (modèle/API non activé), et App Check restera désactivé (avertissement console, pas de blocage).
+        2. Créer une clé reCAPTCHA Enterprise (Google Cloud Console, type Website — la **clé de site**, pas l'URL `enterprise.js?render=...` entière) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` (`VITE_RECAPTCHA_SITE_KEY`).
+    - *Fait (2026-07-31)* : clé reCAPTCHA Enterprise créée et renseignée dans `.env` par l'utilisateur. Jeton de debug App Check ajouté au code (`firebase.js`, actif uniquement en `npm run dev`) pour permettre le test en local sans dépendre de la validation de domaine reCAPTCHA — reste à enregistrer ce jeton une fois dans la console Firebase (App Check > Apps > ⋮ > Manage debug tokens) au premier lancement local.
+    - *Sans l'activation Firebase AI Logic (étape 1)* : le chat affichera une erreur à l'envoi du premier message (modèle/API non activé).
     - *Test en conditions réelles requis* : non vérifiable depuis l'environnement de développement (pas de compte Firebase) — login, chargement des annonces (upgrade `firebase` v10→v12) et chat lui-même à valider par l'utilisateur.
 
 ### 🪟 Modale d'Analyse IA (Mockup V2)

@@ -29,6 +29,17 @@ try {
   // clé encore configurée).
   const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
   if (recaptchaSiteKey) {
+    // Mode debug (2026-07-31) : reCAPTCHA Enterprise valide un vrai domaine de production, pas
+    // `localhost` — en dev (`npm run dev`, import.meta.env.DEV mis par Vite), on bascule App
+    // Check sur un jeton de debug plutôt que de désactiver toute la protection. Au premier
+    // lancement, le jeton généré s'affiche dans la console du navigateur ; il doit être enregistré
+    // une fois dans la console Firebase (App Check > Apps > ⋮ > Manage debug tokens) pour que les
+    // appels en local soient acceptés. Jamais actif en build de production (import.meta.env.DEV
+    // est toujours `false` dans `npm run build`).
+    if (import.meta.env.DEV) {
+      self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      console.warn("🔥 App Check en mode DEBUG (dev local) — le jeton à enregistrer dans la console Firebase va s'afficher ci-dessous.");
+    }
     initializeAppCheck(app, {
       provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
       isTokenAutoRefreshEnabled: true,
