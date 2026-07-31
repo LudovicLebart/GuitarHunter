@@ -16,6 +16,48 @@ export const VERDICT_CONFIG = {
 export const toTitleCase = (str = '') =>
     str.toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+// Construit le prompt texte (annonce + analyse IA) à transmettre à Gemini pour que
+// l'utilisateur puisse poursuivre la conversation sur le site/l'app Gemini.
+export const buildGeminiChatPrompt = (deal) => {
+    const a = deal.aiAnalysis || {};
+    const lines = [
+        "Voici une annonce de guitare/matériel musical que j'ai analysée avec mon outil de scraping (Guitar Hunter AI). J'aimerais en discuter avec toi.",
+        '',
+        `Titre : ${deal.title || 'N/A'}`,
+        `Prix demandé : ${deal.price != null ? `${deal.price}$` : 'N/A'}`,
+    ];
+    if (deal.location) lines.push(`Localisation : ${deal.location}`);
+    if (deal.description) lines.push(`Description : ${deal.description}`);
+    if (deal.link) lines.push(`Lien annonce : ${deal.link}`);
+
+    const specs = [
+        a.brand && `Marque : ${a.brand}`,
+        a.model_name && `Modèle : ${a.model_name}`,
+        a.production_year && `Année : ${a.production_year}`,
+        a.country_of_origin && `Pays : ${a.country_of_origin}`,
+        a.color && `Couleur : ${a.color}`,
+    ].filter(Boolean);
+    if (specs.length) lines.push('', 'Identification IA :', ...specs);
+
+    const financials = [
+        a.estimated_value != null && `Valeur estimée : ${a.estimated_value}$`,
+        a.resale_potential != null && `Potentiel de revente : ${a.resale_potential}$`,
+        a.estimated_gross_margin != null && `Marge brute estimée : ${a.estimated_gross_margin}$`,
+    ].filter(Boolean);
+    if (financials.length) lines.push('', 'Analyse financière :', ...financials);
+
+    if (a.verdict) lines.push('', `Verdict de mon IA : ${a.verdict}`);
+    if (a.summary) lines.push(`Résumé : ${a.summary}`);
+    if (a.reasoning && a.reasoning !== a.summary) lines.push('', 'Analyse détaillée :', a.reasoning);
+
+    lines.push(
+        '',
+        "Je veux poursuivre la discussion sur cette annonce avec toi — pose-moi des questions, challenge mon analyse, ou aide-moi à décider si c'est une bonne affaire."
+    );
+
+    return lines.join('\n');
+};
+
 // Format a Firestore timestamp or ISO string to a relative human string
 export const formatRelativeDate = (timestamp) => {
     if (!timestamp) return null;

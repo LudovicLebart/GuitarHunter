@@ -410,6 +410,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*
     - *Détails :* L'utilisateur peut désormais marquer une annonce en favori directement depuis la vue détaillée (modale) de la carte.
 
+- [ ] **Bouton "Discuter sur Gemini"** *(Branche `feature/discuter-gemini`, 2026-07-31, en attente de validation utilisateur avant fusion)*
+    - *Détails :* Alternative à un chat IA intégré (jugée trop lourde — nouveau backend, nouvelle collection Firestore) : copie un prompt (annonce + analyse IA) dans le presse-papier et ouvre `gemini.google.com/app?q=...` dans un nouvel onglet pour que l'utilisateur poursuive la conversation avec Gemini directement.
+    - *Non validé* : impossible de vérifier depuis l'environnement de dev si `?q=` préremplit réellement le champ de saisie Gemini (Playwright bloqué par le proxy du sandbox). Le presse-papier reste un repli garanti dans tous les cas. À tester par l'utilisateur, puis fusionner dans `dev` si ok.
+
 ---
 
 ### 🗺️ Cartographie (Mockup V2)

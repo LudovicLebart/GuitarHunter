@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2 } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle } from 'lucide-react';
 import { createSharedDeal } from '../../services/firestoreService';
+import { buildGeminiChatPrompt } from './utils';
+
+// gemini.google.com n'expose pas de mécanisme officiel/documenté de préremplissage par URL —
+// tentative en best-effort (ignorée si non supportée), le presse-papier reste le repli garanti.
+const GEMINI_URL_PREFILL_LIMIT = 6000;
 
 const DealCardActions = ({ 
     deal, 
@@ -14,6 +19,7 @@ const DealCardActions = ({
 }) => {
     const [showRescanMenu, setShowRescanMenu] = useState(false);
     const [isCopying, setIsCopying] = useState(false);
+    const [isPromptCopied, setIsPromptCopied] = useState(false);
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
 
@@ -68,6 +74,27 @@ const DealCardActions = ({
             console.error('Erreur de copie:', err);
             alert("Impossible de copier le lien. Copiez-le manuellement depuis la barre d'adresse.");
         }
+    };
+
+    const handleDiscussGemini = async (e) => {
+        e.stopPropagation();
+        const prompt = buildGeminiChatPrompt(deal);
+
+        try {
+            await navigator.clipboard.writeText(prompt);
+            setIsPromptCopied(true);
+            setTimeout(() => setIsPromptCopied(false), 2000);
+        } catch (err) {
+            console.error('Erreur de copie du prompt Gemini:', err);
+            alert("Impossible de copier le prompt. Réessayez ou copiez-le manuellement.");
+        }
+
+        // Tentative de préremplissage du champ de saisie Gemini (non garanti, voir note plus haut) ;
+        // le prompt reste de toute façon dans le presse-papier si l'utilisateur doit coller manuellement.
+        const geminiUrl = prompt.length < GEMINI_URL_PREFILL_LIMIT
+            ? `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`
+            : 'https://gemini.google.com/app';
+        window.open(geminiUrl, '_blank', 'noopener,noreferrer');
     };
 
     return (
@@ -149,6 +176,14 @@ const DealCardActions = ({
                     title={isCopying ? "Lien copié !" : "Partager l'annonce"}
                 >
                     <Share2 size={18} className="sm:w-4 sm:h-4" />
+                </button>
+                {/* Discuter sur Gemini */}
+                <button
+                    onClick={handleDiscussGemini}
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isPromptCopied ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-purple-400 hover:bg-purple-500/10'}`}
+                    title={isPromptCopied ? "Prompt copié ! Collez-le si besoin dans Gemini" : "Discuter de cette annonce sur Gemini"}
+                >
+                    <MessageCircle size={18} className="sm:w-4 sm:h-4" />
                 </button>
                 {/* Voir l'annonce d'origine (Facebook ou Kijiji) */}
                 {deal.link ? (
