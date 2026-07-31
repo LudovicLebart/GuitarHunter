@@ -23,14 +23,19 @@ const normalize = (str) => {
     .replace(/[^a-z0-9]/g, ''); // Ne garde que alphanumérique
 };
 
-// Recherche floue : retourne le path si une clé normalisée de la taxonomie est contenue dans la string
+// Recherche floue : retourne le path le PLUS SPÉCIFIQUE (le plus profond) parmi toutes les clés
+// normalisées de la taxonomie contenues dans la string — évite qu'une clé générique comme
+// "electrique" (sous-chaîne de presque tout) masque une correspondance plus précise trouvée plus loin.
 const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
+  let bestPath = null;
   for (const [key, path] of Object.entries(taxonomyPaths)) {
     if (normalizedSearchStr.includes(key)) {
-      return path;
+      if (!bestPath || path.length > bestPath.length) {
+        bestPath = path;
+      }
     }
   }
-  return null;
+  return bestPath;
 };
 
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
