@@ -554,6 +554,18 @@ class FirestoreRepository:
 
         return stable_urls, gs_uris
 
+    def list_deal_image_gs_uris(self, deal_id):
+        """
+        Liste les URIs gs:// des images déjà présentes dans Firebase Storage pour un deal,
+        sans re-téléchargement — pour rétro-remplir storageImageGsUris (2026-07-31) sur des
+        annonces déjà uploadées (storageImageUrls déjà renseigné) avant l'ajout de ce champ.
+        """
+        if not self._bucket:
+            return []
+        prefix = f"deals/{deal_id}/"
+        blobs = sorted(self._bucket.list_blobs(prefix=prefix), key=lambda b: b.name)
+        return [f"gs://{self._bucket.name}/{blob.name}" for blob in blobs]
+
     def delete_deal_images(self, deal_id):
         """
         Supprime toutes les images d'un deal dans Firebase Storage et
