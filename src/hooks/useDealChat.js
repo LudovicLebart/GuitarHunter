@@ -2,6 +2,26 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { onDealChatUpdate, addDealChatMessage } from '../services/firestoreService';
 import { getDealChatModel, buildDealContextText, buildDealImageParts } from '../services/geminiChatService';
 
+// Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
+// brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
+// écriture interrompue avant le correctif d'appariement systématique, ou deux écritures aux
+// timestamps trop proches pour que `orderBy('createdAt')` reflète l'ordre réel). Ne garde que les
+// paires strictement consécutives (user suivi immédiatement de model) ; tout tour 'user' isolé,
+// où qu'il soit dans la liste, est ignoré plutôt que de casser l'appel à l'API.
+const sanitizeHistory = (msgs) => {
+    const history = [];
+    for (let i = 0; i < msgs.length; i++) {
+        if (msgs[i].role !== 'user') continue;
+        const next = msgs[i + 1];
+        if (next && next.role === 'model') {
+            history.push({ role: 'user', parts: msgs[i].parts });
+            history.push({ role: 'model', parts: next.parts });
+            i++; // le tour 'model' vient d'être consommé
+        }
+    }
+    return history;
+};
+
 // Gère une session de chat Gemini (Firebase AI Logic) pour une annonce donnée. L'historique est
 // la source de vérité Firestore (guitar_deals/{dealId}/chat) — la session Gemini en mémoire
 // (chatRef) est reconstruite à chaque mise à jour pour permettre de reprendre après un rechargement
@@ -22,18 +42,7 @@ export const useDealChat = (deal, user, modelName) => {
             setLoading(false);
             try {
                 const model = getDealChatModel(modelName);
-                // Auto-réparation (2026-08-01) : des échanges dont l'appel Gemini a échoué avant ce
-                // correctif (ex: App Check mal configuré) ont pu laisser PLUSIEURS tours 'user'
-                // consécutifs sans réponse en Firestore (une nouvelle tentative pendant que le bug
-                // était encore présent = un nouveau tour 'user' non apparié à chaque fois). L'API
-                // exige une alternance stricte user/model — on retire donc TOUTE la chaîne de tours
-                // 'user' finaux non appariés de l'historique renvoyé à l'IA (toujours affichés dans
-                // l'UI via `messages`, qui lit Firestore indépendamment).
-                let history = msgs.map(m => ({ role: m.role, parts: m.parts }));
-                while (history.length > 0 && history[history.length - 1].role === 'user') {
-                    history = history.slice(0, -1);
-                }
-                chatRef.current = model.startChat({ history });
+                chatRef.current = model.startChat({ history: sanitizeHistory(msgs) });
             } catch (e) {
                 console.error('Erreur initialisation session Gemini:', e);
                 setError(e.message);
