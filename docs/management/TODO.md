@@ -409,14 +409,17 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumulait Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée à l'origine : l'utilisateur voulait réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
     - *Progrès (2026-07-31, chat Gemini intégré)* : le bouton "Discuter avec Gemini" a été retiré de la carte liste (visible uniquement dans la modale, `isModal` + `onOpenChat`) — un bouton en moins sur la vue liste. Reste ouvert : la barre d'actions de la modale elle-même (7 boutons) n'a pas été réorganisée/regroupée.
 
-- [ ] **Activation manuelle Firebase AI Logic + App Check** *(Ajouté 2026-07-31, requis pour que le chat Gemini fonctionne réellement)*
+- [x] **Activation manuelle Firebase AI Logic + App Check** *(Ajouté 2026-07-31, validé de bout en bout le 2026-08-01)*
     - *Détails :* Deux étapes console/CLI Firebase non faisables depuis un environnement automatisé (nécessite le compte Firebase du projet) :
         1. Activer Firebase AI Logic (Gemini Developer API) — console Firebase, section AI Logic, ou `firebase init` (choisir "AI Logic").
-        2. Créer une clé reCAPTCHA Enterprise (Google Cloud Console, type Website — la **clé de site**, pas l'URL `enterprise.js?render=...` entière) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` (`VITE_RECAPTCHA_SITE_KEY`).
-    - *Fait (2026-07-31)* : clé reCAPTCHA Enterprise créée et renseignée dans `.env` par l'utilisateur. Jeton de debug App Check ajouté au code (`firebase.js`, actif uniquement en `npm run dev`). Test en local réussi (chat fonctionnel, réponse Gemini cohérente).
-    - *Piège rencontré en production (2026-07-31)* : `VITE_RECAPTCHA_SITE_KEY` présente dans le `.env` local mais absente du secret GitHub Actions `DOT_ENV` (qui alimente le build de déploiement, distinct du `.env` local) → erreur 401 "App Check token is invalid" une fois déployé. Le secret `DOT_ENV` doit contenir le fichier `.env` complet, pas une clé isolée — corrigé par l'utilisateur.
-    - *Sans l'activation Firebase AI Logic (étape 1)* : le chat affichera une erreur à l'envoi du premier message (modèle/API non activé).
-    - *[ ] Reste à faire* : lancer `backend/scripts/backfill_gs_uris.py` (nouveau, 2026-08-01 — `migrate_images.py` s'est avéré inutilisable pour ce besoin, sa condition de saut écarte les annonces déjà uploadées) une fois pour rétro-remplir `storageImageGsUris` sur les annonces déjà en base (les nouvelles scrapées après le déploiement du 2026-07-31 l'ont automatiquement). Commande : `python -m backend.scripts.backfill_gs_uris --dry-run` puis sans `--dry-run`.
+        2. Créer une clé reCAPTCHA Enterprise de type **Score** (Google Cloud Console, `console.cloud.google.com/security/recaptcha` — toujours Enterprise sur cette console, pas de choix possible) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` **et** le secret GitHub `DOT_ENV` (fichier complet, pas une clé isolée).
+    - *Pièges rencontrés et corrigés en cours de route (2026-07-31/08-01)* :
+        - `VITE_RECAPTCHA_SITE_KEY` absente du secret `DOT_ENV` (présente seulement en local) → 401 en production.
+        - Clé reCAPTCHA de type Checkbox au lieu de Score (exigence App Check) → 401 malgré la clé présente.
+        - Bandeau "clé ne demande pas de scores" dans Cloud Console : faux-positif pour un usage via App Check, à ignorer.
+        - CORS absent sur le bucket Firebase Storage → `fetch()` des photos échoue silencieusement (`Failed to fetch`) sans bloquer le reste du chat — corrigé via `gsutil cors set` (voir `ARCHITECTURE.md`).
+    - *Rétro-remplissage `storageImageGsUris`* : exécuté par l'utilisateur (`backend/scripts/backfill_gs_uris.py`, 2465 annonces mises à jour) — champ finalement non consommé par le chat (voir plus bas, bascule vers `inlineData`), mais gardé pour une éventuelle migration future vers Vertex AI.
+    - *Validé en conditions réelles* : chat fonctionnel de bout en bout, photos analysées correctement par Gemini.
     - *Test en conditions réelles requis* : non vérifiable depuis l'environnement de développement (pas de compte Firebase) — login, chargement des annonces (upgrade `firebase` v10→v12) et chat lui-même à valider par l'utilisateur.
 
 ### 🪟 Modale d'Analyse IA (Mockup V2)
