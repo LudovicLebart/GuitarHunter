@@ -1486,3 +1486,11 @@ La base de réflexion fournie par l'utilisateur contenait un bon diagnostic (Pro
 
 #### Raisonnement
 Le bug d'alternance illustre un principe de robustesse manqué à la conception initiale : persister un tour utilisateur avant de savoir si l'appel IA va réussir crée un état intermédiaire invalide si l'appel échoue — un système de conversation doit garantir l'invariant (alternance stricte) à chaque écriture, pas seulement dans le cas nominal. Le correctif traite les deux temporalités : les conversations déjà cassées (auto-réparation à la lecture) et celles à venir (les échecs sont désormais toujours résolus par un tour réponse, jamais silencieusement absents).
+
+---
+
+---
+
+[2026-08-01] [FLASH] Action effectuée -> Correctif de l'auto-réparation d'historique : retirer toute la chaîne de tours 'user' non appariés, pas seulement le dernier → Résultat : erreur `role 'user' can't follow 'user'` toujours présente après le premier correctif, root cause identifiée et corrigée.
+- **Cause** : l'utilisateur ayant retenté plusieurs fois d'envoyer un message pendant que le bug d'alternance était encore présent (avant déploiement du correctif précédent), chaque tentative avait ajouté un nouveau tour `'user'` sans réponse — Firestore contenait donc **plusieurs** tours `'user'` consécutifs en fin d'historique, pas un seul. L'auto-réparation initiale (`if` retirant un seul tour) laissait donc l'avant-dernier `'user'` exposé en fin d'historique, toujours invalide.
+- **`src/hooks/useDealChat.js`** : le `if` de troncature devient un `while`, retirant toute la chaîne de tours `'user'` finaux non appariés plutôt qu'un seul.

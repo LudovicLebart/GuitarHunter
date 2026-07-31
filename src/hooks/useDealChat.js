@@ -22,13 +22,15 @@ export const useDealChat = (deal, user, modelName) => {
             setLoading(false);
             try {
                 const model = getDealChatModel(modelName);
-                // Auto-réparation (2026-08-01) : un échange dont l'appel Gemini a échoué avant ce
-                // correctif (ex: App Check mal configuré) a pu laisser un tour 'user' sans réponse
-                // en Firestore. L'API exige une alternance stricte user/model — on ne rejoue donc
-                // jamais un historique se terminant par 'user' dans startChat (toujours affiché
-                // dans l'UI via `messages`, juste absent du contexte renvoyé à l'IA).
+                // Auto-réparation (2026-08-01) : des échanges dont l'appel Gemini a échoué avant ce
+                // correctif (ex: App Check mal configuré) ont pu laisser PLUSIEURS tours 'user'
+                // consécutifs sans réponse en Firestore (une nouvelle tentative pendant que le bug
+                // était encore présent = un nouveau tour 'user' non apparié à chaque fois). L'API
+                // exige une alternance stricte user/model — on retire donc TOUTE la chaîne de tours
+                // 'user' finaux non appariés de l'historique renvoyé à l'IA (toujours affichés dans
+                // l'UI via `messages`, qui lit Firestore indépendamment).
                 let history = msgs.map(m => ({ role: m.role, parts: m.parts }));
-                if (history.length > 0 && history[history.length - 1].role === 'user') {
+                while (history.length > 0 && history[history.length - 1].role === 'user') {
                     history = history.slice(0, -1);
                 }
                 chatRef.current = model.startChat({ history });
