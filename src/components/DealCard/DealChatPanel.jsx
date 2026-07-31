@@ -63,7 +63,10 @@ const DealChatPanel = ({ deal, onBack }) => {
             </div>
 
             {/* Messages */}
-            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 scrollbar-dark">
+            {/* max-h en filet de sécurité (2026-08-01) : garantit un plafond même si un ancêtre
+                flex ne se contraint pas correctement (ex: cache navigateur/build non rechargé),
+                en plus de flex-1/min-h-0 qui gèrent le cas normal. */}
+            <div ref={scrollRef} className="flex-1 min-h-0 max-h-[55vh] overflow-y-auto p-4 space-y-4 scrollbar-dark">
                 {loading && (
                     <div className="flex items-center justify-center h-full text-slate-500 text-sm gap-2">
                         <Loader2 size={16} className="animate-spin" /> Chargement de la conversation...
