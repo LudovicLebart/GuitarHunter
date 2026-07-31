@@ -48,14 +48,38 @@ export const buildDealContextText = (deal) => {
     return lines.join('\n');
 };
 
-// Parts image gs:// (Cloud Storage for Firebase) — lues directement par Gemini côté serveur,
-// sans téléchargement/encodage base64 côté client. Nécessite storageImageGsUris (backend,
-// 2026-07-31) ; absent sur les annonces créées avant cette date (repli : pas de photo jointe).
-export const buildDealImageParts = (deal) => {
-    const gsUris = deal.storageImageGsUris || [];
-    return gsUris.filter(Boolean).map(fileUri => ({
-        fileData: { fileUri, mimeType: 'image/jpeg' },
+// Parts image en base64 (inlineData) — 2026-08-01, correctif : le backend Firebase AI Logic
+// configuré ici est le Gemini Developer API (`GoogleAIBackend`), qui ne supporte PAS les URIs
+// gs:///le File API via le SDK Firebase AI Logic (confirmé en test réel : erreur 400 "Referencing
+// Google Cloud Storage files directly is not supported") — contrairement à Vertex AI, vérifié
+// initialement mais qui ne s'applique pas au backend réellement configuré. `storageImageGsUris`
+// (backend, 2026-07-31) reste en base pour une éventuelle migration future vers Vertex AI, mais
+// n'est plus utilisé ici : chaque image est téléchargée depuis son URL HTTPS publique
+// (`storageImageUrls`) puis encodée en base64 côté navigateur.
+const fetchImageAsInlinePart = async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const base64Data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+    return { inlineData: { data: base64Data, mimeType: blob.type || 'image/jpeg' } };
+};
+
+export const buildDealImageParts = async (deal) => {
+    const urls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);
+    const parts = await Promise.all(urls.map(async (url) => {
+        try {
+            return await fetchImageAsInlinePart(url);
+        } catch (e) {
+            console.error('Erreur chargement image pour le chat:', url, e);
+            return null;
+        }
     }));
+    return parts.filter(Boolean);
 };
 
 export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL) => {

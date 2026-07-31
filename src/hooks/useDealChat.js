@@ -61,7 +61,7 @@ export const useDealChat = (deal, user, modelName) => {
 
         const isFirstMessage = messages.length === 0;
         const parts = isFirstMessage
-            ? [{ text: `${buildDealContextText(deal)}\n\n${trimmed}` }, ...buildDealImageParts(deal)]
+            ? [{ text: `${buildDealContextText(deal)}\n\n${trimmed}` }, ...(await buildDealImageParts(deal))]
             : [{ text: trimmed }];
 
         try {
