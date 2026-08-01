@@ -70,6 +70,9 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
                     <span className="text-slate-400 font-normal mr-1.5 hidden sm:inline shrink-0">Statut :</span>
                     <span className="truncate block">{currentLabel}</span>
                 </div>
+                <span className="shrink-0 text-[11px] font-mono text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded-md">
+                    {counts[currentVerdict] || 0}
+                </span>
                 <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
             </button>
 
