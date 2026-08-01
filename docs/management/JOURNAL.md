@@ -1,5 +1,15 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-01] [PRO] Feature : joindre une photo depuis le chat Gemini (prise sur place ou galerie) → Résultat :
+- **Demande utilisateur :** pouvoir attacher une nouvelle photo (prise sur place chez le vendeur, ou choisie dans la galerie) à n'importe quel message du chat Gemini d'une annonce — pas seulement les photos déjà scrapées, envoyées uniquement sur le premier message.
+- **Solution :** `geminiChatService.js::fileToInlinePart()` (redimensionnement/compression canvas partagé avec le chemin existant, `blobToInlinePart()` factorisé) ; `useDealChat.js::sendMessage(text, imageFile)` accepte une image optionnelle (message photo seule sans texte autorisé) ; `firestoreService.js::addDealChatMessage(..., attachedImagePartIndex)` référence l'index de la photo dans `parts[]` (pas de duplication du base64) ; `DealChatPanel.jsx` — bouton trombone, aperçu avant envoi, miniature dans la bulle.
+- **Itération sur le sélecteur caméra/galerie (2 tests réels de l'utilisateur)** : `capture="environment"` sur l'`<input type="file">` force l'ouverture directe de l'appareil photo sur plusieurs navigateurs mobiles (confirmé) et son absence force à l'inverse la galerie/fichiers (confirmé) — aucune combinaison unique ne propose fiablement les deux. Résolu avec deux inputs cachés séparés, déclenchés par un petit menu "Prendre une photo" / "Choisir depuis la galerie" (même style que le menu Ré-analyser de `DealCardActions.jsx`).
+- **4 bugs trouvés par `/code-review` et corrigés dans la foulée :**
+  1. **Bug réel confirmé, régression sur le fix anti-chaîne (voir entrée ci-dessous)** — la purge défensive à l'hydratation (`useDealsManager.js`) avait la condition ancêtre/descendant inversée : gardait le chemin le plus large, jetait le plus spécifique.
+  2. **Bug réel confirmé** — `fileToInlinePart()` non protégé par `try/catch` dans `sendMessage` : une photo non décodable laissait `sending` bloqué à `true` indéfiniment (chat verrouillé jusqu'au rechargement). `try/catch` ajouté, parallélisé avec `buildDealImageParts()` au passage (I/O indépendants).
+  3. **Inefficacité confirmée** — la photo jointe était stockée deux fois en base64 (`parts[].inlineData` + un premier champ `attachedImage` séparé). Remplacé par la référence d'index `attachedImagePartIndex` ci-dessus.
+  4. **Bug confirmé par test réel de l'utilisateur** — `capture="environment"` retirait l'option galerie (voir ci-dessus).
+
 [2026-08-01] [PRO] Fix : Filtres de type multi-sélection sans effet quand toute une lignée est cochée → Résultat :
 - **Symptôme signalé :** cocher plusieurs niveaux d'une même lignée de taxonomie (ex: Guitare + Acoustique + Formes Standard + Parlor) réaffichait toutes les guitares, comme si le filtre n'avait aucun effet.
 - **Root cause (confirmée par un second avis, agent Opus indépendant) :** `matchesTypeFilter` (`useDealsManager.js`) matche un deal dès qu'**au moins un** chemin sélectionné est préfixe de son chemin résolu (OR). Avec "guitare" (racine) présent dans la sélection en plus de "Parlor", "guitare" seul suffit déjà à matcher toutes les guitares — les cases plus profondes deviennent des no-ops.
