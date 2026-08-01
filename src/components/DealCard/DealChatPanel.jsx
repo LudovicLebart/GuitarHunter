@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon } from 'lucide-react';
 import { useDealChat } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
@@ -35,8 +35,10 @@ const DealChatPanel = ({ deal, onBack }) => {
     const [input, setInput] = useState('');
     const [imageFile, setImageFile] = useState(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+    const [showAttachMenu, setShowAttachMenu] = useState(false);
     const scrollRef = useRef(null);
-    const fileInputRef = useRef(null);
+    const cameraInputRef = useRef(null);
+    const galleryInputRef = useRef(null);
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -155,26 +157,60 @@ const DealChatPanel = ({ deal, onBack }) => {
                     </div>
                 )}
                 <div className="flex items-end gap-2">
-                    {/* Pas d'attribut `capture` : sur plusieurs navigateurs mobiles (Android
-                        Chrome/WebView notamment), `capture="environment"` ouvre l'appareil photo
-                        directement et retire l'option galerie du sélecteur — alors que la feature
-                        doit permettre les deux (photo prise sur place OU choisie dans la galerie).
-                        Sans cet attribut, le sélecteur natif propose Caméra ET Fichiers/Galerie. */}
+                    {/* Deux inputs séparés plutôt qu'un seul avec/sans `capture` : sur plusieurs
+                        navigateurs mobiles, `capture="environment"` force l'appareil photo (pas
+                        de galerie) et son absence force la galerie (pas d'appareil photo) — aucune
+                        combinaison unique ne propose fiablement les deux. Le menu ci-dessous laisse
+                        l'utilisateur choisir explicitement, chaque option déclenchant le bon input. */}
                     <input
-                        ref={fileInputRef}
+                        ref={cameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handlePickImage}
+                        className="hidden"
+                    />
+                    <input
+                        ref={galleryInputRef}
                         type="file"
                         accept="image/*"
                         onChange={handlePickImage}
                         className="hidden"
                     />
-                    <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={loading || sending}
-                        className="w-10 h-10 shrink-0 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                        title="Joindre une photo"
-                    >
-                        <Paperclip size={16} />
-                    </button>
+
+                    <div className="relative shrink-0">
+                        <button
+                            onClick={() => setShowAttachMenu(v => !v)}
+                            disabled={loading || sending}
+                            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            title="Joindre une photo"
+                        >
+                            <Paperclip size={16} />
+                        </button>
+
+                        {showAttachMenu && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
+                                <div className="absolute bottom-full left-0 mb-2 w-56 z-50">
+                                    <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                                        <button
+                                            onClick={() => { setShowAttachMenu(false); cameraInputRef.current?.click(); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 border-b border-slate-700/50 transition-colors"
+                                        >
+                                            <Camera size={15} /> Prendre une photo
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowAttachMenu(false); galleryInputRef.current?.click(); }}
+                                            className="w-full px-4 py-2.5 text-left text-sm font-bold text-slate-200 hover:bg-slate-700 hover:text-white flex items-center gap-2 transition-colors"
+                                        >
+                                            <ImageIcon size={15} /> Choisir depuis la galerie
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+
                     <textarea
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
