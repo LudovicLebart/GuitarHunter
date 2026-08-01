@@ -190,8 +190,12 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
 
                     const isChecked = selectedTypePaths.includes(currentPath);
                     const hasChildren = cfg.children && Object.keys(cfg.children).length > 0;
-                    // Une catégorie cochée se déplie automatiquement pour révéler ses sous-catégories.
-                    const isExpanded = expandedPaths.has(currentPath) || isChecked;
+                    // Une catégorie se déplie automatiquement si elle est cochée, OU si un de ses
+                    // descendants l'est (sélection en anti-chaîne : cocher "Parlor" ne coche plus
+                    // ses parents, donc c'est la présence d'un descendant coché qui doit ouvrir la
+                    // branche pour qu'il reste visible).
+                    const isExpanded = expandedPaths.has(currentPath) || isChecked
+                        || selectedTypePaths.some(p => p.startsWith(`${currentPath}.`));
                     const showChildren = isExpanded && hasChildren;
 
                     return (

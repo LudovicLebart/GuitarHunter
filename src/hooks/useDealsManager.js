@@ -14,6 +14,9 @@ import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } fr
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
 
+// Un chemin de taxonomie est ancêtre d'un autre s'il en est un préfixe strict (segment par segment).
+const isAncestorPath = (a, b) => b.startsWith(`${a}.`);
+
 // Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces, SANS ACCENTS)
 const normalize = (str) => {
   if (!str) return '';
@@ -120,7 +123,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     hydratedFiltersRef.current = true;
     if (uiFilters.filterType) setFilterType(uiFilters.filterType);
     if (Array.isArray(uiFilters.selectedTypePaths)) {
-      setSelectedTypePaths(uiFilters.selectedTypePaths);
+      // Purge défensive d'une sélection sauvegardée avant le fix anti-chaîne (chemins
+      // ancêtre+descendant coexistant) : ne garde que les chemins les plus spécifiques,
+      // en retirant tout chemin dont un ancêtre est aussi présent dans la sélection.
+      const saved = uiFilters.selectedTypePaths;
+      setSelectedTypePaths(saved.filter(p => !saved.some(o => o !== p && isAncestorPath(o, p))));
     } else if (uiFilters.level1Filter && uiFilters.level1Filter !== 'ALL') {
       // Migration douce depuis l'ancien format (un seul chemin en cascade level1..4) :
       // reconstruit le chemin déjà sélectionné par l'utilisateur plutôt que de le perdre.
@@ -248,8 +255,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   }, []);
 
   // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
+  // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un
+  // autre) : cocher un chemin plus profond agit comme un drill-down et retire les cases parentes
+  // déjà cochées, sinon celles-ci (moins spécifiques) dominent le filtre OR-préfixe et réaffichent
+  // tout — cas où "Guitare" + "Parlor" cochés ensemble ne filtraient plus rien.
   const toggleTypePath = useCallback((path) => {
-    setSelectedTypePaths(prev => prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]);
+    setSelectedTypePaths(prev => prev.includes(path)
+      ? prev.filter(p => p !== path)
+      : [...prev.filter(p => !isAncestorPath(p, path) && !isAncestorPath(path, p)), path]
+    );
   }, []);
 
   // --- LOGIQUE DE FILTRAGE ET COMPTAGE DYNAMIQUE ---
