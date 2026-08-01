@@ -359,8 +359,13 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
   // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX, CONDITION et FINITION
-  // (finish_application/finish_texture : listes fermées choisies par l'IA, cf. prompts.json —
-  // comparaison stricte suffit, pas besoin de recherche floue comme pour la taxonomie).
+  // (finish_application/finish_texture : listes fermées demandées à l'IA, cf. prompts.json — mais
+  // analyzer.py fait un json.loads() brut, sans response_schema/enum qui forcerait la valeur exacte.
+  // Comparer en égalité stricte reproduirait le même bug déjà rencontré sur la taxonomie (l'IA
+  // dérive du texte attendu — casse, espacement — et le filtre ne matche plus rien). Comparaison
+  // sur chaînes normalisées (même helper que la taxonomie) plutôt qu'un `!==` brut : tolère la
+  // variance de formatage sans réintroduire la recherche par sous-chaîne (qui, elle, avait causé
+  // les faux-positifs sur la taxonomie — non pertinente ici, ce sont des valeurs courtes et fermées).
   const matchesConditionAndPrice = useCallback((deal, condition, priceFilter, finishApplication, finishTexture) => {
     // === CONDITION ===
     if (condition !== 'ALL') {
@@ -384,8 +389,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     }
 
     // === FINITION ===
-    if (finishApplication && finishApplication !== 'ALL' && deal.aiAnalysis?.finish_application !== finishApplication) return false;
-    if (finishTexture && finishTexture !== 'ALL' && deal.aiAnalysis?.finish_texture !== finishTexture) return false;
+    if (finishApplication && finishApplication !== 'ALL' && normalize(deal.aiAnalysis?.finish_application) !== normalize(finishApplication)) return false;
+    if (finishTexture && finishTexture !== 'ALL' && normalize(deal.aiAnalysis?.finish_texture) !== normalize(finishTexture)) return false;
 
     return true;
   }, []);
