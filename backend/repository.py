@@ -167,6 +167,8 @@ class FirestoreRepository:
                 update_data[f"{prefix}.b"] = ai.get('brand') or None
                 update_data[f"{prefix}.mn"] = ai.get('model_name') or None
                 update_data[f"{prefix}.co"] = ai.get('color') or None
+                update_data[f"{prefix}.fa"] = ai.get('finish_application') or None
+                update_data[f"{prefix}.ft"] = ai.get('finish_texture') or None
                 update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
                 update_data[f"{prefix}.ev"] = ai.get('estimated_value') or ai.get('estimated_guitar_value') or None
                 update_data[f"{prefix}.mu"] = ai.get('model_used') or None

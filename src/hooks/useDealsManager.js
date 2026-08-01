@@ -78,6 +78,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [selectedTypePaths, setSelectedTypePaths] = useState([]);
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
+  const [finishApplicationFilter, setFinishApplicationFilter] = useState('ALL');
+  const [finishTextureFilter, setFinishTextureFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
 
   // Reconstruction des deals légers à partir de l'index
@@ -99,7 +101,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         estimated_gross_margin: entry.egm,
         brand: entry.b,
         model_name: entry.mn,
-        color: entry.co
+        color: entry.co,
+        finish_application: entry.fa,
+        finish_texture: entry.ft
       },
       isFavorite: entry.f,
       timestamp: entry.t ? { seconds: entry.t } : null,
@@ -143,6 +147,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     }
     if (uiFilters.conditionFilter) setConditionFilter(uiFilters.conditionFilter);
     if (uiFilters.priceFilter) setPriceFilter(uiFilters.priceFilter);
+    if (uiFilters.finishApplicationFilter) setFinishApplicationFilter(uiFilters.finishApplicationFilter);
+    if (uiFilters.finishTextureFilter) setFinishTextureFilter(uiFilters.finishTextureFilter);
     if (uiFilters.sortMode) setSortMode(uiFilters.sortMode);
   }, [uiFilters]);
 
@@ -152,15 +158,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (!hydratedFiltersRef.current || !saveUiFilters) return;
     saveUiFilters({
       filterType, selectedTypePaths,
-      conditionFilter, priceFilter, sortMode
+      conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, sortMode
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, sortMode]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, sortMode]);
 
   // Reset visibleCount when filters change
   useEffect(() => {
     setVisibleCount(30);
-  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, searchQuery]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery]);
 
   useEffect(() => {
     if (!user) return;
@@ -352,8 +358,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     );
   }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
-  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
-  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter) => {
+  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX, CONDITION et FINITION
+  // (finish_application/finish_texture : listes fermées choisies par l'IA, cf. prompts.json —
+  // comparaison stricte suffit, pas besoin de recherche floue comme pour la taxonomie).
+  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter, finishApplication, finishTexture) => {
     // === CONDITION ===
     if (condition !== 'ALL') {
       const conditionScore = deal.aiAnalysis?.condition_score;
@@ -375,6 +383,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       if (priceFilter === 'over600' && price <= 600) return false;
     }
 
+    // === FINITION ===
+    if (finishApplication && finishApplication !== 'ALL' && deal.aiAnalysis?.finish_application !== finishApplication) return false;
+    if (finishTexture && finishTexture !== 'ALL' && deal.aiAnalysis?.finish_texture !== finishTexture) return false;
+
     return true;
   }, []);
 
@@ -383,7 +395,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
       if (!matchesVerdictFilter(deal, filterType)) return;
-      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
 
       c.all++;
 
@@ -408,7 +420,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
     });
     return c;
-  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
@@ -430,9 +442,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
 
-      // On n'inclut que les deals qui passent les filtres de type, condition et prix actuels
+      // On n'inclut que les deals qui passent les filtres de type, condition, prix et finition actuels
       if (!matchesTypeFilter(deal, selectedTypePaths, searchQuery)) return;
-      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
@@ -461,7 +473,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       if (deal.isFavorite && !favoriteNoise) c.FAVORITES++;
     });
     return c;
-  }, [deals, selectedTypePaths, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
 
   // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
@@ -473,7 +485,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       // Pour les autres filtres, on combine verdict, type, condition et prix
       const verdictMatch = matchesVerdictFilter(deal, filterType);
       const typeMatch = matchesTypeFilter(deal, selectedTypePaths, searchQuery);
-      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter);
+      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter);
 
       return verdictMatch && typeMatch && condPriceMatch;
     });
@@ -522,7 +534,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       const timeB = b.timestamp?.seconds || 0;
       return timeB - timeA;
     });
-  }, [deals, filterType, selectedTypePaths, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const visibleDeals = useMemo(() => {
     return filteredDeals.slice(0, visibleCount);
@@ -619,6 +631,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       selectedTypePaths, setSelectedTypePaths, toggleTypePath,
       conditionFilter, setConditionFilter,
       priceFilter, setPriceFilter,
+      finishApplicationFilter, setFinishApplicationFilter,
+      finishTextureFilter, setFinishTextureFilter,
       sortMode, setSortMode,
       counts,
     },

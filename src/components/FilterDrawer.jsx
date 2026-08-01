@@ -53,6 +53,23 @@ const PRICE_OPTIONS = [
     { value: 'over600', label: '600 $+' },
 ];
 
+// Valeurs alignées mot pour mot avec la liste fermée de prompts.json (finish_application/
+// finish_texture) — comparaison stricte côté useDealsManager, pas de fuzzy matching.
+const FINISH_APPLICATION_OPTIONS = [
+    { value: 'ALL', label: 'Toutes' },
+    { value: 'Peinture opaque', label: 'Peinture opaque' },
+    { value: 'Vernis/Laque transparente', label: 'Vernis / Laque transparente' },
+    { value: 'Teinture', label: 'Teinture' },
+    { value: 'Naturel/Brut', label: 'Naturel / Brut' },
+];
+
+const FINISH_TEXTURE_OPTIONS = [
+    { value: 'ALL', label: 'Toutes' },
+    { value: 'Brillant', label: 'Brillant' },
+    { value: 'Satiné/Soyeux', label: 'Satiné / Soyeux' },
+    { value: 'Mat', label: 'Mat' },
+];
+
 const SORT_OPTIONS = [
     { value: 'date', label: 'Date d\'analyse (défaut)' },
     { value: 'publish_date', label: 'Date de mise en vente' },
@@ -153,7 +170,7 @@ const TaxonomyOption = ({ label, checked, onToggleCheck, hasChildren, expanded, 
 // Main Drawer — Taxonomie en Multi-Sélection
 // ============================================================
 const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {}, selectedTypePaths = [], onToggleType, onClearTypes }) => {
-    const { condition, price, sort = 'date' } = filters;
+    const { condition, price, finishApplication = 'ALL', finishTexture = 'ALL', sort = 'date' } = filters;
 
     // État d'expansion (navigation) — indépendant de la sélection : un noeud peut être
     // déplié pour naviguer sans être coché, et coché sans être déplié.
@@ -168,6 +185,8 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
         selectedTypePaths.length,
         condition !== 'all' ? 1 : 0,
         price !== 'all' ? 1 : 0,
+        finishApplication !== 'ALL' ? 1 : 0,
+        finishTexture !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
 
     // Recursive render function for the taxonomy tree
@@ -297,6 +316,32 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
                                 label={opt.label}
                                 active={price === opt.value}
                                 onClick={() => onFilterChange('price', opt.value)}
+                                depth={0}
+                            />
+                        ))}
+                    </FilterGroup>
+
+                    {/* ── Finition (application) ── */}
+                    <FilterGroup label="Finition">
+                        {FINISH_APPLICATION_OPTIONS.map(opt => (
+                            <InlineOption
+                                key={opt.value}
+                                label={opt.label}
+                                active={finishApplication === opt.value}
+                                onClick={() => onFilterChange('finishApplication', opt.value)}
+                                depth={0}
+                            />
+                        ))}
+                    </FilterGroup>
+
+                    {/* ── Finition (brillance) ── */}
+                    <FilterGroup label="Brillance">
+                        {FINISH_TEXTURE_OPTIONS.map(opt => (
+                            <InlineOption
+                                key={opt.value}
+                                label={opt.label}
+                                active={finishTexture === opt.value}
+                                onClick={() => onFilterChange('finishTexture', opt.value)}
                                 depth={0}
                             />
                         ))}

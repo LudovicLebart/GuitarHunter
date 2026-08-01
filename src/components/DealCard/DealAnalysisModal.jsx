@@ -47,6 +47,9 @@ const DealAnalysisModal = ({
         { label: 'Année', value: deal.aiAnalysis?.production_year },
         { label: 'Pays', value: deal.aiAnalysis?.country_of_origin },
         { label: 'Couleur', value: deal.aiAnalysis?.color },
+        { label: 'Finition', value: deal.aiAnalysis?.finish_application },
+        { label: 'Brillance', value: deal.aiAnalysis?.finish_texture },
+        { label: 'Longueur manche', value: deal.aiAnalysis?.neck_scale_length },
     ].filter(spec => spec.value && !/^inconnu(e)?$/i.test(String(spec.value).trim()));
 
     return (

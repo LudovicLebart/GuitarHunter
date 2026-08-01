@@ -247,6 +247,10 @@ const Dashboard = ({ onClose }) => {
         setConditionFilter,
         priceFilter = 'ALL',
         setPriceFilter,
+        finishApplicationFilter = 'ALL',
+        setFinishApplicationFilter,
+        finishTextureFilter = 'ALL',
+        setFinishTextureFilter,
         sortMode = 'date',
         setSortMode,
         searchQuery = '',
@@ -259,6 +263,10 @@ const Dashboard = ({ onClose }) => {
         verdict: filterType,
         condition: conditionFilter === 'ALL' ? 'all' : conditionFilter,
         price: priceFilter === 'ALL' ? 'all' : priceFilter,
+        // Finition : valeurs = liste fermée choisie par l'IA (ex: "Peinture opaque"), pas de
+        // mapping all/ALL nécessaire — 'ALL' sert déjà de sentinelle des deux côtés.
+        finishApplication: finishApplicationFilter,
+        finishTexture: finishTextureFilter,
         sort: sortMode,
     };
 
@@ -269,6 +277,8 @@ const Dashboard = ({ onClose }) => {
             case 'verdict': setFilterType?.(normalized); break;
             case 'condition': setConditionFilter?.(normalized); break;
             case 'price': setPriceFilter?.(normalized); break;
+            case 'finishApplication': setFinishApplicationFilter?.(value); break;
+            case 'finishTexture': setFinishTextureFilter?.(value); break;
             case 'sort': setSortMode?.(value); break; // 'date' | 'interest', pas de mapping 'all'
             default: break;
         }
@@ -279,6 +289,8 @@ const Dashboard = ({ onClose }) => {
         setSelectedTypePaths?.([]);
         setConditionFilter?.('ALL');
         setPriceFilter?.('ALL');
+        setFinishApplicationFilter?.('ALL');
+        setFinishTextureFilter?.('ALL');
         setSearchQuery?.('');
     };
 
@@ -306,6 +318,8 @@ const Dashboard = ({ onClose }) => {
         selectedTypePaths.length,
         conditionFilter !== 'ALL' ? 1 : 0,
         priceFilter !== 'ALL' ? 1 : 0,
+        finishApplicationFilter !== 'ALL' ? 1 : 0,
+        finishTextureFilter !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
 
     const toggle = (s) => setOpenSections(prev => ({ ...prev, [s]: !prev[s] }));
