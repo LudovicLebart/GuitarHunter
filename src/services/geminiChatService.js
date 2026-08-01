@@ -67,11 +67,10 @@ export const buildDealContextText = (deal) => {
 const MAX_IMAGE_DIMENSION = 1024;
 const JPEG_QUALITY = 0.8;
 
-const fetchImageAsInlinePart = async (url) => {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const blob = await response.blob();
-
+// Redimensionnement/compression partagé — utilisé aussi bien pour les photos de l'annonce
+// (fetch depuis leur URL publique) que pour une photo jointe par l'utilisateur depuis le chat
+// (2026-08-01, File venant directement d'un <input type="file">).
+const blobToInlinePart = async (blob) => {
     const bitmap = await createImageBitmap(blob);
     const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
     const width = Math.round(bitmap.width * scale);
@@ -86,6 +85,16 @@ const fetchImageAsInlinePart = async (url) => {
     const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
     return { inlineData: { data: dataUrl.split(',')[1], mimeType: 'image/jpeg' } };
 };
+
+const fetchImageAsInlinePart = async (url) => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    return blobToInlinePart(blob);
+};
+
+// Photo jointe par l'utilisateur depuis le chat (prise sur place ou choisie dans sa galerie).
+export const fileToInlinePart = (file) => blobToInlinePart(file);
 
 export const buildDealImageParts = async (deal) => {
     const urls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);

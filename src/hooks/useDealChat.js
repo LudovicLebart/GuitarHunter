@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { onDealChatUpdate, addDealChatMessage } from '../services/firestoreService';
-import { getDealChatModel, buildDealContextText, buildDealImageParts } from '../services/geminiChatService';
+import { getDealChatModel, buildDealContextText, buildDealImageParts, fileToInlinePart } from '../services/geminiChatService';
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
@@ -51,21 +51,29 @@ export const useDealChat = (deal, user, modelName) => {
         return () => unsubscribe();
     }, [deal?.id, user, modelName]);
 
-    const sendMessage = useCallback(async (text) => {
-        const trimmed = text.trim();
-        if (!trimmed || !deal?.id || !user || sending || !chatRef.current) return;
+    // `imageFile` (optionnel, 2026-08-01) : photo jointe depuis le chat (prise sur place ou
+    // choisie dans la galerie) — envoyer un message avec une image seule (sans texte) est permis.
+    const sendMessage = useCallback(async (text, imageFile) => {
+        const trimmed = (text || '').trim();
+        if ((!trimmed && !imageFile) || !deal?.id || !user || sending || !chatRef.current) return;
 
         const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
         setSending(true);
         setError(null);
 
         const isFirstMessage = messages.length === 0;
-        const parts = isFirstMessage
-            ? [{ text: `${buildDealContextText(deal)}\n\n${trimmed}` }, ...(await buildDealImageParts(deal))]
-            : [{ text: trimmed }];
+        const uploadedPart = imageFile ? await fileToInlinePart(imageFile) : null;
+        const firstMessageText = isFirstMessage
+            ? (trimmed ? `${buildDealContextText(deal)}\n\n${trimmed}` : buildDealContextText(deal))
+            : trimmed;
+        const parts = [
+            ...(firstMessageText ? [{ text: firstMessageText }] : []),
+            ...(isFirstMessage ? await buildDealImageParts(deal) : []),
+            ...(uploadedPart ? [uploadedPart] : []),
+        ];
 
         try {
-            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid);
+            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid, uploadedPart?.inlineData);
         } catch (e) {
             console.error('Erreur sauvegarde message utilisateur:', e);
             setError("Impossible d'envoyer le message.");

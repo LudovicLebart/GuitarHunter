@@ -294,10 +294,15 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // `parts` = payload complet envoyé/reçu de l'API Gemini (peut inclure le contexte injecté +
 // les pièces image gs://, invisibles à l'utilisateur) ; `displayText` = ce qui est réellement
 // affiché dans la bulle de chat (le texte tapé par l'utilisateur, ou la réponse du modèle).
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId) => {
+// `attachedImage` (optionnel, 2026-08-01) = `{ mimeType, data }` de la photo jointe par
+// l'utilisateur depuis le chat (distinct des photos de l'annonce déjà présentes dans `parts` sur
+// le premier message), pour un affichage sans équivoque de la miniature dans la bulle.
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImage) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
-    await addDoc(chatCollectionRef, { role, parts, displayText, createdAt: new Date() });
+    const payload = { role, parts, displayText, createdAt: new Date() };
+    if (attachedImage) payload.attachedImage = attachedImage;
+    await addDoc(chatCollectionRef, payload);
   } catch (error) {
     console.error(`Error saving chat message for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la sauvegarde du message.");
