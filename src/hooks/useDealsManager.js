@@ -125,9 +125,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (Array.isArray(uiFilters.selectedTypePaths)) {
       // Purge défensive d'une sélection sauvegardée avant le fix anti-chaîne (chemins
       // ancêtre+descendant coexistant) : ne garde que les chemins les plus spécifiques,
-      // en retirant tout chemin dont un ancêtre est aussi présent dans la sélection.
+      // en retirant tout chemin qui a un DESCENDANT aussi présent dans la sélection (donc
+      // moins spécifique que ce descendant, qui doit primer).
       const saved = uiFilters.selectedTypePaths;
-      setSelectedTypePaths(saved.filter(p => !saved.some(o => o !== p && isAncestorPath(o, p))));
+      setSelectedTypePaths(saved.filter(p => !saved.some(o => o !== p && isAncestorPath(p, o))));
     } else if (uiFilters.level1Filter && uiFilters.level1Filter !== 'ALL') {
       // Migration douce depuis l'ancien format (un seul chemin en cascade level1..4) :
       // reconstruit le chemin déjà sélectionné par l'utilisateur plutôt que de le perdre.

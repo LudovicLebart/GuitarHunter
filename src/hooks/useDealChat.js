@@ -62,18 +62,40 @@ export const useDealChat = (deal, user, modelName) => {
         setError(null);
 
         const isFirstMessage = messages.length === 0;
-        const uploadedPart = imageFile ? await fileToInlinePart(imageFile) : null;
+
+        // fileToInlinePart() peut échouer (fichier corrompu/non décodable) — contrairement à
+        // buildDealImageParts() qui avale déjà ses propres erreurs par image. Sans ce try/catch,
+        // une exception ici court-circuite le reste de la fonction et laisse `sending` bloqué à
+        // `true` pour toujours (le seul `setSending(false)` atteignable est plus bas).
+        let uploadedPart, dealImageParts;
+        try {
+            [uploadedPart, dealImageParts] = await Promise.all([
+                imageFile ? fileToInlinePart(imageFile) : Promise.resolve(null),
+                isFirstMessage ? buildDealImageParts(deal) : Promise.resolve([]),
+            ]);
+        } catch (e) {
+            console.error('Erreur préparation de la photo jointe:', e);
+            setError("Impossible de préparer la photo jointe. Réessaie ou envoie sans photo.");
+            setSending(false);
+            return;
+        }
+
         const firstMessageText = isFirstMessage
             ? (trimmed ? `${buildDealContextText(deal)}\n\n${trimmed}` : buildDealContextText(deal))
             : trimmed;
         const parts = [
             ...(firstMessageText ? [{ text: firstMessageText }] : []),
-            ...(isFirstMessage ? await buildDealImageParts(deal) : []),
+            ...dealImageParts,
             ...(uploadedPart ? [uploadedPart] : []),
         ];
 
+        // Référence l'index de la photo jointe dans `parts` plutôt que de dupliquer son base64
+        // (uploadedPart, quand présent, est toujours ajouté en dernier ci-dessus) — évite de
+        // stocker/retransmettre deux fois les mêmes données image par message.
+        const attachedImagePartIndex = uploadedPart ? parts.length - 1 : undefined;
+
         try {
-            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid, uploadedPart?.inlineData);
+            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid, attachedImagePartIndex);
         } catch (e) {
             console.error('Erreur sauvegarde message utilisateur:', e);
             setError("Impossible d'envoyer le message.");

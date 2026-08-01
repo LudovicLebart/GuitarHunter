@@ -112,7 +112,12 @@ const DealChatPanel = ({ deal, onBack }) => {
                 )}
 
                 {messages.map(m => (
-                    <ChatBubble key={m.id} role={m.role} text={m.displayText} attachedImage={m.attachedImage} />
+                    <ChatBubble
+                        key={m.id}
+                        role={m.role}
+                        text={m.displayText}
+                        attachedImage={m.attachedImagePartIndex != null ? m.parts?.[m.attachedImagePartIndex]?.inlineData : null}
+                    />
                 ))}
 
                 {sending && (
@@ -150,11 +155,15 @@ const DealChatPanel = ({ deal, onBack }) => {
                     </div>
                 )}
                 <div className="flex items-end gap-2">
+                    {/* Pas d'attribut `capture` : sur plusieurs navigateurs mobiles (Android
+                        Chrome/WebView notamment), `capture="environment"` ouvre l'appareil photo
+                        directement et retire l'option galerie du sélecteur — alors que la feature
+                        doit permettre les deux (photo prise sur place OU choisie dans la galerie).
+                        Sans cet attribut, le sélecteur natif propose Caméra ET Fichiers/Galerie. */}
                     <input
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
-                        capture="environment"
                         onChange={handlePickImage}
                         className="hidden"
                     />
