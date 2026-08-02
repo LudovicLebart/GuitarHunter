@@ -294,6 +294,12 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // Si l'annonce est vendue et qu'on n'est pas dans le filtre SOLD, on cache (sauf favoris)
     if (deal.status === 'sold' && currentFilterType !== 'FAVORITES') return false;
 
+    // Une ré-analyse en cours (mise à jour optimiste locale : verdict -> 'PENDING' dès le clic,
+    // avant même que le backend ne la traite) reste visible dans l'onglet verdict où l'utilisateur
+    // se trouve déjà, plutôt que de disparaître le temps de l'analyse — sinon le badge "Analyse..."
+    // existant (DealCardImage.jsx) n'a jamais l'occasion de s'afficher.
+    if (['analyzing', 'analyzing_expert'].includes(deal.status)) return true;
+
     // Favoris : on montre le favori sauf s'il est tombé dans le bruit (erreur d'analyse, ou
     // verdict archivé autre que BAD_DEAL — "trop cher" reste un favori légitime, le reste non).
     if (currentFilterType === 'FAVORITES') {
