@@ -39,8 +39,9 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
         { id: 'ALL', label: 'Toutes les annonces' },
         { id: 'FAVORITES', label: 'Favoris' },
         { divider: true },
-        // Verdicts positifs
-        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION']
+        // Verdicts positifs/neutres (COLLECTION et FAIR sont neutres — ni opportunité ni bruit —
+        // mais regroupés ici comme COLLECTION l'était déjà, plutôt que dans le groupe "bruit" ci-dessous)
+        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION', 'FAIR']
             .filter(id => ALL_FILTERS_CONFIG[id])
             .map(id => ({
                 id,
