@@ -48,12 +48,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Pistes de correction :*
         1. ✅ **Filtre pré-IA (implémenté 2026-07-19)** : `handle_deal_found()` (`backend/bot.py`) — vérification de `SOLD_MARKERS` (`vendu`, `sold`, `deal closed`…) dans le titre et les 200 premiers chars de description. Rejet avant `session_processed_ids.add()` (pas marqué "traité") pour permettre re-détection si le vendeur corrige son titre. Log visible dans LogViewer.
         2. [ ] **Filtre scraper** : dans `check_listing_availability()` (`backend/scraping/core.py`), ajouter une vérification du titre récupéré — si le titre de la fiche détail contient "VENDU", traiter comme vendu.
-        3. [ ] **Prompt Tier 1** : ajouter une instruction explicite au portier pour rejeter toute annonce dont le titre/description signale une vente déjà conclue.
-    - *Priorité :* Moyenne — génère du bruit et des lectures Firestore inutiles mais pas de bug critique.
-
-- [ ] **Amélioration : Latence de détection des annonces supprimées/vendues sur Facebook** *(Ajouté 2026-07-14)*
-    - *Constat :* `check_listing_availability`/`cleanup_sold_listings` (`backend/scraping/core.py`, `backend/bot.py`) détectent déjà correctement les annonces supprimées par le vendeur (404, redirection vers l'accueil Marketplace) — fusionnées avec la détection de vente (`status: 'sold'`, pas de statut "supprimé" distinct). Le nettoyage tourne automatiquement toutes les 24h (`schedule.every(24).hours`, `services.py`), donc une annonce disparue de Facebook peut rester visible dans l'app jusqu'à 24h après sa suppression réelle.
-    - *Piste :* réduire l'intervalle de nettoyage (ex: 6-12h) si la latence actuelle gêne trop, ou déclencher un contrôle ciblé plus tôt. Non tranché — décision produit à prendre par l'utilisateur.
+        3. ✅ **Prompt Tier 1 (implémenté 2026-08-06)** : `gatekeeper_verbosity_instruction` (`prompts.json`) instruit désormais explicitement le Portier de rejeter (`REJECTED_ITEM`) toute annonce dont le titre/description signale une vente déjà conclue — couvre notamment les scans manuels, qui contournent le filtre pré-IA (piste 1). Non testé en conditions réelles depuis l'environnement de dev (pas d'accès Gemini/Facebook/Kijiji) — à valider par l'utilisateur.
+    - *Priorité :* Moyenne — génère du bruit et des lectures Firestore inutiles mais pas de bug critique. Reste ouvert : piste 2 seule.
 
 - [ ] **Investiguer : session Facebook non authentifiée → Facebook gate parfois le prix/les photos**
     - *Détails :* Le scraper est 100% anonyme (aucun `storage_state`/cookies persistants nulle part dans le backend, vérifié). Comportement intermittent observé sur `SCAN_URL` — la fiche détail se charge sans carrousel photo ni prix visible, alors que le titre/description restent disponibles (voir `TODO_ARCHIVE.md` pour l'historique du bug "Fiche détail Facebook dégradée").

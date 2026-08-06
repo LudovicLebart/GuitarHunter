@@ -1,5 +1,19 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-06] [FLASH] Fix : Intervalle du nettoyage des annonces vendues réduit à 6h (anciennement 24h) → Résultat :
+- **Demande utilisateur :** réduire la latence entre la suppression réelle d'une annonce et sa détection par le bot, pour améliorer la précision des stats de vitesse de vente (`soldAt`).
+- **Solution :** `backend/services.py::TaskScheduler._setup_schedules()` — `schedule.every(24).hours.do(self.cleanup_func)` → `schedule.every(6).hours.do(self.cleanup_func)`.
+
+[2026-08-06] [PRO] Fix : détection des annonces vendues (piste 3 du prompt Portier) + bug cleanup Kijiji → Résultat :
+- **Demande utilisateur :** implémenter la piste 3 restante du bug "détection VENDU incomplète" (instruction explicite au Portier) et s'assurer qu'une annonce déjà analysée puis supprimée soit bien considérée comme vendue.
+- **Piste 3 :** `prompts.json::gatekeeper_verbosity_instruction` instruit désormais le Portier (T1) de rejeter (`REJECTED_ITEM`) toute annonce dont le titre/description signale explicitement une vente déjà conclue ("VENDU", "SOLD", "deal closed"...), même si l'annonce est encore en ligne. Filet de sécurité IA complémentaire au filtre pré-IA `SOLD_MARKERS` existant, qui est volontairement contourné pour un scan manuel (`is_manual_scan=True`) — ce garde-fou côté Portier reste donc le seul filet sur ce chemin.
+- **Bug trouvé en creusant la demande "annonce supprimée = vendue"** : `backend/bot.py::_perform_cleanup()` (job de nettoyage périodique) instanciait toujours `FacebookScraper` pour vérifier la disponibilité de **toutes** les annonces actives, y compris Kijiji. Une URL Kijiji ne contenant jamais `/marketplace/item/`, `FacebookScraper.check_listing_availability()` la classait systématiquement en "redirection détectée = supprimée" — chaque annonce Kijiji active aurait donc été marquée vendue à tort au prochain cycle. Corrigé : les annonces sont désormais groupées par source (préfixe `kijiji_` de l'ID) et vérifiées avec le bon scraper (`FacebookScraper`/`KijijiScraper`), factorisé dans `_check_listings_availability(scraper, listings)`.
+- **Non testé en conditions réelles** (pas d'accès réseau Facebook/Kijiji/Playwright ni Gemini depuis l'environnement de dev) — à valider par l'utilisateur : prochain cycle de nettoyage (Kijiji non marqué vendu à tort) et une réanalyse manuelle sur une annonce dont le titre contient "VENDU".
+
+[2026-08-06] [FLASH] Documentation : Archivage des tâches terminées de TODO.md → Résultat :
+- **Constat :** `TODO.md` avait atteint 557 lignes, mélangeant tâches ouvertes et terminées, devenu difficile à consulter.
+- **Solution :** création de `docs/management/TODO_ARCHIVE.md` — déplacement de toutes les tâches `[x]` (contenu et contexte technique intégralement conservés) vers ce nouveau fichier, classées par section d'origine. `TODO.md` réduit à 557 → 141 lignes, ne conservant que les tâches ouvertes (`[ ]`/`[/]`) et un lien vers l'archive. Doublon corrigé au passage : l'entrée "notifications ntfy de pépite" existait en double (une ouverte, une fermée) — confirmée réglée par l'utilisateur, archivée.
+
 [2026-08-01] [PRO] Feature : couleur/finition/longueur de manche extraites par l'IA + filtres → Résultat :
 - **Demande utilisateur :** `color` n'était en pratique presque jamais rempli malgré son existence ; il manquait la finition (peinture/vernis/teinture, brillant/satiné, sunburst...) et la longueur d'échelle du manche. Les finitions devaient être filtrables.
 - **Diagnostic couleur :** `analyzer.py` ne touche jamais ce champ (aucune logique qui le filtre/écrase côté backend) — l'IA ne le renseignait quasiment jamais en pratique, l'instruction ("Couleur/finition exacte...") étant noyée sans insistance particulière dans un schéma JSON de 20+ champs, contrairement à l'identification de marque (déjà durcie explicitement en 2026-07-09 — examen systématique logo/plaque/numéro de série).

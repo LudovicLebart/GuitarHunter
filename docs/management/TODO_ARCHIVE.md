@@ -266,6 +266,16 @@ Tâches `[x]` déplacées depuis `TODO.md` (devenu trop long — 557 lignes) pou
 - [x] **Bug : Problème de déplacement sur la carte (MapView)** *(Corrigé 2026-05-06)*
     - *Détails :* Correction de l'interaction InfoWindow (gap mouseout) et restauration du bouton de fermeture.
 
+- [x] **Bug : `_perform_cleanup()` utilisait `FacebookScraper` pour vérifier des annonces Kijiji** *(Corrigé 2026-08-06)*
+    - *Détails :* Découvert en creusant la demande utilisateur "une annonce supprimée doit être considérée comme vendue". Le job de nettoyage (24h) instanciait un unique `FacebookScraper` pour vérifier la disponibilité de **toutes** les annonces actives, y compris Kijiji. Une URL Kijiji ne contenant jamais `/marketplace/item/`, `FacebookScraper.check_listing_availability()` la classait systématiquement en "redirection détectée = supprimée" — chaque annonce Kijiji active aurait donc été marquée vendue à tort au prochain cycle, indépendamment de sa disponibilité réelle.
+    - *Solution :* `backend/bot.py::_perform_cleanup()` groupe désormais les annonces par source (préfixe `kijiji_` de l'ID) et les vérifie avec le scraper correspondant (`FacebookScraper`/`KijijiScraper`), factorisé dans `_check_listings_availability(scraper, listings)`.
+    - *Non testé en conditions réelles* (pas d'accès réseau Facebook/Kijiji/Playwright depuis l'environnement de dev) — à valider par l'utilisateur au prochain cycle de nettoyage.
+
+- [x] **Amélioration : Latence de détection des annonces supprimées/vendues** *(Ajouté 2026-07-14, tranché 2026-08-06)*
+    - *Constat :* `check_listing_availability`/`cleanup_sold_listings` détectent déjà correctement les annonces supprimées par le vendeur (404, redirection) — fusionnées avec la détection de vente (`status: 'sold'`). Le nettoyage tournait toutes les 24h, donc une annonce disparue pouvait rester visible dans l'app jusqu'à 24h après sa suppression réelle.
+    - *Décision produit :* demande utilisateur de réduire l'intervalle à 6h max, pour améliorer la précision des stats de vitesse de vente (`soldAt`).
+    - *Solution :* `backend/services.py::TaskScheduler._setup_schedules()` — `schedule.every(24).hours.do(self.cleanup_func)` → `schedule.every(6).hours.do(self.cleanup_func)`.
+
 ---
 
 ## 🧹 Maintenabilité & Dette Technique
