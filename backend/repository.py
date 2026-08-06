@@ -164,6 +164,13 @@ class FirestoreRepository:
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
                 update_data[f"{prefix}.c"] = ai.get('classification') or None
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
+                # Scores individuels (en plus de la moyenne "is" ci-dessous) : indexés pour que les
+                # statistiques croisées (StatsView.jsx) n'aient jamais besoin de charger le document
+                # complet d'une annonce pour accéder à un score précis.
+                update_data[f"{prefix}.ds"] = ai.get('deal_score') if isinstance(ai.get('deal_score'), (int, float)) else None
+                update_data[f"{prefix}.as"] = ai.get('authenticity_score') if isinstance(ai.get('authenticity_score'), (int, float)) else None
+                update_data[f"{prefix}.ls"] = ai.get('liquidity_score') if isinstance(ai.get('liquidity_score'), (int, float)) else None
+                update_data[f"{prefix}.rs"] = ai.get('restoration_interest_score') if isinstance(ai.get('restoration_interest_score'), (int, float)) else None
                 update_data[f"{prefix}.b"] = ai.get('brand') or None
                 update_data[f"{prefix}.mn"] = ai.get('model_name') or None
                 update_data[f"{prefix}.co"] = ai.get('color') or None

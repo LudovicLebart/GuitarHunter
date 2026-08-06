@@ -63,6 +63,13 @@ const TYPE_LABELS = {
 
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
+const LIQUIDITY_TIERS = [
+    { label: 'Faible (0-4)', min: 0, max: 5 },
+    { label: 'Moyenne (5-7)', min: 5, max: 8 },
+    { label: 'Élevée (8-10)', min: 8, max: 11 },
+];
+const LIQUIDITY_TIER_COLORS = ['#f87171', '#fbbf24', '#34d399'];
+
 const PRICE_BUCKETS = [
     { label: '0-250$', min: 0, max: 250 },
     { label: '250-500$', min: 250, max: 500 },
@@ -125,29 +132,36 @@ const resolveCategoryLabel = (classification) => {
 
 const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
-    // ─── Merge : index léger + cache complet ───────────────────────────────
-    // Pour les stats on fusionne ce qu'on a dans le cache avec l'index.
-    // Les deals non encore chargés (lazy) utilisent les champs de l'index.
-    const enrichedDeals = useMemo(() => {
-        return deals.map(d => {
+    // ─── Jeu de données unique : l'inventaire complet, jamais l'onglet actif ──
+    // Les stats sont des statistiques générales de marché — elles ne doivent pas dépendre du
+    // filtre/onglet actuellement sélectionné dans le Dashboard (2026-08-06, retour utilisateur :
+    // "trop cher"/"rejetées"/etc. disparaissaient des stats selon l'onglet "Toutes" actif).
+    // `allDeals` (inventaire complet, toujours fourni par Dashboard.jsx) prime sur `deals` (onglet
+    // filtré, gardé en repli défensif uniquement). Fusionné avec `loadedDeals` (cache des documents
+    // complets) uniquement pour les champs qui n'existent pas dans l'index léger (ex: reasoning) —
+    // tous les scores IA et champs utilisés ci-dessous sont désormais indexés (voir
+    // repository.py::_update_deal_index), donc disponibles même pour un deal jamais ouvert.
+    const analysisDeals = useMemo(() => {
+        const source = allDeals || deals;
+        return source.map(d => {
             const full = loadedDeals[d.id];
             return full ? { ...d, ...full } : d;
         });
-    }, [deals, loadedDeals]);
+    }, [allDeals, deals, loadedDeals]);
 
-    const totalDeals = enrichedDeals.length;
+    const totalDeals = analysisDeals.length;
 
-    const radarDeals = enrichedDeals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
-    const marketDeals = enrichedDeals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
+    const radarDeals = analysisDeals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
+    const marketDeals = analysisDeals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
 
     // Funnel réel dérivé de aiAnalysis.model_used
     const chainTokens = (used) => (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
     const modelChainTokens = (deal) => chainTokens(deal.aiAnalysis?.model_used);
-    const reachedT2Count = enrichedDeals.filter(d => modelChainTokens(d).length >= 2).length;
-    const reachedT3Count = enrichedDeals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
+    const reachedT2Count = analysisDeals.filter(d => modelChainTokens(d).length >= 2).length;
+    const reachedT3Count = analysisDeals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
 
     // Qualité Portier
-    const portierRejectedDeals = enrichedDeals.filter(d => chainTokens(d.initialModelUsed).length === 1);
+    const portierRejectedDeals = analysisDeals.filter(d => chainTokens(d.initialModelUsed).length === 1);
     const portierErrorsCorrected = portierRejectedDeals.filter(d => modelChainTokens(d).length >= 2);
     const portierErrorRate = portierRejectedDeals.length > 0
         ? Math.round((portierErrorsCorrected.length / portierRejectedDeals.length) * 100)
@@ -172,20 +186,11 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
     });
 
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
-    const averageScore = Math.round(enrichedDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
-
-    const enrichedAllDeals = useMemo(() => {
-        if (!allDeals) return [];
-        return allDeals.map(d => {
-            const full = loadedDeals[d.id];
-            return full ? { ...d, ...full } : d;
-        });
-    }, [allDeals, loadedDeals]);
+    const averageScore = Math.round(analysisDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
 
     // ─── Temps de vente réel ──────────────────────────────────────────────
     const sellTimeStats = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
-        const soldDeals = targetDeals.filter(d =>
+        const soldDeals = analysisDeals.filter(d =>
             d.soldTimestamp?.seconds && d.publishTimestamp?.seconds
         );
         if (soldDeals.length === 0) return { avg: null, count: 0 };
@@ -200,13 +205,15 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             avg: avg < 24 ? `${Math.round(avg)}h` : `${Math.round(avg / 24)}j`,
             count: soldDeals.length,
         };
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
-    // ─── Radar Chart : profil moyen IA (utilise enrichedDeals) ────────────
+    // ─── Radar Chart : profil moyen IA ─────────────────────────────────────
+    // Scores individuels tous indexés (2026-08-06) : plus besoin d'avoir chargé le document complet
+    // d'une annonce pour que son profil compte ici — voir useDealsManager.js.
     const radarData = useMemo(() => {
         if (totalDeals === 0) return [];
         let rData = { deal: 0, auth: 0, cond: 0, liq: 0, resto: 0, count: 0 };
-        enrichedDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const ai = d.aiAnalysis;
             if (ai && ai.deal_score != null) {
                 rData.deal += ai.deal_score;
@@ -225,11 +232,11 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             { subject: 'Liquidité', A: Math.round((rData.liq / c) * 10), fullMark: 100 },
             { subject: 'Potentiel Resto.', A: Math.round((rData.resto / c) * 10), fullMark: 100 },
         ];
-    }, [enrichedDeals, totalDeals]);
+    }, [analysisDeals, totalDeals]);
 
     const radarHasData = radarData.some(d => d.A > 0);
 
-    // ─── Distribution par marque (source : aiAnalysis.brand sur enrichedDeals) ─
+    // ─── Distribution par marque (source : aiAnalysis.brand) ──────────────
     const brandData = useMemo(() => {
         if (totalDeals === 0) return [];
         const counts = {};
@@ -242,7 +249,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             'jackson', 'schecter', 'washburn', 'ovation', 'takamine', 'breedlove',
         ];
 
-        enrichedDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             let rawBrand = d.aiAnalysis?.brand;
 
             // Invalider les valeurs génériques
@@ -291,14 +298,14 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         if (autresCount > 0) sorted.push({ name: 'Autres', count: autresCount });
 
         return sorted;
-    }, [enrichedDeals, totalDeals]);
+    }, [analysisDeals, totalDeals]);
 
     // ─── Distribution par couleur/finition (source : aiAnalysis.color) ────
     const colorData = useMemo(() => {
         if (totalDeals === 0) return [];
         const counts = {};
 
-        enrichedDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const rawColor = d.aiAnalysis?.color;
             const isInvalid = !rawColor
                 || typeof rawColor !== 'string'
@@ -316,7 +323,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 8);
-    }, [enrichedDeals, totalDeals]);
+    }, [analysisDeals, totalDeals]);
 
     // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
     const VOLUME_WINDOW_DAYS = 14;
@@ -331,7 +338,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         const counts = {};
         days.forEach(d => { counts[d.toISOString().slice(0, 10)] = 0; });
 
-        enrichedDeals.forEach(deal => {
+        analysisDeals.forEach(deal => {
             const seconds = deal.timestamp?.seconds;
             if (!seconds) return;
             const key = new Date(seconds * 1000).toISOString().slice(0, 10);
@@ -345,7 +352,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 count: counts[key],
             };
         });
-    }, [enrichedDeals]);
+    }, [analysisDeals]);
 
     const avgDailyVolume = useMemo(() => {
         if (dailyVolumeData.length === 0) return '0';
@@ -355,9 +362,8 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
     // ─── Vitesse de vente par type de guitare ─────────────────────────────
     const sellSpeedByType = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         // Deals vendus avec les deux timestamps
-        const soldDeals = targetDeals.filter(d =>
+        const soldDeals = analysisDeals.filter(d =>
             d.soldTimestamp?.seconds &&
             d.publishTimestamp?.seconds &&
             d.aiAnalysis?.classification
@@ -381,13 +387,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             }))
             .filter(e => e.count >= 2) // Au moins 2 observations
             .sort((a, b) => a.avgH - b.avgH); // Plus rapide en premier
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
     // ─── Sweet Spot : score IA moyen et marge moyenne par tranche de prix ─
     const priceScoreData = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         const buckets = PRICE_BUCKETS.map(b => ({ ...b, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0, count: 0 }));
-        targetDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const price = d.price;
             if (!(price > 0)) return;
             const bucket = buckets.find(b => price >= b.min && price < b.max);
@@ -412,13 +417,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
                 avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
             }));
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
     // ─── Marge moyenne par catégorie (taxonomie résolue via resolveCategoryLabel) ─
     const categoryData = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         const buckets = {};
-        targetDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const label = resolveCategoryLabel(d.aiAnalysis?.classification);
             if (!label) return;
             if (!buckets[label]) buckets[label] = { count: 0, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0 };
@@ -438,13 +442,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             }))
             .filter(b => b.count >= 2) // Au moins 2 observations
             .sort((a, b) => b.avgMargin - a.avgMargin);
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
     // ─── Véracité IA : score initial des annonces réellement vendues vs l'ensemble ─
     const aiAccuracyData = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         const HIGH_SCORE_THRESHOLD = 7;
-        const withScore = targetDeals.filter(d => typeof (d.interestScore ?? d.aiAnalysis?.deal_score) === 'number');
+        const withScore = analysisDeals.filter(d => typeof (d.interestScore ?? d.aiAnalysis?.deal_score) === 'number');
         const soldWithScore = withScore.filter(d => d.status === 'sold');
         if (soldWithScore.length === 0) return null;
 
@@ -461,16 +464,15 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 { name: 'Ensemble du Marché', rate: highScoreRate(withScore) },
             ],
         };
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
     // ─── Facebook vs Kijiji (source dérivée du préfixe `kijiji_` de l'ID, même convention que le backend) ─
     const sourceComparisonData = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         const bySource = {
             Facebook: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
             Kijiji: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
         };
-        targetDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const source = d.id?.startsWith('kijiji_') ? 'Kijiji' : 'Facebook';
             const b = bySource[source];
             b.count++;
@@ -488,13 +490,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 opportunityRate: b.count > 0 ? Math.round((b.opportunityCount / b.count) * 100) : 0,
             }))
             .filter(s => s.count > 0);
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
 
     // ─── Géographie des opportunités : volume + marge moyenne par ville ───
     const geoOpportunityData = useMemo(() => {
-        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
         const byCity = {};
-        targetDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             if (!RADAR_GROUP.includes(d.aiAnalysis?.verdict)) return;
             const city = d.location || 'Inconnue';
             if (!byCity[city]) byCity[city] = { count: 0, marginSum: 0, marginCount: 0 };
@@ -510,7 +511,37 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 8);
-    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+    }, [analysisDeals]);
+
+    // ─── Vitesse de vente réelle vs liquidity_score prédit par l'IA ────────
+    // Valide (ou pas) la prédiction de liquidité de l'IA contre le délai de vente réellement
+    // observé — score désormais indexé (voir repository.py::_update_deal_index), donc calculé sur
+    // l'inventaire complet plutôt que sur le seul sous-ensemble déjà chargé en entier.
+    const liquiditySpeedData = useMemo(() => {
+        const soldDeals = analysisDeals.filter(d =>
+            d.soldTimestamp?.seconds &&
+            d.publishTimestamp?.seconds &&
+            typeof d.aiAnalysis?.liquidity_score === 'number'
+        );
+        if (soldDeals.length < 2) return [];
+
+        const byTier = LIQUIDITY_TIERS.map(t => ({ ...t, deltas: [] }));
+        soldDeals.forEach(d => {
+            const score = d.aiAnalysis.liquidity_score;
+            const tier = byTier.find(t => score >= t.min && score < t.max);
+            if (!tier) return;
+            const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
+            tier.deltas.push(diffH);
+        });
+
+        return byTier
+            .filter(t => t.deltas.length >= 2) // Au moins 2 observations
+            .map(t => ({
+                name: t.label,
+                avgH: Math.round(t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length),
+                count: t.deltas.length,
+            }));
+    }, [analysisDeals]);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -521,7 +552,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                         <BarChart2 className="text-blue-500" />
                         Intelligence Stratégique
                     </h2>
-                    <p className="text-slate-400 text-sm mt-1">Statistiques calculées sur {totalDeals} annonce{totalDeals !== 1 ? 's' : ''} · {Object.keys(loadedDeals).length} chargées.</p>
+                    <p className="text-slate-400 text-sm mt-1">Statistiques calculées sur l'inventaire complet : {totalDeals} annonce{totalDeals !== 1 ? 's' : ''}, tous statuts confondus.</p>
                 </div>
                 <div className="bg-purple-500/10 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">
                     <Activity size={14} className="animate-pulse" />
@@ -600,7 +631,6 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[300px] flex flex-col relative overflow-hidden group">
                         <h4 className="font-bold text-slate-300 mb-2 flex items-center justify-between z-10">
                             Profil Moyen (Scores IA)
-                            {!radarHasData && <span className="text-[10px] text-amber-400 font-normal">Scroll pour charger les deals</span>}
                         </h4>
                         <div className="flex-1 w-full min-h-0 relative z-10 -ml-4">
                             {radarHasData ? (
@@ -617,7 +647,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                                     </RadarChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Données en cours de chargement…</div>
+                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Pas encore de scores IA disponibles</div>
                             )}
                         </div>
                     </div>
@@ -930,6 +960,47 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                     </div>
                 ) : (
                     <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                )}
+            </div>
+
+            {/* Vitesse de vente réelle vs Liquidité prédite par l'IA */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <Zap size={16} className="text-emerald-400" />
+                    Vitesse de vente réelle vs Liquidité prédite
+                </h3>
+                <p className="text-slate-500 text-xs mb-6">Délai de vente réel moyen, par tranche de score de liquidité IA</p>
+
+                {liquiditySpeedData.length > 0 ? (
+                    <div className="h-[200px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={liquiditySpeedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis
+                                    tick={{ fill: '#64748b', fontSize: 10 }}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    tickFormatter={v => v < 24 ? `${v}h` : `${Math.round(v / 24)}j`}
+                                />
+                                <Tooltip
+                                    cursor={{ fill: '#1e293b' }}
+                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                    formatter={(value, name, props) => [
+                                        value < 24 ? `${value}h` : `${Math.round(value / 24)}j`,
+                                        `Délai moy. (${props.payload.count} vente${props.payload.count > 1 ? 's' : ''})`
+                                    ]}
+                                />
+                                <Bar dataKey="avgH" radius={[4, 4, 0, 0]} barSize={40}>
+                                    {liquiditySpeedData.map((entry, index) => (
+                                        <Cell key={`liquidity-${index}`} fill={LIQUIDITY_TIER_COLORS[index % LIQUIDITY_TIER_COLORS.length]} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (score de liquidité + annonces vendues)</div>
                 )}
             </div>
 

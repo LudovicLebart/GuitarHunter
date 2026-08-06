@@ -95,7 +95,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         classification: entry.c,
         condition_score: entry.cs,
         also_qualifies_pepite: entry.ap,
-        deal_score: entry.is,
+        // Scores individuels (2026-08-06) : auparavant absents de l'index léger, "deal_score" était
+        // substitué par la moyenne des 5 scores ("is") — imprécis pour toute annonce non chargée en
+        // entier. Désormais indexés individuellement (voir repository.py::_update_deal_index), donc
+        // toujours corrects même sans charger le document complet.
+        deal_score: entry.ds,
+        authenticity_score: entry.as,
+        liquidity_score: entry.ls,
+        restoration_interest_score: entry.rs,
         estimated_value: entry.ev,
         model_used: entry.mu,
         estimated_gross_margin: entry.egm,
