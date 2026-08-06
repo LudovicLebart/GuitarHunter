@@ -132,6 +132,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 📊 Statistiques & Dashboard
 
-- [ ] **Mettre en place le moteur de statistiques (Impact Tier 3)**
+- [/] **Mettre en place le moteur de statistiques (Impact Tier 3)**
     - *Plan de travail :* [`docs/explanation/STATS_REFLEXION.md`](../explanation/STATS_REFLEXION.md)
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
+    - [x] **Statistiques croisées (2026-08-06)** : `StatsView.jsx` — Sweet Spot (score IA moyen par tranche de prix), Marge moyenne par catégorie de taxonomie, Véracité IA (score des annonces vendues vs ensemble du marché), Comparaison Facebook vs Kijiji, Géographie des opportunités par ville. Basé uniquement sur l'index léger déjà chargé (`deals_index`), sans lecture Firestore supplémentaire. Détail dans `STATS_REFLEXION.md`.
+    - [ ] **Reste à faire** : "Cold Deals" (annonces anciennes en apparence bonnes mais invendables), `discount_index`, badges "Certifié Expert" sur les KPIs basés sur une analyse Tier 3.

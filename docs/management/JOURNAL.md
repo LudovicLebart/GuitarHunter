@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-06] [PRO] Feature : Statistiques croisées dans StatsView (Sweet Spot, catégories, source, géo) → Résultat :
+- **Demande utilisateur :** tirer de vraies statistiques croisées (plusieurs dimensions combinées) des données déjà présentes, plutôt que des distributions simples déjà existantes (marque, couleur).
+- **5 croisements ajoutés, tous à partir de l'index léger déjà chargé (`deals_index`), sans lecture Firestore supplémentaire :**
+  1. Sweet Spot Prix × Score — score IA moyen par tranche de prix (0-250$ à 2000$+).
+  2. Marge moyenne par catégorie — taxonomie résolue via une table exact+leaf simplifiée (`resolveCategoryLabel()`, sans la recherche floue de `useDealsManager.js`).
+  3. Véracité IA — % de score élevé (≥7/10) parmi les annonces vendues vs l'ensemble du marché.
+  4. Facebook vs Kijiji — volume, prix moyen, marge moyenne, taux d'opportunités par source (préfixe `kijiji_` de l'ID).
+  5. Géographie des opportunités — volume/marge des verdicts `RADAR_GROUP` par ville.
+- **Ces 3 premiers croisements comblent des items jamais implémentés de `docs/explanation/STATS_REFLEXION.md`** (§2 Sweet Spot/ROI catégorie, §4 Véracité IA, §5 Géographie) — voir ce fichier pour le détail produit, mis à jour en conséquence.
+- **Validation** : pas de credentials Firebase dans l'environnement de dev — testé avec un jeu de données factices (120 deals mockés) rendu via un entry point Vite temporaire + Playwright (screenshot), confirmant l'absence d'erreur console et un rendu cohérent avec le style existant. `npm run build` passe sans erreur. Fichiers de test supprimés après validation (non commités).
+
 [2026-08-06] [FLASH] Fix : Intervalle du nettoyage des annonces vendues réduit à 6h (anciennement 24h) → Résultat :
 - **Demande utilisateur :** réduire la latence entre la suppression réelle d'une annonce et sa détection par le bot, pour améliorer la précision des stats de vitesse de vente (`soldAt`).
 - **Solution :** `backend/services.py::TaskScheduler._setup_schedules()` — `schedule.every(24).hours.do(self.cleanup_func)` → `schedule.every(6).hours.do(self.cleanup_func)`.

@@ -12,8 +12,8 @@ Ce graphique permet de visualiser l'efficacité du filtrage.
 ## 2. Indicateurs Financiers (Predictions vs Réalité)
 Basé sur les champs `net_guitar_cost` et `estimated_gross_margin`.
 - **Marge Potentielle Totale :** Somme des marges estimées sur les deals `active` avec un `deal_score > 7`.
-- **ROI Moyen Estimé :** Ratio Marge / Coût par catégorie de guitare.
-- **Corrélation Prix/Score :** Identifier les "Sweet Spots" (ex: "Où se trouvent les guitares entre 500$ et 1000$ avec un score > 8 ?").
+- ✅ **Marge Moyenne par Catégorie (implémenté 2026-08-06)** : `StatsView.jsx::categoryData` — proxy de "ROI par catégorie" basé sur `estimated_gross_margin` (pas de vrai ratio marge/coût, `net_guitar_cost` n'étant pas indexé). Catégorie résolue via une taxonomie simplifiée (exact + leaf uniquement, sans la recherche floue de `useDealsManager.js`).
+- ✅ **Corrélation Prix/Score, "Sweet Spot" (implémenté 2026-08-06)** : `StatsView.jsx::priceScoreData` — score IA moyen (et marge moyenne) par tranche de prix (0-250$, 250-500$, 500-1000$, 1000-2000$, 2000$+).
 
 ## 3. Analyse Qualitative (Les 5 Scores)
 Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
@@ -24,10 +24,10 @@ Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
 
 ## 4. Performance & Vitesse (Rotation)
 - **Time-to-Sold :** Temps écoulé entre l'entrée en base et le passage au statut `sold`.
-- **Véracité IA :** % d'annonces `sold` qui avaient un `deal_score > 7` (Validation de la pertinence de l'IA).
+- ✅ **Véracité IA (implémenté 2026-08-06)** : `StatsView.jsx::aiAccuracyData` — % d'annonces `sold` avec un score IA élevé (≥7/10) comparé au % dans l'ensemble du marché. Nuance : `sold` fusionne "vraiment vendue" et "supprimée par le vendeur" (`_perform_cleanup()`, voir `ARCHITECTURE.md`) — pas une mesure pure de succès de vente, mais le meilleur proxy disponible sans donnée de transaction réelle.
 
 ## 5. Géographie des Opportunités
-- **Heatmap :** Répartition des "Pépites" par ville/secteur scrapé pour optimiser le rayon de recherche.
+- ✅ **Implémenté 2026-08-06** : `StatsView.jsx::geoOpportunityData` — volume + marge moyenne des verdicts d'opportunité (`RADAR_GROUP`) par ville (`deal.location`), top 8. Barres plutôt qu'une heatmap cartographique (pas de nouvelle dépendance de cartographie pour un premier passage).
 
 ---
 
@@ -52,6 +52,11 @@ Axe absent de la réflexion initiale ci-dessus, ajouté suite à un cas concret 
 - **Erreurs Portier corrigées** : parmi les annonces initialement arrêtées au Portier seul, combien ont été réanalysées avec succès jusqu'à l'Analyste ou plus. Implémenté dans `StatsView.jsx` via `initialVerdict`/`initialModelUsed` (`ARCHITECTURE.md`).
 - Complète l'échantillonnage manuel ponctuel déjà existant (`analyze_funnel_by_user.py --sample-size`, `GEMINI_PROMPT_CACHING_PLAN.md §8.2`) par un taux mesuré en continu, sans script à lancer.
 - Limite actuelle : ne capture que les réanalyses **déclenchées manuellement** par l'utilisateur — ne détecte pas les faux positifs jamais revus.
+
+## 8. Comparaison Multi-Plateforme (Implémenté 2026-08-06)
+
+Axe apparu avec l'intégration de Kijiji (voir `ARCHITECTURE.md` § `bot.py::_run_kijiji_scan`) — permet de juger objectivement si une source apporte une vraie valeur ajoutée plutôt que du simple volume :
+- **`StatsView.jsx::sourceComparisonData`** : volume, prix moyen, marge moyenne et taux d'opportunités (verdicts `RADAR_GROUP`), par source. Source dérivée du préfixe `kijiji_` de l'ID (même convention que le backend), pas du champ `link` (absent de l'index léger).
 
 ---
 
