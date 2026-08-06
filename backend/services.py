@@ -88,7 +88,7 @@ class TaskScheduler:
         """Configure les tâches planifiées initiales."""
         logger.info(f"Scheduling scan every {self.scan_frequency} minutes.")
         schedule.every(self.scan_frequency).minutes.do(self.scan_func).tag('scan')
-        schedule.every(24).hours.do(self.cleanup_func)
+        schedule.every(6).hours.do(self.cleanup_func)
         if self.purge_func:
             schedule.every().week.do(self.purge_func)
             logger.info("Purge lifecycle des images planifiée hebdomadairement.")
