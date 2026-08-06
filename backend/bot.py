@@ -816,36 +816,52 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
-                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
                 try:
                     docs = self.repo.get_active_listings()
                     listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
-                    self.logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
+                    # Kijiji (préfixe `kijiji_`, voir _run_kijiji_scan) doit être vérifié avec
+                    # KijijiScraper, pas FacebookScraper : une URL Kijiji ne contient jamais
+                    # "/marketplace/item/", donc FacebookScraper.check_listing_availability()
+                    # la classerait à tort en "redirection détectée" = vendue.
+                    fb_listings = [item for item in listings if item['url'] and not item['id'].startswith('kijiji_')]
+                    kijiji_listings = [item for item in listings if item['url'] and item['id'].startswith('kijiji_')]
+                    self.logger.info(
+                        f"Vérification de la disponibilité de {len(fb_listings) + len(kijiji_listings)} annonces actives "
+                        f"({len(fb_listings)} Facebook, {len(kijiji_listings)} Kijiji)."
+                    )
                     deleted_count = 0
-                    for item in listings:
-                        if self._is_stop_requested():
-                            self.logger.info("🛑 Nettoyage interrompu.")
-                            break
-
-                        if not item['url']: continue
-                        if not temp_scraper.check_listing_availability(item['url']):
-                            self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
-                            self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
-                            deleted_count += 1
-                        time.sleep(0.5)
+                    deleted_count += self._check_listings_availability(FacebookScraper({}, {}, logger=self.logger), fb_listings)
+                    deleted_count += self._check_listings_availability(KijijiScraper(logger=self.logger), kijiji_listings)
                     self.logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
                 except Exception as e:
                     self.logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
-                finally:
-                    try:
-                        temp_scraper.close_session()
-                    except Exception as e:
-                        self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
             finally:
                 if self._browser_semaphore:
                     self._browser_semaphore.release()
                 self.is_cleaning = False
                 if not self.offline_mode: self.set_status('idle', task_name='cleaning')
+
+    def _check_listings_availability(self, scraper, listings):
+        """Vérifie chaque annonce de `listings` via `scraper.check_listing_availability()`,
+        marque vendue si indisponible. Ferme toujours `scraper` avant de retourner. Retourne
+        le nombre d'annonces marquées vendues."""
+        deleted_count = 0
+        try:
+            for item in listings:
+                if self._is_stop_requested():
+                    self.logger.info("🛑 Nettoyage interrompu.")
+                    break
+                if not scraper.check_listing_availability(item['url']):
+                    self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
+                    self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
+                    deleted_count += 1
+                time.sleep(0.5)
+        finally:
+            try:
+                scraper.close_session()
+            except Exception as e:
+                self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
+        return deleted_count
 
     def process_retry_queue(self):
         """Traite les annonces en attente de réanalyse."""
