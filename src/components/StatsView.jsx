@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
-import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap } from 'lucide-react';
+import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
+import promptsData from '../../prompts.json';
+import { RADAR_GROUP } from '../constants';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -60,6 +62,66 @@ const TYPE_LABELS = {
 };
 
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
+
+const PRICE_BUCKETS = [
+    { label: '0-250$', min: 0, max: 250 },
+    { label: '250-500$', min: 250, max: 500 },
+    { label: '500-1000$', min: 500, max: 1000 },
+    { label: '1000-2000$', min: 1000, max: 2000 },
+    { label: '2000$+', min: 2000, max: Infinity },
+];
+
+// Résolution légère de la taxonomie pour le croisement "Marge par catégorie" — volontairement plus
+// simple que useDealsManager.js::findPathFuzzy (exact + leaf uniquement, PAS de recherche floue par
+// sous-chaîne) : ici on ne veut qu'un classement grossier (racine + sous-catégorie), un niveau où le
+// risque de collision documenté sur les leafs profonds (ex: "guitare.basse") ne s'applique pas.
+const normalizeTaxKey = (str) => {
+    if (!str) return '';
+    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, '');
+};
+
+const buildTaxonomyPathsByKey = () => {
+    const paths = {};
+    const traverse = (node, currentPath) => {
+        if (Array.isArray(node)) {
+            node.forEach(item => {
+                const path = [...currentPath, item];
+                paths[normalizeTaxKey(path.join('.'))] = path;
+                paths[normalizeTaxKey(item)] = path;
+            });
+        } else if (node && typeof node === 'object') {
+            Object.keys(node).forEach(key => {
+                const path = [...currentPath, key];
+                paths[normalizeTaxKey(path.join('.'))] = path;
+                paths[normalizeTaxKey(key)] = path;
+                traverse(node[key], path);
+            });
+        }
+    };
+    traverse(promptsData.taxonomy_master || {}, []);
+    return paths;
+};
+const TAXONOMY_PATHS_BY_KEY = buildTaxonomyPathsByKey();
+
+const CATEGORY_LABELS = {
+    'guitare.electrique': 'Guitare Électrique',
+    'guitare.acoustique_acier': 'Guitare Acoustique',
+    'guitare.electro_acoustique': 'Guitare Électro-Acoustique',
+    'guitare.classique_nylon': 'Guitare Classique',
+    'guitare.basse': 'Basse',
+    'amplificateur.lampes': 'Ampli à Lampes',
+    'amplificateur.transistor_numerique': 'Ampli Transistor/Num.',
+    'etui_housse': 'Étui / Housse',
+};
+
+const resolveCategoryLabel = (classification) => {
+    if (!classification) return null;
+    const path = TAXONOMY_PATHS_BY_KEY[normalizeTaxKey(classification)];
+    if (!path || path.length === 0) return null;
+    if (path[0] === 'etui_housse') return CATEGORY_LABELS['etui_housse'];
+    const key = path.length >= 2 ? `${path[0]}.${path[1]}` : path[0];
+    return CATEGORY_LABELS[key] || (path[0] === 'guitare' ? 'Autre Guitare' : path[0]);
+};
 
 const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
@@ -321,6 +383,135 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             .sort((a, b) => a.avgH - b.avgH); // Plus rapide en premier
     }, [enrichedAllDeals, enrichedDeals, allDeals]);
 
+    // ─── Sweet Spot : score IA moyen et marge moyenne par tranche de prix ─
+    const priceScoreData = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const buckets = PRICE_BUCKETS.map(b => ({ ...b, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0, count: 0 }));
+        targetDeals.forEach(d => {
+            const price = d.price;
+            if (!(price > 0)) return;
+            const bucket = buckets.find(b => price >= b.min && price < b.max);
+            if (!bucket) return;
+            bucket.count++;
+            const score = d.interestScore ?? d.aiAnalysis?.deal_score;
+            if (typeof score === 'number') {
+                bucket.scoreSum += score;
+                bucket.scoreCount++;
+            }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') {
+                bucket.marginSum += margin;
+                bucket.marginCount++;
+            }
+        });
+        return buckets
+            .filter(b => b.count > 0)
+            .map(b => ({
+                name: b.label,
+                count: b.count,
+                avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }));
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+
+    // ─── Marge moyenne par catégorie (taxonomie résolue via resolveCategoryLabel) ─
+    const categoryData = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const buckets = {};
+        targetDeals.forEach(d => {
+            const label = resolveCategoryLabel(d.aiAnalysis?.classification);
+            if (!label) return;
+            if (!buckets[label]) buckets[label] = { count: 0, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0 };
+            const b = buckets[label];
+            b.count++;
+            const score = d.interestScore ?? d.aiAnalysis?.deal_score;
+            if (typeof score === 'number') { b.scoreSum += score; b.scoreCount++; }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { b.marginSum += margin; b.marginCount++; }
+        });
+        return Object.entries(buckets)
+            .map(([name, b]) => ({
+                name,
+                count: b.count,
+                avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }))
+            .filter(b => b.count >= 2) // Au moins 2 observations
+            .sort((a, b) => b.avgMargin - a.avgMargin);
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+
+    // ─── Véracité IA : score initial des annonces réellement vendues vs l'ensemble ─
+    const aiAccuracyData = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const HIGH_SCORE_THRESHOLD = 7;
+        const withScore = targetDeals.filter(d => typeof (d.interestScore ?? d.aiAnalysis?.deal_score) === 'number');
+        const soldWithScore = withScore.filter(d => d.status === 'sold');
+        if (soldWithScore.length === 0) return null;
+
+        const highScoreRate = (list) => {
+            if (list.length === 0) return 0;
+            const high = list.filter(d => (d.interestScore ?? d.aiAnalysis?.deal_score) >= HIGH_SCORE_THRESHOLD).length;
+            return Math.round((high / list.length) * 100);
+        };
+
+        return {
+            soldCount: soldWithScore.length,
+            data: [
+                { name: 'Annonces Vendues', rate: highScoreRate(soldWithScore) },
+                { name: 'Ensemble du Marché', rate: highScoreRate(withScore) },
+            ],
+        };
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+
+    // ─── Facebook vs Kijiji (source dérivée du préfixe `kijiji_` de l'ID, même convention que le backend) ─
+    const sourceComparisonData = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const bySource = {
+            Facebook: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
+            Kijiji: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
+        };
+        targetDeals.forEach(d => {
+            const source = d.id?.startsWith('kijiji_') ? 'Kijiji' : 'Facebook';
+            const b = bySource[source];
+            b.count++;
+            if (typeof d.price === 'number' && d.price > 0) { b.priceSum += d.price; b.priceCount++; }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { b.marginSum += margin; b.marginCount++; }
+            if (RADAR_GROUP.includes(d.aiAnalysis?.verdict)) b.opportunityCount++;
+        });
+        return Object.entries(bySource)
+            .map(([name, b]) => ({
+                name,
+                count: b.count,
+                avgPrice: b.priceCount > 0 ? Math.round(b.priceSum / b.priceCount) : 0,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+                opportunityRate: b.count > 0 ? Math.round((b.opportunityCount / b.count) * 100) : 0,
+            }))
+            .filter(s => s.count > 0);
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+
+    // ─── Géographie des opportunités : volume + marge moyenne par ville ───
+    const geoOpportunityData = useMemo(() => {
+        const targetDeals = allDeals ? enrichedAllDeals : enrichedDeals;
+        const byCity = {};
+        targetDeals.forEach(d => {
+            if (!RADAR_GROUP.includes(d.aiAnalysis?.verdict)) return;
+            const city = d.location || 'Inconnue';
+            if (!byCity[city]) byCity[city] = { count: 0, marginSum: 0, marginCount: 0 };
+            byCity[city].count++;
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { byCity[city].marginSum += margin; byCity[city].marginCount++; }
+        });
+        return Object.entries(byCity)
+            .map(([name, b]) => ({
+                name,
+                count: b.count,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 8);
+    }, [enrichedAllDeals, enrichedDeals, allDeals]);
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
@@ -568,6 +759,177 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                         <span>Pas encore assez de deals vendus ayant été classifiés par l'IA</span>
                         <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que de nouvelles ventes scannées trouveront preneur</span>
                     </div>
+                )}
+            </div>
+
+            {/* Croisements : Sweet Spot Prix x Score & Marge par catégorie */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* Sweet Spot Prix x Score */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <Coins size={16} className="text-emerald-400" />
+                        Sweet Spot : Score par tranche de prix
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">Score IA moyen selon le budget</p>
+
+                    {priceScoreData.length > 0 ? (
+                        <div className="h-[220px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={priceScoreData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                    <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value, name, props) => [
+                                            `${value}/100`,
+                                            `Score moy. (${props.payload.count} annonces, marge moy. ${props.payload.avgMargin}$)`
+                                        ]}
+                                    />
+                                    <Bar dataKey="avgScore" fill="#10b981" radius={[4, 4, 0, 0]} barSize={28} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+                {/* Marge moyenne par catégorie */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <Layers size={16} className="text-blue-400" />
+                        Marge moyenne par catégorie
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">Marge brute estimée par type d'instrument</p>
+
+                    {categoryData.length > 0 ? (
+                        <div className="h-[220px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={categoryData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={140} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value, name, props) => [
+                                            `${value}$`,
+                                            `Marge moy. (${props.payload.count} annonces, score moy. ${props.payload.avgScore}/100)`
+                                        ]}
+                                    />
+                                    <Bar dataKey="avgMargin" fill="#38bdf8" radius={[0, 4, 4, 0]} barSize={18} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+            </div>
+
+            {/* Croisements : Facebook vs Kijiji & Véracité IA */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* Facebook vs Kijiji */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <GitCompare size={16} className="text-amber-400" />
+                        Facebook vs Kijiji
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">Volume, prix et marge moyens par source</p>
+
+                    {sourceComparisonData.length > 0 ? (
+                        <div className="space-y-3">
+                            {sourceComparisonData.map(s => (
+                                <div key={s.name} className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3">
+                                    <div>
+                                        <div className="text-sm font-bold text-slate-200">{s.name}</div>
+                                        <div className="text-xs text-slate-500">{s.count} annonce{s.count > 1 ? 's' : ''} · {s.opportunityRate}% opportunités</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-sm font-bold text-emerald-400">{s.avgMargin}$ marge moy.</div>
+                                        <div className="text-xs text-slate-500">{s.avgPrice}$ prix moy.</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+                {/* Véracité IA */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <ShieldCheck size={16} className="text-purple-400" />
+                        Véracité IA
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">
+                        {aiAccuracyData?.soldCount > 0
+                            ? `% de score IA élevé (≥7/10) — vendues vs ensemble du marché (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''})`
+                            : "Nécessite des annonces vendues avec score IA"}
+                    </p>
+
+                    {aiAccuracyData ? (
+                        <div className="h-[180px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={aiAccuracyData.data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                    <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value) => [`${value}%`, 'Score élevé (≥7/10)']}
+                                    />
+                                    <Bar dataKey="rate" radius={[4, 4, 0, 0]} barSize={40}>
+                                        {aiAccuracyData.data.map((entry, index) => (
+                                            <Cell key={`accuracy-${index}`} fill={index === 0 ? '#a78bfa' : '#475569'} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+            </div>
+
+            {/* Géographie des opportunités */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <MapPin size={16} className="text-rose-400" />
+                    Géographie des opportunités
+                </h3>
+                <p className="text-slate-500 text-xs mb-6">Volume de Pépites/Fast Flip/Luthier/Case Win par ville</p>
+
+                {geoOpportunityData.length > 0 ? (
+                    <div className="h-[240px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={geoOpportunityData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={110} />
+                                <Tooltip
+                                    cursor={{ fill: '#1e293b' }}
+                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                    formatter={(value, name, props) => [
+                                        `${value} opportunité${value > 1 ? 's' : ''}`,
+                                        `Marge moy. ${props.payload.avgMargin}$`
+                                    ]}
+                                />
+                                <Bar dataKey="count" fill="#fb7185" radius={[0, 4, 4, 0]} barSize={18} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
                 )}
             </div>
 
