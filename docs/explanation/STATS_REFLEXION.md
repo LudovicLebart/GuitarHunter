@@ -17,7 +17,7 @@ Basé sur les champs `net_guitar_cost` et `estimated_gross_margin`.
 
 ## 3. Analyse Qualitative (Les 5 Scores)
 Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
-- **Radar Chart "Profil de Marché" :** Moyenne des 5 scores sur l'ensemble du flux (Authenticité, État, Liquidité, Deal, Restauration).
+- ✅ **Radar Chart "Profil de Marché" (fiabilisé 2026-08-06)** : Moyenne des 5 scores sur l'ensemble du flux (Authenticité, État, Liquidité, Deal, Restauration). Les 5 scores sont désormais tous indexés individuellement (`deals_index`, voir `ARCHITECTURE.md`/`DATA_FLOW.md`) — auparavant, seule leur moyenne l'était et `deal_score` y était silencieusement substitué, biaisant le Radar pour toute annonce non ouverte en entier par l'utilisateur.
 - **Segmentation "Projets vs Flipping" :**
     - Volume de `LUTHIER_PROJ` (Restoration score élevé).
     - Volume de `PEPITE/FAST_FLIP` (Liquidity & Deal score élevés).
@@ -25,6 +25,7 @@ Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
 ## 4. Performance & Vitesse (Rotation)
 - **Time-to-Sold :** Temps écoulé entre l'entrée en base et le passage au statut `sold`.
 - ✅ **Véracité IA (implémenté 2026-08-06)** : `StatsView.jsx::aiAccuracyData` — % d'annonces `sold` avec un score IA élevé (≥7/10) comparé au % dans l'ensemble du marché. Nuance : `sold` fusionne "vraiment vendue" et "supprimée par le vendeur" (`_perform_cleanup()`, voir `ARCHITECTURE.md`) — pas une mesure pure de succès de vente, mais le meilleur proxy disponible sans donnée de transaction réelle.
+- ✅ **Vitesse de vente réelle vs Liquidité prédite (implémenté 2026-08-06)** : `StatsView.jsx::liquiditySpeedData` — délai de vente réel moyen (`soldTimestamp - publishTimestamp`), regroupé par tranche de `liquidity_score` prédit par l'IA (Faible 0-4 / Moyenne 5-7 / Élevée 8-10). Répond directement à la question "l'IA prédit-elle correctement quelles annonces se vendront vite ?".
 
 ## 5. Géographie des Opportunités
 - ✅ **Implémenté 2026-08-06** : `StatsView.jsx::geoOpportunityData` — volume + marge moyenne des verdicts d'opportunité (`RADAR_GROUP`) par ville (`deal.location`), top 8. Barres plutôt qu'une heatmap cartographique (pas de nouvelle dépendance de cartographie pour un premier passage).
