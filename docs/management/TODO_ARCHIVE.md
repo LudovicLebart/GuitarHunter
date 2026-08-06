@@ -1,0 +1,452 @@
+# Archive des Tâches Terminées - Guitar Hunter AI
+
+Tâches `[x]` déplacées depuis `TODO.md` (devenu trop long — 557 lignes) pour garder le TODO actif lisible et rapide à consulter. Classement par section d'origine, contenu et dates conservés tels quels. Voir `docs/management/TODO.md` pour les tâches encore ouvertes.
+
+---
+
+## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
+
+- [x] **Calibration d'une approche Playwright "douce" face à DataDome** *(Réussie 2026-07-21)*
+    - *Contexte :* Options d'extraction évaluées (A-F), Option F (reverse engineering mobile) écartée pour risque juridique/maintenance disproportionnés vu l'usage personnel/non-commercial (2-3 utilisateurs). Piste retenue : approche similaire au scraper Facebook (stealth Playwright, sans contournement actif DataDome type SSL Pinning/TLS spoofing), avec compte réchauffé + session persistée.
+    - [x] `backend/scripts/leboncoin_login_once.py` : génère une session authentifiée réutilisable (`storage_state`).
+    - [x] `backend/scripts/leboncoin_probe.py` : teste si la session passe une recherche sans être bloquée par DataDome (détection captcha/403/429).
+    - *Premier essai (bloqué, 403 immédiat)* : faux négatif — la fenêtre de login n'avait pas les mêmes mesures stealth que la sonde, connexion faite dans un autre navigateur jamais capturé par Playwright → session anonyme testée par erreur. Corrigé (flags/UA/viewport alignés entre les deux scripts).
+    - *Second essai, avec une vraie session authentifiée* : ✅ **passe sans blocage.** L'approche "douce" (sans SSL Pinning/TLS spoofing) est donc viable, au moins pour l'instant — à re-tester périodiquement (DataDome évolue).
+    - [x] **Extraction** : LeBonCoin (Next.js) embarque les résultats de recherche en JSON structuré (`<script id="__NEXT_DATA__">`) — bien plus fiable que des sélecteurs CSS. `leboncoin_probe.py::extract_ads()` extrait une liste blanche stricte (titre, prix, localisation approximative ville/code postal, lien, date, photos) ; le bloc `owner` (pseudo/user_id/store_id vendeur) est explicitement exclu. Testé avec succès sur un vrai résultat (35 annonces, aucune donnée vendeur).
+    - [x] **Filtrage ville(s)/catégorie/prix/tri (2026-07-21)** : `leboncoin_probe.py` supporte désormais `--category`, `--locations` (multi-villes via virgule, valeur brute fournie par l'utilisateur — format non deviné/reconstruit, varie selon la ville), `--min-price`/`--max-price` (bug corrigé : `price={min}-{max}`, pas `price=min-{max}`), `--owner-type`. Tri `sort=time&order=desc` (plus récent en premier) désormais systématique. Construction d'URL vérifiée contre 2 vraies URLs fournies par l'utilisateur (1 et 2 villes).
+    - *Décision produit* : description complète jugée peu utile par l'utilisateur (souvent peu éclairante) — non poursuivie pour l'instant, les photos/titre/prix suffisent à l'usage réel.
+    - [x] **Module dédié `backend/scraping_leboncoin/` (2026-07-22)** : classe `LeboncoinScraper` (pagination fiable via `max_pages` du JSON, session réutilisable sur plusieurs recherches, comportement anti-prévisibilité — délais aléatoires, scroll/mouvement de souris simulés). `leboncoin_probe.py` réécrit pour l'utiliser au lieu de dupliquer la logique.
+    - [x] **Revue de code (2026-07-22)** : 8 bugs confirmés corrigés — faux positifs de blocage (liste des réponses réseau non vidée entre pages de pagination), `--min-price` seul silencieusement ignoré, crash sur `ads: null`, perte de résultats si une recherche plante en cours de `--repeat`, échec d'extraction indiscernable d'un vrai résultat vide, `max_pages_limit=0` ignoré (bug du falsy-zero), log de pagination trompeur ("page 1/1"), capture d'écran/dump HTML de debug restaurés.
+    - [x] **Fix : page fermée automatiquement + boucle interactive (2026-07-22)** : `search()` ne ferme plus jamais la page elle-même (succès/blocage/échec) — un onglet unique est réutilisé pour toute la session ; `leboncoin_probe.py` passe d'un `--repeat` figé à une boucle interactive (`[Entrée]` relancer / `[n]` nouveaux paramètres / `[q]` quitter). **Testé et validé en conditions réelles par l'utilisateur** (pagination, extraction et persistance de session confirmées ; un blocage DataDome réel — slider + 403 sur `auth.leboncoin.fr` — a aussi été observé après ~4 tests dans la journée).
+
+---
+
+## 🔐 Sécurité & Robustesse Multi-Utilisateur (Validé 2026-03-29)
+
+### Phase 1 — Sécurité ✅
+
+- [x] **Task 1.1 : Firestore Rules** *(2026-03-29)*
+    - `firebase/firestore.rules` : `allow read, write: if true` → règles strictes `request.auth.uid == userId`
+    - Document parent explicite : `match /artifacts/{appId}/users/{userId}`
+    - Sous-collections couvertes : `match /artifacts/{appId}/users/{userId}/{document=**}`
+
+- [x] **Task 1.2 : Inscription et Reset déverrouillés** *(Restaurés 2026-05-05)*
+    - `useAuth.js` : `signUp` et `resetPassword` restaurés
+    - `LoginPage.jsx` : Modes Login/Signup/Reset restaurés avec UI V2
+
+- [x] **Task 1.3 : Guard `getRefs()`** *(2026-03-29)*
+    - `firestoreService.js:26` : `console.warn` → `throw new Error(...)` si `userId` manquant
+
+- [x] **Task 1.4 : Migration nettoyée** *(2026-03-29)*
+    - Email admin : `ludovic.lebart@gmail.com` → `VITE_ADMIN_EMAIL` env var
+    - Flag `migrationDone` : prévient les remigrés
+    - Try/catch granulaire par étape (config/villes/annonces)
+
+### Phase 2 — Robustesse ✅
+
+- [x] **Task 2.1 : Try/except bots** *(2026-03-29)*
+    - `main.py:224-247` : Création bot dans try/except. Échec isolé par user.
+
+- [x] **Task 2.2 : Watchdog threads** *(2026-03-29)*
+    - `main.py:255-284` : Boucle surveillance 30s. Redémarre threads morts.
+    - Détection : `t.is_alive()`. Isolation : each user thread indépendant.
+
+- [x] **Task 2.3 : Sémaphore Playwright** *(2026-03-29)*
+    - `main.py:15` : `playwright_semaphore = threading.Semaphore(MAX_CONCURRENT_BROWSERS)`
+    - `bot.py:38` : `self._browser_semaphore` reçu en param
+    - `bot.py` : Chaque `FacebookScraper` → `acquire()`/`release()` (run_scan, scan_specific_url, cleanup, add_city_auto)
+    - `.env` : `MAX_CONCURRENT_BROWSERS=3` (défaut)
+
+- [x] **Task 2.4 : Lock `in_flight_command_ids`** *(2026-03-29)*
+    - `main.py:60` : `in_flight_lock = threading.Lock()`
+    - `main.py:95-99` : `with in_flight_lock: ...add(...)`
+    - Finale : `discard()` au lieu de `remove()`
+
+- [x] **Task 2.5 : `session_processed_ids` isolé** *(2026-03-29)*
+    - `bot.py:35,72-77` : `@property` sur `threading.local()`
+    - `bot.py:255` : `.clear()` au démarrage de scan
+
+- [x] **Task 2.6 : Logger par user** *(2026-03-29)*
+    - `bot.py:32` : `self.logger = logging.getLogger(f"bot.{user_id[:8]}")`
+    - Tous les `logger.xxx(` remplacés par `self.logger.xxx(` dans bot.py
+
+- [x] **Task 2.7 : Isolation du Logging (FirestoreHandler)** *(2026-05-05)*
+    - `backend/logging_config.py` : `setup_logging` n'écrase plus le root logger.
+    - Chaque bot possède son propre handler vers sa collection `logs` dédiée.
+    - Support du redémarrage propre via nettoyage des handlers dans `setup_logging`.
+
+- [x] **Task 2.8 : Correction StatsView & Temps de vente (2026-07-21)**
+    - Calcul du temps de vente global sur toutes les annonces, indépendamment du filtre actif.
+    - Suppression de la limite `count >= 2` pour le graphique de vitesse de vente.
+    - Correction du message d'erreur générique trompeur.
+
+### Code Review — 3 Rondes ✅
+
+- Ronde 1 (Exactitude) : ✅ Valide. 1 bug Firestore rules → document parent ajouté.
+- Ronde 2 (Cohérence) : ✅ Valide. Chaîne useAuth-AuthContext-LoginPage OK.
+- Ronde 3 (Edge Cases) : ✅ Acceptables. Watchdog sans backoff = backlog.
+
+### Backlog — Phase 3 (Architecture)
+
+- [x] **Architecture : Découplage Frontend/Backend (Onboarding dynamique)** *(2026-05-05)*
+    - *Détails :* Le backend scanne désormais Firestore pour découvrir les nouveaux utilisateurs.
+    - *Correctif (Audit 2026-05-05) :* Ajout de l'initialisation auto du doc user lors du `signUp` et au chargement de session (`useAuth.js`) pour garantir la détection immédiate par le backend.
+    - [x] *Correctif (Audit 2026-05-05) :* Watchdog fiabilisé pour recréer le log handler lors des redémarrages de threads.
+    - [x] *Correctif (Audit 2026-05-05) :* Tooltip d'erreur sur le statut "Auth" pour un diagnostic rapide.
+    - [x] *Correctif (Review 2026-05-06) :* Centralisation `ensureUserDoc` dans `useAuth.js` pour éviter la duplication.
+    - [x] *Correctif (Review 2026-05-06) :* Propagation des erreurs Firestore Auth vers le statut UI.
+    - [x] *Correctif (Review 2026-05-06) :* Sécurisation des sessions Playwright (`page.close()` safe).
+    - *Impact :* Plus besoin de modifier le `.env` pour chaque nouvel utilisateur. Robustesse accrue face aux erreurs de permissions.
+
+---
+
+## 🛠️ Administration & Gestion Utilisateurs
+
+- [x] **Dashboard Administrateur** *(Phase 1 livrée 2026-07-11, complétée 2026-07-21)*
+    - *Plan de travail :* [`docs/management/plans/ADMIN_DASHBOARD_PLAN.md`](plans/ADMIN_DASHBOARD_PLAN.md)
+    - [x] **Phase 1 — Monitoring (lecture seule)** : custom claim admin, règles Firestore collectionGroup, `AdminDashboard.jsx`, job `admin_stats` quotidien (03:00), bouton Navbar conditionnel.
+    - [x] **Phase 2 — Actions privilégiées** : Actions de Pause, Ajustement de la Fréquence, et Suppression implémentées dans l'UI (`AdminDashboard.jsx`) avec permissions Firestore correspondantes.
+
+---
+
+## 🏙️ Villes & Geocodage (2026-04-08)
+
+- [x] **Bug : Backend scannait 0 villes après migration UID** *(Corrigé 2026-04-08)*
+    - `repository.py:get_cities()` : fallback ancienne architecture si catalogue partagé vide
+    - `migrate_cities_to_shared_catalog.py` : params `--source-user-id` / `--target-user-id`, gestion docId=facebook_city_id, copie fidèle isScannable
+    - Migration exécutée : 20 villes → catalogue partagé, prefs `isScannable=True` pour wbPlgZgk...
+
+- [x] **Bug : Backend rejette 20 villes (données incomplètes = lat/lon manquantes)** *(Corrigé 2026-04-08)*
+    - `bot.py:add_city_auto()` : utilise Nominatim (OSM) pour coords, pas CityFinder. Enrichit villes existantes sans coords via merge upsert.
+    - `utils.py:city_name_variants()` : essaie "McMasterville", "St-Jean", sans accents... pour maximiser succès geocodage.
+    - `enrich_cities_coords.py` : script one-shot Nominatim pour les 20 villes manquantes.
+    - Résultat : toutes les villes maintenant scannables (coords disponibles).
+
+---
+
+## 🛒 Multi-plateforme — Scraper Kijiji (2026-07-26, intégré au pipeline et validé de bout en bout le 2026-07-27)
+
+- [x] **Feature : Scraper Kijiji autonome, validé en conditions réelles** *(Module créé 2026-07-26, intégré au pipeline et validé de bout en bout le 2026-07-27)*
+    - *Détails :* Module `backend/scraping/kijiji/` (`KijijiScraper`, `KijijiListingParser`, `KijijiScraperConfig`, `locations.py`), calqué sur `FacebookScraper` pour faciliter une intégration future dans `bot.py::run_scan()` (même forme de `listing_data` en sortie + `source: "kijiji"`). Extraction (fiche détail ET page de résultats) basée sur `__NEXT_DATA__` (état SSR Next.js/Apollo, présent sur toute page Kijiji) en priorité — title/description/price/location/imageUrls exacts, plus fiable que JSON-LD ou n'importe quel sélecteur CSS. `scan_specific_url()`, `scan_search_url()` (scrape directement une URL de résultats déjà construite) et `check_listing_availability()` fournis.
+    - *Résolution de lieu (`locations.py`)* : Kijiji publie un arbre statique et complet de tous ses lieux, pour **tout le Canada**, en un seul appel (`https://www.kijiji.ca/j-locations.json` — le paramètre `q=` ne filtre rien, vérifié). `backend/scripts/fetch_kijiji_locations.py` télécharge/aplatit cet arbre en lookup local (`backend/resources/kijiji_locations.json`). `KijijiScraper.scan_city(city_name, category_id, query, ...)` résout une ville par son nom et scrape directement — pas de champ de recherche à piloter.
+    - *Validé en live (Longueuil ; Toronto pour tester hors Québec)* : `scan_specific_url` (annonce isolée), `scan_search_url` (recherche complète, 5/5 annonces trouvées avec prix/images corrects), `scan_city` (résolution + recherche, y compris hors Québec).
+    - ⚠️ **Imprécision `location` constatée** : pour une annonce en périphérie d'une recherche (physiquement à Sainte-Julie mais trouvée via une recherche centrée sur Longueuil), `__NEXT_DATA__.location.name` a renvoyé "Longueuil / South Shore" (la région de recherche élargie) plutôt que la ville précise. À vérifier/creuser avant de se fier à `location` pour un affichage utilisateur précis — voir aussi `location.address` (contient la ville réelle dans son texte, ex: "Rue Charles-de Gaulle, Ste-Julie, J3E 2V5") comme piste de correction.
+    - *Tests :* `backend/scraping/kijiji/` — 49 tests unitaires (extraction titre/prix/lieu, parsing `__NEXT_DATA__`, résolution de lieu, construction d'URL). Les tests "multi-villes" (Sainte-Julie/Québec) utilisent des échantillons construits à la main supposant `location.name` = ville précise — hypothèse **non vérifiée** contre un vrai payload d'annonce en périphérie, vu l'imprécision ci-dessus.
+    - [x] **Mitigation de l'imprécision `location` : tri par GPS** *(2026-07-27)* — `locations.py::nearest_configured_city(latitude, longitude, city_coordinates, max_radius_km=None)` calcule la ville configurée la plus proche par distance Haversine (coordonnées GPS de l'annonce, toujours présentes/fiables, contrairement à `location.name`). Appelé depuis `bot.py::_run_kijiji_scan()` pour chaque annonce trouvée.
+    - [x] **Corrections `/code-review`** *(2026-07-27)* : coordonnées non numériques pouvant faussement "gagner" comme ville la plus proche (`calculate_distance` capture l'exception et retourne 0) → validation explicite ajoutée ; résolution de lieu ambiguë (plusieurs lieux distincts matchant partiellement) résolue au hasard selon l'ordre du dict → déduplication par id, retourne `None` + warning si ambiguïté réelle ; duplication de code entre les deux chemins de scrape (`core.py`) → factorisée dans `_visit_detail_page()`. `.gitattributes` ajouté pour fixer `JOURNAL.md` en LF (limitation des outils d'édition de cet environnement, voir `JOURNAL.md` du 2026-07-27 pour le détail). 65 tests au total, tous verts.
+    - [x] **Intégration `bot.py`** *(2026-07-27)* : `KijijiScraper` branché dans `run_scan()` via `_run_sources_in_parallel()` — tourne en parallèle de `_run_facebook_scan()` (thread dédié), activable via `scanConfig.kijiji_enabled` (toggle "Source Kijiji (bêta)" dans `ConfigPanel`), mêmes villes/filtres partagés que Facebook (pas de `scan_config` Kijiji séparé pour l'instant). Annonces fusionnées dans `guitar_deals`, distinguées par ID préfixé `kijiji_`. Merge de `dev` dans la branche Kijiji : a révélé et corrigé un changement de signature non conflictuel de `scan_marketplace()` (retourne désormais un dict `{deals, anti_bot_blocked, rejected_out_of_list, total_cards_seen}` plutôt qu'une simple liste) qui aurait fait planter `_run_facebook_scan()` au premier scan. Logs de `handle_deal_found()` désormais préfixés `[Facebook]`/`[Kijiji]` (les deux threads écrivent dans le même logger et s'entremêlent sinon) + résumé de cycle Kijiji symétrique à celui de Facebook. Bouton "voir l'annonce d'origine" (`DealCardActions.jsx`) adapté pour afficher un badge Kijiji au lieu de l'icône Facebook. **Validé de bout en bout en conditions réelles par l'utilisateur.**
+    - [x] **Filtre prix/rayon côté recherche + comportement hors-budget uniforme** *(2026-07-27, plancher fixe à 1km depuis remplacé — voir défaut à deux paliers plus bas)* — `locations.py::build_search_url()` accepte `min_price`/`max_price` (`?price=min__max`) et `lat`/`lng`/`radius_km` (`&ll=lat,lng&radius=...`), câblés depuis `bot.py::_run_kijiji_scan()`. Validé en live : `price=100__250` et `radius=6` filtrent bien les résultats en amont. Root cause d'un signalement utilisateur (annonce Kijiji à 280$ affichée alors que le site montrait 250$) : donnée simplement périmée (prix baissé depuis le dernier scan), pas un bug d'extraction — confirmé en comparant le HTML brut de la page Kijiji au résultat de `test_kijiji_scraper.py --search-url`. En creusant la correction du filtre de prix : `handle_deal_found()` ne stocke plus une annonce hors budget comme `BAD_DEAL` (Facebook **et** Kijiji, comportement désormais uniforme) — elle est ignorée sans écriture Firestore, le filtre de prix côté recherche étant censé éviter ce cas en amont. Bug corrigé au passage : `scraping/core.py::_apply_filters()` (Facebook) remplissait/soumettait le champ prix max même à `max_price=0`, sans le garde-fou déjà présent côté prix min.
+    - [x] **`scan_city()` : repli sur le point d'ancrage résolvable le plus proche pour une ville sans sous-zone propre (2026-07-27, validé en live — corrigé le même jour)** — jusqu'ici, une ville sans sous-zone Kijiji reconnue (`resolve_location()` échoue — la plupart des petites municipalités, les ~192 entrées de `kijiji_locations.json` étant de larges sous-régions, pas des villes une à une) était silencieusement ignorée. Un premier correctif (ancrer sur `location_id=0`/Canada + `address`/`ll`/`radius`) s'est révélé **cassé en validation live réelle** (Brossard) : Kijiji ignore silencieusement `address=`/`ll=`/`radius=` quand le lieu est `l0`, quel que soit le format de `address` — le test initial "positif" sur Saint-Bruno était probablement une coïncidence (tri par IP), pas une vraie validation du mécanisme. Corrigé : `scan_city()` essaie `resolve_location()`, puis `locations.py::nearest_resolvable_hub()` (nouveau) — trouve par GPS le point d'ancrage résolvable le plus proche parmi le catalogue (`city_coordinates.json`, ~24 des 839 municipalités QC résolvent réellement), et ancre dessus (`address`/`ll`/`radius` restent portés par la ville réelle). Validé en live sur Brossard : ancrage `k0c613l1700279` (Longueuil/South Shore), identique à la sélection manuelle d'un utilisateur via l'UI Kijiji. `"richmond"` (QC) exclu explicitement des candidats — collision confirmée avec Richmond, BC côté Kijiji. Si aucun ancrage n'est trouvé, la ville est ignorée (`[]`) plutôt qu'une recherche Canada entière non ciblée.
+    - [x] **Détection de doublon cross-plateforme (2026-07-27)** — Facebook et Kijiji tournant en parallèle, une même annonce postée sur les deux sites était analysée (et payait le pipeline IA) deux fois. `bot.py::_find_cross_platform_duplicate(listing_data, source)` compare prix normalisé + similarité de titre (Jaccard, seuil 0.6) + localisation contre l'index léger (`repository.py::get_deals_index_snapshot()`, fusion des 20 chunks `deals_index` sans lire les documents complets), en ne comparant qu'à l'autre source (préfixe `kijiji_` de l'ID). Appelé en tout début de `handle_deal_found()`, sauf pour un scan manuel. Retourne `"duplicate_cross_platform"` sans écriture Firestore ni appel IA si trouvé.
+    - [x] **Fix : dédup cross-plateforme — faux négatif confirmé, puis passage à une comparaison par distance GPS (2026-07-27)** — l'utilisateur a signalé une même guitare postée sur Facebook et Kijiji, jamais détectée comme doublon. Cause : le scan manuel Kijiji (`scan_specific_url()`) ne corrigeait pas `location` via GPS (contrairement au scan automatique), gardant la valeur brute Kijiji imprécise ("Longueuil / South Shore" au lieu de la ville réelle) — jamais égale au nom de ville précis affiché côté Facebook, alors que la dédup exigeait une correspondance exacte. Simplement retirer la ville a été écarté après discussion (risque de faux positif : titre générique + prix identique par coïncidence, entre deux villes différentes). Corrigé avec les deux volets : (1) `scan_specific_url()` applique désormais `nearest_configured_city()` aussi pour le scan manuel Kijiji ; (2) `_find_cross_platform_duplicate()` compare `latitude`/`longitude` (nouveaux champs `la`/`lo` dans `deals_index`) par distance GPS (`CROSS_PLATFORM_MAX_DISTANCE_KM=5`) quand disponibles des deux côtés — plus fiable que le nom de ville côté Kijiji — avec repli sur l'ancienne comparaison par nom de ville si les coordonnées manquent. 106 tests au total, 12 nouveaux pour ce fix.
+    - [x] **Rayon Kijiji : défaut à deux paliers + réglage par ville (2026-07-27)** — signalé par l'utilisateur : un seul rayon fixe (le plancher 1km précédent) est insuffisant pour une petite ville (Sainte-Julie, ~4km) et bien pire pour une grande (Montréal) ; pas de donnée de taille/population par ville disponible pour un vrai calcul adapté. Défaut à deux paliers réutilisant un signal déjà disponible gratuitement : ville résolue directement (`resolve_location()`, sa propre sous-zone Kijiji — en pratique une grande ville) → `KijijiScraper.DEFAULT_RADIUS_KM_RESOLVED=15`km ; ville via `nearest_resolvable_hub()` (petite municipalité satellite) → `DEFAULT_RADIUS_KM_HUB_FALLBACK=5`km. Réglage par ville ajouté en complément pour corriger les cas où le proxy se trompe (nouveau champ Firestore `kijijiRadiusKm`, `ConfigPanel.jsx` — petit champ "km" par ville, vide = automatique) — priorité réglage par ville > `scanConfig.distance` (global, si > 0) > défaut à deux paliers.
+    - [x] **Fix : `Page.goto` timeout 60s en production sur une recherche valide (2026-07-27)** — `scan_search_url()`, `_visit_detail_page()`, `scan_specific_url()` attendaient l'événement `"load"` (défaut Playwright, attend toutes les ressources) sur leur `page.goto()` initial ; Kijiji charge en continu des pubs/trackers en arrière-plan, ce qui pouvait dépasser les 60s même quand le contenu utile était déjà là (`__NEXT_DATA__`, rendu côté serveur, présent dès `domcontentloaded`). Basculé sur `wait_until="domcontentloaded"` pour les 3 — même précédent que `check_listing_availability()` (déjà ainsi) et que le fix Facebook analogue (`_apply_filters()`, 2026-07-21).
+    - [x] **Facebook désactivable indépendamment de Kijiji (2026-07-27)** — demandé par l'utilisateur pour isoler un scan Kijiji seul en debug, suite à une impression qu'aucun scraping Kijiji ne se produisait. Nouveau toggle "Source Facebook" dans `ConfigPanel` (`scanConfig.facebook_enabled`, activé par défaut — absent pour tout compte existant = toujours activé). `bot.py::_run_sources_in_parallel()` : chaque source lance son thread seulement si son toggle est activé ; si les deux sont désactivées, le cycle est ignoré avec un warning explicite plutôt qu'un scan silencieusement vide.
+    - [x] **Fix : "Scan d'URL Direct" utilisait toujours Facebook, même pour une URL Kijiji (2026-07-27)** — root cause du signalement précédent ("le scraping Kijiji ne fonctionne pas") : l'utilisateur avait en fait testé le scan manuel d'URL sur une vraie annonce Kijiji, qui échouait silencieusement (`FacebookScraper` utilisé sans condition dans `bot.py::scan_specific_url()`) avec une notification trompeuse ("URL Facebook :" + message générique "Impossible de récupérer les informations..."). Corrigé : dispatch vers `KijijiScraper`/`FacebookScraper` selon le domaine de l'URL, ID préfixé `kijiji_`, `source="Kijiji"` propagé à `handle_deal_found()`/`notify_scan_url_finished()` (label correct dans la notification). `ConfigPanel.jsx` : placeholder du champ mis à jour ("...ou Kijiji"). 97 tests au total, 4 nouveaux pour ce fix.
+
+---
+
+## 🚨 Priorité Haute (Bugs & Correctifs)
+
+- [x] **Bug : Menu déroulant du statut bot (Navbar) inaccessible au survol sur desktop** *(Corrigé 2026-07-11)*
+    - *Détails :* Les boutons (Scanner maintenant, Vérifier Stocks, Stop Scan/Start Bot) disparaissaient dès que la souris se déplaçait vers un bouton excentré du menu — conteneur de survol (`.group`) plus étroit que le menu affiché en dessous.
+    - *Solution :* `justify-center lg:min-w-[190px]` sur `.group` (`Navbar.jsx`), pour que la zone de survol couvre toute la largeur du menu.
+
+- [x] **Bug : Menu "Ré-analyser" (options de rescan) de la carte annonce inaccessible au survol sur desktop** *(Corrigé 2026-07-13)*
+    - *Détails :* Le menu (Scan Standard / Luthier Expert / Avec commentaire...) se fermait avant que la souris n'atteigne une option — clic sans effet (ni rescan, ni popup commentaire). Fonctionnait mieux sur mobile.
+    - *Cause :* Même famille de bug que le fix Navbar ci-dessus, mais sur un gap **vertical** : le menu était positionné avec un `margin` (`mb-2`/`mt-2`), hors de la boîte du conteneur `.relative` survolé — traverser ce vide déclenchait `onMouseLeave` avant d'atteindre le menu.
+    - *Solution :* `DealCard.jsx` (footer de carte + `renderActionButtons`, carte ET modale) : `margin` remplacé par un `padding` sur un wrapper englobant (`pb-2`/`pt-2`), le style visuel du menu déplacé dans un `<div>` interne — le gap fait désormais partie de la zone survolée.
+
+- [x] **Perf : Chargement complet de `guitar_deals` via Sharded Index Document et Lazy Loading** *(Corrigé 2026-07-18)*
+    - *Détails :* Le Frontend s'abonne uniquement à un index découpé en 20 chunks (20 lectures Firestore) pour les compteurs et filtres. Les annonces détaillées sont chargées à la demande par paquets de 30 lors de l'affichage.
+    - *Bénéfice :* Coûts de lecture Firestore divisés par 100+ au démarrage, fluidité totale de l'UI.
+    - *Fix additionnel :* Les annonces apparaissaient invisibles car le front-end vérifiait la présence du texte `reasoning`, retiré de l'index allégé. Cette vérification a été supprimée (`useDealsManager.js`).
+
+- [x] **Bug : Annonce vendue affichée sans indication visuelle** *(Corrigé 2026-07-15)*
+    - *Détails :* `DealCard.jsx` n'affichait aucun badge/opacité pour `deal.status === 'sold'` — le badge de verdict d'origine (ex: "Pépite") restait affiché seul, sans rien signalant que l'annonce était vendue.
+    - *Solution :* Badge "Vendu" (icône `Ban`) + opacité réduite (`opacity-60 saturate-50`), ajoutés dans la carte ET la modale, indépendamment du verdict.
+
+- [x] **Bug : Annonces en échec d'analyse visibles comme "bruit" sans label** *(Corrigé 2026-07-15)*
+    - *Cause :* un double-échec IA (Tier 1 + Tier 2) produit un verdict `ERROR_GATEKEEPER` (`analyzer.py`) qui échappait au filtre `isError` de `useDealsManager.js` (limité à `DEFAULT`/`ERROR` littéraux) et à `ARCHIVE_GROUP` — il atterrissait dans la vue "Toutes" avec le badge par défaut trompeur ("Analyse...").
+    - *Solution :* `isError` élargi à tout verdict absent de la taxonomie connue (`NEW_VERDICTS`/`LEGACY_VERDICTS`/`ARCHIVE_GROUP`), pas seulement les valeurs littérales.
+
+- [x] **Bug : Favoris incluant des annonces classées comme bruit** *(Corrigé 2026-07-15)*
+    - *Détails :* le filtre Favoris montrait `deal.isFavorite` sans tenir compte du verdict — un favori tombé en `REJECTED_ITEM`/erreur restait visible.
+    - *Solution :* Exclusion des verdicts archivés (sauf `BAD_DEAL`, "trop cher" = favori légitime) et des erreurs. Compteur `verdictCounts.FAVORITES` corrigé en cohérence (2 emplacements).
+
+- [x] **Bug : Les guitares vendues ne sont plus détectées (Multi-utilisateur)** *(Corrigé 2026-04-10)*
+    - *Détails :* Le service de nettoyage (`cleanup_sold_listings`) a été fiabilisé.
+    - *Solution :* Migration vers une méthode `mark_deal_as_sold` dans le repository.
+    - *Amélioration réalisée :* Ajout automatique d'un champ `soldAt` (date de détection de la vente) permettant des statistiques de "vitesse de vente".
+
+- [x] **Bug : Collision des compteurs de taxonomie (Noms identiques)** *(Corrigé Session 37)*
+    - Utilisation de chemins hiérarchiques complets (`dot-notation`) comme clés de comptage.
+    - Mise à jour de `useDealsManager.js` et `FilterDrawer.jsx` pour gérer la récursion par path.
+
+- [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
+    - Stockage pérenne via Firebase Storage. Upload systématique lors de chaque `handle_deal_found`.
+    - Politique de cycle de vie : purge des images des deals rejetés après 30 jours (`IMAGE_RETENTION_REJECTED_DAYS`).
+    - Script de migration one-shot : `backend/scripts/migrate_images.py`.
+
+- [x] **Bug : Scans multiples concurrents (ouverture de plusieurs fenêtres Playwright)** *(Corrigé Session 42)*
+    - *Détails :* La boucle principale de `main.py` relançait la même commande `REFRESH` plusieurs fois si elle restait `pending` dans Firestore, entraînant des scans concurrents et des erreurs.
+    - *Solution :* Implémentation d'un verrou local (`in_flight_command_ids` set) dans `main.py` pour s'assurer qu'une commande n'est exécutée qu'une seule fois à la fois, même si elle est encore `pending` dans Firestore.
+
+- [x] **Opération de maintenance : Nettoyage et rafraîchissement des images corrompues** *(Effectué Session 42)*
+    - *Détails :* Suite au bug des scans multiples, des images incorrectes ont pu être associées à des annonces.
+    - *Solution :* Création et exécution du script `backend/scripts/refresh_images.py`.
+    - *Fiabilisation :* Le script a été optimisé pour utiliser une session de navigateur unique (anti-détection) et pour cibler uniquement les annonces créées après une date spécifique (`--since-date`) pour plus d'efficacité.
+
+- [x] **Bug : Liens d'images Facebook expirés ("URL signature expired")** *(Corrigé Session 29)*
+    - Frontend : fallback `storageImageUrls || imageUrls` dans `DealCard.jsx`.
+
+- [x] **Bug : Interruption du Script de Rescraping d'Images par Facebook (Anti-botting)** *(Corrigé Session 35)*
+    - *Détails :* Playwright est détecté par Facebook lors du rescraping massif des images.
+    - *Solution :* Implémentation de mesures **Stealth** (User-Agent/Viewport aléatoires, flags anti-detection), détection active de blocage, **Rotation de Session** (toutes les 15 requêtes) et **Jitter** aléatoire.
+
+- [x] **Bug : Le bot en pause ne se réveille pas via "Rescan All"** *(Corrigé Session 28)*
+    - Boucle de pause dans `main.py` sonde désormais Firestore toutes les 5s.
+    - Toute commande d'action, et notamment les commandes manuelles asynchrones (REFRESH, SCAN_URL), interrompt la pause.
+
+- [x] **Bug : "Delete All Logs" ne fonctionne pas** *(Corrigé Session 28)*
+    - `delete_all_logs` dans `repository.py` réécrite avec `list()` pour forcer la consommation du stream Firestore.
+
+- [x] **Bug : Statut "En attente" pendant le Scraping** *(Corrigé Session 28)*
+    - Implémentation de `set_status()` avec `threading.Lock()` et `_active_tasks` dans `GuitarHunterBot` pour gérer les conflits de threads (ex: `run_scan` vs `cleanup_sold_listings`).
+
+- [x] **Bug : Commandes manuelles (Rescan, URL) qui démarrent "tardivement"** *(Corrigé Session 28)*
+    - Les commandes `REFRESH`, `REANALYZE_ALL` et `SCAN_URL` s'exécutent désormais dans des threads `daemon` séparés dans `main_loop` pour ne pas bloquer le séquenceur `scheduler.run_pending()`.
+
+- [x] **Brancher la purge lifecycle au scheduler** *(Corrigé Session 29)*
+    - `bot.purge_rejected_images()` ajouté comme `purge_func=` dans `TaskScheduler` (`services.py`). Job hebdomadaire déclenché automatiquement au démarrage du bot.
+
+- [x] **Vérifier les règles Firebase Storage** *(Fait)*
+    - *Détails :* Confirmer que les blobs uploadés via `blob.make_public()` sont bien accessibles publiquement. Vérifié dans la console Firebase → Storage → Rules que les lectures publiques sont autorisées.
+
+- [x] **Lancer la migration réelle des images** *(Fait Session 29 — migrate --real)*
+
+- [x] **Feature : Extraire la Date de Mise en Ligne** *(Session 40)*
+    - *Détails :* Extraction de la date relative (`abbr[aria-label]`) via le scraper pour enrichir les métadonnées de l'annonce.
+
+- [x] **Bug : Images sans rapport (véhicules, bateaux...) associées à une annonce** *(Corrigé 2026-07-06)*
+    - *Détails :* Le bloc "Suggestions" affiché par Facebook sous la description de chaque annonce était partiellement capturé par le filtre d'extraction d'images (basé uniquement sur la taille >300×300px), surtout pour les annonces ayant peu de vraies photos.
+    - *Solution :* `parser.py::parse_details_page()` exclut désormais les images entourées d'un lien vers une autre annonce (`<a href="/marketplace/item/{AUTRE_ID}/...">`). Ajout d'un garde-fou `_is_valid_detail_page()` dans `core.py` pour les cas de redirection /login réelle.
+    - *Vérifié :* Test réel sur une annonce publique — 19 images (16 suggestions) → 3 images (toutes réelles) après correctif.
+
+- [x] **Bug : Fiche détail Facebook dégradée → titre/prix/images manquants sur certaines annonces** *(Corrigé/atténué 2026-07-09)*
+    - *Détails :* Sur certaines annonces (notamment via `SCAN_URL`), la fiche détail se charge sans son carrousel photo ni son prix visible, alors que le titre/description (balises `og:*`) restent disponibles. Comportement intermittent (certaines annonces fonctionnent, d'autres non).
+    - *Itérations :* (1) retry basé sur l'absence de carrousel → faux positif sur toute annonce à 1 seule photo légitime, corrigé après code review dédiée ; (2) déclencheur définitif = "0 image extraite après parsing" (signal non ambigu) avec ré-extraction complète (titre/prix/localisation incluses) et reload unique, gardé seulement si strictement meilleur ; (3) diagnostic enrichi confirmant `0 <img>` réellement présentes dans `div[role='main']` (pas un problème de filtre de taille >300×300px).
+    - *Effet de bord corrigé au passage :* bug de raccordement logger (`scraping/core.py`, `parser.py`, `city_finder.py` loguaient sur un logger de module jamais raccordé au `FirestoreHandler` par-utilisateur) — aucun log du scraper n'était visible dans le LogViewer avant ce correctif, ce qui avait masqué la cause réelle pendant plusieurs itérations.
+    - *Effet de bord corrigé au passage :* crash du pipeline IA (`analyzer.py::_call_gemini_json`) quand Gemini répond avec un tableau JSON `[{...}]` au lieu d'un objet.
+    - *Cause probable non résolue à l'époque* : voir "Investiguer : session Facebook non authentifiée" dans `TODO.md` (toujours ouverte).
+
+- [x] **Feature : Ne pas stocker une annonce dont le scraping a manifestement échoué** *(2026-07-09)*
+    - *Détails :* Si `imageUrls` est vide ET prix à 0$, `handle_deal_found()` (`bot.py`) ne stocke ni n'analyse plus l'annonce — elle reste absente de Firestore et sera retraitée comme nouvelle à la prochaine session/scan, au lieu de figer une fiche vide comme "déjà traitée".
+
+- [x] **Feature : Rejet automatique des annonces hors budget (plafond de prix défensif)** *(2026-07-09)*
+    - *Détails :* Vérification de `scanConfig.max_price` côté code dans `handle_deal_found()`, indépendante du filtre de prix Facebook (observé en prod : peut échouer avec un timeout sur le champ de saisie). Réutilise le verdict `BAD_DEAL` existant ("Trop Cher") plutôt qu'un nouveau statut — `status` reste `analyzed`, pas confondu avec un vrai rejet.
+    - *Solution :* `BAD_DEAL` déplacé de `MARKET_GROUP` vers `ARCHIVE_GROUP` (`src/constants.js`) — masqué de la vue par défaut, toujours consultable via son propre filtre "Trop Cher". S'applique uniformément à `scan_marketplace()` et `scan_specific_url()`.
+
+- [x] **Fix : Logs de `notifications.py`/`analyzer.py` invisibles dans le LogViewer (même bug que le scraper)** *(2026-07-09)*
+    - *Détails :* Signalement "plus d'email reçu, seulement des ntfy". Même cause que le bug de logging du scraper (module non raccordé au logger par-utilisateur) — appliqué aux deux fichiers. `EmailNotifier.send()` logue désormais aussi chaque tentative bloquée par une config SMTP manquante (avant : un seul warning au tout premier démarrage du process, jamais revu ensuite).
+    - *Outil de diagnostic* : `backend/scripts/test_notification.py` — déclenche une notification factice pour tester le pipeline sans attendre un vrai scan.
+    - *Cause confirmée (2026-07-11)* : Ni un bug de code ni des identifiants Gmail révoqués — le secret GitHub `DOT_ENV` ne contenait tout simplement jamais `SMTP_USER`/`SMTP_PASSWORD` (absents depuis la mise en place de la feature, `.env.example` les documentait mais le vrai secret n'avait jamais été complété). Confirmé via `grep -o '^[A-Z_]*=' ~/GuitareHunter/.env` sur le serveur (aucune ligne `SMTP_`). Secret complété, notifications email fonctionnelles.
+    - *Bug annexe découvert et corrigé au passage* : `deploy.yml` interpolait les secrets littéralement dans les scripts bash (`echo "${{ secrets.X }}"`), fragile à tout guillemet/parenthèse dans leur contenu — a fait échouer 2 déploiements consécutifs pendant la correction du secret. Voir entrée JOURNAL.md du 2026-07-11.
+
+- [x] **Feature : Double appartenance "Pépite" pour les autres verdicts d'opportunité** *(Corrigé 2026-07-06)*
+    - *Détails :* Un `LUTHIER_PROJ`/`FAST_FLIP`/`CASE_WIN`/`COLLECTION` qui remplit aussi les critères Pépite (marge) restait invisible du filtre/notifications "Pépites".
+    - *Solution :* Nouveau champ IA `also_qualifies_pepite` (`prompts.json`), pris en compte dans le filtre et le compteur Pépites (`useDealsManager.js`), badge secondaire "Aussi Pépite" (`DealCard.jsx`), et déclenchement de la notification (`notifications.py`).
+    - *Bug critique corrigé au passage* : `notify_deal()` plantait (`NameError` sur `HIGH_PRIORITY_VERDICTS`/`profit`) à chaque Pépite trouvée, interrompant le scan des villes restantes (pas de `except` sur la boucle dans `bot.py::run_scan`).
+    - *Bug annexe corrigé* : `NtfyNotifier.send()` plantait silencieusement sur les émojis/accents du titre (headers HTTP Latin-1 uniquement) — corrigé via encodage RFC 2047.
+
+- [x] **Bug : Les notifications ntfy de "pépite" ne permettent pas d'ouvrir l'annonce** *(Confirmé réglé 2026-08-06)*
+    - *Détails :* Le lien dans la notification ntfy.sh renvoyait à la page principale de l'application plutôt qu'à l'annonce spécifique.
+    - *Solution :* Partage via `dealId`, génère un lien direct vers l'annonce. Confirmé fonctionnel par l'utilisateur.
+
+- [x] **Bug : Problème de déplacement sur la carte (MapView)** *(Corrigé 2026-05-06)*
+    - *Détails :* Correction de l'interaction InfoWindow (gap mouseout) et restauration du bouton de fermeture.
+
+---
+
+## 🧹 Maintenabilité & Dette Technique
+
+- [x] **Implémenter une stratégie de rotation d'IP (proxies) pour le scraper**
+    - *Détails :* Si les problèmes de détection par Facebook persistent, explorer l'intégration de proxies résidentiels ou d'une rotation d'IP pour le scraper Playwright afin d'améliorer la furtivité et la résilience.
+
+- [x] **Nettoyer la liste des modèles Gemini obsolètes** *(Corrigé 2026-07-07)*
+    - *Détails :* `gemini-1.5-flash`/`gemini-1.5-pro` retirés de `GEMINI_MODELS["available"]` (`config.py`). Ajout de `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.1-pro-preview`. Expert Pro (contre-analyses) passé sur `gemini-3.1-pro-preview`.
+    - *Suivi requis* : resélectionner manuellement le nouveau modèle Expert dans le panneau IA (config Firestore existante non affectée automatiquement).
+
+- [x] **Fix : `gemini-2.5-flash` (Tier 2 Analyste) n'est plus disponible chez Google (404)** *(Corrigé 2026-07-09)*
+    - *Détails :* Remplacé par `gemini-3.5-flash` partout où codé en dur (`analyzer.py`, `config.py`, `ConfigPanel.jsx`, `useBotConfig.js` — y compris le bouton "Réinitialiser par défaut" qui réécrivait le modèle mort). Retiré de la liste des modèles sélectionnables.
+    - *Suivi requis* : comme pour l'Expert Pro en 2026-07-07, resélectionner manuellement le modèle Analyste dans Paramètres → IA si la config Firestore existante a déjà `mainModel` enregistré à l'ancienne valeur.
+
+- [x] **Feature : Commentaire personnalisé lors d'une réanalyse** *(2026-07-07)*
+    - *Détails :* Nouvelle option "Avec commentaire..." dans le menu Ré-analyser (`DealCard.jsx`) — permet de corriger l'IA (ex: mauvaise identification de modèle) avant une contre-analyse Expert Pro.
+
+- [x] **Feature : Alerte email si un modèle Gemini devient indisponible** *(2026-07-07)*
+    - *Détails :* `notify_model_error()` — détecte les erreurs "modèle introuvable" et alerte par email/ntfy (utile pour `gemini-3.1-pro-preview`, modèle Preview pouvant être retiré avec 2 semaines de préavis).
+
+---
+
+## 🎨 Interface Utilisateur (UI/UX)
+
+- [x] **Prototype Mockup V2 (Phase d'Exploration Completée)**
+    - *Détails :* Mockup complet avec Dark Mode, Map Split-Screen, et Filtres en cascade. Validé en Session 29-31.
+    - [x] **Libérer l'Affichage Desktop (Démantèlement de l'Aside)** *(Ok en Mockup)*
+    - [x] **Lisibilité Financière : Badge Marge sur vue liste** *(Ok en Mockup)*
+    - [x] **Filtre Drawer : Cascade 4 niveaux** *(Ok en Mockup — remplacé par une sélection multiple de catégories le 2026-07-31, voir entrée dédiée)*
+    - [x] **Refonte du Mobile : Images Full-Width** *(Ok en Mockup)*
+
+- [x] **Persistance des filtres/tri par utilisateur (Firestore)** *(Ajouté 2026-07-15)*
+    - *Détails :* Les filtres (type, taxonomie 1-4, condition, prix, tri) repartaient de zéro à chaque connexion.
+    - *Solution :* `useBotConfig.js` (`uiFilters` + `saveUiFilters`, debounce 800ms) → `DealsContext.jsx` → `useDealsManager.js` (hydratation unique au premier chargement, sauvegarde auto ensuite). Recherche texte libre volontairement exclue.
+
+- [x] **Filtres de type en multi-sélection** *(Ajouté 2026-07-31, bug de sélection en chaîne corrigé 2026-08-01)*
+    - *Détails :* Demande utilisateur — pouvoir sélectionner plusieurs catégories à la fois (ex: Parlor ET Baby/Mini), même dans des branches différentes de la taxonomie.
+    - *Solution :* `selectedTypePaths` (tableau de chemins dot-notation) remplace le quadruplet `level1-4Filter` (un seul chemin en cascade). `FilterDrawer.jsx` passe en cases à cocher, navigation (déplier/replier) indépendante de la sélection. Migration douce du format `uiFilters` déjà persisté. Voir `ARCHITECTURE.md`/`DATA_FLOW.md` pour le détail technique.
+    - [x] **Bug signalé : cocher toute une lignée (Guitare > Acoustique > Formes Standard > Parlor) réaffichait tout, sans filtrage** *(2026-08-01)* — root cause : le matching est un OR-préfixe entre chemins sélectionnés ; avec "guitare" (racine) et "Parlor" cochés simultanément, "guitare" seul suffisait déjà à matcher toutes les guitares, rendant "Parlor" sans effet. Corrigé par une sélection en anti-chaîne (`toggleTypePath` retire ancêtres/descendants déjà cochés) — voir `ARCHITECTURE.md` § `useDealsManager.js`. Deux fausses pistes explorées et corrigées au passage avant d'identifier la vraie cause : `findPathFuzzy` (résolution de `classification`) préférait initialement le chemin le plus profond puis la clé la plus longue trouvée en sous-chaîne — durci contre les faux positifs (clés courtes, branche `etui_housse`) mais n'était pas la cause du symptôme rapporté.
+        - *Bug de régression trouvé par `/code-review` (2026-08-01, corrigé)* : la purge défensive à l'hydratation (nettoyage d'une sélection déjà persistée en Firestore avant ce fix) avait la condition ancêtre/descendant inversée — elle gardait le chemin le plus large et jetait le plus spécifique, réintroduisant exactement le bug ci-dessus pour tout utilisateur ayant déjà une sélection en chaîne sauvegardée.
+    - [x] **Feature : compteur total visible sur le bouton fermé du sélecteur de statut** *(2026-08-01)* — `VerdictDropdown` (`Dashboard.jsx`) n'affichait le total que dans le menu déroulant ouvert ; badge `counts[currentVerdict]` ajouté sur le bouton toujours visible.
+    - *Résiduel non corrigé (voir `TODO.md`) :* `guitare.basse` partage des noms de catégories intermédiaires avec `guitare.electrique`/`guitare.acoustique_acier` dans `leafPaths` — risque de mauvaise résolution si l'IA ne renvoie qu'un nom de catégorie générique.
+
+- [x] **Feature : couleur, finition (application/brillance) et longueur de manche extraites par l'IA + filtres** *(2026-08-01)*
+    - *Détails :* Demande utilisateur — `color` n'était en pratique presque jamais rempli, et il manquait la finition (peinture/vernis/teinture, brillant/satiné, sunburst...) et la longueur d'échelle du manche. `color` durci (obligatoire dès qu'une photo montre l'instrument, même traitement que la marque). `finish_application`/`finish_texture` ajoutés en **listes fermées** dans le prompt (pas de texte libre) pour rester filtrables sans reproduire le fuzzy-matching de la taxonomie. `neck_scale_length` rempli uniquement si déductible (modèle connu ou visuellement évident), jamais deviné. Filtres "Finition"/"Brillance" ajoutés dans `FilterDrawer.jsx` (radio simple, comme Condition/Prix). Indexation `fa`/`ft` dans `deals_index` (`backend/repository.py`). Voir `ARCHITECTURE.md` § Fiche Technique pour le détail.
+    - [x] *Bug trouvé par `/code-review` (2 exécutions indépendantes, corrigé)* : le filtre comparait `finish_application`/`finish_texture` en égalité stricte (`!==`) alors qu'`analyzer.py` ne contraint pas le JSON renvoyé par Gemini (`json.loads()` brut, pas de `response_schema`) — reproduisait le bug déjà rencontré sur la taxonomie (une valeur qui dérive légèrement du texte exact attendu rend le filtre correspondant muet, sans erreur visible). Corrigé par une comparaison sur chaînes normalisées (`normalize()`, déjà utilisé pour la taxonomie) plutôt qu'une recherche floue par sous-chaîne (non pertinente pour des valeurs courtes et fermées).
+    - *Résiduel non corrigé (voir `TODO.md`) :* les options de `FilterDrawer.jsx` sont dupliquées à la main depuis la liste fermée du prompt, plutôt que dérivées dynamiquement.
+
+- [x] **Réalisme des Images et Galerie (Mockup)** *(Ok en Mockup)*
+- [x] **Dark Scrollbar pour les Filtres (Mockup)**
+    - *Détails :* Terminé et appliqué aux blocs d'analyses IA et volets latéraux.
+
+- [x] **🚀 Activation V2 — Mockup → Production Ready** *(Complété Session 36)*
+    - *Détails :* La V2 est désormais l'interface par défaut. Les composants "Mockup" ont été renommés en noms standards (`Dashboard`, `DealCard`, `Navbar`, `FilterDrawer`, `StatsView`). Les anciens fichiers V1 (`FilterBar`, `SectionGroup`, `DealModal`, `BotControls`, `DebugStatus`) ont été supprimés. `App.jsx` a été simplifié pour monter directement le `Dashboard`.
+- [x] **Bug Mockup V2 : Filtres inopérants** *(Câblé en Session 32)*
+- [x] **Refonte UI Mobile : Corrections majeures** *(Complété Session 34)*
+    - *Détails :* L'interface mobile présente de nombreux problèmes et doit être corrigée en priorité.
+    - [x] Correction du bouton "Statut" (Menu des Verdicts) qui s'écrasait et coupait le texte.
+    - [x] Affichage de l'annonce en "Overlay" (plein écran) sur mobile.
+    - [x] Inversion de l'ouverture (1er clic = Tooltip, 2ème clic = Overlay).
+- [x] **Bug : Débordement horizontal en mode mobile** *(Corrigé 2026-07-07)*
+    - *Détails :* Aucune contention `overflow-x` dans l'app ; la page se dimensionnait sur l'élément le plus large (dropdown à largeur ambiguë, menus `absolute` sans limite de largeur, `Navbar` avec 4 boutons + statut + logo totalisant 461px pour 375px d'écran) plutôt que sur l'écran. La barre "Recherche & Actions" était aussi trop étroite en mobile pour contenir la croix "Effacer les filtres".
+    - *Solution (2026-07-06)* : `overflow-x: hidden` global (`index.css`), largeur explicite sur le dropdown Statut, empilement des groupes de boutons sous 640px, `max-w-[calc(100vw-2rem)]` sur les menus flottants.
+    - *Piège de déploiement* : Le fix ne se voyait pas en ligne car le frontend était déployé manuellement et n'avait pas été republié depuis 2 mois (2026-05-06). Déploiement manuel effectué + déploiement automatisé via CI (voir entrée dédiée).
+    - *Solution finale (2026-07-07)* : Une fois déployé, le `Navbar` restait "cramped" (tout tenait mais trop petit). Remplacement du viewport `width=device-width` par `width=475` fixe dans `index.html` — le navigateur mobile zoome automatiquement pour adapter les 475px à l'écran réel, sans avoir à cacher aucun bouton.
+    - *À confirmer par l'utilisateur* : rendu sur téléphone réel après déploiement (vérifié en émulateur mobile en session : aucun débordement, 4 boutons visibles).
+- [x] **Système de Thème (Dark Mode) global** *(Intégré dans le Mockup)*
+- [x] **Créer un Panneau de Statistiques (Dashboard Analytics)**
+    - [x] Afficher les KPIs financiers (Marges, Scores, Volumes).
+    - [x] Implémenter le Tunnel de Conversion (Funnel) 3-Tiers.
+    - [x] Implémenter le Radar Chart des 5 scores Gemini (recharts).
+    - [x] Distribution par Marque (fallback textuel en attendant extraction `brand` backend) — `brand` indexé côté backend depuis le 2026-07-31 (`deals_index`), le fallback textuel (recherche du nom de marque dans le titre) reste en secours si absent. Distribution par Couleur/Finition ajoutée le même jour.
+- [x] **Revoir l'affichage du bloc de prix / Actions** *(Complété Session 34)*
+    - *Détails :* Intégration de la barre d'actions complète dans la modale IA et parité avec la DealCard. Option de scan Standard/Expert.
+- [x] **Redessiner le Panneau de Paramètres (ConfigPanel)** *(Complété Session 38 & 41)*
+    - *Détails :* Aligner l'esthétique du panneau de configuration sur la V2. Correction de la lisibilité de la console par l'ajout d'un fond 100% opaque.
+    - *Détails :* Aligner l'esthétique du panneau de configuration (prompts, villes, etc.) sur la nouvelle charte graphique V2 (Dark Mode, Slate/Blue palette, coins arrondis, typographie).
+
+- [x] **Autocomplétion dans le formulaire d'ajout de ville** *(2026-04-07)*
+    - *Détails :* Suggestions filtrées depuis le catalogue existant dès 2 caractères tapés. Clic = activation directe si ville non-active.
+
+- [x] **Activation manuelle Firebase AI Logic + App Check** *(Ajouté 2026-07-31, validé de bout en bout le 2026-08-01)*
+    - *Détails :* Deux étapes console/CLI Firebase non faisables depuis un environnement automatisé (nécessite le compte Firebase du projet) :
+        1. Activer Firebase AI Logic (Gemini Developer API) — console Firebase, section AI Logic, ou `firebase init` (choisir "AI Logic").
+        2. Créer une clé reCAPTCHA Enterprise de type **Score** (Google Cloud Console, `console.cloud.google.com/security/recaptcha` — toujours Enterprise sur cette console, pas de choix possible) et l'enregistrer dans Firebase App Check, puis la renseigner dans `.env` **et** le secret GitHub `DOT_ENV` (fichier complet, pas une clé isolée).
+    - *Pièges rencontrés et corrigés en cours de route (2026-07-31/08-01)* :
+        - `VITE_RECAPTCHA_SITE_KEY` absente du secret `DOT_ENV` (présente seulement en local) → 401 en production.
+        - Clé reCAPTCHA de type Checkbox au lieu de Score (exigence App Check) → 401 malgré la clé présente.
+        - Bandeau "clé ne demande pas de scores" dans Cloud Console : faux-positif pour un usage via App Check, à ignorer.
+        - CORS absent sur le bucket Firebase Storage → `fetch()` des photos échoue silencieusement (`Failed to fetch`) sans bloquer le reste du chat — corrigé via `gsutil cors set` (voir `ARCHITECTURE.md`).
+    - *Rétro-remplissage `storageImageGsUris`* : exécuté par l'utilisateur (`backend/scripts/backfill_gs_uris.py`, 2465 annonces mises à jour) — champ finalement non consommé par le chat (voir plus bas, bascule vers `inlineData`), mais gardé pour une éventuelle migration future vers Vertex AI.
+    - *Validé en conditions réelles* : chat fonctionnel de bout en bout, photos analysées correctement par Gemini.
+    - [x] **Feature : joindre une photo depuis le chat (2026-08-01)** — demande utilisateur, pouvoir attacher une photo prise sur place (ou choisie dans la galerie) à n'importe quel message, pas seulement les photos déjà scrapées de l'annonce. Voir `ARCHITECTURE.md` § Chat Gemini pour le détail technique (`attachedImagePartIndex`, deux `<input type="file">` séparés Caméra/Galerie).
+        - *Piège confirmé en test réel* : un seul `<input type="file">` ne peut pas proposer fiablement les deux options sur tous les navigateurs mobiles — `capture="environment"` force la caméra seule, son absence force la galerie seule. Résolu avec un petit menu (Caméra / Galerie) déclenchant chacun son propre input caché.
+        - *Suite au `/code-review`* : 4 correctifs — purge de sélection à l'hydratation qui gardait par erreur le chemin le plus large au lieu du plus spécifique (régression du fix anti-chaîne des filtres de type), `fileToInlinePart()` non protégé par `try/catch` (pouvait bloquer `sending` à `true` indéfiniment sur une image non décodable), chargement parallélisé avec les photos de l'annonce, et suppression du doublon de stockage base64 (référence par index plutôt que copie).
+
+### 🪟 Modale d'Analyse IA (Mockup V2)
+
+- [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*
+    - *Détails :* L'utilisateur peut désormais marquer une annonce en favori directement depuis la vue détaillée (modale) de la carte.
+
+### 🗺️ Cartographie (Mockup V2)
+
+- [x] **Améliorer l'interaction avec les Pins** *(Complété Session 34)*
+    - *Détails :* InfoWindows enrichies (Dark Theme), miniatures, score IA. Gestion différencée Hover (PC) / Click (Mobile).
+
+---
+
+## 📊 Statistiques & Dashboard
+
+- [x] **Feature : Volume de Scraping Quotidien (StatsView)** *(2026-07-21)*
+    - *Détails :* Graphique du nombre d'annonces FB découvertes/jour (14 derniers jours), basé sur `timestamp.seconds` déjà présent dans l'index Firestore temps réel — aucune lecture supplémentaire. Sert de référence de volume actuel avant d'évaluer une extension LeBonCoin.
+- [x] **Audit du scraper Facebook (mesures anti-bot actuelles & faiblesses)** *(2026-07-21)*
+    - *Contexte :* Réflexion en cours sur une extension LeBonCoin, protégée par DataDome (options A-F évaluées, piste retenue : approche Playwright "douce" sans contournement actif de protection). Cartographie de ce qui existe côté FB (`backend/scraping/`) : rotation UA/viewport et flag stealth Chromium réels, mais `PROXIES` vide (`config.py`) et aucune session authentifiée — posture insuffisante face à DataDome, cohérent avec ce qu'on savait déjà.
+    - *Constat concret sur le volume* : matching ville strict (`is_city_allowed`) écarté par l'utilisateur comme cause principale ; en revanche, annonces d'une autre ville autorisée jetées après coup dans `run_scan()` (gaspillage confirmé et corrigé, voir tâche ci-dessous) et absence totale de comptage des échecs (anti-bot, scraping raté) identifiés comme causes réelles.
+- [x] **Fix : Traitement multi-villes gaspillé + comptage des échecs de scan** *(2026-07-21)*
+    - *Détails :* `backend/scraping/core.py::scan_marketplace()` retourne un dict de stats (`anti_bot_blocked`, `rejected_out_of_list`, `total_cards_seen`) en plus des annonces. `backend/bot.py::run_scan()` — le filtre STRICT (mode `distance=0`) traite désormais immédiatement une annonce trouvée pour une **autre ville autorisée** de la liste au lieu de la jeter (évite la perte + le refetch complet au tour de cette ville). `handle_deal_found()` retourne un code de statut par annonce, agrégé dans un résumé de cycle loggé en fin de scan.
+    - *Non testé en conditions réelles au moment de la fusion* (pas d'accès Playwright/Facebook depuis l'environnement de développement) — validé en prod par la suite.
+- [x] **Feature : Stat "Erreurs Portier corrigées" (StatsView)** *(2026-07-11)*
+    - *Détails :* `initialVerdict`/`initialModelUsed` figés à la création (`repository.py::create_new_deal`), jamais réécrits par les réanalyses. `StatsView.jsx` compte les annonces arrêtées au Portier seul (Tier 1) puis validées après réanalyse manuelle jusqu'à l'Analyste ou plus.
+    - *Complémentaire à* : l'échantillonnage manuel ponctuel de `analyze_funnel_by_user.py --sample-size` (`GEMINI_PROMPT_CACHING_PLAN.md §8.2`) — cette stat donne un suivi continu dans l'UI plutôt qu'un contrôle à la demande.
+    - *Limite* : pas de backfill, la stat ne compte que les annonces créées après ce déploiement.
+- [x] **Feature : Détection des Baisses de Prix** *(Session 05/03/2026)*
+    - *Détails :* Le bot compare le prix actuel avec le prix en DB. Si inférieur, il met à jour le document, calcule `price_drop_amount` et force une réanalyse IA.
+    - *Frontend :* Affichage d'un badge vert émeraude "Baisse -XX$" sur la DealCard.
+- [x] **Feature : Pipeline IA 3-Tiers configurable** *(Session 05/03/2026)*
+    - *Détails :* Ajout d'un modèle intermédiaire "Analyste" (Tier 2) entre le Portier et l'Expert Pro.
+    - *Frontend :* Le `ConfigPanel` permet désormais de choisir les 3 modèles indépendamment. Correction du bug écrasant l'Expert Pro vers Flash.
+
+---
+
+## ✅ Terminé (historique pré-nettoyage)
+
+- [x] **Feature : Notifications Email par utilisateur (SMTP Gmail)** *(2026-04-10)*
+    - *Backend* : Refonte de `notifications.py` (Ntfy + Email).
+    - *Intégration* : `bot.py` récupère l'email Firebase Auth et le transmet à `notify_deal`.
+    - *Configuration* : Support SMTP (Gmail TLS) via `.env`.
+
+- [x] **Feature : Système Multi-Utilisateurs & Migration V2** *(Session 2026-03-21)*
+    - *Backend* : `USER_IDS_TARGET` dans `.env` (liste d'UIDs). Un thread par utilisateur dans `main.py`. `bot.py` paramétrable.
+    - *Frontend* : Firebase Auth email/password (`useAuth.js`). `LoginPage.jsx` (Login/Register). `firestoreService.js` dynamisé (`getRefs(userId)`).
+    - *Migration* : Script automatisé pour rapatrier l'ancienne DB vers le nouveau UID Firebase de l'administrateur.
+
+- [x] Raffinement UI V2 : Modale IA plein écran, MapView auto-centrée, Raccourci Favoris.
+- [x] Implémentation du Mockup V2 avec refonte UX totale (Filtres, Stats Dropdown, Navbar, Maps).
+- [x] Session 29 : Stockage pérenne des images via Firebase Storage (Backend & UI implémenté).
+- [x] Session 29 : Purge automatique hebdomadaire des images rejetées (TaskScheduler).
+- [x] Correction: Simplification de la taxonomie (etui_housse) et rejet strict des autres accessoires (ex: pédales, stands).
+- [x] Correction: Ajout du 4ème niveau de tri dans FilterBar et affichage des rejets (Session 28).
+- [x] Expansion du Scope (Étape 1) : Taxonomie Master (Guitares, Amplis, Étuis).
+- [x] Création de la structure de documentation (`docs/`).
+- [x] Mise en place du `AI_BRIEFING.md`.
+- [x] Refonte responsive de la `DealCard` (Mobile First).
+- [x] Analyse approfondie du système de prompts dynamiques (Session 10).
+- [x] Nettoyage et restructuration de la racine du projet (Session 15).
+- [x] Externalisation des verdicts de rejet (Session 15).
+- [x] Refonte du système de nettoyage des annonces vendues (Soft Delete) (Session 16).
+- [x] Implémentation du Funnel 3-Tiers (Optimisation Expert Pro) (Session 21).
+- [x] "Delete All Logs" : Correction IDs codés en dur (Session 21).
+- [x] "Stop Bot" : Injection de `threading.Event` pour arrêt immédiat (Session 21/26).
+- [x] Création d'un outil de migration et audit Firestore (Session 21).
+- [x] Résolution du conflit de casse Git (`Dev` vs `dev`) (Session 22).
+- [x] Correction du rejet systématique des étuis/housses (Session 23).
+- [x] Standardisation des instructions de verbosité en format `array of strings` (Session 23).
+- [x] Déploiement : Correction du redémarrage automatique et gestion des branches (Session 24).
+- [x] Correction "Mode Hors Ligne" : Automatisation via GitHub Secrets (.env & Firebase Key) (Session 25).
+- [x] Amélioration du Pilotage : Commandes `STOP_SCAN`, `START_BOT` et Pause 12h (Session 26).
+- [x] Refonte UI : Composant `<BotControls />` et indicateur de statut dynamique (Session 26).
+- [x] Session 27 : Fiabilisation (Regex PRO) de la détection de disponibilité du Scraper.
+- [x] Correction Critique : Scroll bloqué sur la page principale (V2) sur mobile. Suppression des contraintes CSS restrictives.
+- [x] Restauration du Bouton de Partage (V2) avec support native share & clipboard.
+- [x] **Feature : Documentation Utilisateur Interactive (Help Overlay)** *(2026-05-05)*
+    - Intégration d'un bouton d'aide dans la Navbar.
+    - Création d'un overlay interactif documentant les scores IA, les verdicts, les commandes bot et les notifications email.
+- [x] **Correctifs Visibilité & Globalisation** *(2026-05-06)*
+    - [x] Amélioration visuelle du bouton d'aide (label "Aide" et contraste).
+    - [x] Ajout d'un bandeau d'erreur dans le Dashboard pour le feedback utilisateur.
+    - [x] Assouplissement du géocodage dans le backend (désormais **Totalement Global**, supporte n'importe quelle ville via scraping ID FB + Nominatim mondial).
+    - [x] Ajout de texte d'aide dans le panneau de gestion des villes.
+    - [x] **Refonte Help Overlay** : Guide technique en 4 étapes, isolation de l'expertise IA, précision sur le Rayon 0.
+    - [x] **UX City Management** : Ajout direct via champ de recherche, suppression du formulaire `showAddForm`.
+    - [x] **Robustesse CityFinder** : Support multi-langue, capture d'alias d'URL, injection `Control+A` pour nettoyage.
+    - [x] **Scan Manuel** : Bouton "Lancer le scan" intégré au panneau de config.
