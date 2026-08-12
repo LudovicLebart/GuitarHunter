@@ -11,6 +11,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## ⚠️ État opérationnel temporaire
+
+- [ ] **`backend/scripts/run_once.py` est actuellement `ACTIVE = True`** *(2026-08-06)* — exécute `rebuild_index.rebuild()` à chaque déploiement (voir `.github/workflows/deploy.yml` job `deploy`, et `CLAUDE.md` § Points d'Attention Critiques pour le protocole). **Une fois le backfill des scores `ds`/`as`/`ls`/`rs` confirmé** (logs GitHub Actions), repasser `ACTIVE = False` dans un commit dédié — sinon le script se répète à chaque déploiement futur.
+
+---
+
 ## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
 
 *Calibration/validation de l'approche Playwright "douce" face à DataDome terminée et validée en conditions réelles — voir l'archive pour le détail. Reste à faire :*
@@ -137,5 +143,5 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Objectif :* Exploiter les 5 scores et le funnel pour générer des KPIs financiers (ROI, Marges) et qualitatifs (Profil de marché, Vitesse de rotation).
     - [x] **Statistiques croisées (2026-08-06)** : `StatsView.jsx` — Sweet Spot (score IA moyen par tranche de prix), Marge moyenne par catégorie de taxonomie, Véracité IA (score des annonces vendues vs ensemble du marché), Comparaison Facebook vs Kijiji, Géographie des opportunités par ville, Vitesse de vente réelle vs `liquidity_score` prédit. Basé uniquement sur l'index léger (`deals_index`), sans lecture Firestore supplémentaire. Détail dans `STATS_REFLEXION.md`.
     - [x] **Indexation des 5 scores IA individuels + déscopage complet de StatsView (2026-08-06)** : `backend/repository.py::_update_deal_index()` indexe désormais `deal_score`/`authenticity_score`/`liquidity_score`/`restoration_interest_score` (en plus de `condition_score` déjà indexé) — corrige au passage `deal_score` qui était silencieusement substitué par la moyenne des 5 scores pour toute annonce non chargée en entier (`useDealsManager.js`). `StatsView.jsx` calcule désormais tout sur l'inventaire complet (`analysisDeals`), plus aucune dépendance à l'onglet actif ni au scroll/chargement — retour utilisateur : "ce ne sont pas des stats filtrées par onglet, et ça ne doit pas dépendre du scrolling, c'est une erreur de conception".
-    - [ ] **Action requise en production** : lancer `backend/scripts/rebuild_index.py` (multi-utilisateur, réutilise `_update_deal_index()`) pour backfiller `ds`/`as`/`ls`/`rs` sur les annonces déjà analysées — non exécutable depuis l'environnement de dev (pas d'accès Firestore). D'ici son exécution, seules les nouvelles analyses/ré-analyses ont ces champs.
+    - [ ] **Backfill `ds`/`as`/`ls`/`rs` en cours** : `backend/scripts/run_once.py` (voir entrée dédiée ci-dessous) déclenché avec `rebuild_index.rebuild()` au prochain déploiement. À vérifier : logs de l'étape "Script de maintenance ponctuel" dans GitHub Actions, puis repasser `ACTIVE = False` dans `run_once.py`.
     - [ ] **Reste à faire** : "Cold Deals" (annonces anciennes en apparence bonnes mais invendables), `discount_index`, badges "Certifié Expert" sur les KPIs basés sur une analyse Tier 3.

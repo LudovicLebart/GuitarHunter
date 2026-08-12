@@ -119,6 +119,13 @@ jobs:
             echo "Installing Playwright browsers..."
             python3 -m playwright install chromium
 
+            echo "--- Script de maintenance ponctuel ---"
+            # Voir backend/scripts/run_once.py : no-op par défaut (ACTIVE=False), sert à exécuter
+            # une action ponctuelle en production (credentials Firebase déjà en place ci-dessus)
+            # depuis un environnement de dev qui n'y a lui-même pas accès. Non bloquant : un échec
+            # ici n'empêche pas le redémarrage du service.
+            python3 backend/scripts/run_once.py || echo "⚠️ run_once.py a échoué — voir logs ci-dessus. Le déploiement continue."
+
             echo "--- Service Restart ---"
             echo "Restarting service: guitare-hunter"
             # On utilise sudo -n pour s'assurer qu'on ne reste pas bloqué sur un prompt de mot de passe
