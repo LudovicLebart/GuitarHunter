@@ -33,73 +33,32 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-12 : DIAGNOSTIC EN LECTURE SEULE — aucune écriture Firestore. Quantifie
-    l'ampleur de la corruption de `aiAnalysis` sur les annonces vendues, causée par un bug
-    dans `mark_deal_as_sold()` (ArrayUnion appliqué à un champ objet, corrigé dans ce même
-    commit — voir JOURNAL.md du 2026-08-12) : pour chaque utilisateur, compte le nombre
-    d'annonces `status == 'sold'`, combien ont un `aiAnalysis` corrompu (liste au lieu
-    d'objet, ou sans `verdict`), et combien ont un `initialVerdict` encore récupérable
-    (champ figé à la création, jamais touché par ce bug). Sert à décider d'une stratégie
-    de récupération (ré-analyse IA des annonces affectées, ou acceptation de la perte).
+    2026-08-12 : lance `backend/scripts/reanalyze_sold_deals.py` (ré-analyse IA des
+    annonces vendues dont `aiAnalysis` a été corrompu, voir ce script pour le détail) en
+    **arrière-plan détaché** (`subprocess.Popen(..., start_new_session=True)`) plutôt
+    qu'en l'attendant ici : le job dure potentiellement plusieurs heures (~3500+ annonces,
+    1-2 appels Gemini chacune), largement au-delà du timeout de 10 min du step SSH de
+    `deploy.yml`. Détaché, il survit à la fin de ce step ET à un redémarrage du service
+    `guitare-hunter` juste après (processus indépendant, pas un enfant de systemd).
+    Progression consultable dans `reanalyze_sold_deals.log` à la racine du repo, ou en
+    relançant plus tard le diagnostic en lecture seule (précédent usage de ce fichier,
+    voir JOURNAL.md du 2026-08-12) pour voir le nombre d'annonces encore corrompues.
+    Le script cible gère lui-même un verrou (`reanalyze_sold_deals.pid`) pour éviter une
+    double exécution concurrente (déploiement sur dev ET master à chaque push) — ce
+    `run()` peut donc être appelé sans précaution particulière à ce sujet.
     """
-    import logging
-    from google.cloud.firestore_v1.base_query import FieldFilter
-    from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
-    from backend.database import DatabaseService
+    import subprocess
 
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
-    logger = logging.getLogger("run_once_diagnostic")
-
-    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
-    db_client = db_service.db
-    if not db_client:
-        logger.error("Erreur de connexion à Firebase.")
-        return
-
-    users_ref = db_client.collection('artifacts').document(APP_ID_TARGET).collection('users')
-    users = list(users_ref.stream())
-    logger.info(f"Diagnostic sur {len(users)} utilisateurs.")
-
-    grand_total_sold = 0
-    grand_total_corrupted = 0
-    grand_total_recoverable_verdict = 0
-
-    for user_doc in users:
-        user_id = user_doc.id
-        deals_ref = (
-            db_client.collection('artifacts').document(APP_ID_TARGET)
-            .collection('users').document(user_id).collection('guitar_deals')
-        )
-        sold_docs = deals_ref.where(filter=FieldFilter('status', '==', 'sold')).stream()
-
-        total_sold = 0
-        corrupted = 0
-        recoverable_verdict = 0
-
-        for doc in sold_docs:
-            data = doc.to_dict()
-            total_sold += 1
-            ai = data.get('aiAnalysis')
-            is_corrupted = not isinstance(ai, dict) or not ai.get('verdict')
-            if is_corrupted:
-                corrupted += 1
-                if data.get('initialVerdict'):
-                    recoverable_verdict += 1
-
-        if total_sold > 0:
-            logger.info(
-                f"Utilisateur {user_id} : {total_sold} vendues, {corrupted} avec aiAnalysis "
-                f"corrompu ({recoverable_verdict} avec initialVerdict récupérable)"
-            )
-
-        grand_total_sold += total_sold
-        grand_total_corrupted += corrupted
-        grand_total_recoverable_verdict += recoverable_verdict
-
-    logger.info(
-        f"TOTAL : {grand_total_sold} annonces vendues, {grand_total_corrupted} avec "
-        f"aiAnalysis corrompu, {grand_total_recoverable_verdict} avec initialVerdict récupérable."
+    log_path = os.path.join(os.getcwd(), 'reanalyze_sold_deals.log')
+    log_file = open(log_path, 'a')
+    subprocess.Popen(
+        [sys.executable, 'backend/scripts/reanalyze_sold_deals.py'],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        cwd=os.getcwd(),
+        start_new_session=True,
     )
+    print(f"[run_once] Ré-analyse des annonces vendues lancée en arrière-plan (log: {log_path}).")
 
 
 if __name__ == "__main__":
