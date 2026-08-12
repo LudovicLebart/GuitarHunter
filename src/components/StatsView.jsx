@@ -186,12 +186,22 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
     });
 
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
-    const averageScore = Math.round(analysisDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
+    // Moyenne sur les annonces réellement analysées (deal_score renseigné), pas sur l'inventaire
+    // complet (2026-08-12, bug confirmé) : diviser par totalDeals inclut les milliers d'annonces
+    // rejetées au Portier seul (jamais scorées par l'Analyste), diluant la moyenne vers 0.
+    const scoredDeals = analysisDeals.filter(d => d.aiAnalysis?.deal_score != null);
+    const averageScore = scoredDeals.length > 0
+        ? Math.round(scoredDeals.reduce((acc, d) => acc + d.aiAnalysis.deal_score * 10, 0) / scoredDeals.length)
+        : 0;
 
     // ─── Temps de vente réel ──────────────────────────────────────────────
+    // `> publishTimestamp` (pas juste la présence des deux) : exclut les paires de timestamps
+    // incohérentes (vente antérieure à la publication — erreur de données ponctuelle) plutôt que
+    // de laisser un delta négatif fausser la moyenne, surtout visible sur les petits échantillons
+    // (croisements par tranche ci-dessous).
     const sellTimeStats = useMemo(() => {
         const soldDeals = analysisDeals.filter(d =>
-            d.soldTimestamp?.seconds && d.publishTimestamp?.seconds
+            d.soldTimestamp?.seconds && d.publishTimestamp?.seconds && d.soldTimestamp.seconds > d.publishTimestamp.seconds
         );
         if (soldDeals.length === 0) return { avg: null, count: 0 };
 
@@ -362,10 +372,11 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
     // ─── Vitesse de vente par type de guitare ─────────────────────────────
     const sellSpeedByType = useMemo(() => {
-        // Deals vendus avec les deux timestamps
+        // Deals vendus avec les deux timestamps (cohérents — vente après publication)
         const soldDeals = analysisDeals.filter(d =>
             d.soldTimestamp?.seconds &&
             d.publishTimestamp?.seconds &&
+            d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
             d.aiAnalysis?.classification
         );
         if (soldDeals.length < 2) return [];
@@ -521,6 +532,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         const soldDeals = analysisDeals.filter(d =>
             d.soldTimestamp?.seconds &&
             d.publishTimestamp?.seconds &&
+            d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
             typeof d.aiAnalysis?.liquidity_score === 'number'
         );
         if (soldDeals.length < 2) return [];
