@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-12] [PRO] Fix + exécution : backfill des scores IA via `run_once.py` en production → Résultat :
+- **Premier essai (commit `3bc439d`) échoué** : `run_once.py` appelait `from backend.scripts.rebuild_index import rebuild`, mais `python3 backend/scripts/run_once.py` (invoqué depuis la racine par `deploy.yml`) n'ajoute que le dossier du script à `sys.path`, pas la racine du repo — `ModuleNotFoundError: No module named 'backend'`. Aucun impact (étape non bloquante, service redémarré normalement) — diagnostiqué via les logs GitHub Actions (`get_job_logs`, run #319).
+- **Correctif** : `sys.path.insert(0, os.getcwd())` en tête de `run_once.py`, même pattern que `rebuild_index.py` utilise déjà pour son propre cas. Repoussé (commit `a616777`).
+- **Résultat confirmé en production (run #321, ~6 min)** : `rebuild_index.rebuild()` a parcouru 7 utilisateurs, réindexé 4218 annonces au total (`8maOirmL5...`: 33, `EqiopsYIYDZ...`: 206, `wbPlgZgkW2...`: 3979). Service redémarré avec succès. `ACTIVE` repassé à `False` dans la foulée (protocole `CLAUDE.md` § Points d'Attention Critiques).
+- **Méthode de vérification** : lecture directe des logs GitHub Actions via les outils MCP GitHub (`actions_list`/`actions_get`/`get_job_logs`) disponibles dans cette session — pas besoin d'accès Firestore ni de mécanisme de logs additionnel (proposition écartée d'un commun accord avec l'utilisateur).
+
 [2026-08-06] [PRO] Feature : Script de maintenance ponctuel exécuté au déploiement (`run_once.py`) → Résultat :
 - **Contexte** : l'environnement de dev n'a aucun accès à Firestore (pas de `.env`/`serviceAccountKey.json`) — impossible d'y exécuter `backend/scripts/rebuild_index.py` pour backfiller les nouveaux champs `ds`/`as`/`ls`/`rs` (voir entrée précédente). Demande utilisateur : un mécanisme réutilisable pour ce genre de besoin, pas un contournement ponctuel.
 - **Solution** : `backend/scripts/run_once.py` (nouveau) — script gardé par un flag `ACTIVE` au niveau module (no-op par défaut), exécuté à chaque déploiement dans `.github/workflows/deploy.yml` (job `deploy`, après l'installation des dépendances Python, avant le redémarrage du service — seul contexte où les credentials Firebase sont en place). Étape non bloquante (`|| echo "⚠️ ..."`).

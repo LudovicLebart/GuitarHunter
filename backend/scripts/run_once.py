@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -37,6 +37,9 @@ def run():
     liquidity_score/restoration_interest_score) dans deals_index pour les annonces déjà
     analysées, suite à l'ajout de ces champs dans repository.py::_update_deal_index()
     (voir JOURNAL.md du 2026-08-06). rebuild() est multi-utilisateur et idempotent.
+    ✅ Exécuté avec succès en production (run GitHub Actions #321) : 7 utilisateurs
+    parcourus, 4218 annonces réindexées au total (33 + 206 + 3979). ACTIVE repassé à
+    False dans la foulée — code de `run()` gardé ici à titre d'exemple/historique.
     """
     from backend.scripts.rebuild_index import rebuild
     rebuild()
