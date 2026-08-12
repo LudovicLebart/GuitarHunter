@@ -20,6 +20,12 @@ sans effet de bord cumulatif). Un échec ici n'interrompt pas le reste du déplo
 (voir deploy.yml : l'étape est volontairement non bloquante).
 """
 import sys
+import os
+
+# Comme rebuild_index.py : nécessaire pour que `from backend.scripts... import ...` résolve,
+# `python3 backend/scripts/run_once.py` n'ajoutant que le dossier du script (pas la racine du
+# repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
+sys.path.insert(0, os.getcwd())
 
 ACTIVE = True
 
