@@ -346,9 +346,14 @@ class FirestoreRepository:
                 'timestamp': firestore.SERVER_TIMESTAMP
             }
             if reason:
-                # Utilisation de datetime.now() pour ArrayUnion
-                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
-            
+                # Bug corrigé (2026-08-12) : ArrayUnion appliqué directement sur 'aiAnalysis' (un
+                # objet partout ailleurs dans le code — create_new_deal/update_deal_analysis/
+                # update_deal_data_and_analysis) écrasait silencieusement tout le contenu du champ
+                # par un tableau (comportement documenté de Firestore ArrayUnion sur un champ qui
+                # n'est pas déjà un tableau) — détruisant verdict/scores/classification/marque/marge
+                # de CHAQUE annonce marquée vendue. Stocké dans un champ dédié à la place.
+                update_data['soldNotes'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
+
             self.collection_ref.document(deal_id).update(update_data)
             self._update_deal_index(deal_id, status='sold', timestamp=datetime.now(timezone.utc), sold_at=datetime.now(timezone.utc))
             logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
