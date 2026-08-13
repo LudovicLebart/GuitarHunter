@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import promptsData from '../../prompts.json';
 import { RADAR_GROUP } from '../constants';
 
@@ -68,7 +68,6 @@ const LIQUIDITY_TIERS = [
     { label: 'Moyenne (5-7)', min: 5, max: 8 },
     { label: 'Élevée (8-10)', min: 8, max: 11 },
 ];
-const LIQUIDITY_TIER_COLORS = ['#f87171', '#fbbf24', '#34d399'];
 
 const PRICE_BUCKETS = [
     { label: '0-250$', min: 0, max: 250 },
@@ -542,22 +541,42 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         );
         if (soldDeals.length < 2) return [];
 
-        const byTier = LIQUIDITY_TIERS.map(t => ({ ...t, deltas: [] }));
+        const byTier = LIQUIDITY_TIERS.map(t => ({ ...t, deltas: [], scores: [] }));
         soldDeals.forEach(d => {
             const score = d.aiAnalysis.liquidity_score;
             const tier = byTier.find(t => score >= t.min && score < t.max);
             if (!tier) return;
             const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
             tier.deltas.push(diffH);
+            tier.scores.push(score);
         });
 
-        return byTier
+        const kept = byTier
             .filter(t => t.deltas.length >= 2) // Au moins 2 observations
             .map(t => ({
-                name: `${t.label} (${t.deltas.length})`,
-                avgH: Math.round(t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length),
+                label: t.label,
                 count: t.deltas.length,
+                avgH: t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length,
+                predictedScore: Math.round((t.scores.reduce((a, b) => a + b, 0) / t.scores.length) * 10),
             }));
+        // Il faut au moins 2 tranches pour comparer deux courbes.
+        if (kept.length < 2) return [];
+
+        // Vitesse réelle normalisée sur 0-100 (tranche la plus rapide = 100, la plus lente = 0),
+        // pour être directement comparable au score prédit (déjà 0-100) sur le même axe : si la
+        // prédiction est fiable, les deux courbes se suivent plutôt que de diverger.
+        const delays = kept.map(t => t.avgH);
+        const minDelay = Math.min(...delays);
+        const maxDelay = Math.max(...delays);
+        const spread = maxDelay - minDelay;
+
+        return kept.map(t => ({
+            name: `${t.label} (${t.count})`,
+            avgH: Math.round(t.avgH),
+            predictedScore: t.predictedScore,
+            realSpeed: spread > 0 ? Math.round(100 * (maxDelay - t.avgH) / spread) : 100,
+            count: t.count,
+        }));
     }, [analysisDeals]);
     const liquiditySpeedTotal = liquiditySpeedData.reduce((sum, t) => sum + t.count, 0);
 
@@ -1002,45 +1021,45 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                     La liquidité prédite par l'IA se confirme-t-elle ?
                 </h3>
                 <p className="text-slate-500 text-xs mb-1">
-                    Délai de vente réel moyen, par tranche de score de liquidité prédit par l'IA — une liquidité "haute" doit se traduire par un délai plus court.
+                    Deux courbes sur la même échelle 0-100 : le score de liquidité prédit par l'IA, et la vitesse de vente réellement observée. Si la prédiction est fiable, les deux courbes se suivent — si elles s'écartent, la prédiction ne colle pas à la réalité.
                 </p>
                 <p className="text-slate-600 text-[11px] mb-4">
-                    Chiffre entre parenthèses = nombre de ventes derrière chaque barre.
+                    Chiffre entre parenthèses = nombre de ventes derrière chaque point. Vitesse réelle = classement des tranches par délai de vente moyen (100 = la plus rapide, 0 = la plus lente).
                     {liquiditySpeedTotal > 0 && liquiditySpeedTotal < 20 && (
                         <span className="text-amber-500"> ⚠️ Seulement {liquiditySpeedTotal} ventes tracées au total — à interpréter avec prudence.</span>
                     )}
                 </p>
 
                 {liquiditySpeedData.length > 0 ? (
-                    <div className="h-[200px]">
+                    <div className="h-[220px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={liquiditySpeedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <LineChart data={liquiditySpeedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
                                 <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
                                 <YAxis
+                                    domain={[0, 100]}
                                     tick={{ fill: '#64748b', fontSize: 10 }}
                                     axisLine={false}
                                     tickLine={false}
-                                    tickFormatter={v => v < 24 ? `${v}h` : `${Math.round(v / 24)}j`}
                                 />
                                 <Tooltip
-                                    cursor={{ fill: '#1e293b' }}
+                                    cursor={{ stroke: '#334155' }}
                                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
-                                    formatter={(value, name, props) => [
-                                        value < 24 ? `${value}h` : `${Math.round(value / 24)}j`,
-                                        `Délai moy. (${props.payload.count} vente${props.payload.count > 1 ? 's' : ''})`
-                                    ]}
+                                    formatter={(value, name, props) => {
+                                        if (name === 'predictedScore') return [`${value}/100`, 'Liquidité prédite (score IA)'];
+                                        const delay = props.payload.avgH;
+                                        const delayLabel = delay < 24 ? `${delay}h` : `${Math.round(delay / 24)}j`;
+                                        return [`${value}/100 (délai réel moy. ${delayLabel})`, 'Vitesse réelle observée'];
+                                    }}
                                 />
-                                <Bar dataKey="avgH" radius={[4, 4, 0, 0]} barSize={40}>
-                                    {liquiditySpeedData.map((entry, index) => (
-                                        <Cell key={`liquidity-${index}`} fill={LIQUIDITY_TIER_COLORS[index % LIQUIDITY_TIER_COLORS.length]} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
+                                <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
+                                <Line type="monotone" dataKey="predictedScore" name="Liquidité prédite" stroke="#a78bfa" strokeWidth={2} dot={{ r: 4 }} />
+                                <Line type="monotone" dataKey="realSpeed" name="Vitesse réelle" stroke="#34d399" strokeWidth={2} dot={{ r: 4 }} />
+                            </LineChart>
                         </ResponsiveContainer>
                     </div>
                 ) : (
-                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (score de liquidité + annonces vendues)</div>
+                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (au moins 2 tranches de score de liquidité avec des ventes)</div>
                 )}
             </div>
 

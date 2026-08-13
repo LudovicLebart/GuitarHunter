@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-13] [PRO] Refonte du graphique Liquidité prédite vs Vitesse de vente réelle (2 courbes) → Résultat :
+- **Retour utilisateur sur la clarification précédente** : le bar chart (une seule barre = délai réel, la "prédiction" n'apparaissant qu'en étiquette d'axe X) ne montrait pas explicitement la prédiction de l'IA — attente explicite de deux séries visibles simultanément, "probablement en courbes".
+- **Première proposition écartée** : axes doubles (score prédit à gauche, délai réel à droite) — jugée contre-intuitive par l'utilisateur, car il faudrait lire des courbes qui *divergent* comme un signal positif.
+- **Solution retenue** : `StatsView.jsx::liquiditySpeedData` calcule désormais deux séries sur une échelle unique 0-100 — le score de liquidité prédit (×10) et une "vitesse réelle" normalisée par tranche (100 = tranche la plus rapide à se vendre, 0 = la plus lente, calculée relativement aux tranches affichées). `LineChart` à un seul axe Y, deux courbes (`predictedScore`/`realSpeed`) : si la prédiction est fiable, les courbes se suivent (même sens) plutôt que de s'écarter — lecture intuitive. Tooltip affiche en plus le délai réel concret (h/j) et le nombre de ventes par tranche.
+- **Validation** : `npm run build` OK. Constante `LIQUIDITY_TIER_COLORS` devenue inutile (coloration par `<Cell>` remplacée par les couleurs de trait des `<Line>`), supprimée.
+
 [2026-08-13] [FLASH] Clarification de 3 sections de stats peu compréhensibles → Résultat :
 - **Demande utilisateur :** "Score moyen par tranche de prix" (ex-Sweet Spot), "Véracité IA" et "Vitesse de vente réelle vs Liquidité prédite" jugées peu claires — ni la description, ni le graphique.
 - **Root cause identifiée** : ces 3 croisements dépendent tous du score IA (Tier 2+), présent sur une toute petite fraction de l'inventaire (~87/3979 annonces au moment du diagnostic) — la confusion tenait autant à l'absence de contexte sur la taille d'échantillon qu'au wording lui-même.
