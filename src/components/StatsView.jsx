@@ -421,14 +421,18 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             }
         });
         return buckets
-            .filter(b => b.count > 0)
+            // Au moins une annonce avec un score dans la tranche — sinon la barre serait un 0
+            // trompeur (aucune donnée) plutôt qu'une vraie moyenne.
+            .filter(b => b.scoreCount > 0)
             .map(b => ({
-                name: b.label,
+                name: `${b.label} (${b.scoreCount})`,
                 count: b.count,
-                avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
+                scoreCount: b.scoreCount,
+                avgScore: Math.round((b.scoreSum / b.scoreCount) * 10),
                 avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
             }));
     }, [analysisDeals]);
+    const priceScoreTotal = priceScoreData.reduce((sum, b) => sum + b.scoreCount, 0);
 
     // ─── Marge moyenne par catégorie (taxonomie résolue via resolveCategoryLabel) ─
     const categoryData = useMemo(() => {
@@ -470,9 +474,10 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
         return {
             soldCount: soldWithScore.length,
+            marketCount: withScore.length,
             data: [
-                { name: 'Annonces Vendues', rate: highScoreRate(soldWithScore) },
-                { name: 'Ensemble du Marché', rate: highScoreRate(withScore) },
+                { name: `Vendues (${soldWithScore.length})`, rate: highScoreRate(soldWithScore) },
+                { name: `Ensemble (${withScore.length})`, rate: highScoreRate(withScore) },
             ],
         };
     }, [analysisDeals]);
@@ -549,11 +554,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
         return byTier
             .filter(t => t.deltas.length >= 2) // Au moins 2 observations
             .map(t => ({
-                name: t.label,
+                name: `${t.label} (${t.deltas.length})`,
                 avgH: Math.round(t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length),
                 count: t.deltas.length,
             }));
     }, [analysisDeals]);
+    const liquiditySpeedTotal = liquiditySpeedData.reduce((sum, t) => sum + t.count, 0);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -807,13 +813,21 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             {/* Croisements : Sweet Spot Prix x Score & Marge par catégorie */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                {/* Sweet Spot Prix x Score */}
+                {/* Score moyen par tranche de prix */}
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                     <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                         <Coins size={16} className="text-emerald-400" />
-                        Sweet Spot : Score par tranche de prix
+                        Score moyen par tranche de prix
                     </h3>
-                    <p className="text-slate-500 text-xs mb-6">Score IA moyen selon le budget</p>
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces les mieux notées par l'IA sont-elles plutôt bon marché ou plus chères ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
+                        Chiffre entre parenthèses = nombre d'annonces analysées dans la tranche.
+                        {priceScoreTotal > 0 && priceScoreTotal < 30 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {priceScoreTotal} annonces au total — à interpréter avec prudence.</span>
+                        )}
+                    </p>
 
                     {priceScoreData.length > 0 ? (
                         <div className="h-[220px]">
@@ -827,7 +841,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                                         contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
                                         formatter={(value, name, props) => [
                                             `${value}/100`,
-                                            `Score moy. (${props.payload.count} annonces, marge moy. ${props.payload.avgMargin}$)`
+                                            `Score moy. sur ${props.payload.scoreCount} annonce${props.payload.scoreCount > 1 ? 's' : ''} (marge moy. ${props.payload.avgMargin}$)`
                                         ]}
                                     />
                                     <Bar dataKey="avgScore" fill="#10b981" radius={[4, 4, 0, 0]} barSize={28} />
@@ -908,12 +922,18 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                     <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                         <ShieldCheck size={16} className="text-purple-400" />
-                        Véracité IA
+                        Score IA élevé = vendu plus souvent ?
                     </h3>
-                    <p className="text-slate-500 text-xs mb-6">
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces bien notées par l'IA se vendent-elles vraiment plus souvent que la moyenne du marché ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
                         {aiAccuracyData?.soldCount > 0
-                            ? `% de score IA élevé (≥7/10) — vendues vs ensemble du marché (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''})`
+                            ? `Chiffre entre parenthèses = nombre d'annonces derrière chaque barre (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''} avec score, sur ${aiAccuracyData.marketCount} au total).`
                             : "Nécessite des annonces vendues avec score IA"}
+                        {aiAccuracyData?.soldCount > 0 && aiAccuracyData.soldCount < 20 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {aiAccuracyData.soldCount} ventes tracées — à interpréter avec prudence.</span>
+                        )}
                     </p>
 
                     {aiAccuracyData ? (
@@ -979,9 +999,17 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                 <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                     <Zap size={16} className="text-emerald-400" />
-                    Vitesse de vente réelle vs Liquidité prédite
+                    La liquidité prédite par l'IA se confirme-t-elle ?
                 </h3>
-                <p className="text-slate-500 text-xs mb-6">Délai de vente réel moyen, par tranche de score de liquidité IA</p>
+                <p className="text-slate-500 text-xs mb-1">
+                    Délai de vente réel moyen, par tranche de score de liquidité prédit par l'IA — une liquidité "haute" doit se traduire par un délai plus court.
+                </p>
+                <p className="text-slate-600 text-[11px] mb-4">
+                    Chiffre entre parenthèses = nombre de ventes derrière chaque barre.
+                    {liquiditySpeedTotal > 0 && liquiditySpeedTotal < 20 && (
+                        <span className="text-amber-500"> ⚠️ Seulement {liquiditySpeedTotal} ventes tracées au total — à interpréter avec prudence.</span>
+                    )}
+                </p>
 
                 {liquiditySpeedData.length > 0 ? (
                     <div className="h-[200px]">
