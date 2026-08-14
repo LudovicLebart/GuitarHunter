@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-14] [PRO] Réflexion : R&D détection visuelle "besoin de neck reset" (projet satellite) → Résultat :
+- **Contexte** : brainstorming utilisateur sur un nouveau projet — estimer depuis les photos d'une annonce si une guitare a besoin d'un neck reset, sans dépendre d'un CNN boîte noire (risque d'apprendre "qualité de photo" plutôt que géométrie réelle sur des photos scrapées de mauvaise qualité).
+- **Architecture retenue** : pipeline en 3 phases (normalisation géométrique par keypoints + homographie, extraction de métriques par ROI — ratio sillet, densité de bords derrière le chevalet, écart corde/ombre à la 12e frette —, intégration en entonnoir dans le pipeline Guitar Hunter existant). Prototype Python d'abord, portage LibTorch/C++ différé.
+- **Vrai goulot identifié : le dataset de calibration**, pas l'architecture — nécessite des paires (photo, mesure réelle mesurée à la main), pas de dataset existant. Absence de magasins d'instruments usagés à Montréal confirmée par l'utilisateur, réoriente la collecte vers les luthiers/écoles de lutherie plutôt que le commerce de détail.
+- **Idée clé validée** : exploiter les guitares à manche vissé de l'utilisateur (une guitare Art & Lutherie concernée) — le neck reset s'y fait par changement de cale (réversible), permettant de mesurer/photographier plusieurs configurations d'angle réel du manche dans une seule session, résolvant la limite du manche collé (angle non modifiable sans opération irréversible).
+- **Plan de match documenté** : `docs/management/plans/NECK_RESET_VISION_PLAN.md` (nouveau) — étapes de collecte priorisées, protocole photo/mesure, jalon go/no-go (corrélation signal↔mesure à valider avant tout entraînement de modèle).
+- **Aucun code écrit** — session 100% réflexion/planification.
+
 [2026-08-12] [PRO] Fix + exécution : backfill des scores IA via `run_once.py` en production → Résultat :
 - **Premier essai (commit `3bc439d`) échoué** : `run_once.py` appelait `from backend.scripts.rebuild_index import rebuild`, mais `python3 backend/scripts/run_once.py` (invoqué depuis la racine par `deploy.yml`) n'ajoute que le dossier du script à `sys.path`, pas la racine du repo — `ModuleNotFoundError: No module named 'backend'`. Aucun impact (étape non bloquante, service redémarré normalement) — diagnostiqué via les logs GitHub Actions (`get_job_logs`, run #319).
 - **Correctif** : `sys.path.insert(0, os.getcwd())` en tête de `run_once.py`, même pattern que `rebuild_index.py` utilise déjà pour son propre cas. Repoussé (commit `a616777`).

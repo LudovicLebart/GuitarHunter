@@ -11,6 +11,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔍 Vision IA — Détection "besoin de neck reset" (Exploration — 2026-08-14)
+
+*Projet satellite, pas encore intégré au pipeline Guitar Hunter. Réflexion R&D complète : [`docs/management/plans/NECK_RESET_VISION_PLAN.md`](plans/NECK_RESET_VISION_PLAN.md). Aucune ligne de code écrite — reste à faire, dans l'ordre :*
+
+- [ ] **Mesurer + photographier les 2 guitares de l'utilisateur** (protocole détaillé dans le plan) — dont la guitare à manche vissé, en testant plusieurs épaisseurs de cale pour obtenir plusieurs configurations d'angle mesurées.
+- [ ] **Contacter un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) — source de cas positifs confirmés, alternative à l'absence de magasins d'occasion locaux.
+- [ ] **Jalon go/no-go** : calculer à la main les métriques géométriques (ratio sillet, densité de bords, écart corde/ombre) sur les données collectées et vérifier la corrélation avec les mesures réelles, avant tout entraînement de modèle.
+
+---
+
 ## 🔍 Extension LeBonCoin (Exploration — 2026-07-21)
 
 *Calibration/validation de l'approche Playwright "douce" face à DataDome terminée et validée en conditions réelles — voir l'archive pour le détail. Reste à faire :*
