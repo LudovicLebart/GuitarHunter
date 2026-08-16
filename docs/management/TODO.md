@@ -67,6 +67,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
+- [/] **Fiabilité de la classification taxonomique** *(correctif majeur 2026-08-16, en attente de validation utilisateur)*
+    - [x] **Bug corrigé : des étuis comptés/affichés comme des guitares** — collision de normalisation entre le nom de feuille `Guitare Electrique` (étui) et le chemin de branche `guitare.electrique`. Résolution déplacée dans `src/utils/taxonomy.js` + `backend/taxonomy.py` (miroirs vérifiés). Voir `JOURNAL.md`.
+    - [x] **Résiduel `guitare.basse` corrigé** : `solid_body`/`specialites`, partagés entre `electrique`/`basse`/`acoustique_acier`, sont désormais détectés comme ambigus au lieu de résoudre vers la dernière branche parcourue.
+    - [x] **Correction manuelle de la catégorie** : `ClassificationEditor.jsx` (modale), champ dédié `manualClassification` qui prime sur l'IA et survit aux ré-analyses (index compris).
+    - [ ] **À valider par l'utilisateur** : effet du durcissement de `prompts.json` (chemin complet obligatoire) sur les nouvelles analyses — non testable depuis l'environnement de dev (pas d'accès Gemini).
+    - [ ] **À surveiller** : volume d'annonces basculées en « Autres » faute de classification résolvable. Si beaucoup d'historique s'y retrouve, envisager une passe de ré-analyse ciblée (les valeurs ambiguës ne sont pas réparables sans l'IA ou une correction manuelle).
+    - [ ] **Dette restante** : `StatsView.jsx::resolveCategoryLabel` garde sa propre résolution simplifiée et n'a pas été migrée vers `utils/taxonomy.js` — duplication déjà documentée, désormais réductible.
+
+
 - [ ] **Migrer `backend/analyzer.py` du SDK `google.generativeai` vers `google-genai`**
     - *Détails :* Découvert le 2026-07-07 — `google.generativeai` émet désormais un `FutureWarning` explicite indiquant que son support est totalement terminé. Toujours fonctionnel pour l'instant, mais refactor à planifier (signatures d'API différentes entre les deux SDK).
 

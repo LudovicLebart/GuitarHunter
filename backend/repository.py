@@ -97,7 +97,21 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None):
+    def _get_manual_classification(self, deal_id):
+        """Lit la correction manuelle de catégorie d'une annonce (None si absente).
+
+        Une lecture Firestore unitaire, faite uniquement lors d'une (ré-)analyse — négligeable face
+        aux 1 à 3 appels Gemini que celle-ci vient de coûter.
+        """
+        try:
+            snapshot = self.collection_ref.document(deal_id).get(field_paths=['manualClassification'])
+            if snapshot.exists:
+                return (snapshot.to_dict() or {}).get('manualClassification')
+        except Exception as e:
+            logger.warning(f"Lecture de manualClassification impossible pour '{deal_id}': {e}")
+        return None
+
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None, manual_classification=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
@@ -162,7 +176,14 @@ class FirestoreRepository:
                 if not isinstance(ai, dict):
                     ai = {}
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
-                update_data[f"{prefix}.c"] = ai.get('classification') or None
+                # Une correction manuelle de l'utilisateur prime sur la classification de l'IA et
+                # SURVIT aux ré-analyses : sans ça, chaque "Ré-analyser" réécrirait l'index avec la
+                # valeur de l'IA et la correction ne servirait plus qu'à l'affichage du document
+                # complet, pendant que filtres, compteurs et stats (qui lisent l'index) reviendraient
+                # silencieusement à la mauvaise catégorie.
+                update_data[f"{prefix}.c"] = manual_classification or ai.get('classification') or None
+                if manual_classification:
+                    update_data[f"{prefix}.mc"] = True
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
                 # Scores individuels (en plus de la moyenne "is" ci-dessous) : indexés pour que les
                 # statistiques croisées (StatsView.jsx) n'aient jamais besoin de charger le document
@@ -278,7 +299,8 @@ class FirestoreRepository:
                 deal_id,
                 status=status,
                 ai_analysis=analysis_data,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc),
+                manual_classification=self._get_manual_classification(deal_id)
             )
             logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
         except Exception as e:
@@ -315,6 +337,7 @@ class FirestoreRepository:
                 image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
                 latitude=deal_data.get('latitude'),
                 longitude=deal_data.get('longitude'),
+                manual_classification=self._get_manual_classification(deal_id),
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:

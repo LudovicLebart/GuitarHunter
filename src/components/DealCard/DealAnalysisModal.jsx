@@ -3,6 +3,7 @@ import { X, Ban, Gem, ChevronDown } from 'lucide-react';
 import { toTitleCase } from './utils';
 import DealCardActions from './DealCardActions';
 import DealChatPanel from './DealChatPanel';
+import ClassificationEditor from './ClassificationEditor';
 
 const DealAnalysisModal = ({
     deal,
@@ -26,7 +27,8 @@ const DealAnalysisModal = ({
     onReject,
     onToggleFavorite,
     onDelete,
-    isAnalyzing
+    isAnalyzing,
+    onSetClassification
 }) => {
     const [showChat, setShowChat] = useState(false);
 
@@ -170,10 +172,13 @@ const DealAnalysisModal = ({
                         </div>
 
                         {/* Fiche Technique */}
-                        {specs.length > 0 && (
+                        {(specs.length > 0 || onSetClassification) && (
                             <div className="pl-4 mb-6">
                                 <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-2">Fiche Technique</div>
                                 <div className="flex flex-wrap gap-2">
+                                    {onSetClassification && (
+                                        <ClassificationEditor deal={deal} onSetClassification={onSetClassification} />
+                                    )}
                                     {specs.map(spec => (
                                         <div key={spec.label} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
                                             <span className="text-[10px] text-slate-500 font-bold uppercase mr-1.5">{spec.label} :</span>

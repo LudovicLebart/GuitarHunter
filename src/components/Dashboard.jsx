@@ -363,6 +363,7 @@ const Dashboard = ({ onClose }) => {
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
+            onSetClassification={dealActions?.handleSetClassification}
         />
     );
 

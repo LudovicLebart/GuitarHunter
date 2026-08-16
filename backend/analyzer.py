@@ -24,6 +24,7 @@ from config import (
     DEFAULT_PRO_CONFIDENCE_THRESHOLD,
 )
 from backend.scraping.parser import ListingParser
+from backend.taxonomy import build_index as build_taxonomy_index, canonicalize as canonicalize_classification
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,48 @@ class DealAnalyzer:
                 return None, str(e)
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Cascade 3-Tiers, puis canonicalisation de la classification renvoyée par l'IA.
+
+        La canonicalisation est faite ICI, sur le résultat final, plutôt que dans chacun des 5
+        points de sortie de la cascade : un seul endroit à maintenir, impossible d'en oublier un.
+        """
+        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
+        taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
+        return self._canonicalize_classification(result, taxonomy)
+
+    def _canonicalize_classification(self, result, taxonomy):
+        """Remplace `classification` par son chemin canonique complet, ou la retire si invalide.
+
+        Le prompt EXIGE désormais un chemin complet, mais le prompt ne garantit rien (aucun
+        `response_schema` côté SDK) : cette validation serveur est le vrai garde-fou. Une valeur
+        ambiguë ou inconnue est écartée plutôt que stockée telle quelle — une annonce non classée
+        est corrigeable à la main dans l'app, une annonce rangée dans la mauvaise catégorie passe
+        inaperçue (c'est ainsi que des étuis se retrouvaient comptés comme des guitares).
+        """
+        if not isinstance(result, dict):
+            return result
+
+        raw = result.get('classification')
+        if not raw:
+            return result
+
+        canonical, reason = canonicalize_classification(raw, taxonomy)
+        if canonical:
+            if canonical != raw:
+                self.logger.info(f"   🧭 Classification normalisée : '{raw}' -> '{canonical}' ({reason})")
+            result['classification'] = canonical
+        else:
+            self.logger.warning(
+                f"   ⚠️ Classification rejetée ('{raw}', {reason}) : absente de la taxonomie ou "
+                f"ambiguë (nom porté par plusieurs branches). L'annonce restera non classée — "
+                f"corrigeable manuellement depuis la fiche."
+            )
+            result['classification'] = None
+            result['classification_rejected'] = raw
+
+        return result
+
+    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 

@@ -6,13 +6,14 @@ import {
   deleteDeal,
   retryDealAnalysis,
   forceExpertAnalysis,
-  toggleDealFavorite
+  toggleDealFavorite,
+  setDealClassification
 } from '../services/firestoreService';
-import promptsData from '../../prompts.json';
-import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore, formatTaxonomyLabel } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
+// Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
+import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
-const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
 
 // Un chemin de taxonomie est ancêtre d'un autre s'il en est un préfixe strict (segment par segment).
 const isAncestorPath = (a, b) => b.startsWith(`${a}.`);
@@ -32,7 +33,8 @@ const normalize = (str) => {
 // C'est la différence critique : normalize() est fait pour comparer des identifiants de taxonomie
 // entre eux (où l'espacement ne doit pas compter), alors qu'ici on compare une saisie utilisateur à
 // du texte libre. Supprimer les espaces des deux côtés recréerait exactement le faux positif déjà
-// corrigé sur findPathFuzzy : "cordes guitare" -> "cordesguitare" contient "sg".
+// corrigé sur la recherche floue (`utils/taxonomy.js`) : "cordes guitare" -> "cordesguitare"
+// contient "sg".
 const normalizeLoose = (str) => {
   if (!str) return '';
   return str
@@ -40,40 +42,6 @@ const normalizeLoose = (str) => {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
-};
-
-// Recherche floue : retourne le path dont la CLÉ TEXTUELLE est la plus longue (donc la plus
-// spécifique) parmi toutes les clés de taxonomie contenues dans la string. Les clés trop courtes
-// (< FUZZY_MIN_KEY_LENGTH, ex: "sg", "aer") sont exclues de cette recherche par sous-chaîne : comme
-// normalize() supprime les espaces, un texte comme "cordes guitare" devient "cordesguitare" et
-// contiendrait accidentellement "sg" à la jonction des deux mots. Ces clés courtes ne doivent être
-// résolues que par correspondance EXACTE (déjà tentée avant cet appel), jamais en sous-chaîne floue.
-// Idem pour la branche "etui_housse" : ses leafs ("Guitare Electrique", "Guitare Acoustique", "Basse")
-// reprennent tels quels les mots des types d'instruments qu'ils contiennent, donc entrent quasi
-// systématiquement en collision avec le texte décrivant une vraie guitare. Ses valeurs sont un
-// ensemble fixe et restreint que l'IA cible déjà en correspondance exacte — la recherche floue n'y
-// apporte rien et n'y introduit que du risque.
-// Enfin, les clés de profondeur 1 (ex: "guitare" seul) sont exclues : ce sont les noms de branches
-// racines, présents dans la quasi-totalité des textes du domaine, donc sans pouvoir discriminant —
-// et un match sur la branche racine seule n'apporte rien ici, puisque tout chemin plus profond qui
-// matche déjà satisfait le préfixe "guitare." attendu par un filtre sur la catégorie racine.
-const FUZZY_MIN_KEY_LENGTH = 5;
-const FUZZY_EXCLUDED_BRANCHES = ['etui_housse'];
-const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
-  let bestKey = null;
-  let bestPath = null;
-  for (const [key, path] of Object.entries(taxonomyPaths)) {
-    if (key.length < FUZZY_MIN_KEY_LENGTH) continue;
-    if (path.length < 2) continue;
-    if (FUZZY_EXCLUDED_BRANCHES.includes(path[0])) continue;
-    if (normalizedSearchStr.includes(key)) {
-      if (!bestKey || key.length > bestKey.length) {
-        bestKey = key;
-        bestPath = path;
-      }
-    }
-  }
-  return bestPath;
 };
 
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
@@ -128,6 +96,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         finish_application: entry.fa,
         finish_texture: entry.ft
       },
+      // `mc` marque une classification corrigée à la main : `c` porte alors la valeur corrigée.
+      manualClassification: entry.mc ? entry.c : undefined,
       isFavorite: entry.f,
       timestamp: entry.t ? { seconds: entry.t } : null,
       publishTimestamp: entry.pt ? { seconds: entry.pt } : null,
@@ -248,72 +218,25 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
+  // Correction manuelle de la catégorie (null = annuler et revenir à la classification de l'IA).
+  const handleSetClassification = useCallback(async (dealId, classificationPath) => {
+    if (!user) return;
+    const entry = dealsIndexMap[dealId];
+    try {
+      // En annulation, l'index doit retomber sur la classification d'origine de l'IA — or `c`
+      // porte la valeur corrigée quand `mc` est posé. On la relit donc sur le document complet
+      // (toujours chargé : la correction se fait depuis la modale d'analyse).
+      const aiClassification = loadedDeals[dealId]?.aiAnalysis?.classification
+        ?? (entry?.mc ? null : entry?.c);
+      await setDealClassification(dealId, entry?.h, user.uid, classificationPath, aiClassification);
+    } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, loadedDeals, setError]);
+
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
     const chunkId = dealsIndexMap[dealId]?.h;
     try { await toggleDealFavorite(dealId, currentStatus, chunkId, user.uid); } catch (e) { setError(e.message); }
   }, [user, dealsIndexMap, setError]);
-
-  // Construction de la map de chemins normalisés
-  const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
-    const fullPaths = {};
-    const leafPaths = {};
-    const traverse = (node, currentPath) => {
-      if (Array.isArray(node)) {
-        node.forEach(item => {
-          const path = [...currentPath, item];
-          const fullKey = normalize(path.join('.'));
-          const leafKey = normalize(item);
-          fullPaths[fullKey] = path;
-          // Leaf only: prioritize the deeper node if there's a collision? 
-          // For now, simple leaf mapping for fallback.
-          leafPaths[leafKey] = path;
-        });
-      } else if (typeof node === 'object' && node !== null) {
-        Object.keys(node).forEach(key => {
-          const path = [...currentPath, key];
-          const fullKey = normalize(path.join('.'));
-          const leafKey = normalize(key);
-          fullPaths[fullKey] = path;
-          leafPaths[leafKey] = path;
-          traverse(node[key], path);
-        });
-      }
-    };
-    traverse(MASTER_TAXONOMY, []);
-    return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
-  }, []);
-
-  // Catalogue plat de TOUS les nœuds de la taxonomie (branches intermédiaires ET feuilles), utilisé
-  // par l'autocomplétion de la barre de recherche. Même source (`taxonomy_master`) et même libellé
-  // (`formatTaxonomyLabel`) que l'arbre de cases à cocher du FilterDrawer, pour qu'une catégorie
-  // s'affiche exactement pareil aux deux endroits.
-  const taxonomyNodes = useMemo(() => {
-    const nodes = [];
-    const traverse = (node, currentPath) => {
-      const register = (segment) => {
-        const path = [...currentPath, segment];
-        nodes.push({
-          path: path.join('.'),
-          label: formatTaxonomyLabel(segment),
-          // Fil d'Ariane des parents (ex: "Guitare › Acoustique Acier") — deux feuilles peuvent
-          // porter le même nom dans des branches différentes, il faut pouvoir les distinguer.
-          breadcrumb: currentPath.map(formatTaxonomyLabel).join(' › '),
-          depth: path.length,
-          // Libellé normalisé une seule fois ici plutôt qu'à chaque frappe de l'utilisateur.
-          labelNormalized: normalizeLoose(segment)
-        });
-        return path;
-      };
-      if (Array.isArray(node)) {
-        node.forEach(register);
-      } else if (typeof node === 'object' && node !== null) {
-        Object.keys(node).forEach(key => traverse(node[key], register(key)));
-      }
-    };
-    traverse(MASTER_TAXONOMY, []);
-    return nodes;
-  }, []);
 
   // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
   // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un
@@ -393,14 +316,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // type) : on ne le résout qu'une seule fois, et uniquement si l'un des deux est actif.
     let path = null;
     if (needle || hasTypeFilter) {
-      const classification = analysis.classification;
-      if (classification) {
-        const normalizedClass = normalize(classification);
-        // 1. Chemin complet exact  2. Repli sur la feuille  3. En dernier recours, recherche floue
-        path = taxonomyFullPaths[normalizedClass]
-          || taxonomyLeafPaths[normalizedClass]
-          || findPathFuzzy(normalizedClass, taxonomyLeafPaths);
-      }
+      // Résolution centralisée (chemin complet → feuille unique → recherche floue). Une feuille
+      // AMBIGUË (nom porté par plusieurs branches, ex: "Guitare Acoustique" = étui ET instrument)
+      // n'est volontairement pas résolue : l'annonce retombe dans "OTHER" plutôt que d'être
+      // rattachée à la mauvaise branche — c'est le bug des étuis classés comme guitares.
+      path = resolveClassification(analysis.classification).segments;
     }
 
     // Recherche textuelle (titre + marque/modèle/couleur identifiés par l'IA + TAXONOMIE résolue).
@@ -427,7 +347,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return typePaths.some(selected =>
       selected === fullPathStr || fullPathStr.startsWith(`${selected}.`)
     );
-  }, [taxonomyFullPaths, taxonomyLeafPaths]);
+  }, []);
 
   // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX, CONDITION et FINITION
   // (finish_application/finish_texture : listes fermées demandées à l'IA, cf. prompts.json — mais
@@ -481,9 +401,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         return;
       }
 
-      const normalizedClass = normalize(classification);
-      let path = taxonomyFullPaths[normalizedClass] || taxonomyLeafPaths[normalizedClass];
-      if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+      const path = resolveClassification(classification).segments;
 
       if (path) {
         let currentPath = "";
@@ -496,7 +414,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
     });
     return c;
-  }, [deals, filterType, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, matchesVerdictFilter, matchesConditionAndPrice]);
 
   // 3.5 Suggestions de catégories pour l'autocomplétion de la barre de recherche.
   // Le matching porte sur le LIBELLÉ PROPRE du nœud (son dernier segment), pas sur son chemin
@@ -505,7 +423,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const searchSuggestions = useMemo(() => {
     const needle = normalizeLoose(searchQuery);
     if (needle.length < 2) return []; // 1 seule lettre = trop de bruit
-    return taxonomyNodes
+    return TAXONOMY_NODES
       .filter(node => !selectedTypePaths.includes(node.path))
       .map(node => {
         const position = node.labelNormalized.indexOf(needle);
@@ -522,7 +440,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         (a.depth - b.depth) || (b.count - a.count)
       )
       .slice(0, 8);
-  }, [searchQuery, taxonomyNodes, selectedTypePaths, typeCounts]);
+  }, [searchQuery, selectedTypePaths, typeCounts]);
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
@@ -744,6 +662,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleRetryAnalysis,
       handleForceExpertAnalysis,
       handleToggleFavorite,
+      handleSetClassification,
       handleSelectDeal: setSelectedDeal 
     }
   };
