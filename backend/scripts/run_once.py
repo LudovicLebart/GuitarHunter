@@ -27,25 +27,30 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-12 : récupération GRATUITE (aucun appel Gemini) des annonces vendues à
-    `aiAnalysis` corrompu — reconstruit un verdict minimal depuis `initialVerdict` (champ
-    figé à la création, jamais touché par le bug ArrayUnion de `mark_deal_as_sold()`, voir
-    JOURNAL.md). Ne récupère que le verdict, pas classification/scores/marge — voir
-    `backend/scripts/recover_initial_verdict.py` pour le détail. Rapide (pas d'appel
-    réseau externe autre que Firestore), tourne en synchrone ici sans souci de timeout.
+    2026-08-16 : audit + normalisation des classifications taxonomiques
+    (`backend/scripts/audit_classifications.py`). GRATUIT, aucun appel Gemini :
 
-    La ré-analyse IA complète (plus lente, ~20-25$, plusieurs heures) via
-    `backend/scripts/reanalyze_sold_deals.py` reste disponible mais n'est PAS déclenchée
-    par ce `run()` — décision séparée, à activer explicitement plus tard si besoin.
+      - compte les annonces par type de résolution (chemin complet / feuille / AMBIGU /
+        INCONNU / vide) et liste les valeurs non résolvables avec des exemples de titres —
+        c'est ce comptage qui doit décider de la suite (correction manuelle ou ré-analyse
+        payante des annonces restantes) ;
+      - peut aussi réécrire en chemin canonique les valeurs qui se résolvent déjà sans
+        ambiguïté (document + index) — mais **PAS dans cette exécution**.
+
+    `dry_run=True` : lecture seule, AUCUNE écriture en base. Choix explicite de l'utilisateur —
+    on regarde les chiffres avant d'autoriser la moindre réécriture des données de production.
+    La normalisation se fera lors d'un déploiement ultérieur, en repassant ce flag à False.
+
+    Idempotent (a fortiori en lecture seule). Rapide : Firestore uniquement, aucun appel Gemini.
     """
-    from backend.scripts.recover_initial_verdict import run as recover_run
-    recover_run()
+    from backend.scripts.audit_classifications import run as audit_run
+    audit_run(dry_run=True)
 
 
 if __name__ == "__main__":
