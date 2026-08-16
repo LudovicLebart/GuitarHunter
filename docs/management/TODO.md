@@ -88,10 +88,12 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Le serveur déployé utilise l'ancienne architecture (villes dans `users/{uid}/cities` avec métadonnées complètes). Le catalogue partagé `artifacts/{APP_ID}/cities` est vide. Un fallback a été ajouté côté frontend, mais la migration vers la nouvelle architecture reste à faire pour le déploiement de la nouvelle version backend.
     - *Vérifié 2026-08-16 : toujours ouvert côté code* — le fallback "ancienne architecture" est toujours en place dans `firestoreService.js::onCitiesUpdate`. L'état réel des données en production (catalogue partagé vide ou non) n'est pas vérifiable depuis l'environnement de dev.
 
-- [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
+- [/] **Améliorer la recherche globale (Modèle, Lieu, etc.)** *(implémenté 2026-08-16, en attente de validation utilisateur en conditions réelles)*
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
-    - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`). Reste à faire : matcher la taxonomie elle-même et l'autocomplétion de catégories.
-    - *Vérifié 2026-08-16 : reste à faire confirmé* — `useDealsManager.js::matchesTypeFilter` construit son `haystack` à partir de `title`/`brand`/`model_name`/`color` uniquement ; la taxonomie n'est pas matchée et aucune autocomplétion n'existe dans la barre de recherche.
+    - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`).
+    - [x] **Matching de la taxonomie (2026-08-16)** : `useDealsManager.js::matchesTypeFilter` ajoute le chemin de taxonomie résolu au haystack — "acoustique"/"parlor"/"amplificateur" remontent les annonces de la branche même sans le mot dans le titre. Comparaison via le nouveau `normalizeLoose()` (insensible aux accents/ponctuation, mais **conservant les séparations de mots** — voir `ARCHITECTURE.md`, le piège "cordes guitare" ⊃ "sg").
+    - [x] **Autocomplétion de catégories (2026-08-16)** : `src/components/SearchSuggestions.jsx` — suggestions avec fil d'Ariane et nombre d'annonces ; sélectionner une suggestion coche la catégorie dans `selectedTypePaths` (vrai filtre persisté, option A tranchée avec l'utilisateur) et vide le champ. Navigation clavier ↓ ↑ Entrée Échap.
+    - [ ] **À valider par l'utilisateur** : rendu de la liste déroulante dans le vrai Dashboard (notamment sur mobile) — le banc de test montait le hook et le composant, pas le Dashboard complet avec ses contextes. Archiver cette tâche une fois validée.
 
 > 📊 Le suivi du Dashboard Analytics/Statistiques vit désormais dans la section [`📊 Statistiques & Dashboard`](#-statistiques--dashboard) plus bas (fusion du 2026-08-16 — l'entrée qui figurait ici faisait doublon).
 

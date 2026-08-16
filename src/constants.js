@@ -124,6 +124,14 @@ export const computeInterestScore = (aiAnalysis) => {
   return scores.reduce((sum, s) => sum + s, 0) / scores.length;
 };
 
+// --- LIBELLÉ LISIBLE D'UN SEGMENT DE TAXONOMIE ---
+// Les clés de `taxonomy_master` (prompts.json) sont des identifiants techniques (ex:
+// "acoustique_acier", "formes_standard"). Source unique partagée par le FilterDrawer (arbre de
+// cases à cocher) et l'autocomplétion de la barre de recherche, pour qu'une même catégorie
+// s'affiche exactement pareil aux deux endroits.
+export const formatTaxonomyLabel = (str) =>
+  String(str || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 // --- ORDRE D'AFFICHAGE DES FILTRES DANS LA BARRE ---
 export const FILTER_ORDER = [
   'ALL',

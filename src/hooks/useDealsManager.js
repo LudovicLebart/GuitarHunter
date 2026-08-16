@@ -9,7 +9,7 @@ import {
   toggleDealFavorite
 } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
-import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore, formatTaxonomyLabel } from '../constants';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
@@ -24,6 +24,22 @@ const normalize = (str) => {
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Enlève les accents
     .toLowerCase()
     .replace(/[^a-z0-9]/g, ''); // Ne garde que alphanumérique
+};
+
+// Normalisation "souple" pour la RECHERCHE TEXTE LIBRE : minuscules, sans accents, ponctuation et
+// underscores convertis en espaces — mais les séparations de mots sont CONSERVÉES, contrairement à
+// normalize() ci-dessus qui les supprime.
+// C'est la différence critique : normalize() est fait pour comparer des identifiants de taxonomie
+// entre eux (où l'espacement ne doit pas compter), alors qu'ici on compare une saisie utilisateur à
+// du texte libre. Supprimer les espaces des deux côtés recréerait exactement le faux positif déjà
+// corrigé sur findPathFuzzy : "cordes guitare" -> "cordesguitare" contient "sg".
+const normalizeLoose = (str) => {
+  if (!str) return '';
+  return str
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 };
 
 // Recherche floue : retourne le path dont la CLÉ TEXTUELLE est la plus longue (donc la plus
@@ -268,6 +284,37 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
   }, []);
 
+  // Catalogue plat de TOUS les nœuds de la taxonomie (branches intermédiaires ET feuilles), utilisé
+  // par l'autocomplétion de la barre de recherche. Même source (`taxonomy_master`) et même libellé
+  // (`formatTaxonomyLabel`) que l'arbre de cases à cocher du FilterDrawer, pour qu'une catégorie
+  // s'affiche exactement pareil aux deux endroits.
+  const taxonomyNodes = useMemo(() => {
+    const nodes = [];
+    const traverse = (node, currentPath) => {
+      const register = (segment) => {
+        const path = [...currentPath, segment];
+        nodes.push({
+          path: path.join('.'),
+          label: formatTaxonomyLabel(segment),
+          // Fil d'Ariane des parents (ex: "Guitare › Acoustique Acier") — deux feuilles peuvent
+          // porter le même nom dans des branches différentes, il faut pouvoir les distinguer.
+          breadcrumb: currentPath.map(formatTaxonomyLabel).join(' › '),
+          depth: path.length,
+          // Libellé normalisé une seule fois ici plutôt qu'à chaque frappe de l'utilisateur.
+          labelNormalized: normalizeLoose(segment)
+        });
+        return path;
+      };
+      if (Array.isArray(node)) {
+        node.forEach(register);
+      } else if (typeof node === 'object' && node !== null) {
+        Object.keys(node).forEach(key => traverse(node[key], register(key)));
+      }
+    };
+    traverse(MASTER_TAXONOMY, []);
+    return nodes;
+  }, []);
+
   // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
   // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un
   // autre) : cocher un chemin plus profond agit comme un drill-down et retire les cases parentes
@@ -338,28 +385,39 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (deal.status === 'rejected') return false;
     // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
 
-    // Recherche textuelle (titre + marque/modèle/couleur identifiés par l'IA)
     const analysis = deal.aiAnalysis || {};
-    if (search) {
-      const needle = search.toLowerCase();
-      const haystack = [deal.title, analysis.brand, analysis.model_name, analysis.color]
-        .filter(Boolean).join(' ').toLowerCase();
+    const hasTypeFilter = typePaths && typePaths.length > 0;
+    const needle = search ? normalizeLoose(search) : '';
+
+    // Le chemin de taxonomie résolu sert aux DEUX usages ci-dessous (recherche texte + filtre de
+    // type) : on ne le résout qu'une seule fois, et uniquement si l'un des deux est actif.
+    let path = null;
+    if (needle || hasTypeFilter) {
+      const classification = analysis.classification;
+      if (classification) {
+        const normalizedClass = normalize(classification);
+        // 1. Chemin complet exact  2. Repli sur la feuille  3. En dernier recours, recherche floue
+        path = taxonomyFullPaths[normalizedClass]
+          || taxonomyLeafPaths[normalizedClass]
+          || findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+      }
+    }
+
+    // Recherche textuelle (titre + marque/modèle/couleur identifiés par l'IA + TAXONOMIE résolue).
+    // La taxonomie dans le haystack permet à "acoustique" ou "parlor" de ramener les annonces
+    // classées dans cette branche même si le mot n'apparaît nulle part dans le texte de l'annonce.
+    // Comparaison via normalizeLoose() des deux côtés : insensible aux accents et à la ponctuation
+    // (donc "electrique" trouve "électrique", "les paul" trouve "Les-Paul") mais respectueuse des
+    // séparations de mots — voir le commentaire de normalizeLoose() pour le faux positif évité.
+    if (needle) {
+      const haystack = normalizeLoose(
+        [deal.title, analysis.brand, analysis.model_name, analysis.color, path ? path.join(' ') : null]
+          .filter(Boolean).join(' ')
+      );
       if (!haystack.includes(needle)) return false;
     }
 
-    if (!typePaths || typePaths.length === 0) return true; // Aucune sélection = Tous les types
-
-    // Classification
-    const classification = analysis.classification;
-    if (!classification) return typePaths.includes('OTHER');
-
-    const normalizedClass = normalize(classification);
-    // 1. Try exact full path lookup
-    let path = taxonomyFullPaths[normalizedClass];
-    // 2. Fallback to leaf lookup
-    if (!path) path = taxonomyLeafPaths[normalizedClass];
-    // 3. Last resort fuzzy search
-    if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+    if (!hasTypeFilter) return true; // Aucune sélection = Tous les types
     if (!path) return typePaths.includes('OTHER');
 
     // Un deal correspond si son chemin égale ou descend (préfixe) d'AU MOINS un des chemins
@@ -439,6 +497,32 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     });
     return c;
   }, [deals, filterType, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
+
+  // 3.5 Suggestions de catégories pour l'autocomplétion de la barre de recherche.
+  // Le matching porte sur le LIBELLÉ PROPRE du nœud (son dernier segment), pas sur son chemin
+  // complet : sinon taper "guitare" proposerait les ~100 nœuds de la branche, ce qui n'aide pas.
+  // Les catégories déjà cochées sont retirées de la liste (les re-proposer les décocherait).
+  const searchSuggestions = useMemo(() => {
+    const needle = normalizeLoose(searchQuery);
+    if (needle.length < 2) return []; // 1 seule lettre = trop de bruit
+    return taxonomyNodes
+      .filter(node => !selectedTypePaths.includes(node.path))
+      .map(node => {
+        const position = node.labelNormalized.indexOf(needle);
+        if (position < 0) return null;
+        const count = typeCounts[node.path] || 0;
+        return { ...node, count, startsWith: position === 0, hasResults: count > 0 };
+      })
+      .filter(Boolean)
+      // Un libellé qui COMMENCE par la saisie d'abord, puis les catégories qui contiennent
+      // réellement des annonces (cocher une catégorie vide n'affiche rien — elle reste proposée,
+      // mais en bas), puis les plus larges (profondeur faible), puis les mieux fournies.
+      .sort((a, b) =>
+        (b.startsWith - a.startsWith) || (b.hasResults - a.hasResults) ||
+        (a.depth - b.depth) || (b.count - a.count)
+      )
+      .slice(0, 8);
+  }, [searchQuery, taxonomyNodes, selectedTypePaths, typeCounts]);
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
@@ -645,7 +729,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     counts,
     filterProps: {
       filterType, setFilterType,
-      searchQuery, setSearchQuery,
+      searchQuery, setSearchQuery, searchSuggestions,
       selectedTypePaths, setSelectedTypePaths, toggleTypePath,
       conditionFilter, setConditionFilter,
       priceFilter, setPriceFilter,

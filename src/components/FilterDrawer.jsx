@@ -2,15 +2,15 @@ import React from 'react';
 import { X, ChevronDown, ChevronUp, ChevronRight, Check } from 'lucide-react';
 
 import promptsData from '../../prompts.json';
+// Libellé partagé avec l'autocomplétion de la barre de recherche (useDealsManager::taxonomyNodes),
+// pour qu'une même catégorie s'affiche identiquement dans les deux surfaces.
+import { formatTaxonomyLabel as formatLabel } from '../constants';
 
 // ============================================================
 // TAXONOMY TREE FROM PROMPTS.JSON
 // dynamically format to: { key: { label: '...', children: {...} } }
 // IMPORTANT: keys must EXACTLY match the values in prompt.json arrays for filtering to work
 // ============================================================
-const formatLabel = (str) => {
-    return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-};
 
 const buildTaxonomyTree = (node) => {
     if (Array.isArray(node)) {
