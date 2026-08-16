@@ -4,6 +4,7 @@ import time
 import logging
 from typing import Optional, Dict, Any
 from playwright.sync_api import Page, Locator
+from backend.cities import normalize_city_key
 
 _module_logger = logging.getLogger(__name__)
 logger = _module_logger
@@ -29,24 +30,14 @@ class ListingParser:
 
     @staticmethod
     def normalize_city_name(name: str) -> str:
-        if not name: return ""
-        # 1. Garder la partie avant la virgule et mettre en minuscule
-        name = name.split(',')[0].strip().lower()
-        
-        # 2. Remplacer les tirets et points par des espaces pour uniformiser
-        name = name.replace('-', ' ').replace('.', ' ')
-        
-        # 3. Gérer les abréviations courantes (St -> Saint, Ste -> Sainte)
-        words = name.split()
-        fixed_words = []
-        for w in words:
-            if w == 'st': fixed_words.append('saint')
-            elif w == 'ste': fixed_words.append('sainte')
-            else: fixed_words.append(w)
-        name = " ".join(fixed_words)
+        """Clé canonique d'une ville — délègue à `backend/cities.py` (2026-08-16).
 
-        # 4. Normalisation Unicode (accents)
-        return unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode("utf-8")
+        La logique a été déplacée dans un module sans dépendance : ce fichier importe Playwright,
+        ce qui interdisait de normaliser un nom de ville depuis un script léger ou l'audit. Le
+        comportement est identique ; cette méthode reste le point d'entrée historique, largement
+        appelé (dédup cross-plateforme, résolution des lieux Kijiji, filtrage par ville).
+        """
+        return normalize_city_key(name)
 
     @staticmethod
     def extract_price_from_text(text: str) -> int:

@@ -3,6 +3,7 @@ import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarCh
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import promptsData from '../../prompts.json';
 import { RADAR_GROUP } from '../constants';
+import { normalizeCityKey, pickBestLabel } from '../utils/cities';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -508,19 +509,24 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
     }, [analysisDeals]);
 
     // ─── Géographie des opportunités : volume + marge moyenne par ville ───
+    // Regroupement par CLÉ canonique de ville, pas par chaîne brute : Facebook stocke
+    // "Montréal, QC" pendant que Kijiji écrivait "montreal" (la clé de la ville configurée) —
+    // la même ville apparaissait donc en double dans ce graphique. Le libellé affiché est la
+    // graphie la plus riche rencontrée (région + accents), voir `utils/cities.js`.
     const geoOpportunityData = useMemo(() => {
         const byCity = {};
         analysisDeals.forEach(d => {
             if (!RADAR_GROUP.includes(d.aiAnalysis?.verdict)) return;
-            const city = d.location || 'Inconnue';
-            if (!byCity[city]) byCity[city] = { count: 0, marginSum: 0, marginCount: 0 };
-            byCity[city].count++;
+            const key = normalizeCityKey(d.location) || 'inconnue';
+            if (!byCity[key]) byCity[key] = { count: 0, marginSum: 0, marginCount: 0, labels: [] };
+            byCity[key].count++;
+            if (d.location) byCity[key].labels.push(d.location);
             const margin = d.aiAnalysis?.estimated_gross_margin;
-            if (typeof margin === 'number') { byCity[city].marginSum += margin; byCity[city].marginCount++; }
+            if (typeof margin === 'number') { byCity[key].marginSum += margin; byCity[key].marginCount++; }
         });
         return Object.entries(byCity)
-            .map(([name, b]) => ({
-                name,
+            .map(([key, b]) => ({
+                name: pickBestLabel(b.labels) || (key === 'inconnue' ? 'Inconnue' : key),
                 count: b.count,
                 avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
             }))

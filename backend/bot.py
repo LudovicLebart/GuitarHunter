@@ -637,6 +637,14 @@ class GuitarHunterBot:
             for c in cities_to_scan
             if c.get('latitude') is not None and c.get('longitude') is not None
         }
+        # Clé normalisée -> NOM D'AFFICHAGE de la ville (tel que saisi dans le catalogue, donc
+        # accentué). `nearest_configured_city()` ne renvoie que la clé : l'écrire telle quelle
+        # dans `location` produisait "montreal" là où Facebook stocke "Montréal, QC" — la même
+        # ville comptée deux fois dans les statistiques par ville (signalé par l'utilisateur).
+        city_display_names = {
+            ListingParser.normalize_city_name(c['name']): c['name']
+            for c in cities_to_scan if c.get('name')
+        }
         radius_km = scan_config.get('distance', 0)
         max_radius_km = radius_km if radius_km > 0 else None
         min_price = scan_config.get('min_price', 0)
@@ -712,7 +720,7 @@ class GuitarHunterBot:
                             deal.get('latitude'), deal.get('longitude'), city_coordinates, max_radius_km=max_radius_km
                         )
                         if nearest:
-                            deal['location'] = nearest['city']
+                            deal['location'] = city_display_names.get(nearest['city'], nearest['city'])
                         elif max_radius_km is not None:
                             self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
                             cycle_stats["rejected_out_of_radius"] += 1
@@ -761,11 +769,18 @@ class GuitarHunterBot:
             # souvent une grande sous-région, pas la ville précise), jusqu'ici absente du
             # scan manuel (2026-07-27, corrigé — signalé par l'utilisateur).
             city_coordinates = {}
+            city_display_names = {}
             if is_kijiji and not self.offline_mode:
+                configured_cities = self.repo.get_cities()
                 city_coordinates = {
                     ListingParser.normalize_city_name(c['name']): {"lat": c['latitude'], "lng": c['longitude']}
-                    for c in self.repo.get_cities()
+                    for c in configured_cities
                     if c.get('latitude') is not None and c.get('longitude') is not None
+                }
+                # Voir _run_kijiji_scan() : on stocke le nom d'affichage, pas la clé normalisée.
+                city_display_names = {
+                    ListingParser.normalize_city_name(c['name']): c['name']
+                    for c in configured_cities if c.get('name')
                 }
             try:
                 scan_result = {}
@@ -780,7 +795,7 @@ class GuitarHunterBot:
                             listing_data.get('latitude'), listing_data.get('longitude'), city_coordinates
                         )
                         if nearest:
-                            listing_data['location'] = nearest['city']
+                            listing_data['location'] = city_display_names.get(nearest['city'], nearest['city'])
                     scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)
                     scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
