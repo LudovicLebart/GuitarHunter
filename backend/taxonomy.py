@@ -18,13 +18,22 @@ catégorie sans que personne ne s'en aperçoive.
 import unicodedata
 import re
 
-# Branches dont les FEUILLES portent des noms génériques d'instruments ("Guitare Acoustique",
-# "Guitare Electrique", "Basse") : elles désignent en réalité des ÉTUIS pour ces instruments.
-# Un nom nu appartenant à ces branches n'est jamais résolu — il est bien plus probable qu'il
-# désigne l'instrument lui-même. Seul le chemin complet (que le prompt exige désormais) permet
-# de classer un étui. Même raisonnement que l'exclusion de cette branche de la recherche floue
-# côté frontend, en place depuis le 2026-08-01.
-AMBIGUOUS_LEAF_BRANCHES = ('etui_housse',)
+# Branche des contenants, dont CERTAINES feuilles portent des noms génériques d'instruments
+# ("Guitare Acoustique", "Guitare Electrique") alors qu'elles désignent des étuis pour ces
+# instruments. Un tel nom nu n'est jamais résolu : il est bien plus probable qu'il désigne
+# l'instrument lui-même.
+#
+# ⚠️ Restreint le 2026-08-16 après l'audit en production : la règle bloquait AUPARAVANT toute
+# feuille de cette branche, y compris `Housse_Souple`, `Gigbag Standard`, `ATA Road Case` ou
+# `Etui_Rigide` — des termes d'étui purs, sans la moindre ambiguïté, que rien ne justifiait de
+# refuser (≈19 annonces correctement classées rendues invisibles). Seuls sont désormais bloqués
+# les noms qui COMMENCENT par un nom de famille d'instrument, déduit dynamiquement des racines
+# de la taxonomie plutôt que codé en dur.
+CONTAINER_BRANCHES = ('etui_housse',)
+
+# Nombre minimum de segments d'un chemin partiel accepté pour une réparation par suffixe :
+# en dessous, on retombe sur une résolution par nom nu, avec le risque d'ambiguïté que ça implique.
+MIN_PARTIAL_PATH_SEGMENTS = 2
 
 
 def normalize_segment(text):
@@ -83,15 +92,53 @@ def build_index(taxonomy):
     return by_path, by_leaf
 
 
+def _instrument_roots(by_path):
+    """Racines de la taxonomie désignant des objets (guitare, amplificateur…), hors contenants."""
+    roots = {segments[0] for segments in by_path.values()}
+    return {normalize_segment(r) for r in roots if r not in CONTAINER_BRANCHES}
+
+
+def _repair_partial_path(classification, by_path):
+    """Étend un chemin INCOMPLET vers l'unique chemin canonique qui s'y termine.
+
+    L'audit en production a montré que l'IA produit régulièrement des chemins presque bons :
+    racine oubliée (`electrique.solid_body.Double_Cut.SG`), niveau intermédiaire sauté
+    (`guitare.acoustique_acier.Travel.Baby / Mini`, sans `specialites`) ou racine renommée depuis
+    (`accessoire_etui.protection.Etui_Rigide.…`). Tous désignent sans ambiguïté une seule
+    catégorie — les jeter revenait à perdre de l'information déjà correcte.
+
+    On cherche donc les chemins canoniques qui SE TERMINENT par les segments fournis, en retirant
+    au besoin les premiers segments de l'entrée (racine inventée). Un résultat n'est accepté que
+    s'il est UNIQUE et qu'il reste au moins `MIN_PARTIAL_PATH_SEGMENTS` segments à comparer.
+    """
+    segments = [s for s in normalize_path(classification).split('.') if s]
+    canonical_paths = list(by_path.values())
+
+    while len(segments) >= MIN_PARTIAL_PATH_SEGMENTS:
+        suffix = '.' + '.'.join(segments)
+        matches = {
+            '.'.join(path) for path in canonical_paths
+            if normalize_path('.'.join(path)).endswith(suffix)
+        }
+        if len(matches) == 1:
+            return matches.pop()
+        if len(matches) > 1:
+            return None  # Plusieurs cibles possibles : on ne devine pas.
+        segments = segments[1:]  # Racine inventée/obsolète : on la retire et on réessaie.
+
+    return None
+
+
 def canonicalize(classification, taxonomy, index=None):
     """Ramène une valeur de classification à un chemin canonique.
 
     Retourne `(chemin_ou_None, raison)` où `raison` vaut :
-      - 'exact_path'  : déjà un chemin complet valide
-      - 'leaf'        : nom de feuille unique, étendu en chemin complet
-      - 'ambiguous'   : nom porté par plusieurs branches → NON résolu volontairement
-      - 'unknown'     : absent de la taxonomie
-      - 'empty'       : rien à résoudre
+      - 'exact_path'   : déjà un chemin complet valide
+      - 'leaf'         : nom de feuille unique, étendu en chemin complet
+      - 'partial_path' : chemin incomplet étendu vers l'unique chemin canonique correspondant
+      - 'ambiguous'    : nom porté par plusieurs branches → NON résolu volontairement
+      - 'unknown'      : absent de la taxonomie
+      - 'empty'        : rien à résoudre
     """
     if not classification:
         return None, 'empty'
@@ -107,10 +154,21 @@ def canonicalize(classification, taxonomy, index=None):
     candidates = by_leaf.get(normalize_segment(classification)) or []
     distinct = sorted({'.'.join(c) for c in candidates})
     if len(distinct) == 1:
-        if distinct[0].split('.')[0] in AMBIGUOUS_LEAF_BRANCHES:
-            return None, 'ambiguous'
+        segments = distinct[0].split('.')
+        # Feuille d'un contenant : refusée seulement si son nom commence par un nom de famille
+        # d'instrument ("Guitare Acoustique" → probablement l'instrument, pas l'étui). Les termes
+        # d'étui purs ("Housse_Souple", "ATA Road Case") passent normalement.
+        if segments[0] in CONTAINER_BRANCHES:
+            leaf_key = normalize_segment(segments[-1])
+            if any(leaf_key.startswith(root) for root in _instrument_roots(by_path)):
+                return None, 'ambiguous'
         return distinct[0], 'leaf'
     if len(distinct) > 1:
         return None, 'ambiguous'
+
+    # Chemin incomplet (racine oubliée, niveau sauté, racine obsolète) : extensible sans ambiguïté.
+    repaired = _repair_partial_path(classification, by_path)
+    if repaired:
+        return repaired, 'partial_path'
 
     return None, 'unknown'

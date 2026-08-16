@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
@@ -40,17 +40,20 @@ def run():
         INCONNU / vide) et liste les valeurs non résolvables avec des exemples de titres —
         c'est ce comptage qui doit décider de la suite (correction manuelle ou ré-analyse
         payante des annonces restantes) ;
-      - peut aussi réécrire en chemin canonique les valeurs qui se résolvent déjà sans
-        ambiguïté (document + index) — mais **PAS dans cette exécution**.
+      - réécrit en chemin canonique les valeurs qui se résolvent sans ambiguïté
+        (document + index).
 
-    `dry_run=True` : lecture seule, AUCUNE écriture en base. Choix explicite de l'utilisateur —
-    on regarde les chiffres avant d'autoriser la moindre réécriture des données de production.
-    La normalisation se fera lors d'un déploiement ultérieur, en repassant ce flag à False.
+    2e exécution, cette fois EN ÉCRITURE (`dry_run=False`) : le passage précédent en lecture
+    seule (run #332) a montré 328 annonces normalisables et validé qu'aucune valeur ambiguë ni
+    correction manuelle n'était concernée. La résolution a été assouplie entre-temps (règle
+    d'ambiguïté restreinte aux noms d'instruments + réparation des chemins partiels), ce qui
+    ajoute ≈27 annonces récupérées à ce total.
 
-    Idempotent (a fortiori en lecture seule). Rapide : Firestore uniquement, aucun appel Gemini.
+    Idempotent : le 2e passage (le job se déclenche sur `dev` PUIS `master`) ne réécrit rien.
+    Rapide : Firestore uniquement, aucun appel Gemini.
     """
     from backend.scripts.audit_classifications import run as audit_run
-    audit_run(dry_run=True)
+    audit_run(dry_run=False)
 
 
 if __name__ == "__main__":

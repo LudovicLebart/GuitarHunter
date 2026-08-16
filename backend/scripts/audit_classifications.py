@@ -10,9 +10,9 @@ ambigu — c'est à la fois une feuille de `etui_housse.Etui_Rigide` et la lectu
 Ce script fait DEUX choses, dans la même passe :
 
   1. AUDIT (toujours) : classe chaque annonce selon ce que donne
-     `backend/taxonomy.py::canonicalize()` — `exact_path`, `leaf`, `ambiguous`, `unknown`,
-     `empty` — et affiche le détail des valeurs problématiques avec des exemples de titres.
-     C'est ce comptage qui doit décider de la suite (correction manuelle vs ré-analyse payante).
+     `backend/taxonomy.py::canonicalize()` — `exact_path`, `leaf`, `partial_path`, `ambiguous`,
+     `unknown`, `empty` — et affiche le détail des valeurs problématiques avec des exemples de
+     titres. C'est ce comptage qui doit décider de la suite (correction manuelle vs ré-analyse).
 
   2. NORMALISATION (sauf --dry-run) : réécrit en CHEMIN CANONIQUE complet les annonces dont la
      valeur se résout sans ambiguïté (`exact_path` au format non canonique, ou `leaf`), dans le
@@ -142,7 +142,7 @@ def run(dry_run=False):
     total = sum(totals.values())
     logger.info("=" * 78)
     logger.info(f"TOTAL : {total} annonces")
-    for reason in ('exact_path', 'leaf', 'ambiguous', 'unknown', 'empty', 'manual'):
+    for reason in ('exact_path', 'leaf', 'partial_path', 'ambiguous', 'unknown', 'empty', 'manual'):
         count = totals[reason]
         share = (count / total * 100) if total else 0
         logger.info(f"  {reason:<12} : {count:>6}  ({share:.1f}%)")

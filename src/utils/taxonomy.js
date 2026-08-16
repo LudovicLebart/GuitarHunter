@@ -37,12 +37,17 @@ const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
 const FUZZY_MIN_KEY_LENGTH = 5;
 const FUZZY_EXCLUDED_BRANCHES = ['etui_housse'];
 
-// Branches dont les FEUILLES portent des noms génériques d'instruments ("Guitare Acoustique",
-// "Guitare Electrique", "Basse") alors qu'elles désignent des ÉTUIS. Un nom nu appartenant à ces
-// branches n'est jamais résolu : il est bien plus probable qu'il désigne l'instrument lui-même.
-// Seul le chemin complet permet de classer un étui — c'est ce que le prompt exige désormais.
-// Miroir de `backend/taxonomy.py::AMBIGUOUS_LEAF_BRANCHES`.
-const AMBIGUOUS_LEAF_BRANCHES = ['etui_housse'];
+// Branche des contenants, dont CERTAINES feuilles portent des noms génériques d'instruments
+// ("Guitare Acoustique", "Guitare Electrique") tout en désignant des étuis. Un tel nom nu n'est
+// jamais résolu : il est bien plus probable qu'il désigne l'instrument lui-même.
+// ⚠️ Restreint le 2026-08-16 après l'audit en production : la règle bloquait auparavant TOUTE
+// feuille de la branche, y compris des termes d'étui purs sans ambiguïté ("Housse_Souple",
+// "Gigbag Standard", "ATA Road Case") — ≈19 annonces correctement classées rendues invisibles.
+// Miroir de `backend/taxonomy.py::CONTAINER_BRANCHES`.
+const CONTAINER_BRANCHES = ['etui_housse'];
+
+// Segments minimum d'un chemin partiel accepté pour une réparation par suffixe.
+const MIN_PARTIAL_PATH_SEGMENTS = 2;
 
 /**
  * Index de la taxonomie :
@@ -108,6 +113,40 @@ const buildIndex = () => {
 export const TAXONOMY_INDEX = buildIndex();
 export const TAXONOMY_NODES = TAXONOMY_INDEX.nodes;
 
+// Racines désignant des objets (guitare, amplificateur…), hors contenants — déduites de la
+// taxonomie plutôt que codées en dur.
+const INSTRUMENT_ROOTS = [...new Set(
+  Object.values(TAXONOMY_INDEX.byPath)
+    .map(segments => segments[0])
+    .filter(root => !CONTAINER_BRANCHES.includes(root))
+    .map(normalizeSegment)
+)];
+
+/**
+ * Étend un chemin INCOMPLET vers l'unique chemin canonique qui s'y termine.
+ * L'IA produit régulièrement des chemins presque bons : racine oubliée
+ * (`electrique.solid_body.Double_Cut.SG`), niveau intermédiaire sauté, ou racine obsolète
+ * (`accessoire_etui.protection.…`). Tous désignent une seule catégorie sans ambiguïté.
+ * Miroir de `backend/taxonomy.py::_repair_partial_path`.
+ */
+const repairPartialPath = (classification) => {
+  let segments = normalizePath(classification).split('.').filter(Boolean);
+  const canonicalPaths = Object.values(TAXONOMY_INDEX.byPath);
+
+  while (segments.length >= MIN_PARTIAL_PATH_SEGMENTS) {
+    const suffix = `.${segments.join('.')}`;
+    const matches = [...new Set(
+      canonicalPaths
+        .filter(path => normalizePath(path.join('.')).endsWith(suffix))
+        .map(path => path.join('.'))
+    )];
+    if (matches.length === 1) return matches[0].split('.');
+    if (matches.length > 1) return null; // Plusieurs cibles : on ne devine pas.
+    segments = segments.slice(1);        // Racine inventée/obsolète : on la retire.
+  }
+  return null;
+};
+
 // Recherche floue : le chemin dont la clé textuelle est la plus longue (donc la plus spécifique)
 // parmi celles contenues dans le texte. Dernier recours seulement — voir les exclusions ci-dessus.
 const findPathFuzzy = (normalizedText) => {
@@ -152,10 +191,21 @@ export const resolveClassification = (classification) => {
   const distinct = [...new Set(candidates.map(c => c.join('.')))];
   if (distinct.length === 1) {
     const segments = distinct[0].split('.');
-    if (AMBIGUOUS_LEAF_BRANCHES.includes(segments[0])) return { segments: null, ambiguous: true };
+    // Feuille d'un contenant : refusée seulement si son nom commence par un nom de famille
+    // d'instrument. Les termes d'étui purs passent normalement.
+    if (CONTAINER_BRANCHES.includes(segments[0])) {
+      const leafKey = normalizeSegment(segments[segments.length - 1]);
+      if (INSTRUMENT_ROOTS.some(root => leafKey.startsWith(root))) {
+        return { segments: null, ambiguous: true };
+      }
+    }
     return { segments, ambiguous: false };
   }
   if (distinct.length > 1) return { segments: null, ambiguous: true };
+
+  // Chemin incomplet (racine oubliée, niveau sauté, racine obsolète) : extensible sans ambiguïté.
+  const repaired = repairPartialPath(classification);
+  if (repaired) return { segments: repaired, ambiguous: false };
 
   // 3. Dernier recours : recherche floue sur du texte libre (ex: "Fender Stratocaster")
   const fuzzy = findPathFuzzy(asLeaf);
