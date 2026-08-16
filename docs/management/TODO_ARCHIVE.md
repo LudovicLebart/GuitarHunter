@@ -378,6 +378,10 @@ Tâches `[x]` déplacées depuis `TODO.md` (devenu trop long — 557 lignes) pou
 - [x] **Ajouter un bouton Favoris dans la modale** *(Session 33)*
     - *Détails :* L'utilisateur peut désormais marquer une annonce en favori directement depuis la vue détaillée (modale) de la carte.
 
+- [x] **Bouton "Discuter sur Gemini" — abandonné, remplacé par le chat intégré** *(Branche `feature/discuter-gemini`, 2026-07-31 — clôturé 2026-08-16)*
+    - *Détails de l'itération abandonnée :* copie d'un prompt (annonce + analyse IA) dans le presse-papier + ouverture de `gemini.google.com/app?q=...` dans un nouvel onglet. Jamais validée par l'utilisateur ni fusionnée dans `dev`.
+    - *Raison de l'abandon :* incapable de transmettre les photos de l'annonce — remplacée dès le 2026-07-31 par le **chat Gemini intégré** (`DealChatPanel.jsx` / `useDealChat.js` / `geminiChatService.js`, Firebase AI Logic), validé en conditions réelles et déjà archivé plus haut. La branche `feature/discuter-gemini` reste sur le remote mais est morte.
+
 ### 🗺️ Cartographie (Mockup V2)
 
 - [x] **Améliorer l'interaction avec les Pins** *(Complété Session 34)*

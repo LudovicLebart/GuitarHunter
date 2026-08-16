@@ -63,9 +63,6 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Détails :* Découvert le 2026-07-09 en diagnostiquant le bug de fiche détail dégradée — `FirestoreHandler` bufferise les logs et les envoie par lots toutes les 3s ; des logs émis à quelques centaines de ms d'écart peuvent recevoir un `timestamp` serveur identique/très proche, et s'afficher dans le LogViewer dans un ordre différent de leur émission réelle (observé concrètement : un log de `handle_deal_found` affiché avant un log qui le précède pourtant dans le code).
     - *Solution possible :* ajouter un champ de séquence monotone (ex: compteur incrémental côté `FirestoreHandler`, ou timestamp local haute résolution) pour un tri stable côté `LogViewer.jsx`, en complément du `timestamp` serveur.
 
-- [ ] **Problème de la double connexion API (Feature future) :**
-    - *Détails :* À lister si le besoin s'en fait sentir.
-
 ---
 
 ## 🧹 Maintenabilité & Dette Technique
@@ -79,22 +76,22 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - *Piste* : passer à un **pool d'annonces partagé** (collection globale indexée par ID Facebook, analysée IA une seule fois), avec une couche de **filtrage/affichage par utilisateur** (ville, prix, mots-clés propres à chaque config) qui ne montre que les annonces pertinentes pour ses propres critères de recherche — sans dupliquer ni le scraping ni l'analyse IA.
     - *Impact estimé* : réduction directe et significative des appels Gemini (donc du coût), plus large que le gain du caching de contexte (`GEMINI_PROMPT_CACHING_PLAN.md`) puisqu'elle élimine l'appel plutôt que de le rendre moins cher. À chiffrer/planifier séparément (refactor architecture significatif : migration des données existantes, règles Firestore, `firestoreService.js`, `bot.py`).
 
-- [ ] **Problème à documenter...**
-    - *Détails :* ...
-
 ---
 
 ## 🎨 Interface Utilisateur (UI/UX)
 
 - [ ] **Ajouter un bouton de sauvegarde explicite pour les prompts**
     - *Détails :* Actuellement, chaque `onBlur` sur un champ du `PromptListEditor` déclenche une sauvegarde immédiate dans Firestore. Envisager un bouton "Sauvegarder" avec confirmation pour éviter les sauvegardes accidentelles.
+    - *Vérifié 2026-08-16 : toujours ouvert* — `ConfigPanel.jsx::PromptListEditor` sauvegarde encore via `onBlur={handleBlur}`, aucun bouton de validation.
 
 - [ ] **Migration catalogue partagé** *(Dette technique)*
     - *Détails :* Le serveur déployé utilise l'ancienne architecture (villes dans `users/{uid}/cities` avec métadonnées complètes). Le catalogue partagé `artifacts/{APP_ID}/cities` est vide. Un fallback a été ajouté côté frontend, mais la migration vers la nouvelle architecture reste à faire pour le déploiement de la nouvelle version backend.
+    - *Vérifié 2026-08-16 : toujours ouvert côté code* — le fallback "ancienne architecture" est toujours en place dans `firestoreService.js::onCitiesUpdate`. L'état réel des données en production (catalogue partagé vide ou non) n'est pas vérifiable depuis l'environnement de dev.
 
 - [ ] **Améliorer la recherche globale (Modèle, Lieu, etc.)**
     - *Détails :* Permettre à la barre de recherche de filtrer également selon la taxonomie. Envisager une autocomplétion intelligente qui propose des catégories (ex: Guitares, Amplis) en plus des termes libres.
     - *Progrès (2026-07-31)* : la recherche texte libre matche désormais aussi `brand`/`model_name`/`color` (en plus du `title`), sur toutes les annonces via l'index (`deals_index`). Reste à faire : matcher la taxonomie elle-même et l'autocomplétion de catégories.
+    - *Vérifié 2026-08-16 : reste à faire confirmé* — `useDealsManager.js::matchesTypeFilter` construit son `haystack` à partir de `title`/`brand`/`model_name`/`color` uniquement ; la taxonomie n'est pas matchée et aucune autocomplétion n'existe dans la barre de recherche.
 
 - [/] **Dashboard Analytics & Statistiques** *(Moteur de calcul intégré, en cours)*
     - *Détails :* Le "moteur" de stats est fonctionnel au sein du composant, utilisant les données réelles de Firestore.
@@ -102,12 +99,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [/] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini")*
     - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumulait Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée à l'origine : l'utilisateur voulait réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
     - *Progrès (2026-07-31, chat Gemini intégré)* : le bouton "Discuter avec Gemini" a été retiré de la carte liste (visible uniquement dans la modale, `isModal` + `onOpenChat`) — un bouton en moins sur la vue liste. Reste ouvert : la barre d'actions de la modale elle-même (7 boutons) n'a pas été réorganisée/regroupée.
-
-### 🪟 Modale d'Analyse IA
-
-- [ ] **Bouton "Discuter sur Gemini"** *(Branche `feature/discuter-gemini`, 2026-07-31, en attente de validation utilisateur avant fusion)*
-    - *Détails :* Alternative à un chat IA intégré (jugée trop lourde — nouveau backend, nouvelle collection Firestore) : copie un prompt (annonce + analyse IA) dans le presse-papier et ouvre `gemini.google.com/app?q=...` dans un nouvel onglet pour que l'utilisateur poursuive la conversation avec Gemini directement.
-    - *Non validé* : impossible de vérifier depuis l'environnement de dev si `?q=` préremplit réellement le champ de saisie Gemini (Playwright bloqué par le proxy du sandbox). Le presse-papier reste un repli garanti dans tous les cas. À tester par l'utilisateur, puis fusionner dans `dev` si ok.
+    - *Vérifié 2026-08-16 : reste à faire confirmé* — `DealCardActions.jsx` expose toujours les 7 mêmes actions dans la modale (Favori, Ré-analyser, Rejeter, Supprimer, Partager, Gemini, Voir l'annonce), aucun regroupement derrière un menu secondaire.
 
 ---
 
@@ -139,6 +131,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
     - [x] **Indexation des 5 scores IA individuels + déscopage complet de StatsView (2026-08-06)** : `backend/repository.py::_update_deal_index()` indexe désormais `deal_score`/`authenticity_score`/`liquidity_score`/`restoration_interest_score` (en plus de `condition_score` déjà indexé) — corrige au passage `deal_score` qui était silencieusement substitué par la moyenne des 5 scores pour toute annonce non chargée en entier (`useDealsManager.js`). `StatsView.jsx` calcule désormais tout sur l'inventaire complet (`analysisDeals`), plus aucune dépendance à l'onglet actif ni au scroll/chargement — retour utilisateur : "ce ne sont pas des stats filtrées par onglet, et ça ne doit pas dépendre du scrolling, c'est une erreur de conception".
     - [x] **Backfill `ds`/`as`/`ls`/`rs` effectué (2026-08-12)** : `backend/scripts/run_once.py` (`ACTIVE = True` → `rebuild_index.rebuild()`) exécuté avec succès en production au déploiement du commit `a616777` (run GitHub Actions #321, ~6 min) — 7 utilisateurs parcourus, 4218 annonces réindexées au total (33 + 206 + 3979). `ACTIVE` repassé à `False` dans la foulée. Un premier essai (commit `3bc439d`) avait échoué silencieusement (`ModuleNotFoundError: No module named 'backend'`, sans impact — étape non bloquante) et a été corrigé (`sys.path.insert(0, os.getcwd())`, même pattern que `rebuild_index.py`).
     - [ ] **Reste à faire** : "Cold Deals" (annonces anciennes en apparence bonnes mais invendables), `discount_index`, badges "Certifié Expert" sur les KPIs basés sur une analyse Tier 3.
+        - *Vérifié 2026-08-16 : les 3 sont bien non implémentés* — aucune occurrence de `discount_index` ni de "Cold Deal" dans `src/`, `backend/` ou `prompts.json` ; le seul "Certifié" présent dans `StatsView.jsx` est l'étiquette de l'étape Funnel `Certifié (Expert T3)`, pas un badge de confiance sur les KPIs financiers.
     - [x] **Fix régression post-backfill (2026-08-12)** : Score IA Moyen dilué par le mauvais dénominateur (inventaire total au lieu des annonces scorées) + deltas de temps négatifs sur données corrompues (voir bug ci-dessous) faussant les moyennes sur petits échantillons. Corrigé, voir `JOURNAL.md`.
     - [x] **Clarification de 3 sections peu compréhensibles (2026-08-13)** : "Score moyen par tranche de prix", "Score IA élevé = vendu plus souvent ?" (ex-Véracité IA), "La liquidité prédite par l'IA se confirme-t-elle ?" (ex-Vitesse de vente réelle vs Liquidité prédite) — titres en questions directes, comptes d'observations affichés par barre, avertissement si échantillon trop petit. Voir `JOURNAL.md`.
     - [x] **Refonte du graphique Liquidité prédite vs Vitesse réelle (2026-08-13)** : passage d'une seule barre (délai réel) à deux courbes sur échelle unique 0-100 (score prédit vs vitesse réelle normalisée) — la prédiction est enfin visible explicitement, et une bonne prédiction se lit comme deux courbes qui se suivent plutôt que divergent. Voir `JOURNAL.md`.
