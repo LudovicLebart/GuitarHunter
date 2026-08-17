@@ -40,16 +40,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [ ] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19)*
+- [/] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19 — les 3 pistes sont codées depuis le 2026-08-17, 2 restent à confirmer en conditions réelles)*
     - *Symptôme signalé :* Le scraper détecte régulièrement des annonces dont le titre contient le mot "VENDU" (ajouté manuellement par le vendeur), ou des annonces que Facebook retourne encore dans les résultats de listing même si la fiche détail n'existe plus ou redirige. Ces annonces passent le pipeline IA et génèrent des faux positifs.
     - *Causes probables :*
         1. Le portier (`gemini-2.5-flash-lite`) n'est pas instruit de rejeter les annonces dont le titre ou la description contient explicitement "VENDU", "SOLD", "vendu!", etc.
         2. `check_listing_availability` vérifie la redirection 404 mais pas le cas "page existe, mais titre contient VENDU" (vendeur qui ne supprime pas l'annonce).
     - *Pistes de correction :*
         1. ✅ **Filtre pré-IA (implémenté 2026-07-19)** : `handle_deal_found()` (`backend/bot.py`) — vérification de `SOLD_MARKERS` (`vendu`, `sold`, `deal closed`…) dans le titre et les 200 premiers chars de description. Rejet avant `session_processed_ids.add()` (pas marqué "traité") pour permettre re-détection si le vendeur corrige son titre. Log visible dans LogViewer.
-        2. [ ] **Filtre scraper** : dans `check_listing_availability()` (`backend/scraping/core.py`), ajouter une vérification du titre récupéré — si le titre de la fiche détail contient "VENDU", traiter comme vendu.
+        2. ✅ **Filtre scraper (implémenté 2026-08-17)** : `check_listing_availability()` (`backend/scraping/core.py` **et** `backend/scraping/kijiji/core.py`, même trou corrigé sur les deux) — vérifie désormais `og:title` par sous-chaîne (pas seulement les badges de statut au texte exact) : si le titre de la fiche détail contient "VENDU" (ou un autre marqueur de `backend/sold_markers.py`, nouveau module partagé), traité comme vendu. Non testé en conditions réelles (pas d'accès Playwright/réseau depuis l'environnement de dev) — à valider par l'utilisateur.
         3. ✅ **Prompt Tier 1 (implémenté 2026-08-06)** : `gatekeeper_verbosity_instruction` (`prompts.json`) instruit désormais explicitement le Portier de rejeter (`REJECTED_ITEM`) toute annonce dont le titre/description signale une vente déjà conclue — couvre notamment les scans manuels, qui contournent le filtre pré-IA (piste 1). Non testé en conditions réelles depuis l'environnement de dev (pas d'accès Gemini/Facebook/Kijiji) — à valider par l'utilisateur.
-    - *Priorité :* Moyenne — génère du bruit et des lectures Firestore inutiles mais pas de bug critique. Reste ouvert : piste 2 seule.
+    - *Priorité :* Moyenne — génère du bruit et des lectures Firestore inutiles mais pas de bug critique. **Les 3 pistes sont désormais codées** ; reste à confirmer les pistes 2 et 3 en conditions réelles (piste 1 déjà validée en production).
 
 - [ ] **Investiguer : session Facebook non authentifiée → Facebook gate parfois le prix/les photos**
     - *Détails :* Le scraper est 100% anonyme (aucun `storage_state`/cookies persistants nulle part dans le backend, vérifié). Comportement intermittent observé sur `SCAN_URL` — la fiche détail se charge sans carrousel photo ni prix visible, alors que le titre/description restent disponibles (voir `TODO_ARCHIVE.md` pour l'historique du bug "Fiche détail Facebook dégradée").
