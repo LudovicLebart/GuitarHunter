@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 import { RADAR_GROUP } from '../constants';
 import { normalizeCityKey, pickBestLabel } from '../utils/cities';
 import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
+import DealsExplorer from './DealsExplorer';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -489,88 +490,6 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             .slice(0, 8);
     }, [analysisDeals]);
 
-    // ─── Score de liquidité prédit vs délai de vente réel ──────────────────
-    // Valide (ou pas) la prédiction de liquidité de l'IA contre le délai de vente réellement
-    // observé — score désormais indexé (voir repository.py::_update_deal_index), donc calculé sur
-    // l'inventaire complet plutôt que sur le seul sous-ensemble déjà chargé en entier.
-    //
-    // ⚠️ Ancienne version (jusqu'au 2026-08-17) : regroupait les ventes en 3 tranches fixes DE
-    // SCORE (Faible/Moyenne/Élevée) puis traçait la MOYENNE du score IA au sein de chaque tranche
-    // comme "prédiction" — circulaire, puisque les tranches sont définies par ce même score.
-    // Trois points nécessairement croissants produisaient une droite quasi garantie par
-    // construction, peu importe la vraie relation avec la vitesse de vente (remarqué par
-    // l'utilisateur — "les résultats prédits par l'IA forment une droite, c'est très suspect").
-    //
-    // Un remplacement en nuage de points + corrélation a d'abord été tenté, mais jugé moins lisible
-    // et il perdait la comparaison directe à 2 courbes (retour utilisateur : "on voulait corriger
-    // la ligne IA et on a cassé la ligne réelle"). Le format à 2 courbes est repris ici, MAIS les
-    // tranches sont désormais définies par la VITESSE RÉELLE observée (tercile le plus rapide /
-    // intermédiaire / le plus lent), pas par le score. La courbe "prédite" — la moyenne du score IA
-    // au sein de chaque tercile de vitesse réelle — n'est alors plus calculée sur un regroupement
-    // qu'elle a elle-même défini : rien ne garantit plus qu'elle monte. Vérifié par simulation
-    // (1000 scans/backend/scripts, voir JOURNAL.md) : sans vraie relation, la courbe "prédite" n'est
-    // croissante que dans ~20% des tirages aléatoires ; avec une vraie relation, elle capture la
-    // bonne direction dans ~100% des cas.
-    const liquiditySpeedData = useMemo(() => {
-        const soldDeals = analysisDeals
-            .filter(d =>
-                d.soldTimestamp?.seconds &&
-                d.publishTimestamp?.seconds &&
-                d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
-                typeof d.aiAnalysis?.liquidity_score === 'number'
-            )
-            .map(d => ({
-                score: d.aiAnalysis.liquidity_score,
-                delayH: (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600,
-            }));
-
-        const n = soldDeals.length;
-        // 3 terciles à partir de 6 ventes (≥2 par groupe) ; repli à 2 groupes dès 4 ventes ;
-        // en dessous, pas assez de données pour comparer des groupes.
-        const groupCount = n >= 6 ? 3 : n >= 4 ? 2 : 0;
-        if (groupCount === 0) return [];
-
-        const sorted = [...soldDeals].sort((a, b) => a.delayH - b.delayH);
-        const size = Math.floor(n / groupCount);
-        // Libellés courts délibérément : des libellés longs ("Ventes les plus rapides (15)")
-        // font que Recharts masque silencieusement un tick par manque de place plutôt que de le
-        // faire chevaucher — le premier point du graphique perdait son étiquette (constaté au
-        // rendu). `interval={0}` sur l'XAxis, ci-dessous, garantit maintenant l'affichage des 2/3
-        // libellés quoi qu'il arrive, mais rester court reste la meilleure protection.
-        const labels = groupCount === 3
-            ? ['Rapides', 'Intermédiaire', 'Lentes']
-            : ['Rapides', 'Lentes'];
-
-        const tiers = Array.from({ length: groupCount }, (_, i) => {
-            const start = i * size;
-            const end = i === groupCount - 1 ? n : start + size; // le dernier groupe récupère le reste
-            const items = sorted.slice(start, end);
-            return {
-                label: labels[i],
-                count: items.length,
-                avgH: items.reduce((a, d) => a + d.delayH, 0) / items.length,
-                predictedScore: Math.round((items.reduce((a, d) => a + d.score, 0) / items.length) * 10),
-            };
-        });
-
-        // Vitesse réelle normalisée sur 0-100 (tercile le plus rapide = 100, le plus lent = 0),
-        // pour être directement comparable au score prédit (déjà 0-100) sur le même axe : si la
-        // prédiction est fiable, les deux courbes se suivent plutôt que de diverger.
-        const delays = tiers.map(t => t.avgH);
-        const minDelay = Math.min(...delays);
-        const maxDelay = Math.max(...delays);
-        const spread = maxDelay - minDelay;
-
-        return tiers.map(t => ({
-            name: `${t.label} (${t.count})`,
-            avgH: Math.round(t.avgH),
-            predictedScore: t.predictedScore,
-            realSpeed: spread > 0 ? Math.round(100 * (maxDelay - t.avgH) / spread) : 100,
-            count: t.count,
-        }));
-    }, [analysisDeals]);
-    const liquiditySpeedTotal = liquiditySpeedData.reduce((sum, t) => sum + t.count, 0);
-
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
@@ -1005,54 +924,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 )}
             </div>
 
-            {/* Vitesse de vente réelle vs Liquidité prédite par l'IA */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
-                    <Zap size={16} className="text-emerald-400" />
-                    La liquidité prédite par l'IA se confirme-t-elle ?
-                </h3>
-                <p className="text-slate-500 text-xs mb-1">
-                    Deux courbes sur la même échelle 0-100 : le score de liquidité prédit par l'IA, et la vitesse de vente réellement observée. Les groupes sont désormais formés par la vitesse RÉELLE (pas par le score prédit) — si la prédiction est fiable, les deux courbes se suivent quand même ; si elle ne prédit rien, la courbe IA n'a aucune raison de suivre.
-                </p>
-                <p className="text-slate-600 text-[11px] mb-4">
-                    Chiffre entre parenthèses = nombre de ventes derrière chaque point. Vitesse réelle = classement des groupes par délai de vente moyen (100 = le plus rapide, 0 = le plus lent) — cette courbe est une pure description du tri, donc naturellement régulière ; c'est la courbe IA qu'il faut lire.
-                    {liquiditySpeedTotal > 0 && liquiditySpeedTotal < 20 && (
-                        <span className="text-amber-500"> ⚠️ Seulement {liquiditySpeedTotal} ventes tracées au total — à interpréter avec prudence.</span>
-                    )}
-                </p>
-
-                {liquiditySpeedData.length > 0 ? (
-                    <div className="h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={liquiditySpeedData} margin={{ top: 5, right: 45, left: 0, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                                <XAxis dataKey="name" interval={0} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <YAxis
-                                    domain={[0, 100]}
-                                    tick={{ fill: '#64748b', fontSize: 10 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <Tooltip
-                                    cursor={{ stroke: '#334155' }}
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
-                                    formatter={(value, name, props) => {
-                                        if (name === 'predictedScore') return [`${value}/100`, 'Liquidité prédite (score IA)'];
-                                        const delay = props.payload.avgH;
-                                        const delayLabel = delay < 24 ? `${delay}h` : `${Math.round(delay / 24)}j`;
-                                        return [`${value}/100 (délai réel moy. ${delayLabel})`, 'Vitesse réelle observée'];
-                                    }}
-                                />
-                                <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                                <Line type="monotone" dataKey="predictedScore" name="Liquidité prédite" stroke="#a78bfa" strokeWidth={2} dot={{ r: 4 }} />
-                                <Line type="monotone" dataKey="realSpeed" name="Vitesse réelle" stroke="#34d399" strokeWidth={2} dot={{ r: 4 }} />
-                            </LineChart>
-                        </ResponsiveContainer>
-                    </div>
-                ) : (
-                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (au moins 4 ventes avec un score de liquidité connu)</div>
-                )}
-            </div>
+            <DealsExplorer deals={analysisDeals} />
 
         </div>
     );
