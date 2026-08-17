@@ -19,6 +19,7 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
+from backend.sold_markers import find_sold_marker
 
 class FacebookScraper:
     def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None, logger: logging.Logger = None):
@@ -631,6 +632,17 @@ class FacebookScraper:
             # Facebook redirige vers /marketplace/ (accueil) quand l'item est totalement supprimé
             if "/marketplace/item/" not in page.url:
                 self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                return False
+
+            # 3. Vérification du titre (og:title) pour un marqueur de vente ajouté par le vendeur
+            # sans suppression de l'annonce (ex: "VENDU - Fender Strat 62"). Recherche par
+            # sous-chaîne (pas de regex ancrée comme pour les badges ci-dessous) : le marqueur peut
+            # être noyé n'importe où dans un titre plus long. `og:title` reste présent même quand
+            # Facebook gate le prix/les photos pour une session non authentifiée (voir CLAUDE.md).
+            og_title = page.locator('meta[property="og:title"]').get_attribute('content')
+            title_sold_marker = find_sold_marker(og_title)
+            if title_sold_marker:
+                self.logger.info(f"   🚫 Marqueur de vente trouvé dans le titre ('{title_sold_marker}'): '{og_title}'")
                 return False
 
             import json

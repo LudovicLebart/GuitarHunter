@@ -15,6 +15,7 @@ from config import (
 )
 from backend.analyzer import DealAnalyzer
 from backend.cities import normalize_city_key, format_city_label, pick_best_label
+from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
@@ -312,10 +313,10 @@ class GuitarHunterBot:
 
         # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
         # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
-        SOLD_MARKERS = ['vendu', 'sold', 'deal closed', 'plus disponible', 'no longer available']
-        title_lower = (listing_data.get('title') or '').lower()
-        desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
-        found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
+        found_sold_marker = (
+            find_sold_marker(listing_data.get('title'))
+            or find_sold_marker((listing_data.get('description') or '')[:200])  # 200 premiers chars suffisent
+        )
         
         if found_sold_marker and not is_manual_scan:
             if existing_deal and existing_deal.get('status') != 'sold':
