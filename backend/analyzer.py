@@ -32,6 +32,10 @@ class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
         self.models = {}
         self._model_error_last_notified = {}
+        # Index de taxonomie mémorisé : `canonicalize()` le reconstruisait pour CHAQUE annonce
+        # analysée (200 nœuds parcourus à chaque fois) alors qu'il ne change qu'avec la config.
+        self._taxonomy_index = None
+        self._taxonomy_index_source = None
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module si non fourni (scripts autonomes/tests).
         self.logger = logger or logging.getLogger(__name__)
@@ -168,6 +172,19 @@ class DealAnalyzer:
         taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
         return self._canonicalize_classification(result, taxonomy)
 
+    def _get_taxonomy_index(self, taxonomy):
+        """Index de taxonomie mémorisé, reconstruit uniquement si la taxonomie a changé.
+
+        Comparaison par identité : `ConfigManager` réutilise le même objet de configuration entre
+        deux analyses, donc l'index n'est reconstruit qu'après une vraie modification de la config
+        (et une comparaison par identité qui échouerait à tort ne coûterait qu'une reconstruction,
+        jamais un résultat faux).
+        """
+        if self._taxonomy_index is None or self._taxonomy_index_source is not taxonomy:
+            self._taxonomy_index = build_taxonomy_index(taxonomy)
+            self._taxonomy_index_source = taxonomy
+        return self._taxonomy_index
+
     def _canonicalize_classification(self, result, taxonomy):
         """Remplace `classification` par son chemin canonique complet, ou la retire si invalide.
 
@@ -184,7 +201,7 @@ class DealAnalyzer:
         if not raw:
             return result
 
-        canonical, reason = canonicalize_classification(raw, taxonomy)
+        canonical, reason = canonicalize_classification(raw, taxonomy, self._get_taxonomy_index(taxonomy))
         if canonical:
             if canonical != raw:
                 self.logger.info(f"   🧭 Classification normalisée : '{raw}' -> '{canonical}' ({reason})")

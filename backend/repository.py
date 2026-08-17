@@ -170,6 +170,13 @@ class FirestoreRepository:
                     update_data[f"{prefix}.st"] = ts_sold
             
             if ai_analysis is not None:
+                # La correction manuelle est relue ICI par défaut plutôt que confiée aux appelants :
+                # rebuild_index.py, reanalyze_sold_deals.py et recover_initial_verdict.py ne la
+                # passaient pas, et réécrivaient donc `c` avec la valeur de l'IA tout en laissant
+                # `mc: true` — l'UI affichait "corrigé manuellement" sur une catégorie qui ne l'était
+                # plus, et les filtres revenaient silencieusement à la valeur de l'IA.
+                if manual_classification is None:
+                    manual_classification = self._get_manual_classification(deal_id)
                 ai = ai_analysis or {}
                 if isinstance(ai, list):
                     ai = ai[0] if len(ai) > 0 else {}

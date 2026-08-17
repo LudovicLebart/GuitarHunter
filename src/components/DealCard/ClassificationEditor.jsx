@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Pencil, Check, X, RotateCcw, Search } from 'lucide-react';
-import { TAXONOMY_NODES, formatClassificationLabel, resolveClassification } from '../../utils/taxonomy';
+import { TAXONOMY_NODES, formatClassificationLabel, resolveClassification, normalizeSegment } from '../../utils/taxonomy';
 
 /**
  * Correction manuelle de la catégorie d'une annonce (2026-08-16).
@@ -25,10 +25,13 @@ const ClassificationEditor = ({ deal, onSetClassification }) => {
     const isAmbiguous = !manualValue && resolveClassification(aiValue).ambiguous;
 
     const matches = useMemo(() => {
-        const needle = query.trim().toLowerCase();
+        // Comparaison sur chaînes normalisées (sans accents) : les libellés de la taxonomie n'en
+        // portent pas ("Etui Housse"), donc une recherche brute rendait muet l'exemple donné par
+        // le placeholder lui-même — taper "étui" ne renvoyait rien.
+        const needle = normalizeSegment(query.trim());
         if (needle.length < 2) return [];
         return TAXONOMY_NODES
-            .filter(node => `${node.breadcrumb} ${node.label}`.toLowerCase().includes(needle))
+            .filter(node => normalizeSegment(`${node.breadcrumb} ${node.label}`).includes(needle))
             .slice(0, 20);
     }, [query]);
 

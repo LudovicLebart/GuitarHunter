@@ -229,6 +229,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       const aiClassification = loadedDeals[dealId]?.aiAnalysis?.classification
         ?? (entry?.mc ? null : entry?.c);
       await setDealClassification(dealId, entry?.h, user.uid, classificationPath, aiClassification);
+      // `loadedDeals` est un cache écrit une seule fois, et il PRIME sur l'index dans la fusion
+      // ({ ...deal, ...full }) : sans invalidation, une 2e correction ou un retour à la catégorie
+      // de l'IA continuait d'afficher la valeur précédente jusqu'au rechargement de la page.
+      setLoadedDeals(prev => {
+        if (!prev[dealId]) return prev;
+        const next = { ...prev };
+        next[dealId] = { ...next[dealId], manualClassification: classificationPath || undefined };
+        return next;
+      });
     } catch (e) { setError(e.message); }
   }, [user, dealsIndexMap, loadedDeals, setError]);
 

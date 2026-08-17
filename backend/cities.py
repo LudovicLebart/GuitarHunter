@@ -13,8 +13,13 @@ Deux notions distinctes, à ne jamais confondre :
   - la **clé canonique** (`normalize_city_key`) sert à REGROUPER — insensible aux accents, à la
     casse, aux tirets, aux abréviations Saint/St et à la région ;
   - le **libellé** sert à AFFICHER — on conserve la plus riche des graphies rencontrées
-    (accents + région), conformément au choix produit « Ville, RÉGION » (ex: `Montréal, QC`),
-    qui distingue les homonymes de régions différentes (`Paris, IDF`).
+    (accents + région), conformément au choix produit « Ville, RÉGION » (ex: `Montréal, QC`).
+
+⚠️ La clé IGNORE la région, volontairement : c'est ce qui permet de réunir `montreal` (Kijiji,
+sans région) et `Montréal, QC` (Facebook). Conséquence à connaître : deux villes homonymes de
+régions différentes (`Paris, IDF` et `Paris, ON`) partagent la même clé. `regions_conflict()`
+sert à ne PAS les fusionner lors d'une réécriture destructive — un regroupement d'affichage est
+réversible, une réécriture en base ne l'est pas.
 """
 
 import unicodedata
@@ -68,6 +73,25 @@ def pick_best_label(labels):
     if not candidates:
         return None
     return sorted(candidates, key=lambda l: (score_label(l), str(l)), reverse=True)[0]
+
+
+def extract_region(raw):
+    """Région d'une graphie (`"Montréal, QC"` -> `"qc"`), ou `""` si absente."""
+    if not raw or ',' not in str(raw):
+        return ""
+    return str(raw).split(',', 1)[1].strip().lower()
+
+
+def regions_conflict(labels):
+    """`True` si deux graphies portent des régions explicites DIFFÉRENTES.
+
+    Sert de garde-fou avant toute réécriture : `Paris, IDF` et `Paris, ON` ont la même clé mais
+    ne sont pas la même ville. Une graphie sans région (`Paris`) n'entre pas en conflit — elle
+    est simplement moins précise.
+    """
+    regions = {extract_region(l) for l in labels or []}
+    regions.discard("")
+    return len(regions) > 1
 
 
 def format_city_label(name, reference=None):

@@ -67,6 +67,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🧹 Maintenabilité & Dette Technique
 
+- [/] **Cohérence des villes (`deal.location`)** *(corrigé 2026-08-16, historique à uniformiser)*
+    - [x] **Cause corrigée à la source** : Kijiji écrivait la clé normalisée de la ville (`montreal`) là où Facebook écrit `Montréal, QC` — la même ville comptée deux fois dans les stats. `bot.py::_build_city_display_names()` produit désormais le libellé d'affichage, région reprise d'une graphie déjà connue (option A). Modules partagés `backend/cities.py` + `src/utils/cities.js` (clé de regroupement vs libellé d'affichage), parité vérifiée.
+    - [ ] **Lire le rapport de `audit_cities.py`** dans les logs GitHub Actions (exécuté en écriture, choix utilisateur), puis **repasser `ACTIVE = False` dans un commit séparé**.
+    - [ ] **Limite connue** : une ville scannée uniquement sur Kijiji (jamais vue côté Facebook) est stockée sans région — la clé la regroupe correctement, mais le libellé reste court. Ajouter un champ région au catalogue de villes lèverait la limite (nouveau champ + UI, non fait).
+    - [ ] **Villes homonymes** : la clé ignore la région, donc `Paris, IDF` et `Paris, ON` partagent la même clé. `regions_conflict()` empêche l'audit de les fusionner, mais l'affichage les regrouperait dans un même point si le cas se présentait.
+
+
 - [/] **Fiabilité de la classification taxonomique** *(correctif majeur 2026-08-16, en attente de validation utilisateur)*
     - [x] **Bug corrigé : des étuis comptés/affichés comme des guitares** — collision de normalisation entre le nom de feuille `Guitare Electrique` (étui) et le chemin de branche `guitare.electrique`. Résolution déplacée dans `src/utils/taxonomy.js` + `backend/taxonomy.py` (miroirs vérifiés). Voir `JOURNAL.md`.
     - [x] **Résiduel `guitare.basse` corrigé** : `solid_body`/`specialites`, partagés entre `electrique`/`basse`/`acoustique_acier`, sont désormais détectés comme ambigus au lieu de résoudre vers la dernière branche parcourue.

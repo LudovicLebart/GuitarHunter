@@ -33,7 +33,7 @@ sys.path.insert(0, os.getcwd())
 from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
 from backend.repository import FirestoreRepository
-from backend.cities import normalize_city_key, pick_best_label
+from backend.cities import normalize_city_key, pick_best_label, regions_conflict
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger("audit_cities")
@@ -86,8 +86,24 @@ def run(dry_run=False):
             if raw:
                 variants_by_key[normalize_city_key(raw)].append(raw)
 
-        labels = {key: pick_best_label(variants) for key, variants in variants_by_key.items()}
-        multi = {k: sorted(set(v)) for k, v in variants_by_key.items() if len(set(v)) > 1}
+        # Deux villes homonymes de régions différentes partagent la même clé (la clé ignore la
+        # région, c'est ce qui permet de réunir "montreal" et "Montréal, QC"). Les réécrire
+        # ensemble fusionnerait deux villes réelles, de façon irréversible : on s'abstient.
+        conflicting = {k for k, v in variants_by_key.items() if regions_conflict(v)}
+        for key in sorted(conflicting):
+            logger.warning(
+                f"      ⚠️ '{key}' porte des régions différentes {sorted(set(variants_by_key[key]))} — "
+                f"probablement deux villes homonymes distinctes, laissées telles quelles."
+            )
+
+        labels = {
+            key: pick_best_label(variants)
+            for key, variants in variants_by_key.items() if key not in conflicting
+        }
+        multi = {
+            k: sorted(set(v)) for k, v in variants_by_key.items()
+            if len(set(v)) > 1 and k not in conflicting
+        }
 
         # Passe 2 : uniformisation
         fixed = 0

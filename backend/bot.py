@@ -14,6 +14,7 @@ from config import (
     GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID
 )
 from backend.analyzer import DealAnalyzer
+from backend.cities import normalize_city_key, format_city_label, pick_best_label
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
@@ -611,6 +612,38 @@ class GuitarHunterBot:
             f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + "."
         )
 
+    def _build_city_display_names(self, cities):
+        """`{clé de ville: libellé d'affichage}` pour étiqueter une annonce Kijiji.
+
+        Kijiji ne fournit pas de nom de ville fiable : `nearest_configured_city()` rattache
+        l'annonce à une ville configurée par GPS, mais ne renvoie que sa CLÉ normalisée
+        ("montreal"). L'écrire telle quelle produisait une seconde graphie à côté de celle de
+        Facebook ("Montréal, QC") — la même ville comptée deux fois dans les statistiques.
+
+        Le catalogue de villes ne stocke pas la région : elle est reprise d'une graphie déjà
+        présente dans l'index léger pour cette même ville (typiquement écrite par Facebook), via
+        `format_city_label()`. Une ville jamais vue côté Facebook garde son nom seul — la clé
+        canonique la regroupera quand même avec ses futures graphies (voir `backend/cities.py`).
+        """
+        display_names = {
+            normalize_city_key(c['name']): c['name']
+            for c in cities if c.get('name')
+        }
+        try:
+            known_labels = {}
+            for entry in self.repo.get_deals_index_snapshot().values():
+                raw = (entry or {}).get('l')
+                if raw:
+                    known_labels.setdefault(normalize_city_key(raw), []).append(raw)
+        except Exception as e:
+            self.logger.warning(f"[Kijiji] Libellés de villes existants illisibles ({e}) — noms seuls utilisés.")
+            return display_names
+
+        return {
+            key: format_city_label(name, pick_best_label(known_labels.get(key, [])))
+            for key, name in display_names.items()
+        }
+
     def _run_kijiji_scan(self, scan_config, cities_to_scan):
         """Scanne Kijiji.ca en plus de Facebook Marketplace, ville par ville, sur le même
         catalogue de villes (`cities_to_scan`) et les mêmes filtres partagés (`max_ads`,
@@ -641,10 +674,11 @@ class GuitarHunterBot:
         # accentué). `nearest_configured_city()` ne renvoie que la clé : l'écrire telle quelle
         # dans `location` produisait "montreal" là où Facebook stocke "Montréal, QC" — la même
         # ville comptée deux fois dans les statistiques par ville (signalé par l'utilisateur).
-        city_display_names = {
-            ListingParser.normalize_city_name(c['name']): c['name']
-            for c in cities_to_scan if c.get('name')
-        }
+        # OPTION A : Kijiji doit produire EXACTEMENT le même format que Facebook ("Montréal, QC"),
+        # sinon les deux producteurs continuent de diverger et la base se refragmente au prochain
+        # scan. Le catalogue de villes ne porte pas la région : on la récupère depuis une graphie
+        # déjà stockée pour cette ville (l'index léger suffit, aucune lecture de guitar_deals).
+        city_display_names = self._build_city_display_names(cities_to_scan)
         radius_km = scan_config.get('distance', 0)
         max_radius_km = radius_km if radius_km > 0 else None
         min_price = scan_config.get('min_price', 0)
@@ -777,11 +811,8 @@ class GuitarHunterBot:
                     for c in configured_cities
                     if c.get('latitude') is not None and c.get('longitude') is not None
                 }
-                # Voir _run_kijiji_scan() : on stocke le nom d'affichage, pas la clé normalisée.
-                city_display_names = {
-                    ListingParser.normalize_city_name(c['name']): c['name']
-                    for c in configured_cities if c.get('name')
-                }
+                # Voir _run_kijiji_scan() : on stocke le libellé d'affichage, pas la clé normalisée.
+                city_display_names = self._build_city_display_names(configured_cities)
             try:
                 scan_result = {}
                 def handle_manual_deal(listing_data):

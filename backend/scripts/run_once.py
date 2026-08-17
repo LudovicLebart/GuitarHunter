@@ -27,33 +27,31 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-16 : audit + normalisation des classifications taxonomiques
-    (`backend/scripts/audit_classifications.py`). GRATUIT, aucun appel Gemini :
+    2026-08-16 : audit + uniformisation des VILLES (`backend/scripts/audit_cities.py`).
+    GRATUIT, aucun appel Gemini :
 
-      - compte les annonces par type de résolution (chemin complet / feuille / AMBIGU /
-        INCONNU / vide) et liste les valeurs non résolvables avec des exemples de titres —
-        c'est ce comptage qui doit décider de la suite (correction manuelle ou ré-analyse
-        payante des annonces restantes) ;
-      - réécrit en chemin canonique les valeurs qui se résolvent sans ambiguïté
-        (document + index).
+      - regroupe les valeurs `location` par clé canonique et liste les villes stockées sous
+        plusieurs graphies (`Montréal, QC` / `montreal` / `St-Jean-sur-Richelieu,QC`) ;
+      - réécrit `location` (document + index) vers la graphie la plus riche de chaque ville.
 
-    2e exécution, cette fois EN ÉCRITURE (`dry_run=False`) : le passage précédent en lecture
-    seule (run #332) a montré 328 annonces normalisables et validé qu'aucune valeur ambiguë ni
-    correction manuelle n'était concernée. La résolution a été assouplie entre-temps (règle
-    d'ambiguïté restreinte aux noms d'instruments + réparation des chemins partiels), ce qui
-    ajoute ≈27 annonces récupérées à ce total.
+    EN ÉCRITURE (`dry_run=False`) : choix explicite de l'utilisateur, à qui la lecture seule
+    préalable a été proposée. Le rapport reste produit dans les mêmes logs, avec le détail des
+    graphies fusionnées ville par ville — il est simplement lu après coup plutôt qu'avant.
+
+    Ne fusionne jamais deux villes homonymes de régions différentes (`Paris, IDF` vs
+    `Paris, ON`) : `regions_conflict()` les écarte, une réécriture en base étant irréversible.
 
     Idempotent : le 2e passage (le job se déclenche sur `dev` PUIS `master`) ne réécrit rien.
-    Rapide : Firestore uniquement, aucun appel Gemini.
+    Rapide : Firestore uniquement.
     """
-    from backend.scripts.audit_classifications import run as audit_run
-    audit_run(dry_run=False)
+    from backend.scripts.audit_cities import run as audit_cities_run
+    audit_cities_run(dry_run=False)
 
 
 if __name__ == "__main__":

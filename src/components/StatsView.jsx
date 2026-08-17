@@ -1,9 +1,9 @@
 import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
-import promptsData from '../../prompts.json';
 import { RADAR_GROUP } from '../constants';
 import { normalizeCityKey, pickBestLabel } from '../utils/cities';
+import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -48,20 +48,6 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
     </div>
 );
 
-// Noms lisibles pour les types de classification
-const TYPE_LABELS = {
-    'Guitare acoustique': 'Acoustique',
-    'Guitare électrique': 'Électrique',
-    'Guitare basse': 'Basse',
-    'Guitare classique': 'Classique',
-    'Guitare folk': 'Folk',
-    'Guitare semi-acoustique': 'Semi-Acoustique',
-    'Guitare résonateur': 'Résonateur',
-    'Ukulélé': 'Ukulélé',
-    'Mandoline': 'Mandoline',
-    'Pedal Steel': 'Pedal Steel',
-};
-
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
 const LIQUIDITY_TIERS = [
@@ -78,38 +64,6 @@ const PRICE_BUCKETS = [
     { label: '2000$+', min: 2000, max: Infinity },
 ];
 
-// Résolution légère de la taxonomie pour le croisement "Marge par catégorie" — volontairement plus
-// simple que useDealsManager.js::findPathFuzzy (exact + leaf uniquement, PAS de recherche floue par
-// sous-chaîne) : ici on ne veut qu'un classement grossier (racine + sous-catégorie), un niveau où le
-// risque de collision documenté sur les leafs profonds (ex: "guitare.basse") ne s'applique pas.
-const normalizeTaxKey = (str) => {
-    if (!str) return '';
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, '');
-};
-
-const buildTaxonomyPathsByKey = () => {
-    const paths = {};
-    const traverse = (node, currentPath) => {
-        if (Array.isArray(node)) {
-            node.forEach(item => {
-                const path = [...currentPath, item];
-                paths[normalizeTaxKey(path.join('.'))] = path;
-                paths[normalizeTaxKey(item)] = path;
-            });
-        } else if (node && typeof node === 'object') {
-            Object.keys(node).forEach(key => {
-                const path = [...currentPath, key];
-                paths[normalizeTaxKey(path.join('.'))] = path;
-                paths[normalizeTaxKey(key)] = path;
-                traverse(node[key], path);
-            });
-        }
-    };
-    traverse(promptsData.taxonomy_master || {}, []);
-    return paths;
-};
-const TAXONOMY_PATHS_BY_KEY = buildTaxonomyPathsByKey();
-
 const CATEGORY_LABELS = {
     'guitare.electrique': 'Guitare Électrique',
     'guitare.acoustique_acier': 'Guitare Acoustique',
@@ -121,9 +75,14 @@ const CATEGORY_LABELS = {
     'etui_housse': 'Étui / Housse',
 };
 
+// Résolution déléguée au module partagé (`utils/taxonomy.js`) depuis le 2026-08-16 : la copie
+// locale normalisait le chemin en supprimant les points, si bien que "guitare.electrique"
+// (l'instrument) et "Guitare Electrique" (une feuille d'ÉTUI) produisaient la même clé — le bug
+// corrigé partout ailleurs survivait ici, et la canonicalisation des classifications l'a même
+// aggravé en généralisant les chemins complets en base.
 const resolveCategoryLabel = (classification) => {
     if (!classification) return null;
-    const path = TAXONOMY_PATHS_BY_KEY[normalizeTaxKey(classification)];
+    const { segments: path } = resolveClassification(classification);
     if (!path || path.length === 0) return null;
     if (path[0] === 'etui_housse') return CATEGORY_LABELS['etui_housse'];
     const key = path.length >= 2 ? `${path[0]}.${path[1]}` : path[0];
@@ -383,8 +342,10 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
         const byType = {};
         soldDeals.forEach(d => {
-            const classification = d.aiAnalysis.classification;
-            const label = TYPE_LABELS[classification] || classification.split(' ').slice(-1)[0];
+            // formatClassificationLabel plutôt qu'un découpage manuel : avec les chemins complets
+            // désormais stockés ("guitare.electrique.solid_body.Double_Cut.SG"), un split(' ')
+            // affichait le chemin technique entier — ou un mot isolé ("Paul" pour "Les Paul").
+            const label = formatClassificationLabel(d.aiAnalysis.classification) || 'Inconnue';
             const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
             if (!byType[label]) byType[label] = [];
             byType[label].push(diffH);
