@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, Scatter, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell } from 'recharts';
 import { RADAR_GROUP } from '../constants';
 import { normalizeCityKey, pickBestLabel } from '../utils/cities';
 import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
@@ -50,11 +50,16 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
 
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
-const LIQUIDITY_TIERS = [
-    { label: 'Faible (0-4)', min: 0, max: 5 },
-    { label: 'Moyenne (5-7)', min: 5, max: 8 },
-    { label: 'Élevée (8-10)', min: 8, max: 11 },
-];
+// Seuils Cohen pour qualifier |r| (corrélation de Pearson) en mots — convention usuelle,
+// pas un choix arbitraire. Voir liquidityCorrelation ci-dessous pour le calcul.
+const correlationStrength = (r) => {
+    const abs = Math.abs(r);
+    if (abs < 0.1) return 'négligeable';
+    if (abs < 0.3) return 'faible';
+    if (abs < 0.5) return 'modérée';
+    if (abs < 0.7) return 'forte';
+    return 'très forte';
+};
 
 const PRICE_BUCKETS = [
     { label: '0-250$', min: 0, max: 250 },
@@ -495,57 +500,57 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             .slice(0, 8);
     }, [analysisDeals]);
 
-    // ─── Vitesse de vente réelle vs liquidity_score prédit par l'IA ────────
+    // ─── Score de liquidité prédit vs délai de vente réel ──────────────────
     // Valide (ou pas) la prédiction de liquidité de l'IA contre le délai de vente réellement
     // observé — score désormais indexé (voir repository.py::_update_deal_index), donc calculé sur
     // l'inventaire complet plutôt que sur le seul sous-ensemble déjà chargé en entier.
-    const liquiditySpeedData = useMemo(() => {
-        const soldDeals = analysisDeals.filter(d =>
-            d.soldTimestamp?.seconds &&
-            d.publishTimestamp?.seconds &&
-            d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
-            typeof d.aiAnalysis?.liquidity_score === 'number'
-        );
-        if (soldDeals.length < 2) return [];
+    //
+    // ⚠️ Ancienne version (jusqu'au 2026-08-17) : regroupait les ventes en 3 tranches fixes
+    // (Faible/Moyenne/Élevée) puis traçait la MOYENNE du score IA au sein de chaque tranche comme
+    // "prédiction" — une droite quasi garantie par construction, puisque ces tranches sont elles-
+    // mêmes définies par ce même score. Peu importe la vraie relation entre score et vitesse de
+    // vente, la courbe "prédite" grimpait presque toujours en ligne droite (remarqué par
+    // l'utilisateur — "les résultats prédits par l'IA forment une droite, c'est très suspect").
+    // Remplacé par un nuage de points sur les valeurs individuelles (un point = une vente) et un
+    // coefficient de corrélation de Pearson calculé sur ces valeurs brutes — un test honnête de
+    // la relation, qui ne peut pas produire une droite par simple artefact de calcul.
+    const liquidityCorrelation = useMemo(() => {
+        const points = analysisDeals
+            .filter(d =>
+                d.soldTimestamp?.seconds &&
+                d.publishTimestamp?.seconds &&
+                d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
+                typeof d.aiAnalysis?.liquidity_score === 'number'
+            )
+            .map(d => ({
+                x: d.aiAnalysis.liquidity_score,
+                y: (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 86400, // jours
+            }));
 
-        const byTier = LIQUIDITY_TIERS.map(t => ({ ...t, deltas: [], scores: [] }));
-        soldDeals.forEach(d => {
-            const score = d.aiAnalysis.liquidity_score;
-            const tier = byTier.find(t => score >= t.min && score < t.max);
-            if (!tier) return;
-            const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
-            tier.deltas.push(diffH);
-            tier.scores.push(score);
+        const n = points.length;
+        if (n < 3) return { points, r: null, trend: [], n };
+
+        const meanX = points.reduce((a, p) => a + p.x, 0) / n;
+        const meanY = points.reduce((a, p) => a + p.y, 0) / n;
+        let covXY = 0, varX = 0, varY = 0;
+        points.forEach(p => {
+            const dx = p.x - meanX, dy = p.y - meanY;
+            covXY += dx * dy;
+            varX += dx * dx;
+            varY += dy * dy;
         });
 
-        const kept = byTier
-            .filter(t => t.deltas.length >= 2) // Au moins 2 observations
-            .map(t => ({
-                label: t.label,
-                count: t.deltas.length,
-                avgH: t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length,
-                predictedScore: Math.round((t.scores.reduce((a, b) => a + b, 0) / t.scores.length) * 10),
-            }));
-        // Il faut au moins 2 tranches pour comparer deux courbes.
-        if (kept.length < 2) return [];
+        // Variance nulle sur un axe (ex: tous les scores identiques) : la corrélation est
+        // mathématiquement indéfinie, pas "nulle" — distinct de r=0 (aucune relation détectée).
+        if (varX === 0 || varY === 0) return { points, r: null, trend: [], n };
 
-        // Vitesse réelle normalisée sur 0-100 (tranche la plus rapide = 100, la plus lente = 0),
-        // pour être directement comparable au score prédit (déjà 0-100) sur le même axe : si la
-        // prédiction est fiable, les deux courbes se suivent plutôt que de diverger.
-        const delays = kept.map(t => t.avgH);
-        const minDelay = Math.min(...delays);
-        const maxDelay = Math.max(...delays);
-        const spread = maxDelay - minDelay;
+        const r = covXY / Math.sqrt(varX * varY);
+        const slope = covXY / varX;
+        const intercept = meanY - slope * meanX;
+        const trend = [{ x: 0, y: intercept }, { x: 10, y: intercept + slope * 10 }];
 
-        return kept.map(t => ({
-            name: `${t.label} (${t.count})`,
-            avgH: Math.round(t.avgH),
-            predictedScore: t.predictedScore,
-            realSpeed: spread > 0 ? Math.round(100 * (maxDelay - t.avgH) / spread) : 100,
-            count: t.count,
-        }));
+        return { points, r, trend, n };
     }, [analysisDeals]);
-    const liquiditySpeedTotal = liquiditySpeedData.reduce((sum, t) => sum + t.count, 0);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -988,45 +993,68 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                     La liquidité prédite par l'IA se confirme-t-elle ?
                 </h3>
                 <p className="text-slate-500 text-xs mb-1">
-                    Deux courbes sur la même échelle 0-100 : le score de liquidité prédit par l'IA, et la vitesse de vente réellement observée. Si la prédiction est fiable, les deux courbes se suivent — si elles s'écartent, la prédiction ne colle pas à la réalité.
+                    Un point = une vente : score de liquidité prédit par l'IA (0-10) en abscisse, délai réel jusqu'à la vente (jours) en ordonnée. La ligne pointillée est la tendance mesurée sur ces points (régression linéaire) — si la prédiction est fiable, elle descend (score élevé → délai court).
                 </p>
                 <p className="text-slate-600 text-[11px] mb-4">
-                    Chiffre entre parenthèses = nombre de ventes derrière chaque point. Vitesse réelle = classement des tranches par délai de vente moyen (100 = la plus rapide, 0 = la plus lente).
-                    {liquiditySpeedTotal > 0 && liquiditySpeedTotal < 20 && (
-                        <span className="text-amber-500"> ⚠️ Seulement {liquiditySpeedTotal} ventes tracées au total — à interpréter avec prudence.</span>
+                    {liquidityCorrelation.n} vente{liquidityCorrelation.n !== 1 ? 's' : ''} tracée{liquidityCorrelation.n !== 1 ? 's' : ''}.
+                    {liquidityCorrelation.r !== null && (
+                        <> Corrélation {correlationStrength(liquidityCorrelation.r)} (r = {liquidityCorrelation.r.toFixed(2)}){liquidityCorrelation.r < -0.1
+                            ? ' — dans le sens attendu : score élevé associé à une vente plus rapide.'
+                            : liquidityCorrelation.r > 0.1
+                                ? ' — contraire à l\'attendu : score élevé associé à une vente plus LENTE.'
+                                : ' — pas de relation détectable entre score et délai.'}</>
+                    )}
+                    {liquidityCorrelation.n > 0 && liquidityCorrelation.n < 20 && (
+                        <span className="text-amber-500"> ⚠️ Échantillon réduit — à interpréter avec prudence.</span>
                     )}
                 </p>
 
-                {liquiditySpeedData.length > 0 ? (
+                {liquidityCorrelation.n >= 3 ? (
                     <div className="h-[220px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={liquiditySpeedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <ComposedChart margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                                <XAxis
+                                    type="number" dataKey="x" domain={[0, 10]}
+                                    tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false}
+                                    label={{ value: 'Score de liquidité prédit', position: 'insideBottom', offset: -5, fill: '#64748b', fontSize: 11 }}
+                                />
                                 <YAxis
-                                    domain={[0, 100]}
-                                    tick={{ fill: '#64748b', fontSize: 10 }}
-                                    axisLine={false}
-                                    tickLine={false}
+                                    type="number" dataKey="y" domain={[0, 'auto']}
+                                    tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false}
+                                    label={{ value: 'Délai (jours)', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 11 }}
                                 />
                                 <Tooltip
                                     cursor={{ stroke: '#334155' }}
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
-                                    formatter={(value, name, props) => {
-                                        if (name === 'predictedScore') return [`${value}/100`, 'Liquidité prédite (score IA)'];
-                                        const delay = props.payload.avgH;
-                                        const delayLabel = delay < 24 ? `${delay}h` : `${Math.round(delay / 24)}j`;
-                                        return [`${value}/100 (délai réel moy. ${delayLabel})`, 'Vitesse réelle observée'];
+                                    // Contenu personnalisé plutôt que le rendu par défaut : sur un ComposedChart
+                                    // avec un axe X numérique partagé (dataKey="x"), Recharts affiche aussi une
+                                    // ligne technique "x : <valeur>" en plus des séries — bruit à masquer.
+                                    content={({ active, payload }) => {
+                                        if (!active || !payload?.length) return null;
+                                        const point = payload[0].payload;
+                                        return (
+                                            <div style={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '0.5rem', padding: '8px 12px' }}>
+                                                <div style={{ color: '#34d399', fontSize: 12 }}>Score prédit : {point.x}/10</div>
+                                                <div style={{ color: '#94a3b8', fontSize: 12 }}>Délai réel : {Math.round(point.y * 10) / 10} j</div>
+                                            </div>
+                                        );
                                     }}
                                 />
-                                <Legend wrapperStyle={{ fontSize: 11, color: '#94a3b8' }} />
-                                <Line type="monotone" dataKey="predictedScore" name="Liquidité prédite" stroke="#a78bfa" strokeWidth={2} dot={{ r: 4 }} />
-                                <Line type="monotone" dataKey="realSpeed" name="Vitesse réelle" stroke="#34d399" strokeWidth={2} dot={{ r: 4 }} />
-                            </LineChart>
+                                <Scatter
+                                    name="Ventes" data={liquidityCorrelation.points} dataKey="y"
+                                    fill="#34d399" fillOpacity={0.55} stroke="#0f172a" strokeWidth={1} r={5}
+                                />
+                                {liquidityCorrelation.trend.length > 0 && (
+                                    <Line
+                                        name="Tendance" data={liquidityCorrelation.trend} dataKey="y" type="linear"
+                                        stroke="#a78bfa" strokeWidth={2} strokeDasharray="6 4" dot={false} legendType="none" isAnimationActive={false}
+                                    />
+                                )}
+                            </ComposedChart>
                         </ResponsiveContainer>
                     </div>
                 ) : (
-                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (au moins 2 tranches de score de liquidité avec des ventes)</div>
+                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (au moins 3 ventes avec un score de liquidité connu)</div>
                 )}
             </div>
 
