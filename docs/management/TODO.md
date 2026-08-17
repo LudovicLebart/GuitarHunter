@@ -69,7 +69,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [/] **Cohérence des villes (`deal.location`)** *(corrigé 2026-08-16, historique à uniformiser)*
     - [x] **Cause corrigée à la source** : Kijiji écrivait la clé normalisée de la ville (`montreal`) là où Facebook écrit `Montréal, QC` — la même ville comptée deux fois dans les stats. `bot.py::_build_city_display_names()` produit désormais le libellé d'affichage, région reprise d'une graphie déjà connue (option A). Modules partagés `backend/cities.py` + `src/utils/cities.js` (clé de regroupement vs libellé d'affichage), parité vérifiée.
-    - [ ] **Lire le rapport de `audit_cities.py`** dans les logs GitHub Actions (exécuté en écriture, choix utilisateur), puis **repasser `ACTIVE = False` dans un commit séparé**.
+    - [x] **Rapport lu (runs #335/#336, 2026-08-17)** : 452 annonces uniformisées au total sur `dev`+`master`. `regions_conflict()` validé en conditions réelles sur `beloeil` (Québec vs Wallonie, Belgique). `ACTIVE` repassé à `False`. Détail (dont la cause du décalage entre les deux runs — déploiements parallèles, pas un défaut du script) dans `JOURNAL.md`.
     - [ ] **Limite connue** : une ville scannée uniquement sur Kijiji (jamais vue côté Facebook) est stockée sans région — la clé la regroupe correctement, mais le libellé reste court. Ajouter un champ région au catalogue de villes lèverait la limite (nouveau champ + UI, non fait).
     - [ ] **Villes homonymes** : la clé ignore la région, donc `Paris, IDF` et `Paris, ON` partagent la même clé. `regions_conflict()` empêche l'audit de les fusionner, mais l'affichage les regrouperait dans un même point si le cas se présentait.
 
