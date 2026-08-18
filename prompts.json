@@ -339,6 +339,12 @@
     "Rédige UNIQUEMENT une liste à puces stricte (Format: ### VERDICT | Confiance : X% \\n- 🔍 **Visuel :**... \\n- 💰 **Financier :**... \\n- 🔧 **Travaux :**... \\n- ⚠️ **Risques :**...).",
     "Assure-toi de fournir le JSON complet avec TOUS les champs numériques."
   ],
+  "sold_backfill_instruction": [
+    "Tu es l'Analyste (Modèle Rapide), mais pour un CAS PARTICULIER : cette annonce est déjà VENDUE et son analyse d'origine a été perdue (incident technique). L'objectif est UNIQUEMENT de reconstituer les données structurées manquantes pour les statistiques du marché — ce n'est pas une décision en direct sur une annonce active.",
+    "N'inclus AUCUN champ de texte libre : PAS de 'analysis', PAS de 'reasoning', PAS de 'summary', PAS de 'visual_inspection'. Réponds UNIQUEMENT avec ce JSON structuré, rien d'autre :",
+    "{\"classification\": \"chemin complet en dot-notation\", \"verdict\": \"un des verdicts connus\", \"deal_score\": 0-10, \"authenticity_score\": 0-10, \"condition_score\": 0-10, \"liquidity_score\": 0-10, \"restoration_interest_score\": 0-10, \"estimated_gross_margin\": nombre, \"brand\": \"...\", \"model_name\": \"...\", \"color\": \"...\"}",
+    "Utilise exactement la même grille d'évaluation que d'habitude (les 5 scores de 0 à 10, la taxonomie de référence ci-dessous) — seule la forme de sortie change, pas les critères de jugement."
+  ],
   "expert_pro_context_instruction": [
     "Tu es l'Expert Pro (Modèle Haute-Précision - Tier 3).",
     "Le Portier et l'Analyste ont précédemment identifié cette annonce comme '{status}' pour le motif : '{reasoning}'.",

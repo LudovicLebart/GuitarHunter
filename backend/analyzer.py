@@ -13,6 +13,7 @@ from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION,
     DEFAULT_ANALYST_INSTRUCTION,
     DEFAULT_EXPERT_CONTEXT,
+    DEFAULT_SOLD_BACKFILL_INSTRUCTION,
     DEFAULT_TAXONOMY,
     DEFAULT_FEW_SHOT_EXAMPLES,
     DEFAULT_REJECTION_VERDICTS,
@@ -170,6 +171,50 @@ class DealAnalyzer:
         """
         result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
         taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
+        return self._canonicalize_classification(result, taxonomy)
+
+    def analyze_deal_light(self, listing_data, firestore_config=None, user_email=None):
+        """Backfill léger : reconstitue UNIQUEMENT les champs structurés (scores/classification/
+        marge/verdict) d'une annonce déjà VENDUE dont `aiAnalysis` a été perdu (bug `ArrayUnion`
+        de `mark_deal_as_sold()`, corrigé le 2026-08-12 — voir JOURNAL.md), sans repasser par le
+        Portier T1 (inutile : l'annonce est déjà vendue, pas besoin de la re-filtrer) ni risquer de
+        déclencher l'Expert Pro T3 (coûteux, inutile pour de l'historique déjà écoulé). Un seul
+        appel au modèle Analyste T2, avec une instruction dédiée (`sold_backfill_instruction`)
+        demandant un JSON réduit sans champ de texte libre (pas de `analysis`/`reasoning`/
+        `summary`/`visual_inspection`) — économise à la fois des appels entiers (T1, risque T3) et
+        des tokens de sortie par appel, par rapport à `analyze_deal()`. Utilisé par
+        `backend/scripts/backfill_sold_scores.py`.
+
+        `model_used` est tagué `"backfill_leger -> {modèle}"` (2 maillons) plutôt qu'un simple nom
+        de modèle : `StatsView.jsx::modelChainTokens` compte les maillons pour détecter qu'une
+        annonce a atteint le Tier 2 (`length >= 2`) — un maillon unique ferait sous-compter ces
+        annonces dans le Funnel alors qu'elles ont bien été scorées.
+        """
+        if not GEMINI_API_KEY:
+            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
+
+        config = (firestore_config or {}).get('analysisConfig', {})
+        analyst_model_name = config.get('mainModel', 'gemini-3.6-flash')
+        taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
+        few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
+
+        image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
+        images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+
+        base_prompt = self._construct_base_user_prompt(
+            listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples
+        )
+        backfill_instruction = config.get('soldBackfillInstruction', DEFAULT_SOLD_BACKFILL_INSTRUCTION)
+        if isinstance(backfill_instruction, list):
+            backfill_instruction = "\n".join(backfill_instruction)
+        full_prompt = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE BACKFILL (VENTE HISTORIQUE) ---\n{backfill_instruction}"
+
+        self.logger.info(f"   🩹 Backfill léger ({analyst_model_name}) : {listing_data.get('title', 'Inconnu')}")
+        result, err = self._call_gemini_json(analyst_model_name, [full_prompt] + images, user_email)
+        if err or not result:
+            return {"verdict": "ERROR", "reasoning": f"Erreur backfill léger : {err}", "model_used": f"backfill_leger -> {analyst_model_name} (Error)"}
+
+        result["model_used"] = f"backfill_leger -> {analyst_model_name}"
         return self._canonicalize_classification(result, taxonomy)
 
     def _get_taxonomy_index(self, taxonomy):
