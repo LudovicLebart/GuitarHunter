@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-18] [FLASH] Fix : l'Explorateur de Corrélations exclut désormais le bruit par défaut → Résultat :
+- **Constat utilisateur en conditions réelles, après le backfill léger** : avec ~400 annonces tracées (contre 46 avant le backfill), la corrélation ne s'améliore pas vraiment — la majorité des points sont du bruit (« Rejeté / Bruit » dominait très largement dans les captures partagées, ex: 266/395).
+- **Cause** : le dataset de l'Explorateur incluait toutes les annonces vendues avec un score, y compris `REJECTED_ITEM`/`REJECTED_SERVICE`/`REJECTED`/`INCOMPLETE_DATA` — des annonces qui ne sont pas des instruments ou jamais réellement analysées, mélangées aux vraies données de marché dans le même nuage de points ET dans le calcul de corrélation.
+- **`src/components/DealsExplorer.jsx`** : nouvelle case à cocher "Inclure le bruit (items/annonces rejetés)", décochée par défaut — `NOISE_VERDICTS` exclus de `records` avant tout calcul, donc la corrélation de Pearson n'est plus polluée par le bruit non plus (pas seulement l'affichage). **`BAD_DEAL` volontairement conservé**, distinct du bruit : un verdict IA légitime sur une vraie guitare jugée trop chère après une vraie analyse Tier 2 (règle déjà établie cette session — voir `ARCHITECTURE.md`), et toute annonce visible dans ce graphique a nécessairement un score réel. Bucket couleur "Rejeté / Bruit" renommé "Trop cher" en conséquence.
+- **Validation** : harness Playwright avec un jeu de données simulant le ratio de bruit observé en prod (~60%) — case décochée : 40 annonces, r = -0,33 ; case cochée : 100 annonces, r = -0,29 — confirme que le filtre atteint bien le calcul de corrélation. `npm run build` OK.
+
+---
+
 [2026-08-17] [PRO] Feature : backfill léger des scores IA sur les ventes corrompues, armé et poussé sur `dev` → Résultat :
 - **Contexte** : suite au constat que l'Explorateur de Corrélations ne trace que 46 ventes sur 3000+ en base — cause identifiée : ~2216 annonces vendues restent avec un `aiAnalysis` corrompu par le bug `ArrayUnion` (2026-08-12), jamais récupéré au-delà du verdict (`initialVerdict`, 1313/3529 déjà recouvertes). La ré-analyse prévue (`reanalyze_sold_deals.py`, cascade complète 3-Tiers) n'a jamais été déclenchée (~20-25$ estimés).
 - **Demande utilisateur : un script dédié moins coûteux**, soit modèle plus léger, soit JSON réduit aux données manquantes en se basant sur les analyses existantes. Clarifié avec l'utilisateur : JSON réduit avec un vrai appel Gemini par annonce (pas d'imputation statistique à partir d'annonces similaires, qui aurait contaminé le graphique de corrélation IA/vitesse de vente tout juste corrigé pour ne plus être circulaire).
