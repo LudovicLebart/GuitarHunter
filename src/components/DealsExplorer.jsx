@@ -39,11 +39,19 @@ const SLOT_AQUA = '#199e70';
 const SINGLE_SERIES_COLOR = '#34d399';
 const TREND_COLOR = '#a78bfa';
 
+// Verdicts de "bruit" — l'annonce n'est pas un instrument, ou n'a jamais été réellement
+// analysée (rejet immédiat au Portier) : exclus par défaut du dataset (pas seulement recolorés)
+// pour ne pas polluer la corrélation elle-même. `BAD_DEAL` en est délibérément exclu : c'est un
+// verdict IA légitime sur une vraie guitare jugée trop chère après une vraie analyse Tier 2 (voir
+// CLAUDE.md — "BAD_DEAL ≠ REJECTED") ; toute annonce visible ici a déjà un score réel de toute
+// façon, donc un BAD_DEAL ne peut pas être une fiche vide.
+const NOISE_VERDICTS = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'REJECTED', 'INCOMPLETE_DATA'];
+
 const verdictGroup = (verdict) => {
     if (!verdict) return null;
     if (RADAR_GROUP.includes(verdict)) return 'Opportunité';
     if (MARKET_GROUP.includes(verdict)) return 'Marché neutre';
-    return 'Rejeté / Bruit';
+    return 'Trop cher';
 };
 
 const CATEGORY_ROOT_LABELS = { guitare: 'Guitare', amplificateur: 'Amplificateur', etui_housse: 'Étui / Housse' };
@@ -64,7 +72,7 @@ const GROUP_ORDER = {
     verdict: [
         { name: 'Opportunité', color: SLOT_BLUE },
         { name: 'Marché neutre', color: SLOT_AQUA },
-        { name: 'Rejeté / Bruit', color: SLOT_ORANGE },
+        { name: 'Trop cher', color: SLOT_ORANGE },
     ],
     source: [
         { name: 'Facebook', color: SLOT_BLUE },
@@ -95,6 +103,7 @@ const DealsExplorer = ({ deals }) => {
     const [yKey, setYKey] = useState('saleDelayDays');
     const [colorKey, setColorKey] = useState('none');
     const [cityFilter, setCityFilter] = useState('ALL');
+    const [includeNoise, setIncludeNoise] = useState(false);
 
     const cityOptions = useMemo(() => {
         const byKey = {};
@@ -121,6 +130,7 @@ const DealsExplorer = ({ deals }) => {
                 const y = yMetric.get(d);
                 if (typeof x !== 'number' || typeof y !== 'number' || Number.isNaN(x) || Number.isNaN(y)) return null;
                 if (cityFilter !== 'ALL' && normalizeCityKey(d.location) !== cityFilter) return null;
+                if (!includeNoise && NOISE_VERDICTS.includes(d.aiAnalysis?.verdict)) return null;
                 return {
                     x, y,
                     verdictGroup: verdictGroup(d.aiAnalysis?.verdict),
@@ -129,7 +139,7 @@ const DealsExplorer = ({ deals }) => {
                 };
             })
             .filter(Boolean);
-    }, [deals, xMetric, yMetric, cityFilter]);
+    }, [deals, xMetric, yMetric, cityFilter, includeNoise]);
 
     // Corrélation de Pearson + droite de régression sur l'ensemble des points filtrés, indépendamment
     // du regroupement couleur choisi (la couleur n'est qu'une lecture visuelle en plus, pas un
@@ -203,6 +213,10 @@ const DealsExplorer = ({ deals }) => {
                         <option value="ALL">Toutes</option>
                         {cityOptions.map(c => <option key={c.key} value={c.key}>{c.label} ({c.count})</option>)}
                     </select>
+                </label>
+                <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer">
+                    <input type="checkbox" checked={includeNoise} onChange={(e) => setIncludeNoise(e.target.checked)} className="accent-emerald-500" />
+                    Inclure le bruit (items/annonces rejetés)
                 </label>
             </div>
 
