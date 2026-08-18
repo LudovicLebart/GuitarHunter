@@ -27,31 +27,41 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-16 : audit + uniformisation des VILLES (`backend/scripts/audit_cities.py`).
-    GRATUIT, aucun appel Gemini :
+    2026-08-17 : lance `backend/scripts/backfill_sold_scores.py` (backfill léger des scores
+    IA sur les ~2216 annonces vendues dont `aiAnalysis` est resté corrompu après la
+    récupération gratuite du verdict — voir JOURNAL.md) en **arrière-plan détaché**
+    (`subprocess.Popen(..., start_new_session=True)`) plutôt qu'en l'attendant ici : le job
+    dure potentiellement plusieurs heures (~2216 annonces, 1 appel Gemini chacune), largement
+    au-delà du timeout de 10 min du step SSH de `deploy.yml`. Détaché, il survit à la fin de
+    ce step ET à un redémarrage du service `guitare-hunter` juste après (processus
+    indépendant, pas un enfant de systemd). Même patron que la tentative du 2026-08-12 pour
+    `reanalyze_sold_deals.py` (jamais réellement déployée).
 
-      - regroupe les valeurs `location` par clé canonique et liste les villes stockées sous
-        plusieurs graphies (`Montréal, QC` / `montreal` / `St-Jean-sur-Richelieu,QC`) ;
-      - réécrit `location` (document + index) vers la graphie la plus riche de chaque ville.
+    Ce push ne va que sur `dev` (`/git-push-dev`) — pas de double déclenchement dev+master à
+    gérer ici, contrairement aux autres backfills de cette session.
 
-    EN ÉCRITURE (`dry_run=False`) : choix explicite de l'utilisateur, à qui la lecture seule
-    préalable a été proposée. Le rapport reste produit dans les mêmes logs, avec le détail des
-    graphies fusionnées ville par ville — il est simplement lu après coup plutôt qu'avant.
-
-    Ne fusionne jamais deux villes homonymes de régions différentes (`Paris, IDF` vs
-    `Paris, ON`) : `regions_conflict()` les écarte, une réécriture en base étant irréversible.
-
-    Idempotent : le 2e passage (le job se déclenche sur `dev` PUIS `master`) ne réécrit rien.
-    Rapide : Firestore uniquement.
+    Progression consultable dans `backfill_sold_scores.log` à la racine du repo (accès SSH
+    requis, pas disponible depuis cet environnement de dev). Le script cible gère lui-même un
+    verrou (`backfill_sold_scores.pid`) contre une double exécution concurrente.
     """
-    from backend.scripts.audit_cities import run as audit_cities_run
-    audit_cities_run(dry_run=False)
+    import subprocess
+
+    log_path = os.path.join(os.getcwd(), 'backfill_sold_scores.log')
+    log_file = open(log_path, 'a')
+    subprocess.Popen(
+        [sys.executable, 'backend/scripts/backfill_sold_scores.py'],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        cwd=os.getcwd(),
+        start_new_session=True,
+    )
+    print(f"[run_once] Backfill léger des ventes corrompues lancé en arrière-plan (log: {log_path}).")
 
 
 if __name__ == "__main__":
