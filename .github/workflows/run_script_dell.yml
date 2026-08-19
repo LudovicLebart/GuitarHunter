@@ -1,22 +1,23 @@
-# Workflow de TEST (étape 1 du plan `NECK_RESET_VISION_PLAN.md` §4/point Dell) : vérifie si le
-# tailnet Tailscale utilisé par GuitarHunter (client OAuth `tag:ci`, secrets TS_OAUTH_CLIENT_ID/
-# TS_OAUTH_SECRET, déjà utilisés par deploy.yml et run_script.yml) atteint le Dell Precision T5810
-# de MoneyBot (100.94.33.54, doc `moneybot/config/cluster_machines.json` — machine avec GPU
-# RTX 2070 SE 8 Go VRAM, envisagée comme ressource de calcul pour l'inférence vision Phase 0/1).
+# Workflow de test/exécution ponctuelle sur le Dell GPU de MoneyBot (100.94.33.54, tailnet
+# partagé — connectivité confirmée le 2026-08-19, `NECK_RESET_VISION_PLAN.md` §7), envisagé
+# comme ressource de calcul pour l'inférence vision Phase 0/1 (Florence-2/OWLv2/SAM 2.1) sur
+# le Dataset A du projet neck-reset (RTX 2070 SE, 8 Go VRAM — `moneybot/config/cluster_machines.json`).
 #
-# Ne fait qu'un `tailscale ping` — PAS de connexion SSH, aucun secret d'accès au Dell n'existe
-# encore côté GuitarHunter (à ajouter séparément si ce test confirme la joignabilité réseau).
-# Fichier temporaire : à supprimer ou requalifier une fois la question de connectivité tranchée.
+# Distinct de run_script.yml (qui cible le serveur de production GuitarHunter) : cible une
+# machine tierce (le Dell de MoneyBot), avec un secret d'accès dédié (`DELL_SSH_PRIVATE_KEY`,
+# clé ed25519 générée spécifiquement pour cet usage, ajoutée aux `authorized_keys` du Dell —
+# pas la clé MoneyBot existante, pour garder les deux accès révocables indépendamment).
 #
-# Usage : pousser sur `ops/run-script` (même mécanisme que run_script.yml).
-name: Test Connectivité Dell (Tailscale)
+# Étape actuelle : test `nvidia-smi` uniquement, pour valider l'accès SSH avant tout script
+# d'inférence réel. Usage : pousser sur `ops/run-script` (même mécanisme que run_script.yml).
+name: Run One-Off Script (Dell GPU)
 
 on:
   push:
     branches: [ ops/run-script ]
 
 jobs:
-  ping-dell:
+  run-on-dell:
     runs-on: ubuntu-latest
     steps:
       - name: Connect to Tailscale
@@ -26,9 +27,20 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Ping du Dell (100.94.33.54)
-        run: |
-          echo "--- tailscale status ---"
-          tailscale status || true
-          echo "--- ping Dell ---"
-          tailscale ping --c 4 100.94.33.54
+      - name: Test d'accès SSH + GPU sur le Dell
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 100.94.33.54
+          username: ludovic
+          key: ${{ secrets.DELL_SSH_PRIVATE_KEY }}
+          timeout: 60s
+          command_timeout: 2m
+          script: |
+            set -e
+            echo "--- Identité / hôte ---"
+            whoami
+            hostname
+            echo "--- GPU (nvidia-smi) ---"
+            nvidia-smi
+            echo "--- Python disponible ---"
+            python3 --version
