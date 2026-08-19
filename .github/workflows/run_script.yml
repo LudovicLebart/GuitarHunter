@@ -1,0 +1,102 @@
+# Workflow dédié à l'exécution ponctuelle d'un script Python avec accès Firebase réel
+# (Firestore + Storage), depuis un environnement de dev qui n'a lui-même pas ces credentials.
+#
+# Contrairement à `deploy.yml` (job `deploy`) :
+#   - tourne dans un répertoire SÉPARÉ sur le serveur (~/GuitareHunter-scripts), jamais dans
+#     ~/GuitareHunter (le répertoire de production) — aucun `git reset --hard` sur le code en prod.
+#   - ne redémarre JAMAIS le service `guitare-hunter` (le bot en production n'est pas affecté).
+#   - se déclenche sur la branche dédiée `ops/run-script` uniquement, jamais master/dev.
+#
+# Usage : pousser la branche à analyser sur `ops/run-script` (ex: git push origin
+# <ma-branche>:ops/run-script --force) — le script ci-dessous s'exécute, et son résultat
+# (backend/scripts/export_neck_reset_sample.py écrit un fichier HTML) est remonté comme
+# artefact GitHub Actions téléchargeable depuis la page du run (bouton "Artifacts").
+#
+# Script actuellement exécuté : backend/scripts/export_neck_reset_sample.py (Étape 0 du plan
+# docs/management/plans/NECK_RESET_VISION_PLAN.md). Pour lancer un autre script ponctuel,
+# modifier la commande de l'étape "Exécution du script" ci-dessous.
+name: Run One-Off Script
+
+on:
+  push:
+    branches: [ ops/run-script ]
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Exécution du script sur le serveur (répertoire scratch, hors production)
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
+          script: |
+            set -e
+            mkdir -p ~/GuitareHunter-scripts
+            cd ~/GuitareHunter-scripts
+
+            echo "--- Configuration .env ---"
+            if [ -z "$DOT_ENV" ]; then
+              echo "⚠️ Secret DOT_ENV manquant."
+            else
+              printf '%s' "$DOT_ENV" > .env
+              echo "✅ Fichier .env écrit."
+            fi
+
+            echo "--- Configuration Firebase ---"
+            mkdir -p backend/config
+            if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+              echo "❌ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — abandon."
+              exit 1
+            fi
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
+            echo "✅ Clé Firebase écrite."
+
+            echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
+            if [ ! -d ".git" ]; then
+              echo "Clonage initial..."
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              git fetch origin ${{ github.ref_name }}
+              git reset --hard origin/${{ github.ref_name }}
+            fi
+
+            echo "--- Python Environment ---"
+            python3 -m venv venv || echo "Venv déjà présent."
+            source venv/bin/activate
+            pip install -r requirements.txt
+
+            echo "--- Exécution du script ---"
+            rm -f neck_reset_sample.html
+            python3 -m backend.scripts.export_neck_reset_sample
+
+      - name: Récupération du rapport généré
+        run: |
+          mkdir -p ~/.ssh output
+          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/GuitareHunter-scripts/neck_reset_sample.html" \
+            output/ || echo "⚠️ Aucun rapport à récupérer (le script a peut-être échoué ou ne produit pas ce fichier)."
+
+      - name: Publication de l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: neck-reset-sample-report
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
