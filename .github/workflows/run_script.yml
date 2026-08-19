@@ -8,15 +8,15 @@
 #   - se déclenche sur la branche dédiée `ops/run-script` uniquement, jamais master/dev.
 #
 # Usage : pousser la branche à analyser sur `ops/run-script` (ex: git push origin
-# <ma-branche>:ops/run-script --force) — le script ci-dessous s'exécute. Si le script produit
-# neck_reset_sample.html, il est remonté comme artefact GitHub Actions téléchargeable (bouton
-# "Artifacts") ; sinon (comme le script actuel, qui n'imprime qu'en logs) cette étape est un
-# no-op toléré, le résultat se lit directement dans les logs du job.
+# <ma-branche>:ops/run-script --force) — le script ci-dessous s'exécute. Le fichier produit
+# (voir FICHIER_A_RECUPERER dans l'étape "Récupération du rapport généré") est remonté comme
+# artefact GitHub Actions téléchargeable (bouton "Artifacts") ; si le script n'en produit pas,
+# cette étape est un no-op toléré, le résultat se lit directement dans les logs du job.
 #
-# Script actuellement exécuté : backend/scripts/compare_image_resolution_by_source.py
-# (diagnostic résolution Facebook vs Kijiji, docs/management/plans/NECK_RESET_VISION_PLAN.md).
+# Script actuellement exécuté : backend/scripts/export_dataset_a.py (export à l'échelle du
+# Dataset A — toutes guitares, items rejetés exclus — docs/management/plans/NECK_RESET_VISION_PLAN.md).
 # Pour lancer un autre script ponctuel, modifier la commande de l'étape "Exécution du script"
-# ci-dessous.
+# et le nom de fichier de l'étape "Récupération du rapport généré" ci-dessous.
 name: Run One-Off Script
 
 on:
@@ -86,15 +86,18 @@ jobs:
             pip install -r requirements.txt
 
             echo "--- Exécution du script ---"
-            python3 -m backend.scripts.compare_image_resolution_by_source
+            rm -f dataset_a_manifest.jsonl
+            python3 -m backend.scripts.export_dataset_a
 
       - name: Récupération du rapport généré
+        env:
+          FICHIER_A_RECUPERER: dataset_a_manifest.jsonl
         run: |
           mkdir -p ~/.ssh output
           printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
-            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/GuitareHunter-scripts/neck_reset_sample.html" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/GuitareHunter-scripts/${FICHIER_A_RECUPERER}" \
             output/ || echo "⚠️ Aucun rapport à récupérer (le script a peut-être échoué ou ne produit pas ce fichier)."
 
       - name: Publication de l'artefact
