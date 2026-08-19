@@ -56,6 +56,7 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
         { divider: true },
         // Statuts spéciaux
         { id: 'SOLD', label: 'Annonces Vendues' },
+        { id: 'PURCHASED', label: 'Annonces Achetées' },
         { id: 'REJECTED', label: 'Annonces Rejetées' },
         { id: 'ERROR', label: 'Erreurs d\'analyse' },
     ];
@@ -362,6 +363,7 @@ const Dashboard = ({ onClose }) => {
             onForceExpert={(userComment) => dealActions?.handleForceExpertAnalysis(d.id, userComment)}
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
+            onTogglePurchased={(purchasePrice) => dealActions?.handleTogglePurchased(d.id, d.isPurchased, purchasePrice)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
             onSetClassification={dealActions?.handleSetClassification}
         />

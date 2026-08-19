@@ -7,6 +7,7 @@ import {
   retryDealAnalysis,
   forceExpertAnalysis,
   toggleDealFavorite,
+  toggleDealPurchased,
   setDealClassification
 } from '../services/firestoreService';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
@@ -99,6 +100,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       // `mc` marque une classification corrigée à la main : `c` porte alors la valeur corrigée.
       manualClassification: entry.mc ? entry.c : undefined,
       isFavorite: entry.f,
+      isPurchased: entry.pu,
       timestamp: entry.t ? { seconds: entry.t } : null,
       publishTimestamp: entry.pt ? { seconds: entry.pt } : null,
       soldTimestamp: entry.st ? { seconds: entry.st } : null,
@@ -247,6 +249,27 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     try { await toggleDealFavorite(dealId, currentStatus, chunkId, user.uid); } catch (e) { setError(e.message); }
   }, [user, dealsIndexMap, setError]);
 
+  const handleTogglePurchased = useCallback(async (dealId, currentStatus, purchasePrice) => {
+    if (!user) return;
+    const chunkId = dealsIndexMap[dealId]?.h;
+    try {
+      await toggleDealPurchased(dealId, currentStatus, chunkId, user.uid, purchasePrice);
+      // Même raison que handleSetClassification : loadedDeals prime sur l'index dans la fusion
+      // ({...deal, ...full}), donc sans patch explicite le badge resterait figé jusqu'au rechargement.
+      setLoadedDeals(prev => {
+        if (!prev[dealId]) return prev;
+        const next = { ...prev };
+        next[dealId] = {
+          ...next[dealId],
+          isPurchased: !currentStatus,
+          purchasedAt: !currentStatus ? new Date() : undefined,
+          purchasePrice: !currentStatus ? (purchasePrice ?? undefined) : undefined,
+        };
+        return next;
+      });
+    } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, setError]);
+
   // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
   // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un
   // autre) : cocher un chemin plus profond agit comme un drill-down et retire les cases parentes
@@ -276,6 +299,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (currentFilterType === 'ERROR') return isError;
     if (currentFilterType === 'REJECTED') return false;
     if (currentFilterType === 'SOLD') return deal.status === 'sold';
+    // Achat = flag manuel totalement indépendant du status/verdict (peut être actif, vendu, etc.) :
+    // ce filtre montre TOUT ce qui est marqué acheté, sans passer par le masquage/verdict ci-dessous.
+    if (currentFilterType === 'PURCHASED') return !!deal.isPurchased;
 
     // Si l'annonce est vendue et qu'on n'est pas dans le filtre SOLD, on cache (sauf favoris)
     if (deal.status === 'sold' && currentFilterType !== 'FAVORITES') return false;
@@ -453,11 +479,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
-    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0 };
+    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0, PURCHASED: 0 };
     // Initialiser tous les compteurs de verdicts possibles
     Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
+      // Achat : flag indépendant du status/verdict, compté à part avant tout autre cas spécial
+      // (une annonce achetée peut être encore active, ou déjà marquée vendue par le bot).
+      if (deal.isPurchased) c.PURCHASED++;
+
       // Cas spécial : REJECTED compte tous les rejetés
       if (deal.status === 'rejected') {
         c.REJECTED++;
@@ -509,7 +539,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     const result = deals.filter(deal => {
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
-
+      if (filterType === 'PURCHASED') return !!deal.isPurchased;
 
       // Pour les autres filtres, on combine verdict, type, condition et prix
       const verdictMatch = matchesVerdictFilter(deal, filterType);
@@ -671,8 +701,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleRetryAnalysis,
       handleForceExpertAnalysis,
       handleToggleFavorite,
+      handleTogglePurchased,
       handleSetClassification,
-      handleSelectDeal: setSelectedDeal 
+      handleSelectDeal: setSelectedDeal
     }
   };
 };

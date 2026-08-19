@@ -7,7 +7,7 @@ import DealCardImage from './DealCardImage';
 import DealCardActions from './DealCardActions';
 import DealAnalysisModal from './DealAnalysisModal';
 
-const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete, onSetClassification }) => {
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onDelete, onSetClassification }) => {
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
     const [imageError, setImageError] = useState(false);
@@ -70,6 +70,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 images={images}
                 title={deal.title}
                 isSold={isSold}
+                isPurchased={deal.isPurchased}
                 vc={vc}
                 isAnalyzing={isAnalyzing}
                 alsoPepite={alsoPepite}
@@ -163,6 +164,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         deal={deal}
                         isAnalyzing={isAnalyzing}
                         onToggleFavorite={onToggleFavorite}
+                        onTogglePurchased={onTogglePurchased}
                         onReject={onReject}
                         onDelete={onDelete}
                         onRetry={onRetry}
@@ -178,6 +180,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     images={images}
                     vc={vc}
                     isSold={isSold}
+                    isPurchased={deal.isPurchased}
                     alsoPepite={alsoPepite}
                     price={price}
                     estValue={estValue}
@@ -194,6 +197,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     onForceExpert={onForceExpert}
                     onReject={onReject}
                     onToggleFavorite={onToggleFavorite}
+                    onTogglePurchased={onTogglePurchased}
                     onDelete={onDelete}
                     isAnalyzing={isAnalyzing}
                     onSetClassification={onSetClassification}

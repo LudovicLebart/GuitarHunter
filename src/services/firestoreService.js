@@ -1,7 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
   collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit, where, documentId
+  query, orderBy, limit, where, documentId, serverTimestamp
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -268,6 +268,26 @@ export const toggleDealFavorite = async (dealId, currentStatus, chunkId, userId)
   } catch (error) {
     console.error(`Error toggling favorite for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la mise à jour des favoris.");
+  }
+};
+
+export const toggleDealPurchased = async (dealId, currentStatus, chunkId, userId, purchasePrice = null) => {
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    const newStatus = !currentStatus;
+    await updateDoc(doc(dealsCollectionRef, dealId), newStatus
+      ? { isPurchased: true, purchasedAt: serverTimestamp(), purchasePrice: purchasePrice ?? deleteField() }
+      : { isPurchased: false, purchasedAt: deleteField(), purchasePrice: deleteField() }
+    );
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}.pu`]: newStatus
+      });
+    }
+  } catch (error) {
+    console.error(`Error toggling purchased for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du statut d'achat.");
   }
 };
 

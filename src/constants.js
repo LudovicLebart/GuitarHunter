@@ -1,4 +1,4 @@
-import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package, Tag } from 'lucide-react';
+import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package, Tag, ShoppingBag } from 'lucide-react';
 
 // --- NOUVELLE GRILLE DE CLASSIFICATION (V2) ---
 export const NEW_VERDICTS = {
@@ -100,12 +100,15 @@ export const SPECIAL_FILTERS = {
   ALL: { id: 'ALL', label: 'Toutes', icon: List },
   FAVORITES: { id: 'FAVORITES', label: 'Favoris', icon: Star },
   ERROR: { id: 'ERROR', label: 'Erreurs', icon: XCircle },
-  SOLD: { id: 'SOLD', label: 'Vendues', icon: Tag }
+  SOLD: { id: 'SOLD', label: 'Vendues', icon: Tag },
+  PURCHASED: { id: 'PURCHASED', label: 'Achetées', icon: ShoppingBag }
 };
 
 // --- GROUPES POUR L'AFFICHAGE "TEMPÉRATURE" ---
 export const RADAR_GROUP = ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'];
 export const MARKET_GROUP = ['COLLECTION', 'FAIR'];
+// Note : PURCHASED n'y figure pas volontairement — un achat est un signal positif, pas du bruit à
+// archiver ; le flag reste orthogonal à ces groupes de verdicts.
 export const ARCHIVE_GROUP = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD'];
 
 // --- NOTE D'INTÉRÊT (moyenne des 5 scores IA) ---
@@ -144,6 +147,7 @@ export const FILTER_ORDER = [
   'BAD_DEAL',
   'REJECTED_ITEM',
   'SOLD',
+  'PURCHASED',
   'ERROR'
 ];
 

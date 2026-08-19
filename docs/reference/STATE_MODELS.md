@@ -57,6 +57,13 @@ interface Deal {
   /** Marqueur de favoris (géré par le Frontend) */
   isFavorite: boolean; // Obligatoire (default: false)
 
+  /** Marqueur d'achat réel par l'utilisateur (2026-08-19, géré par le Frontend, totalement
+      indépendant de `status`/`sold` — une annonce peut être achetée avant même que le bot ne
+      détecte sa disparition du marketplace). Index léger : clé `pu` (booléen uniquement). */
+  isPurchased?: boolean; // Optionnel (absent = false)
+  purchasedAt?: Timestamp; // Optionnel, posé au moment du clic (serverTimestamp)
+  purchasePrice?: number | null; // Optionnel, saisi par l'utilisateur si différent du prix affiché
+
   /** Correction manuelle de la catégorie (2026-08-16) : chemin complet de taxonomie en
       dot-notation, saisi par l'utilisateur depuis la modale d'analyse. Prime sur
       aiAnalysis.classification et n'est jamais écrasé par une ré-analyse. */

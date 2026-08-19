@@ -1,5 +1,18 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Feature : nouvelle catégorie "Achetées" — marqueur manuel pour les annonces réellement achetées par l'utilisateur → Résultat :
+- **Demande utilisateur** : distinguer "annonce vendue" (`status: 'sold'`, détecté par le bot, n'importe qui peut être l'acheteur) de "annonce que j'ai personnellement achetée" — aucun champ équivalent n'existait (vérifié par exploration : zéro mention de purchased/acheté/bought/owned dans tout le code et la doc).
+- **Décisions validées avant implémentation** : (1) toggle manuel + date auto-capturée + prix optionnel saisi par l'utilisateur si négocié différemment du prix affiché ; (2) flag totalement indépendant de `status`/`sold` (une annonce encore active peut être marquée achetée) ; (3) pas de section Stats dédiée dans cette itération, juste le filtre + le badge.
+- **Modèle de données** : `isPurchased`/`purchasedAt`/`purchasePrice` sur `guitar_deals/{dealId}` (écrits uniquement par le frontend), `pu` (booléen) sur l'index léger `deals_index`. **Aucun changement backend Python** : suit exactement le même régime que `isFavorite` (jamais passé à `_update_deal_index()` lors d'une ré-analyse, donc jamais écrasé — voir `DATA_FLOW.md` §5 pour le détail).
+- **`src/services/firestoreService.js`** : nouvelle fonction `toggleDealPurchased()`, calquée sur `toggleDealFavorite()`/`setDealClassification()` (deux `updateDoc`, jamais `setDoc`, `deleteField()` au untoggle).
+- **`src/hooks/useDealsManager.js`** : `isPurchased` exposé dans `deals`, nouveau `handleTogglePurchased` (avec patch explicite de `loadedDeals`, même raison que `handleSetClassification` — éviter que la fusion `{...deal, ...full}` garde une valeur figée), branche `PURCHASED` dans `matchesVerdictFilter`/`verdictCounts`/`filteredDeals`.
+- **`src/constants.js`** : `SPECIAL_FILTERS.PURCHASED` (icône `ShoppingBag`), ajouté à `FILTER_ORDER`. Volontairement **absent** d'`ARCHIVE_GROUP` — un achat est un signal positif, pas du bruit à archiver.
+- **`src/components/Dashboard.jsx`** : entrée "Annonces Achetées" dans le dropdown Statut, à côté de Vendues/Rejetées/Erreurs.
+- **`src/components/DealCard/`** : badge "Acheté" (vert émeraude, `ShoppingBag`) sur `DealCardImage.jsx` et `DealAnalysisModal.jsx` (+ ligne prix/date si renseignés) ; nouveau bouton toggle dans `DealCardActions.jsx`, juste après Favori — clic direct pour désactiver, ou petite modale de saisie du prix (même gabarit que la modale "commentaire" déjà existante dans ce fichier) pour activer.
+- **Validation** : `npm run build` OK. **Non testé en conditions réelles** (pas de compte Firebase dans cet environnement de dev) — à valider par l'utilisateur : toggle du bouton, badge sur carte/modale, compteur dans le dropdown, écriture correcte des champs Firestore.
+
+---
+
 [2026-08-19] [PRO] Fix : `mainModel` initialisé dans `_init_firestore_structure()` (piège `GEMINI_MODELS["default_analyst"]` résolu) → Résultat :
 - **Piège documenté dans `CLAUDE.md`** : `bot.py::_init_firestore_structure()` n'initialisait que `gatekeeperModel`/`expertModel` dans le document Firestore d'un nouvel utilisateur, jamais `mainModel` — `GEMINI_MODELS["default_analyst"]` (`config.py`) était donc mort de fait, `analyzer.py::analyze_deal()` retombant systématiquement sur son fallback codé en dur (`gemini-3.6-flash`) plutôt que sur cette valeur.
 - **`backend/bot.py`** : ajout de `'mainModel': GEMINI_MODELS["default_analyst"]` dans `analysisConfig`, symétrique à `gatekeeperModel`/`expertModel`. N'affecte que les nouveaux utilisateurs — pas de migration Firestore pour les comptes existants, qui continuent de retomber sur le même fallback (`gemini-3.6-flash`) via `analyzer.py`, donc aucune régression.
