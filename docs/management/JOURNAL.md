@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Fix : `mainModel` initialisé dans `_init_firestore_structure()` (piège `GEMINI_MODELS["default_analyst"]` résolu) → Résultat :
+- **Piège documenté dans `CLAUDE.md`** : `bot.py::_init_firestore_structure()` n'initialisait que `gatekeeperModel`/`expertModel` dans le document Firestore d'un nouvel utilisateur, jamais `mainModel` — `GEMINI_MODELS["default_analyst"]` (`config.py`) était donc mort de fait, `analyzer.py::analyze_deal()` retombant systématiquement sur son fallback codé en dur (`gemini-3.6-flash`) plutôt que sur cette valeur.
+- **`backend/bot.py`** : ajout de `'mainModel': GEMINI_MODELS["default_analyst"]` dans `analysisConfig`, symétrique à `gatekeeperModel`/`expertModel`. N'affecte que les nouveaux utilisateurs — pas de migration Firestore pour les comptes existants, qui continuent de retomber sur le même fallback (`gemini-3.6-flash`) via `analyzer.py`, donc aucune régression.
+- Poussé sur `dev` pour test.
+
+---
+
 [2026-08-18] [FLASH] Fix : l'Explorateur de Corrélations exclut désormais le bruit par défaut → Résultat :
 - **Constat utilisateur en conditions réelles, après le backfill léger** : avec ~400 annonces tracées (contre 46 avant le backfill), la corrélation ne s'améliore pas vraiment — la majorité des points sont du bruit (« Rejeté / Bruit » dominait très largement dans les captures partagées, ex: 266/395).
 - **Cause** : le dataset de l'Explorateur incluait toutes les annonces vendues avec un score, y compris `REJECTED_ITEM`/`REJECTED_SERVICE`/`REJECTED`/`INCOMPLETE_DATA` — des annonces qui ne sont pas des instruments ou jamais réellement analysées, mélangées aux vraies données de marché dans le même nuage de points ET dans le calcul de corrélation.
