@@ -12,25 +12,33 @@
 
 Interdiction de principe d'un CNN "boîte noire" (type ResNet) entraîné à classer "bonne/mauvaise action" directement sur les photos scrapées. Risque identifié : sur des photos de qualité "poubelle" (angles aléatoires, compression JPEG, mauvais éclairage), un tel modèle a de fortes chances d'apprendre à corréler mauvaise photo ↔ mauvaise guitare (les vendeurs peu soigneux prennent souvent les deux) plutôt que d'apprendre la géométrie réelle.
 
-**Approche retenue :** décomposer le problème en métriques géométriques interprétables, calculées après normalisation de l'image, plutôt qu'une classification opaque de bout en bout.
+**Approche retenue :** décomposer le problème en métriques géométriques interprétables, calculées après normalisation de l'image, plutôt qu'une classification opaque de bout en bout. **Contrainte de licence associée** (ajoutée après revue externe, §2ter) : les briques du pipeline doivent rester réellement open source/gratuites pour un usage produit — Ultralytics/YOLOv8 (AGPL) est écarté par défaut à ce titre, pas seulement pour des raisons techniques.
 
-## 2. Architecture R&D envisagée (3 phases)
+## 2. Architecture R&D envisagée (révisée après revue externe — voir §2ter)
 
-**Phase 1 — Localisation et normalisation géométrique**
-- Détection de points clés (type YOLOv8-Pose) : extrémités du sillet de tête, bords de la touche à la 12e frette, extrémités du sillet de chevalet.
-- Homographie (OpenCV) pour redresser l'image (manche vertical, table vue de face) — rend les mesures en pixels comparables d'une annonce à l'autre.
+**Phase 1 — Localisation et repérage géométrique**
+- **Repérage principal, sans modèle entraîné** : le motif des frettes sert de mire de calibration naturelle — l'espacement suit la loi fixe du tempérament égal (`d·2^(-n/12)`). Détection de segments (LSD/M-LSD/DeepLSD) + ajustement RANSAC de ce motif identifie chaque frette d'un coup, donne l'échelle métrique locale, et un résidu de fit qui sert de critère d'abstention automatique. Zéro label, zéro licence à gérer, entièrement inspectable.
+- **Repli si le motif de frettes n'est pas exploitable** (guitare trop petite/floue/angle défavorable) : détection de keypoints via un modèle entraîné — MMPose/RTMPose, DeepLabCut ou SLEAP (Apache/LGPL/BSD), pas YOLOv8-Pose (AGPL).
+- **Homographie globale abandonnée comme étape obligatoire.** Les 6 keypoints initialement prévus sont quasi colinéaires (estimation dégénérée dans l'axe qu'on veut justement mesurer) et une guitare n'est pas un plan unique (cordes flottantes au-dessus de la touche, sillet en relief) — une rectification globale réintroduirait une dépendance à l'angle de prise de vue, l'exact confondeur que Phase 2 doit éviter. Remplacée par des mesures en unités locales (Phase 2), sauf pour le diagnostic d'angle de manche qui reste un cas à part (voir §5).
 
-**Phase 2 — Extraction par ROI (Region of Interest)**
-- *Saddle Profiler* : ratio de surface claire (os/tusq) vs foncée (bois) sur un crop serré du sillet de chevalet → détecte un sillet limé à l'excès.
-- *Bellying Scanner* : densité des bords haute fréquence (Canny/Sobel) juste derrière le chevalet → détecte une déformation de la table.
-- *Fretboard Shadowing* : écart (Hough Line Transform) entre la corde de Mi grave et son ombre à hauteur de la 12e frette → proxy de la hauteur d'action.
+**Phase 2 — Extraction par mesures locales (remplace les ROI couleur/fréquence initiales)**
+- *Hauteur d'action* (remplace Fretboard Shadowing) : ratio `(distance corde↔sommet de frette à la 12e frette) / (diamètre de la corde de Mi grave)` — la corde sert d'étalon métrique local (±12% d'incertitude connue), invariant à la perspective locale, sans dépendre d'une ombre ni d'un éclairage particulier. Extraction par filtres de crêtes adaptés aux structures fines (`scikit-image` `frangi`/`sato`/`meijering`) + squelettisation + fit robuste (Theil-Sen/RANSAC) — plus fiable que Hough Line Transform sur du JPEG compressé. Exploitable sur une large part des vues (pas seulement de profil, voir §5).
+- *Hauteur de sillet restante* (remplace Saddle Profiler) : même étalon (diamètres de corde), mesuré en hauteur exposée au-dessus du chevalet via un masque de segmentation (SAM 2.1) — géométrie, pas couleur, donc robuste aux sillets synthétiques noirs/Micarta qui cassaient le ratio de couleur initial.
+- *Bombement / déformation* (remplace Bellying Scanner) : densité de bords haute fréquence abandonnée — corrélée à la compression JPEG et au grain du bois plus qu'à une vraie déformation, en contradiction avec le principe directeur §1. Deux remplaçants, chacun avec ses limites : (a) angle chevalet/table, nécessite une vue de profil (rare, §5) ; (b) détection de décollement de chevalet (ligne d'ombre à la jonction chevalet/table), signal binaire plus robuste et tolérant à plus d'angles. Le bombement pur reste probablement hors de portée sans contrôle de l'éclairage — objectif dégradé assumé plutôt que gonflé artificiellement.
+- *Angle du manche* (nouveau, distinct de la hauteur d'action) : reproduction numérique de la méthode du luthier — fit Theil-Sen sur les sommets de frettes détectés, extrapolé jusqu'au chevalet. Nécessite une vue de profil ou 3/4 serré, rare dans les annonces — traité comme **signal bonus**, pas comme métrique principale (voir §5, découplage action/angle).
 
 **Phase 3 — Intégration pipeline**
 - Filtrage en entonnoir : inférence lourde uniquement sur les annonces déjà retenues par le texte (marque/modèle/prix), pas sur tout le flux scrapé.
 - Stockage des vecteurs extraits uniquement (pas des images redressées) dans une base locale (PostgreSQL/SQLite).
-- Score de sortie : probabilité 0-100 de "travaux structurels", affiché dans le dashboard — pas de verdict binaire.
+- **Score de sortie révisé** : plus un score 0-100 toujours confiant, mais un intervalle de confiance calibré (MAPIE — conformal prediction, licence BSD) sur la mesure d'action estimée, avec une option explicite **"non mesurable"** quand la photo ne permet pas une extraction fiable — comble l'angle mort d'abstention relevé en revue externe.
 
-**Stack envisagée :** prototypage en Python pur (OpenCV + ultralytics) en priorité ; portage LibTorch/C++ (dans l'esprit du portage MoneyBot) différé après validation de l'approche, et seulement si le débit d'inférence devient un vrai problème (peu probable vu le filtrage en amont).
+**Stack envisagée :** prototypage en Python pur (OpenCV/scikit-image + modèles ci-dessus) en priorité ; portage LibTorch/C++ (dans l'esprit du portage MoneyBot, jugé non réutilisable tel quel — hors sujet RL vs vision, cf. historique de session) différé après validation de l'approche, et seulement si le débit d'inférence devient un vrai problème (peu probable vu le filtrage en amont).
+
+## 2ter. Revue externe (Fable, 2026-08-19)
+
+Une revue critique du plan a été demandée à un second modèle (Fable) pour challenger les choix techniques et proposer des alternatives open source/gratuites plus fiables. Conclusions principales, intégrées ci-dessus :
+- Failles identifiées : homographie mal posée (points colinéaires, guitare non plane), Shadow Gap non calibrable sans contrôle de l'éclairage, Saddle Profiler non invariant à la couleur du sillet, Bellying Scanner probablement corrélé à la compression JPEG plutôt qu'à une vraie déformation, absence de référence d'échelle et de mécanisme d'abstention, licence AGPL d'Ultralytics incompatible avec l'objectif open source.
+- Pas de verdict de faisabilité binaire rendu : l'architecture stratégique (métriques interprétables, deux datasets séparés, go/no-go) est jugée saine, mais la viabilité concrète dépend d'une donnée non encore mesurée — le taux réel de photos d'annonces exploitables (estimation à vue de nez, non mesurée : possiblement &lt;10%). D'où l'**Étape 0** ajoutée au plan de match (§4).
 
 ## 3. Le vrai enjeu identifié : le dataset, pas l'architecture
 
@@ -42,11 +50,11 @@ Deux besoins de données bien distincts, de difficulté très différente :
 
 Rejet du clic manuel comme méthode par défaut (700+ images, aucune patience/temps disponible côté utilisateur) au profit d'un pipeline automatisé, gardé inspectable à chaque étage (cohérent avec le principe directeur §1 — pas de boîte noire) :
 
-1. **Localisation grossière** : un détecteur ouvert (Grounding DINO, ou Gemini Flash en repli — sortie JSON structurée, même mécanique que le pipeline 3-Tiers existant) repère approximativement les zones (tête, chevalet).
-2. **Segmentation précise** : SAM (Segment Anything) affine chaque zone en contour pixel-précis à partir de la boîte grossière — plus fiable qu'une coordonnée brute renvoyée par un VLM généraliste, qui n'est pas conçu pour la précision géométrique fine.
-3. **Extraction déterministe** : les points clés (coins/extrémités) sont calculés depuis le contour par OpenCV classique — pas d'IA à cette étape.
+1. **Localisation grossière** : Florence-2 (MIT, Microsoft) ou OWLv2 (Apache-2.0) plutôt que Grounding DINO/Gemini Flash — open source, gratuits, tournent en local. Astuce de robustesse : prompter sur des concepts fréquents ("guitar headstock", "guitar bridge") plutôt que sur le vocabulaire ambigu de lutherie ("nut", "saddle"), puis descendre au point précis par position relative dans le crop.
+2. **Segmentation précise** : SAM 2.1 (Apache-2.0, plus précis et plus léger que SAM 1 ; HQ-SAM si les contours fins du sillet comptent particulièrement) affine chaque zone en contour pixel-précis à partir de la boîte grossière — plus fiable qu'une coordonnée brute renvoyée par un VLM généraliste, qui n'est pas conçu pour la précision géométrique fine. Limite connue : les cordes/chevilles occluent partiellement le sillet de chevalet, SAM peut les inclure/exclure de façon incohérente d'une image à l'autre — à surveiller en validation (point 3).
+3. **Validation par cohérence géométrique, pas par inspection visuelle** : les points extraits sont testés en ajustant le motif de fréquence des frettes (Phase 1) dessus — tout label dont le résidu dépasse un seuil est rejeté automatiquement. Erreur chiffrée en pixels, tri objectif "labels fiables / à corriger", remplace la simple "comparaison visuelle rapide" prévue initialement (une erreur de quelques pixels est invisible à l'œil sur une vignette mais fatale pour la mesure).
 4. **Réduction du nombre de points à détecter par la géométrie connue** : la position des frettes suit une formule fixe (tempérament égal). Détecter fiablement seulement le sillet de tête + le sillet de chevalet permet de **calculer** la position théorique de la 12e frette plutôt que de la faire reconnaître visuellement — moins de points appris, moins d'erreurs cumulées.
-5. **Repli si besoin** : chercher un modèle déjà entraîné sur des guitares (Roboflow Universe/HuggingFace) avant de fine-tuner depuis un backbone générique ; si la validation (§4 point 5) échoue malgré tout, correction manuelle assistée (points auto-labellisés pré-remplis dans CVAT, l'humain corrige au lieu de labelliser à vide) plutôt que clic à froid.
+5. **Repli si besoin** : chercher un modèle déjà entraîné sur des guitares (Roboflow Universe/HuggingFace) avant de fine-tuner depuis un backbone générique ; si la validation (point 3) échoue malgré tout, correction manuelle assistée (points auto-labellisés pré-remplis dans un outil comme Label Studio, l'humain corrige au lieu de labelliser à vide) plutôt que clic à froid.
 
 - **Dataset B — "le signal visuel prédit la vraie mesure"** (calibration Phase 2) : le vrai goulot d'étranglement. Nécessite des paires (photo, mesure réelle mesurée à la main). Un label binaire "besoin de neck reset" est rare et coûteux (diagnostic d'expert) ; reformulé en métrique continue bon marché (hauteur de corde à la 12e frette, hauteur de sillet restante) mesurable par n'importe qui avec une jauge/règle sur n'importe quelle guitare, bonne ou mauvaise.
 
@@ -54,23 +62,33 @@ Rejet du clic manuel comme méthode par défaut (700+ images, aucune patience/te
 
 **Idée validée en session :** exploiter les guitares à manche vissé (ex. Art & Lutherie) de l'utilisateur — le "neck reset" s'y fait par changement de cale à la jonction (réversible), permettant de mesurer et photographier plusieurs configurations d'angle réel du manche dans une seule session, sur une guitare confirmée nécessiter une correction. Résout la limite du manche collé (où l'angle ne peut pas être modifié sans opération irréversible).
 
+**Protocole de session affiné (après revue externe) — deux confusions distinctes, deux garde-fous distincts :**
+- *Confusion "conditions de prise de vue"* (un signal qui ne reflèterait qu'une lumière/un angle particulier plutôt que l'action réelle) : couverte par la randomisation déjà prévue — plusieurs photos par réglage de cale, avec éclairage/distance/angle/focale volontairement variés autant que possible.
+- *Confusion "apparence de cette guitare précise"* (un signal qui accrocherait sur le grain du bois ou la forme du chevalet de cette guitare-là plutôt que sur la géométrie) : **non résolue par la randomisation des conditions de prise de vue**, puisque bois/chevalet/cordes restent identiques sur toutes les photos d'une même guitare, quelles que soient les conditions. Seul un test **leave-one-guitare-out** (calibrer sur une guitare, vérifier que ça tient sur l'autre, jamais utilisée pour calibrer) peut la détecter — critère formalisé au jalon go/no-go (§4). Avec seulement 2 guitares ce n'est pas une validation statistique robuste, mais un garde-fou réel : si le signal s'effondre d'une guitare à l'autre, c'est un signe fort qu'il était illusoire.
+
+**Sources gratuites complémentaires identifiées (revue externe), à coût nul :**
+- **BlenderProc** (pipeline de rendu gratuit) + modèle 3D de guitare (Sketchfab/BlenderKit CC) : angle de manche et action paramétrables, génère des paires (image, mesure exacte connue) par milliers avec domain randomization — complète (pas ne remplace pas) les mesures réelles, qui restent indispensables pour valider le transfert simulation→réel.
+- Forums de lutherie (Acoustic Guitar Forum, Unofficial Martin Guitar Forum) et vidéos YouTube de neck resets (frames avant/après avec mesures annoncées par le luthier) — paires photo/mesure hétérogènes mais gratuites et issues de vraies guitares défectueuses.
+
 ## 4. Plan de match
 
 0. **Principe :** deux datasets distincts (A = keypoints, B = calibration), ne pas les confondre dans la collecte.
 
-1. **Exploiter les 2 guitares de l'utilisateur immédiatement (Dataset B, coût nul, priorité)**
-   - Guitare à manche vissé : mesurer l'état actuel (action 12e frette, hauteur de sillet) → photographier (protocole complet, §5) → dévisser, tester 2-3 épaisseurs de cale → mesurer + photographier à chaque configuration.
+1. **Étape 0 (ajoutée après revue externe, priorité absolue avant tout le reste)** : échantillonner ~50 des 700 annonces déjà en base et compter à la main combien ont au moins une vue exploitable (guitare assez grande dans le cadre, zone manche/chevalet nette). C'est ce chiffre, pas l'architecture, qui décide de la viabilité concrète du projet — aucune revue n'a donné de verdict de faisabilité sans cette donnée.
+
+2. **Exploiter les 2 guitares de l'utilisateur immédiatement (Dataset B, coût nul, priorité)**
+   - Guitare à manche vissé : mesurer l'état actuel (action 12e frette, hauteur de sillet) → photographier (protocole complet, §5, plusieurs conditions par réglage) → dévisser, tester 2-3 épaisseurs de cale → mesurer + photographier à chaque configuration.
    - Guitare à manche collé (si applicable) : même protocole photo/mesure sur l'état actuel ; variation de l'action via cales sous le sillet de chevalet possible (réversible), pas de variation d'angle du manche (irréversible sur ce type de jonction).
 
-2. **Combler la généralisation** : mesurer/photographier d'autres guitares accessibles (propres guitares restantes, entourage) pour vérifier que la relation signal↔mesure ne dépend pas de l'apparence d'une seule guitare (bois/chevalet/finition).
+3. **Combler la généralisation** : mesurer/photographier d'autres guitares accessibles (propres guitares restantes, entourage) pour le test leave-one-guitare-out (§3) — pas juste "utile", mais un critère formel du jalon go/no-go (étape 6).
 
-3. **Approcher un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) en échange d'un accès aux résultats — source de cas positifs confirmés en volume, alternative identifiée à l'absence de magasins d'occasion locaux.
+4. **Approcher un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) en échange d'un accès aux résultats — source de cas positifs confirmés en volume, alternative identifiée à l'absence de magasins d'occasion locaux. Sources gratuites complémentaires en parallèle : forums de lutherie, vidéos YouTube de neck resets (§3).
 
-4. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : script d'export des photos déjà stockées (Firebase Storage, 700+ annonces acoustique/classique) + pipeline de labellisation automatisée des keypoints (§3bis). Clic manuel (CVAT/labelme) en repli uniquement si la validation échoue.
+5. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : script d'export des photos déjà stockées (Firebase Storage, 700+ annonces acoustique/classique) + pipeline de labellisation automatisée des keypoints (§3bis, Florence-2 + SAM 2.1 + validation géométrique). Clic manuel en repli uniquement si la validation échoue.
 
-5. **Jalon go/no-go** : (a) valider la qualité des keypoints auto-labellisés sur un petit échantillon (comparaison visuelle rapide, pas de clic précis) avant de labelliser à l'échelle ; (b) calculer les 3 métriques (saddle ratio, belly variance, shadow delta) à la main/en script simple sur les données des étapes 1-3, avant tout entraînement de modèle, et vérifier la corrélation avec les vraies mesures. Si l'un ou l'autre ne tient pas, ne pas investir dans l'industrialisation.
+6. **Jalon go/no-go** : (a) taux de photos exploitables mesuré à l'étape 0 jugé suffisant ; (b) qualité des keypoints auto-labellisés validée par résidu géométrique chiffré (§3bis point 3), pas par inspection visuelle ; (c) les métriques de Phase 2 (§2) calculées à la main/en script simple sur les données des étapes 2-4 corrèlent avec les vraies mesures **en validation croisée leave-one-guitare-out** (§3) — une corrélation qui ne tient que sur la guitare ayant servi à calibrer ne compte pas. Si l'un de ces trois points ne tient pas, ne pas investir dans l'industrialisation.
 
-6. **Industrialisation** (seulement après validation de l'étape 5) : entraînement du modèle de keypoints, assemblage du pipeline complet, portage C++/LibTorch si besoin de performance avéré.
+7. **Industrialisation** (seulement après validation de l'étape 6) : entraînement du/des modèle(s) de repli, assemblage du pipeline complet avec sortie calibrée (MAPIE + abstention), portage C++/LibTorch si besoin de performance avéré.
 
 ## 5. Protocole photo retenu (par guitare/configuration mesurée)
 
@@ -80,10 +98,14 @@ Rejet du clic manuel comme méthode par défaut (700+ images, aucune patience/te
 4. Gros plan sur la 12e frette avec cordes visibles.
 5. (Optionnel, haute valeur si réalisable) Photo "en visée" depuis la tête le long du manche.
 
-Chaque vue déclinée sur plusieurs angles/éclairages — utile pour la robustesse du futur détecteur de keypoints, mais ne remplace pas le besoin de guitares visuellement différentes pour la généralisation (§3).
+Chaque vue déclinée sur plusieurs conditions (angle, distance, éclairage, focale si possible) autant que réalisable par réglage de cale — couvre la confusion "conditions de prise de vue" (§3), mais **pas** la confusion "apparence de cette guitare précise", qui nécessite une deuxième guitare (§3, §4 point 3).
+
+**Rareté de la vue de profil dans les vraies annonces (constat utilisateur, confirmé par la revue externe) :** l'essentiel des photos de vendeurs ne montre pas de vue de profil/en visée — la vue 5 ci-dessus reste l'exception, pas la norme. Conséquence directe sur l'ambition du pipeline (§2, Phase 2) : la **hauteur d'action** (mesure locale en diamètres de corde, tolérante à l'angle) reste exploitable sur une part significative des annonces ; l'**angle du manche par visée** et le **bombement via angle chevalet/table** restent de vraies vues de profil et ne seront mesurables que sur une minorité d'annonces bien photographiées — traités comme signaux bonus, pas comme piliers du score. Le protocole de collecte (vues 1-5 ci-dessus) reste néanmoins complet pour le Dataset B, où c'est l'utilisateur qui contrôle la prise de vue.
 
 ## 6. Points ouverts / non tranchés
 
 - Modalités précises du contact luthier/école de lutherie (message à rédiger).
-- Volume cible du Dataset B avant de juger l'étape 5 concluante.
+- Volume cible du Dataset B avant de juger le jalon go/no-go (§4 étape 6) concluant.
+- Seuil de résidu géométrique acceptable pour valider un keypoint auto-labellisé (§3bis point 3) — à calibrer empiriquement.
 - Reformulation éventuelle du score de sortie (continu vs seuils) une fois la corrélation réelle connue.
+- Résultat de l'Étape 0 (§4 étape 1) non encore mesuré — conditionne la suite de tout le plan.
