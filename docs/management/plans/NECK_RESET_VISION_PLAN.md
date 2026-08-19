@@ -132,6 +132,22 @@ Réponse directe au point rouvert par l'audit Opus (§3quinquies) et au vrai cri
 
 **Conclusion :** le taux réel (51%, jusqu'à 70% si on compte les cas partiels) est nettement meilleur que l'estimation pessimiste de Fable ("possiblement &lt;10%", §2ter). **Le critère de faisabilité initial est rempli** — le projet n'est pas bloqué par le manque de photos exploitables, contrairement au risque identifié en revue externe.
 
+### 3septies. Collecte Dataset A à l'échelle (2026-08-19)
+
+Export réel du corpus complet via `backend/scripts/export_dataset_a.py` (exécuté en production via `ops/run-script`, lecture seule Firestore) — élargi au périmètre électrique/basse (§3ter), contrairement à `export_neck_reset_sample.py` qui restait limité acoustique/classique pour l'Étape 0.
+
+Filtre : `storageImageUrls` non vide, classification sous un des 5 nœuds `guitare.*` (electrique, acoustique_acier, electro_acoustique, classique_nylon, basse), items rejetés exclus (`status == 'rejected'` ou `aiAnalysis.verdict` dans REJECTED_ITEM/REJECTED_SERVICE/REJECTED). **BAD_DEAL conservé** délibérément — ce n'est pas un rejet (CLAUDE.md, "BAD_DEAL ≠ REJECTED") : la guitare est réelle et photographiée, juste jugée trop chère par l'IA.
+
+**Bug trouvé et corrigé avant validation des chiffres :** le premier run filtrait par sous-chaîne (`"electrique" in classification`), ce qui incluait à tort 10 annonces classées `etui_housse.Etui_Rigide.Guitare Electrique` (un étui, pas une guitare) — contamination de la même nature que celle repérée à la main dans l'échantillon Étape 0 (§3sexies). Corrigé en exigeant un préfixe complet `guitare.*`.
+
+**Résultat (chiffres corrigés) :**
+- **1066 annonces retenues → 5974 photos** au total (`storageImageUrls`), toutes guitares confondues.
+- Exclues : 2423 rejetées, 143 sans photo stockée, 1004 hors périmètre guitare (ampli/étui/autre).
+- Répartition dominée par `acoustique_acier.formes_standard.Dreadnought*` (324), `classique_nylon.types.Classique Standard` (173), puis plusieurs familles électriques solid-body (Stratocaster 69, Super Strat 50, Single Cut 39, etc.) — confirme l'utilité de l'élargissement électrique (§3ter) en volume.
+- Manifeste (`dataset_a_manifest.jsonl`) livré en artefact CI, pas encore versionné ni consommé par un pipeline — sert d'entrée à la labellisation automatisée des keypoints (§3bis), pas encore lancée.
+
+Ce chiffre (1066) est le corpus Dataset A **brut** (toute photo présente), pas le corpus **exploitable** — le taux mesuré en §3sexies (51%/70%) reste une estimation sur un échantillon de 47 annonces acoustique/classique uniquement, pas encore vérifiée sur le corpus électrique élargi ni appliquée photo-par-photo à ces 5974 images (c'est justement le rôle prévu de la Phase 0, §2).
+
 ## 4. Plan de match
 
 0. **Principe :** deux datasets distincts (A = keypoints, B = calibration), ne pas les confondre dans la collecte.
@@ -146,7 +162,7 @@ Réponse directe au point rouvert par l'audit Opus (§3quinquies) et au vrai cri
 
 4. **Approcher un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) en échange d'un accès aux résultats — source de cas positifs confirmés en volume, alternative identifiée à l'absence de magasins d'occasion locaux. Sources gratuites complémentaires en parallèle : forums de lutherie, vidéos YouTube de neck resets (§3).
 
-5. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : script d'export des photos déjà stockées (Firebase Storage, 700+ annonces acoustique/classique) + pipeline de labellisation automatisée des keypoints (§3bis, Florence-2 + SAM 2.1 + validation géométrique). Clic manuel en repli uniquement si la validation échoue.
+5. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : **✅ export à l'échelle fait (§3septies, 2026-08-19)** — 1066 annonces / 5974 photos, tout le périmètre guitare (§3ter). Reste à faire : pipeline de labellisation automatisée des keypoints (§3bis, Florence-2 + SAM 2.1 + validation géométrique) — pas encore lancé. Clic manuel en repli uniquement si la validation échoue.
 
 6. **Jalon go/no-go** : (a) ✅ taux de photos exploitables (§3sexies, 51-70%) et résolution (§3quater) jugés suffisants — la mesure d'action visant une classification grossière plutôt qu'une valeur continue ; (b) qualité des keypoints auto-labellisés validée par résidu géométrique chiffré (§3bis point 3), pas par inspection visuelle ; (c) les métriques de Phase 2 (§2) calculées à la main/en script simple sur les données des étapes 2-4 corrèlent avec les vraies mesures **en validation croisée leave-one-guitare-out** (§3) — une corrélation qui ne tient que sur la guitare ayant servi à calibrer ne compte pas. Si (b) ou (c) ne tient pas, ne pas investir dans l'industrialisation.
 
@@ -178,5 +194,7 @@ Chaque vue déclinée sur plusieurs conditions (angle, distance, éclairage, foc
 - **Nouveau (audit §3quinquies) : paramètre `rule=` du CDN Kijiji (`media.kijiji.ca`) jamais testé** — contrairement à Facebook, ce paramètre n'est pas signé cryptographiquement ; la conclusion "Kijiji ne fait pas mieux" (§3quater) reste probable mais non vérifiée tant qu'il n'est pas testé.
 - Classificateur modèle → type de jonction (bolt-on/set-neck), nécessaire pour élargir le diagnostic "neck reset" au périmètre électrique (§3ter) — pas encore conçu ni implémenté.
 - Seuils précis de la classification grossière basse/normale/haute (en pixels ou en ratio corde/frette) — à calibrer sur le Dataset B une fois collecté (§4 étapes 2-3), la résolution disponible étant désormais connue (§3quater).
-- Élargissement du filtre de collecte (`export_neck_reset_sample.py`, actuellement acoustique/classique) aux guitares électriques — décidé en principe (§3ter), pas encore codé.
+- ~~Élargissement du filtre de collecte aux guitares électriques~~ **Fait (§3septies, 2026-08-19)** : `export_dataset_a.py` couvre les 5 nœuds `guitare.*`, 1066 annonces/5974 photos exportées.
+- Le taux d'exploitabilité (51%/70%, §3sexies) n'a été mesuré que sur un échantillon acoustique/classique de 47 annonces — pas encore vérifié sur le corpus électrique élargi (§3septies) ni appliqué photo-par-photo aux 5974 images du manifeste.
+- `dataset_a_manifest.jsonl` (§3septies) n'est pour l'instant qu'un artefact CI éphémère (14 jours de rétention) — pas encore stocké durablement ni consommé par le pipeline de labellisation (§3bis).
 - Estimation grossière de l'angle de prise de vue (frontal vs 3/4) pour le filtre d'utilisabilité (Phase 0, §2) — approche non conçue, hypothèse "profil/3-4 nécessaire pour l'action" pas encore vérifiée sur photos réelles.
