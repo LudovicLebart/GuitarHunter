@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Action effectuée : accès SSH au Dell GPU de MoneyBot établi et validé (projet neck-reset) → Résultat :
+- **Décision utilisateur** : clé SSH dédiée à GuitarHunter (pas de réutilisation de la clé MoneyBot existante) — paire ed25519 générée hors dépôt, clé publique ajoutée par l'utilisateur aux `authorized_keys` du Dell, clé privée stockée dans le nouveau secret GuitarHunter `DELL_SSH_PRIVATE_KEY`.
+- **`run_script_dell.yml` requalifié** (test de ping → exécuteur SSH) et validé en conditions réelles : `nvidia-smi` exécuté avec succès sur le Dell via SSH+Tailscale depuis la CI GuitarHunter.
+- **GPU confirmé disponible : RTX ~2060/8192 MiB VRAM (quasi libre), driver 580.126.09, CUDA 13.0, Python 3.12.3 natif.** Correction au passage : la doc MoneyBot dit "RTX 2070 SE" (voire "RTX 4070" ailleurs dans le même document) — `nvidia-smi` (mesure directe) dit RTX 2060 ; seule la capacité VRAM (8192 Mo) est confirmée par les deux sources. Retenu comme donnée fiable pour la suite.
+- **Prochaine étape** (§7 du plan) : tester Florence-2/OWLv2/SAM 2.1 en inférence sur un petit échantillon du manifeste Dataset A avant tout traitement à l'échelle des 5974 photos.
+
 [2026-08-19] [PRO] Investigation : connectivité au Dell GPU de MoneyBot pour l'inférence vision (projet neck-reset) → Résultat :
 - **Demande utilisateur** : évaluer l'usage du Dell Precision T5810 de MoneyBot (GPU RTX 2070 SE, 8 Go VRAM) comme machine de calcul pour Florence-2/OWLv2/SAM 2.1 (Phase 0/1 du plan), plutôt que dans le sandbox CI/Claude (sans GPU).
 - **Test de connectivité Tailscale (nouveau workflow `run_script_dell.yml`, `ops/run-script`)** : le client OAuth `tag:ci` de GuitarHunter rejoint le même tailnet que le Dell — confirmé (`tailscale status` liste `dell-5810`, 4/4 pings réussis via DERP, 64-178ms). Le job CI affichait "failure" à tort (code de sortie non-nul de `tailscale ping` sur connexion relayée plutôt que directe, sans rapport avec la joignabilité réelle) — vérifié en lisant les logs plutôt que de se fier au statut du job.
