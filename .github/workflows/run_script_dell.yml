@@ -11,11 +11,11 @@
 # Répertoire scratch dédié sur le Dell (~/GuitareHunter-scripts), même logique que run_script.yml
 # côté serveur de production : jamais ~/MoneyBot, jamais d'interférence avec le cluster Ray actif.
 #
-# Étape actuelle (§7 étape 4) : backend/scripts/test_dell_vision_inference.py — valide qu'OWLv2-base
-# tourne en inférence dans les 8 Go de VRAM sur un petit échantillon réel du Dataset A (Florence-2
-# essayé en premier, écarté après échec de compatibilité `trust_remote_code`, voir le script).
-# Premier run lent (installation torch/transformers + téléchargement du modèle, ~1 Go) — timeout
-# généreux en conséquence.
+# Étape actuelle (§7 étape 5) : backend/scripts/run_phase0_usability_filter.py — applique à
+# l'échelle des 1066 annonces du Dataset A (backend/scripts/data/dataset_a_manifest.jsonl,
+# versionné) le filtre de présence "guitare" (OWLv2-base) validé sur 8 photos à l'étape 4.
+# Pour lancer un autre script, modifier la commande de l'étape d'exécution et le nom de fichier
+# de l'étape de récupération ci-dessous (même patron que run_script.yml/FICHIER_A_RECUPERER).
 #
 # Usage : pousser sur `ops/run-script` (même mécanisme que run_script.yml).
 name: Run One-Off Script (Dell GPU)
@@ -35,14 +35,14 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Exécution du script d'inférence sur le Dell
+      - name: Exécution du script sur le Dell
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 100.94.33.54
           username: ludovic
           key: ${{ secrets.DELL_SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 20m
+          command_timeout: 40m
           script: |
             set -e
             mkdir -p ~/GuitareHunter-scripts
@@ -65,5 +65,25 @@ jobs:
             echo "--- GPU avant chargement du modèle ---"
             nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 
-            echo "--- Exécution du test d'inférence ---"
-            python3 backend/scripts/test_dell_vision_inference.py
+            echo "--- Exécution du script ---"
+            rm -f dataset_a_phase0.jsonl
+            python3 backend/scripts/run_phase0_usability_filter.py
+
+      - name: Récupération du rapport généré
+        env:
+          FICHIER_A_RECUPERER: dataset_a_phase0.jsonl
+        run: |
+          mkdir -p ~/.ssh output
+          printf '%s' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
+            "ludovic@100.94.33.54:~/GuitareHunter-scripts/${FICHIER_A_RECUPERER}" \
+            output/ || echo "⚠️ Aucun rapport à récupérer (le script a peut-être échoué ou ne produit pas ce fichier)."
+
+      - name: Publication de l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dell-gpu-report
+          path: output/
+          if-no-files-found: warn
+          retention-days: 14
