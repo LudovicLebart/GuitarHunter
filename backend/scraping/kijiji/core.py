@@ -13,6 +13,7 @@ from .locations import (
     load_location_lookup, load_city_coordinates, build_resolvable_hubs,
     resolve_location, nearest_resolvable_hub, build_search_url,
 )
+from backend.sold_markers import find_sold_marker
 
 
 class KijijiScraper:
@@ -689,6 +690,15 @@ class KijijiScraper:
 
             if "/v-" not in page.url:
                 self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                return False
+
+            # Vérification du titre (og:title) pour un marqueur de vente ajouté par le vendeur sans
+            # suppression de l'annonce — miroir de `FacebookScraper.check_listing_availability`.
+            # Recherche par sous-chaîne (pas de regex ancrée comme pour les badges ci-dessous).
+            og_title = page.locator('meta[property="og:title"]').get_attribute("content")
+            title_sold_marker = find_sold_marker(og_title)
+            if title_sold_marker:
+                self.logger.info(f"   🚫 Marqueur de vente trouvé dans le titre ('{title_sold_marker}'): '{og_title}'")
                 return False
 
             unavailable_patterns = [

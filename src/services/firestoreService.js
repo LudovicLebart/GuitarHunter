@@ -1,7 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
   collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit, where, documentId
+  query, orderBy, limit, where, documentId, serverTimestamp
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -268,6 +268,58 @@ export const toggleDealFavorite = async (dealId, currentStatus, chunkId, userId)
   } catch (error) {
     console.error(`Error toggling favorite for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la mise à jour des favoris.");
+  }
+};
+
+export const toggleDealPurchased = async (dealId, currentStatus, chunkId, userId, purchasePrice = null) => {
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    const newStatus = !currentStatus;
+    await updateDoc(doc(dealsCollectionRef, dealId), newStatus
+      ? { isPurchased: true, purchasedAt: serverTimestamp(), purchasePrice: purchasePrice ?? deleteField() }
+      : { isPurchased: false, purchasedAt: deleteField(), purchasePrice: deleteField() }
+    );
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}.pu`]: newStatus
+      });
+    }
+  } catch (error) {
+    console.error(`Error toggling purchased for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du statut d'achat.");
+  }
+};
+
+/**
+ * Correction manuelle de la classification d'une annonce (2026-08-16).
+ *
+ * Écrite dans un champ DÉDIÉ `manualClassification`, jamais dans `aiAnalysis.classification` :
+ * une ré-analyse écrase intégralement `aiAnalysis`, la correction serait donc perdue au premier
+ * "Ré-analyser" (même famille de piège que le bug `ArrayUnion` du 2026-08-12, qui détruisait
+ * silencieusement `aiAnalysis`). Le champ dédié prime à l'affichage et au filtrage.
+ *
+ * L'index léger reçoit la valeur corrigée dans `c` (pour que filtres/compteurs/stats en tiennent
+ * compte sans charger les documents complets) plus un marqueur `mc` qui signale l'origine manuelle.
+ * `classificationPath` vaut null pour ANNULER la correction et revenir au verdict de l'IA.
+ */
+export const setDealClassification = async (dealId, chunkId, userId, classificationPath, aiClassification = null) => {
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), {
+      manualClassification: classificationPath || deleteField()
+    });
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        // En annulation, l'index retombe sur la classification de l'IA (pas sur du vide).
+        [`deals.${dealId}.c`]: classificationPath || aiClassification || deleteField(),
+        [`deals.${dealId}.mc`]: classificationPath ? true : deleteField()
+      });
+    }
+  } catch (error) {
+    console.error(`Error setting classification for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la correction de la catégorie.");
   }
 };
 

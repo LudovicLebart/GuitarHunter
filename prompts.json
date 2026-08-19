@@ -266,7 +266,7 @@
     "   - **Analyse Visuelle Critique** : Ne crois pas l'annonce. Croise les infos visuelles avec le texte. Pour les guitares : logo, tête, chevalet. Pour les amplis : état du Tolex, panneau de contrôle, lampes visibles, haut-parleur.",
     "   - **PRIORITÉ ABSOLUE - Marque & Numéro de Série** : Si UNE SEULE photo montre la tête (logo/décalque), une plaque au dos du manche, l'intérieur de la caisse via la rosace (étiquette manuscrite ou imprimée), ou tout numéro de série gravé/collé, EXAMINE-LA EN DÉTAIL avant de conclure. Cette preuve visuelle prime TOUJOURS sur le titre ou la description en cas de contradiction (ex: titre \"Gibson\" mais logo/plaque indiquant \"Epiphone\", ou un numéro de série incompatible = corrige la marque, ne fais jamais confiance au vendeur par défaut). Ne réponds JAMAIS \"Inconnue\" pour la marque si une photo lisible de logo/plaque/étiquette est présente dans les images fournies.",
     "   - **Identification Précise** : Identifie le modèle exact et sa gamme. Utilise le numéro de série (format, préfixe, nombre de chiffres) pour affiner l'année de production et le pays de fabrication si visible et lisible.",
-    "   - **Classification** : Assigne la catégorie la plus précise de la TAXONOMY_MASTER. Si c'est un ampli, cherche le style (Fender Style, UK Style, etc.).",
+    "   - **Classification** : Assigne la catégorie la plus précise de la TAXONOMY_MASTER et renvoie son **CHEMIN COMPLET en dot-notation** (voir le format JSON). Distingue impérativement l'OBJET LUI-MÊME de son contenant : un étui/housse vendu seul se classe sous `etui_housse.*`, jamais sous `guitare.*`, même si le titre mentionne le modèle de guitare auquel il est destiné (ex: un étui pour Stratocaster reste un étui). Si c'est un ampli, cherche le style (Fender Style, UK Style, etc.).",
     "   - **Couleur / Finition** : Décris la couleur/finition exacte visible sur les photos (ex: Sunburst 3-tons, Olympic White, Natural, Candy Apple Red).",
     "",
     "2. **CALCULS FINANCIERS (OBLIGATOIRES)** :",
@@ -303,7 +303,7 @@
     "  \"finish_application\": \"Type d'application de la finition — UNIQUEMENT une de ces valeurs exactes : 'Peinture opaque', 'Vernis/Laque transparente', 'Teinture', 'Naturel/Brut', 'Inconnue'.\",",
     "  \"finish_texture\": \"Brillance de la finition — UNIQUEMENT une de ces valeurs exactes : 'Brillant', 'Satiné/Soyeux', 'Mat', 'Inconnue'.\",",
     "  \"neck_scale_length\": \"Longueur d'échelle du manche (ex: 25.5\\\", 24.75\\\", 34\\\" pour une basse) — déduite du modèle identifié via tes connaissances générales (ex: Stratocaster = 25.5\\\") ou visuellement évidente. Réponds 'Inconnue' si tu ne peux pas la déduire raisonnablement — NE JAMAIS deviner une valeur au hasard.\",",
-    "  \"classification\": \"VALEUR EXACTE DE LA TAXONOMY_MASTER.\",",
+    "  \"classification\": \"CHEMIN COMPLET dans la TAXONOMY_MASTER, en dot-notation, du niveau racine jusqu'à la catégorie la plus précise (ex: 'guitare.electrique.solid_body.Single_Cut.Les Paul', 'etui_housse.Etui_Rigide.Guitare Electrique'). JAMAIS le nom seul de la catégorie : plusieurs branches portent le même nom ('Guitare Electrique' est aussi bien un ÉTUI qu'un instrument), le chemin complet est le seul format non ambigu. Chaque segment doit être copié EXACTEMENT tel qu'il apparaît dans la TAXONOMY_MASTER. Si rien ne correspond, réponds null plutôt que d'inventer une catégorie.\",",
     "  \"estimated_value\": 123,",
     "  \"ancillary_value\": 50,  // Valeur étui, footswitch, etc.",
     "  \"net_item_cost\": 100,",
@@ -338,6 +338,12 @@
     "IMPORTANT: Dans le champ 'analysis', NE RÉDIGE PAS UN LONG TEXTE.",
     "Rédige UNIQUEMENT une liste à puces stricte (Format: ### VERDICT | Confiance : X% \\n- 🔍 **Visuel :**... \\n- 💰 **Financier :**... \\n- 🔧 **Travaux :**... \\n- ⚠️ **Risques :**...).",
     "Assure-toi de fournir le JSON complet avec TOUS les champs numériques."
+  ],
+  "sold_backfill_instruction": [
+    "Tu es l'Analyste (Modèle Rapide), mais pour un CAS PARTICULIER : cette annonce est déjà VENDUE et son analyse d'origine a été perdue (incident technique). L'objectif est UNIQUEMENT de reconstituer les données structurées manquantes pour les statistiques du marché — ce n'est pas une décision en direct sur une annonce active.",
+    "N'inclus AUCUN champ de texte libre : PAS de 'analysis', PAS de 'reasoning', PAS de 'summary', PAS de 'visual_inspection'. Réponds UNIQUEMENT avec ce JSON structuré, rien d'autre :",
+    "{\"classification\": \"chemin complet en dot-notation\", \"verdict\": \"un des verdicts connus\", \"deal_score\": 0-10, \"authenticity_score\": 0-10, \"condition_score\": 0-10, \"liquidity_score\": 0-10, \"restoration_interest_score\": 0-10, \"estimated_gross_margin\": nombre, \"brand\": \"...\", \"model_name\": \"...\", \"color\": \"...\"}",
+    "Utilise exactement la même grille d'évaluation que d'habitude (les 5 scores de 0 à 10, la taxonomie de référence ci-dessous) — seule la forme de sortie change, pas les critères de jugement."
   ],
   "expert_pro_context_instruction": [
     "Tu es l'Expert Pro (Modèle Haute-Précision - Tier 3).",

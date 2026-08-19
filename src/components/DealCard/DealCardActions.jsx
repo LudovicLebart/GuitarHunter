@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle, ShoppingBag } from 'lucide-react';
 import { createSharedDeal } from '../../services/firestoreService';
 
 const DealCardActions = ({
     deal,
     isAnalyzing,
     onToggleFavorite,
+    onTogglePurchased,
     onReject,
     onDelete,
     onRetry,
@@ -17,6 +18,23 @@ const DealCardActions = ({
     const [isCopying, setIsCopying] = useState(false);
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
+    const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+    const [purchasePriceInput, setPurchasePriceInput] = useState('');
+
+    const handlePurchaseClick = () => {
+        if (deal.isPurchased) {
+            // Désactivation directe : pas besoin de reconfirmer un prix pour annuler.
+            onTogglePurchased(null);
+        } else {
+            setPurchasePriceInput('');
+            setShowPurchaseModal(true);
+        }
+    };
+    const confirmPurchase = () => {
+        const parsed = parseFloat(purchasePriceInput);
+        onTogglePurchased(Number.isFinite(parsed) ? parsed : null);
+        setShowPurchaseModal(false);
+    };
 
     // Même logique que DealCard/index.jsx : l'URL est la seule source de vérité fiable
     // pour distinguer Facebook/Kijiji (deal.source n'existe que pour Kijiji).
@@ -81,6 +99,14 @@ const DealCardActions = ({
                     title="Favori"
                 >
                     <Heart size={18} className="sm:w-4 sm:h-4" fill={deal.isFavorite ? 'currentColor' : 'none'} />
+                </button>
+                {/* Acheté */}
+                <button
+                    onClick={handlePurchaseClick}
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.isPurchased ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-emerald-400 hover:bg-emerald-500/10'}`}
+                    title={deal.isPurchased ? "Achetée (cliquer pour annuler)" : "Marquer comme achetée"}
+                >
+                    <ShoppingBag size={18} className="sm:w-4 sm:h-4" />
                 </button>
                 {/* Ré-analyser Dropdown */}
                 <div
@@ -221,6 +247,49 @@ const DealCardActions = ({
                                 className="px-4 py-2 rounded-xl text-sm font-bold text-amber-900 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             >
                                 Lancer l'analyse Expert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modale Prix d'achat */}
+            {showPurchaseModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                    onClick={(e) => { e.stopPropagation(); setShowPurchaseModal(false); }}
+                >
+                    <div
+                        className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-150"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 mb-3">
+                            <ShoppingBag size={18} className="text-emerald-400" />
+                            <h3 className="text-sm font-black text-slate-100 uppercase tracking-wide">Marquer comme achetée</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-3">
+                            Prix réellement payé, si différent du prix affiché ({deal.price != null ? `${deal.price}$` : 'inconnu'}). Laisse vide sinon.
+                        </p>
+                        <input
+                            type="number"
+                            value={purchasePriceInput}
+                            onChange={(e) => setPurchasePriceInput(e.target.value)}
+                            placeholder={deal.price != null ? `${deal.price}` : 'Prix payé ($)'}
+                            autoFocus
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
+                        />
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button
+                                onClick={() => setShowPurchaseModal(false)}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={confirmPurchase}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-emerald-900 bg-emerald-400 hover:bg-emerald-300 transition-colors"
+                            >
+                                Confirmer l'achat
                             </button>
                         </div>
                     </div>

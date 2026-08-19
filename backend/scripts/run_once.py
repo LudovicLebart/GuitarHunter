@@ -27,25 +27,41 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-12 : récupération GRATUITE (aucun appel Gemini) des annonces vendues à
-    `aiAnalysis` corrompu — reconstruit un verdict minimal depuis `initialVerdict` (champ
-    figé à la création, jamais touché par le bug ArrayUnion de `mark_deal_as_sold()`, voir
-    JOURNAL.md). Ne récupère que le verdict, pas classification/scores/marge — voir
-    `backend/scripts/recover_initial_verdict.py` pour le détail. Rapide (pas d'appel
-    réseau externe autre que Firestore), tourne en synchrone ici sans souci de timeout.
+    2026-08-17 : lance `backend/scripts/backfill_sold_scores.py` (backfill léger des scores
+    IA sur les ~2216 annonces vendues dont `aiAnalysis` est resté corrompu après la
+    récupération gratuite du verdict — voir JOURNAL.md) en **arrière-plan détaché**
+    (`subprocess.Popen(..., start_new_session=True)`) plutôt qu'en l'attendant ici : le job
+    dure potentiellement plusieurs heures (~2216 annonces, 1 appel Gemini chacune), largement
+    au-delà du timeout de 10 min du step SSH de `deploy.yml`. Détaché, il survit à la fin de
+    ce step ET à un redémarrage du service `guitare-hunter` juste après (processus
+    indépendant, pas un enfant de systemd). Même patron que la tentative du 2026-08-12 pour
+    `reanalyze_sold_deals.py` (jamais réellement déployée).
 
-    La ré-analyse IA complète (plus lente, ~20-25$, plusieurs heures) via
-    `backend/scripts/reanalyze_sold_deals.py` reste disponible mais n'est PAS déclenchée
-    par ce `run()` — décision séparée, à activer explicitement plus tard si besoin.
+    Ce push ne va que sur `dev` (`/git-push-dev`) — pas de double déclenchement dev+master à
+    gérer ici, contrairement aux autres backfills de cette session.
+
+    Progression consultable dans `backfill_sold_scores.log` à la racine du repo (accès SSH
+    requis, pas disponible depuis cet environnement de dev). Le script cible gère lui-même un
+    verrou (`backfill_sold_scores.pid`) contre une double exécution concurrente.
     """
-    from backend.scripts.recover_initial_verdict import run as recover_run
-    recover_run()
+    import subprocess
+
+    log_path = os.path.join(os.getcwd(), 'backfill_sold_scores.log')
+    log_file = open(log_path, 'a')
+    subprocess.Popen(
+        [sys.executable, 'backend/scripts/backfill_sold_scores.py'],
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        cwd=os.getcwd(),
+        start_new_session=True,
+    )
+    print(f"[run_once] Backfill léger des ventes corrompues lancé en arrière-plan (log: {log_path}).")
 
 
 if __name__ == "__main__":

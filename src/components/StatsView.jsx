@@ -1,8 +1,10 @@
 import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
-import promptsData from '../../prompts.json';
 import { RADAR_GROUP } from '../constants';
+import { normalizeCityKey, pickBestLabel } from '../utils/cities';
+import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
+import DealsExplorer from './DealsExplorer';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -47,28 +49,7 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
     </div>
 );
 
-// Noms lisibles pour les types de classification
-const TYPE_LABELS = {
-    'Guitare acoustique': 'Acoustique',
-    'Guitare électrique': 'Électrique',
-    'Guitare basse': 'Basse',
-    'Guitare classique': 'Classique',
-    'Guitare folk': 'Folk',
-    'Guitare semi-acoustique': 'Semi-Acoustique',
-    'Guitare résonateur': 'Résonateur',
-    'Ukulélé': 'Ukulélé',
-    'Mandoline': 'Mandoline',
-    'Pedal Steel': 'Pedal Steel',
-};
-
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
-
-const LIQUIDITY_TIERS = [
-    { label: 'Faible (0-4)', min: 0, max: 5 },
-    { label: 'Moyenne (5-7)', min: 5, max: 8 },
-    { label: 'Élevée (8-10)', min: 8, max: 11 },
-];
-const LIQUIDITY_TIER_COLORS = ['#f87171', '#fbbf24', '#34d399'];
 
 const PRICE_BUCKETS = [
     { label: '0-250$', min: 0, max: 250 },
@@ -77,38 +58,6 @@ const PRICE_BUCKETS = [
     { label: '1000-2000$', min: 1000, max: 2000 },
     { label: '2000$+', min: 2000, max: Infinity },
 ];
-
-// Résolution légère de la taxonomie pour le croisement "Marge par catégorie" — volontairement plus
-// simple que useDealsManager.js::findPathFuzzy (exact + leaf uniquement, PAS de recherche floue par
-// sous-chaîne) : ici on ne veut qu'un classement grossier (racine + sous-catégorie), un niveau où le
-// risque de collision documenté sur les leafs profonds (ex: "guitare.basse") ne s'applique pas.
-const normalizeTaxKey = (str) => {
-    if (!str) return '';
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, '');
-};
-
-const buildTaxonomyPathsByKey = () => {
-    const paths = {};
-    const traverse = (node, currentPath) => {
-        if (Array.isArray(node)) {
-            node.forEach(item => {
-                const path = [...currentPath, item];
-                paths[normalizeTaxKey(path.join('.'))] = path;
-                paths[normalizeTaxKey(item)] = path;
-            });
-        } else if (node && typeof node === 'object') {
-            Object.keys(node).forEach(key => {
-                const path = [...currentPath, key];
-                paths[normalizeTaxKey(path.join('.'))] = path;
-                paths[normalizeTaxKey(key)] = path;
-                traverse(node[key], path);
-            });
-        }
-    };
-    traverse(promptsData.taxonomy_master || {}, []);
-    return paths;
-};
-const TAXONOMY_PATHS_BY_KEY = buildTaxonomyPathsByKey();
 
 const CATEGORY_LABELS = {
     'guitare.electrique': 'Guitare Électrique',
@@ -121,9 +70,14 @@ const CATEGORY_LABELS = {
     'etui_housse': 'Étui / Housse',
 };
 
+// Résolution déléguée au module partagé (`utils/taxonomy.js`) depuis le 2026-08-16 : la copie
+// locale normalisait le chemin en supprimant les points, si bien que "guitare.electrique"
+// (l'instrument) et "Guitare Electrique" (une feuille d'ÉTUI) produisaient la même clé — le bug
+// corrigé partout ailleurs survivait ici, et la canonicalisation des classifications l'a même
+// aggravé en généralisant les chemins complets en base.
 const resolveCategoryLabel = (classification) => {
     if (!classification) return null;
-    const path = TAXONOMY_PATHS_BY_KEY[normalizeTaxKey(classification)];
+    const { segments: path } = resolveClassification(classification);
     if (!path || path.length === 0) return null;
     if (path[0] === 'etui_housse') return CATEGORY_LABELS['etui_housse'];
     const key = path.length >= 2 ? `${path[0]}.${path[1]}` : path[0];
@@ -383,8 +337,10 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
         const byType = {};
         soldDeals.forEach(d => {
-            const classification = d.aiAnalysis.classification;
-            const label = TYPE_LABELS[classification] || classification.split(' ').slice(-1)[0];
+            // formatClassificationLabel plutôt qu'un découpage manuel : avec les chemins complets
+            // désormais stockés ("guitare.electrique.solid_body.Double_Cut.SG"), un split(' ')
+            // affichait le chemin technique entier — ou un mot isolé ("Paul" pour "Les Paul").
+            const label = formatClassificationLabel(d.aiAnalysis.classification) || 'Inconnue';
             const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
             if (!byType[label]) byType[label] = [];
             byType[label].push(diffH);
@@ -421,14 +377,18 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             }
         });
         return buckets
-            .filter(b => b.count > 0)
+            // Au moins une annonce avec un score dans la tranche — sinon la barre serait un 0
+            // trompeur (aucune donnée) plutôt qu'une vraie moyenne.
+            .filter(b => b.scoreCount > 0)
             .map(b => ({
-                name: b.label,
+                name: `${b.label} (${b.scoreCount})`,
                 count: b.count,
-                avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
+                scoreCount: b.scoreCount,
+                avgScore: Math.round((b.scoreSum / b.scoreCount) * 10),
                 avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
             }));
     }, [analysisDeals]);
+    const priceScoreTotal = priceScoreData.reduce((sum, b) => sum + b.scoreCount, 0);
 
     // ─── Marge moyenne par catégorie (taxonomie résolue via resolveCategoryLabel) ─
     const categoryData = useMemo(() => {
@@ -470,9 +430,10 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
         return {
             soldCount: soldWithScore.length,
+            marketCount: withScore.length,
             data: [
-                { name: 'Annonces Vendues', rate: highScoreRate(soldWithScore) },
-                { name: 'Ensemble du Marché', rate: highScoreRate(withScore) },
+                { name: `Vendues (${soldWithScore.length})`, rate: highScoreRate(soldWithScore) },
+                { name: `Ensemble (${withScore.length})`, rate: highScoreRate(withScore) },
             ],
         };
     }, [analysisDeals]);
@@ -504,55 +465,29 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
     }, [analysisDeals]);
 
     // ─── Géographie des opportunités : volume + marge moyenne par ville ───
+    // Regroupement par CLÉ canonique de ville, pas par chaîne brute : Facebook stocke
+    // "Montréal, QC" pendant que Kijiji écrivait "montreal" (la clé de la ville configurée) —
+    // la même ville apparaissait donc en double dans ce graphique. Le libellé affiché est la
+    // graphie la plus riche rencontrée (région + accents), voir `utils/cities.js`.
     const geoOpportunityData = useMemo(() => {
         const byCity = {};
         analysisDeals.forEach(d => {
             if (!RADAR_GROUP.includes(d.aiAnalysis?.verdict)) return;
-            const city = d.location || 'Inconnue';
-            if (!byCity[city]) byCity[city] = { count: 0, marginSum: 0, marginCount: 0 };
-            byCity[city].count++;
+            const key = normalizeCityKey(d.location) || 'inconnue';
+            if (!byCity[key]) byCity[key] = { count: 0, marginSum: 0, marginCount: 0, labels: [] };
+            byCity[key].count++;
+            if (d.location) byCity[key].labels.push(d.location);
             const margin = d.aiAnalysis?.estimated_gross_margin;
-            if (typeof margin === 'number') { byCity[city].marginSum += margin; byCity[city].marginCount++; }
+            if (typeof margin === 'number') { byCity[key].marginSum += margin; byCity[key].marginCount++; }
         });
         return Object.entries(byCity)
-            .map(([name, b]) => ({
-                name,
+            .map(([key, b]) => ({
+                name: pickBestLabel(b.labels) || (key === 'inconnue' ? 'Inconnue' : key),
                 count: b.count,
                 avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
             }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 8);
-    }, [analysisDeals]);
-
-    // ─── Vitesse de vente réelle vs liquidity_score prédit par l'IA ────────
-    // Valide (ou pas) la prédiction de liquidité de l'IA contre le délai de vente réellement
-    // observé — score désormais indexé (voir repository.py::_update_deal_index), donc calculé sur
-    // l'inventaire complet plutôt que sur le seul sous-ensemble déjà chargé en entier.
-    const liquiditySpeedData = useMemo(() => {
-        const soldDeals = analysisDeals.filter(d =>
-            d.soldTimestamp?.seconds &&
-            d.publishTimestamp?.seconds &&
-            d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
-            typeof d.aiAnalysis?.liquidity_score === 'number'
-        );
-        if (soldDeals.length < 2) return [];
-
-        const byTier = LIQUIDITY_TIERS.map(t => ({ ...t, deltas: [] }));
-        soldDeals.forEach(d => {
-            const score = d.aiAnalysis.liquidity_score;
-            const tier = byTier.find(t => score >= t.min && score < t.max);
-            if (!tier) return;
-            const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
-            tier.deltas.push(diffH);
-        });
-
-        return byTier
-            .filter(t => t.deltas.length >= 2) // Au moins 2 observations
-            .map(t => ({
-                name: t.label,
-                avgH: Math.round(t.deltas.reduce((a, b) => a + b, 0) / t.deltas.length),
-                count: t.deltas.length,
-            }));
     }, [analysisDeals]);
 
     return (
@@ -807,13 +742,21 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
             {/* Croisements : Sweet Spot Prix x Score & Marge par catégorie */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                {/* Sweet Spot Prix x Score */}
+                {/* Score moyen par tranche de prix */}
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                     <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                         <Coins size={16} className="text-emerald-400" />
-                        Sweet Spot : Score par tranche de prix
+                        Score moyen par tranche de prix
                     </h3>
-                    <p className="text-slate-500 text-xs mb-6">Score IA moyen selon le budget</p>
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces les mieux notées par l'IA sont-elles plutôt bon marché ou plus chères ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
+                        Chiffre entre parenthèses = nombre d'annonces analysées dans la tranche.
+                        {priceScoreTotal > 0 && priceScoreTotal < 30 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {priceScoreTotal} annonces au total — à interpréter avec prudence.</span>
+                        )}
+                    </p>
 
                     {priceScoreData.length > 0 ? (
                         <div className="h-[220px]">
@@ -827,7 +770,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                                         contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
                                         formatter={(value, name, props) => [
                                             `${value}/100`,
-                                            `Score moy. (${props.payload.count} annonces, marge moy. ${props.payload.avgMargin}$)`
+                                            `Score moy. sur ${props.payload.scoreCount} annonce${props.payload.scoreCount > 1 ? 's' : ''} (marge moy. ${props.payload.avgMargin}$)`
                                         ]}
                                     />
                                     <Bar dataKey="avgScore" fill="#10b981" radius={[4, 4, 0, 0]} barSize={28} />
@@ -908,12 +851,18 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
                     <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
                         <ShieldCheck size={16} className="text-purple-400" />
-                        Véracité IA
+                        Score IA élevé = vendu plus souvent ?
                     </h3>
-                    <p className="text-slate-500 text-xs mb-6">
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces bien notées par l'IA se vendent-elles vraiment plus souvent que la moyenne du marché ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
                         {aiAccuracyData?.soldCount > 0
-                            ? `% de score IA élevé (≥7/10) — vendues vs ensemble du marché (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''})`
+                            ? `Chiffre entre parenthèses = nombre d'annonces derrière chaque barre (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''} avec score, sur ${aiAccuracyData.marketCount} au total).`
                             : "Nécessite des annonces vendues avec score IA"}
+                        {aiAccuracyData?.soldCount > 0 && aiAccuracyData.soldCount < 20 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {aiAccuracyData.soldCount} ventes tracées — à interpréter avec prudence.</span>
+                        )}
                     </p>
 
                     {aiAccuracyData ? (
@@ -975,46 +924,7 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                 )}
             </div>
 
-            {/* Vitesse de vente réelle vs Liquidité prédite par l'IA */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
-                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
-                    <Zap size={16} className="text-emerald-400" />
-                    Vitesse de vente réelle vs Liquidité prédite
-                </h3>
-                <p className="text-slate-500 text-xs mb-6">Délai de vente réel moyen, par tranche de score de liquidité IA</p>
-
-                {liquiditySpeedData.length > 0 ? (
-                    <div className="h-[200px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={liquiditySpeedData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                                <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <YAxis
-                                    tick={{ fill: '#64748b', fontSize: 10 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                    tickFormatter={v => v < 24 ? `${v}h` : `${Math.round(v / 24)}j`}
-                                />
-                                <Tooltip
-                                    cursor={{ fill: '#1e293b' }}
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
-                                    formatter={(value, name, props) => [
-                                        value < 24 ? `${value}h` : `${Math.round(value / 24)}j`,
-                                        `Délai moy. (${props.payload.count} vente${props.payload.count > 1 ? 's' : ''})`
-                                    ]}
-                                />
-                                <Bar dataKey="avgH" radius={[4, 4, 0, 0]} barSize={40}>
-                                    {liquiditySpeedData.map((entry, index) => (
-                                        <Cell key={`liquidity-${index}`} fill={LIQUIDITY_TIER_COLORS[index % LIQUIDITY_TIER_COLORS.length]} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                ) : (
-                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données (score de liquidité + annonces vendues)</div>
-                )}
-            </div>
+            <DealsExplorer deals={analysisDeals} />
 
         </div>
     );

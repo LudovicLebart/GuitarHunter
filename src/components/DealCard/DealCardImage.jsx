@@ -1,17 +1,18 @@
 import React from 'react';
-import { Ban, Gem } from 'lucide-react';
+import { Ban, Gem, ShoppingBag } from 'lucide-react';
 import ImageGallery from '../ImageGallery';
 
-const DealCardImage = ({ 
-    images, 
-    title, 
-    isSold, 
-    vc, 
-    isAnalyzing, 
-    alsoPepite, 
-    interestScore, 
-    price, 
-    priceDrop 
+const DealCardImage = ({
+    images,
+    title,
+    isSold,
+    isPurchased,
+    vc,
+    isAnalyzing,
+    alsoPepite,
+    interestScore,
+    price,
+    priceDrop
 }) => {
     const VIcon = vc.icon;
     
@@ -27,6 +28,12 @@ const DealCardImage = ({
                     <div className="bg-slate-950 border border-slate-500 text-slate-200 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg">
                         <Ban size={12} />
                         Vendu
+                    </div>
+                )}
+                {isPurchased && (
+                    <div className="bg-emerald-950 border border-emerald-600 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg">
+                        <ShoppingBag size={12} />
+                        Acheté
                     </div>
                 )}
                 <div className={`${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>

@@ -8,6 +8,7 @@ import ConfigPanel from './ConfigPanel';
 import MapView from './MapView';
 import HelpOverlay from './HelpOverlay';
 import AdminDashboard from './AdminDashboard';
+import SearchSuggestions, { createSuggestionKeyHandler } from './SearchSuggestions';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
 // Contexts & hooks
@@ -55,6 +56,7 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
         { divider: true },
         // Statuts spéciaux
         { id: 'SOLD', label: 'Annonces Vendues' },
+        { id: 'PURCHASED', label: 'Annonces Achetées' },
         { id: 'REJECTED', label: 'Annonces Rejetées' },
         { id: 'ERROR', label: 'Erreurs d\'analyse' },
     ];
@@ -156,6 +158,10 @@ const Dashboard = ({ onClose }) => {
     const [openSections, setOpenSections] = useState({ radar: true, market: true, archive: false });
     const [showHelp, setShowHelp] = useState(false);
     const [showAdmin, setShowAdmin] = useState(false);
+    // Autocomplétion de catégories : ouverte tant que le champ a le focus, index -1 = aucune ligne
+    // pré-sélectionnée (Entrée ne fait alors rien de spécial, la recherche texte reste active).
+    const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+    const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
     // ── Real data & actions ──────────────────────────────────
     const {
@@ -256,7 +262,30 @@ const Dashboard = ({ onClose }) => {
         setSortMode,
         searchQuery = '',
         setSearchQuery,
+        searchSuggestions = [],
     } = filterProps || {};
+
+    // ── Autocomplétion de catégories ──────────────────────────
+    const visibleSuggestions = suggestionsOpen ? searchSuggestions : [];
+
+    // Option A retenue : la suggestion coche la catégorie dans selectedTypePaths (vrai filtre
+    // persisté, cohérent avec le FilterDrawer) plutôt que d'injecter du texte dans searchQuery.
+    // La saisie est vidée dans la foulée — la catégorie est désormais portée par le filtre, la
+    // laisser dans le champ la ferait cumuler avec le filtre et masquerait presque tout.
+    const handleSelectSuggestion = (suggestion) => {
+        toggleTypePath?.(suggestion.path);
+        setSearchQuery?.('');
+        setSuggestionsOpen(false);
+        setActiveSuggestion(-1);
+    };
+
+    const handleSearchKeyDown = createSuggestionKeyHandler({
+        suggestions: visibleSuggestions,
+        activeIndex: activeSuggestion,
+        setActiveIndex: setActiveSuggestion,
+        onSelect: handleSelectSuggestion,
+        onClose: () => { setSuggestionsOpen(false); setActiveSuggestion(-1); },
+    });
 
     // Map filterProps keys to the format MockupFilterDrawer expects
     // MockupFilterDrawer uses lowercase 'all', useDealsManager uses uppercase 'ALL'
@@ -334,7 +363,9 @@ const Dashboard = ({ onClose }) => {
             onForceExpert={(userComment) => dealActions?.handleForceExpertAnalysis(d.id, userComment)}
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
+            onTogglePurchased={(purchasePrice) => dealActions?.handleTogglePurchased(d.id, d.isPurchased, purchasePrice)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
+            onSetClassification={dealActions?.handleSetClassification}
         />
     );
 
@@ -403,8 +434,19 @@ const Dashboard = ({ onClose }) => {
                         <input
                             type="text"
                             value={searchQuery}
-                            onChange={e => setSearchQuery?.(e.target.value)}
-                            placeholder="Rechercher par modèle, lieu..."
+                            onChange={e => {
+                                setSearchQuery?.(e.target.value);
+                                setSuggestionsOpen(true);
+                                setActiveSuggestion(-1);
+                            }}
+                            onFocus={() => setSuggestionsOpen(true)}
+                            onBlur={() => { setSuggestionsOpen(false); setActiveSuggestion(-1); }}
+                            onKeyDown={handleSearchKeyDown}
+                            role="combobox"
+                            aria-expanded={visibleSuggestions.length > 0}
+                            aria-controls="search-suggestions"
+                            autoComplete="off"
+                            placeholder="Rechercher par modèle, catégorie, couleur..."
                             className="w-full h-10 bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-10 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                         />
                         {searchQuery && (
@@ -415,6 +457,13 @@ const Dashboard = ({ onClose }) => {
                                 <X size={14} />
                             </button>
                         )}
+
+                        <SearchSuggestions
+                            suggestions={visibleSuggestions}
+                            activeIndex={activeSuggestion}
+                            onSelect={handleSelectSuggestion}
+                            onHoverIndex={setActiveSuggestion}
+                        />
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:justify-between md:justify-start gap-2 shrink-0">

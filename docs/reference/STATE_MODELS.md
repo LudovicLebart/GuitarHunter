@@ -57,6 +57,18 @@ interface Deal {
   /** Marqueur de favoris (géré par le Frontend) */
   isFavorite: boolean; // Obligatoire (default: false)
 
+  /** Marqueur d'achat réel par l'utilisateur (2026-08-19, géré par le Frontend, totalement
+      indépendant de `status`/`sold` — une annonce peut être achetée avant même que le bot ne
+      détecte sa disparition du marketplace). Index léger : clé `pu` (booléen uniquement). */
+  isPurchased?: boolean; // Optionnel (absent = false)
+  purchasedAt?: Timestamp; // Optionnel, posé au moment du clic (serverTimestamp)
+  purchasePrice?: number | null; // Optionnel, saisi par l'utilisateur si différent du prix affiché
+
+  /** Correction manuelle de la catégorie (2026-08-16) : chemin complet de taxonomie en
+      dot-notation, saisi par l'utilisateur depuis la modale d'analyse. Prime sur
+      aiAnalysis.classification et n'est jamais écrasé par une ré-analyse. */
+  manualClassification?: string; // Optionnel
+
   /** Résultat de l'analyse IA (Gemini) */
   aiAnalysis: {
     /** Verdict final court */
@@ -67,8 +79,13 @@ interface Deal {
     /** Argumentaire détaillé de l'IA */
     reasoning: string; // Obligatoire si verdict !== 'PENDING'
     
-    /** Classification taxonomique (ex: "Electric Guitars > Solid Body") */
-    classification?: string; // Optionnel
+    /** Classification taxonomique — chemin complet en dot-notation, canonicalisé par le backend
+        (ex: "guitare.electrique.solid_body.Single_Cut.Les Paul"). null si la valeur renvoyée par
+        l'IA était ambiguë ou hors taxonomie (voir ARCHITECTURE.md § analyzer.py). */
+    classification?: string | null; // Optionnel
+
+    /** Valeur brute écartée par la canonicalisation, conservée pour diagnostic (2026-08-16) */
+    classification_rejected?: string; // Optionnel
     
     /** Nom du modèle IA ayant produit le résultat final */
     model_used?: string; // Optionnel
