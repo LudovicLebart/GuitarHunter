@@ -49,6 +49,17 @@ jobs:
             mkdir -p ~/GuitareHunter-scripts
             cd ~/GuitareHunter-scripts
 
+            echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
+            # Doit passer AVANT l'écriture de .env/serviceAccountKey.json ci-dessous : `git clone .`
+            # échoue si le dossier de destination n'est plus vide (bug rencontré au premier run).
+            if [ ! -d ".git" ]; then
+              echo "Clonage initial..."
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              git fetch origin ${{ github.ref_name }}
+              git reset --hard origin/${{ github.ref_name }}
+            fi
+
             echo "--- Configuration .env ---"
             if [ -z "$DOT_ENV" ]; then
               echo "⚠️ Secret DOT_ENV manquant."
@@ -65,15 +76,6 @@ jobs:
             fi
             printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
             echo "✅ Clé Firebase écrite."
-
-            echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
-            if [ ! -d ".git" ]; then
-              echo "Clonage initial..."
-              git clone https://github.com/${{ github.repository }}.git .
-            else
-              git fetch origin ${{ github.ref_name }}
-              git reset --hard origin/${{ github.ref_name }}
-            fi
 
             echo "--- Python Environment ---"
             python3 -m venv venv || echo "Venv déjà présent."
