@@ -50,15 +50,16 @@ jobs:
             cd ~/GuitareHunter-scripts
 
             echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
-            # Doit passer AVANT l'écriture de .env/serviceAccountKey.json ci-dessous : `git clone .`
-            # échoue si le dossier de destination n'est plus vide (bug rencontré au premier run).
+            # `git init` (pas `git clone .`) : tolère un dossier non vide, notamment des fichiers
+            # résiduels (.env, backend/config/serviceAccountKey.json) laissés par un run précédent
+            # interrompu avant la fin — `git clone .` échoue dans ce cas (bug rencontré 2x).
             if [ ! -d ".git" ]; then
-              echo "Clonage initial..."
-              git clone https://github.com/${{ github.repository }}.git .
-            else
-              git fetch origin ${{ github.ref_name }}
-              git reset --hard origin/${{ github.ref_name }}
+              echo "Initialisation du dépôt (dossier scratch, éventuels fichiers résiduels tolérés)..."
+              git init -q
+              git remote add origin https://github.com/${{ github.repository }}.git
             fi
+            git fetch origin ${{ github.ref_name }}
+            git reset --hard origin/${{ github.ref_name }}
 
             echo "--- Configuration .env ---"
             if [ -z "$DOT_ENV" ]; then
