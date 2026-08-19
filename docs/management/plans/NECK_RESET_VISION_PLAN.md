@@ -36,7 +36,7 @@ Interdiction de principe d'un CNN "boîte noire" (type ResNet) entraîné à cla
 
 Deux besoins de données bien distincts, de difficulté très différente :
 
-- **Dataset A — "où sont les pièces sur la photo"** (keypoints Phase 1) : n'importe quelle photo de guitare sert, pas besoin de défaut. Sources : Roboflow Universe (datasets communautaires existants), scraping large de photos diverses, labellisation manuelle légère (CVAT/labelme) avec transfer learning depuis un backbone pré-entraîné, bootstrap synthétique possible (rendus 3D + domain randomization).
+- **Dataset A — "où sont les pièces sur la photo"** (keypoints Phase 1) : n'importe quelle photo de guitare sert, pas besoin de défaut. **Déjà disponible gratuitement** : 700+ annonces acoustique/classique déjà scrapées et stockées dans Firebase Storage (upload systématique lors de `handle_deal_found()`, cf. `CLAUDE.md`) — meilleure source que du scraping générique, puisque c'est exactement la distribution réelle (mêmes plateformes, mêmes angles amateurs, même qualité JPEG) sur laquelle le modèle tournera en production. Reste à faire : script d'export (parcourir `guitar_deals`, filtrer acoustique/classique, récupérer les URLs Storage) + labellisation manuelle légère (CVAT/labelme) avec transfer learning depuis un backbone pré-entraîné. Complément possible si le volume/la diversité s'avère insuffisant : Roboflow Universe, bootstrap synthétique (rendus 3D + domain randomization). Réserve mineure : ces 700 annonces reflètent les critères de recherche déjà configurés (villes/marques/prix) — léger biais de sélection, probablement sans impact réel sur la diversité angle/forme/éclairage utile à Phase 1.
 
 - **Dataset B — "le signal visuel prédit la vraie mesure"** (calibration Phase 2) : le vrai goulot d'étranglement. Nécessite des paires (photo, mesure réelle mesurée à la main). Un label binaire "besoin de neck reset" est rare et coûteux (diagnostic d'expert) ; reformulé en métrique continue bon marché (hauteur de corde à la 12e frette, hauteur de sillet restante) mesurable par n'importe qui avec une jauge/règle sur n'importe quelle guitare, bonne ou mauvaise.
 
@@ -56,7 +56,7 @@ Deux besoins de données bien distincts, de difficulté très différente :
 
 3. **Approcher un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) en échange d'un accès aux résultats — source de cas positifs confirmés en volume, alternative identifiée à l'absence de magasins d'occasion locaux.
 
-4. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : dataset Roboflow Universe existant + scraping large + labellisation légère.
+4. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : script d'export des photos déjà stockées (Firebase Storage, 700+ annonces acoustique/classique) + labellisation légère des keypoints. Roboflow Universe / scraping large / bootstrap synthétique seulement en complément si nécessaire.
 
 5. **Jalon go/no-go** : calculer les 3 métriques (saddle ratio, belly variance, shadow delta) à la main/en script simple sur les données des étapes 1-3, avant tout entraînement de modèle, et vérifier la corrélation avec les vraies mesures. Si le signal ne corrèle pas, ne pas investir dans l'industrialisation.
 
