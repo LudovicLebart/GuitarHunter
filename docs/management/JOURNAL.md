@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Investigation : connectivité au Dell GPU de MoneyBot pour l'inférence vision (projet neck-reset) → Résultat :
+- **Demande utilisateur** : évaluer l'usage du Dell Precision T5810 de MoneyBot (GPU RTX 2070 SE, 8 Go VRAM) comme machine de calcul pour Florence-2/OWLv2/SAM 2.1 (Phase 0/1 du plan), plutôt que dans le sandbox CI/Claude (sans GPU).
+- **Test de connectivité Tailscale (nouveau workflow `run_script_dell.yml`, `ops/run-script`)** : le client OAuth `tag:ci` de GuitarHunter rejoint le même tailnet que le Dell — confirmé (`tailscale status` liste `dell-5810`, 4/4 pings réussis via DERP, 64-178ms). Le job CI affichait "failure" à tort (code de sortie non-nul de `tailscale ping` sur connexion relayée plutôt que directe, sans rapport avec la joignabilité réelle) — vérifié en lisant les logs plutôt que de se fier au statut du job.
+- **Accès SSH au Dell : pas encore en place**, décision utilisateur nécessaire. MoneyBot a déjà un accès SSH fonctionnel (secrets propres à son dépôt, non lisibles depuis GuitarHunter même si les noms de secrets sont identiques). Deux options présentées à l'utilisateur (réutiliser la clé existante vs en générer une dédiée), aucune actionnable depuis cette session sans une action de sa part (ajout de secret GitHub et/ou modification des `authorized_keys` du Dell). Détail complet dans `NECK_RESET_VISION_PLAN.md` §7.
+
 [2026-08-19] [PRO] Action effectuée : collecte Dataset A à l'échelle (projet neck-reset) → Résultat :
 - **Demande utilisateur** : élargir la collecte au-delà de l'échantillon Étape 0 (acoustique/classique) pour inclure les guitares électriques, en excluant les items rejetés, en vue de démarrer les scripts d'analyse (Phase 0/1 du plan).
 - **Nouveau script `backend/scripts/export_dataset_a.py`** : exporte tout le corpus (`storageImageUrls` non vide, classification sous `guitare.*`, items rejetés exclus mais `BAD_DEAL` conservé — cf. CLAUDE.md "BAD_DEAL ≠ REJECTED") en JSON Lines, exécuté via le workflow CI existant (`ops/run-script`), réutilisé en généralisant son étape de récupération d'artefact (`FICHIER_A_RECUPERER`).
