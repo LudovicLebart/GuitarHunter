@@ -70,6 +70,20 @@ Rejet du clic manuel comme méthode par défaut (700+ images, aucune patience/te
 - **BlenderProc** (pipeline de rendu gratuit) + modèle 3D de guitare (Sketchfab/BlenderKit CC) : angle de manche et action paramétrables, génère des paires (image, mesure exacte connue) par milliers avec domain randomization — complète (pas ne remplace pas) les mesures réelles, qui restent indispensables pour valider le transfert simulation→réel.
 - Forums de lutherie (Acoustic Guitar Forum, Unofficial Martin Guitar Forum) et vidéos YouTube de neck resets (frames avant/après avec mesures annoncées par le luthier) — paires photo/mesure hétérogènes mais gratuites et issues de vraies guitares défectueuses.
 
+### 3ter. Élargissement au périmètre électrique (discussion 2026-08-19)
+
+**Idée soulevée par l'utilisateur :** élargir le périmètre aux guitares électriques — beaucoup plus de volume (3000+ annonces vs 700+), et beaucoup de manches vissés (Fender-style notamment) accessibles pour reproduire l'expérience à la cale sur de nombreux instruments différents, attaquant directement le critère leave-one-guitare-out (§3) à moindre coût.
+
+**Nuance essentielle établie en discussion :** la ligne de partage pertinente n'est **pas** acoustique vs électrique, mais **manche vissé (bolt-on) vs manche collé/set-neck** :
+- *Manche vissé* (Fender-style, la plupart des Squier/Ibanez, Art & Lutherie côté acoustique) : la cale est un réglage routinier et réversible — pas un "neck reset" au sens structurel.
+- *Manche collé/set-neck* : dovetail acoustique traditionnel, **mais aussi** Gibson Les Paul/SG, PRS set-neck, semi-hollow/hollow body (ES-335 et proches) — un vrai neck reset structurel s'y applique, comparable à celui d'une acoustique.
+
+**Décision retenue :**
+- **Dataset A** (keypoints) : élargi à toutes les guitares, électriques comprises — pur gain de volume/diversité, aucune dépendance au type de jonction (Phase 1 ne juge pas l'état de la guitare).
+- **Dataset B** (calibration) : élargi de la même façon — la hauteur d'action mesurée reste une grandeur géométrique universelle, et les manches vissés électriques (beaucoup plus nombreux/accessibles que les 2 guitares actuelles) permettent de reproduire l'expérience à la cale sur de nombreux instruments pour renforcer le test leave-one-guitare-out.
+- **Diagnostic produit** ("neck reset" spécifiquement) : reste conditionné au type de jonction, pas au type d'instrument. Nécessite un **classificateur modèle → type de jonction** (bolt-on/set-neck) en aval du score géométrique, alimenté à partir de `brand`/`model_name` déjà extraits par le pipeline IA existant (`aiAnalysis`) — nouveau point ouvert (§6). Sur manche vissé (électrique ou acoustique), une action haute signale un réglage à faible coût ; sur manche collé (électrique ou acoustique), elle peut signaler un vrai neck reset coûteux.
+- Le filtre de collecte actuel (`ACOUSTIC_MARKERS` dans `backend/scripts/export_neck_reset_sample.py`, limité à acoustique/classique) n'a pas encore été élargi — l'Étape 0 en cours porte sur le périmètre initial ; l'élargissement électrique est une évolution documentée mais pas encore implémentée dans le script.
+
 ## 4. Plan de match
 
 0. **Principe :** deux datasets distincts (A = keypoints, B = calibration), ne pas les confondre dans la collecte.
@@ -109,3 +123,5 @@ Chaque vue déclinée sur plusieurs conditions (angle, distance, éclairage, foc
 - Seuil de résidu géométrique acceptable pour valider un keypoint auto-labellisé (§3bis point 3) — à calibrer empiriquement.
 - Reformulation éventuelle du score de sortie (continu vs seuils) une fois la corrélation réelle connue.
 - Résultat de l'Étape 0 (§4 étape 1) non encore mesuré — conditionne la suite de tout le plan.
+- Classificateur modèle → type de jonction (bolt-on/set-neck), nécessaire pour élargir le diagnostic "neck reset" au périmètre électrique (§3ter) — pas encore conçu ni implémenté.
+- Élargissement du filtre de collecte (`export_neck_reset_sample.py`, actuellement acoustique/classique) aux guitares électriques — décidé en principe (§3ter), pas encore codé.
