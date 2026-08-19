@@ -146,6 +146,7 @@ class GuitarHunterBot:
             'botStatus': self._current_status,
             'analysisConfig': {
                 'gatekeeperModel': GEMINI_MODELS["default_gatekeeper"],
+                'mainModel': GEMINI_MODELS["default_analyst"],
                 'expertModel': GEMINI_MODELS["default_expert"],  # Clé legacy (lue par le frontend)
                 'mainAnalysisPrompt': DEFAULT_MAIN_PROMPT,
                 'gatekeeperVerbosityInstruction': DEFAULT_GATEKEEPER_INSTRUCTION,
