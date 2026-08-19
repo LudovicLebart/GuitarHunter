@@ -36,7 +36,17 @@ from config import FIREBASE_KEY_PATH, APP_ID_TARGET
 
 # Feuilles de la taxonomie sous le nœud "guitare" (prompts.json::taxonomy_master) — exclut
 # volontairement amplificateur/etui_housse, hors sujet pour la détection de keypoints guitare.
-GUITAR_LEAF_MARKERS = ("electrique", "acoustique_acier", "electro_acoustique", "classique_nylon", "basse")
+# Préfixe complet requis (pas juste une sous-chaîne) : un simple `marker in classification`
+# matche à tort des chemins comme `etui_housse.Etui_Rigide.Guitare Electrique` (un ÉTUI, pas
+# une guitare) puisque "electrique" y apparaît aussi comme sous-chaîne. Bug trouvé en relisant
+# la répartition par classification du premier run réel (10 faux positifs sous etui_housse).
+GUITAR_LEAF_PREFIXES = (
+    "guitare.electrique",
+    "guitare.acoustique_acier",
+    "guitare.electro_acoustique",
+    "guitare.classique_nylon",
+    "guitare.basse",
+)
 
 REJECTED_VERDICTS = {"REJECTED_ITEM", "REJECTED_SERVICE", "REJECTED"}
 
@@ -53,7 +63,7 @@ def setup_firebase():
 
 def is_guitar(deal):
     classification = ((deal.get('aiAnalysis') or {}).get('classification') or '').lower()
-    return any(marker in classification for marker in GUITAR_LEAF_MARKERS)
+    return any(classification.startswith(prefix) for prefix in GUITAR_LEAF_PREFIXES)
 
 
 def is_rejected(deal):
