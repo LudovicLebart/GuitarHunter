@@ -196,7 +196,8 @@ Chaque vue déclinée sur plusieurs conditions (angle, distance, éclairage, foc
 - Seuils précis de la classification grossière basse/normale/haute (en pixels ou en ratio corde/frette) — à calibrer sur le Dataset B une fois collecté (§4 étapes 2-3), la résolution disponible étant désormais connue (§3quater).
 - ~~Élargissement du filtre de collecte aux guitares électriques~~ **Fait (§3septies, 2026-08-19)** : `export_dataset_a.py` couvre les 5 nœuds `guitare.*`, 1066 annonces/5974 photos exportées.
 - Le taux d'exploitabilité (51%/70%, §3sexies) n'a été mesuré que sur un échantillon acoustique/classique de 47 annonces — pas encore vérifié sur le corpus électrique élargi (§3septies) ni appliqué photo-par-photo aux 5974 images du manifeste.
-- `dataset_a_manifest.jsonl` (§3septies) n'est pour l'instant qu'un artefact CI éphémère (14 jours de rétention) — pas encore stocké durablement ni consommé par le pipeline de labellisation (§3bis).
+- ~~`dataset_a_manifest.jsonl` n'est qu'un artefact CI éphémère~~ **Fait (2026-08-19)** : versionné dans le dépôt (`backend/scripts/data/`), accessible au Dell par `git fetch` — pas encore consommé par le pipeline de labellisation complet (§3bis).
+- **Nouveau (§8) : détection automatique du manche pour la Phase 1** — le prototype de détection des frettes échoue sans région d'intérêt (matche du bruit de fond sur toute la photo), et même avec un recadrage manuel sur la silhouette de la guitare, reste sensible à l'angle/au centrage (échoue sur une photo légèrement de travers). La boîte englobante de la Phase 0 (OWLv2, guitare entière) ne suffit pas — il faudrait soit une détection spécifique du manche, soit une contrainte géométrique plus forte. Piste non résolue.
 - Estimation grossière de l'angle de prise de vue (frontal vs 3/4) pour le filtre d'utilisabilité (Phase 0, §2) — approche non conçue, hypothèse "profil/3-4 nécessaire pour l'action" pas encore vérifiée sur photos réelles.
 
 ## 7. Ressource de calcul pour l'inférence vision (2026-08-19)
@@ -240,3 +241,19 @@ Basculé sur **OWLv2-base** (`google/owlv2-base-patch16-ensemble`, Apache-2.0, a
 - La vignette 261×261 (mode de défaillance "pas de photo HD stockée", déjà identifié §3sexies) est quand même détectée avec un score élevé (0.89) — encourageant pour la robustesse du filtre de présence, mais un seul cas, pas une preuve générale que la basse résolution n'affecte jamais la détection.
 
 **Conclusion de l'étape 4 :** la capacité de calcul du Dell (8 Go VRAM) n'est **pas un facteur limitant** pour la détection de présence "guitare" (Phase 0) — la marge est large (~90% de VRAM encore disponible sur un seul modèle chargé). Reste à faire avant d'industrialiser : appliquer ceci à l'échelle du Dataset A complet (1066 annonces/5974 photos, §3septies), pas seulement 8 photos choisies à la main.
+
+**Étape 5 — Phase 0 à l'échelle : lancée (2026-08-19).** `backend/scripts/run_phase0_usability_filter.py` applique la détection OWLv2 (seuil de score 0.3 pour `usable`) à la première photo des 1066 annonces du manifeste (backend/scripts/data/dataset_a_manifest.jsonl, désormais versionné dans le dépôt pour que le Dell y accède par simple `git fetch`, sans dépendance Firestore). Résultat réel non encore disponible au moment de la rédaction de cette section — à ajouter ici une fois le run terminé.
+
+## 8. Phase 1 — premier prototype de détection des frettes (2026-08-19)
+
+**Statut réel : prometteur mais pas robuste**, testé à la main sur seulement 2 photos réelles du Dataset A — pas une validation à l'échelle, un premier test empirique pour juger si l'approche mérite d'être poursuivie.
+
+`backend/scripts/experiments/phase1_fret_detection_prototype.py` : LSD (Line Segment Detector, OpenCV) pour détecter les segments de l'image, puis recherche d'une séquence de positions dont les écarts suivent le ratio de tempérament égal (`2^(-1/12)` ≈ 0,9439 entre frettes consécutives).
+
+**Premier essai, échec net et instructif** : sur la photo entière (sans région d'intérêt), la recherche de séquence géométrique — avec une tolérance de ratio permissive — matche facilement du **bruit de fond** (texture de mur, rayures de plancher, motifs de couverture) sur toute la hauteur de la photo, pas les vraies frettes. Confirmé visuellement (lignes détectées s'étalant du haut de l'image jusqu'au sol, loin du manche). Ce n'était pas juste une inquiétude théorique de l'audit externe (§2ter, "homographie mal posée") — c'est le mode de défaillance concret observé au premier essai.
+
+**Deuxième essai, avec contraintes ajoutées** (recadrage manuel sur la silhouette de la guitare, longueur de segment bornée à ~35% de la largeur du recadrage, centrage horizontal ±25%, envergure totale de la séquence bornée à ~35% de la hauteur du recadrage) :
+- **Photo 1 (guitare Fender, cadrage frontal net)** : la séquence trouvée (13 positions) se recale correctement sur la zone du manche — encourageant, mais ce n'est qu'une validation de zone, pas un alignement frette-par-frette vérifié précisément.
+- **Photo 2 (guitare classique, angle légèrement de travers)** : **aucune séquence trouvée** avec les mêmes paramètres — un recadrage manuel imprécis et un manche pas parfaitement vertical suffisent à faire échouer la détection.
+
+**Conclusion honnête** : l'algorithme n'est pas robuste à la variabilité réelle des photos d'annonces en l'état. Le recadrage est actuellement **manuel** — un vrai pipeline aurait besoin d'une détection automatique du manche (pas juste la boîte englobante de la guitare entière issue de la Phase 0, qui inclut encore trop de fond), ou d'une contrainte géométrique plus forte que le simple centrage horizontal. **Piste non résolue, à reprendre avant d'investir plus dans cette direction** — ajouté à §6, points ouverts.
