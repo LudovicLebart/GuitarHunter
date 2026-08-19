@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Action effectuée : première inférence vision réelle sur le Dell — validation Phase 0 (projet neck-reset) → Résultat :
+- **Florence-2-base (choix initial du plan) écarté après échec réel**, pas VRAM : `AttributeError` au chargement, code custom (`trust_remote_code`) non maintenu pour suivre les refontes internes de `transformers`. Basculé sur **OWLv2-base** (Apache-2.0, classe officielle `transformers`, alternative déjà documentée §2ter) — enseignement générique : les modèles à `trust_remote_code` portent un risque de rupture silencieuse à chaque mise à jour de bibliothèque, à garder en tête pour SAM 2.1 également.
+- **Test réel sur 8 photos du Dataset A** (2 par famille : acoustique, classique, électrique, basse) : **8/8 détections "guitar"** (scores 0.57-0.89, seuil 0.1), **VRAM pic 808 Mo / 7785 Mo (10,4%)** — le Dell a une très large marge, la capacité de calcul n'est pas un facteur limitant pour la Phase 0 (détection de présence).
+- **Nuances documentées, pas de sur-interprétation** : un cas à 56 boîtes détectées est probablement du bruit à seuil bas (NMS nécessaire en usage réel, pas pour cette validation) ; une vignette basse résolution (261×261, mode de défaillance déjà connu §3sexies) est quand même bien détectée (0.89) mais sur un seul cas, pas généralisable tel quel.
+- Détail complet (tableau par photo, workflow CI `run_script_dell.yml` requalifié deux fois en cours de route) dans `NECK_RESET_VISION_PLAN.md` §7, étape 4.
+- **Reste à faire** : appliquer à l'échelle des 5974 photos du Dataset A, pas seulement les 8 de validation.
+
 [2026-08-19] [PRO] Action effectuée : accès SSH au Dell GPU de MoneyBot établi et validé (projet neck-reset) → Résultat :
 - **Décision utilisateur** : clé SSH dédiée à GuitarHunter (pas de réutilisation de la clé MoneyBot existante) — paire ed25519 générée hors dépôt, clé publique ajoutée par l'utilisateur aux `authorized_keys` du Dell, clé privée stockée dans le nouveau secret GuitarHunter `DELL_SSH_PRIVATE_KEY`.
 - **`run_script_dell.yml` requalifié** (test de ping → exécuteur SSH) et validé en conditions réelles : `nvidia-smi` exécuté avec succès sur le Dell via SSH+Tailscale depuis la CI GuitarHunter.

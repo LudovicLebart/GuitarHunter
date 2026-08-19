@@ -214,6 +214,29 @@ Driver 580.126.09, CUDA 13.0
 8192 MiB VRAM total, 19 MiB utilisés (quasi disponible)
 Python 3.12.3 présent nativement sur l'hôte
 ```
-**Correction du modèle GPU par rapport à la doc MoneyBot** : `cluster_machines.json` indique "RTX 2070 SE" (et une autre section de la doc MoneyBot mentionne même "RTX 4070" pour la même machine, §7 note initiale) — `nvidia-smi`, une mesure directe sur la machine plutôt qu'une doc, dit **RTX 2060**. La capacité VRAM (8192 Mo) concorde en revanche avec la doc. Retenir le chiffre VRAM (confirmé par deux sources indépendantes) plutôt que le nom de modèle exact (divergent selon la source) pour dimensionner les futurs tests d'inférence.
+**Correction du modèle GPU par rapport à la doc MoneyBot** : `cluster_machines.json` indique "RTX 2070 SE" (et une autre section de la doc MoneyBot mentionne même "RTX 4070" pour la même machine, §7 note initiale) — `nvidia-smi`, une mesure directe sur la machine plutôt qu'une doc, dit **RTX 2060 SUPER** (confirmé aussi par `torch.cuda.get_device_name()` à l'étape 4 ci-dessous). La capacité VRAM (8192 Mo) concorde en revanche avec la doc. Retenir le chiffre VRAM (confirmé par plusieurs sources indépendantes) plutôt que le nom de modèle exact (divergent selon la source) pour dimensionner les futurs tests d'inférence.
 
-**Étape 4 (prochaine) :** valider en pratique que 8 Go de VRAM suffisent pour Florence-2/OWLv2/SAM 2.1 en inférence sur un petit échantillon du manifeste Dataset A (§3septies) avant tout traitement des 5974 photos — pas encore fait, l'accès étant tout juste confirmé.
+**Étape 4 — validation d'inférence réelle : ✅ confirmée (2026-08-19), avec un changement de modèle en cours de route.**
+
+Premier essai avec **Florence-2-base** (choix initial du plan, §2ter) : **échec au chargement**, pas un problème de VRAM — `AttributeError: 'Florence2LanguageConfig' object has no attribute 'forced_bos_token_id'`. Cause : Florence-2 charge son code de modélisation via `trust_remote_code=True` directement depuis le Hub (jamais fusionné dans `transformers`), et ce code custom (figé depuis sa sortie mi-2024) n'a pas suivi une refonte interne récente de `PretrainedConfig` dans la version de `transformers` installée (`torch 2.13.0+cu130` — packages très récents sur cette machine). Un risque de fragilité générique des modèles à `trust_remote_code`, pas spécifique à ce projet.
+
+Basculé sur **OWLv2-base** (`google/owlv2-base-patch16-ensemble`, Apache-2.0, alternative déjà listée §2ter) : classe officielle `Owlv2ForObjectDetection` maintenue dans `transformers`, pas ce risque. **Résultat réel** (détection ouverte "a photo of a guitar", seuil de score 0.1, sur les 8 photos échantillonnées §7) :
+
+| Famille | Résolution | Boîtes détectées | Meilleur score |
+|---|---|---|---|
+| Acoustique (Slope Shoulder) | 720×960 | 3 | 0.73 |
+| Acoustique (Dreadnought) | 720×960 | 2 | 0.72 |
+| Classique | 960×720 | 56 | 0.57 |
+| Classique | 261×261 (vignette basse résolution) | 1 | 0.89 |
+| Électrique (S-Style) | 720×960 | 1 | 0.75 |
+| Électrique (Double Cut) | 721×960 | 5 | 0.64 |
+| Basse (Soapbar) | 720×960 | 1 | 0.71 |
+| Basse (Precision) | 720×960 | 4 | 0.67 |
+
+**8/8 images avec au moins une détection "guitar"**, scores 0.57-0.89 (tous largement au-dessus d'un seuil de décision raisonnable, ex. 0.3-0.5). **VRAM pic mesurée : 808 Mo / 7785 Mo disponibles (10,4%)** — très large marge sous les 8 Go, y compris pour un modèle plus lourd (OWLv2-large) ou un traitement par lots.
+
+**Deux nuances à ne pas sur-interpréter :**
+- Le cas "56 boîtes" (photo classique, 960×720) est probablement du bruit de détections chevauchantes à seuil bas (0.1), pas 56 guitares réelles — un usage en production nécessiterait une déduplication (NMS) et un seuil plus strict ; sans incidence sur l'usage Phase 0 visé ici (juste détecter *si* une guitare est présente, pas la localiser précisément).
+- La vignette 261×261 (mode de défaillance "pas de photo HD stockée", déjà identifié §3sexies) est quand même détectée avec un score élevé (0.89) — encourageant pour la robustesse du filtre de présence, mais un seul cas, pas une preuve générale que la basse résolution n'affecte jamais la détection.
+
+**Conclusion de l'étape 4 :** la capacité de calcul du Dell (8 Go VRAM) n'est **pas un facteur limitant** pour la détection de présence "guitare" (Phase 0) — la marge est large (~90% de VRAM encore disponible sur un seul modèle chargé). Reste à faire avant d'industrialiser : appliquer ceci à l'échelle du Dataset A complet (1066 annonces/5974 photos, §3septies), pas seulement 8 photos choisies à la main.
