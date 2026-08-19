@@ -1,8 +1,17 @@
 """
 Test ponctuel (docs/management/plans/NECK_RESET_VISION_PLAN.md §7, étape 4) : valide qu'un
-modèle de détection open-vocabulaire (Florence-2-base, MIT — retenu après la revue Fable, §2ter)
-tourne bien en inférence sur le GPU du Dell (8192 Mo VRAM, confirmé §7) et mesure la VRAM pic
-réellement utilisée, sur un petit échantillon réel du Dataset A (§3septies).
+modèle de détection open-vocabulaire tourne bien en inférence sur le GPU du Dell (8192 Mo VRAM,
+confirmé §7) et mesure la VRAM pic réellement utilisée, sur un petit échantillon réel du
+Dataset A (§3septies).
+
+Modèle : OWLv2-base (google/owlv2-base-patch16-ensemble, Apache-2.0 — alternative à Florence-2
+retenue après la revue Fable, §2ter). Choisi ici plutôt que Florence-2 suite à un premier essai
+raté (`AttributeError: 'Florence2LanguageConfig' object has no attribute 'forced_bos_token_id'`,
+run CI 2026-08-19) : Florence-2 charge son code de modélisation via `trust_remote_code=True`
+depuis le Hub (jamais fusionné dans `transformers`), et ce code custom n'a pas suivi les
+refontes internes récentes de `PretrainedConfig` — un problème de compatibilité de bibliothèque,
+pas de VRAM. OWLv2 a une classe officielle (`Owlv2ForObjectDetection`) maintenue dans
+`transformers`, donc pas ce risque de dérive.
 
 Volontairement autonome (pas de dépendance Firestore/Firebase) : les URLs d'images sont un
 échantillon fixe de 8 annonces (2 par grande famille : acoustique, classique, électrique, basse),
@@ -11,7 +20,7 @@ validation Phase 0 de l'étape 4 du plan. Les images sont déjà en Firebase Sto
 pass-through confirmé, `backend/repository.py`), donc accessibles par URL publique directe sans
 credentials.
 
-Usage (sur le Dell, dans un venv avec torch/transformers/pillow/requests/timm/einops installés) :
+Usage (sur le Dell, dans un venv avec torch/transformers/pillow/requests installés) :
   python3 backend/scripts/test_dell_vision_inference.py
 """
 
@@ -21,11 +30,11 @@ from io import BytesIO
 import requests
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import Owlv2ForObjectDetection, Owlv2Processor
 
-MODEL_ID = "microsoft/Florence-2-base"
-TASK_PROMPT = "<CAPTION_TO_PHRASE_GROUNDING>"
-TEXT_INPUT = "guitar"
+MODEL_ID = "google/owlv2-base-patch16-ensemble"
+TEXT_QUERIES = ["a photo of a guitar"]
+SCORE_THRESHOLD = 0.1
 
 SAMPLE_IMAGES = [
     ("guitare.acoustique_acier.formes_standard.Dreadnought.Slope Shoulder",
@@ -49,7 +58,7 @@ SAMPLE_IMAGES = [
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"--- Environnement ---")
+    print("--- Environnement ---")
     print(f"torch {torch.__version__}, CUDA disponible : {torch.cuda.is_available()}")
     if device == "cuda":
         print(f"GPU : {torch.cuda.get_device_name(0)}")
@@ -57,8 +66,9 @@ def main():
 
     print(f"\n--- Chargement du modèle {MODEL_ID} ---")
     t0 = time.time()
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True, torch_dtype=torch.float16 if device == "cuda" else torch.float32).to(device)
-    processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+    processor = Owlv2Processor.from_pretrained(MODEL_ID)
+    model = Owlv2ForObjectDetection.from_pretrained(MODEL_ID).to(device)
+    model.eval()
     print(f"Modèle chargé en {time.time() - t0:.1f}s")
 
     results = []
@@ -72,25 +82,23 @@ def main():
             continue
 
         t0 = time.time()
-        inputs = processor(text=TASK_PROMPT + TEXT_INPUT, images=image, return_tensors="pt").to(device, torch.float16 if device == "cuda" else torch.float32)
+        inputs = processor(text=[TEXT_QUERIES], images=image, return_tensors="pt").to(device)
         with torch.no_grad():
-            generated_ids = model.generate(
-                input_ids=inputs["input_ids"],
-                pixel_values=inputs["pixel_values"],
-                max_new_tokens=256,
-                num_beams=1,
-            )
-        generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-        parsed = processor.post_process_generation(generated_text, task=TASK_PROMPT, image_size=(image.width, image.height))
+            outputs = model(**inputs)
+        target_sizes = torch.tensor([(image.height, image.width)])
+        detections = processor.post_process_grounded_object_detection(
+            outputs=outputs, target_sizes=target_sizes, threshold=SCORE_THRESHOLD
+        )[0]
         elapsed = time.time() - t0
 
-        boxes = parsed.get(TASK_PROMPT, {}).get("bboxes", [])
-        print(f"{classification[:55]:55s} {image.width}x{image.height}px  {len(boxes)} boîte(s) 'guitar'  {elapsed:.2f}s")
-        results.append((classification, len(boxes)))
+        n_boxes = len(detections["scores"])
+        best_score = float(detections["scores"].max()) if n_boxes else 0.0
+        print(f"{classification[:55]:55s} {image.width}x{image.height}px  {n_boxes} boîte(s) 'guitar' (meilleur score {best_score:.2f})  {elapsed:.2f}s")
+        results.append((classification, n_boxes))
 
-    print(f"\n--- Résumé ---")
+    print("\n--- Résumé ---")
     detected = sum(1 for _, n in results if n > 0)
-    print(f"{detected}/{len(results)} images avec au moins une boîte 'guitar' détectée.")
+    print(f"{detected}/{len(results)} images avec au moins une boîte 'guitar' détectée (seuil score={SCORE_THRESHOLD}).")
 
     if device == "cuda":
         peak_mb = torch.cuda.max_memory_allocated() / (1024 ** 2)

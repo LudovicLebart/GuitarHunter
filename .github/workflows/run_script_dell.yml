@@ -11,10 +11,11 @@
 # Répertoire scratch dédié sur le Dell (~/GuitareHunter-scripts), même logique que run_script.yml
 # côté serveur de production : jamais ~/MoneyBot, jamais d'interférence avec le cluster Ray actif.
 #
-# Étape actuelle (§7 étape 4) : backend/scripts/test_dell_vision_inference.py — valide que
-# Florence-2-base tourne en inférence dans les 8 Go de VRAM sur un petit échantillon réel du
-# Dataset A. Premier run lent (installation torch/transformers + téléchargement du modèle,
-# ~1-2 Go) — timeout généreux en conséquence.
+# Étape actuelle (§7 étape 4) : backend/scripts/test_dell_vision_inference.py — valide qu'OWLv2-base
+# tourne en inférence dans les 8 Go de VRAM sur un petit échantillon réel du Dataset A (Florence-2
+# essayé en premier, écarté après échec de compatibilité `trust_remote_code`, voir le script).
+# Premier run lent (installation torch/transformers + téléchargement du modèle, ~1 Go) — timeout
+# généreux en conséquence.
 #
 # Usage : pousser sur `ops/run-script` (même mécanisme que run_script.yml).
 name: Run One-Off Script (Dell GPU)
@@ -59,7 +60,7 @@ jobs:
             python3 -m venv venv_vision || echo "Venv déjà présent."
             source venv_vision/bin/activate
             pip install --upgrade pip --quiet
-            pip install torch transformers pillow requests timm einops --quiet
+            pip install torch transformers pillow requests --quiet
 
             echo "--- GPU avant chargement du modèle ---"
             nvidia-smi --query-gpu=memory.used,memory.total --format=csv
