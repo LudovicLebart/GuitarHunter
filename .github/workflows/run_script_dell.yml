@@ -74,7 +74,7 @@ jobs:
           FICHIER_A_RECUPERER: dataset_a_phase0.jsonl
         run: |
           mkdir -p ~/.ssh output
-          printf '%s' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
             "ludovic@100.94.33.54:~/GuitareHunter-scripts/${FICHIER_A_RECUPERER}" \
