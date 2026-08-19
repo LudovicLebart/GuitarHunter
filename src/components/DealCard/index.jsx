@@ -64,7 +64,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const isKijiji = (deal.link || '').includes('kijiji.ca');
 
     return (
-        <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold ? 'opacity-60 saturate-50' : ''}`}>
+        <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold && !deal.isPurchased ? 'opacity-60 saturate-50' : ''}`}>
 
             <DealCardImage
                 images={images}
