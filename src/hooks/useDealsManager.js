@@ -340,9 +340,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE (multi-sélection)
   const matchesTypeFilter = useCallback((deal, typePaths, search) => {
-    if (deal.status === 'rejected') return false;
-    // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
-
+    // Note: on ne bloque aucun statut ici (ni 'sold' ni 'rejected') — les onglets REJECTED/SOLD/
+    // PURCHASED appellent aussi cette fonction (filteredDeals/verdictCounts) pour que recherche et
+    // filtre de catégorie s'y appliquent également ; le statut lui-même est vérifié séparément.
     const analysis = deal.aiAnalysis || {};
     const hasTypeFilter = typePaths && typePaths.length > 0;
     const needle = search ? normalizeLoose(search) : '';
@@ -484,6 +484,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
+      // Type/recherche/condition/prix s'appliquent à TOUS les compteurs désormais, y compris
+      // REJECTED/SOLD/PURCHASED ci-dessous (bug corrigé le 2026-08-19, même cause que filteredDeals).
+      if (!matchesTypeFilter(deal, selectedTypePaths, searchQuery)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
+
       // Achat : flag indépendant du status/verdict, compté à part avant tout autre cas spécial
       // (une annonce achetée peut être encore active, ou déjà marquée vendue par le bot).
       if (deal.isPurchased) c.PURCHASED++;
@@ -494,16 +499,12 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         return;
       }
 
-      // Cas spécial : SOLD compte TOUTES les annonces vendues, indépendamment des autres filtres
+      // Cas spécial : SOLD compte toutes les annonces vendues (qui passent les filtres ci-dessus)
       if (deal.status === 'sold') {
         c.SOLD++;
         if (deal.isFavorite) c.FAVORITES++; // Compter aussi dans les favoris si applicable
         return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
-
-      // On n'inclut que les deals qui passent les filtres de type, condition, prix et finition actuels
-      if (!matchesTypeFilter(deal, selectedTypePaths, searchQuery)) return;
-      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
@@ -537,16 +538,18 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
     const result = deals.filter(deal => {
+      // Type/recherche/condition/prix s'appliquent à TOUS les onglets, y compris les statuts
+      // spéciaux ci-dessous (bug corrigé le 2026-08-19 : REJECTED/SOLD/PURCHASED ignoraient
+      // auparavant ces filtres, recherche comprise — voir JOURNAL.md).
+      const typeMatch = matchesTypeFilter(deal, selectedTypePaths, searchQuery);
+      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter);
+      if (!typeMatch || !condPriceMatch) return false;
+
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
       if (filterType === 'PURCHASED') return !!deal.isPurchased;
 
-      // Pour les autres filtres, on combine verdict, type, condition et prix
-      const verdictMatch = matchesVerdictFilter(deal, filterType);
-      const typeMatch = matchesTypeFilter(deal, selectedTypePaths, searchQuery);
-      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter);
-
-      return verdictMatch && typeMatch && condPriceMatch;
+      return matchesVerdictFilter(deal, filterType);
     });
 
     if (sortMode === 'interest') {

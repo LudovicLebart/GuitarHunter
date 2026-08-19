@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-19] [PRO] Fix : recherche et filtres (catégorie/condition/prix) totalement ignorés sur les onglets Vendues/Achetées/Rejetées → Résultat :
+- **Signalé par l'utilisateur** : "aucun filtre ne semble fonctionner ni la recherche, sur les annonces vendues".
+- **Cause racine, `src/hooks/useDealsManager.js`** : `filteredDeals` et `verdictCounts` ont chacun une branche spéciale pour `filterType === 'REJECTED'/'SOLD'/'PURCHASED'` qui ne teste que `deal.status`/`deal.isPurchased`, sans jamais appeler `matchesTypeFilter()` (qui contient AUSSI la recherche texte — `searchQuery` n'est vérifié nulle part ailleurs dans le fichier) ni `matchesConditionAndPrice()`. Bug préexistant sur SOLD/REJECTED (le commentaire d'origine "indépendamment des autres filtres" confirme que c'était voulu à l'origine), reproduit par copier-coller sur PURCHASED lors de son ajout plus tôt dans la session. La recherche/les filtres restent visibles et actifs dans `Dashboard.jsx` sur ces onglets — uniquement un bug de logique, pas d'UI.
+- **`matchesTypeFilter()`** : retrait du garde `if (deal.status === 'rejected') return false;` — mort/redondant pour les 2 appelants existants, mais bloquait tout appel futur depuis la branche REJECTED.
+- **`filteredDeals`/`verdictCounts`** : `typeMatch`/`condPriceMatch` calculés une seule fois en tête de boucle et appliqués à TOUTES les branches (y compris REJECTED/SOLD/PURCHASED), au lieu d'être court-circuités pour ces 3 statuts. Effet de bord positif corrigé au passage : le compteur FAVORITES d'une annonce vendue+favorite échappait déjà, lui aussi, au filtre de recherche.
+- **Validation** : `npm run build` OK. **Non testé en conditions réelles** — à valider par l'utilisateur : recherche/filtres sur les 3 onglets concernés, non-régression sur les autres (ALL, PEPITE, FAVORITES...).
+
+---
+
 [2026-08-19] [PRO] Feature : nouvelle catégorie "Achetées" — marqueur manuel pour les annonces réellement achetées par l'utilisateur → Résultat :
 - **Demande utilisateur** : distinguer "annonce vendue" (`status: 'sold'`, détecté par le bot, n'importe qui peut être l'acheteur) de "annonce que j'ai personnellement achetée" — aucun champ équivalent n'existait (vérifié par exploration : zéro mention de purchased/acheté/bought/owned dans tout le code et la doc).
 - **Décisions validées avant implémentation** : (1) toggle manuel + date auto-capturée + prix optionnel saisi par l'utilisateur si négocié différemment du prix affiché ; (2) flag totalement indépendant de `status`/`sold` (une annonce encore active peut être marquée achetée) ; (3) pas de section Stats dédiée dans cette itération, juste le filtre + le badge.
