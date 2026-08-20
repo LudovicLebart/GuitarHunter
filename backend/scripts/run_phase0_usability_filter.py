@@ -80,72 +80,75 @@ def main():
     print(f"Modèle chargé en {time.time() - t0:.1f}s")
 
     records = load_manifest(args.manifest, args.limit)
-    print(f"\n--- {len(records)} annonce(s) à traiter (manifeste : {args.manifest}) ---")
+    total_images = sum(len(r.get("image_urls", [])) for r in records)
+    print(f"\n--- {len(records)} annonce(s) à traiter ({total_images} photos, manifeste : {args.manifest}) ---")
 
     results = []
     t_start = time.time()
+    img_count = 0
     for i, record in enumerate(records):
         deal_id = record["deal_id"]
         classification = record.get("classification", "N/A")
-        url = record["image_urls"][0]
 
-        entry = {"deal_id": deal_id, "classification": classification, "image_url": url}
-        try:
-            resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
-            image = Image.open(BytesIO(resp.content)).convert("RGB")
-        except Exception as e:
-            entry.update({"error": f"download_failed: {e}", "usable": False})
+        for img_idx, url in enumerate(record.get("image_urls", [])):
+            img_count += 1
+            entry = {"deal_id": deal_id, "image_idx": img_idx, "classification": classification, "image_url": url}
+            try:
+                resp = requests.get(url, timeout=15)
+                resp.raise_for_status()
+                image = Image.open(BytesIO(resp.content)).convert("RGB")
+            except Exception as e:
+                entry.update({"error": f"download_failed: {e}", "usable": False})
+                results.append(entry)
+                continue
+
+            try:
+                inputs = processor(text=[TEXT_QUERIES], images=image, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                target_sizes = torch.tensor([(image.height, image.width)])
+                detections = processor.post_process_grounded_object_detection(
+                    outputs=outputs, target_sizes=target_sizes, threshold=0.1
+                )[0]
+            except Exception as e:
+                entry.update({"error": f"inference_failed: {e}", "usable": False})
+                results.append(entry)
+                continue
+
+            n_boxes = len(detections["scores"])
+            best_score = 0.0
+            best_box = None
+            if n_boxes:
+                best_idx = int(detections["scores"].argmax())
+                best_score = float(detections["scores"][best_idx])
+                best_box = [round(float(v), 1) for v in detections["boxes"][best_idx].tolist()]  # [x1,y1,x2,y2]
+
+            usable = best_score >= args.threshold
+            low_resolution = min(image.width, image.height) < MIN_RESOLUTION_PX
+            cropped_suspect = False
+            if best_box:
+                x1, y1, x2, y2 = best_box
+                mx, my = image.width * EDGE_MARGIN_FRAC, image.height * EDGE_MARGIN_FRAC
+                cropped_suspect = x1 <= mx or y1 <= my or x2 >= image.width - mx or y2 >= image.height - my
+
+            entry.update({
+                "width": image.width,
+                "height": image.height,
+                "n_boxes": n_boxes,
+                "best_score": round(best_score, 4),
+                "best_box": best_box,
+                "usable": usable,
+                "low_resolution": low_resolution,
+                "cropped_suspect": cropped_suspect,
+                "measurable": usable and not low_resolution and not cropped_suspect,
+            })
             results.append(entry)
-            continue
 
-        try:
-            inputs = processor(text=[TEXT_QUERIES], images=image, return_tensors="pt").to(device)
-            with torch.no_grad():
-                outputs = model(**inputs)
-            target_sizes = torch.tensor([(image.height, image.width)])
-            detections = processor.post_process_grounded_object_detection(
-                outputs=outputs, target_sizes=target_sizes, threshold=0.1
-            )[0]
-        except Exception as e:
-            entry.update({"error": f"inference_failed: {e}", "usable": False})
-            results.append(entry)
-            continue
-
-        n_boxes = len(detections["scores"])
-        best_score = 0.0
-        best_box = None
-        if n_boxes:
-            best_idx = int(detections["scores"].argmax())
-            best_score = float(detections["scores"][best_idx])
-            best_box = [round(float(v), 1) for v in detections["boxes"][best_idx].tolist()]  # [x1,y1,x2,y2]
-
-        usable = best_score >= args.threshold
-        low_resolution = min(image.width, image.height) < MIN_RESOLUTION_PX
-        cropped_suspect = False
-        if best_box:
-            x1, y1, x2, y2 = best_box
-            mx, my = image.width * EDGE_MARGIN_FRAC, image.height * EDGE_MARGIN_FRAC
-            cropped_suspect = x1 <= mx or y1 <= my or x2 >= image.width - mx or y2 >= image.height - my
-
-        entry.update({
-            "width": image.width,
-            "height": image.height,
-            "n_boxes": n_boxes,
-            "best_score": round(best_score, 4),
-            "best_box": best_box,
-            "usable": usable,
-            "low_resolution": low_resolution,
-            "cropped_suspect": cropped_suspect,
-            "measurable": usable and not low_resolution and not cropped_suspect,
-        })
-        results.append(entry)
-
-        if (i + 1) % 100 == 0:
-            elapsed = time.time() - t_start
-            rate = (i + 1) / elapsed
-            eta = (len(records) - i - 1) / rate if rate > 0 else 0
-            print(f"  {i + 1}/{len(records)} traitées ({elapsed:.0f}s écoulées, ETA {eta:.0f}s)")
+            if img_count % 100 == 0:
+                elapsed = time.time() - t_start
+                rate = img_count / elapsed
+                eta = (total_images - img_count) / rate if rate > 0 else 0
+                print(f"  {img_count}/{total_images} traitées ({elapsed:.0f}s écoulées, ETA {eta:.0f}s)")
 
     with open(args.output, "w", encoding="utf-8") as f:
         for r in results:

@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-20] [PRO] Action effectuée : Phase 0 du projet neck-reset étendue à l'ensemble des photos (Dataset A complet) → Résultat :
+- **Demande utilisateur** : exécuter la détection de présence "guitare" sur les 5974 photos du Dataset A, pas seulement l'échantillon de 8 photos ni la première photo par annonce (1066) comme fait initialement.
+- **`backend/scripts/run_phase0_usability_filter.py` modifié** : boucle désormais sur l'ensemble de la liste `image_urls` de chaque annonce, et met à jour le suivi de progression sur le compte total d'images (5974) au lieu des annonces (1066). Chaque image produit une entrée distincte repérable par `image_idx`.
+- **`.github/workflows/run_script_dell.yml` corrigé** : pointé de nouveau sur `run_phase0_usability_filter.py` et sur le rapatriement du fichier de sortie `dataset_a_phase0.jsonl` (le correctif du saut de ligne SSH était déjà en place).
+- **Prochaine étape** : pousser vers `ops/run-script` et attendre le résultat du Dell.
 [2026-08-19] [PRO] Correction : lecture erronée du résultat OWLv2 multi-parties (projet neck-reset) → Résultat :
 - **Erreur repérée par l'utilisateur**, pas par moi : j'avais écrit que "soundhole" se localisait "étonnamment bien dans les deux photos" (entrée précédente). Faux — l'utilisateur, en revérifiant les mêmes images annotées, a noté que sur la photo 1 (Fender) la boîte "soundhole" englobe en réalité le manche et une bonne partie de la caisse, pas juste la rosace. Seule la photo 2 (Yamaha) avait une bonne détection.
 - **Revérifié visuellement, confirmé** : l'utilisateur avait raison sur les 3 points soulevés (rosace mauvaise sur la Fender, tête qui prend toute la guitare dans les deux cas, manche = tête sur la Fender / vrai manche sur la Yamaha). Le résultat réel est donc **encore plus négatif** que ce qui avait été documenté : aucune des 4 requêtes n'est fiable sur les deux photos à la fois, pas même la rosace.

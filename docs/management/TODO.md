@@ -15,7 +15,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *Projet satellite, pas encore intégré au pipeline Guitar Hunter. Réflexion R&D complète : [`docs/management/plans/NECK_RESET_VISION_PLAN.md`](plans/NECK_RESET_VISION_PLAN.md). Dataset A collecté à l'échelle (1066 annonces/5974 photos), accès GPU (Dell de MoneyBot) opérationnel, première validation d'inférence réussie (OWLv2, 8/8 détections, VRAM largement suffisante) — détail §7 du plan. Reste à faire, dans l'ordre :*
 
-- [ ] **Appliquer la détection de présence "guitare" (Phase 0) à l'échelle du Dataset A complet** (5974 photos), pas seulement l'échantillon de validation à 8 photos (§7 étape 4 du plan).
+- [/] **Appliquer la détection de présence "guitare" (Phase 0) à l'échelle du Dataset A complet** (5974 photos), pas seulement l'échantillon de validation à 8 photos (§7 étape 4 du plan). *Script mis à jour et workflow configuré, exécution en attente.*
 - [ ] **Mesurer + photographier les 2 guitares de l'utilisateur** (protocole détaillé dans le plan) — dont la guitare à manche vissé, en testant plusieurs épaisseurs de cale pour obtenir plusieurs configurations d'angle mesurées.
 - [ ] **Contacter un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) — source de cas positifs confirmés, alternative à l'absence de magasins d'occasion locaux.
 - [ ] **Jalon go/no-go** : calculer à la main les métriques géométriques (ratio sillet, densité de bords, écart corde/ombre) sur les données collectées et vérifier la corrélation avec les mesures réelles, avant tout entraînement de modèle.

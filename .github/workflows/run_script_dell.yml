@@ -67,12 +67,12 @@ jobs:
             nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 
             echo "--- Exécution du script ---"
-            rm -rf owlv2_parts_output
-            python3 backend/scripts/experiments/test_owlv2_parts_detection.py
+            rm -f dataset_a_phase0.jsonl
+            python3 backend/scripts/run_phase0_usability_filter.py
 
       - name: Récupération du rapport généré
         env:
-          FICHIER_A_RECUPERER: owlv2_parts_output
+          FICHIER_A_RECUPERER: dataset_a_phase0.jsonl
         run: |
           mkdir -p ~/.ssh output
           printf '%s\n' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
