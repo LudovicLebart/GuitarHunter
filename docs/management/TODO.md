@@ -38,6 +38,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 💬 Chat Gemini — Galerie & Requalification (Plan validé — 2026-08-21)
+
+*Plan détaillé, revu par confrontation Opus avant code : `docs/management/plans/CHAT_GALLERY_REQUALIFICATION_PLAN.md`. Livraison en 2 lots séquencés, avec validation entre les deux.*
+
+- [ ] **Lot 1 — Ajouter une photo du chat à la galerie de l'annonce** : upload Firebase Storage côté client (nouveau, aucun précédent dans `src/`), bouton explicite sur la bulle de chat, règles `storage.rules` à durcir et déployer.
+- [ ] **Lot 2 — Requalification d'annonce par Gemini via le chat** (à démarrer seulement après validation du Lot 1) : function calling Gemini + carte de proposition avant/après + confirmation utilisateur ; "Appliquer" réutilise le pipeline `ANALYZE_DEAL` existant (`retryDealAnalysis` avec la proposition formatée en commentaire) plutôt qu'un champ Firestore dédié.
+
+---
+
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [ ] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19)*
