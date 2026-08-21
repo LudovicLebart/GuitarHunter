@@ -42,7 +42,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *Plan détaillé, revu par confrontation Opus avant code : `docs/management/plans/CHAT_GALLERY_REQUALIFICATION_PLAN.md`. Livraison en 2 lots séquencés, avec validation entre les deux.*
 
-- [ ] **Lot 1 — Ajouter une photo du chat à la galerie de l'annonce** : upload Firebase Storage côté client (nouveau, aucun précédent dans `src/`), bouton explicite sur la bulle de chat, règles `storage.rules` à durcir et déployer.
+- [x] **Lot 1 — Ajouter une photo du chat à la galerie de l'annonce** *(codé 2026-08-21, commit `9324f0b`)* : upload Firebase Storage côté client, bouton explicite sur la bulle de chat, `storage.rules` durcies. **Reste à faire : déployer les règles (`firebase deploy --only storage`) et valider en conditions réelles** (upload → galerie, double-clic, reload, `SharedDealPage` déconnecté) avant de considérer le lot terminé.
 - [ ] **Lot 2 — Requalification d'annonce par Gemini via le chat** (à démarrer seulement après validation du Lot 1) : function calling Gemini + carte de proposition avant/après + confirmation utilisateur ; "Appliquer" réutilise le pipeline `ANALYZE_DEAL` existant (`retryDealAnalysis` avec la proposition formatée en commentaire) plutôt qu'un champ Firestore dédié.
 
 ---

@@ -55,7 +55,7 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "initialVerdict": "Verdict du tout premier passage IA (figé, jamais réécrit)",
     "initialModelUsed": "Chain of models du tout premier passage (ex: flash-lite seul si arrêté au Portier) - absent sur les annonces créées avant 2026-07-11",
     "imageUrls": ["URL CDN Facebook (temporaire)"],
-    "storageImageUrls": ["URL Firebase Storage HTTPS (pérenne)"],
+    "storageImageUrls": ["URL Firebase Storage HTTPS (pérenne) — alimenté par le backend à l'ingestion ET, depuis 2026-08-21, par le frontend (arrayUnion) via le bouton \"Ajouter à la galerie\" du chat Gemini, voir §5.1"],
     "storageImageGsUris": ["gs://bucket/deals/{id}/... — 2026-07-31, pour le chat Gemini (Firebase AI Logic)"],
     "aiAnalysis": { 
        "verdict": "PEPITE" | "FAST_FLIP" | "BAD_DEAL" | "REJECTED_ITEM" | ...,
@@ -109,6 +109,8 @@ Historique de conversation persisté par annonce, écrit **directement par le fr
   }
   ```
   `parts` est le payload exact envoyé/reçu par l'API Gemini — sur le premier tour utilisateur, il inclut le contexte de l'annonce (titre/prix/analyse IA existante, texte injecté invisible) suivi des pièces image `gs://`. `displayText` est le texte "propre" (sans le contexte injecté) affiché dans l'UI. Rejouer `parts` dans `startChat({history})` après un rechargement de page reconstruit la session Gemini à l'identique, images comprises, sans re-upload.
+  - **`attachedImagePartIndex`** (optionnel, 2026-08-01) : index dans `parts` de la photo jointe par l'utilisateur depuis le chat — distingue cette photo des pièces image de contexte du premier message.
+  - **`addedToGalleryUrl`** (optionnel, 2026-08-21) : posé par `markChatMessageAddedToGallery` une fois qu'une photo jointe (`attachedImagePartIndex`) a été ajoutée à `storageImageUrls` de l'annonce via le bouton "Ajouter à la galerie" — état persisté (survit au reload, à un 2e client) servant à la fois d'affichage ("Ajoutée ✓") et de garde anti-doublon.
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.
