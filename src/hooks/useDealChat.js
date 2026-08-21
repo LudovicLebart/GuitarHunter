@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { onDealChatUpdate, addDealChatMessage } from '../services/firestoreService';
+import { onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery } from '../services/firestoreService';
 import { getDealChatModel, buildDealContextText, buildDealImageParts, fileToInlinePart } from '../services/geminiChatService';
+import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
@@ -124,5 +125,23 @@ export const useDealChat = (deal, user, modelName) => {
         }
     }, [deal, user, messages.length, sending]);
 
-    return { messages, loading, sending, error, sendMessage };
+    // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
+    // envoyé (2026-08-21) : upload Storage (nouveau, jamais fait côté client jusqu'ici — voir
+    // storageService.js) puis écriture Firestore (storageImageUrls + marquage du message). Les
+    // erreurs remontent à l'appelant (DealChatPanel), qui gère un état bouton par message plutôt
+    // que le bandeau d'erreur global du chat (une erreur d'upload photo n'est pas une erreur de
+    // conversation). No-op silencieux si la photo a déjà été ajoutée (garde anti-double-clic —
+    // `message.addedToGalleryUrl` est la source de vérité persistée, stable même sur un 2e client).
+    const addPhotoToGallery = useCallback(async (message) => {
+        if (!deal?.id || !user || message.addedToGalleryUrl) return;
+        const inlineData = message.parts?.[message.attachedImagePartIndex]?.inlineData;
+        if (!inlineData) return;
+        const blob = await base64ToBlob(inlineData.data, inlineData.mimeType);
+        const url = await uploadChatPhotoToDealStorage(deal.id, blob, inlineData.mimeType);
+        await addImageToDealGallery(deal.id, url, user.uid);
+        await markChatMessageAddedToGallery(deal.id, message.id, url, user.uid);
+        return url;
+    }, [deal, user]);
+
+    return { messages, loading, sending, error, sendMessage, addPhotoToGallery };
 };

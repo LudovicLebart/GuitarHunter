@@ -5,6 +5,28 @@ rules_version = '2';
 //    /databases/(default)/documents/users/$(request.auth.uid)).data.isAdmin;
 service firebase.storage {
   match /b/{bucket}/o {
+    // Photos d'annonces (backend Python : deals/{dealId}/{i}_{uuid}.jpg via make_public() ;
+    // client Web, chat Gemini, 2026-08-21 : deals/{dealId}/chat_{timestamp}_{uuid}.jpg).
+    //
+    // `dealId` n'est PAS cloisonné par utilisateur (c'est l'ID de l'annonce marketplace, identique
+    // pour deux utilisateurs qui scannent la même annonce) — un cloisonnement par propriétaire
+    // nécessiterait une lecture Firestore cross-service par upload, jugé disproportionné ici.
+    // Risque accepté : un utilisateur authentifié peut ajouter une photo à la galerie d'une annonce
+    // qui n'est pas forcément « la sienne » (mais ne peut ni la remplacer ni la supprimer — voir
+    // ci-dessous — et ne peut agir que sur le chat/l'annonce qu'il consulte dans son propre compte
+    // Firestore, seul `storageImageUrls` de SON document `guitar_deals/{dealId}` étant modifiable).
+    match /deals/{dealId}/{fileName} {
+      allow read: if true;
+      // Seule la création est permise côté client, et seulement pour les fichiers issus du chat
+      // (préfixe `chat_`, jamais les {i}_{uuid}.jpg posés par le backend) — écrase-t-elle jamais un
+      // fichier existant ? Non : create échoue si l'objet existe déjà, ce qui est le comportement
+      // voulu (une image du backend ne peut jamais être remplacée depuis le client).
+      allow create: if request.auth != null
+        && fileName.matches('chat_.*')
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow update, delete: if false;
+    }
     match /{allPaths=**} {
       allow read, write: if false;
     }

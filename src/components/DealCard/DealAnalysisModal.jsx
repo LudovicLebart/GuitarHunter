@@ -28,7 +28,8 @@ const DealAnalysisModal = ({
     onToggleFavorite,
     onDelete,
     isAnalyzing,
-    onSetClassification
+    onSetClassification,
+    onGalleryImageAdded
 }) => {
     const [showChat, setShowChat] = useState(false);
 
@@ -94,7 +95,7 @@ const DealAnalysisModal = ({
                 {/* Modal Body */}
                 {showChat ? (
                     <div className="flex-1 flex flex-col min-h-0">
-                        <DealChatPanel deal={deal} onBack={() => setShowChat(false)} />
+                        <DealChatPanel deal={deal} onBack={() => setShowChat(false)} onGalleryImageAdded={onGalleryImageAdded} />
                     </div>
                 ) : (
                 <div className="flex-1 flex flex-col md:flex-row min-h-0">

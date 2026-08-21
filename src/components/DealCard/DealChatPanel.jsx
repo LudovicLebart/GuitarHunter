@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check } from 'lucide-react';
 import { useDealChat } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 
-const ChatBubble = ({ role, text, attachedImage }) => {
+// `galleryState` : undefined (rien à faire ou déjà proposé) | 'uploading' | 'error' — état LOCAL
+// au message (pas au chat entier), pour que l'upload d'une photo n'affecte pas les autres bulles.
+// `addedToGalleryUrl` vient de Firestore (persisté, voir markChatMessageAddedToGallery) — source
+// de vérité qui survit à un reload ou à un 2e client, contrairement à `galleryState`.
+const ChatBubble = ({ role, text, attachedImage, addedToGalleryUrl, galleryState, onAddToGallery }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -23,22 +27,64 @@ const ChatBubble = ({ role, text, attachedImage }) => {
                     />
                 )}
                 {text}
+                {attachedImage && (
+                    <button
+                        onClick={onAddToGallery}
+                        disabled={!!addedToGalleryUrl || galleryState === 'uploading'}
+                        className={`mt-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-bold rounded-lg px-2.5 py-1.5 transition-colors ${addedToGalleryUrl
+                            ? 'bg-emerald-500/15 text-emerald-300 cursor-default'
+                            : galleryState === 'error'
+                                ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                                : 'bg-white/10 text-white/80 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed'
+                            }`}
+                    >
+                        {galleryState === 'uploading' ? (
+                            <><Loader2 size={12} className="animate-spin" /> Ajout en cours...</>
+                        ) : addedToGalleryUrl ? (
+                            <><Check size={12} /> Ajoutée à la galerie</>
+                        ) : galleryState === 'error' ? (
+                            <><AlertTriangle size={12} /> Échec — réessayer</>
+                        ) : (
+                            <><ImagePlus size={12} /> Ajouter à la galerie</>
+                        )}
+                    </button>
+                )}
             </div>
         </div>
     );
 };
 
-const DealChatPanel = ({ deal, onBack }) => {
+const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
-    const { messages, loading, sending, error, sendMessage } = useDealChat(deal, user, analysisConfig?.expertModel);
+    const { messages, loading, sending, error, sendMessage, addPhotoToGallery } = useDealChat(deal, user, analysisConfig?.expertModel);
     const [input, setInput] = useState('');
     const [imageFile, setImageFile] = useState(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
     const [showAttachMenu, setShowAttachMenu] = useState(false);
+    // État LOCAL par message (id → 'uploading' | 'error'), voir ChatBubble — n'affecte jamais le
+    // bandeau d'erreur global du chat (`error`, ci-dessus), qui reste réservé aux échecs Gemini.
+    const [galleryUploadState, setGalleryUploadState] = useState({});
     const scrollRef = useRef(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
+
+    const handleAddToGallery = async (message) => {
+        if (message.addedToGalleryUrl || galleryUploadState[message.id] === 'uploading') return;
+        setGalleryUploadState(prev => ({ ...prev, [message.id]: 'uploading' }));
+        try {
+            const url = await addPhotoToGallery(message);
+            setGalleryUploadState(prev => {
+                const next = { ...prev };
+                delete next[message.id];
+                return next;
+            });
+            if (url) onGalleryImageAdded?.(deal.id, url);
+        } catch (e) {
+            console.error('Erreur ajout à la galerie:', e);
+            setGalleryUploadState(prev => ({ ...prev, [message.id]: 'error' }));
+        }
+    };
 
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -119,6 +165,9 @@ const DealChatPanel = ({ deal, onBack }) => {
                         role={m.role}
                         text={m.displayText}
                         attachedImage={m.attachedImagePartIndex != null ? m.parts?.[m.attachedImagePartIndex]?.inlineData : null}
+                        addedToGalleryUrl={m.addedToGalleryUrl}
+                        galleryState={galleryUploadState[m.id]}
+                        onAddToGallery={() => handleAddToGallery(m)}
                     />
                 ))}
 

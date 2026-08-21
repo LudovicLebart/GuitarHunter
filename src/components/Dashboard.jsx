@@ -364,6 +364,7 @@ const Dashboard = ({ onClose }) => {
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
             onSetClassification={dealActions?.handleSetClassification}
+            onGalleryImageAdded={dealActions?.handleGalleryImageAdded}
         />
     );
 
