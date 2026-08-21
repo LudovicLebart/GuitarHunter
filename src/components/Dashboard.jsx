@@ -366,6 +366,7 @@ const Dashboard = ({ onClose }) => {
             onTogglePurchased={(purchasePrice) => dealActions?.handleTogglePurchased(d.id, d.isPurchased, purchasePrice)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
             onSetClassification={dealActions?.handleSetClassification}
+            onGalleryImageAdded={dealActions?.handleGalleryImageAdded}
         />
     );
 

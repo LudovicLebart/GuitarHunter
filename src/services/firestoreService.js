@@ -1,7 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
   collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit, where, documentId, serverTimestamp
+  query, orderBy, limit, where, documentId, serverTimestamp, arrayUnion
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -323,6 +323,25 @@ export const setDealClassification = async (dealId, chunkId, userId, classificat
   }
 };
 
+/**
+ * Ajoute une photo (déjà uploadée vers Firebase Storage, voir storageService.js) à la galerie de
+ * l'annonce — utilisée par le bouton "Ajouter à la galerie" du chat Gemini (2026-08-21, voir
+ * useDealChat.js::addPhotoToGallery). `storageImageUrls` est un VRAI champ tableau, contrairement
+ * à `aiAnalysis` (objet) sur lequel un `ArrayUnion` avait silencieusement corrompu les annonces
+ * vendues le 2026-08-12 — `arrayUnion` est l'usage correct ici.
+ */
+export const addImageToDealGallery = async (dealId, url, userId) => {
+  try {
+    const { dealsCollectionRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), {
+      storageImageUrls: arrayUnion(url)
+    });
+  } catch (error) {
+    console.error(`Error adding gallery image for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de la photo à la galerie.");
+  }
+};
+
 // --- Chat IA (2026-07-31, Firebase AI Logic) ---
 // Historique persisté par annonce : guitar_deals/{dealId}/chat/{msgId}, écrit directement
 // depuis le frontend (le chat n'implique aucun aller-retour backend Python — voir
@@ -359,6 +378,19 @@ export const addDealChatMessage = async (dealId, role, parts, displayText, userI
   } catch (error) {
     console.error(`Error saving chat message for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la sauvegarde du message.");
+  }
+};
+
+// Marque un message de chat comme "photo déjà ajoutée à la galerie" (2026-08-21) — persisté sur le
+// message lui-même plutôt qu'en état local, pour rester vrai après un reload ou depuis un autre
+// client (le bouton "Ajouter à la galerie" doit rester désactivé une fois l'ajout fait).
+export const markChatMessageAddedToGallery = async (dealId, messageId, url, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), { addedToGalleryUrl: url });
+  } catch (error) {
+    console.error(`Error marking chat message ${messageId} as added to gallery:`, error);
+    throw new Error("Erreur lors de la mise à jour du message.");
   }
 };
 

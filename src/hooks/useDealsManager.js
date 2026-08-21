@@ -243,6 +243,21 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     } catch (e) { setError(e.message); }
   }, [user, dealsIndexMap, loadedDeals, setError]);
 
+  // Mise à jour optimiste après ajout d'une photo du chat à la galerie (2026-08-21, voir
+  // useDealChat.js::addPhotoToGallery) — même nécessité que handleSetClassification ci-dessus :
+  // le doc complet de l'annonce n'est pas un listener temps réel (`loadedDeals` = fetch one-shot),
+  // sans ce patch la galerie ouverte n'afficherait le nouvel ajout qu'après un rechargement complet.
+  const handleGalleryImageAdded = useCallback((dealId, url) => {
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const existing = prev[dealId].storageImageUrls || [];
+      if (existing.includes(url)) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], storageImageUrls: [...existing, url] };
+      return next;
+    });
+  }, []);
+
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
     const chunkId = dealsIndexMap[dealId]?.h;
@@ -706,6 +721,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleToggleFavorite,
       handleTogglePurchased,
       handleSetClassification,
+      handleGalleryImageAdded,
       handleSelectDeal: setSelectedDeal
     }
   };
