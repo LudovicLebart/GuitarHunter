@@ -34,6 +34,27 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Déployer les règles Firebase Storage
+        # 2026-08-21 : jusqu'ici un `firebase deploy --only storage` manuel, régulièrement oublié
+        # (storage.rules modifié dans ce même commit sans déploiement associé). Node/npm déjà prêts
+        # ci-dessus (npm run build) — pas besoin du Dell ni du serveur SSH (qui n'a pas Node).
+        # `continue-on-error` : ne doit jamais bloquer la publication du site si la clé manque ou si
+        # le compte de service n'a pas encore le rôle IAM nécessaire (le SDK Admin, seul usage
+        # existant de cette clé, contourne les règles et n'a jamais eu besoin de ce rôle) — l'échec
+        # reste visible dans les logs Actions sans casser le déploiement.
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        continue-on-error: true
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — déploiement des règles Storage ignoré."
+            exit 0
+          fi
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > /tmp/firebase-sa.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-sa.json
+          npx firebase-tools@latest deploy --only storage --force
+          rm -f /tmp/firebase-sa.json
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
