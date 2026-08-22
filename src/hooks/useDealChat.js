@@ -3,6 +3,20 @@ import { onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMe
 import { getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
+// Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
+// porte que les champs singuliers `attachedImagePartIndex`/`addedToGalleryUrl`. Ces deux fonctions
+// sont le SEUL endroit qui connaît l'équivalence avec les nouveaux champs pluriels
+// (`attachedImagePartIndices`/`addedToGalleryUrls`) — réutilisées aussi bien par l'affichage
+// (DealChatPanel) que par les gardes anti-double-ajout (ici et dans DealChatPanel), pour ne
+// jamais les faire diverger (une des deux avait été oubliée lors du passage au multi-photos).
+export const getAttachedImagePartIndices = (message) =>
+    message.attachedImagePartIndices
+        ?? (message.attachedImagePartIndex != null ? [message.attachedImagePartIndex] : []);
+
+export const getAddedToGalleryUrl = (message, partIndex) =>
+    message.addedToGalleryUrls?.[partIndex]
+        ?? (message.attachedImagePartIndex === partIndex ? message.addedToGalleryUrl : undefined);
+
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
 // écriture interrompue avant le correctif d'appariement systématique, ou deux écritures aux
@@ -135,11 +149,12 @@ export const useDealChat = (deal, user, modelName) => {
     // (storageImageUrls + marquage de cette photo sur le message). Les erreurs remontent à
     // l'appelant (DealChatPanel), qui gère un état bouton par photo plutôt que le bandeau d'erreur
     // global du chat (une erreur d'upload photo n'est pas une erreur de conversation). No-op
-    // silencieux si cette photo a déjà été ajoutée (garde anti-double-clic —
-    // `message.addedToGalleryUrls[partIndex]` est la source de vérité persistée, stable même sur
+    // silencieux si cette photo a déjà été ajoutée (garde anti-double-clic — via
+    // `getAddedToGalleryUrl`, qui couvre aussi les messages pré-multi-photos ne portant que
+    // l'ancien champ singulier `addedToGalleryUrl`, source de vérité persistée, stable même sur
     // un 2e client).
     const addPhotoToGallery = useCallback(async (message, partIndex) => {
-        if (!deal?.id || !user || message.addedToGalleryUrls?.[partIndex]) return;
+        if (!deal?.id || !user || getAddedToGalleryUrl(message, partIndex)) return;
         const inlineData = message.parts?.[partIndex]?.inlineData;
         if (!inlineData) return;
         const blob = await base64ToBlob(inlineData.data, inlineData.mimeType);

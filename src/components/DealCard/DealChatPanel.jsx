@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check } from 'lucide-react';
-import { useDealChat } from '../../hooks/useDealChat';
+import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 
@@ -78,7 +78,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
 
     const handleAddToGallery = async (message, partIndex) => {
         const key = `${message.id}:${partIndex}`;
-        if (message.addedToGalleryUrls?.[partIndex] || galleryUploadState[key] === 'uploading') return;
+        if (getAddedToGalleryUrl(message, partIndex) || galleryUploadState[key] === 'uploading') return;
         setGalleryUploadState(prev => ({ ...prev, [key]: 'uploading' }));
         try {
             const url = await addPhotoToGallery(message, partIndex);
@@ -98,20 +98,31 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, sending]);
 
-    // Révoque les URL locales de prévisualisation dès qu'elles ne sont plus utilisées (changement
-    // de sélection ou démontage), pour ne pas fuiter de mémoire (object URL jamais libérée sinon).
+    // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
+    // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à
+    // chaque ajout/retrait, y compris les photos encore sélectionnées, cassant leurs miniatures ;
+    // handlePickImage/clearImageAt/clearImages révoquent déjà chacun explicitement l'URL qui les
+    // concerne, donc seul l'oubli au démontage doit être rattrapé ici). Le ref garde toujours la
+    // dernière valeur sans re-déclencher l'effet.
+    const imagePreviewsRef = useRef(imagePreviews);
+    imagePreviewsRef.current = imagePreviews;
     useEffect(() => {
-        return () => { imagePreviews.forEach(URL.revokeObjectURL); };
-    }, [imagePreviews]);
+        return () => { imagePreviewsRef.current.forEach(URL.revokeObjectURL); };
+    }, []);
 
     // Ajoute les photos choisies à la sélection en cours (2026-08-22, plusieurs photos par
-    // message) plutôt que de remplacer la précédente.
+    // message) plutôt que de remplacer la précédente. Plafonné (décodage/encodage coûteux par
+    // photo, voir blobToInlinePart) pour éviter qu'une sélection massive ne sature la mémoire du
+    // navigateur au moment de l'envoi.
+    const MAX_ATTACHED_IMAGES = 6;
     const handlePickImage = (e) => {
         const files = Array.from(e.target.files || []);
         e.target.value = ''; // permet de resélectionner les mêmes photos à la suite
         if (!files.length) return;
-        setImageFiles(prev => [...prev, ...files]);
-        setImagePreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+        const accepted = files.slice(0, MAX_ATTACHED_IMAGES - imageFiles.length);
+        if (!accepted.length) return;
+        setImageFiles(prev => [...prev, ...accepted]);
+        setImagePreviews(prev => [...prev, ...accepted.map(f => URL.createObjectURL(f))]);
     };
 
     const clearImageAt = (index) => {
@@ -171,24 +182,18 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
                 )}
 
                 {messages.map(m => {
-                    // Rétrocompatibilité (2026-08-22) : les messages envoyés avant le support
-                    // multi-photos n'ont que les champs singuliers `attachedImagePartIndex` /
-                    // `addedToGalleryUrl` — on les ramène au même tableau `indices` que les
-                    // nouveaux messages (`attachedImagePartIndices`) pour un rendu uniforme.
-                    const indices = m.attachedImagePartIndices
-                        ?? (m.attachedImagePartIndex != null ? [m.attachedImagePartIndex] : []);
-                    const galleryUrls = m.addedToGalleryUrls
-                        ?? (m.attachedImagePartIndex != null && m.addedToGalleryUrl
-                            ? { [m.attachedImagePartIndex]: m.addedToGalleryUrl }
-                            : {});
-                    const images = indices
+                    // Rétrocompatibilité (2026-08-22, voir getAttachedImagePartIndices/
+                    // getAddedToGalleryUrl dans useDealChat.js — source unique de la conversion
+                    // ancien champ singulier → nouveau champ pluriel, réutilisée par les gardes
+                    // anti-double-ajout ci-dessus).
+                    const images = getAttachedImagePartIndices(m)
+                        .filter(partIndex => m.parts?.[partIndex]?.inlineData)
                         .map(partIndex => ({
                             partIndex,
-                            inlineData: m.parts?.[partIndex]?.inlineData,
-                            addedToGalleryUrl: galleryUrls[partIndex],
+                            inlineData: m.parts[partIndex].inlineData,
+                            addedToGalleryUrl: getAddedToGalleryUrl(m, partIndex),
                             galleryState: galleryUploadState[`${m.id}:${partIndex}`],
-                        }))
-                        .filter(img => img.inlineData);
+                        }));
                     return (
                         <ChatBubble
                             key={m.id}
