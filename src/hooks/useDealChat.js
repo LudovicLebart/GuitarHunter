@@ -1,7 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery } from '../services/firestoreService';
-import { getDealChatModel, buildDealContextText, buildDealImageParts, fileToInlinePart } from '../services/geminiChatService';
+import { getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
+
+// Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
+// porte que les champs singuliers `attachedImagePartIndex`/`addedToGalleryUrl`. Ces deux fonctions
+// sont le SEUL endroit qui connaît l'équivalence avec les nouveaux champs pluriels
+// (`attachedImagePartIndices`/`addedToGalleryUrls`) — réutilisées aussi bien par l'affichage
+// (DealChatPanel) que par les gardes anti-double-ajout (ici et dans DealChatPanel), pour ne
+// jamais les faire diverger (une des deux avait été oubliée lors du passage au multi-photos).
+export const getAttachedImagePartIndices = (message) =>
+    message.attachedImagePartIndices
+        ?? (message.attachedImagePartIndex != null ? [message.attachedImagePartIndex] : []);
+
+export const getAddedToGalleryUrl = (message, partIndex) =>
+    message.addedToGalleryUrls?.[partIndex]
+        ?? (message.attachedImagePartIndex === partIndex ? message.addedToGalleryUrl : undefined);
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
@@ -52,11 +66,13 @@ export const useDealChat = (deal, user, modelName) => {
         return () => unsubscribe();
     }, [deal?.id, user, modelName]);
 
-    // `imageFile` (optionnel, 2026-08-01) : photo jointe depuis le chat (prise sur place ou
-    // choisie dans la galerie) — envoyer un message avec une image seule (sans texte) est permis.
-    const sendMessage = useCallback(async (text, imageFile) => {
+    // `imageFiles` (optionnel, 2026-08-01, tableau depuis 2026-08-22) : photo(s) jointe(s) depuis
+    // le chat (prises sur place ou choisies dans la galerie) — envoyer un message avec des images
+    // seules (sans texte) est permis.
+    const sendMessage = useCallback(async (text, imageFiles) => {
         const trimmed = (text || '').trim();
-        if ((!trimmed && !imageFile) || !deal?.id || !user || sending || !chatRef.current) return;
+        const files = imageFiles?.length ? imageFiles : null;
+        if ((!trimmed && !files) || !deal?.id || !user || sending || !chatRef.current) return;
 
         const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
         setSending(true);
@@ -64,19 +80,19 @@ export const useDealChat = (deal, user, modelName) => {
 
         const isFirstMessage = messages.length === 0;
 
-        // fileToInlinePart() peut échouer (fichier corrompu/non décodable) — contrairement à
+        // filesToInlineParts() peut échouer (fichier corrompu/non décodable) — contrairement à
         // buildDealImageParts() qui avale déjà ses propres erreurs par image. Sans ce try/catch,
         // une exception ici court-circuite le reste de la fonction et laisse `sending` bloqué à
         // `true` pour toujours (le seul `setSending(false)` atteignable est plus bas).
-        let uploadedPart, dealImageParts;
+        let uploadedParts, dealImageParts;
         try {
-            [uploadedPart, dealImageParts] = await Promise.all([
-                imageFile ? fileToInlinePart(imageFile) : Promise.resolve(null),
+            [uploadedParts, dealImageParts] = await Promise.all([
+                files ? filesToInlineParts(files) : Promise.resolve([]),
                 isFirstMessage ? buildDealImageParts(deal) : Promise.resolve([]),
             ]);
         } catch (e) {
-            console.error('Erreur préparation de la photo jointe:', e);
-            setError("Impossible de préparer la photo jointe. Réessaie ou envoie sans photo.");
+            console.error('Erreur préparation des photos jointes:', e);
+            setError("Impossible de préparer les photos jointes. Réessaie ou envoie sans photo.");
             setSending(false);
             return;
         }
@@ -87,16 +103,18 @@ export const useDealChat = (deal, user, modelName) => {
         const parts = [
             ...(firstMessageText ? [{ text: firstMessageText }] : []),
             ...dealImageParts,
-            ...(uploadedPart ? [uploadedPart] : []),
+            ...uploadedParts,
         ];
 
-        // Référence l'index de la photo jointe dans `parts` plutôt que de dupliquer son base64
-        // (uploadedPart, quand présent, est toujours ajouté en dernier ci-dessus) — évite de
+        // Référence les index des photos jointes dans `parts` plutôt que de dupliquer leur base64
+        // (uploadedParts, quand présentes, sont toujours ajoutées en dernier ci-dessus) — évite de
         // stocker/retransmettre deux fois les mêmes données image par message.
-        const attachedImagePartIndex = uploadedPart ? parts.length - 1 : undefined;
+        const attachedImagePartIndices = uploadedParts.length
+            ? Array.from({ length: uploadedParts.length }, (_, i) => parts.length - uploadedParts.length + i)
+            : undefined;
 
         try {
-            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid, attachedImagePartIndex);
+            await addDealChatMessage(deal.id, 'user', parts, trimmed, user.uid, attachedImagePartIndices);
         } catch (e) {
             console.error('Erreur sauvegarde message utilisateur:', e);
             setError("Impossible d'envoyer le message.");
@@ -126,20 +144,23 @@ export const useDealChat = (deal, user, modelName) => {
     }, [deal, user, messages.length, sending]);
 
     // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
-    // envoyé (2026-08-21) : upload Storage (nouveau, jamais fait côté client jusqu'ici — voir
-    // storageService.js) puis écriture Firestore (storageImageUrls + marquage du message). Les
-    // erreurs remontent à l'appelant (DealChatPanel), qui gère un état bouton par message plutôt
-    // que le bandeau d'erreur global du chat (une erreur d'upload photo n'est pas une erreur de
-    // conversation). No-op silencieux si la photo a déjà été ajoutée (garde anti-double-clic —
-    // `message.addedToGalleryUrl` est la source de vérité persistée, stable même sur un 2e client).
-    const addPhotoToGallery = useCallback(async (message) => {
-        if (!deal?.id || !user || message.addedToGalleryUrl) return;
-        const inlineData = message.parts?.[message.attachedImagePartIndex]?.inlineData;
+    // envoyé (2026-08-21, étendu 2026-08-22 pour cibler une photo précise parmi plusieurs par
+    // message via `partIndex`) : upload Storage (voir storageService.js) puis écriture Firestore
+    // (storageImageUrls + marquage de cette photo sur le message). Les erreurs remontent à
+    // l'appelant (DealChatPanel), qui gère un état bouton par photo plutôt que le bandeau d'erreur
+    // global du chat (une erreur d'upload photo n'est pas une erreur de conversation). No-op
+    // silencieux si cette photo a déjà été ajoutée (garde anti-double-clic — via
+    // `getAddedToGalleryUrl`, qui couvre aussi les messages pré-multi-photos ne portant que
+    // l'ancien champ singulier `addedToGalleryUrl`, source de vérité persistée, stable même sur
+    // un 2e client).
+    const addPhotoToGallery = useCallback(async (message, partIndex) => {
+        if (!deal?.id || !user || getAddedToGalleryUrl(message, partIndex)) return;
+        const inlineData = message.parts?.[partIndex]?.inlineData;
         if (!inlineData) return;
         const blob = await base64ToBlob(inlineData.data, inlineData.mimeType);
         const url = await uploadChatPhotoToDealStorage(deal.id, blob, inlineData.mimeType);
         await addImageToDealGallery(deal.id, url, user.uid);
-        await markChatMessageAddedToGallery(deal.id, message.id, url, user.uid);
+        await markChatMessageAddedToGallery(deal.id, message.id, partIndex, url, user.uid);
         return url;
     }, [deal, user]);
 

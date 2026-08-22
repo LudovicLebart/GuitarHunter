@@ -1,14 +1,16 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check } from 'lucide-react';
-import { useDealChat } from '../../hooks/useDealChat';
+import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 
-// `galleryState` : undefined (rien à faire ou déjà proposé) | 'uploading' | 'error' — état LOCAL
-// au message (pas au chat entier), pour que l'upload d'une photo n'affecte pas les autres bulles.
-// `addedToGalleryUrl` vient de Firestore (persisté, voir markChatMessageAddedToGallery) — source
-// de vérité qui survit à un reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, attachedImage, addedToGalleryUrl, galleryState, onAddToGallery }) => {
+// `images` : tableau de photos jointes à ce message (2026-08-22, plusieurs par message) — chaque
+// entrée `{ partIndex, inlineData, addedToGalleryUrl, galleryState }`. `galleryState` : undefined
+// (rien à faire) | 'uploading' | 'error' — état LOCAL à cette photo précise (pas au message ni au
+// chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
+// de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
+// reload ou à un 2e client, contrairement à `galleryState`.
+const ChatBubble = ({ role, text, images, onAddToGallery }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -19,36 +21,40 @@ const ChatBubble = ({ role, text, attachedImage, addedToGalleryUrl, galleryState
                 ? 'bg-blue-600 text-white rounded-tr-sm'
                 : 'bg-slate-800 text-slate-200 rounded-tl-sm'
                 }`}>
-                {attachedImage && (
-                    <img
-                        src={`data:${attachedImage.mimeType};base64,${attachedImage.data}`}
-                        alt="Photo jointe"
-                        className={`rounded-lg max-w-full max-h-56 object-contain ${text ? 'mb-2' : ''}`}
-                    />
+                {images?.length > 0 && (
+                    <div className={`grid gap-1.5 ${images.length > 1 ? 'grid-cols-2' : ''} ${text ? 'mb-2' : ''}`}>
+                        {images.map(({ partIndex, inlineData, addedToGalleryUrl, galleryState }) => (
+                            <div key={partIndex}>
+                                <img
+                                    src={`data:${inlineData.mimeType};base64,${inlineData.data}`}
+                                    alt="Photo jointe"
+                                    className="rounded-lg w-full max-h-56 object-contain"
+                                />
+                                <button
+                                    onClick={() => onAddToGallery(partIndex)}
+                                    disabled={!!addedToGalleryUrl || galleryState === 'uploading'}
+                                    className={`mt-1 w-full flex items-center justify-center gap-1.5 text-[11px] font-bold rounded-lg px-2.5 py-1.5 transition-colors ${addedToGalleryUrl
+                                        ? 'bg-emerald-500/15 text-emerald-300 cursor-default'
+                                        : galleryState === 'error'
+                                            ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
+                                            : 'bg-white/10 text-white/80 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed'
+                                        }`}
+                                >
+                                    {galleryState === 'uploading' ? (
+                                        <><Loader2 size={12} className="animate-spin" /> Ajout en cours...</>
+                                    ) : addedToGalleryUrl ? (
+                                        <><Check size={12} /> Ajoutée à la galerie</>
+                                    ) : galleryState === 'error' ? (
+                                        <><AlertTriangle size={12} /> Échec — réessayer</>
+                                    ) : (
+                                        <><ImagePlus size={12} /> Ajouter à la galerie</>
+                                    )}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 )}
                 {text}
-                {attachedImage && (
-                    <button
-                        onClick={onAddToGallery}
-                        disabled={!!addedToGalleryUrl || galleryState === 'uploading'}
-                        className={`mt-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-bold rounded-lg px-2.5 py-1.5 transition-colors ${addedToGalleryUrl
-                            ? 'bg-emerald-500/15 text-emerald-300 cursor-default'
-                            : galleryState === 'error'
-                                ? 'bg-rose-500/15 text-rose-300 hover:bg-rose-500/25'
-                                : 'bg-white/10 text-white/80 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed'
-                            }`}
-                    >
-                        {galleryState === 'uploading' ? (
-                            <><Loader2 size={12} className="animate-spin" /> Ajout en cours...</>
-                        ) : addedToGalleryUrl ? (
-                            <><Check size={12} /> Ajoutée à la galerie</>
-                        ) : galleryState === 'error' ? (
-                            <><AlertTriangle size={12} /> Échec — réessayer</>
-                        ) : (
-                            <><ImagePlus size={12} /> Ajouter à la galerie</>
-                        )}
-                    </button>
-                )}
             </div>
         </div>
     );
@@ -59,30 +65,32 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
     const { analysisConfig } = useBotConfigContext();
     const { messages, loading, sending, error, sendMessage, addPhotoToGallery } = useDealChat(deal, user, analysisConfig?.expertModel);
     const [input, setInput] = useState('');
-    const [imageFile, setImageFile] = useState(null);
-    const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
+    const [imageFiles, setImageFiles] = useState([]);
+    const [imagePreviews, setImagePreviews] = useState([]);
     const [showAttachMenu, setShowAttachMenu] = useState(false);
-    // État LOCAL par message (id → 'uploading' | 'error'), voir ChatBubble — n'affecte jamais le
-    // bandeau d'erreur global du chat (`error`, ci-dessus), qui reste réservé aux échecs Gemini.
+    // État LOCAL par photo (clé `${messageId}:${partIndex}` → 'uploading' | 'error'), voir
+    // ChatBubble — n'affecte jamais le bandeau d'erreur global du chat (`error`, ci-dessus), qui
+    // reste réservé aux échecs Gemini.
     const [galleryUploadState, setGalleryUploadState] = useState({});
     const scrollRef = useRef(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
 
-    const handleAddToGallery = async (message) => {
-        if (message.addedToGalleryUrl || galleryUploadState[message.id] === 'uploading') return;
-        setGalleryUploadState(prev => ({ ...prev, [message.id]: 'uploading' }));
+    const handleAddToGallery = async (message, partIndex) => {
+        const key = `${message.id}:${partIndex}`;
+        if (getAddedToGalleryUrl(message, partIndex) || galleryUploadState[key] === 'uploading') return;
+        setGalleryUploadState(prev => ({ ...prev, [key]: 'uploading' }));
         try {
-            const url = await addPhotoToGallery(message);
+            const url = await addPhotoToGallery(message, partIndex);
             setGalleryUploadState(prev => {
                 const next = { ...prev };
-                delete next[message.id];
+                delete next[key];
                 return next;
             });
             if (url) onGalleryImageAdded?.(deal.id, url);
         } catch (e) {
             console.error('Erreur ajout à la galerie:', e);
-            setGalleryUploadState(prev => ({ ...prev, [message.id]: 'error' }));
+            setGalleryUploadState(prev => ({ ...prev, [key]: 'error' }));
         }
     };
 
@@ -90,39 +98,53 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, sending]);
 
-    // Révoque l'URL locale de prévisualisation dès qu'elle n'est plus utilisée (changement de
-    // photo ou démontage), pour ne pas fuiter de mémoire (object URL jamais libérée sinon).
+    // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
+    // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à
+    // chaque ajout/retrait, y compris les photos encore sélectionnées, cassant leurs miniatures ;
+    // handlePickImage/clearImageAt/clearImages révoquent déjà chacun explicitement l'URL qui les
+    // concerne, donc seul l'oubli au démontage doit être rattrapé ici). Le ref garde toujours la
+    // dernière valeur sans re-déclencher l'effet.
+    const imagePreviewsRef = useRef(imagePreviews);
+    imagePreviewsRef.current = imagePreviews;
     useEffect(() => {
-        return () => { if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); };
-    }, [imagePreviewUrl]);
+        return () => { imagePreviewsRef.current.forEach(URL.revokeObjectURL); };
+    }, []);
 
+    // Ajoute les photos choisies à la sélection en cours (2026-08-22, plusieurs photos par
+    // message) plutôt que de remplacer la précédente. Plafonné (décodage/encodage coûteux par
+    // photo, voir blobToInlinePart) pour éviter qu'une sélection massive ne sature la mémoire du
+    // navigateur au moment de l'envoi.
+    const MAX_ATTACHED_IMAGES = 6;
     const handlePickImage = (e) => {
-        const file = e.target.files?.[0];
-        e.target.value = ''; // permet de resélectionner la même photo à la suite
-        if (!file) return;
-        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-        setImageFile(file);
-        setImagePreviewUrl(URL.createObjectURL(file));
+        const files = Array.from(e.target.files || []);
+        e.target.value = ''; // permet de resélectionner les mêmes photos à la suite
+        if (!files.length) return;
+        const accepted = files.slice(0, MAX_ATTACHED_IMAGES - imageFiles.length);
+        if (!accepted.length) return;
+        setImageFiles(prev => [...prev, ...accepted]);
+        setImagePreviews(prev => [...prev, ...accepted.map(f => URL.createObjectURL(f))]);
     };
 
-    const clearImage = () => {
-        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-        setImageFile(null);
-        setImagePreviewUrl(null);
+    const clearImageAt = (index) => {
+        URL.revokeObjectURL(imagePreviews[index]);
+        setImageFiles(prev => prev.filter((_, i) => i !== index));
+        setImagePreviews(prev => prev.filter((_, i) => i !== index));
     };
 
+    const clearImages = () => {
+        imagePreviews.forEach(URL.revokeObjectURL);
+        setImageFiles([]);
+        setImagePreviews([]);
+    };
+
+    // Envoi déclenché UNIQUEMENT par ce bouton (2026-08-22) — jamais par la touche Entrée, pour
+    // ne pas interférer avec la validation d'un caractère composé en saisie multilingue (IME :
+    // chinois, japonais, coréen...), qui utilise elle aussi la touche Entrée.
     const handleSend = () => {
-        if ((!input.trim() && !imageFile) || sending) return;
-        sendMessage(input, imageFile);
+        if ((!input.trim() && !imageFiles.length) || sending) return;
+        sendMessage(input, imageFiles);
         setInput('');
-        clearImage();
-    };
-
-    const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
+        clearImages();
     };
 
     return (
@@ -159,17 +181,29 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
                     </div>
                 )}
 
-                {messages.map(m => (
-                    <ChatBubble
-                        key={m.id}
-                        role={m.role}
-                        text={m.displayText}
-                        attachedImage={m.attachedImagePartIndex != null ? m.parts?.[m.attachedImagePartIndex]?.inlineData : null}
-                        addedToGalleryUrl={m.addedToGalleryUrl}
-                        galleryState={galleryUploadState[m.id]}
-                        onAddToGallery={() => handleAddToGallery(m)}
-                    />
-                ))}
+                {messages.map(m => {
+                    // Rétrocompatibilité (2026-08-22, voir getAttachedImagePartIndices/
+                    // getAddedToGalleryUrl dans useDealChat.js — source unique de la conversion
+                    // ancien champ singulier → nouveau champ pluriel, réutilisée par les gardes
+                    // anti-double-ajout ci-dessus).
+                    const images = getAttachedImagePartIndices(m)
+                        .filter(partIndex => m.parts?.[partIndex]?.inlineData)
+                        .map(partIndex => ({
+                            partIndex,
+                            inlineData: m.parts[partIndex].inlineData,
+                            addedToGalleryUrl: getAddedToGalleryUrl(m, partIndex),
+                            galleryState: galleryUploadState[`${m.id}:${partIndex}`],
+                        }));
+                    return (
+                        <ChatBubble
+                            key={m.id}
+                            role={m.role}
+                            text={m.displayText}
+                            images={images}
+                            onAddToGallery={(partIndex) => handleAddToGallery(m, partIndex)}
+                        />
+                    );
+                })}
 
                 {sending && (
                     <div className="flex items-start gap-2.5">
@@ -193,16 +227,20 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
 
             {/* Input */}
             <div className="p-4 border-t border-slate-800 shrink-0">
-                {imagePreviewUrl && (
-                    <div className="relative inline-block mb-2">
-                        <img src={imagePreviewUrl} alt="Photo à envoyer" className="h-16 w-16 object-cover rounded-lg border border-slate-700" />
-                        <button
-                            onClick={clearImage}
-                            className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-slate-900 border border-slate-700 text-slate-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition-colors"
-                            title="Retirer la photo"
-                        >
-                            <X size={12} />
-                        </button>
+                {imagePreviews.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                        {imagePreviews.map((url, i) => (
+                            <div key={url} className="relative inline-block">
+                                <img src={url} alt="Photo à envoyer" className="h-16 w-16 object-cover rounded-lg border border-slate-700" />
+                                <button
+                                    onClick={() => clearImageAt(i)}
+                                    className="absolute -top-1.5 -right-1.5 w-5 h-5 flex items-center justify-center rounded-full bg-slate-900 border border-slate-700 text-slate-400 hover:text-white hover:bg-rose-600 hover:border-rose-600 transition-colors"
+                                    title="Retirer la photo"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ))}
                     </div>
                 )}
                 <div className="flex items-end gap-2">
@@ -223,6 +261,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
                         ref={galleryInputRef}
                         type="file"
                         accept="image/*"
+                        multiple
                         onChange={handlePickImage}
                         className="hidden"
                     />
@@ -263,7 +302,6 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
                     <textarea
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
                         disabled={loading || sending}
                         placeholder="Ta question..."
                         rows={1}
@@ -271,7 +309,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
                     />
                     <button
                         onClick={handleSend}
-                        disabled={loading || sending || (!input.trim() && !imageFile)}
+                        disabled={loading || sending || (!input.trim() && !imageFiles.length)}
                         className="w-10 h-10 shrink-0 flex items-center justify-center rounded-xl bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         title="Envoyer"
                     >

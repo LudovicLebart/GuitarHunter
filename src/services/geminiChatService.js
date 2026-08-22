@@ -93,8 +93,21 @@ const fetchImageAsInlinePart = async (url) => {
     return blobToInlinePart(blob);
 };
 
-// Photo jointe par l'utilisateur depuis le chat (prise sur place ou choisie dans sa galerie).
-export const fileToInlinePart = (file) => blobToInlinePart(file);
+// Photo(s) jointe(s) par l'utilisateur depuis le chat (prise sur place ou choisies dans sa
+// galerie — plusieurs à la fois depuis 2026-08-22). Résilient par photo (même principe que
+// buildDealImageParts ci-dessus) : un fichier corrompu/non décodable ne doit pas faire échouer
+// tout l'envoi si les autres photos du même message sont valides.
+export const filesToInlineParts = async (files) => {
+    const parts = await Promise.all(files.map(async (file) => {
+        try {
+            return await blobToInlinePart(file);
+        } catch (e) {
+            console.error('Erreur préparation photo jointe:', file?.name, e);
+            return null;
+        }
+    }));
+    return parts.filter(Boolean);
+};
 
 export const buildDealImageParts = async (deal) => {
     const urls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);
