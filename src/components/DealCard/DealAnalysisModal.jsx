@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { X, Ban, Gem, ChevronDown } from 'lucide-react';
-import { toTitleCase } from './utils';
-import DealCardActions from './DealCardActions';
+import { X, Ban, Gem, ChevronDown, ShoppingBag } from 'lucide-react';
+import { toTitleCase, formatRelativeDate } from './utils';
+import { ManagementActions, ShareActions } from './DealCardActions';
 import DealChatPanel from './DealChatPanel';
 import ClassificationEditor from './ClassificationEditor';
 
@@ -10,6 +10,7 @@ const DealAnalysisModal = ({
     images,
     vc,
     isSold,
+    isPurchased,
     alsoPepite,
     price,
     estValue,
@@ -26,6 +27,7 @@ const DealAnalysisModal = ({
     onForceExpert,
     onReject,
     onToggleFavorite,
+    onTogglePurchased,
     onDelete,
     isAnalyzing,
     onSetClassification,
@@ -61,34 +63,43 @@ const DealAnalysisModal = ({
 
             <div className="relative w-full max-w-5xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 pointer-events-auto">
                 {/* Modal Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
-                    <div>
-                        <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
-                            Rapport d'Expertise IA
-                        </h2>
-                        <h3 className="text-sm text-slate-400 truncate max-w-[250px] sm:max-w-md">
-                            {toTitleCase(deal.title || '')}
-                        </h3>
+                <div className="flex flex-col gap-3 p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
+                                Rapport d'Expertise IA
+                            </h2>
+                            <h3 className="text-sm text-slate-400 truncate max-w-[250px] sm:max-w-md">
+                                {toTitleCase(deal.title || '')}
+                            </h3>
+                        </div>
+                        <div className="flex items-center justify-end gap-2 self-end sm:self-auto">
+                            <ShareActions
+                                deal={deal}
+                                isModal={true}
+                                onOpenChat={() => setShowChat(true)}
+                            />
+                            <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
+                            <button
+                                onClick={onClose}
+                                className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors border border-slate-700/50 shrink-0"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex items-center justify-end gap-2 self-end sm:self-auto">
-                        <DealCardActions
+                    <div className="flex items-center justify-end gap-2">
+                        <ManagementActions
                             deal={deal}
                             isAnalyzing={isAnalyzing}
                             onToggleFavorite={onToggleFavorite}
+                            onTogglePurchased={onTogglePurchased}
                             onReject={onReject}
                             onDelete={onDelete}
                             onRetry={onRetry}
                             onForceExpert={onForceExpert}
                             isModal={true}
-                            onOpenChat={() => setShowChat(true)}
                         />
-                        <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
-                        <button
-                            onClick={onClose}
-                            className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors border border-slate-700/50 shrink-0"
-                        >
-                            <X size={20} />
-                        </button>
                     </div>
                 </div>
 
@@ -113,6 +124,12 @@ const DealAnalysisModal = ({
                                     <div className="bg-slate-950 border border-slate-500 text-slate-200 px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg">
                                         <Ban size={12} strokeWidth={3} />
                                         Vendu
+                                    </div>
+                                )}
+                                {isPurchased && (
+                                    <div className="bg-emerald-950 border border-emerald-600 text-emerald-300 px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg">
+                                        <ShoppingBag size={12} strokeWidth={3} />
+                                        Acheté
                                     </div>
                                 )}
                                 <div className={`${vc.bg} px-2.5 py-1 rounded-full text-xs font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>
@@ -165,6 +182,17 @@ const DealAnalysisModal = ({
                                 <div className="text-[10px] text-slate-500 font-bold uppercase">Confiance IA</div>
                                 <div className="text-lg font-black text-blue-400">{Math.round(confidence || 0)}%</div>
                             </div>
+                            {isPurchased && (
+                                <div className="bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20">
+                                    <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
+                                        <ShoppingBag size={11} /> Achetée
+                                    </div>
+                                    <div className="text-sm font-black text-emerald-400">
+                                        {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
+                                        {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Summary Text */}
