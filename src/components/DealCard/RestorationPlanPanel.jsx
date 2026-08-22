@@ -1,22 +1,6 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Plus, Trash2, Loader2, Pencil, MessageCircle, AlertTriangle } from 'lucide-react';
-
-const CATEGORY_LABELS = {
-    structurel: 'Structurel',
-    cosmetique: 'Cosmétique',
-    electronique: 'Électronique',
-    quincaillerie: 'Quincaillerie',
-    reglage: 'Réglage',
-    autre: 'Autre',
-};
-
-const STATUS_LABELS = {
-    pending: 'À faire',
-    waiting: 'En attente',
-    in_progress: 'En cours',
-    done: 'Terminé',
-    skipped: 'Ignoré',
-};
+import { ArrowLeft, Plus, Trash2, Loader2, Pencil, MessageCircle, AlertTriangle, Sparkles } from 'lucide-react';
+import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
 
 const STATUS_STYLES = {
     pending: 'bg-slate-800 text-slate-300 border-slate-700',
@@ -193,7 +177,10 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat }) => {
     );
 };
 
-const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat }) => {
+const FAIRE_LE_POINT_PROMPT = "Fais le point sur l'état actuel de la restauration : qu'est-ce qu'il reste à faire, et pour quel coût estimé ?";
+const PREPARER_ANNONCE_PROMPT = "Rédige une description d'annonce Marketplace pour revendre cette guitare, en valorisant les travaux de restauration effectués.";
+
+const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }) => {
     const { items, loading, error, addItem, updateItem, deleteItem, totals } = plan;
     const [showAddForm, setShowAddForm] = useState(false);
 
@@ -250,6 +237,24 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat }) => {
                             </div>
                         </div>
                     )}
+                </div>
+
+                {/* Prompts prédéfinis (2026-08-22, Lot B) — envoyés directement dans le chat
+                    (aucune écriture sur le plan lui-même, juste une question posée à Gemini,
+                    qui reçoit déjà le contexte du plan à chaque tour). */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                    <button
+                        onClick={() => onQuickPrompt(FAIRE_LE_POINT_PROMPT)}
+                        className="flex items-center gap-1.5 text-xs font-bold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg px-3 py-1.5 transition-colors"
+                    >
+                        <Sparkles size={12} /> Faire le point
+                    </button>
+                    <button
+                        onClick={() => onQuickPrompt(PREPARER_ANNONCE_PROMPT)}
+                        className="flex items-center gap-1.5 text-xs font-bold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg px-3 py-1.5 transition-colors"
+                    >
+                        <Sparkles size={12} /> Préparer l'annonce de revente
+                    </button>
                 </div>
 
                 {error && (

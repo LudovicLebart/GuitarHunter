@@ -37,12 +37,19 @@ const DealAnalysisModal = ({
     onGalleryImageAdded
 }) => {
     const [activeView, setActiveView] = useState('analysis'); // 'analysis' | 'chat' | 'restoration'
+    // { text, autoSend } | null — "Demander conseil" (autoSend=false, éditable) vs "Faire le
+    // point"/"Préparer l'annonce" (autoSend=true, prompt prédéfini envoyé directement).
     const [chatDraftRequest, setChatDraftRequest] = useState(null);
     const { user } = useAuth();
     const restorationPlan = useRestorationPlan(deal, user);
 
     const askInChat = (item) => {
-        setChatDraftRequest(`Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`);
+        setChatDraftRequest({ text: `Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`, autoSend: false });
+        setActiveView('chat');
+    };
+
+    const sendQuickPrompt = (text) => {
+        setChatDraftRequest({ text, autoSend: true });
         setActiveView('chat');
     };
 
@@ -124,13 +131,15 @@ const DealAnalysisModal = ({
                         deal={deal}
                         onBack={() => setActiveView('analysis')}
                         onGalleryImageAdded={onGalleryImageAdded}
-                        initialDraft={chatDraftRequest}
+                        initialDraft={chatDraftRequest?.text}
+                        autoSend={chatDraftRequest?.autoSend}
                         onDraftConsumed={() => setChatDraftRequest(null)}
+                        restorationItems={restorationPlan.items}
                     />
                 </div>
                 {isPurchased && (
                     <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'restoration' ? '' : 'hidden'}`}>
-                        <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} />
+                        <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} onQuickPrompt={sendQuickPrompt} />
                     </div>
                 )}
                 <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${activeView === 'analysis' ? '' : 'hidden'}`}>

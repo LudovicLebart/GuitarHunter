@@ -1,8 +1,49 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check } from 'lucide-react';
-import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl } from '../../hooks/useDealChat';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench } from 'lucide-react';
+import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
+import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
+
+// Carte de proposition d'étape de restauration (2026-08-22, Lot B) — sous une bulle modèle
+// portant `restorationProposals`. Jamais d'écriture silencieuse : Appliquer/Ignorer explicites,
+// état persisté sur le message (`getRestorationProposalState`) pour ne jamais se réactiver après
+// un reload — `busy` reste local (spinner pendant l'écriture, comme `galleryUploadState`).
+const RestorationProposalCard = ({ proposal, state, busy, onApply, onDismiss }) => (
+    <div className="mt-2 bg-slate-900/60 border border-purple-500/20 rounded-xl p-2.5">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-300 uppercase tracking-wide mb-1">
+            <Wrench size={11} /> Proposition d'étape · {RESTORATION_CATEGORY_LABELS[proposal.category] || proposal.category}
+        </div>
+        <div className="text-sm font-bold text-slate-100">{proposal.label}</div>
+        {proposal.estimatedCost != null && <div className="text-xs text-slate-400 mt-0.5">≈ {proposal.estimatedCost}$ estimé</div>}
+        {proposal.justification && <div className="text-xs text-slate-400 mt-1 italic">{proposal.justification}</div>}
+        {state?.status === 'applied' ? (
+            <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                <Check size={12} /> Ajoutée au plan de restauration
+            </div>
+        ) : state?.status === 'dismissed' ? (
+            <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
+        ) : (
+            <div className="flex gap-2 mt-2">
+                <button
+                    onClick={onDismiss}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
+                >
+                    Ignorer
+                </button>
+                <button
+                    onClick={onApply}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                >
+                    {busy && <Loader2 size={11} className="animate-spin" />}
+                    Appliquer
+                </button>
+            </div>
+        )}
+    </div>
+);
 
 // `images` : tableau de photos jointes à ce message (2026-08-22, plusieurs par message) — chaque
 // entrée `{ partIndex, inlineData, addedToGalleryUrl, galleryState }`. `galleryState` : undefined
@@ -10,7 +51,7 @@ import { useBotConfigContext } from '../../context/BotConfigContext';
 // chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
 // de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
 // reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, images, onAddToGallery }) => {
+const ChatBubble = ({ role, text, images, onAddToGallery, proposals }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -55,15 +96,28 @@ const ChatBubble = ({ role, text, images, onAddToGallery }) => {
                     </div>
                 )}
                 {text}
+                {proposals?.map(p => (
+                    <RestorationProposalCard
+                        key={p.index}
+                        proposal={p.proposal}
+                        state={p.state}
+                        busy={p.busy}
+                        onApply={p.onApply}
+                        onDismiss={p.onDismiss}
+                    />
+                ))}
             </div>
         </div>
     );
 };
 
-const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraftConsumed }) => {
+const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSend, onDraftConsumed, restorationItems }) => {
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
-    const { messages, loading, sending, error, sendMessage, addPhotoToGallery } = useDealChat(deal, user, analysisConfig?.expertModel);
+    const {
+        messages, loading, sending, error, sendMessage, addPhotoToGallery,
+        applyRestorationProposal, dismissRestorationProposal,
+    } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
     const [input, setInput] = useState('');
     const [imageFiles, setImageFiles] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
@@ -72,6 +126,9 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraf
     // ChatBubble — n'affecte jamais le bandeau d'erreur global du chat (`error`, ci-dessus), qui
     // reste réservé aux échecs Gemini.
     const [galleryUploadState, setGalleryUploadState] = useState({});
+    // Même principe pour les propositions de restauration (clé `${messageId}:${index}` →
+    // 'applying'), voir RestorationProposalCard.
+    const [proposalBusyState, setProposalBusyState] = useState({});
     const scrollRef = useRef(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
@@ -94,18 +151,51 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraf
         }
     };
 
+    const handleApplyProposal = async (message, index) => {
+        const key = `${message.id}:${index}`;
+        if (getRestorationProposalState(message, index)?.status || proposalBusyState[key]) return;
+        setProposalBusyState(prev => ({ ...prev, [key]: true }));
+        try {
+            await applyRestorationProposal(message, index);
+        } catch (e) {
+            console.error('Erreur application de la proposition de restauration:', e);
+        } finally {
+            setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
+        }
+    };
+
+    const handleDismissProposal = async (message, index) => {
+        const key = `${message.id}:${index}`;
+        if (getRestorationProposalState(message, index)?.status || proposalBusyState[key]) return;
+        setProposalBusyState(prev => ({ ...prev, [key]: true }));
+        try {
+            await dismissRestorationProposal(message, index);
+        } catch (e) {
+            console.error('Erreur rejet de la proposition de restauration:', e);
+        } finally {
+            setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
+        }
+    };
+
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, sending]);
 
-    // Brouillon pré-rempli depuis un point d'entrée externe (bouton "Demander conseil" du plan
-    // de restauration) — n'écrase jamais une saisie en cours autrement, seulement au moment où
-    // le parent fournit un nouveau brouillon.
+    // Brouillon pré-rempli depuis un point d'entrée externe du plan de restauration —
+    // "Demander conseil" (autoSend=false, l'utilisateur édite/envoie lui-même) ou "Faire le
+    // point"/"Préparer l'annonce de revente" (autoSend=true, prompt prédéfini envoyé directement
+    // sans repasser par l'état `input` pour éviter un envoi basé sur une valeur pas encore
+    // committée). N'écrase jamais une saisie en cours autrement, seulement quand le parent fournit
+    // un nouveau brouillon.
     useEffect(() => {
         if (!initialDraft) return;
-        setInput(initialDraft);
+        if (autoSend) {
+            sendMessage(initialDraft, []);
+        } else {
+            setInput(initialDraft);
+        }
         onDraftConsumed?.();
-    }, [initialDraft, onDraftConsumed]);
+    }, [initialDraft, autoSend, onDraftConsumed, sendMessage]);
 
     // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
     // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à
@@ -203,6 +293,14 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraf
                             addedToGalleryUrl: getAddedToGalleryUrl(m, partIndex),
                             galleryState: galleryUploadState[`${m.id}:${partIndex}`],
                         }));
+                    const proposals = m.restorationProposals?.map((proposal, index) => ({
+                        index,
+                        proposal,
+                        state: getRestorationProposalState(m, index),
+                        busy: !!proposalBusyState[`${m.id}:${index}`],
+                        onApply: () => handleApplyProposal(m, index),
+                        onDismiss: () => handleDismissProposal(m, index),
+                    }));
                     return (
                         <ChatBubble
                             key={m.id}
@@ -210,6 +308,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraf
                             text={m.displayText}
                             images={images}
                             onAddToGallery={(partIndex) => handleAddToGallery(m, partIndex)}
+                            proposals={proposals}
                         />
                     );
                 })}

@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery } from '../services/firestoreService';
-import { getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts } from '../services/geminiChatService';
+import {
+    onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
+    addRestorationItem, markChatMessageRestorationProposalStatus,
+} from '../services/firestoreService';
+import {
+    getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
+    buildRestorationPlanContextText, validateRestorationStepProposal,
+} from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
@@ -16,6 +22,11 @@ export const getAttachedImagePartIndices = (message) =>
 export const getAddedToGalleryUrl = (message, partIndex) =>
     message.addedToGalleryUrls?.[partIndex]
         ?? (message.attachedImagePartIndex === partIndex ? message.addedToGalleryUrl : undefined);
+
+// État (appliquée/ignorée) d'une proposition de restauration portée par un message (2026-08-22,
+// Lot B) — persisté sur le message (voir markChatMessageRestorationProposalStatus), pas en état
+// React local, pour qu'un reload ne réactive jamais un bouton déjà cliqué.
+export const getRestorationProposalState = (message, index) => message.restorationProposalStates?.[index];
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
@@ -37,17 +48,34 @@ const sanitizeHistory = (msgs) => {
     return history;
 };
 
+const MAX_RESTORATION_PROPOSALS_PER_TURN = 5;
+
 // Gère une session de chat Gemini (Firebase AI Logic) pour une annonce donnée. L'historique est
 // la source de vérité Firestore (guitar_deals/{dealId}/chat) — la session Gemini en mémoire
 // (chatRef) est reconstruite à chaque mise à jour pour permettre de reprendre après un rechargement
 // de page, mais l'appel en cours utilise toujours la référence capturée avant l'écriture Firestore
 // du tour utilisateur pour éviter toute course entre les deux.
-export const useDealChat = (deal, user, modelName) => {
+//
+// `restorationItems` (optionnel, 2026-08-22, Lot B) : items du plan de restauration (même
+// tableau que `useRestorationPlan`, monté dans DealAnalysisModal.jsx — pas ici, ce hook n'écrit
+// jamais dans la sous-collection lui-même hors application d'une proposition IA) — utilisé pour
+// injecter le contexte du plan dans chaque tour tant que l'annonce est achetée.
+export const useDealChat = (deal, user, modelName, restorationItems) => {
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
     const [error, setError] = useState(null);
     const chatRef = useRef(null);
+    // Ce que `chatRef.current` porte RÉELLEMENT (tools attachés ou non) — le statut Acheté peut
+    // changer en cours de conversation sans qu'un nouveau message Firestore ne déclenche l'effet
+    // de rebuild ci-dessous ; sendMessage() compare cette valeur au statut courant et rebâtit la
+    // session juste avant l'envoi plutôt que d'ajouter `isPurchased` aux déps de l'effet (ce qui
+    // redéclencherait un flash "Chargement de la conversation..." à chaque bascule).
+    const chatToolsRef = useRef(false);
+    // Un modèle qui ne supporte pas le function calling rejette l'appel à l'envoi, pas à la
+    // construction (voir plus bas) — mémorisé pour ne pas repayer l'échec à chaque message une
+    // fois détecté sur cette session.
+    const toolsUnsupportedRef = useRef(false);
 
     useEffect(() => {
         if (!deal?.id || !user) return;
@@ -58,6 +86,7 @@ export const useDealChat = (deal, user, modelName) => {
             try {
                 const model = getDealChatModel(modelName);
                 chatRef.current = model.startChat({ history: sanitizeHistory(msgs) });
+                chatToolsRef.current = false; // sendMessage() rattache les tools si besoin, voir plus bas
             } catch (e) {
                 console.error('Erreur initialisation session Gemini:', e);
                 setError(e.message);
@@ -74,6 +103,15 @@ export const useDealChat = (deal, user, modelName) => {
         const files = imageFiles?.length ? imageFiles : null;
         if ((!trimmed && !files) || !deal?.id || !user || sending || !chatRef.current) return;
 
+        const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+        if (chatToolsRef.current !== withRestorationTools) {
+            try {
+                chatRef.current = getDealChatModel(modelName, { withRestorationTools }).startChat({ history: sanitizeHistory(messages) });
+                chatToolsRef.current = withRestorationTools;
+            } catch (e) {
+                console.error('Erreur reconstruction de session Gemini (tools):', e);
+            }
+        }
         const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
         setSending(true);
         setError(null);
@@ -97,8 +135,17 @@ export const useDealChat = (deal, user, modelName) => {
             return;
         }
 
-        const firstMessageText = isFirstMessage
-            ? (trimmed ? `${buildDealContextText(deal)}\n\n${trimmed}` : buildDealContextText(deal))
+        // Contexte invisible (dans `parts`, jamais `displayText`) injecté à CHAQUE tour tant que
+        // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
+        // évolue au fil des sessions (voir buildRestorationPlanContextText).
+        const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
+        const contextBlocks = [
+            isFirstMessage ? buildDealContextText(deal) : null,
+            restorationContextText,
+        ].filter(Boolean);
+
+        const firstMessageText = contextBlocks.length
+            ? [...contextBlocks, trimmed].filter(Boolean).join('\n\n')
             : trimmed;
         const parts = [
             ...(firstMessageText ? [{ text: firstMessageText }] : []),
@@ -123,9 +170,50 @@ export const useDealChat = (deal, user, modelName) => {
         }
 
         try {
-            const result = await chat.sendMessage(parts);
-            const responseText = result.response.text();
-            await addDealChatMessage(deal.id, 'model', [{ text: responseText }], responseText, user.uid);
+            let result;
+            try {
+                result = await chat.sendMessage(parts);
+            } catch (sendError) {
+                // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
+                // la construction du modèle) — on retente une fois sans tools depuis le même
+                // historique assaini, sans re-persister le tour utilisateur déjà écrit ci-dessus
+                // (sinon doublon cassant l'alternance user/model requise par sanitizeHistory).
+                if (withRestorationTools && !toolsUnsupportedRef.current) {
+                    console.error('Échec avec function calling actif, repli sans tools:', sendError);
+                    toolsUnsupportedRef.current = true;
+                    chatRef.current = getDealChatModel(modelName, { withRestorationTools: false }).startChat({ history: sanitizeHistory(messages) });
+                    chatToolsRef.current = false;
+                    result = await chatRef.current.sendMessage(parts);
+                } else {
+                    throw sendError;
+                }
+            }
+
+            // Un tour function-call ne porte aucun texte (`.text()` renverrait '') — jamais
+            // persister une part texte vide dans l'historique (rejouée telle quelle au prochain
+            // `startChat({history})`, elle risquerait un rejet définitif de la conversation par
+            // l'API). On renvoie donc une functionResponse factice dans la même session pour
+            // obtenir un vrai texte de suite avant toute écriture Firestore.
+            const calls = (result.response.functionCalls?.() || []).slice(0, MAX_RESTORATION_PROPOSALS_PER_TURN);
+            let responseText;
+            let restorationProposals;
+            if (calls.length) {
+                restorationProposals = calls
+                    .map(call => validateRestorationStepProposal(call.args))
+                    .filter(Boolean);
+                const functionResponseParts = calls.map(call => ({
+                    functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                }));
+                const followUp = await chat.sendMessage(functionResponseParts);
+                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition d'étape ci-dessous.";
+            } else {
+                responseText = result.response.text()?.trim() || "…";
+            }
+
+            await addDealChatMessage(
+                deal.id, 'model', [{ text: responseText }], responseText, user.uid,
+                undefined, restorationProposals?.length ? restorationProposals : undefined
+            );
         } catch (e) {
             console.error('Erreur chat Gemini:', e);
             setError(e.message || "Erreur lors de l'envoi du message.");
@@ -141,7 +229,7 @@ export const useDealChat = (deal, user, modelName) => {
         } finally {
             setSending(false);
         }
-    }, [deal, user, messages.length, sending]);
+    }, [deal, user, messages, sending, restorationItems, modelName]);
 
     // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
     // envoyé (2026-08-21, étendu 2026-08-22 pour cibler une photo précise parmi plusieurs par
@@ -164,5 +252,31 @@ export const useDealChat = (deal, user, modelName) => {
         return url;
     }, [deal, user]);
 
-    return { messages, loading, sending, error, sendMessage, addPhotoToGallery };
+    // Applique/ignore une proposition d'étape de restauration (2026-08-22, Lot B) — même fonction
+    // d'écriture (`addRestorationItem`) que l'ajout manuel dans RestorationPlanPanel.jsx, avec
+    // `source: 'ai'` : un seul chemin d'écriture, jamais deux logiques parallèles à maintenir.
+    // No-op silencieux si déjà traitée (garde anti-double-clic, même principe que la galerie).
+    const applyRestorationProposal = useCallback(async (message, index) => {
+        const proposal = message.restorationProposals?.[index];
+        if (!deal?.id || !user || !proposal || getRestorationProposalState(message, index)?.status) return;
+        await addRestorationItem(deal.id, user.uid, {
+            label: proposal.label,
+            category: proposal.category,
+            estimatedCost: proposal.estimatedCost,
+            notes: proposal.justification || null,
+            source: 'ai',
+            proposedByMessageId: message.id,
+        });
+        await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid);
+    }, [deal, user]);
+
+    const dismissRestorationProposal = useCallback(async (message, index) => {
+        if (!deal?.id || !user || getRestorationProposalState(message, index)?.status) return;
+        await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'dismissed', user.uid);
+    }, [deal, user]);
+
+    return {
+        messages, loading, sending, error, sendMessage, addPhotoToGallery,
+        applyRestorationProposal, dismissRestorationProposal,
+    };
 };

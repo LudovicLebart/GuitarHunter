@@ -370,12 +370,19 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // index dans `parts` des photos jointes par l'utilisateur depuis le chat (distinctes des photos de
 // l'annonce déjà présentes dans `parts` sur le premier message) — référence les entrées existantes
 // plutôt que de dupliquer leur base64, pour un affichage sans équivoque des miniatures dans la bulle.
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices) => {
+// `restorationProposals` (optionnel, 2026-08-22, Lot B) : propositions d'ajout d'étape faites par
+// l'IA via function calling sur ce tour — jamais les parts function-call/function-response brutes
+// (jamais rejouées dans l'historique Gemini, voir useDealChat.js), juste la forme validée/normalisée
+// affichée en carte sous la bulle. Retourne l'id du document créé (nécessaire pour
+// `markChatMessageRestorationProposalStatus` et `proposedByMessageId`).
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     const payload = { role, parts, displayText, createdAt: new Date() };
     if (attachedImagePartIndices?.length) payload.attachedImagePartIndices = attachedImagePartIndices;
-    await addDoc(chatCollectionRef, payload);
+    if (restorationProposals?.length) payload.restorationProposals = restorationProposals;
+    const docRef = await addDoc(chatCollectionRef, payload);
+    return docRef.id;
   } catch (error) {
     console.error(`Error saving chat message for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la sauvegarde du message.");
@@ -394,6 +401,21 @@ export const markChatMessageAddedToGallery = async (dealId, messageId, partIndex
   } catch (error) {
     console.error(`Error marking chat message ${messageId} as added to gallery:`, error);
     throw new Error("Erreur lors de la mise à jour du message.");
+  }
+};
+
+// Persiste l'état Appliquer/Ignorer d'une proposition d'étape de restauration (2026-08-22, Lot B)
+// SUR LE MESSAGE, pas seulement en état React local — sinon un reload réactiverait un bouton déjà
+// cliqué et permettrait de dupliquer l'étape. Même schéma dot-notation que `addedToGalleryUrls`.
+// `itemId` (optionnel) référence l'étape créée dans restorationPlan quand status === 'applied'.
+export const markChatMessageRestorationProposalStatus = async (dealId, messageId, proposalIndex, status, userId, itemId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    const value = itemId ? { status, itemId } : { status };
+    await updateDoc(doc(chatCollectionRef, messageId), { [`restorationProposalStates.${proposalIndex}`]: value });
+  } catch (error) {
+    console.error(`Error marking restoration proposal ${proposalIndex} on message ${messageId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de la proposition.");
   }
 };
 
@@ -421,12 +443,16 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, userId) => {
 // `createdAt: new Date()` (pas serverTimestamp()) — même choix que le chat (voir
 // addDealChatMessage) : un serverTimestamp() non résolu localement lit `null` le temps de la
 // confirmation serveur, ce qui ferait sauter l'item ajouté dans le tri `orderBy('createdAt')`.
-export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes }) => {
+// `source`/`proposedByMessageId` (optionnels, 2026-08-22, Lot B) : une étape appliquée depuis une
+// proposition IA appelle cette même fonction avec `source: 'ai'` — un seul chemin d'écriture pour
+// l'ajout manuel (panneau) et l'ajout proposé (chat), jamais deux logiques parallèles à maintenir.
+export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId }) => {
   try {
     const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
-    const payload = { label, category, status: 'pending', source: 'user', createdAt: new Date() };
+    const payload = { label, category, status: 'pending', source, createdAt: new Date() };
     if (estimatedCost != null) payload.estimatedCost = estimatedCost;
     if (notes) payload.notes = notes;
+    if (proposedByMessageId) payload.proposedByMessageId = proposedByMessageId;
     await addDoc(planCollectionRef, payload);
   } catch (error) {
     console.error(`Error adding restoration item for deal ${dealId}:`, error);
