@@ -64,16 +64,16 @@ const DealAnalysisModal = ({
             <div className="relative w-full max-w-5xl max-h-[90vh] bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 pointer-events-auto">
                 {/* Modal Header */}
                 <div className="flex flex-col gap-3 p-4 sm:p-6 border-b border-slate-800 bg-slate-950/50 shrink-0">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                            <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                            <h2 className="text-lg sm:text-xl font-black text-white leading-tight mb-1 truncate">
                                 Rapport d'Expertise IA
                             </h2>
-                            <h3 className="text-sm text-slate-400 truncate max-w-[250px] sm:max-w-md">
+                            <h3 className="text-sm text-slate-400 truncate sm:max-w-md">
                                 {toTitleCase(deal.title || '')}
                             </h3>
                         </div>
-                        <div className="flex items-center justify-end gap-2 self-end sm:self-auto">
+                        <div className="flex items-center gap-2 shrink-0">
                             <ShareActions
                                 deal={deal}
                                 isModal={true}
