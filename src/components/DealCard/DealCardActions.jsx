@@ -2,7 +2,10 @@ import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle, ShoppingBag } from 'lucide-react';
 import { createSharedDeal } from '../../services/firestoreService';
 
-const DealCardActions = ({
+// Actions de gestion de l'annonce (Favori, Acheté, Ré-analyser, Rejeter, Supprimer).
+// Extrait de l'ancien DealCardActions monolithique (2026-08-22) pour permettre à la modale
+// de les afficher sur une ligne séparée de ShareActions — voir DealAnalysisModal.jsx.
+export const ManagementActions = ({
     deal,
     isAnalyzing,
     onToggleFavorite,
@@ -12,10 +15,8 @@ const DealCardActions = ({
     onRetry,
     onForceExpert,
     isModal = false,
-    onOpenChat
 }) => {
     const [showRescanMenu, setShowRescanMenu] = useState(false);
-    const [isCopying, setIsCopying] = useState(false);
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
     const [showPurchaseModal, setShowPurchaseModal] = useState(false);
@@ -36,57 +37,11 @@ const DealCardActions = ({
         setShowPurchaseModal(false);
     };
 
-    // Même logique que DealCard/index.jsx : l'URL est la seule source de vérité fiable
-    // pour distinguer Facebook/Kijiji (deal.source n'existe que pour Kijiji).
-    const isKijiji = (deal.link || '').includes('kijiji.ca');
-
     const openCommentModal = () => setShowCommentModal(true);
     const submitComment = () => {
         onForceExpert(commentText.trim());
         setCommentText('');
         setShowCommentModal(false);
-    };
-
-    const handleShare = async (e) => {
-        e.stopPropagation();
-        if (!deal.id) return;
-
-        let shareData = null;
-        const shareableLink = `${window.location.origin}${window.location.pathname}?shareId=${deal.id}`;
-        
-        try {
-            await createSharedDeal(deal);
-            shareData = {
-                title: `Guitar Hunter AI : ${deal.title}`,
-                text: `Découvre cette annonce analysée par Guitar Hunter AI : ${deal.title}`,
-                url: shareableLink
-            };
-        } catch (err) {
-            console.error('Erreur création shared_deal:', err);
-        }
-
-        if (navigator.share && shareData) {
-            try {
-                await navigator.share(shareData);
-                return; // success
-            } catch (err) {
-                if (err.name !== 'AbortError') {
-                    console.error('Erreur de partage natif, tentative via presse-papier:', err);
-                } else {
-                    return; // user aborted
-                }
-            }
-        }
-        
-        // Fallback to clipboard
-        try {
-            await navigator.clipboard.writeText(shareableLink);
-            setIsCopying(true);
-            setTimeout(() => setIsCopying(false), 2000);
-        } catch (err) {
-            console.error('Erreur de copie:', err);
-            alert("Impossible de copier le lien. Copiez-le manuellement depuis la barre d'adresse.");
-        }
     };
 
     return (
@@ -165,50 +120,8 @@ const DealCardActions = ({
                 >
                     <Trash2 size={18} className="sm:w-4 sm:h-4" />
                 </button>
-
-                <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
-
-                {/* Partager */}
-                <button
-                    onClick={handleShare}
-                    disabled={!deal.link}
-                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isCopying ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-blue-400 hover:bg-blue-500/10'}`}
-                    title={isCopying ? "Lien copié !" : "Partager l'annonce"}
-                >
-                    <Share2 size={18} className="sm:w-4 sm:h-4" />
-                </button>
-                {/* Discuter avec Gemini (chat intégré) — uniquement dans la modale, pas sur la carte liste */}
-                {isModal && onOpenChat && (
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onOpenChat(); }}
-                        className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-purple-400 hover:bg-purple-500/10"
-                        title="Discuter de cette annonce avec Gemini"
-                    >
-                        <MessageCircle size={18} className="sm:w-4 sm:h-4" />
-                    </button>
-                )}
-                {/* Voir l'annonce d'origine (Facebook ou Kijiji) */}
-                {deal.link ? (
-                    <a
-                        href={deal.link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl text-white border transition-all ${isKijiji ? 'bg-orange-600 hover:bg-orange-500 border-orange-500' : 'bg-blue-700 hover:bg-blue-600 border-blue-600'}`}
-                        title={isKijiji ? "Voir sur Kijiji" : "Voir sur Facebook"}
-                    >
-                        {isKijiji ? (
-                            <span className="text-xs font-black">K</span>
-                        ) : (
-                            <Facebook size={18} className="sm:w-4 sm:h-4" />
-                        )}
-                    </a>
-                ) : (
-                    <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
-                        <Facebook size={18} className="sm:w-4 sm:h-4" />
-                    </button>
-                )}
             </div>
-            
+
             {/* Modale Commentaire */}
             {showCommentModal && (
                 <div
@@ -298,5 +211,112 @@ const DealCardActions = ({
         </>
     );
 };
+
+// Actions liées au partage/à la consultation externe de l'annonce (Partager, Discuter avec
+// Gemini, lien FB/Kijiji). Extrait le même jour que ManagementActions, pour la même raison.
+export const ShareActions = ({ deal, isModal = false, onOpenChat }) => {
+    const [isCopying, setIsCopying] = useState(false);
+
+    // Même logique que DealCard/index.jsx : l'URL est la seule source de vérité fiable
+    // pour distinguer Facebook/Kijiji (deal.source n'existe que pour Kijiji).
+    const isKijiji = (deal.link || '').includes('kijiji.ca');
+
+    const handleShare = async (e) => {
+        e.stopPropagation();
+        if (!deal.id) return;
+
+        let shareData = null;
+        const shareableLink = `${window.location.origin}${window.location.pathname}?shareId=${deal.id}`;
+
+        try {
+            await createSharedDeal(deal);
+            shareData = {
+                title: `Guitar Hunter AI : ${deal.title}`,
+                text: `Découvre cette annonce analysée par Guitar Hunter AI : ${deal.title}`,
+                url: shareableLink
+            };
+        } catch (err) {
+            console.error('Erreur création shared_deal:', err);
+        }
+
+        if (navigator.share && shareData) {
+            try {
+                await navigator.share(shareData);
+                return; // success
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Erreur de partage natif, tentative via presse-papier:', err);
+                } else {
+                    return; // user aborted
+                }
+            }
+        }
+
+        // Fallback to clipboard
+        try {
+            await navigator.clipboard.writeText(shareableLink);
+            setIsCopying(true);
+            setTimeout(() => setIsCopying(false), 2000);
+        } catch (err) {
+            console.error('Erreur de copie:', err);
+            alert("Impossible de copier le lien. Copiez-le manuellement depuis la barre d'adresse.");
+        }
+    };
+
+    return (
+        <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* Partager */}
+            <button
+                onClick={handleShare}
+                disabled={!deal.link}
+                className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${isCopying ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-blue-400 hover:bg-blue-500/10'}`}
+                title={isCopying ? "Lien copié !" : "Partager l'annonce"}
+            >
+                <Share2 size={18} className="sm:w-4 sm:h-4" />
+            </button>
+            {/* Discuter avec Gemini (chat intégré) — uniquement dans la modale, pas sur la carte liste */}
+            {isModal && onOpenChat && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpenChat(); }}
+                    className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-purple-400 hover:bg-purple-500/10"
+                    title="Discuter de cette annonce avec Gemini"
+                >
+                    <MessageCircle size={18} className="sm:w-4 sm:h-4" />
+                </button>
+            )}
+            {/* Voir l'annonce d'origine (Facebook ou Kijiji) */}
+            {deal.link ? (
+                <a
+                    href={deal.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl text-white border transition-all ${isKijiji ? 'bg-orange-600 hover:bg-orange-500 border-orange-500' : 'bg-blue-700 hover:bg-blue-600 border-blue-600'}`}
+                    title={isKijiji ? "Voir sur Kijiji" : "Voir sur Facebook"}
+                >
+                    {isKijiji ? (
+                        <span className="text-xs font-black">K</span>
+                    ) : (
+                        <Facebook size={18} className="sm:w-4 sm:h-4" />
+                    )}
+                </a>
+            ) : (
+                <button className="w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl bg-slate-800/50 text-slate-700 border border-slate-700/50 cursor-not-allowed" title="Lien indisponible" disabled>
+                    <Facebook size={18} className="sm:w-4 sm:h-4" />
+                </button>
+            )}
+        </div>
+    );
+};
+
+// Vue carte (liste, DealCard/index.jsx) : les deux groupes restent sur une seule ligne,
+// inchangée visuellement par rapport à avant la scission (2026-08-22). La modale
+// (DealAnalysisModal.jsx) affiche ManagementActions/ShareActions séparément à la place.
+const DealCardActions = (props) => (
+    <div className="flex items-center gap-1.5 sm:gap-2">
+        <ManagementActions {...props} />
+        <div className="w-px h-6 bg-slate-800 mx-0.5 sm:h-5"></div>
+        <ShareActions {...props} />
+    </div>
+);
 
 export default DealCardActions;
