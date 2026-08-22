@@ -129,10 +129,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 > 📊 Le suivi du Dashboard Analytics/Statistiques vit désormais dans la section [`📊 Statistiques & Dashboard`](#-statistiques--dashboard) plus bas (fusion du 2026-08-16 — l'entrée qui figurait ici faisait doublon).
 
-- [/] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini")*
+- [x] **Trop de boutons d'action sur la DealCard** *(Ajouté 2026-07-31, retour utilisateur après test du bouton "Discuter sur Gemini" — résolu 2026-08-22)*
     - *Détails :* La barre d'actions (`DealCardActions.jsx`) accumulait Favori, Ré-analyser (menu), Rejeter, Supprimer, Partager, Discuter sur Gemini, Voir l'annonce d'origine — jugée surchargée. Décision produit non tranchée à l'origine : l'utilisateur voulait réfléchir à un autre emplacement (ex: menu secondaire, uniquement dans la modale et pas la carte liste, regroupement des actions secondaires derrière un menu "···").
-    - *Progrès (2026-07-31, chat Gemini intégré)* : le bouton "Discuter avec Gemini" a été retiré de la carte liste (visible uniquement dans la modale, `isModal` + `onOpenChat`) — un bouton en moins sur la vue liste. Reste ouvert : la barre d'actions de la modale elle-même (7 boutons) n'a pas été réorganisée/regroupée.
-    - *Vérifié 2026-08-16 : reste à faire confirmé* — `DealCardActions.jsx` expose toujours les 7 mêmes actions dans la modale (Favori, Ré-analyser, Rejeter, Supprimer, Partager, Gemini, Voir l'annonce), aucun regroupement derrière un menu secondaire.
+    - *Progrès (2026-07-31, chat Gemini intégré)* : le bouton "Discuter avec Gemini" a été retiré de la carte liste (visible uniquement dans la modale, `isModal` + `onOpenChat`) — un bouton en moins sur la vue liste.
+    - *Vérifié 2026-08-16 : reste ouvert à ce stade* — `DealCardActions.jsx` exposait toujours les mêmes actions dans la modale, aucun regroupement derrière un menu secondaire.
+    - **Résolu (2026-08-22)** : `DealCardActions.jsx` scindé en `ManagementActions` (Favori, Acheté, Ré-analyser, Rejeter, Supprimer) et `ShareActions` (Partager, Discuter avec Gemini, Voir l'annonce d'origine). Dans la modale (`DealAnalysisModal.jsx`), `ShareActions` reste au niveau du titre (aligné à droite) et `ManagementActions` passe sur une deuxième ligne dédiée en dessous — la carte liste garde l'export par défaut inchangé (une seule ligne, comme avant). Voir `ARCHITECTURE.md`. **Reste à valider par l'utilisateur en conditions réelles.**
 
 ---
 
