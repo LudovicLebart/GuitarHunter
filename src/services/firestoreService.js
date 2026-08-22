@@ -397,6 +397,72 @@ export const markChatMessageAddedToGallery = async (dealId, messageId, partIndex
   }
 };
 
+// --- Plan de restauration (2026-08-22) ---
+// Sous-collection dédiée guitar_deals/{dealId}/restorationPlan/{itemId}, jamais un champ sur le
+// deal ni dans aiAnalysis : repository.py écrase le deal entier (.set sans merge) et tout
+// aiAnalysis (.update) sur plusieurs chemins backend — une sous-collection n'est concernée par
+// aucun des deux, donc rien ne peut écraser silencieusement le plan de restauration.
+
+const getRestorationPlanCollectionRef = (dealId, userId) => {
+  const { dealsCollectionRef } = getRefs(userId);
+  return collection(doc(dealsCollectionRef, dealId), 'restorationPlan');
+};
+
+export const onRestorationPlanUpdate = (dealId, onUpdate, onError, userId) => {
+  const planQuery = query(getRestorationPlanCollectionRef(dealId, userId), orderBy('createdAt', 'asc'));
+  return onSnapshot(planQuery, (snapshot) => {
+    onUpdate(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, (error) => {
+    console.error(`Error listening to restoration plan for deal ${dealId}:`, error);
+    onError?.(error);
+  });
+};
+
+// `createdAt: new Date()` (pas serverTimestamp()) — même choix que le chat (voir
+// addDealChatMessage) : un serverTimestamp() non résolu localement lit `null` le temps de la
+// confirmation serveur, ce qui ferait sauter l'item ajouté dans le tri `orderBy('createdAt')`.
+export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes }) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const payload = { label, category, status: 'pending', source: 'user', createdAt: new Date() };
+    if (estimatedCost != null) payload.estimatedCost = estimatedCost;
+    if (notes) payload.notes = notes;
+    await addDoc(planCollectionRef, payload);
+  } catch (error) {
+    console.error(`Error adding restoration item for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de l'étape de restauration.");
+  }
+};
+
+// Mise à jour champ par champ uniquement (jamais l'objet entier depuis un formulaire) : une
+// édition de note et une future proposition IA appliquée en parallèle ne doivent jamais pouvoir
+// s'écraser l'une l'autre. `completedAt` posé automatiquement au passage à 'done' plutôt que de
+// dépendre de `updatedAt`, qu'une note éditée ensuite écraserait.
+export const updateRestorationItem = async (dealId, userId, itemId, patch) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const payload = { ...patch, updatedAt: serverTimestamp() };
+    if (patch.estimatedCost === null) payload.estimatedCost = deleteField();
+    if (patch.actualCost === null) payload.actualCost = deleteField();
+    if (patch.notes === null) payload.notes = deleteField();
+    if (patch.status === 'done') payload.completedAt = serverTimestamp();
+    await updateDoc(doc(planCollectionRef, itemId), payload);
+  } catch (error) {
+    console.error(`Error updating restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de l'étape de restauration.");
+  }
+};
+
+export const deleteRestorationItem = async (dealId, userId, itemId) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await deleteDoc(doc(planCollectionRef, itemId));
+  } catch (error) {
+    console.error(`Error deleting restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la suppression de l'étape de restauration.");
+  }
+};
+
 // --- Cities ---
 
 /**

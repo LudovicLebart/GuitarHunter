@@ -60,7 +60,7 @@ const ChatBubble = ({ role, text, images, onAddToGallery }) => {
     );
 };
 
-const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
+const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, onDraftConsumed }) => {
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
     const { messages, loading, sending, error, sendMessage, addPhotoToGallery } = useDealChat(deal, user, analysisConfig?.expertModel);
@@ -97,6 +97,15 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded }) => {
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
     }, [messages, sending]);
+
+    // Brouillon pré-rempli depuis un point d'entrée externe (bouton "Demander conseil" du plan
+    // de restauration) — n'écrase jamais une saisie en cours autrement, seulement au moment où
+    // le parent fournit un nouveau brouillon.
+    useEffect(() => {
+        if (!initialDraft) return;
+        setInput(initialDraft);
+        onDraftConsumed?.();
+    }, [initialDraft, onDraftConsumed]);
 
     // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
     // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à

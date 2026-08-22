@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { X, Ban, Gem, ChevronDown, ShoppingBag } from 'lucide-react';
+import { X, Ban, Gem, ChevronDown, ShoppingBag, Wrench } from 'lucide-react';
 import { toTitleCase, formatRelativeDate } from './utils';
 import { ManagementActions, ShareActions } from './DealCardActions';
 import DealChatPanel from './DealChatPanel';
 import ClassificationEditor from './ClassificationEditor';
+import RestorationPlanPanel from './RestorationPlanPanel';
+import { useRestorationPlan } from '../../hooks/useRestorationPlan';
+import { useAuth } from '../../hooks/useAuth';
 
 const DealAnalysisModal = ({
     deal,
@@ -33,7 +36,15 @@ const DealAnalysisModal = ({
     onSetClassification,
     onGalleryImageAdded
 }) => {
-    const [showChat, setShowChat] = useState(false);
+    const [activeView, setActiveView] = useState('analysis'); // 'analysis' | 'chat' | 'restoration'
+    const [chatDraftRequest, setChatDraftRequest] = useState(null);
+    const { user } = useAuth();
+    const restorationPlan = useRestorationPlan(deal, user);
+
+    const askInChat = (item) => {
+        setChatDraftRequest(`Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`);
+        setActiveView('chat');
+    };
 
     // Escape key listener for closing modal
     useEffect(() => {
@@ -77,7 +88,7 @@ const DealAnalysisModal = ({
                             <ShareActions
                                 deal={deal}
                                 isModal={true}
-                                onOpenChat={() => setShowChat(true)}
+                                onOpenChat={() => setActiveView('chat')}
                             />
                             <div className="w-px h-6 bg-slate-800 mx-1 hidden sm:block"></div>
                             <button
@@ -103,13 +114,26 @@ const DealAnalysisModal = ({
                     </div>
                 </div>
 
-                {/* Modal Body */}
-                {showChat ? (
-                    <div className="flex-1 flex flex-col min-h-0">
-                        <DealChatPanel deal={deal} onBack={() => setShowChat(false)} onGalleryImageAdded={onGalleryImageAdded} />
+                {/* Modal Body — les vues alternatives restent montées (masquées via `hidden`)
+                    plutôt que démontées au changement de vue : perdre le brouillon de message et
+                    les photos jointes du chat à chaque bascule vers le plan de restauration (et
+                    inversement) serait gênant, puisque jongler entre les deux est l'usage visé
+                    par le pont "Demander conseil". */}
+                <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'chat' ? '' : 'hidden'}`}>
+                    <DealChatPanel
+                        deal={deal}
+                        onBack={() => setActiveView('analysis')}
+                        onGalleryImageAdded={onGalleryImageAdded}
+                        initialDraft={chatDraftRequest}
+                        onDraftConsumed={() => setChatDraftRequest(null)}
+                    />
+                </div>
+                {isPurchased && (
+                    <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'restoration' ? '' : 'hidden'}`}>
+                        <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} />
                     </div>
-                ) : (
-                <div className="flex-1 flex flex-col md:flex-row min-h-0">
+                )}
+                <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${activeView === 'analysis' ? '' : 'hidden'}`}>
                     {/* Left column: Image only */}
                     <div className="hidden md:flex flex-col w-1/3 bg-slate-950 border-r border-slate-800 p-6 items-center justify-start shrink-0 overflow-y-auto scrollbar-dark">
                         <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-black shadow-inner relative border border-slate-800 shrink-0">
@@ -191,6 +215,14 @@ const DealAnalysisModal = ({
                                         {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
                                         {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
                                     </div>
+                                    <button
+                                        onClick={() => setActiveView('restoration')}
+                                        className="flex items-center gap-1 text-xs font-bold text-emerald-300/80 hover:text-emerald-200 mt-1 pt-1 border-t border-emerald-500/20 transition-colors"
+                                    >
+                                        <Wrench size={11} />
+                                        Restauration {restorationPlan.totals.doneCount}/{restorationPlan.totals.itemCount}
+                                        {restorationPlan.totals.totalEstimatedCost > 0 && ` · ${restorationPlan.totals.totalEstimatedCost}$ estimés`}
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -279,7 +311,6 @@ const DealAnalysisModal = ({
 
                     </div>
                 </div>
-                )}
             </div>
         </div>
     );
