@@ -93,8 +93,9 @@ const fetchImageAsInlinePart = async (url) => {
     return blobToInlinePart(blob);
 };
 
-// Photo jointe par l'utilisateur depuis le chat (prise sur place ou choisie dans sa galerie).
-export const fileToInlinePart = (file) => blobToInlinePart(file);
+// Photo(s) jointe(s) par l'utilisateur depuis le chat (prise sur place ou choisies dans sa
+// galerie — plusieurs à la fois depuis 2026-08-22).
+export const filesToInlineParts = (files) => Promise.all(files.map(blobToInlinePart));
 
 export const buildDealImageParts = async (deal) => {
     const urls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);

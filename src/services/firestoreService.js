@@ -345,15 +345,16 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // `parts` = payload complet envoyé/reçu de l'API Gemini (peut inclure le contexte injecté +
 // les pièces image gs://, invisibles à l'utilisateur) ; `displayText` = ce qui est réellement
 // affiché dans la bulle de chat (le texte tapé par l'utilisateur, ou la réponse du modèle).
-// `attachedImagePartIndex` (optionnel, 2026-08-01) = index dans `parts` de la photo jointe par
-// l'utilisateur depuis le chat (distincte des photos de l'annonce déjà présentes dans `parts` sur
-// le premier message) — référence l'entrée existante plutôt que de dupliquer son base64, pour un
-// affichage sans équivoque de la miniature dans la bulle.
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndex) => {
+// `attachedImagePartIndices` (optionnel, 2026-08-22, tableau — remplace l'ancien champ singulier
+// `attachedImagePartIndex` conservé pour lecture rétrocompatible des messages déjà en base) =
+// index dans `parts` des photos jointes par l'utilisateur depuis le chat (distinctes des photos de
+// l'annonce déjà présentes dans `parts` sur le premier message) — référence les entrées existantes
+// plutôt que de dupliquer leur base64, pour un affichage sans équivoque des miniatures dans la bulle.
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     const payload = { role, parts, displayText, createdAt: new Date() };
-    if (attachedImagePartIndex != null) payload.attachedImagePartIndex = attachedImagePartIndex;
+    if (attachedImagePartIndices?.length) payload.attachedImagePartIndices = attachedImagePartIndices;
     await addDoc(chatCollectionRef, payload);
   } catch (error) {
     console.error(`Error saving chat message for deal ${dealId}:`, error);
@@ -361,13 +362,15 @@ export const addDealChatMessage = async (dealId, role, parts, displayText, userI
   }
 };
 
-// Marque un message de chat comme "photo déjà ajoutée à la galerie" (2026-08-21) — persisté sur le
-// message lui-même plutôt qu'en état local, pour rester vrai après un reload ou depuis un autre
-// client (le bouton "Ajouter à la galerie" doit rester désactivé une fois l'ajout fait).
-export const markChatMessageAddedToGallery = async (dealId, messageId, url, userId) => {
+// Marque une photo jointe d'un message de chat comme "déjà ajoutée à la galerie" (2026-08-21,
+// étendu 2026-08-22 pour plusieurs photos par message) — persisté sur le message lui-même plutôt
+// qu'en état local, pour rester vrai après un reload ou depuis un autre client. `addedToGalleryUrls`
+// est une map `{ "<partIndex>": url }` (clé Firestore forcément string) : chaque photo du message a
+// son propre bouton "Ajouter à la galerie", indépendant des autres.
+export const markChatMessageAddedToGallery = async (dealId, messageId, partIndex, url, userId) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
-    await updateDoc(doc(chatCollectionRef, messageId), { addedToGalleryUrl: url });
+    await updateDoc(doc(chatCollectionRef, messageId), { [`addedToGalleryUrls.${partIndex}`]: url });
   } catch (error) {
     console.error(`Error marking chat message ${messageId} as added to gallery:`, error);
     throw new Error("Erreur lors de la mise à jour du message.");
