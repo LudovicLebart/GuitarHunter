@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
-    addRestorationItem, markChatMessageRestorationProposalStatus,
+    addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
 } from '../services/firestoreService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
-    buildRestorationPlanContextText, validateRestorationStepProposal,
+    buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
 } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
@@ -48,7 +48,10 @@ const sanitizeHistory = (msgs) => {
     return history;
 };
 
-const MAX_RESTORATION_PROPOSALS_PER_TURN = 5;
+const MAX_RESTORATION_ADD_PROPOSALS_PER_TURN = 5;
+// Un seul réordonnancement affiché par tour — en proposer plusieurs dans le même tour n'a pas de
+// sens produit (chacun porte déjà l'ordre COMPLET de la checklist, le second écraserait le premier).
+const MAX_RESTORATION_REORDER_PROPOSALS_PER_TURN = 1;
 
 // Gère une session de chat Gemini (Firebase AI Logic) pour une annonce donnée. L'historique est
 // la source de vérité Firestore (guitar_deals/{dealId}/chat) — la session Gemini en mémoire
@@ -208,12 +211,28 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 // Répond à TOUS les appels de ce tour — l'API exige une functionResponse par
                 // functionCall, un appariement incomplet risque un rejet du tour entier. Seul
                 // l'AFFICHAGE (les propositions montrées à l'utilisateur) est plafonné, pas la
-                // réponse à l'API : un tour à plus de 5 appels reste valide côté Gemini, juste
-                // tronqué côté carte de proposition.
-                restorationProposals = calls
-                    .slice(0, MAX_RESTORATION_PROPOSALS_PER_TURN)
+                // réponse à l'API : un tour à plus d'appels que les plafonds ci-dessous reste
+                // valide côté Gemini, juste tronqué côté cartes de proposition. La résolution
+                // complète des refs de réordonnancement contre l'état courant (voir
+                // resolveRestorationReorderProposal) est différée au rendu/à l'application — ici on
+                // ne valide que la forme (tableau de chaînes non vide + justification).
+                const addProposals = calls
+                    .filter(call => call.name === 'propose_restoration_step')
+                    .slice(0, MAX_RESTORATION_ADD_PROPOSALS_PER_TURN)
                     .map(call => validateRestorationStepProposal(call.args))
+                    .filter(Boolean)
+                    .map(p => ({ type: 'add', ...p }));
+                const reorderProposals = calls
+                    .filter(call => call.name === 'propose_restoration_reorder')
+                    .slice(0, MAX_RESTORATION_REORDER_PROPOSALS_PER_TURN)
+                    .map(call => {
+                        const refs = Array.isArray(call.args?.ordered_item_refs) ? call.args.ordered_item_refs.filter(r => typeof r === 'string') : null;
+                        if (!refs?.length) return null;
+                        const justification = typeof call.args.justification === 'string' ? call.args.justification.trim().slice(0, 500) : '';
+                        return { type: 'reorder', orderedItemRefs: refs, justification };
+                    })
                     .filter(Boolean);
+                restorationProposals = [...addProposals, ...reorderProposals];
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                 }));
@@ -272,6 +291,20 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     const applyRestorationProposal = useCallback(async (message, index) => {
         const proposal = message.restorationProposals?.[index];
         if (!deal?.id || !user || !proposal || getRestorationProposalState(message, index)?.status) return;
+
+        if (proposal.type === 'reorder') {
+            // Revalidé ICI contre l'état COURANT du plan (`restorationItems`, pas un instantané
+            // capturé au tour de chat) — un ajout/suppression manuelle ou une autre proposition
+            // appliquée entretemps rend les refs caducs ; jamais d'écriture partielle/incohérente.
+            const resolved = resolveRestorationReorderProposal(proposal.orderedItemRefs, restorationItems || []);
+            if (!resolved.valid) {
+                throw new Error("Le plan a changé depuis cette proposition — redemande à Gemini de faire le point.");
+            }
+            await reorderRestorationItems(deal.id, user.uid, resolved.orderedItemIds);
+            await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid);
+            return;
+        }
+
         // `order` calculé sur `restorationItems` déjà en mémoire — même correctif que l'ajout
         // manuel (useRestorationPlan.js::addItem) : sans lui, l'item créé sans `order`
         // redéclenchait le rattrapage silencieux sur tout le plan, effaçant un ordre de

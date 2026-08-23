@@ -505,6 +505,22 @@ export const deleteRestorationItem = async (dealId, userId, itemId) => {
   }
 };
 
+// Réordonnancement (glisser-déposer manuel, ou proposition IA appliquée depuis le chat, 2026-08-23) —
+// `orderedItemIds` = ids dans le nouvel ordre voulu, un seul batch pour tous les items du plan.
+export const reorderRestorationItems = async (dealId, userId, orderedItemIds) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const batch = writeBatch(db);
+    orderedItemIds.forEach((itemId, index) => {
+      batch.update(doc(planCollectionRef, itemId), { order: index, updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error(`Error reordering restoration items for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la réorganisation des étapes.");
+  }
+};
+
 // Assigne un `order` (2026-08-22, réorganisation par glisser-déposer) à TOUS les items d'un coup,
 // selon l'ordre `orderedItems` fourni (déjà trié par `createdAt`, l'ordre de la requête Firestore)
 // — jamais de migration explicite : le premier client qui charge un plan sans `order` (ancien, ou

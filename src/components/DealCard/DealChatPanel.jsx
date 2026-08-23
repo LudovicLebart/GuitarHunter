@@ -1,49 +1,81 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown } from 'lucide-react';
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
+import { resolveRestorationReorderProposal } from '../../services/geminiChatService';
 
-// Carte de proposition d'étape de restauration (2026-08-22, Lot B) — sous une bulle modèle
-// portant `restorationProposals`. Jamais d'écriture silencieuse : Appliquer/Ignorer explicites,
-// état persisté sur le message (`getRestorationProposalState`) pour ne jamais se réactiver après
-// un reload — `busy` reste local (spinner pendant l'écriture, comme `galleryUploadState`).
-const RestorationProposalCard = ({ proposal, state, busy, onApply, onDismiss }) => (
-    <div className="mt-2 bg-slate-900/60 border border-purple-500/20 rounded-xl p-2.5">
-        <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-300 uppercase tracking-wide mb-1">
-            <Wrench size={11} /> Proposition d'étape · {RESTORATION_CATEGORY_LABELS[proposal.category] || proposal.category}
+// Carte de proposition d'étape de restauration (2026-08-22, Lot B ; réordonnancement 2026-08-23)
+// — sous une bulle modèle portant `restorationProposals`. Jamais d'écriture silencieuse :
+// Appliquer/Ignorer explicites, état persisté sur le message (`getRestorationProposalState`) pour
+// ne jamais se réactiver après un reload — `busy` reste local (spinner pendant l'écriture, comme
+// `galleryUploadState`). `liveItems` (le plan RÉEL et courant, pas un instantané du tour de chat)
+// est nécessaire pour l'aperçu d'un réordonnancement — voir resolveRestorationReorderProposal,
+// recalculé à chaque rendu pour ne jamais afficher un ordre qui ne correspond plus au plan actuel.
+const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onApply, onDismiss }) => {
+    const isReorder = proposal.type === 'reorder';
+    const resolved = isReorder ? resolveRestorationReorderProposal(proposal.orderedItemRefs, liveItems) : null;
+
+    return (
+        <div className="mt-2 bg-slate-900/60 border border-purple-500/20 rounded-xl p-2.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-300 uppercase tracking-wide mb-1">
+                {isReorder
+                    ? <><ArrowUpDown size={11} /> Proposition de réordonnancement</>
+                    : <><Wrench size={11} /> Proposition d'étape · {RESTORATION_CATEGORY_LABELS[proposal.category] || proposal.category}</>}
+            </div>
+            {isReorder ? (
+                resolved?.valid ? (
+                    <ol className="text-xs text-slate-300 space-y-0.5 list-decimal list-inside">
+                        {resolved.orderedItems.map(item => <li key={item.id}>{item.label}</li>)}
+                    </ol>
+                ) : (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-300">
+                        <AlertTriangle size={12} className="shrink-0" /> Le plan a changé depuis cette proposition — elle n'est plus applicable.
+                    </div>
+                )
+            ) : (
+                <>
+                    <div className="text-sm font-bold text-slate-100">{proposal.label}</div>
+                    {proposal.estimatedCost != null && <div className="text-xs text-slate-400 mt-0.5">≈ {proposal.estimatedCost}$ estimé</div>}
+                </>
+            )}
+            {proposal.justification && <div className="text-xs text-slate-400 mt-1 italic">{proposal.justification}</div>}
+            {state?.status === 'applied' ? (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                    <Check size={12} /> {isReorder ? 'Nouvel ordre appliqué' : 'Ajoutée au plan de restauration'}
+                </div>
+            ) : state?.status === 'dismissed' ? (
+                <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
+            ) : (
+                <>
+                    <div className="flex gap-2 mt-2">
+                        <button
+                            onClick={onDismiss}
+                            disabled={busy}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
+                        >
+                            Ignorer
+                        </button>
+                        <button
+                            onClick={onApply}
+                            disabled={busy || (isReorder && !resolved?.valid)}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                        >
+                            {busy && <Loader2 size={11} className="animate-spin" />}
+                            Appliquer
+                        </button>
+                    </div>
+                    {error && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-300">
+                            <AlertTriangle size={11} className="shrink-0" /> {error}
+                        </div>
+                    )}
+                </>
+            )}
         </div>
-        <div className="text-sm font-bold text-slate-100">{proposal.label}</div>
-        {proposal.estimatedCost != null && <div className="text-xs text-slate-400 mt-0.5">≈ {proposal.estimatedCost}$ estimé</div>}
-        {proposal.justification && <div className="text-xs text-slate-400 mt-1 italic">{proposal.justification}</div>}
-        {state?.status === 'applied' ? (
-            <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                <Check size={12} /> Ajoutée au plan de restauration
-            </div>
-        ) : state?.status === 'dismissed' ? (
-            <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
-        ) : (
-            <div className="flex gap-2 mt-2">
-                <button
-                    onClick={onDismiss}
-                    disabled={busy}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
-                >
-                    Ignorer
-                </button>
-                <button
-                    onClick={onApply}
-                    disabled={busy}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                >
-                    {busy && <Loader2 size={11} className="animate-spin" />}
-                    Appliquer
-                </button>
-            </div>
-        )}
-    </div>
-);
+    );
+};
 
 // `images` : tableau de photos jointes à ce message (2026-08-22, plusieurs par message) — chaque
 // entrée `{ partIndex, inlineData, addedToGalleryUrl, galleryState }`. `galleryState` : undefined
@@ -102,6 +134,8 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals }) => {
                         proposal={p.proposal}
                         state={p.state}
                         busy={p.busy}
+                        error={p.error}
+                        liveItems={p.liveItems}
                         onApply={p.onApply}
                         onDismiss={p.onDismiss}
                     />
@@ -129,6 +163,9 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
     // Même principe pour les propositions de restauration (clé `${messageId}:${index}` →
     // 'applying'), voir RestorationProposalCard.
     const [proposalBusyState, setProposalBusyState] = useState({});
+    // Message d'erreur par proposition (même clé) — ex. réordonnancement devenu caduc entretemps
+    // (voir applyRestorationProposal). Effacé au début de chaque nouvelle tentative.
+    const [proposalErrorState, setProposalErrorState] = useState({});
     const scrollRef = useRef(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
@@ -155,10 +192,12 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
         const key = `${message.id}:${index}`;
         if (getRestorationProposalState(message, index)?.status || proposalBusyState[key]) return;
         setProposalBusyState(prev => ({ ...prev, [key]: true }));
+        setProposalErrorState(prev => { const next = { ...prev }; delete next[key]; return next; });
         try {
             await applyRestorationProposal(message, index);
         } catch (e) {
             console.error('Erreur application de la proposition de restauration:', e);
+            setProposalErrorState(prev => ({ ...prev, [key]: e.message || "Impossible d'appliquer cette proposition." }));
         } finally {
             setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
         }
@@ -302,6 +341,8 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                         proposal,
                         state: getRestorationProposalState(m, index),
                         busy: !!proposalBusyState[`${m.id}:${index}`],
+                        error: proposalErrorState[`${m.id}:${index}`],
+                        liveItems: restorationItems,
                         onApply: () => handleApplyProposal(m, index),
                         onDismiss: () => handleDismissProposal(m, index),
                     }));

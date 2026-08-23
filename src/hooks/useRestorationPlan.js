@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     onRestorationPlanUpdate, addRestorationItem, updateRestorationItem, deleteRestorationItem,
-    backfillRestorationOrder, addRestorationItemPhoto, removeRestorationItemPhoto,
+    backfillRestorationOrder, reorderRestorationItems, addRestorationItemPhoto, removeRestorationItemPhoto,
 } from '../services/firestoreService';
 import { uploadRestorationPhotoToDealStorage } from '../services/storageService';
 
@@ -76,11 +76,12 @@ export const useRestorationPlan = (deal, user) => {
         await deleteRestorationItem(deal.id, user.uid, itemId);
     }, [active, deal?.id, user]);
 
-    // Persiste un nouvel ordre après un glisser-déposer — `orderedIds` = ids dans le nouvel ordre
-    // d'affichage voulu, réutilise `updateItem` (déjà champ par champ) plutôt qu'une écriture dédiée.
+    // Persiste un nouvel ordre après un glisser-déposer (ou une proposition IA appliquée) —
+    // `orderedIds` = ids dans le nouvel ordre d'affichage voulu, un seul batch (`reorderRestorationItems`)
+    // plutôt que N écritures individuelles.
     const reorderItems = useCallback(async (orderedIds) => {
         if (!active) return;
-        await Promise.all(orderedIds.map((id, index) => updateRestorationItem(deal.id, user.uid, id, { order: index })));
+        await reorderRestorationItems(deal.id, user.uid, orderedIds);
     }, [active, deal?.id, user]);
 
     // Upload direct d'une nouvelle photo (prise sur place ou choisie dans la galerie du téléphone)

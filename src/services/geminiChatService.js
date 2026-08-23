@@ -58,9 +58,10 @@ export const buildDealContextText = (deal) => {
 // couvre que l'AJOUT d'étapes, jamais leur modification par l'IA — voir propose_restoration_step).
 export const buildRestorationPlanContextText = (items) => {
     if (!items?.length) return null;
-    const lines = items.map(item => {
+    const itemRefs = buildRestorationItemRefs(items);
+    const lines = itemRefs.map(({ item, ref }, index) => {
         const cost = item.status === 'done' ? (item.actualCost ?? item.estimatedCost) : item.estimatedCost;
-        return `- [${RESTORATION_STATUS_LABELS[item.status] || item.status}] ${item.label}${cost != null ? ` (${cost}$)` : ''}`;
+        return `${index + 1}. [${RESTORATION_STATUS_LABELS[item.status] || item.status}] ${item.label}${cost != null ? ` (${cost}$)` : ''} [ref: ${ref}]`;
     });
     const doneCount = items.filter(i => i.status === 'done').length;
     const remaining = items
@@ -70,10 +71,53 @@ export const buildRestorationPlanContextText = (items) => {
         .filter(i => i.status === 'done')
         .reduce((sum, i) => sum + (i.actualCost ?? i.estimatedCost ?? 0), 0);
     return [
-        "Plan de restauration actuel de cette annonce (checklist tenue par l'utilisateur, mise à jour au fil de la conversation) :",
+        "Plan de restauration actuel de cette annonce (checklist tenue par l'utilisateur, mise à jour au fil de la conversation), dans l'ordre actuel :",
         ...lines,
         `Résumé : ${doneCount}/${items.length} terminées, reste ~${remaining}$ estimés, dépensé à date : ${spent}$.`,
+        "Le [ref: ...] de chaque étape est son identifiant exact à recopier tel quel dans ordered_item_refs si l'utilisateur demande de réordonner — jamais le numéro affiché, qui ne sert qu'à la lecture.",
     ].join('\n');
+};
+
+// Identifiants courts et stables dérivés de l'id Firestore de chaque item — jamais l'id complet
+// (superflu, alourdit inutilement le contexte) ni un numéro de position (change à chaque
+// réordonnancement, donc inutilisable comme référence dans un tour suivant). Longueur étendue par
+// paliers de 2 uniquement en cas de collision (plans avec beaucoup d'étapes) — 6 caractères
+// suffisent dans l'immense majorité des cas.
+const MIN_REF_LENGTH = 6;
+export const buildRestorationItemRefs = (items) => {
+    let length = MIN_REF_LENGTH;
+    while (length < 20) {
+        const refs = items.map(i => i.id.slice(0, length));
+        if (new Set(refs).size === refs.length) break;
+        length += 2;
+    }
+    return items.map(item => ({ item, ref: item.id.slice(0, length) }));
+};
+
+// Résout une proposition de réordonnancement (refs bruts renvoyés par Gemini) contre l'état
+// RÉEL et courant du plan (`liveItems`) — jamais l'état capturé au moment du tour de chat, qui a
+// pu changer entretemps (ajout/suppression manuelle, autre proposition appliquée). Utilisé à la
+// fois pour l'aperçu affiché dans la carte de proposition (recalculé à chaque rendu) ET au moment
+// de l'application (revalidé avec l'état alors courant) — c'est ce double usage qui garantit
+// qu'aucun réordonnancement partiel/incohérent ne peut jamais être écrit, plutôt qu'un contrôle par
+// horodatage (`updatedAt` d'un item est justement modifié par un réordonnancement, et sujet au
+// décalage horloge client/serveur — écarté après revue).
+export const resolveRestorationReorderProposal = (rawRefs, liveItems) => {
+    if (!Array.isArray(rawRefs) || !liveItems?.length || rawRefs.length !== liveItems.length) {
+        return { valid: false };
+    }
+    const itemRefs = buildRestorationItemRefs(liveItems);
+    const refToItem = new Map(itemRefs.map(({ item, ref }) => [ref, item]));
+    const seen = new Set();
+    const orderedItems = [];
+    for (const ref of rawRefs) {
+        const item = refToItem.get(ref);
+        if (!item || seen.has(item.id)) return { valid: false };
+        seen.add(item.id);
+        orderedItems.push(item);
+    }
+    if (seen.size !== liveItems.length) return { valid: false };
+    return { valid: true, orderedItems, orderedItemIds: orderedItems.map(i => i.id) };
 };
 
 // Parts image en base64 (inlineData) — 2026-08-01, correctif : le backend Firebase AI Logic
@@ -150,33 +194,55 @@ export const buildDealImageParts = async (deal) => {
     return parts.filter(Boolean);
 };
 
-// Function calling (2026-08-22, Lot B) — une seule fonction, volontairement limitée à l'AJOUT
-// d'une étape. La mise à jour d'une étape existante par id a été retirée du périmètre après revue
-// (id périmés jamais nettoyables une fois rejoués dans l'historique, risque d'écraser une édition
-// manuelle faite entre-temps dans le panneau) — l'utilisateur modifie/supprime toujours lui-même
-// dans RestorationPlanPanel.jsx, Gemini ne fait que proposer des ajouts.
-const RESTORATION_FUNCTION_DECLARATIONS = [{
-    name: 'propose_restoration_step',
-    description: "Propose d'ajouter une NOUVELLE étape au plan de restauration de cette annonce. Ne sert jamais à modifier ou marquer terminée une étape existante. À utiliser uniquement quand la conversation fait émerger un défaut concret ou une tâche de restauration précise à faire, jamais spontanément ni à chaque tour.",
-    parameters: Schema.object({
-        properties: {
-            label: Schema.string({ description: 'Description courte de l\'étape (ex: "Recoller le binding décollé").' }),
-            category: Schema.enumString({ enum: RESTORATION_CATEGORIES, description: "Catégorie de l'étape." }),
-            estimated_cost: Schema.number({ description: 'Coût estimé en dollars, si évaluable à ce stade. Omettre si inconnu — ne jamais deviner un chiffre arbitraire.' }),
-            justification: Schema.string({ description: 'Pourquoi cette étape est proposée — résumé du constat fait dans la conversation.' }),
-        },
-        optionalProperties: ['estimated_cost'],
-    }),
-}];
+// Function calling (2026-08-22, Lot B ; réordonnancement ajouté 2026-08-23 après réévaluation du
+// risque par Opus) — deux fonctions : l'AJOUT d'une étape, et le RÉORDONNANCEMENT complet de la
+// checklist (jamais la modification/suppression d'une étape existante par id, retiré du périmètre
+// après revue — id périmés jamais nettoyables une fois rejoués dans l'historique, risque d'écraser
+// une édition manuelle faite entre-temps dans le panneau). Le réordonnancement porte toujours sur
+// l'ORDRE COMPLET (jamais un delta/déplacement relatif) — plus simple à valider entièrement contre
+// l'état courant (voir resolveRestorationReorderProposal) qu'une séquence de mouvements relatifs.
+const RESTORATION_FUNCTION_DECLARATIONS = [
+    {
+        name: 'propose_restoration_step',
+        description: "Propose d'ajouter une NOUVELLE étape au plan de restauration de cette annonce. Ne sert jamais à modifier ou marquer terminée une étape existante. À utiliser uniquement quand la conversation fait émerger un défaut concret ou une tâche de restauration précise à faire, jamais spontanément ni à chaque tour.",
+        parameters: Schema.object({
+            properties: {
+                label: Schema.string({ description: 'Description courte de l\'étape (ex: "Recoller le binding décollé").' }),
+                category: Schema.enumString({ enum: RESTORATION_CATEGORIES, description: "Catégorie de l'étape." }),
+                estimated_cost: Schema.number({ description: 'Coût estimé en dollars, si évaluable à ce stade. Omettre si inconnu — ne jamais deviner un chiffre arbitraire.' }),
+                justification: Schema.string({ description: 'Pourquoi cette étape est proposée — résumé du constat fait dans la conversation.' }),
+            },
+            optionalProperties: ['estimated_cost'],
+        }),
+    },
+    {
+        name: 'propose_restoration_reorder',
+        description: "Propose un NOUVEL ORDRE COMPLET pour les étapes du plan de restauration, uniquement quand l'utilisateur le demande explicitement (ex: \"priorise le réglage avant le reste\", \"remets le cosmétique en dernier\"). Ne jamais appeler spontanément. Doit inclure TOUTES les étapes actuelles du plan, chacune une seule fois, en utilisant leur [ref: ...] exact tel que donné dans le contexte du plan.",
+        parameters: Schema.object({
+            properties: {
+                ordered_item_refs: Schema.array({
+                    items: Schema.string({ description: "Le [ref: ...] exact d'une étape, tel que fourni dans le contexte du plan." }),
+                    description: "La liste COMPLÈTE des refs d'étapes, dans le nouvel ordre proposé.",
+                }),
+                justification: Schema.string({ description: 'Pourquoi ce nouvel ordre est proposé.' }),
+            },
+            optionalProperties: [],
+        }),
+    },
+];
 
 const RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM = [
     "Cette annonce a été achetée par l'utilisateur, qui restaure la guitare avant de la revendre — un",
     "plan de restauration structuré (checklist) lui est associé, dont l'état actuel t'est donné en",
-    "contexte au fil de la conversation. Tu peux appeler propose_restoration_step pour proposer",
-    "d'ajouter une nouvelle étape à cette checklist, mais uniquement quand la conversation fait",
-    "émerger un défaut concret ou une tâche de restauration précise, jamais spontanément. Ne propose",
-    "jamais de modifier ou marquer terminée une étape déjà dans la checklist — l'utilisateur gère",
-    "lui-même l'avancement dans son panneau ; contente-toi d'en discuter s'il te le demande.",
+    "contexte au fil de la conversation, avec un [ref: ...] par étape. Tu peux appeler",
+    "propose_restoration_step pour proposer d'ajouter une nouvelle étape à cette checklist, mais",
+    "uniquement quand la conversation fait émerger un défaut concret ou une tâche de restauration",
+    "précise, jamais spontanément. Tu peux appeler propose_restoration_reorder pour proposer un",
+    "nouvel ordre complet des étapes, mais UNIQUEMENT quand l'utilisateur le demande explicitement —",
+    "jamais spontanément, jamais pour ajouter/retirer/modifier le contenu d'une étape — et toujours en",
+    "reprenant TOUTES les étapes actuelles avec leur [ref: ...] exact, jamais leur numéro affiché. Ne",
+    "propose jamais de modifier ou marquer terminée une étape déjà dans la checklist — l'utilisateur",
+    "gère lui-même l'avancement dans son panneau ; contente-toi d'en discuter s'il te le demande.",
 ].join(' ');
 
 // Valide/normalise les arguments bruts d'un appel `propose_restoration_step` avant affichage —
