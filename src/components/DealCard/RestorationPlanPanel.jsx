@@ -223,6 +223,10 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }
                         <div className="text-[10px] text-slate-500 font-bold uppercase">Dépensé à date</div>
                         <div className="text-sm font-black text-white">{totals.spentCost}$</div>
                     </div>
+                    <div className="bg-slate-950 px-3 py-2 rounded-xl border border-slate-800">
+                        <div className="text-[10px] text-slate-500 font-bold uppercase">Reste à payer</div>
+                        <div className="text-sm font-black text-white">{totals.remainingCost}$</div>
+                    </div>
                     {projectedMargin != null && (
                         <div className={`px-3 py-2 rounded-xl border ${projectedMargin > 0 ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-rose-500/10 border-rose-500/20'}`}>
                             <div className={`text-[10px] font-bold uppercase ${projectedMargin > 0 ? 'text-emerald-500/70' : 'text-rose-500/70'}`}>

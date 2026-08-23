@@ -373,8 +373,9 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // `restorationProposals` (optionnel, 2026-08-22, Lot B) : propositions d'ajout d'étape faites par
 // l'IA via function calling sur ce tour — jamais les parts function-call/function-response brutes
 // (jamais rejouées dans l'historique Gemini, voir useDealChat.js), juste la forme validée/normalisée
-// affichée en carte sous la bulle. Retourne l'id du document créé (nécessaire pour
-// `markChatMessageRestorationProposalStatus` et `proposedByMessageId`).
+// affichée en carte sous la bulle. Retourne l'id du document créé (aucun appelant ne le capture
+// aujourd'hui — `message.id` du listener Firestore suffit pour `proposedByMessageId`/le marquage
+// Appliquer/Ignorer, une fois le message déjà visible côté client — gardé pour un futur usage).
 export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
@@ -453,7 +454,10 @@ export const addRestorationItem = async (dealId, userId, { label, category, esti
     if (estimatedCost != null) payload.estimatedCost = estimatedCost;
     if (notes) payload.notes = notes;
     if (proposedByMessageId) payload.proposedByMessageId = proposedByMessageId;
-    await addDoc(planCollectionRef, payload);
+    // Retourne l'id du document créé — nécessaire pour rattacher `itemId` au marquage
+    // Appliquer/Ignorer de la proposition d'origine (voir useDealChat.js::applyRestorationProposal).
+    const docRef = await addDoc(planCollectionRef, payload);
+    return docRef.id;
   } catch (error) {
     console.error(`Error adding restoration item for deal ${dealId}:`, error);
     throw new Error("Erreur lors de l'ajout de l'étape de restauration.");
@@ -463,7 +467,9 @@ export const addRestorationItem = async (dealId, userId, { label, category, esti
 // Mise à jour champ par champ uniquement (jamais l'objet entier depuis un formulaire) : une
 // édition de note et une future proposition IA appliquée en parallèle ne doivent jamais pouvoir
 // s'écraser l'une l'autre. `completedAt` posé automatiquement au passage à 'done' plutôt que de
-// dépendre de `updatedAt`, qu'une note éditée ensuite écraserait.
+// dépendre de `updatedAt`, qu'une note éditée ensuite écraserait — et effacé symétriquement dès
+// que le statut change vers autre chose que 'done' (rouvrir une étape ne doit pas laisser une
+// date de complétion périmée).
 export const updateRestorationItem = async (dealId, userId, itemId, patch) => {
   try {
     const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
@@ -471,7 +477,11 @@ export const updateRestorationItem = async (dealId, userId, itemId, patch) => {
     if (patch.estimatedCost === null) payload.estimatedCost = deleteField();
     if (patch.actualCost === null) payload.actualCost = deleteField();
     if (patch.notes === null) payload.notes = deleteField();
-    if (patch.status === 'done') payload.completedAt = serverTimestamp();
+    if (patch.status === 'done') {
+      payload.completedAt = serverTimestamp();
+    } else if (patch.status) {
+      payload.completedAt = deleteField();
+    }
     await updateDoc(doc(planCollectionRef, itemId), payload);
   } catch (error) {
     console.error(`Error updating restoration item ${itemId} for deal ${dealId}:`, error);

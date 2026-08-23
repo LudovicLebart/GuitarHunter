@@ -66,12 +66,18 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     const [sending, setSending] = useState(false);
     const [error, setError] = useState(null);
     const chatRef = useRef(null);
-    // Ce que `chatRef.current` porte RÉELLEMENT (tools attachés ou non) — le statut Acheté peut
-    // changer en cours de conversation sans qu'un nouveau message Firestore ne déclenche l'effet
-    // de rebuild ci-dessous ; sendMessage() compare cette valeur au statut courant et rebâtit la
-    // session juste avant l'envoi plutôt que d'ajouter `isPurchased` aux déps de l'effet (ce qui
-    // redéclencherait un flash "Chargement de la conversation..." à chaque bascule).
+    // Ce que `chatRef.current` porte RÉELLEMENT (tools attachés ou non) — comparé au statut Acheté
+    // courant avant chaque envoi (voir sendMessage) ; tenu à jour par l'effet ci-dessous à chaque
+    // nouveau message aussi, donc un rebuild dans sendMessage ne devrait déclencher que si aucun
+    // message Firestore n'a encore fait passer ce ref par le statut courant (ex. juste après avoir
+    // basculé "Acheté" sans qu'aucun nouveau message n'ait encore été échangé).
     const chatToolsRef = useRef(false);
+    // Toujours à jour (réaffecté à chaque rendu) — sans lui, le callback du listener Firestore
+    // ci-dessous verrait le statut Acheté capturé au moment où l'effet a tourné pour la dernière
+    // fois (déps `[deal?.id, user, modelName]`, jamais `isPurchased`), pas le statut réel au
+    // moment où un nouveau message arrive.
+    const dealRef = useRef(deal);
+    dealRef.current = deal;
     // Un modèle qui ne supporte pas le function calling rejette l'appel à l'envoi, pas à la
     // construction (voir plus bas) — mémorisé pour ne pas repayer l'échec à chaque message une
     // fois détecté sur cette session.
@@ -84,9 +90,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             setMessages(msgs);
             setLoading(false);
             try {
-                const model = getDealChatModel(modelName);
+                const withRestorationTools = !!dealRef.current?.isPurchased && !toolsUnsupportedRef.current;
+                const model = getDealChatModel(modelName, { withRestorationTools });
                 chatRef.current = model.startChat({ history: sanitizeHistory(msgs) });
-                chatToolsRef.current = false; // sendMessage() rattache les tools si besoin, voir plus bas
+                chatToolsRef.current = withRestorationTools;
             } catch (e) {
                 console.error('Erreur initialisation session Gemini:', e);
                 setError(e.message);
@@ -194,11 +201,17 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             // `startChat({history})`, elle risquerait un rejet définitif de la conversation par
             // l'API). On renvoie donc une functionResponse factice dans la même session pour
             // obtenir un vrai texte de suite avant toute écriture Firestore.
-            const calls = (result.response.functionCalls?.() || []).slice(0, MAX_RESTORATION_PROPOSALS_PER_TURN);
+            const calls = result.response.functionCalls?.() || [];
             let responseText;
             let restorationProposals;
             if (calls.length) {
+                // Répond à TOUS les appels de ce tour — l'API exige une functionResponse par
+                // functionCall, un appariement incomplet risque un rejet du tour entier. Seul
+                // l'AFFICHAGE (les propositions montrées à l'utilisateur) est plafonné, pas la
+                // réponse à l'API : un tour à plus de 5 appels reste valide côté Gemini, juste
+                // tronqué côté carte de proposition.
                 restorationProposals = calls
+                    .slice(0, MAX_RESTORATION_PROPOSALS_PER_TURN)
                     .map(call => validateRestorationStepProposal(call.args))
                     .filter(Boolean);
                 const functionResponseParts = calls.map(call => ({
@@ -259,7 +272,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     const applyRestorationProposal = useCallback(async (message, index) => {
         const proposal = message.restorationProposals?.[index];
         if (!deal?.id || !user || !proposal || getRestorationProposalState(message, index)?.status) return;
-        await addRestorationItem(deal.id, user.uid, {
+        const itemId = await addRestorationItem(deal.id, user.uid, {
             label: proposal.label,
             category: proposal.category,
             estimatedCost: proposal.estimatedCost,
@@ -267,7 +280,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             source: 'ai',
             proposedByMessageId: message.id,
         });
-        await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid);
+        await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid, itemId);
     }, [deal, user]);
 
     const dismissRestorationProposal = useCallback(async (message, index) => {

@@ -186,16 +186,20 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
     // point"/"Préparer l'annonce de revente" (autoSend=true, prompt prédéfini envoyé directement
     // sans repasser par l'état `input` pour éviter un envoi basé sur une valeur pas encore
     // committée). N'écrase jamais une saisie en cours autrement, seulement quand le parent fournit
-    // un nouveau brouillon.
+    // un nouveau brouillon. En mode autoSend, si un envoi est déjà en cours (`sending`),
+    // `sendMessage` no-op silencieusement (garde interne du hook) — on ne consomme alors PAS le
+    // brouillon (pas de `onDraftConsumed()`), pour réessayer automatiquement dès que `sending`
+    // repasse à false plutôt que de perdre le prompt sans aucun retour.
     useEffect(() => {
         if (!initialDraft) return;
         if (autoSend) {
+            if (sending) return;
             sendMessage(initialDraft, []);
         } else {
             setInput(initialDraft);
         }
         onDraftConsumed?.();
-    }, [initialDraft, autoSend, onDraftConsumed, sendMessage]);
+    }, [initialDraft, autoSend, sending, onDraftConsumed, sendMessage]);
 
     // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
     // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à

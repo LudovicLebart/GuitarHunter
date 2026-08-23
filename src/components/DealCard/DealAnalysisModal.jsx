@@ -37,11 +37,28 @@ const DealAnalysisModal = ({
     onGalleryImageAdded
 }) => {
     const [activeView, setActiveView] = useState('analysis'); // 'analysis' | 'chat' | 'restoration'
+    // Le chat n'est monté (et son listener Firestore/sa session Gemini ouverts) qu'à la première
+    // ouverture — jamais dès l'ouverture de la modale (régression trouvée en revue : avant
+    // useDealChat.js, `showChat` gardait déjà ce montage paresseux). Reste ensuite monté (`hidden`
+    // plutôt que démonté) pour préserver le brouillon en cours en jonglant avec les autres vues.
+    const [hasOpenedChat, setHasOpenedChat] = useState(false);
     // { text, autoSend } | null — "Demander conseil" (autoSend=false, éditable) vs "Faire le
     // point"/"Préparer l'annonce" (autoSend=true, prompt prédéfini envoyé directement).
     const [chatDraftRequest, setChatDraftRequest] = useState(null);
     const { user } = useAuth();
     const restorationPlan = useRestorationPlan(deal, user);
+
+    useEffect(() => {
+        if (activeView === 'chat') setHasOpenedChat(true);
+    }, [activeView]);
+
+    // Le panneau de restauration n'existe que pour une annonce achetée — si l'utilisateur décoche
+    // "Acheté" pendant qu'il est ouvert, `isPurchased` passe à false et son bloc ne rend plus rien
+    // (voir plus bas) : sans ce filet, aucune des 3 vues ne correspondrait plus et le corps de la
+    // modale resterait vide.
+    useEffect(() => {
+        if (!isPurchased && activeView === 'restoration') setActiveView('analysis');
+    }, [isPurchased, activeView]);
 
     const askInChat = (item) => {
         setChatDraftRequest({ text: `Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`, autoSend: false });
@@ -126,17 +143,19 @@ const DealAnalysisModal = ({
                     les photos jointes du chat à chaque bascule vers le plan de restauration (et
                     inversement) serait gênant, puisque jongler entre les deux est l'usage visé
                     par le pont "Demander conseil". */}
-                <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'chat' ? '' : 'hidden'}`}>
-                    <DealChatPanel
-                        deal={deal}
-                        onBack={() => setActiveView('analysis')}
-                        onGalleryImageAdded={onGalleryImageAdded}
-                        initialDraft={chatDraftRequest?.text}
-                        autoSend={chatDraftRequest?.autoSend}
-                        onDraftConsumed={() => setChatDraftRequest(null)}
-                        restorationItems={restorationPlan.items}
-                    />
-                </div>
+                {hasOpenedChat && (
+                    <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'chat' ? '' : 'hidden'}`}>
+                        <DealChatPanel
+                            deal={deal}
+                            onBack={() => setActiveView('analysis')}
+                            onGalleryImageAdded={onGalleryImageAdded}
+                            initialDraft={chatDraftRequest?.text}
+                            autoSend={chatDraftRequest?.autoSend}
+                            onDraftConsumed={() => setChatDraftRequest(null)}
+                            restorationItems={restorationPlan.items}
+                        />
+                    </div>
+                )}
                 {isPurchased && (
                     <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'restoration' ? '' : 'hidden'}`}>
                         <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} onQuickPrompt={sendQuickPrompt} />
