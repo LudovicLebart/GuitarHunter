@@ -1,14 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Guitar, Maximize2, ChevronLeft, ChevronRight, X } from 'lucide-react';
+
+// Distance minimale (px) pour qu'un geste tactile horizontal soit interprété comme un swipe
+// plutôt qu'un tap — évite de naviguer par erreur sur un simple appui.
+const SWIPE_THRESHOLD = 50;
 
 // Visionneuse plein écran (2026-08-22, extraite d'ImageGallery pour être réutilisée ailleurs —
 // ex. photos d'une étape du plan de restauration — avec exactement le même comportement :
 // navigation précédent/suivant, fermeture au clic sur le fond ou sur la croix, touches clavier
-// (Échap/flèches), indicateurs. Contrôlée par le parent (`currentIndex`/`onNext`/`onPrev`/
-// `onClose`) plutôt que de gérer son propre index, pour qu'ImageGallery continue de partager le
-// même état entre vignette et plein écran exactement comme avant cette extraction.
+// (Échap/flèches), swipe tactile (2026-08-22), indicateurs. Contrôlée par le parent
+// (`currentIndex`/`onNext`/`onPrev`/`onClose`) plutôt que de gérer son propre index, pour
+// qu'ImageGallery continue de partager le même état entre vignette et plein écran exactement
+// comme avant cette extraction.
 export const ImageLightbox = ({ images, currentIndex, title, onNext, onPrev, onClose }) => {
+    const touchStartXRef = useRef(null);
+
     useEffect(() => {
         document.body.style.overflow = 'hidden';
         return () => { document.body.style.overflow = 'unset'; };
@@ -24,8 +31,27 @@ export const ImageLightbox = ({ images, currentIndex, title, onNext, onPrev, onC
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onNext, onPrev, onClose]);
 
+    // Swipe horizontal (mobile) — un seul doigt, mesuré entre le début et la fin du toucher plutôt
+    // qu'en continu, pour rester simple (pas de suivi visuel du doigt pendant le glissement).
+    const handleTouchStart = (e) => {
+        touchStartXRef.current = e.touches[0]?.clientX ?? null;
+    };
+    const handleTouchEnd = (e) => {
+        const startX = touchStartXRef.current;
+        touchStartXRef.current = null;
+        if (startX == null || images.length <= 1) return;
+        const deltaX = (e.changedTouches[0]?.clientX ?? startX) - startX;
+        if (Math.abs(deltaX) < SWIPE_THRESHOLD) return;
+        if (deltaX < 0) onNext(); else onPrev();
+    };
+
     return createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={onClose}>
+        <div
+            className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200"
+            onClick={onClose}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+        >
             <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
                 <img
                     src={images[currentIndex]}
