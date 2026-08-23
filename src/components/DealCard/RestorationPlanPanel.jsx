@@ -9,6 +9,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
+import { ImageLightbox } from '../ImageGallery';
 
 const STATUS_STYLES = {
     pending: 'bg-slate-800 text-slate-300 border-slate-700',
@@ -139,6 +140,7 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
     const [showGalleryPicker, setShowGalleryPicker] = useState(false);
     const [uploadingPhoto, setUploadingPhoto] = useState(false);
     const [removingPhoto, setRemovingPhoto] = useState(null);
+    const [lightboxIndex, setLightboxIndex] = useState(null);
     const cameraInputRef = useRef(null);
     const fileInputRef = useRef(null);
 
@@ -273,11 +275,11 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
 
                     {/* Photos (2026-08-22) — upload direct ou photo déjà dans la galerie de l'annonce */}
                     <div className="flex flex-wrap items-center gap-2 mt-2.5">
-                        {photoUrls.map(url => (
+                        {photoUrls.map((url, index) => (
                             <div key={url} className="relative">
-                                <a href={url} target="_blank" rel="noopener noreferrer">
+                                <button onClick={() => setLightboxIndex(index)} className="block">
                                     <img src={url} alt="Photo de l'étape" className="w-14 h-14 object-cover rounded-lg border border-slate-700" />
-                                </a>
+                                </button>
                                 <button
                                     onClick={() => handleRemovePhoto(url)}
                                     disabled={removingPhoto === url}
@@ -339,6 +341,19 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
                     attached={photoUrls}
                     onPick={(url) => onAttachExistingPhoto(item.id, url)}
                     onClose={() => setShowGalleryPicker(false)}
+                />
+            )}
+
+            {/* Même visionneuse plein écran que la galerie habituelle de l'annonce (navigation
+                précédent/suivant, bouton fermer, touches clavier) — voir ImageGallery.jsx. */}
+            {lightboxIndex != null && (
+                <ImageLightbox
+                    images={photoUrls}
+                    currentIndex={lightboxIndex}
+                    title={item.label}
+                    onNext={() => setLightboxIndex(i => (i + 1) % photoUrls.length)}
+                    onPrev={() => setLightboxIndex(i => (i - 1 + photoUrls.length) % photoUrls.length)}
+                    onClose={() => setLightboxIndex(null)}
                 />
             )}
         </div>

@@ -2,33 +2,80 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Guitar, Maximize2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
+// Visionneuse plein écran (2026-08-22, extraite d'ImageGallery pour être réutilisée ailleurs —
+// ex. photos d'une étape du plan de restauration — avec exactement le même comportement :
+// navigation précédent/suivant, fermeture au clic sur le fond ou sur la croix, touches clavier
+// (Échap/flèches), indicateurs. Contrôlée par le parent (`currentIndex`/`onNext`/`onPrev`/
+// `onClose`) plutôt que de gérer son propre index, pour qu'ImageGallery continue de partager le
+// même état entre vignette et plein écran exactement comme avant cette extraction.
+export const ImageLightbox = ({ images, currentIndex, title, onNext, onPrev, onClose }) => {
+    useEffect(() => {
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = 'unset'; };
+    }, []);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') onClose();
+            if (e.key === 'ArrowRight') onNext(e);
+            if (e.key === 'ArrowLeft') onPrev(e);
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onNext, onPrev, onClose]);
+
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={onClose}>
+            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+                <img
+                    src={images[currentIndex]}
+                    className="max-w-full max-h-full object-contain shadow-2xl"
+                    alt={`${title || 'Photo'} - Plein écran`}
+                />
+
+                {images.length > 1 && (
+                    <>
+                        <button
+                            onClick={onPrev}
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                        >
+                            <ChevronLeft size={48} />
+                        </button>
+                        <button
+                            onClick={onNext}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                        >
+                            <ChevronRight size={48} />
+                        </button>
+                        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
+                            {images.map((_, idx) => (
+                                <div
+                                    key={idx}
+                                    className={`w-2 h-2 rounded-full transition-all ${idx === currentIndex ? 'bg-white scale-125' : 'bg-white/30'}`}
+                                />
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
+
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                }}
+                className="absolute top-4 right-4 z-50 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+            >
+                <X size={32} />
+            </button>
+        </div>,
+        document.body
+    );
+};
+
 const ImageGallery = ({ images, title }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFullScreen, setIsFullScreen] = useState(false);
-
-  // Gestion du scroll body quand le plein écran est actif
-  useEffect(() => {
-    if (isFullScreen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isFullScreen]);
-
-  // Gestion des touches clavier
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (!isFullScreen) return;
-      if (e.key === 'Escape') setIsFullScreen(false);
-      if (e.key === 'ArrowRight') nextImage(e);
-      if (e.key === 'ArrowLeft') prevImage(e);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullScreen, currentIndex, images]);
 
   if (!images || images.length === 0) {
     return (
@@ -69,7 +116,7 @@ const ImageGallery = ({ images, title }) => {
           className="w-full h-full object-contain transition-transform duration-700"
           alt={`${title} - ${currentIndex + 1}`}
         />
-        
+
         {/* Bouton Expand au survol */}
         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white p-1.5 rounded-lg">
             <Maximize2 size={16} />
@@ -77,13 +124,13 @@ const ImageGallery = ({ images, title }) => {
 
         {images.length > 1 && (
           <>
-            <button 
+            <button
               onClick={prevImage}
               className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <ChevronLeft size={20} />
             </button>
-            <button 
+            <button
               onClick={nextImage}
               className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
             >
@@ -91,8 +138,8 @@ const ImageGallery = ({ images, title }) => {
             </button>
             <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
               {images.map((_, idx) => (
-                <div 
-                  key={idx} 
+                <div
+                  key={idx}
                   className={`w-1.5 h-1.5 rounded-full ${idx === currentIndex ? 'bg-white' : 'bg-white/50'}`}
                 />
               ))}
@@ -102,52 +149,15 @@ const ImageGallery = ({ images, title }) => {
       </div>
 
       {/* Mode Plein Écran */}
-      {isFullScreen && createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200" onClick={() => setIsFullScreen(false)}>
-            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-                <img
-                    src={images[currentIndex]}
-                    className="max-w-full max-h-full object-contain shadow-2xl"
-                    alt={`${title} - Fullscreen`}
-                />
-
-                {images.length > 1 && (
-                    <>
-                        <button 
-                            onClick={prevImage}
-                            className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
-                        >
-                            <ChevronLeft size={48} />
-                        </button>
-                        <button 
-                            onClick={nextImage}
-                            className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
-                        >
-                            <ChevronRight size={48} />
-                        </button>
-                        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
-                            {images.map((_, idx) => (
-                                <div 
-                                    key={idx} 
-                                    className={`w-2 h-2 rounded-full transition-all ${idx === currentIndex ? 'bg-white scale-125' : 'bg-white/30'}`}
-                                />
-                            ))}
-                        </div>
-                    </>
-                )}
-            </div>
-
-            <button 
-                onClick={(e) => {
-                   e.stopPropagation();
-                   setIsFullScreen(false);
-                }}
-                className="absolute top-4 right-4 z-50 text-white/70 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
-            >
-                <X size={32} />
-            </button>
-        </div>,
-        document.body
+      {isFullScreen && (
+        <ImageLightbox
+          images={images}
+          currentIndex={currentIndex}
+          title={title}
+          onNext={nextImage}
+          onPrev={prevImage}
+          onClose={() => setIsFullScreen(false)}
+        />
       )}
     </>
   );
