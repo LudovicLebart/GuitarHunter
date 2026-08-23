@@ -11,6 +11,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 💰 Optimisation IA : tokens, persona luthier, pages narratives (2026-08-23)
+
+*Stratégie complète (Fable) puis revue technique du mécanisme d'élision/rappel photo (Opus) avant tout code : `docs/management/plans/TOKEN_OPTIMIZATION_PLAN.md`. 3 plans séquencés à validation séparée.*
+
+- [ ] **Plan 1 — Réduction de la consommation de tokens** *(en cours)* : Lot A (consigne de concision + `maxOutputTokens`) → Lot B (diagnostic taille des messages Firestore/limite 1 MiB + correctif `toolsUnsupportedRef` collant + instrumentation `usageMetadata`) → Lot C (refs photo + élision non-mutante de l'historique) → Lot D (fonction `request_photo_review`, plafonds, persistance du rappel) → Lot E différé (photos d'annonce chargées à la demande au premier message, après mesure des gains réels).
+- [ ] **Plan 2 — Persona IA "luthier/vendeur référent"** *(backlog, après Plan 1)* : étendre l'addendum système déjà conditionné par `isPurchased` en un vrai bloc d'identité/posture, proactivité via suggestions courtes + nouveaux boutons de prompts prédéfinis, jamais de tour spontané.
+- [ ] **Plan 3 — Pages "histoire de la guitare"** *(backlog, après Plan 1 et 2)* : sous-collection `story/{chapterId}`, génération incrémentale par chapitre (jamais de régénération complète), éditable par l'utilisateur (un chapitre édité n'est jamais régénéré automatiquement), publication via extension du snapshot `shared_deals` existant avec flag privé/public par chapitre — design de la publication à retrancher avec l'utilisateur avant de planifier ce lot en détail.
+
+---
+
 ## 🔍 Vision IA — Détection "besoin de neck reset" (Exploration — 2026-08-14, avancée 2026-08-19)
 
 *Projet satellite, pas encore intégré au pipeline Guitar Hunter. Réflexion R&D complète : [`docs/management/plans/NECK_RESET_VISION_PLAN.md`](plans/NECK_RESET_VISION_PLAN.md). Dataset A collecté à l'échelle (1066 annonces/5974 photos), accès GPU (Dell de MoneyBot) opérationnel, première validation d'inférence réussie (OWLv2, 8/8 détections, VRAM largement suffisante) — détail §7 du plan. Reste à faire, dans l'ordre :*
