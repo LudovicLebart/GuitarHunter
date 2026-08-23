@@ -58,8 +58,13 @@ export const useRestorationPlan = (deal, user) => {
 
     const addItem = useCallback(async (itemData) => {
         if (!active) return;
-        await addRestorationItem(deal.id, user.uid, itemData);
-    }, [active, deal?.id, user]);
+        // `order` calculé ici, sur la liste déjà en mémoire (aucune lecture Firestore
+        // supplémentaire) — sans lui, l'item créé sans `order` redéclenchait le rattrapage
+        // silencieux (backfillRestorationOrder) sur TOUT le plan, effaçant un ordre de
+        // glisser-déposer déjà mis en place par l'utilisateur (bug trouvé en revue, corrigé ici).
+        const order = items.length ? Math.max(...items.map(i => i.order ?? -1)) + 1 : 0;
+        await addRestorationItem(deal.id, user.uid, { ...itemData, order });
+    }, [active, deal?.id, user, items]);
 
     const updateItem = useCallback(async (itemId, patch) => {
         if (!active) return;

@@ -447,13 +447,19 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, userId) => {
 // `source`/`proposedByMessageId` (optionnels, 2026-08-22, Lot B) : une étape appliquée depuis une
 // proposition IA appelle cette même fonction avec `source: 'ai'` — un seul chemin d'écriture pour
 // l'ajout manuel (panneau) et l'ajout proposé (chat), jamais deux logiques parallèles à maintenir.
-export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId }) => {
+// `order` (optionnel, calculé par l'appelant depuis la liste déjà en mémoire — voir
+// useRestorationPlan.js::addItem et useDealChat.js::applyRestorationProposal) : sans lui, un
+// ajout laissait l'item sans `order`, ce qui redéclenchait le rattrapage silencieux
+// (backfillRestorationOrder) sur TOUT le plan à chaque ajout — effaçant de fait un ordre de
+// glisser-déposer déjà mis en place par l'utilisateur (bug trouvé en revue, corrigé ici).
+export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order }) => {
   try {
     const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
     const payload = { label, category, status: 'pending', source, createdAt: new Date() };
     if (estimatedCost != null) payload.estimatedCost = estimatedCost;
     if (notes) payload.notes = notes;
     if (proposedByMessageId) payload.proposedByMessageId = proposedByMessageId;
+    if (order != null) payload.order = order;
     // Retourne l'id du document créé — nécessaire pour rattacher `itemId` au marquage
     // Appliquer/Ignorer de la proposition d'origine (voir useDealChat.js::applyRestorationProposal).
     const docRef = await addDoc(planCollectionRef, payload);

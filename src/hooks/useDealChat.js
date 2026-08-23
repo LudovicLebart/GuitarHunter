@@ -272,6 +272,11 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     const applyRestorationProposal = useCallback(async (message, index) => {
         const proposal = message.restorationProposals?.[index];
         if (!deal?.id || !user || !proposal || getRestorationProposalState(message, index)?.status) return;
+        // `order` calculé sur `restorationItems` déjà en mémoire — même correctif que l'ajout
+        // manuel (useRestorationPlan.js::addItem) : sans lui, l'item créé sans `order`
+        // redéclenchait le rattrapage silencieux sur tout le plan, effaçant un ordre de
+        // glisser-déposer déjà mis en place par l'utilisateur.
+        const order = restorationItems?.length ? Math.max(...restorationItems.map(i => i.order ?? -1)) + 1 : 0;
         const itemId = await addRestorationItem(deal.id, user.uid, {
             label: proposal.label,
             category: proposal.category,
@@ -279,9 +284,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             notes: proposal.justification || null,
             source: 'ai',
             proposedByMessageId: message.id,
+            order,
         });
         await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid, itemId);
-    }, [deal, user]);
+    }, [deal, user, restorationItems]);
 
     const dismissRestorationProposal = useCallback(async (message, index) => {
         if (!deal?.id || !user || getRestorationProposalState(message, index)?.status) return;
