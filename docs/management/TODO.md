@@ -59,6 +59,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔧 Plan de restauration structuré (Plan validé — 2026-08-22)
+
+*Plan détaillé, revu par confrontation Opus (fiabilité) puis Fable (workflow produit) avant code : `docs/management/plans/RESTORATION_PLAN_PLAN.md`. Livraison en 2 lots séquencés.*
+
+- [x] **Lot A — Modèle de données + panneau manuel** *(codé 2026-08-22)* : sous-collection `guitar_deals/{dealId}/restorationPlan`, hook `useRestorationPlan.js`, `RestorationPlanPanel.jsx` (checklist, statuts `pending`/`waiting`/`in_progress`/`done`/`skipped`, coût estimé + réel, marge nette projetée ancrée sur `resale_potential`). Point d'entrée : puce "Restauration X/Y" dans le bloc "Achetée" existant, pas un bouton de plus dans le header. **Reste à faire : valider en conditions réelles.**
+- [x] **Lot B — Propositions IA via function calling** *(codé 2026-08-22)* : `propose_restoration_step` (ajout d'étape uniquement, jamais de modification par l'IA), carte Appliquer/Ignorer, contexte du plan injecté à chaque tour, boutons "Faire le point"/"Préparer l'annonce de revente". **Reste à faire : valider en conditions réelles** (aucun accès Gemini/Firebase depuis l'environnement de dev).
+- [x] **2 passes `/code-review` locales après implémentation (Lot A+B)** *(2026-08-22)* : 9 bugs trouvés et corrigés — `activeView` non réinitialisé si "Acheté" décoché en cours de visite du panneau (corps de modale vide), chat monté systématiquement à l'ouverture de la modale au lieu de paresseusement, troncature des `functionResponse` avant les 5 premiers appels (violait le contrat API), `completedAt` jamais effacé en sortant de `done`, `remainingCost` calculé mais jamais affiché (puce "Reste à payer" ajoutée), id de l'étape jamais retourné par `addRestorationItem` (lien proposition→étape resté vide), prompt rapide perdu silencieusement si un envoi était déjà en cours, session Gemini reconstruite à chaque message au lieu de seulement au changement de statut Acheté. Détail dans `JOURNAL.md`.
+
+---
+
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
 - [/] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19 — les 3 pistes sont codées depuis le 2026-08-17, 2 restent à confirmer en conditions réelles)*

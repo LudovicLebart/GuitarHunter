@@ -115,6 +115,35 @@ Historique de conversation persisté par annonce, écrit **directement par le fr
   - **`addedToGalleryUrl`** (optionnel, 2026-08-21, **champ legacy** — voir `addedToGalleryUrls` ci-dessous) : posé par `markChatMessageAddedToGallery` une fois qu'une photo jointe (`attachedImagePartIndex`) a été ajoutée à `storageImageUrls` de l'annonce via le bouton "Ajouter à la galerie" — état persisté (survit au reload, à un 2e client) servant à la fois d'affichage ("Ajoutée ✓") et de garde anti-doublon.
   - **`attachedImagePartIndices`** (optionnel, tableau, 2026-08-22) : remplace `attachedImagePartIndex` depuis le support de plusieurs photos jointes en un seul message — mêmes index dans `parts`, un par photo. Les messages écrits avant cette date ne portent que l'ancien champ singulier ; **aucune migration** n'a été faite, `getAttachedImagePartIndices()`/`getAddedToGalleryUrl()` (`src/hooks/useDealChat.js`) sont le seul endroit qui connaît l'équivalence singulier→pluriel et doivent rester la seule source de cette conversion (réutilisées par l'affichage et par les gardes anti-doublon — un oubli sur l'une des deux gardes lors de ce changement a été corrigé en revue de code avant merge).
   - **`addedToGalleryUrls`** (optionnel, map `{ "<partIndex>": url }`, 2026-08-22) : remplace `addedToGalleryUrl` pour le même motif — une entrée par photo du message ajoutée à la galerie, indépendante des autres photos du même message.
+  - **`restorationProposals`** (optionnel, tableau, 2026-08-22, Lot B — voir §5.2) : propositions d'ajout d'étape au plan de restauration faites par l'IA via function calling (`propose_restoration_step`) sur ce tour, déjà validées/normalisées (`validateRestorationStepProposal()`, `geminiChatService.js`) — jamais les parts function-call/function-response brutes, qui ne sont jamais persistées ni rejouées dans l'historique (un tour function-call sans texte, s'il était rejoué via `startChat({history})`, risquerait un rejet définitif de la conversation par l'API). Chaque entrée : `{ label, category, estimatedCost, justification }`.
+  - **`restorationProposalStates`** (optionnel, map `{ "<index>": { status: 'applied'|'dismissed', itemId? } }`, 2026-08-22) : état Appliquer/Ignorer de chaque proposition de `restorationProposals`, posé par `markChatMessageRestorationProposalStatus` — persisté sur le message (pas en état React local) pour qu'un reload ne réactive jamais un bouton déjà cliqué. `itemId` référence le document créé dans `restorationPlan` (§5.2) quand `status === 'applied'`.
+
+## 5.2 Plan de restauration (Collection `guitar_deals/{dealId}/restorationPlan`, 2026-08-22)
+Checklist structurée des étapes de réparation/finition d'une annonce achetée, construite manuellement (panneau dédié) et/ou par proposition IA via le chat (Lot B, `propose_restoration_step`) — jamais un champ sur le document `deal` ni dans `aiAnalysis` : les deux chemins d'écriture backend qui remplacent des documents/champs entiers (`.set(data)` sans merge sur le deal complet dans `create_new_deal`, `.update()` qui remplace tout `aiAnalysis`) ne touchent jamais une sous-collection.
+- **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}/restorationPlan/{ITEM_ID}`.
+- **Couverte par les règles Firestore existantes** (même wildcard générique que `chat`) — aucune règle dédiée, aucun déploiement requis.
+- **Réservée aux annonces `isPurchased === true`** (`useRestorationPlan.js` ne s'abonne pas sinon) ; aucun impact sur le pipeline IA backend, qui ne lit jamais cette sous-collection.
+- **Format de donnée** :
+  ```json
+  {
+    "label": "Recoller le binding décollé",
+    "category": "structurel | cosmetique | electronique | quincaillerie | reglage | autre",
+    "status": "pending | waiting | in_progress | done | skipped",
+    "estimatedCost": 40,
+    "actualCost": 45,
+    "notes": "...",
+    "source": "user | ai",
+    "proposedByMessageId": "id du message de chat à l'origine (si source: 'ai')",
+    "createdAt": "Date() (pas serverTimestamp — voir raison ci-dessous)",
+    "updatedAt": "serverTimestamp()",
+    "completedAt": "serverTimestamp(), posé/effacé automatiquement au passage vers/hors du statut 'done'"
+  }
+  ```
+  - **`createdAt` en `new Date()` plutôt que `serverTimestamp()`** : même choix que le chat (§5.1) — `orderBy('createdAt')` + un `serverTimestamp()` non résolu localement (compensation de latence) ferait apparaître un item tout juste ajouté au mauvais endroit puis sauter une fois le serveur confirmé.
+  - **`estimatedCost`/`actualCost`/`notes`** : omis du document si absents (jamais `undefined`, jamais 0 par défaut qui fausserait les totaux), effacés via `deleteField()` sur une mise à jour qui les vide explicitement.
+  - **Totaux** (calculés client-side, `useRestorationPlan.js`, jamais indexés) : `totalEstimatedCost` (tous sauf `skipped`), `remainingCost` (statuts non terminaux : `pending`/`waiting`/`in_progress`), `spentCost` (`actualCost ?? estimatedCost` des items `done`).
+  - **Aucune clé `deals_index`** pour l'instant (pas de filtre/stat par état de restauration) — différé sans coût de migration futur : le jour venu, une clé dotted-path pourra s'ajouter sur le même modèle que `manualClassification`/`mc`.
+  - **Limite assumée** : la sous-collection ne suit pas le cycle de vie du deal (`deleteDeal` ne supprime que le document parent ; une annonce supprimée puis re-scannée sous le même ID Facebook ressuscite l'ancien plan) — même limite déjà vraie pour `chat`.
 
 ## 6. Mise à jour automatique et Lazy Loading du Frontend
 Le Frontend utilise les capacités temps-réel de l'index et charge les détails à la demande.
