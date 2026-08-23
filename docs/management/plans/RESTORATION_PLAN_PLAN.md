@@ -123,4 +123,6 @@ Enrichissements produit (revue Fable) :
 
 ## Statut
 
-✅ **Lot A et Lot B implémentés et poussés sur `dev`** (2026-08-22). Revue de fiabilité (Opus) et revue produit/workflow (Fable) effectuées avant code ; 2 passes `/code-review` locales après implémentation ont trouvé 9 bugs, tous corrigés (voir `JOURNAL.md`). **Non testé en conditions réelles** (pas d'accès Gemini/Firebase depuis cet environnement) — à valider par l'utilisateur.
+✅ **Lot A et Lot B implémentés, poussés sur `dev` et validés en conditions réelles par l'utilisateur** (2026-08-22). Revue de fiabilité (Opus) et revue produit/workflow (Fable) effectuées avant code ; 2 passes `/code-review` locales après implémentation ont trouvé 9 bugs, tous corrigés (voir `JOURNAL.md`).
+
+✅ **Extension (2026-08-22, demande utilisateur après validation)** : réorganisation des étapes par glisser-déposer (`@dnd-kit`, champ `order` avec rattrapage silencieux) + photos par étape (`photoUrls`, upload direct ou sélection dans la galerie existante) + visionneuse plein écran partagée avec la galerie principale (`ImageLightbox`, extrait de `ImageGallery.jsx`) + swipe tactile. **Non testé en conditions réelles**, notamment le comportement tactile (drag-and-drop, swipe) sur un vrai appareil mobile — à valider par l'utilisateur.

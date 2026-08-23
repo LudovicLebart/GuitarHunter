@@ -134,6 +134,8 @@ Checklist structurée des étapes de réparation/finition d'une annonce achetée
     "notes": "...",
     "source": "user | ai",
     "proposedByMessageId": "id du message de chat à l'origine (si source: 'ai')",
+    "order": "number, 2026-08-22 — position d'affichage (glisser-déposer), voir rattrapage ci-dessous",
+    "photoUrls": ["URL Firebase Storage — 2026-08-22, upload direct (préfixe restoration_) ou photo déjà présente dans storageImageUrls du deal"],
     "createdAt": "Date() (pas serverTimestamp — voir raison ci-dessous)",
     "updatedAt": "serverTimestamp()",
     "completedAt": "serverTimestamp(), posé/effacé automatiquement au passage vers/hors du statut 'done'"
@@ -141,6 +143,8 @@ Checklist structurée des étapes de réparation/finition d'une annonce achetée
   ```
   - **`createdAt` en `new Date()` plutôt que `serverTimestamp()`** : même choix que le chat (§5.1) — `orderBy('createdAt')` + un `serverTimestamp()` non résolu localement (compensation de latence) ferait apparaître un item tout juste ajouté au mauvais endroit puis sauter une fois le serveur confirmé.
   - **`estimatedCost`/`actualCost`/`notes`** : omis du document si absents (jamais `undefined`, jamais 0 par défaut qui fausserait les totaux), effacés via `deleteField()` sur une mise à jour qui les vide explicitement.
+  - **`order`** (2026-08-22, réorganisation par glisser-déposer, `@dnd-kit`) : absent sur les items créés avant cette fonctionnalité — **aucune migration explicite**. `useRestorationPlan.js` détecte au chargement si au moins un item d'un plan n'a pas `order` et le rattrape pour TOUS les items d'un coup (`backfillRestorationOrder`, un seul `writeBatch`, selon l'ordre `createdAt` déjà renvoyé par la requête), pour ne jamais mélanger des items ordonnés et non-ordonnés dans la même liste. Le tri d'affichage bascule sur `order` seulement une fois tous les items pourvus ; entre-temps il reste sur `createdAt` (déjà l'ordre correct de la requête).
+  - **`photoUrls`** (2026-08-22, tableau réel, `arrayUnion`/`arrayRemove` — pas un `ArrayUnion` posé sur un objet) : une photo par étape, deux sources possibles pour la même URL finale — upload direct (`storageService.js::uploadRestorationPhotoToDealStorage`, préfixe `restoration_` dans `storage.rules`) ou sélection d'une photo déjà existante dans `storageImageUrls` du deal (aucun nouvel upload). N'alimente jamais automatiquement `storageImageUrls` en retour : une photo de documentation de restauration n'est pas une photo de vente.
   - **Totaux** (calculés client-side, `useRestorationPlan.js`, jamais indexés) : `totalEstimatedCost` (tous sauf `skipped`), `remainingCost` (statuts non terminaux : `pending`/`waiting`/`in_progress`), `spentCost` (`actualCost ?? estimatedCost` des items `done`).
   - **Aucune clé `deals_index`** pour l'instant (pas de filtre/stat par état de restauration) — différé sans coût de migration futur : le jour venu, une clé dotted-path pourra s'ajouter sur le même modèle que `manualClassification`/`mc`.
   - **Limite assumée** : la sous-collection ne suit pas le cycle de vie du deal (`deleteDeal` ne supprime que le document parent ; une annonce supprimée puis re-scannée sous le même ID Facebook ressuscite l'ancien plan) — même limite déjà vraie pour `chat`.
