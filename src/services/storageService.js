@@ -22,3 +22,14 @@ export const uploadChatPhotoToDealStorage = async (dealId, blob, mimeType) => {
   // la main serait en 403 partout (galerie, page de partage publique, chat).
   return getDownloadURL(fileRef);
 };
+
+// Upload une photo prise/choisie directement depuis une étape du plan de restauration
+// (2026-08-22) — même dossier/logique que `uploadChatPhotoToDealStorage`, préfixe `restoration_`
+// (distinct de `chat_` : storage.rules autorise les deux préfixes en écriture côté client, jamais
+// les noms `{i}_{uuid}.jpg` posés par le backend).
+export const uploadRestorationPhotoToDealStorage = async (dealId, blob, mimeType) => {
+  const fileName = `restoration_${Date.now()}_${crypto.randomUUID().slice(0, 8)}.jpg`;
+  const fileRef = ref(storage, `deals/${dealId}/${fileName}`);
+  await uploadBytes(fileRef, blob, { contentType: mimeType });
+  return getDownloadURL(fileRef);
+};

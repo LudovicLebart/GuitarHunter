@@ -1,7 +1,7 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
-  collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit, where, documentId, serverTimestamp, arrayUnion
+  collection, updateDoc, addDoc, deleteDoc, getFirestore, writeBatch,
+  query, orderBy, limit, where, documentId, serverTimestamp, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -496,6 +496,49 @@ export const deleteRestorationItem = async (dealId, userId, itemId) => {
   } catch (error) {
     console.error(`Error deleting restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la suppression de l'étape de restauration.");
+  }
+};
+
+// Assigne un `order` (2026-08-22, réorganisation par glisser-déposer) à TOUS les items d'un coup,
+// selon l'ordre `orderedItems` fourni (déjà trié par `createdAt`, l'ordre de la requête Firestore)
+// — jamais de migration explicite : le premier client qui charge un plan sans `order` (ancien, ou
+// tout juste créé) le rattrape ainsi pour tout le monde en un seul batch, pour ne jamais mélanger
+// des items ordonnés et non-ordonnés dans la même liste. Silencieux (fire-and-forget côté appelant).
+export const backfillRestorationOrder = async (dealId, userId, orderedItems) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const batch = writeBatch(db);
+    orderedItems.forEach((item, index) => {
+      batch.update(doc(planCollectionRef, item.id), { order: index });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error(`Error backfilling restoration order for deal ${dealId}:`, error);
+  }
+};
+
+// Photos par étape (2026-08-22) — tableau réel, `arrayUnion`/`arrayRemove` comme `storageImageUrls`
+// sur le deal (jamais un `ArrayUnion` posé sur un objet, voir l'incident du 2026-08-12 documenté
+// ailleurs). Une URL peut venir d'un upload direct (`storageService.js::uploadRestorationPhotoToDealStorage`)
+// ou d'une photo déjà existante dans la galerie de l'annonce (`deal.storageImageUrls`) — même champ,
+// même fonction d'écriture dans les deux cas.
+export const addRestorationItemPhoto = async (dealId, userId, itemId, url) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await updateDoc(doc(planCollectionRef, itemId), { photoUrls: arrayUnion(url) });
+  } catch (error) {
+    console.error(`Error adding photo to restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de la photo à l'étape.");
+  }
+};
+
+export const removeRestorationItemPhoto = async (dealId, userId, itemId, url) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await updateDoc(doc(planCollectionRef, itemId), { photoUrls: arrayRemove(url) });
+  } catch (error) {
+    console.error(`Error removing photo from restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors du retrait de la photo de l'étape.");
   }
 };
 

@@ -6,7 +6,8 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     // Photos d'annonces (backend Python : deals/{dealId}/{i}_{uuid}.jpg via make_public() ;
-    // client Web, chat Gemini, 2026-08-21 : deals/{dealId}/chat_{timestamp}_{uuid}.jpg).
+    // client Web, chat Gemini, 2026-08-21 : deals/{dealId}/chat_{timestamp}_{uuid}.jpg ; plan de
+    // restauration, 2026-08-22 : deals/{dealId}/restoration_{timestamp}_{uuid}.jpg).
     //
     // `dealId` n'est PAS cloisonné par utilisateur (c'est l'ID de l'annonce marketplace, identique
     // pour deux utilisateurs qui scannent la même annonce) — un cloisonnement par propriétaire
@@ -17,12 +18,13 @@ service firebase.storage {
     // Firestore, seul `storageImageUrls` de SON document `guitar_deals/{dealId}` étant modifiable).
     match /deals/{dealId}/{fileName} {
       allow read: if true;
-      // Seule la création est permise côté client, et seulement pour les fichiers issus du chat
-      // (préfixe `chat_`, jamais les {i}_{uuid}.jpg posés par le backend) — écrase-t-elle jamais un
-      // fichier existant ? Non : create échoue si l'objet existe déjà, ce qui est le comportement
-      // voulu (une image du backend ne peut jamais être remplacée depuis le client).
+      // Seule la création est permise côté client, et seulement pour les fichiers issus du chat ou
+      // du plan de restauration (préfixes `chat_`/`restoration_`, jamais les {i}_{uuid}.jpg posés
+      // par le backend) — écrase-t-elle jamais un fichier existant ? Non : create échoue si l'objet
+      // existe déjà, ce qui est le comportement voulu (une image du backend ne peut jamais être
+      // remplacée depuis le client).
       allow create: if request.auth != null
-        && fileName.matches('chat_.*')
+        && fileName.matches('(chat|restoration)_.*')
         && request.resource.size < 5 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
       allow update, delete: if false;
