@@ -364,10 +364,24 @@ const FAIRE_LE_POINT_PROMPT = "Fais le point sur l'état actuel de la restaurati
 const PREPARER_ANNONCE_PROMPT = "Rédige une description d'annonce Marketplace pour revendre cette guitare, en valorisant les travaux de restauration effectués.";
 // "Conseil d'atelier" (2026-08-23, Plan 2) : contrairement à "Demander conseil" (par item,
 // RestorationItem::onAskInChat, un brouillon éditable avant envoi), ce bouton cible directement
-// l'étape EN COURS sans repasser par un choix manuel — envoi immédiat (autoSend), même mécanisme
-// que "Faire le point"/"Préparer l'annonce".
-const buildAtelierAdvicePrompt = (item) =>
-    `Donne-moi un conseil d'atelier concret pour l'étape en cours, "${item.label}" (${CATEGORY_LABELS[item.category] || item.category}) : comment procéder, dans quel ordre, et les pièges à éviter.`;
+// l'étape la plus pertinente sans repasser par un choix manuel — envoi immédiat (autoSend), même
+// mécanisme que "Faire le point"/"Préparer l'annonce". Le libellé du bouton ET le texte du prompt
+// reflètent le VRAI statut de l'item choisi (in_progress / waiting / pending) — corrigé en revue :
+// une version antérieure disait systématiquement "en cours" même pour l'étape de repli
+// pending/waiting, ce qui faussait la prémisse donnée à Gemini (le persona, instruit de trancher
+// avec assurance, aurait pu répondre "continue ce que tu fais" à une étape jamais commencée ou
+// explicitement bloquée).
+const ATELIER_STEP_PHRASING = {
+    in_progress: { button: "l'étape en cours", prompt: "l'étape EN COURS (déjà commencée)" },
+    waiting: { button: "l'étape en attente", prompt: "l'étape EN ATTENTE (bloquée, pas encore commencée)" },
+    pending: { button: "la prochaine étape", prompt: "la PROCHAINE étape à faire (pas encore commencée)" },
+};
+const DEFAULT_ATELIER_PHRASING = { button: 'cette étape', prompt: 'cette étape' };
+
+const buildAtelierAdvicePrompt = (item) => {
+    const { prompt: statusPhrase } = ATELIER_STEP_PHRASING[item.status] ?? DEFAULT_ATELIER_PHRASING;
+    return `Donne-moi un conseil d'atelier concret pour ${statusPhrase}, "${item.label}" (${CATEGORY_LABELS[item.category] || item.category}) : comment procéder, dans quel ordre, et les pièges à éviter.`;
+};
 
 const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }) => {
     const { items, loading, error, addItem, updateItem, deleteItem, reorderItems, addPhoto, attachExistingPhoto, removePhoto, totals } = plan;
@@ -478,7 +492,7 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }
                             onClick={() => onQuickPrompt(buildAtelierAdvicePrompt(currentStep))}
                             className="flex items-center gap-1.5 text-xs font-bold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg px-3 py-1.5 transition-colors"
                         >
-                            <Sparkles size={12} /> Conseil d'atelier sur l'étape en cours
+                            <Sparkles size={12} /> Conseil d'atelier sur {(ATELIER_STEP_PHRASING[currentStep.status] ?? DEFAULT_ATELIER_PHRASING).button}
                         </button>
                     )}
                 </div>
