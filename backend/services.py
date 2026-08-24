@@ -2,9 +2,23 @@ from dataclasses import dataclass, field
 import logging
 import schedule
 import time
-from typing import Optional, Callable, List, Dict, Any
+from typing import Optional, Callable, List, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Modulation de la fréquence de scan (2026-08-24, diagnostic blocages anti-bot) — un cycle
+# déclenché à un intervalle parfaitement constant (ex: exactement toutes les 60 minutes, sans
+# jamais dévier) est en soi un signal robotique, indépendamment du contenu des requêtes. `schedule`
+# supporte nativement un intervalle aléatoire par occurrence (`every(a).to(b).minutes` — re-tiré au
+# hasard après chaque exécution), pas besoin de gérer le jitter nous-mêmes.
+SCAN_FREQUENCY_JITTER_RATIO = 0.2
+
+
+def _jittered_bounds(frequency_minutes: int) -> Tuple[int, int]:
+    """Bornes (min, max) en minutes autour de `frequency_minutes`, ±SCAN_FREQUENCY_JITTER_RATIO."""
+    low = max(1, round(frequency_minutes * (1 - SCAN_FREQUENCY_JITTER_RATIO)))
+    high = max(low + 1, round(frequency_minutes * (1 + SCAN_FREQUENCY_JITTER_RATIO)))
+    return low, high
 
 @dataclass
 class Command:
@@ -86,8 +100,9 @@ class TaskScheduler:
 
     def _setup_schedules(self):
         """Configure les tâches planifiées initiales."""
-        logger.info(f"Scheduling scan every {self.scan_frequency} minutes.")
-        schedule.every(self.scan_frequency).minutes.do(self.scan_func).tag('scan')
+        low, high = _jittered_bounds(self.scan_frequency)
+        logger.info(f"Scheduling scan every {low}-{high} minutes (base {self.scan_frequency}, jitter ±{int(SCAN_FREQUENCY_JITTER_RATIO * 100)}%).")
+        schedule.every(low).to(high).minutes.do(self.scan_func).tag('scan')
         schedule.every(6).hours.do(self.cleanup_func)
         if self.purge_func:
             schedule.every().week.do(self.purge_func)
@@ -102,5 +117,6 @@ class TaskScheduler:
         if new_frequency != self.scan_frequency:
             self.scan_frequency = new_frequency
             schedule.clear('scan')
-            schedule.every(self.scan_frequency).minutes.do(self.scan_func).tag('scan')
-            logger.info(f"Rescheduled scan to every {self.scan_frequency} minutes.")
+            low, high = _jittered_bounds(self.scan_frequency)
+            schedule.every(low).to(high).minutes.do(self.scan_func).tag('scan')
+            logger.info(f"Rescheduled scan to every {low}-{high} minutes (base {self.scan_frequency}, jitter ±{int(SCAN_FREQUENCY_JITTER_RATIO * 100)}%).")

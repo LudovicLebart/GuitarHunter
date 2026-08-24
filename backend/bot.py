@@ -2,6 +2,7 @@ import time
 import re
 import unicodedata
 import threading
+import random
 import logging
 import requests
 from firebase_admin import firestore
@@ -505,7 +506,16 @@ class GuitarHunterBot:
             "out_of_budget": 0, "processed": 0,
         }
 
-        for city_data in cities_to_scan:
+        # Ordre de scan mélangé (2026-08-24, diagnostic blocages anti-bot) — copie locale
+        # indépendante : `cities_to_scan` est le MÊME objet passé à `_run_kijiji_scan()`,
+        # exécuté en parallèle dans un autre thread (voir `_run_sources_in_parallel()`), donc
+        # jamais mélangé en place (ça ferait courir les deux threads sur une liste mutée sous
+        # leurs pieds). Scanner toujours dans le même ordre est en soi un signal robotique,
+        # indépendamment du contenu des requêtes.
+        shuffled_cities = list(cities_to_scan)
+        random.shuffle(shuffled_cities)
+
+        for city_data in shuffled_cities:
             if self._is_stop_requested():
                 self.logger.info("🛑 Interruption de la boucle des villes (Facebook).")
                 break
