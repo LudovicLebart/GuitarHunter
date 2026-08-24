@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-    onDealChatUpdate, addDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
+    onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
 } from '../services/firestoreService';
 import {
@@ -209,6 +209,13 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // construction (voir plus bas) — mémorisé pour ne pas repayer l'échec à chaque message une
     // fois détecté sur cette session.
     const toolsUnsupportedRef = useRef(false);
+    // Tour (parts réelles, avec inlineData) du DERNIER échec — seul moyen de rejouer un retry à
+    // l'identique : `parts` n'est jamais entièrement reconstructible depuis Firestore (les photos
+    // de l'annonce du tout premier message y sont volontairement remplacées par un texte
+    // placeholder, voir `persistedParts` plus bas). Un seul emplacement (pas une pile) : un nouvel
+    // envoi ou un retry réussi l'efface, un nouvel échec l'écrase. `errorMessageId` garde le retry
+    // honnête après un reload de page (le ref repart à `null`, le bouton n'a alors plus rien à rejouer).
+    const lastFailedTurnRef = useRef(null);
 
     useEffect(() => {
         if (!deal?.id || !user) return;
@@ -230,6 +237,196 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         }, (e) => { setError(e.message); setLoading(false); }, user.uid);
         return () => unsubscribe();
     }, [deal?.id, user, modelName]);
+
+    // Cœur commun d'un tour de chat (appel Gemini + cascade functionCalls/rappel de photo/
+    // propositions de restauration + persistance) — factorisé (2026-08-24, bouton "Réessayer")
+    // depuis le corps historique de `sendMessage` : sans ce partage, la cascade complète devrait
+    // être dupliquée entre un envoi normal et un retry, avec le risque de les faire diverger (même
+    // raison que `buildRestorationProposalsFromCalls` plus haut). `replaceMessageId` (présent
+    // uniquement pour un retry) fait REMPLACER ce message existant (succès ou nouvel échec) au lieu
+    // d'en créer un nouveau — deux tours 'model' consécutifs casseraient l'alternance stricte
+    // qu'exige `sanitizeHistory` sur tout envoi suivant.
+    const executeTurn = useCallback(async (chat, parts, { withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages, replaceMessageId }) => {
+        try {
+            let result;
+            try {
+                result = await chat.sendMessage(parts);
+                logTokenUsage('tour principal', result.response);
+            } catch (sendError) {
+                // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
+                // la construction du modèle) — on retente une fois sans tools depuis le même
+                // historique assaini, sans re-persister le tour utilisateur déjà écrit ci-dessus
+                // (sinon doublon cassant l'alternance user/model requise par sanitizeHistory).
+                // Désactivation DURABLE (`toolsUnsupportedRef`, désactive withRestorationTools ET
+                // withPhotoRecall pour le reste de la session) seulement si l'erreur ressemble
+                // vraiment à un rejet du function calling (voir looksLikeToolsUnsupportedError) —
+                // toute autre erreur (réseau, 503, timeout) ne fait un repli que pour CE tour, les
+                // tools restent actifs pour les suivants (bug trouvé en revue : avant ce correctif,
+                // n'importe quelle erreur transitoire éteignait les tools pour le reste de la
+                // session, sans aucun signal).
+                if (withRestorationTools || withPhotoRecall) {
+                    const sticky = looksLikeToolsUnsupportedError(sendError);
+                    console.error(`Échec avec function calling actif, repli sans tools ${sticky ? '(désactivés durablement — modèle sans support détecté)' : '(ponctuel, tools restent actifs pour les prochains tours)'}:`, sendError);
+                    if (sticky) toolsUnsupportedRef.current = true;
+                    chat = getDealChatModel(modelName, { withRestorationTools: false, withPhotoRecall: false })
+                        .startChat({ history: buildApiHistory(historyMessages, { elide: false, photoRefIndex }) });
+                    chatRef.current = chat;
+                    chatToolsRef.current = toolsSignature(false, false);
+                    result = await chat.sendMessage(parts);
+                    logTokenUsage('tour principal (repli sans tools)', result.response);
+                } else {
+                    throw sendError;
+                }
+            }
+
+            // Un tour function-call ne porte aucun texte (`.text()` renverrait '') — jamais
+            // persister une part texte vide dans l'historique (rejouée telle quelle au prochain
+            // `startChat({history})`, elle risquerait un rejet définitif de la conversation par
+            // l'API). On renvoie donc une functionResponse factice dans la même session pour
+            // obtenir un vrai texte de suite avant toute écriture Firestore.
+            const calls = result.response.functionCalls?.() || [];
+            const photoRecallCalls = calls.filter(call => call.name === 'request_photo_review');
+            let responseText;
+            let restorationProposals;
+            let photoRecall;
+
+            if (photoRecallCalls.length) {
+                // Alternative C (revue Opus) — mixer functionResponse + inlineData dans le même
+                // sendMessage() est IMPOSSIBLE côté SDK (AIError INVALID_CONTENT). On abandonne donc
+                // ce résultat et on rejoue le MÊME tour utilisateur, augmenté des photos demandées,
+                // sur une session fraîche reconstruite depuis l'historique d'AVANT ce tour — SANS le
+                // tool de rappel (empêche structurellement un 2e rappel dans le même tour, la
+                // fonction n'est simplement plus déclarée sur cette session).
+                const requestedRefs = [...new Set(photoRecallCalls.flatMap(call =>
+                    Array.isArray(call.args?.photo_refs) ? call.args.photo_refs.filter(r => typeof r === 'string') : []
+                ))];
+                const cappedRefs = requestedRefs.slice(0, MAX_RECALLED_PHOTOS_PER_TURN);
+                const truncatedCount = requestedRefs.length - cappedRefs.length;
+                const { parts: photoParts, missing } = await resolvePhotoRefs(cappedRefs, photoRefIndex, historyMessages);
+
+                if (photoParts.length) {
+                    // Deux catégories distinctes, jamais mélangées dans une seule phrase (bug trouvé
+                    // en revue — un texte ambigu risquait de faire confondre au modèle "à
+                    // redemander plus tard" (plafonné ce tour-ci) et "n'existe pas" (réellement
+                    // introuvable/irrécupérable).
+                    const noteSegments = ['[Photos demandées ci-jointes.'];
+                    if (missing.length) noteSegments.push(` Introuvables (référence invalide ou photo non récupérable, ne redemande pas celles-ci) : ${missing.join(', ')}.`);
+                    if (truncatedCount > 0) noteSegments.push(` ${truncatedCount} référence(s) en plus du plafond de ${MAX_RECALLED_PHOTOS_PER_TURN}/tour n'ont pas été traitées cette fois — redemande-les séparément si tu en as toujours besoin.`);
+                    noteSegments.push(']');
+                    const noteLines = [noteSegments.join('')];
+                    const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false })
+                        .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
+                    const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
+                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response);
+                    chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
+                    chatToolsRef.current = toolsSignature(false, withRestorationTools);
+                    photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };
+
+                    const replayCalls = replayResult.response.functionCalls?.() || [];
+                    if (replayCalls.length) {
+                        // Le tour rejoué peut lui-même proposer une étape/un réordonnancement (jamais
+                        // un 2e rappel de photo, plus déclaré sur cette session) — traité normalement.
+                        restorationProposals = buildRestorationProposalsFromCalls(replayCalls);
+                        const functionResponseParts2 = replayCalls.map(call => ({
+                            functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                        }));
+                        const followUp2 = await replaySession.sendMessage(functionResponseParts2);
+                        logTokenUsage('tour de suite (après rappel photo)', followUp2.response);
+                        responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                    } else {
+                        responseText = replayResult.response.text()?.trim() || "…";
+                    }
+                } else {
+                    // Aucune ref valide/récupérable — pas de rejeu (coûterait une génération pour
+                    // rien) : réponse via le chemin functionResponse classique avec un statut
+                    // d'erreur explicite. Les éventuels autres appels du même tour (ex: une
+                    // proposition de restauration mêlée au même tour) sont traités normalement.
+                    restorationProposals = buildRestorationProposalsFromCalls(calls);
+                    const functionResponseParts = calls.map(call => ({
+                        functionResponse: {
+                            name: call.name,
+                            response: call.name === 'request_photo_review'
+                                ? { status: 'error', message: `Aucune de ces références n'existe ou n'est récupérable (${missing.join(', ')}). Réponds avec ce que tu sais déjà, sans mentionner cette erreur technique.` }
+                                : { status: 'proposal_shown_to_user_pending_confirmation' },
+                        },
+                    }));
+                    const followUp = await chat.sendMessage(functionResponseParts);
+                    logTokenUsage('tour de suite (rappel photo invalide)', followUp.response);
+                    // Le modèle peut réagir à l'erreur en proposant une étape/un réordonnancement
+                    // dans ce même tour de suite (bug trouvé en revue — ce chemin ignorait
+                    // silencieusement ce cas, contrairement au chemin "rappel réussi" ci-dessus qui
+                    // le traite déjà) — même filet : on répond à CES appels avant de considérer le
+                    // tour terminé, sinon la proposition est perdue et la bulle persiste vide.
+                    const followUpCalls = followUp.response.functionCalls?.() || [];
+                    if (followUpCalls.length) {
+                        restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                        const functionResponseParts2 = followUpCalls.map(call => ({
+                            functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                        }));
+                        const followUp2 = await chat.sendMessage(functionResponseParts2);
+                        logTokenUsage('tour de suite (après erreur rappel photo)', followUp2.response);
+                        responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                    } else {
+                        responseText = followUp.response.text()?.trim() || "…";
+                    }
+                }
+            } else if (calls.length) {
+                // Répond à TOUS les appels de ce tour — l'API exige une functionResponse par
+                // functionCall, un appariement incomplet risque un rejet du tour entier. Seul
+                // l'AFFICHAGE (les propositions montrées à l'utilisateur) est plafonné, pas la
+                // réponse à l'API. La résolution complète des refs de réordonnancement contre
+                // l'état courant (voir resolveRestorationReorderProposal) est différée au
+                // rendu/à l'application — ici on ne valide que la forme.
+                restorationProposals = buildRestorationProposalsFromCalls(calls);
+                const functionResponseParts = calls.map(call => ({
+                    functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                }));
+                const followUp = await chat.sendMessage(functionResponseParts);
+                logTokenUsage('tour de suite (functionResponse)', followUp.response);
+                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition d'étape ci-dessous.";
+            } else {
+                responseText = result.response.text()?.trim() || "…";
+            }
+
+            if (replaceMessageId) {
+                await replaceDealChatMessage(deal.id, replaceMessageId, {
+                    parts: [{ text: responseText }], displayText: responseText,
+                    restorationProposals, photoRecall, isError: false,
+                }, user.uid);
+            } else {
+                await addDealChatMessage(
+                    deal.id, 'model', [{ text: responseText }], responseText, user.uid,
+                    undefined, restorationProposals?.length ? restorationProposals : undefined, photoRecall
+                );
+            }
+            lastFailedTurnRef.current = null;
+        } catch (e) {
+            console.error('Erreur chat Gemini:', e);
+            setError(e.message || "Erreur lors de l'envoi du message.");
+            // Toujours apparier une réponse (même un placeholder d'erreur) au tour utilisateur
+            // déjà sauvegardé — sinon l'alternance user/model requise par l'API casse tous les
+            // envois suivants sur cette conversation (voir note d'auto-réparation ci-dessus).
+            // Détail technique de l'erreur inclus dans le texte (2026-08-24) : rend la bulle
+            // auto-suffisante pour diagnostiquer une prochaine occurrence (copiable via le bouton
+            // "Copier"), sans avoir à retrouver/retaper l'erreur brute de la console.
+            const errorText = `⚠️ Erreur lors de la génération de la réponse.\n[détail technique : ${e.message || 'erreur inconnue'}]`;
+            try {
+                if (replaceMessageId) {
+                    await replaceDealChatMessage(deal.id, replaceMessageId, {
+                        parts: [{ text: errorText }], displayText: errorText, isError: true,
+                    }, user.uid);
+                    lastFailedTurnRef.current = { errorMessageId: replaceMessageId, parts };
+                } else {
+                    const newId = await addDealChatMessage(deal.id, 'model', [{ text: errorText }], errorText, user.uid, undefined, undefined, undefined, true);
+                    lastFailedTurnRef.current = { errorMessageId: newId, parts };
+                }
+            } catch (e2) {
+                console.error("Erreur sauvegarde du message d'erreur:", e2);
+            }
+        } finally {
+            setSending(false);
+        }
+    }, [deal, user, modelName]);
 
     // `imageFiles` (optionnel, 2026-08-01, tableau depuis 2026-08-22) : photo(s) jointe(s) depuis
     // le chat (prises sur place ou choisies dans la galerie) — envoyer un message avec des images
@@ -342,166 +539,46 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             return;
         }
 
+        await executeTurn(chat, parts, { withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages: messages });
+    }, [deal, user, messages, sending, restorationItems, modelName, executeTurn]);
+
+    // Bouton "Réessayer" sur une bulle d'erreur (2026-08-24) — ne fonctionne que pour le DERNIER
+    // échec de cette session (voir lastFailedTurnRef) : les vraies `parts` envoyées à l'API
+    // (photos incluses) ne sont pas entièrement reconstructibles depuis Firestore, donc un reload
+    // de page ou un échec plus ancien n'a rien à rejouer — le bouton reste alors inopérant plutôt
+    // que d'envoyer une requête dégradée (ex: sans les photos de l'annonce).
+    // L'historique rejoué (`historyMessages`) exclut le tour utilisateur retenté ET son placeholder
+    // d'erreur — recalculé depuis `messages` COURANT (pas mis en cache), pour ne jamais rejouer un
+    // historique périmé si d'autres messages ont été échangés entretemps sur un onglet différent.
+    const retryMessage = useCallback(async (messageId) => {
+        const cached = lastFailedTurnRef.current;
+        if (!cached || cached.errorMessageId !== messageId || sending || !deal?.id || !user) return;
+        const errorIndex = messages.findIndex(m => m.id === messageId);
+        if (errorIndex < 1 || messages[errorIndex - 1]?.role !== 'user') return;
+        const historyMessages = messages.slice(0, errorIndex - 1);
+
+        setSending(true);
+        setError(null);
+        const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+        const withPhotoRecall = !toolsUnsupportedRef.current;
+        const photoRefIndex = buildPhotoRefIndex(deal, messages);
+        let chat;
         try {
-            let result;
-            try {
-                result = await chat.sendMessage(parts);
-                logTokenUsage('tour principal', result.response);
-            } catch (sendError) {
-                // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
-                // la construction du modèle) — on retente une fois sans tools depuis le même
-                // historique assaini, sans re-persister le tour utilisateur déjà écrit ci-dessus
-                // (sinon doublon cassant l'alternance user/model requise par sanitizeHistory).
-                // Désactivation DURABLE (`toolsUnsupportedRef`, désactive withRestorationTools ET
-                // withPhotoRecall pour le reste de la session) seulement si l'erreur ressemble
-                // vraiment à un rejet du function calling (voir looksLikeToolsUnsupportedError) —
-                // toute autre erreur (réseau, 503, timeout) ne fait un repli que pour CE tour, les
-                // tools restent actifs pour les suivants (bug trouvé en revue : avant ce correctif,
-                // n'importe quelle erreur transitoire éteignait les tools pour le reste de la
-                // session, sans aucun signal).
-                if (withRestorationTools || withPhotoRecall) {
-                    const sticky = looksLikeToolsUnsupportedError(sendError);
-                    console.error(`Échec avec function calling actif, repli sans tools ${sticky ? '(désactivés durablement — modèle sans support détecté)' : '(ponctuel, tools restent actifs pour les prochains tours)'}:`, sendError);
-                    if (sticky) toolsUnsupportedRef.current = true;
-                    chatRef.current = getDealChatModel(modelName, { withRestorationTools: false, withPhotoRecall: false })
-                        .startChat({ history: buildApiHistory(messages, { elide: false, photoRefIndex }) });
-                    chatToolsRef.current = toolsSignature(false, false);
-                    result = await chatRef.current.sendMessage(parts);
-                    logTokenUsage('tour principal (repli sans tools)', result.response);
-                } else {
-                    throw sendError;
-                }
-            }
-
-            // Un tour function-call ne porte aucun texte (`.text()` renverrait '') — jamais
-            // persister une part texte vide dans l'historique (rejouée telle quelle au prochain
-            // `startChat({history})`, elle risquerait un rejet définitif de la conversation par
-            // l'API). On renvoie donc une functionResponse factice dans la même session pour
-            // obtenir un vrai texte de suite avant toute écriture Firestore.
-            const calls = result.response.functionCalls?.() || [];
-            const photoRecallCalls = calls.filter(call => call.name === 'request_photo_review');
-            let responseText;
-            let restorationProposals;
-            let photoRecall;
-
-            if (photoRecallCalls.length) {
-                // Alternative C (revue Opus) — mixer functionResponse + inlineData dans le même
-                // sendMessage() est IMPOSSIBLE côté SDK (AIError INVALID_CONTENT). On abandonne donc
-                // ce résultat et on rejoue le MÊME tour utilisateur, augmenté des photos demandées,
-                // sur une session fraîche reconstruite depuis l'historique d'AVANT ce tour — SANS le
-                // tool de rappel (empêche structurellement un 2e rappel dans le même tour, la
-                // fonction n'est simplement plus déclarée sur cette session).
-                const requestedRefs = [...new Set(photoRecallCalls.flatMap(call =>
-                    Array.isArray(call.args?.photo_refs) ? call.args.photo_refs.filter(r => typeof r === 'string') : []
-                ))];
-                const cappedRefs = requestedRefs.slice(0, MAX_RECALLED_PHOTOS_PER_TURN);
-                const truncatedCount = requestedRefs.length - cappedRefs.length;
-                const { parts: photoParts, missing } = await resolvePhotoRefs(cappedRefs, photoRefIndex, messages);
-
-                if (photoParts.length) {
-                    // Deux catégories distinctes, jamais mélangées dans une seule phrase (bug trouvé
-                    // en revue — un texte ambigu risquait de faire confondre au modèle "à
-                    // redemander plus tard" (plafonné ce tour-ci) et "n'existe pas" (réellement
-                    // introuvable/irrécupérable).
-                    const noteSegments = ['[Photos demandées ci-jointes.'];
-                    if (missing.length) noteSegments.push(` Introuvables (référence invalide ou photo non récupérable, ne redemande pas celles-ci) : ${missing.join(', ')}.`);
-                    if (truncatedCount > 0) noteSegments.push(` ${truncatedCount} référence(s) en plus du plafond de ${MAX_RECALLED_PHOTOS_PER_TURN}/tour n'ont pas été traitées cette fois — redemande-les séparément si tu en as toujours besoin.`);
-                    noteSegments.push(']');
-                    const noteLines = [noteSegments.join('')];
-                    const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false })
-                        .startChat({ history: buildApiHistory(messages, { elide: withPhotoRecall, photoRefIndex }) });
-                    const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
-                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response);
-                    chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
-                    chatToolsRef.current = toolsSignature(false, withRestorationTools);
-                    photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };
-
-                    const replayCalls = replayResult.response.functionCalls?.() || [];
-                    if (replayCalls.length) {
-                        // Le tour rejoué peut lui-même proposer une étape/un réordonnancement (jamais
-                        // un 2e rappel de photo, plus déclaré sur cette session) — traité normalement.
-                        restorationProposals = buildRestorationProposalsFromCalls(replayCalls);
-                        const functionResponseParts2 = replayCalls.map(call => ({
-                            functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
-                        }));
-                        const followUp2 = await replaySession.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après rappel photo)', followUp2.response);
-                        responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
-                    } else {
-                        responseText = replayResult.response.text()?.trim() || "…";
-                    }
-                } else {
-                    // Aucune ref valide/récupérable — pas de rejeu (coûterait une génération pour
-                    // rien) : réponse via le chemin functionResponse classique avec un statut
-                    // d'erreur explicite. Les éventuels autres appels du même tour (ex: une
-                    // proposition de restauration mêlée au même tour) sont traités normalement.
-                    restorationProposals = buildRestorationProposalsFromCalls(calls);
-                    const functionResponseParts = calls.map(call => ({
-                        functionResponse: {
-                            name: call.name,
-                            response: call.name === 'request_photo_review'
-                                ? { status: 'error', message: `Aucune de ces références n'existe ou n'est récupérable (${missing.join(', ')}). Réponds avec ce que tu sais déjà, sans mentionner cette erreur technique.` }
-                                : { status: 'proposal_shown_to_user_pending_confirmation' },
-                        },
-                    }));
-                    const followUp = await chat.sendMessage(functionResponseParts);
-                    logTokenUsage('tour de suite (rappel photo invalide)', followUp.response);
-                    // Le modèle peut réagir à l'erreur en proposant une étape/un réordonnancement
-                    // dans ce même tour de suite (bug trouvé en revue — ce chemin ignorait
-                    // silencieusement ce cas, contrairement au chemin "rappel réussi" ci-dessus qui
-                    // le traite déjà) — même filet : on répond à CES appels avant de considérer le
-                    // tour terminé, sinon la proposition est perdue et la bulle persiste vide.
-                    const followUpCalls = followUp.response.functionCalls?.() || [];
-                    if (followUpCalls.length) {
-                        restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
-                        const functionResponseParts2 = followUpCalls.map(call => ({
-                            functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
-                        }));
-                        const followUp2 = await chat.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après erreur rappel photo)', followUp2.response);
-                        responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
-                    } else {
-                        responseText = followUp.response.text()?.trim() || "…";
-                    }
-                }
-            } else if (calls.length) {
-                // Répond à TOUS les appels de ce tour — l'API exige une functionResponse par
-                // functionCall, un appariement incomplet risque un rejet du tour entier. Seul
-                // l'AFFICHAGE (les propositions montrées à l'utilisateur) est plafonné, pas la
-                // réponse à l'API. La résolution complète des refs de réordonnancement contre
-                // l'état courant (voir resolveRestorationReorderProposal) est différée au
-                // rendu/à l'application — ici on ne valide que la forme.
-                restorationProposals = buildRestorationProposalsFromCalls(calls);
-                const functionResponseParts = calls.map(call => ({
-                    functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
-                }));
-                const followUp = await chat.sendMessage(functionResponseParts);
-                logTokenUsage('tour de suite (functionResponse)', followUp.response);
-                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition d'étape ci-dessous.";
-            } else {
-                responseText = result.response.text()?.trim() || "…";
-            }
-
-            await addDealChatMessage(
-                deal.id, 'model', [{ text: responseText }], responseText, user.uid,
-                undefined, restorationProposals?.length ? restorationProposals : undefined, photoRecall
-            );
+            chat = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall })
+                .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
+            chatRef.current = chat;
+            chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools);
         } catch (e) {
-            console.error('Erreur chat Gemini:', e);
-            setError(e.message || "Erreur lors de l'envoi du message.");
-            // Toujours apparier une réponse (même un placeholder d'erreur) au tour utilisateur
-            // déjà sauvegardé — sinon l'alternance user/model requise par l'API casse tous les
-            // envois suivants sur cette conversation (voir note d'auto-réparation ci-dessus).
-            const errorText = "⚠️ Erreur lors de la génération de la réponse. Réessaie.";
-            try {
-                await addDealChatMessage(deal.id, 'model', [{ text: errorText }], errorText, user.uid);
-            } catch (e2) {
-                console.error("Erreur sauvegarde du message d'erreur:", e2);
-            }
-        } finally {
+            console.error('Erreur reconstruction de session Gemini (retry):', e);
+            setError(e.message);
             setSending(false);
+            return;
         }
-    }, [deal, user, messages, sending, restorationItems, modelName]);
+
+        await executeTurn(chat, cached.parts, {
+            withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages, replaceMessageId: messageId,
+        });
+    }, [deal, user, messages, sending, modelName, executeTurn]);
 
     // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
     // envoyé (2026-08-21, étendu 2026-08-22 pour cibler une photo précise parmi plusieurs par
@@ -568,7 +645,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     }, [deal, user]);
 
     return {
-        messages, loading, sending, error, sendMessage, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
     };
 };

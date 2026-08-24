@@ -376,7 +376,7 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // affichée en carte sous la bulle. Retourne l'id du document créé (aucun appelant ne le capture
 // aujourd'hui — `message.id` du listener Firestore suffit pour `proposedByMessageId`/le marquage
 // Appliquer/Ignorer, une fois le message déjà visible côté client — gardé pour un futur usage).
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall) => {
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall, isError) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     const payload = { role, parts, displayText, createdAt: new Date() };
@@ -386,11 +386,37 @@ export const addDealChatMessage = async (dealId, role, parts, displayText, userI
     // nécessité un rappel de photo(s) élidée(s) — voir useDealChat.js::sendMessage. Purement
     // informatif (bascule d'affichage), aucune logique n'en dépend.
     if (photoRecall?.refs?.length) payload.photoRecall = photoRecall;
+    // `isError` (2026-08-24) : marque structurellement un placeholder d'échec (plutôt que de
+    // détecter le texte "⚠️ Erreur..." côté UI, fragile) — pilote l'affichage du bouton
+    // "Réessayer" dans DealChatPanel.jsx::ChatBubble.
+    if (isError) payload.isError = true;
     const docRef = await addDoc(chatCollectionRef, payload);
     return docRef.id;
   } catch (error) {
     console.error(`Error saving chat message for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la sauvegarde du message.");
+  }
+};
+
+// Remplace en place le contenu d'un message de chat déjà persisté (2026-08-24, bouton
+// "Réessayer") — utilisé pour transformer un placeholder d'erreur en vraie réponse (ou en un
+// nouvel échec) SANS ajouter de document supplémentaire : `useDealChat.js::sanitizeHistory`
+// exige une alternance stricte user/model, deux tours 'model' consécutifs casseraient tout envoi
+// suivant sur cette conversation. `restorationProposals`/`photoRecall` sont explicitement remis à
+// `null` quand absents (pas juste omis) pour effacer une éventuelle valeur laissée par une
+// tentative précédente sur ce même document.
+export const replaceDealChatMessage = async (dealId, messageId, { parts, displayText, restorationProposals, photoRecall, isError }, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), {
+      parts, displayText,
+      restorationProposals: restorationProposals?.length ? restorationProposals : null,
+      photoRecall: photoRecall?.refs?.length ? photoRecall : null,
+      isError: !!isError,
+    });
+  } catch (error) {
+    console.error(`Error replacing chat message ${messageId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du message.");
   }
 };
 

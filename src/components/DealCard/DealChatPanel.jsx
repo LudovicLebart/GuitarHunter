@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw } from 'lucide-react';
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
@@ -83,7 +83,7 @@ const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onAp
 // chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
 // de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
 // reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall }) => {
+const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall, isError, onRetry, retrying, onCopy, copied }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -145,6 +145,28 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall
                         onDismiss={p.onDismiss}
                     />
                 ))}
+                {(text || isError) && (
+                    <div className={`flex items-center gap-2 ${text ? 'mt-1.5' : ''}`}>
+                        {isError && onRetry && (
+                            <button
+                                onClick={onRetry}
+                                disabled={retrying}
+                                className="flex items-center gap-1 text-[11px] font-bold text-rose-300 hover:text-rose-200 disabled:opacity-50 transition-colors"
+                            >
+                                {retrying ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                                Réessayer
+                            </button>
+                        )}
+                        {text && onCopy && (
+                            <button
+                                onClick={onCopy}
+                                className={`flex items-center gap-1 text-[11px] transition-colors ${isUser ? 'text-white/60 hover:text-white/90' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                {copied ? <><Check size={11} /> Copié</> : <><Copy size={11} /> Copier</>}
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -154,7 +176,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
     const {
-        messages, loading, sending, error, sendMessage, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
     } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
     const [input, setInput] = useState('');
@@ -171,9 +193,34 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
     // Message d'erreur par proposition (même clé) — ex. réordonnancement devenu caduc entretemps
     // (voir applyRestorationProposal). Effacé au début de chaque nouvelle tentative.
     const [proposalErrorState, setProposalErrorState] = useState({});
+    // Bouton "Réessayer"/"Copier" (2026-08-24) — état purement local (jamais persisté) : un
+    // retry en cours désactive juste CE bouton, "Copié ✓" s'efface tout seul après un délai.
+    const [retryingMessageId, setRetryingMessageId] = useState(null);
+    const [copiedMessageId, setCopiedMessageId] = useState(null);
     const scrollRef = useRef(null);
     const cameraInputRef = useRef(null);
     const galleryInputRef = useRef(null);
+
+    const handleRetry = async (messageId) => {
+        if (retryingMessageId) return;
+        setRetryingMessageId(messageId);
+        try {
+            await retryMessage(messageId);
+        } finally {
+            setRetryingMessageId(null);
+        }
+    };
+
+    const handleCopy = async (messageId, text) => {
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopiedMessageId(messageId);
+            setTimeout(() => setCopiedMessageId(prev => (prev === messageId ? null : prev)), 1500);
+        } catch (e) {
+            console.error('Erreur copie presse-papier:', e);
+        }
+    };
 
     const handleAddToGallery = async (message, partIndex) => {
         const key = `${message.id}:${partIndex}`;
@@ -335,7 +382,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                     </div>
                 )}
 
-                {messages.map(m => {
+                {messages.map((m, msgIndex) => {
                     // Rétrocompatibilité (2026-08-22, voir getAttachedImagePartIndices/
                     // getAddedToGalleryUrl dans useDealChat.js — source unique de la conversion
                     // ancien champ singulier → nouveau champ pluriel, réutilisée par les gardes
@@ -367,6 +414,11 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                             onAddToGallery={(partIndex) => handleAddToGallery(m, partIndex)}
                             proposals={proposals}
                             photoRecall={m.photoRecall}
+                            isError={m.isError && msgIndex === messages.length - 1}
+                            onRetry={() => handleRetry(m.id)}
+                            retrying={retryingMessageId === m.id}
+                            onCopy={() => handleCopy(m.id, m.displayText)}
+                            copied={copiedMessageId === m.id}
                         />
                     );
                 })}
