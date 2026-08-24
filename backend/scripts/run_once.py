@@ -27,41 +27,22 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-17 : lance `backend/scripts/backfill_sold_scores.py` (backfill léger des scores
-    IA sur les ~2216 annonces vendues dont `aiAnalysis` est resté corrompu après la
-    récupération gratuite du verdict — voir JOURNAL.md) en **arrière-plan détaché**
-    (`subprocess.Popen(..., start_new_session=True)`) plutôt qu'en l'attendant ici : le job
-    dure potentiellement plusieurs heures (~2216 annonces, 1 appel Gemini chacune), largement
-    au-delà du timeout de 10 min du step SSH de `deploy.yml`. Détaché, il survit à la fin de
-    ce step ET à un redémarrage du service `guitare-hunter` juste après (processus
-    indépendant, pas un enfant de systemd). Même patron que la tentative du 2026-08-12 pour
-    `reanalyze_sold_deals.py` (jamais réellement déployée).
-
-    Ce push ne va que sur `dev` (`/git-push-dev`) — pas de double déclenchement dev+master à
-    gérer ici, contrairement aux autres backfills de cette session.
-
-    Progression consultable dans `backfill_sold_scores.log` à la racine du repo (accès SSH
-    requis, pas disponible depuis cet environnement de dev). Le script cible gère lui-même un
-    verrou (`backfill_sold_scores.pid`) contre une double exécution concurrente.
+    2026-08-24 : diagnostic — l'utilisateur signale que le scan Facebook ne trouve plus aucune
+    annonce (dernier cycle observé : 22/22 villes bloquées par anti-bot, 0 traitée), juste après
+    le déploiement du correctif `sortBy=creation_time_descend` (commit 6e2c9f7, en prod depuis
+    hier 15h21 UTC). Objectif : comparer les résumés de cycle Facebook AVANT/APRÈS ce déploiement
+    pour savoir si le correctif a lui-même déclenché ce blocage anti-bot, ou si le blocage est
+    préexistant/externe (voir `backend/scripts/audit_facebook_cycles.py`, lecture seule, aucune
+    écriture). Fenêtre : depuis 2026-08-23 12:00 UTC (~27h de marge avant le déploiement).
     """
-    import subprocess
-
-    log_path = os.path.join(os.getcwd(), 'backfill_sold_scores.log')
-    log_file = open(log_path, 'a')
-    subprocess.Popen(
-        [sys.executable, 'backend/scripts/backfill_sold_scores.py'],
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-        cwd=os.getcwd(),
-        start_new_session=True,
-    )
-    print(f"[run_once] Backfill léger des ventes corrompues lancé en arrière-plan (log: {log_path}).")
+    from backend.scripts.audit_facebook_cycles import run as audit_run
+    audit_run(1787486400.0)  # 2026-08-23T12:00:00Z
 
 
 if __name__ == "__main__":
