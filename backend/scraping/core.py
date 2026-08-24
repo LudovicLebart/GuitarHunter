@@ -19,6 +19,10 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
+from .stealth import (
+    USER_AGENTS, VIEWPORTS, STEALTH_LAUNCH_ARGS,
+    pick_user_agent_and_viewport, build_proxy_config, human_pause, simulate_scroll_and_mouse,
+)
 from backend.sold_markers import find_sold_marker
 
 class FacebookScraper:
@@ -36,29 +40,10 @@ class FacebookScraper:
         self.browser = None
         self.context = None
 
-        # --- STEALTH: Randomization Arrays ---
-        self._user_agents = [
-            # Chrome Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            # Edge Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
-            # Firefox Windows
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
-            # Chrome macOS
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            # Safari macOS
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3.1 Safari/605.1.15"
-        ]
-        
-        self._viewports = [
-            {"width": 1920, "height": 1080},
-            {"width": 1366, "height": 768},
-            {"width": 1440, "height": 900},
-            {"width": 1536, "height": 864},
-            {"width": 2560, "height": 1440}
-        ]
+        # Pools UA/viewport — voir backend/scraping/stealth.py (2026-08-24, mutualisé avec
+        # Kijiji/LeBonCoin, auparavant dupliqué avec des variations mineures dans chaque fichier).
+        self._user_agents = USER_AGENTS
+        self._viewports = VIEWPORTS
 
     def start_session(self):
         """Démarre la session Playwright et le navigateur."""
@@ -66,32 +51,21 @@ class FacebookScraper:
 
         self.logger.info("Démarrage de la session Playwright...")
         self.playwright = sync_playwright().start()
-        
-        # Args for stealth
-        launch_args = [
-            "--start-minimized",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--no-sandbox"
-        ]
 
-        # --- AJOUT : Logique de rotation de proxy ---
-        proxy_config = None
-        if PROXIES:
-            selected_proxy = random.choice(PROXIES)
-            self.logger.info(f"🌐 Utilisation du proxy : {selected_proxy}")
-            proxy_config = {"server": selected_proxy}
-        # --- FIN AJOUT ---
-        
+        # `--start-minimized` reste propre à Facebook (comportement de fenêtre), les 3 autres
+        # flags sont partagés (voir stealth.py::STEALTH_LAUNCH_ARGS).
+        launch_args = ["--start-minimized", *STEALTH_LAUNCH_ARGS]
+
+        proxy_config = build_proxy_config(PROXIES, logger=self.logger)
+
         self.browser = self.playwright.chromium.launch(
             headless=self.config.headless,
             args=launch_args,
             proxy=proxy_config  # Ajout de la configuration du proxy ici
         )
-        
+
         # Pick random UA and Viewport
-        ua = random.choice(self._user_agents)
-        vp = random.choice(self._viewports)
+        ua, vp = pick_user_agent_and_viewport(self._user_agents, self._viewports)
         self.logger.debug(f"Stealth Init -> UA: {ua[:40]}..., VP: {vp['width']}x{vp['height']}")
 
         self.context = self.browser.new_context(
@@ -414,6 +388,9 @@ class FacebookScraper:
             except Exception as e: self.logger.debug(f"Bouton cookies 'Decline' non cliqué: {e}")
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
+            # Geste "coup d'œil" avant le défilement systématique (2026-08-24, voir stealth.py)
+            # — porté depuis LeboncoinScraper, gratuit et déjà éprouvé en conditions réelles.
+            simulate_scroll_and_mouse(page, logger=self.logger)
 
             self.logger.info("   📜 Défilement dynamique...")
             previous_count = 0
@@ -423,8 +400,12 @@ class FacebookScraper:
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
                     return self._scan_result()
-                page.mouse.wheel(0, 1000)
-                time.sleep(2)
+                # Distance de défilement + pause aléatoires (2026-08-24, porté depuis
+                # LeboncoinScraper — voir stealth.py) : un défilement toujours identique
+                # (même distance, même délai à chaque itération) est en soi un signal
+                # robotique, indépendamment du contenu chargé.
+                page.mouse.wheel(0, random.randint(700, 1300))
+                human_pause(1.2, 2.8)
 
                 current_count = len(page.locator("a[href*='/marketplace/item/']").all())
                 if current_count >= target_ads_to_load:

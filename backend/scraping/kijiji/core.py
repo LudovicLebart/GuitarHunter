@@ -13,6 +13,7 @@ from .locations import (
     load_location_lookup, load_city_coordinates, build_resolvable_hubs,
     resolve_location, nearest_resolvable_hub, build_search_url,
 )
+from ..stealth import USER_AGENTS, VIEWPORTS, STEALTH_LAUNCH_ARGS, pick_user_agent_and_viewport, human_pause
 from backend.sold_markers import find_sold_marker
 
 
@@ -103,16 +104,10 @@ class KijijiScraper:
         self.browser = None
         self.context = None
 
-        self._user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        ]
-        self._viewports = [
-            {"width": 1920, "height": 1080},
-            {"width": 1366, "height": 768},
-            {"width": 1440, "height": 900},
-        ]
+        # Pools UA/viewport — voir backend/scraping/stealth.py (2026-08-24, mutualisé avec
+        # Facebook/LeBonCoin, auparavant un sous-ensemble dupliqué ici).
+        self._user_agents = USER_AGENTS
+        self._viewports = VIEWPORTS
 
     def start_session(self):
         """Démarre la session Playwright et le navigateur."""
@@ -124,11 +119,10 @@ class KijijiScraper:
 
         self.browser = self.playwright.chromium.launch(
             headless=self.config.headless,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            args=STEALTH_LAUNCH_ARGS,
         )
 
-        ua = random.choice(self._user_agents)
-        vp = random.choice(self._viewports)
+        ua, vp = pick_user_agent_and_viewport(self._user_agents, self._viewports)
         self.logger.debug(f"Stealth Init -> UA: {ua[:40]}..., VP: {vp['width']}x{vp['height']}")
 
         self.context = self.browser.new_context(
@@ -466,8 +460,10 @@ class KijijiScraper:
             if stop_event and stop_event.is_set():
                 self.logger.info("🛑 Scan Kijiji annulé pendant le défilement (STOP_BOT).")
                 return found_deals
-            page.mouse.wheel(0, 1000)
-            time.sleep(1.5)
+            # Distance + pause aléatoires (2026-08-24, voir stealth.py) — même correctif
+            # que FacebookScraper.scan_marketplace(), même raison.
+            page.mouse.wheel(0, random.randint(700, 1300))
+            human_pause(1.0, 2.2)
 
             current_count = page.locator("a[href*='/v-']").count()
             if current_count >= target_ads_to_load:

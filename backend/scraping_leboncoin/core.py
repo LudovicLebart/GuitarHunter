@@ -23,13 +23,18 @@ import logging
 import random
 import re
 import json
-import time
 import urllib.parse
 
 from playwright.sync_api import sync_playwright
 
-# Mêmes familles que FacebookScraper (backend/scraping/core.py) — cohérence
-# de posture de furtivité entre les deux scrapers.
+from backend.scraping.stealth import human_pause, simulate_scroll_and_mouse
+
+# Sous-ensemble du pool partagé (backend/scraping/stealth.py, 2026-08-24 — la fonction
+# `human_pause`/`simulate_scroll_and_mouse` mutualisée est celle portée DEPUIS ce fichier vers
+# Facebook/Kijiji, voir stealth.py). Les listes UA/viewport restent définies ici explicitement
+# (mêmes valeurs qu'avant) plutôt qu'un sous-ensemble du pool partagé : ce jeu précis a été
+# validé en conditions réelles face à DataDome (2026-07-21), pas de raison d'en élargir la
+# surface sans nouvelle validation.
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -101,22 +106,10 @@ class LeboncoinScraper:
             self.page.on("response", lambda r: self._responses.append(r))
         return self.page
 
-    def _human_pause(self, low, high):
-        time.sleep(random.uniform(low, high))
-
-    def _simulate_browsing(self, page):
-        """Scroll + mouvement de souris — signal comportemental, pas un besoin
-        fonctionnel (les résultats sont déjà tous dans le JSON __NEXT_DATA__ dès
-        le chargement de la page)."""
-        try:
-            for _ in range(random.randint(1, 3)):
-                page.mouse.wheel(0, random.randint(300, 1000))
-                self._human_pause(0.5, 1.8)
-            page.mouse.move(random.randint(100, 800), random.randint(100, 600))
-        except Exception as e:
-            # warning (pas debug) : un échec silencieux ici serait invisible en usage
-            # normal (niveau INFO) alors que c'est un signal utile à diagnostiquer.
-            self.logger.warning(f"Simulation de navigation échouée (non bloquant) : {e}")
+    # `_human_pause`/`_simulate_browsing` déplacées dans backend/scraping/stealth.py
+    # (2026-08-24, `human_pause`/`simulate_scroll_and_mouse`) — portées vers Facebook/Kijiji,
+    # réutilisées ici telles quelles (mêmes signatures, `simulate_scroll_and_mouse` prend le
+    # logger en paramètre au lieu de le lire sur `self`).
 
     @staticmethod
     def build_url(query, locations=None, category="30", min_price=0, max_price=0, owner_type=None, page_num=1):
@@ -223,7 +216,7 @@ class LeboncoinScraper:
             page_label = f"{page_num}/{effective_max_pages}" if effective_max_pages else str(page_num)
             self.logger.info(f"➡️  Navigation LeBonCoin (page {page_label}) : {url}")
             page.goto(url, timeout=0, wait_until="domcontentloaded")
-            self._human_pause(2.0, 4.5)
+            human_pause(2.0, 4.5)
 
             blocked, reason = self._looks_blocked(page, self._responses)
             if blocked:
@@ -236,7 +229,7 @@ class LeboncoinScraper:
                 self.logger.info("   Page laissée ouverte (intervention manuelle possible, ex: slider).")
                 return all_ads, reason
 
-            self._simulate_browsing(page)
+            simulate_scroll_and_mouse(page, logger=self.logger)
 
             ads, max_pages = self.extract_ads(page.content())
             if ads is None:
@@ -257,7 +250,7 @@ class LeboncoinScraper:
             if page_num >= effective_max_pages:
                 break
             page_num += 1
-            self._human_pause(1.5, 4.0)  # pause entre deux pages, pas d'enchaînement mécanique
+            human_pause(1.5, 4.0)  # pause entre deux pages, pas d'enchaînement mécanique
 
-        self._human_pause(1.0, 3.0)  # temps de présence variable sur la page avant de repartir
+        human_pause(1.0, 3.0)  # temps de présence variable sur la page avant de repartir
         return all_ads, None  # onglet laissé ouvert — réutilisé au prochain appel, fermé seulement via close_session()
