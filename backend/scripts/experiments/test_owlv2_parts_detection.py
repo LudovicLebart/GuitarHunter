@@ -1,20 +1,33 @@
 """
-Test ponctuel (docs/management/plans/NECK_RESET_VISION_PLAN.md §8) : OWLv2 en détection
+Test ponctuel (docs/management/plans/NECK_RESET_VISION_PLAN.md §8/§9) : OWLv2 en détection
 multi-parties, pas juste présence globale — teste s'il peut localiser le manche (et
-accessoirement tête/chevalet/rosace) sur de vraies photos d'annonces, en réutilisant
+accessoirement tête/chevalet/rosace/sillet) sur de vraies photos d'annonces, en réutilisant
 exactement le même modèle déjà validé (§7 étape 4 : VRAM confortable, pas de risque de
 compatibilité comme Florence-2 — voir test_dell_vision_inference.py).
 
 Objectif direct : réparer le prototype Phase 1 (`experiments/phase1_fret_detection_prototype.py`),
 qui échoue sans région d'intérêt sur le manche et dont le recadrage est actuellement manuel — si
-OWLv2 localise correctement le manche, sa boîte remplace le recadrage manuel.
+OWLv2 localise correctement le manche, sa boîte remplace le recadrage manuel. Objectif secondaire
+(§6, décision 2026-08-24) : localisation sillet/chevalet, nécessaire pour mesurer la hauteur de
+selle au-dessus du chevalet (proposition Fable) et pour un vrai test de "mesurabilité" (§8quater).
 
-Échantillon : les 2 mêmes photos utilisées pour le prototype Phase 1 (une où la détection de
-frettes fonctionnait après recadrage manuel, une où elle échouait), pour un test directement
-comparable.
+§9 (2026-08-24) : première passe (requêtes "headstock"/"neck"/"bridge"/"soundhole") jugée peu
+fiable après inspection visuelle réelle par l'utilisateur (correction : la boîte "soundhole" sur
+la photo Fender couvrait en fait le manche + une bonne partie de la caisse, pas juste la rosace —
+voir JOURNAL.md). Ce test ajoute 4 nouvelles formulations de requête ("fretboard"/"fingerboard with
+frets"/"saddle of a guitar bridge"/"nut of a guitar neck") en conservant les anciennes pour
+comparaison directe, et 2 photos de guitares électriques en plus des 2 acoustiques déjà testées,
+pour varier les formes de manche/chevalet.
 
-Sortie : une image annotée par photo (boîte + étiquette + score par partie), à inspecter
-visuellement — pas de métrique chiffrée automatique, l'évaluation est manuelle à ce stade.
+Échantillon : les 2 mêmes photos acoustiques utilisées pour le prototype Phase 1 (une où la
+détection de frettes fonctionnait après recadrage manuel, une où elle échouait) + 2 photos de
+guitares électriques solid body tirées aléatoirement (seed=1) de l'échantillon Phase 0 déjà
+téléchargé, pour un test directement comparable et diversifié.
+
+Sortie : une image annotée par photo (boîte + étiquette + score par partie, ancien+nouveau jeu de
+requêtes), à inspecter visuellement — pas de métrique chiffrée automatique, l'évaluation est
+manuelle à ce stade (leçon du §8bis : ne jamais conclure sur les scores seuls, toujours regarder
+l'image).
 
 Usage (sur le Dell, venv avec torch/transformers/pillow/requests installés) :
   python3 backend/scripts/experiments/test_owlv2_parts_detection.py
@@ -31,16 +44,27 @@ MODEL_ID = "google/owlv2-base-patch16-ensemble"
 SCORE_THRESHOLD = 0.1
 
 PARTS = [
+    # Requêtes initiales (§8/§8bis).
     "the headstock of a guitar",
     "the neck of a guitar",
     "the bridge of a guitar",
     "the soundhole of a guitar",
+    # Nouvelles formulations (§9, 2026-08-24) — reformulation vers la zone de mesure réelle
+    # (sillet/chevalet/touche) plutôt que les parties génériques déjà testées et jugées peu fiables.
+    "the fretboard of a guitar",
+    "the fingerboard with frets",
+    "the saddle of a guitar bridge",
+    "the nut of a guitar neck",
 ]
 COLORS = {
     "the headstock of a guitar": (255, 80, 80),
     "the neck of a guitar": (80, 160, 255),
     "the bridge of a guitar": (80, 220, 120),
     "the soundhole of a guitar": (230, 200, 60),
+    "the fretboard of a guitar": (200, 80, 255),
+    "the fingerboard with frets": (255, 150, 60),
+    "the saddle of a guitar bridge": (60, 220, 220),
+    "the nut of a guitar neck": (255, 255, 255),
 }
 
 SAMPLE_IMAGES = [
@@ -48,6 +72,10 @@ SAMPLE_IMAGES = [
     ("fender_frontal_ok", "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1735588974289650/0_7f520d92.jpg"),
     # Même photo où le prototype Phase 1 échouait (angle légèrement de travers).
     ("yamaha_angle_fail", "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1349593020616490/0_5693fb9c.jpg"),
+    # 2 guitares électriques solid body, tirées aléatoirement (seed=1) de l'échantillon Phase 0,
+    # pour varier les formes de manche/chevalet (§9, absentes des 2 photos acoustiques ci-dessus).
+    ("electrique_s_style_1", "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1532369785179505/0_c15ba2a9.jpg"),
+    ("electrique_s_style_2", "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2370518256811527/0_dfea8e4c.jpg"),
 ]
 
 

@@ -11,11 +11,10 @@
 # Répertoire scratch dédié sur le Dell (~/GuitareHunter-scripts), même logique que run_script.yml
 # côté serveur de production : jamais ~/MoneyBot, jamais d'interférence avec le cluster Ray actif.
 #
-# Étape actuelle (§7/§9) : backend/scripts/run_phase0_usability_filter.py — filtre d'utilisabilité
-# OWLv2 sur un échantillon aléatoire diversifié du Dataset A (--limit, --seed pour la reproductibilité)
-# plutôt que les 5974 photos complètes : tester la fiabilité des algos ne nécessite pas tout le
-# dataset, un run complet sert plutôt à produire un corpus de production (décision 2026-08-20).
-# Sortie écrite au fil de l'eau (dataset_a_phase0.jsonl), récupérée via `scp`.
+# Étape actuelle (§9) : backend/scripts/experiments/test_owlv2_parts_detection.py — détection
+# multi-parties OWLv2 (8 formulations de requête, dont 4 nouvelles ciblant sillet/chevalet/touche,
+# §9 du plan) sur 4 photos test (2 acoustiques + 2 électriques). Sortie : images annotées dans
+# owlv2_parts_output/, à inspecter visuellement (pas de métrique automatique à ce stade).
 # Pour lancer un autre script, modifier la commande de l'étape d'exécution et le nom de
 # fichier/dossier de l'étape de récupération ci-dessous (même patron que run_script.yml/FICHIER_A_RECUPERER).
 #
@@ -68,12 +67,12 @@ jobs:
             nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 
             echo "--- Exécution du script ---"
-            rm -f dataset_a_phase0.jsonl
-            python3 -u backend/scripts/run_phase0_usability_filter.py --limit 100 --seed 42
+            rm -rf owlv2_parts_output
+            python3 -u backend/scripts/experiments/test_owlv2_parts_detection.py
 
       - name: Récupération du rapport généré
         env:
-          FICHIER_A_RECUPERER: dataset_a_phase0.jsonl
+          FICHIER_A_RECUPERER: owlv2_parts_output
         run: |
           mkdir -p ~/.ssh output
           printf '%s\n' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
