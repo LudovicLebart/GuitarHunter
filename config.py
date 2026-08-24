@@ -39,12 +39,15 @@ FIREBASE_STORAGE_BUCKET = os.getenv("VITE_FIREBASE_STORAGE_BUCKET", "guitarehunt
 IMAGE_RETENTION_REJECTED_DAYS = int(os.getenv("IMAGE_RETENTION_REJECTED_DAYS", 30))
 
 # --- PROXIES ---
-# Liste des serveurs proxy à utiliser pour la rotation d'IP dans le scraper.
-# Format : "http://user:password@host:port" ou "http://host:port"
-PROXIES = [
-    # "http://proxy1.com:8000",
-    # "http://proxy2.com:8000",
-]
+# Liste des serveurs proxy à utiliser pour la rotation d'IP dans le scraper (backend/scraping/core.py,
+# un choix aléatoire par session — voir FacebookScraper.start_session()).
+# Format de chaque entrée : "http://user:password@host:port" ou "http://host:port".
+# Lu depuis `.env` (variable PROXIES, entrées séparées par des virgules) — jamais codé en dur ici,
+# contrairement à la liste d'exemples commentés d'avant le 2026-08-24 : une vraie URL de proxy
+# embarque souvent des identifiants (user:password), qui n'ont pas leur place dans un fichier
+# committé. Même mécanisme que tous les autres secrets du projet (GEMINI_API_KEY, FIREBASE_*, SMTP).
+_proxies_raw = os.getenv("PROXIES", "")
+PROXIES = [p.strip() for p in _proxies_raw.split(",") if p.strip()]
 
 # --- KIJIJI ---
 # ID de catégorie Kijiji, global et stable pour tout le site (voir backend/scraping/kijiji/).

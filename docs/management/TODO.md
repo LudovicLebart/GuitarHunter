@@ -36,16 +36,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 *Calibration/validation de l'approche Playwright "douce" face à DataDome terminée et validée en conditions réelles — voir l'archive pour le détail. Reste à faire :*
 
-- [ ] **Reste à faire : décider de l'intégration réelle** (cadence, volume cible ~50-100/jour) — pas encore commencée, scripts actuels = calibration/test uniquement, aucune écriture Firestore. Voir les 2 points ci-dessous, à traiter avant/pendant cette intégration.
-
-- [ ] **Dette technique : base commune scraper LeBonCoin/Facebook (mesures anti-bot)** *(Ajouté 2026-07-22, revue de code)*
-    - *Détails :* `backend/scraping_leboncoin/core.py` (`LeboncoinScraper`) duplique actuellement des éléments déjà présents dans `backend/scraping/core.py` (`FacebookScraper`) : listes UA/viewports, flags de lancement stealth, cycle de vie de session (`start_session`/`close_session`/`_ensure_session`). Accepté pour l'instant (deux sites, deux stratégies d'extraction différentes — JSON structuré vs sélecteurs CSS), mais deviendra un vrai risque de dérive dès qu'on appliquera des règles anti-détection **communes** aux deux scrapers (cadence non-uniforme, plages horaires humaines — voir point suivant) : un correctif appliqué à un seul des deux modules ne se propage pas automatiquement à l'autre.
-    - *Piste* : extraire une classe de base commune (session Playwright, stealth, human-pause/jitter) que les deux scrapers spécialisent, plutôt que deux implémentations parallèles à maintenir en synchronisation manuelle.
-
-- [ ] **Cadence de scan calquée sur un rythme humain (pas d'activité nocturne)** *(Ajouté 2026-07-22)*
-    - *Détails :* Un bot qui scanne à un rythme uniforme 24h/24 (y compris la nuit, ex: 3h du matin) est lui-même un signal comportemental détectable dans la durée — un humain ne consulte pas les petites annonces en pleine nuit. Point soulevé par l'utilisateur, pas encore pris en compte.
-    - *Piste* : lors de l'intégration réelle (bot.py/scheduling), prévoir une plage horaire d'activité réaliste (ex: pas de scan ou volume fortement réduit entre ~00h-7h), idéalement avec une légère variation aléatoire des bornes plutôt qu'un couperet fixe (qui serait lui-même un pattern détectable).
-    - *Portée* : concerne potentiellement les deux scrapers — Facebook tourne déjà 24h/24 via `TaskScheduler` à cadence fixe en minutes (`schedule.every(X).minutes`), sans notion de plage horaire. À évaluer si ça vaut la peine de l'appliquer aussi côté Facebook, ou seulement pour LeBonCoin où le risque de détection est plus aigu (DataDome vs protections plus légères de Facebook) — décision produit à trancher avec l'utilisateur.
+- [ ] **Reste à faire : décider de l'intégration réelle** (cadence, volume cible ~50-100/jour) — pas encore commencée, scripts actuels = calibration/test uniquement, aucune écriture Firestore. Voir "Dette technique : base commune scraper LeBonCoin/Facebook" et "Cadence de scan calquée sur un rythme humain", remontées dans `🚨 Priorité Haute` (2026-08-24, blocages anti-bot Facebook constatés).
 
 ---
 
@@ -84,6 +75,18 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ---
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
+
+- [ ] **Dette technique : base commune scraper LeBonCoin/Facebook (mesures anti-bot)** *(Ajouté 2026-07-22, remonté en priorité haute le 2026-08-24 suite aux blocages anti-bot Facebook massifs — voir point ci-dessous et `JOURNAL.md`)*
+    - *Détails :* `backend/scraping_leboncoin/core.py` (`LeboncoinScraper`) duplique actuellement des éléments déjà présents dans `backend/scraping/core.py` (`FacebookScraper`) : listes UA/viewports, flags de lancement stealth, cycle de vie de session (`start_session`/`close_session`/`_ensure_session`). Accepté initialement (deux sites, deux stratégies d'extraction différentes — JSON structuré vs sélecteurs CSS), mais devient un vrai risque de dérive dès qu'on applique des règles anti-détection **communes** aux deux scrapers (cadence non-uniforme, plages horaires humaines — voir point suivant) : un correctif appliqué à un seul des deux modules ne se propage pas automatiquement à l'autre. `KijijiScraper` n'a lui-même aucune rotation de proxy (`TODO.md`, section Kijiji) — trois implémentations à resynchroniser manuellement à ce jour.
+    - *Piste* : extraire une classe de base commune (session Playwright, stealth, rotation de proxy, human-pause/jitter) que les trois scrapers spécialisent, plutôt que des implémentations parallèles à maintenir en synchronisation manuelle.
+
+- [ ] **Cadence de scan calquée sur un rythme humain (pas d'activité nocturne)** *(Ajouté 2026-07-22, remonté en priorité haute le 2026-08-24)*
+    - *Détails :* Un bot qui scanne à un rythme uniforme 24h/24 (y compris la nuit, ex: 3h du matin) est lui-même un signal comportemental détectable dans la durée — un humain ne consulte pas les petites annonces en pleine nuit. Facebook tourne déjà 24h/24 via `TaskScheduler` à cadence fixe en minutes (`schedule.every(X).minutes`), sans notion de plage horaire.
+    - *Piste* : prévoir une plage horaire d'activité réaliste (ex: pas de scan ou volume fortement réduit entre ~00h-7h), idéalement avec une légère variation aléatoire des bornes plutôt qu'un couperet fixe (qui serait lui-même un pattern détectable). Concerne potentiellement Facebook, Kijiji et une future intégration LeBonCoin.
+
+- [/] **Rotation de proxy Facebook (`PROXIES`) rendue configurable via `.env`** *(Codé 2026-08-24, suite au diagnostic de blocages anti-bot massifs — voir `JOURNAL.md`)*
+    - *Détails :* `PROXIES` (`config.py`) était codé en dur dans un fichier committé — impossible d'y stocker de vraies identifiants proxy (souvent `user:password@host`) sans les exposer dans l'historique git, contrairement à tous les autres secrets du projet (déjà via `.env`). Lit désormais `os.getenv("PROXIES")` (entrées séparées par des virgules), documenté dans `.env.example`.
+    - *Reste à faire* : choisir un fournisseur de proxy (résidentiel recommandé — un proxy datacenter se fait généralement repérer aussi facilement qu'aucun proxy) et renseigner la variable `PROXIES` dans le secret GitHub `DOT_ENV`. Aucun proxy configuré à ce jour — la rotation reste inactive tant que la variable est vide.
 
 - [/] **Bug : Scraping échoue à détecter les annonces vendues (label "VENDU" dans le titre ou annonce inexistante)** *(Ajouté 2026-07-19 — les 3 pistes sont codées depuis le 2026-08-17, 2 restent à confirmer en conditions réelles)*
     - *Symptôme signalé :* Le scraper détecte régulièrement des annonces dont le titre contient le mot "VENDU" (ajouté manuellement par le vendeur), ou des annonces que Facebook retourne encore dans les résultats de listing même si la fiche détail n'existe plus ou redirige. Ces annonces passent le pipeline IA et génèrent des faux positifs.
