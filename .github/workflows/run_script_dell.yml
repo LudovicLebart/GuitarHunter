@@ -11,10 +11,11 @@
 # Répertoire scratch dédié sur le Dell (~/GuitareHunter-scripts), même logique que run_script.yml
 # côté serveur de production : jamais ~/MoneyBot, jamais d'interférence avec le cluster Ray actif.
 #
-# Étape actuelle (§8) : backend/scripts/experiments/test_owlv2_parts_detection.py — teste OWLv2
-# en détection multi-parties (tête/manche/chevalet/rosace) sur les 2 photos déjà utilisées pour le
-# prototype Phase 1, pour voir s'il peut remplacer le recadrage manuel par une vraie boîte "manche".
-# Sortie : dossier d'images annotées (owlv2_parts_output/), récupéré via `scp -r`.
+# Étape actuelle (§7/§9) : backend/scripts/run_phase0_usability_filter.py — filtre d'utilisabilité
+# OWLv2 sur un échantillon aléatoire diversifié du Dataset A (--limit, --seed pour la reproductibilité)
+# plutôt que les 5974 photos complètes : tester la fiabilité des algos ne nécessite pas tout le
+# dataset, un run complet sert plutôt à produire un corpus de production (décision 2026-08-20).
+# Sortie écrite au fil de l'eau (dataset_a_phase0.jsonl), récupérée via `scp`.
 # Pour lancer un autre script, modifier la commande de l'étape d'exécution et le nom de
 # fichier/dossier de l'étape de récupération ci-dessous (même patron que run_script.yml/FICHIER_A_RECUPERER).
 #
@@ -43,7 +44,7 @@ jobs:
           username: ludovic
           key: ${{ secrets.DELL_SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 40m
+          command_timeout: 100m
           script: |
             set -e
             mkdir -p ~/GuitareHunter-scripts
@@ -68,7 +69,7 @@ jobs:
 
             echo "--- Exécution du script ---"
             rm -f dataset_a_phase0.jsonl
-            python3 backend/scripts/run_phase0_usability_filter.py
+            python3 -u backend/scripts/run_phase0_usability_filter.py --limit 100 --seed 42
 
       - name: Récupération du rapport généré
         env:
