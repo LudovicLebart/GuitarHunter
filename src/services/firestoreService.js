@@ -376,12 +376,16 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // affichée en carte sous la bulle. Retourne l'id du document créé (aucun appelant ne le capture
 // aujourd'hui — `message.id` du listener Firestore suffit pour `proposedByMessageId`/le marquage
 // Appliquer/Ignorer, une fois le message déjà visible côté client — gardé pour un futur usage).
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals) => {
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     const payload = { role, parts, displayText, createdAt: new Date() };
     if (attachedImagePartIndices?.length) payload.attachedImagePartIndices = attachedImagePartIndices;
     if (restorationProposals?.length) payload.restorationProposals = restorationProposals;
+    // `photoRecall` (2026-08-23, Plan 1 tokens, Lot D) : posé sur le message modèle quand ce tour a
+    // nécessité un rappel de photo(s) élidée(s) — voir useDealChat.js::sendMessage. Purement
+    // informatif (bascule d'affichage), aucune logique n'en dépend.
+    if (photoRecall?.refs?.length) payload.photoRecall = photoRecall;
     const docRef = await addDoc(chatCollectionRef, payload);
     return docRef.id;
   } catch (error) {

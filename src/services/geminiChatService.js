@@ -8,6 +8,12 @@ import { RESTORATION_CATEGORIES, RESTORATION_STATUS_LABELS } from '../constants/
 // automatique et la conversation.
 export const DEFAULT_CHAT_MODEL = 'gemini-3.1-pro-preview';
 
+// Filet de sécurité (2026-08-23, Plan 1 tokens) — la consigne de concision dans SYSTEM_INSTRUCTION
+// est la règle de fond, ce plafond n'intervient qu'en cas de dérive (le modèle ignore la consigne
+// sur un tour donné). Volontairement large : une réponse normale même détaillée reste très en
+// dessous, on ne veut jamais tronquer une réponse légitime.
+const MAX_OUTPUT_TOKENS = 1024;
+
 const SYSTEM_INSTRUCTION = [
     "Tu es l'assistant conversationnel de Guitar Hunter AI, spécialisé dans l'évaluation de guitares,",
     "amplis, étuis et matériel musical d'occasion.",
@@ -16,6 +22,9 @@ const SYSTEM_INSTRUCTION = [
     "réponds à ses questions, challenge ou affine l'analyse existante si les photos jointes",
     "suggèrent autre chose (déformation du manche, décollement de chevalet, corrosion, etc.),",
     "et reste concret et direct. Réponds en français.",
+    "Sois concis par défaut : réponses courtes et claires, sans détailler ni développer sauf si",
+    "l'utilisateur le demande explicitement (ex: \"raconte-moi l'histoire de cette guitare\",",
+    "\"explique-moi ceci en détail\").",
 ].join(' ');
 
 // Construit le contexte texte (annonce + analyse IA déjà produite) injecté avant la première
@@ -181,17 +190,114 @@ export const filesToInlineParts = async (files) => {
     return parts.filter(Boolean);
 };
 
+// Retourne `{parts, urls}` (jamais juste `parts`, 2026-08-23) — `urls` reste ALIGNÉ index-à-index
+// avec `parts` même quand une photo échoue au chargement (filtrée en même temps que sa part, pas
+// après coup) : useDealChat.js::sendMessage a besoin de l'URL d'origine de chaque part conservée
+// pour poser son ref (`d-<hash>`, voir buildPhotoRefIndex) dans le placeholder persisté — un simple
+// index recalculé après un `.filter(Boolean)` désaligné aurait pu associer le ref de la mauvaise
+// photo dès qu'une seule échouait au chargement.
 export const buildDealImageParts = async (deal) => {
     const urls = (deal.storageImageUrls || deal.imageUrls || []).filter(Boolean);
-    const parts = await Promise.all(urls.map(async (url) => {
+    const results = await Promise.all(urls.map(async (url) => {
         try {
-            return await fetchImageAsInlinePart(url);
+            return { url, part: await fetchImageAsInlinePart(url) };
         } catch (e) {
             console.error('Erreur chargement image pour le chat:', url, e);
             return null;
         }
     }));
-    return parts.filter(Boolean);
+    const kept = results.filter(Boolean);
+    return { parts: kept.map(r => r.part), urls: kept.map(r => r.url) };
+};
+
+// Refs courts et stables pour les photos (2026-08-23, Plan 1 tokens, Lot C/D) — même philosophie
+// que buildRestorationItemRefs plus haut : jamais un index de position (`storageImageUrls` est
+// réécrit intégralement côté backend à chaque ré-analyse — un index périmé résoudrait
+// silencieusement vers la MAUVAISE photo, un ref périmé échoue proprement). Deux familles dans un
+// même espace de noms préfixé, jamais confondues entre elles ni avec les refs du plan de
+// restauration (slices hex nues, sans préfixe) :
+// - `d-<hash>` : photo de l'annonce, hash du pathname de son URL Storage (stable même si l'URL
+//   change de token de signature) — toujours disponible quel que soit l'état de la conversation,
+//   jamais dépendante de ce qui est persisté dans l'historique du chat.
+// - `c-<messageId6>-<partIndex>` : photo jointe par l'utilisateur en cours de conversation, encore
+//   pleinement persistée en Firestore (le correctif du Lot B n'a élidé QUE les photos de
+//   l'annonce à l'écriture, jamais celles-ci).
+const REF_HASH_MIN_LENGTH = 6;
+
+const fnv1aHash = (str) => {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+        hash ^= str.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(36);
+};
+
+const pathnameOf = (url) => {
+    try { return new URL(url).pathname; } catch { return url; }
+};
+
+export const buildPhotoRefIndex = (deal, messages) => {
+    const refToLocation = new Map();
+    const locationToRef = new Map(); // clé: `deal:${url}` ou `chat:${messageId}:${partIndex}`
+
+    const dealUrls = (deal?.storageImageUrls || deal?.imageUrls || []).filter(Boolean);
+    dealUrls.forEach((url) => {
+        let length = REF_HASH_MIN_LENGTH;
+        let ref;
+        do {
+            ref = `d-${fnv1aHash(pathnameOf(url)).padStart(7, '0').slice(0, length)}`;
+            length += 2;
+        } while (refToLocation.has(ref) && refToLocation.get(ref).url !== url && length < 20);
+        refToLocation.set(ref, { kind: 'deal', url });
+        locationToRef.set(`deal:${url}`, ref);
+    });
+
+    (messages || []).forEach((message) => {
+        if (message.role !== 'user') return;
+        // Duplique volontairement la logique de rétrocompatibilité de
+        // useDealChat.js::getAttachedImagePartIndices plutôt que de l'importer — ce module ne doit
+        // jamais dépendre de useDealChat.js (import circulaire, c'est l'inverse aujourd'hui).
+        const indices = message.attachedImagePartIndices
+            ?? (message.attachedImagePartIndex != null ? [message.attachedImagePartIndex] : []);
+        indices.forEach((partIndex) => {
+            if (!message.parts?.[partIndex]?.inlineData) return; // déjà élidé ou absent
+            const ref = `c-${(message.id || '').slice(0, 6)}-${partIndex}`;
+            refToLocation.set(ref, { kind: 'chat', messageId: message.id, partIndex });
+            locationToRef.set(`chat:${message.id}:${partIndex}`, ref);
+        });
+    });
+
+    return { refToLocation, locationToRef };
+};
+
+// Résout des refs (venant d'un appel `request_photo_review`) en parts `inlineData` réelles —
+// toujours contre l'index construit depuis l'état COURANT (deal + messages), jamais mis en cache,
+// pour ne jamais servir une photo qui n'existe plus. `missing` couvre 3 cas distincts (ref inconnu,
+// photo chat introuvable/déjà élidée par ailleurs, fetch Storage en échec) — jamais avalé
+// silencieusement : le modèle doit savoir qu'il ne les a pas eues plutôt que de répondre comme s'il
+// les avait vues.
+export const resolvePhotoRefs = async (refs, photoRefIndex, messages) => {
+    const parts = [];
+    const missing = [];
+    for (const ref of refs) {
+        const location = photoRefIndex.refToLocation.get(ref);
+        if (!location) { missing.push(ref); continue; }
+        if (location.kind === 'chat') {
+            const message = (messages || []).find(m => m.id === location.messageId);
+            const inlineData = message?.parts?.[location.partIndex]?.inlineData;
+            if (!inlineData) { missing.push(ref); continue; }
+            parts.push({ inlineData });
+        } else {
+            try {
+                parts.push(await fetchImageAsInlinePart(location.url));
+            } catch (e) {
+                console.error('Erreur récupération photo rappelée:', location.url, e);
+                missing.push(ref);
+            }
+        }
+    }
+    return { parts, missing };
 };
 
 // Function calling (2026-08-22, Lot B ; réordonnancement ajouté 2026-08-23 après réévaluation du
@@ -231,6 +337,35 @@ const RESTORATION_FUNCTION_DECLARATIONS = [
     },
 ];
 
+// Rappel de photo (2026-08-23, Plan 1 tokens, Lot D) — indépendante de propose_restoration_step/
+// propose_restoration_reorder (jamais gatée sur `isPurchased`, voir getDealChatModel plus bas) :
+// les vieilles photos jointes par l'utilisateur sont élidées de l'historique rejoué à chaque tour
+// (voir useDealChat.js::elideOldChatPhotos) pour réduire le coût en tokens ; cette fonction permet
+// à Gemini de les revoir explicitement, seulement les refs pertinentes, seulement quand il en a
+// vraiment besoin — jamais un simple bouton "tout renvoyer".
+const PHOTO_RECALL_FUNCTION_DECLARATIONS = [{
+    name: 'request_photo_review',
+    description: "Redemande à voir une ou plusieurs photos précises qui ne sont plus affichées dans la conversation (remplacées par un placeholder texte portant leur ref) OU une photo de l'annonce d'origine, quand tu as réellement besoin de les revoir pour répondre correctement — jamais par réflexe, jamais toutes les photos d'un coup si seules certaines sont pertinentes à la question posée.",
+    parameters: Schema.object({
+        properties: {
+            photo_refs: Schema.array({
+                items: Schema.string({ description: "Le ref exact d'une photo (ex: \"d-7f3a91\" ou \"c-a1b2c3-0\"), tel que donné dans le placeholder ou le contexte." }),
+                description: 'Les refs des photos à revoir — seulement celles nécessaires, jamais une liste large "au cas où".',
+            }),
+            reason: Schema.string({ description: 'Ce que tu cherches à vérifier sur ces photos précises.' }),
+        },
+        optionalProperties: [],
+    }),
+}];
+
+const PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM = [
+    "Certaines photos jointes plus tôt dans cette conversation ne sont plus affichées ici (remplacées",
+    "par un texte '[Photo ... ref: ...]') pour alléger la conversation — leur contenu reste dans ce",
+    "que tu as déjà dit à leur sujet. Si tu as VRAIMENT besoin de revoir une photo précise (pas juste",
+    "t'y référer), appelle request_photo_review avec son ref exact — jamais spontanément, jamais",
+    "plusieurs photos non pertinentes à la fois.",
+].join(' ');
+
 const RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM = [
     "Cette annonce a été achetée par l'utilisateur, qui restaure la guitare avant de la revendre — un",
     "plan de restauration structuré (checklist) lui est associé, dont l'état actuel t'est donné en",
@@ -263,13 +398,26 @@ export const validateRestorationStepProposal = (args) => {
 
 // `withRestorationTools` (2026-08-22) : gaté par l'appelant sur `deal.isPurchased` (jamais ici) —
 // voir useDealChat.js::sendMessage, qui reconstruit la session si ce statut change en cours de
-// conversation. `tools`/l'addendum système ne sont ajoutés que dans ce cas, comportement du chat
-// inchangé à zéro risque pour toute annonce non achetée.
-export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false } = {}) => {
+// conversation. `withPhotoRecall` (2026-08-23) : PAS gaté sur `isPurchased` — l'essentiel du gain
+// d'élision de photos porte sur les annonces non achetées (la majorité des conversations), donc
+// cette fonction doit rester disponible indépendamment du plan de restauration. Les deux jeux de
+// tools/addenda se composent librement (aucun, l'un, l'autre, ou les deux) ; comportement du chat
+// inchangé à zéro risque quand les deux sont `false`.
+export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false, withPhotoRecall = false } = {}) => {
     if (!ai) throw new Error("Firebase AI Logic n'est pas initialisé (voir src/services/firebase.js).");
+    const functionDeclarations = [
+        ...(withPhotoRecall ? PHOTO_RECALL_FUNCTION_DECLARATIONS : []),
+        ...(withRestorationTools ? RESTORATION_FUNCTION_DECLARATIONS : []),
+    ];
+    const systemInstruction = [
+        SYSTEM_INSTRUCTION,
+        withPhotoRecall ? PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM : null,
+        withRestorationTools ? RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
+    ].filter(Boolean).join(' ');
     return getGenerativeModel(ai, {
         model: modelName,
-        systemInstruction: withRestorationTools ? `${SYSTEM_INSTRUCTION} ${RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM}` : SYSTEM_INSTRUCTION,
-        ...(withRestorationTools ? { tools: [{ functionDeclarations: RESTORATION_FUNCTION_DECLARATIONS }] } : {}),
+        systemInstruction,
+        generationConfig: { maxOutputTokens: MAX_OUTPUT_TOKENS },
+        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
     });
 };

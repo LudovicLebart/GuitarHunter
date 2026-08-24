@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search } from 'lucide-react';
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
@@ -83,7 +83,7 @@ const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onAp
 // chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
 // de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
 // reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, images, onAddToGallery, proposals }) => {
+const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -128,6 +128,11 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals }) => {
                     </div>
                 )}
                 {text}
+                {photoRecall?.refs?.length > 0 && (
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-bold text-purple-300/70">
+                        <Search size={11} /> Photo{photoRecall.refs.length > 1 ? 's' : ''} réexaminée{photoRecall.refs.length > 1 ? 's' : ''} pour cette réponse
+                    </div>
+                )}
                 {proposals?.map(p => (
                     <RestorationProposalCard
                         key={p.index}
@@ -354,6 +359,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                             images={images}
                             onAddToGallery={(partIndex) => handleAddToGallery(m, partIndex)}
                             proposals={proposals}
+                            photoRecall={m.photoRecall}
                         />
                     );
                 })}
