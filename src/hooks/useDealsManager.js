@@ -362,6 +362,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     const hasTypeFilter = typePaths && typePaths.length > 0;
     const needle = search ? normalizeLoose(search) : '';
 
+    // Recherche par ID d'annonce (le numéro dans l'URL Facebook/Kijiji) : coller l'ID seul ou
+    // l'URL complète de l'annonce doit la faire remonter, même si aucun mot du texte ne matche.
+    // Comparaison en EXACT sur deal.id (pas en substring comme le texte libre plus bas) : un ID
+    // est un identifiant unique, pas une chaîne à retrouver partiellement. Un match ID court-
+    // circuite le filtre texte ci-dessous (mais pas le filtre de type, qui reste appliqué).
+    const idDigits = search ? search.match(/\d{6,}/)?.[0] : null;
+    const idMatched = !!idDigits && (deal.id === idDigits || deal.id === `kijiji_${idDigits}`);
+
     // Le chemin de taxonomie résolu sert aux DEUX usages ci-dessous (recherche texte + filtre de
     // type) : on ne le résout qu'une seule fois, et uniquement si l'un des deux est actif.
     let path = null;
@@ -379,7 +387,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     // Comparaison via normalizeLoose() des deux côtés : insensible aux accents et à la ponctuation
     // (donc "electrique" trouve "électrique", "les paul" trouve "Les-Paul") mais respectueuse des
     // séparations de mots — voir le commentaire de normalizeLoose() pour le faux positif évité.
-    if (needle) {
+    if (needle && !idMatched) {
       const haystack = normalizeLoose(
         [deal.title, analysis.brand, analysis.model_name, analysis.color, path ? path.join(' ') : null]
           .filter(Boolean).join(' ')
