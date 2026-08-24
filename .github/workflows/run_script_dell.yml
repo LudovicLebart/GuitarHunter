@@ -11,10 +11,11 @@
 # Répertoire scratch dédié sur le Dell (~/GuitareHunter-scripts), même logique que run_script.yml
 # côté serveur de production : jamais ~/MoneyBot, jamais d'interférence avec le cluster Ray actif.
 #
-# Étape actuelle (§9) : backend/scripts/experiments/test_owlv2_parts_detection.py — détection
-# multi-parties OWLv2 (8 formulations de requête, dont 4 nouvelles ciblant sillet/chevalet/touche,
-# §9 du plan) sur 4 photos test (2 acoustiques + 2 électriques). Sortie : images annotées dans
-# owlv2_parts_output/, à inspecter visuellement (pas de métrique automatique à ce stade).
+# Étape actuelle (§10) : backend/scripts/experiments/test_sam2_point_segmentation.py — segmentation
+# point-guidée SAM 2.1 (facebook/sam2.1-hiera-large), piste de repli après l'échec de OWLv2 en
+# détection multi-parties (§9). Points de départ dérivés des boîtes OWLv2 "the nut" les plus
+# fiables, pas cliqués à la main. Sortie : masques annotés dans sam2_points_output/, à inspecter
+# visuellement (pas de métrique automatique à ce stade).
 # Pour lancer un autre script, modifier la commande de l'étape d'exécution et le nom de
 # fichier/dossier de l'étape de récupération ci-dessous (même patron que run_script.yml/FICHIER_A_RECUPERER).
 #
@@ -67,12 +68,12 @@ jobs:
             nvidia-smi --query-gpu=memory.used,memory.total --format=csv
 
             echo "--- Exécution du script ---"
-            rm -rf owlv2_parts_output
-            python3 -u backend/scripts/experiments/test_owlv2_parts_detection.py
+            rm -rf sam2_points_output
+            python3 -u backend/scripts/experiments/test_sam2_point_segmentation.py
 
       - name: Récupération du rapport généré
         env:
-          FICHIER_A_RECUPERER: owlv2_parts_output
+          FICHIER_A_RECUPERER: sam2_points_output
         run: |
           mkdir -p ~/.ssh output
           printf '%s\n' "${{ secrets.DELL_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
