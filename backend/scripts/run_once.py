@@ -27,19 +27,16 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-24 : diagnostic — l'utilisateur signale que le scan Facebook ne trouve plus aucune
-    annonce (dernier cycle observé : 22/22 villes bloquées par anti-bot, 0 traitée), juste après
-    le déploiement du correctif `sortBy=creation_time_descend` (commit 6e2c9f7, en prod depuis
-    hier 15h21 UTC). Objectif : comparer les résumés de cycle Facebook AVANT/APRÈS ce déploiement
-    pour savoir si le correctif a lui-même déclenché ce blocage anti-bot, ou si le blocage est
-    préexistant/externe (voir `backend/scripts/audit_facebook_cycles.py`, lecture seule, aucune
-    écriture). Fenêtre : depuis 2026-08-23 12:00 UTC (~27h de marge avant le déploiement).
+    2026-08-24 : diagnostic exécuté — voir JOURNAL.md pour la conclusion (blocage anti-bot
+    massif, 22/22 villes, commencé ~18h avant le déploiement du correctif `sortBy`, résolu puis
+    revenu 4 min avant ce déploiement — sans lien avec le correctif). `run()` gardé pour
+    référence, désarmé (`ACTIVE=False`).
     """
     from backend.scripts.audit_facebook_cycles import run as audit_run
     audit_run(1787486400.0)  # 2026-08-23T12:00:00Z

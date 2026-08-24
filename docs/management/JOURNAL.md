@@ -1,9 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
-[2026-08-24] [PRO] Diagnostic en cours : 22/22 villes bloquées par anti-bot après le fix `sortBy` → Résultat :
+[2026-08-24] [PRO] Diagnostic : 22/22 villes bloquées par anti-bot — PAS causé par le fix `sortBy` → Résultat :
 - **Constat** : après déploiement du correctif `sortBy=creation_time_descend` (commit `6e2c9f7`, en prod depuis 15h21 UTC), l'utilisateur relance un scan sur Saint-Bruno-de-Montarville — résumé de cycle : `0 traitée(s)`, **22 ville(s) bloquée(s) par anti-bot** (100% des villes configurées). Aucune information sur le comportement avant ce déploiement (non suivi par l'utilisateur).
-- **`backend/scripts/audit_facebook_cycles.py`** (nouveau, lecture seule) : liste les résumés de cycle Facebook de tous les utilisateurs depuis un horodatage donné, avec le nombre de villes bloquées par cycle — objectif : comparer AVANT/APRÈS le déploiement du fix `sortBy` pour trancher entre régression introduite par ce correctif (le paramètre ajouté rendrait la requête plus détectable) et cause externe préexistante (IP/proxy flaggé, durcissement anti-bot côté Facebook, indépendant de nous).
-- **Armé via `run_once.py`** (fenêtre : depuis 2026-08-23 12h00 UTC), push en cours sur `dev`. Résultat et conclusion à compléter dans cette même entrée une fois les logs GitHub Actions lus.
+- **`backend/scripts/audit_facebook_cycles.py`** (nouveau, lecture seule, conservé) : liste les résumés de cycle Facebook de tous les utilisateurs depuis un horodatage donné, avec le nombre de villes bloquées par cycle — objectif : comparer AVANT/APRÈS le déploiement du fix `sortBy` pour trancher entre régression introduite par ce correctif et cause externe préexistante. Armé via `run_once.py`, exécuté en production (run GitHub Actions #378), lu directement dans les logs GitHub Actions (`get_job_logs`) — aucune écriture, aucun accès SSH nécessaire.
+- **Conclusion : blocage préexistant, sans lien avec le correctif.** Chronologie reconstituée depuis les logs Firestore de l'utilisateur (`wbPlgZgk...`) :
+  - **23 août 20h57 UTC** : premier blocage massif (21 villes), monte à 22/22 à 22h06 — **~18h avant** le déploiement du fix.
+  - **24 août 06h34 → 14h08 UTC** : ~7h30 de cycles parfaitement propres (0 ville bloquée) — le blocage s'était déjà résolu tout seul, avant même le fix.
+  - **24 août 15h17 UTC** : re-blocage à 22/22, **4 minutes avant** le déploiement (15h21) — donc déjà en cours quand le correctif est parti.
+  - Cycles observés après déploiement (jusqu'à 16h30) : toujours 22/22 bloqués, comportement inchangé.
+  - Le blocage anti-bot Facebook oscille par plages de plusieurs heures (0 ↔ 21-22 villes), un pattern déjà présent avant toute modification de code — probablement lié à l'IP/session, pas au contenu de la requête. Le comportement identique juste avant/après le déploiement exclut le fix comme cause.
+- **`run_once.py` repassé à `ACTIVE=False`** dans ce même commit (script conservé pour référence/réutilisation future).
+- **Suivi requis** : le blocage s'étant déjà résorbé une fois spontanément (~7h30), à revérifier plus tard si ça persiste anormalement longtemps — pas d'action corrective identifiée pour l'instant (cause côté Facebook, hors de notre contrôle direct).
 
 [2026-08-24] [PRO] Chat Gemini : bouton "Réessayer" sur erreur + bouton "Copier" → Résultat :
 - **Demande utilisateur** : après un signalement d'erreurs fréquentes ("Error fetching from .../gemini-3.1-pro-preview:generateContent: Failed to fetch (AI/error)"), (1) comprendre pourquoi, (2) bouton "Réessayer" dans la bulle d'erreur, (3) bouton "Copier" le contenu d'une bulle.
