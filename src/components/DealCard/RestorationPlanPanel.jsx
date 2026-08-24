@@ -362,10 +362,24 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
 
 const FAIRE_LE_POINT_PROMPT = "Fais le point sur l'état actuel de la restauration : qu'est-ce qu'il reste à faire, et pour quel coût estimé ?";
 const PREPARER_ANNONCE_PROMPT = "Rédige une description d'annonce Marketplace pour revendre cette guitare, en valorisant les travaux de restauration effectués.";
+// "Conseil d'atelier" (2026-08-23, Plan 2) : contrairement à "Demander conseil" (par item,
+// RestorationItem::onAskInChat, un brouillon éditable avant envoi), ce bouton cible directement
+// l'étape EN COURS sans repasser par un choix manuel — envoi immédiat (autoSend), même mécanisme
+// que "Faire le point"/"Préparer l'annonce".
+const buildAtelierAdvicePrompt = (item) =>
+    `Donne-moi un conseil d'atelier concret pour l'étape en cours, "${item.label}" (${CATEGORY_LABELS[item.category] || item.category}) : comment procéder, dans quel ordre, et les pièges à éviter.`;
 
 const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }) => {
     const { items, loading, error, addItem, updateItem, deleteItem, reorderItems, addPhoto, attachExistingPhoto, removePhoto, totals } = plan;
     const [showAddForm, setShowAddForm] = useState(false);
+    // Étape "en cours" pour le bouton "Conseil d'atelier" — priorité à un item explicitement
+    // `in_progress` (l'utilisateur y travaille activement) ; à défaut, la prochaine étape non
+    // terminée dans l'ordre d'affichage (déjà trié par `order`, voir useRestorationPlan.js).
+    // `null` si le plan est vide ou entièrement terminé/ignoré — le bouton est alors masqué plutôt
+    // que d'envoyer un prompt sans rien à discuter.
+    const currentStep = items.find(i => i.status === 'in_progress')
+        ?? items.find(i => i.status === 'pending' || i.status === 'waiting')
+        ?? null;
 
     // Distance minimale avant d'activer le glisser (souris) et léger délai + tolérance (tactile) —
     // évite qu'un simple tap sur la poignée ou un clic déclenche un drag involontaire.
@@ -459,6 +473,14 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }
                     >
                         <Sparkles size={12} /> Préparer l'annonce de revente
                     </button>
+                    {currentStep && (
+                        <button
+                            onClick={() => onQuickPrompt(buildAtelierAdvicePrompt(currentStep))}
+                            className="flex items-center gap-1.5 text-xs font-bold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                            <Sparkles size={12} /> Conseil d'atelier sur l'étape en cours
+                        </button>
+                    )}
                 </div>
 
                 {error && (
