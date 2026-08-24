@@ -227,23 +227,30 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
 
     // Brouillon pré-rempli depuis un point d'entrée externe du plan de restauration —
     // "Demander conseil" (autoSend=false, l'utilisateur édite/envoie lui-même) ou "Faire le
-    // point"/"Préparer l'annonce de revente" (autoSend=true, prompt prédéfini envoyé directement
-    // sans repasser par l'état `input` pour éviter un envoi basé sur une valeur pas encore
-    // committée). N'écrase jamais une saisie en cours autrement, seulement quand le parent fournit
-    // un nouveau brouillon. En mode autoSend, si un envoi est déjà en cours (`sending`),
-    // `sendMessage` no-op silencieusement (garde interne du hook) — on ne consomme alors PAS le
-    // brouillon (pas de `onDraftConsumed()`), pour réessayer automatiquement dès que `sending`
-    // repasse à false plutôt que de perdre le prompt sans aucun retour.
+    // point"/"Préparer l'annonce de revente"/"Conseil d'atelier" (autoSend=true, prompt prédéfini
+    // envoyé directement sans repasser par l'état `input` pour éviter un envoi basé sur une valeur
+    // pas encore committée). N'écrase jamais une saisie en cours autrement, seulement quand le
+    // parent fournit un nouveau brouillon. En mode autoSend, deux conditions bloquent l'envoi et ne
+    // doivent PAS consommer le brouillon (pas de `onDraftConsumed()`) pour réessayer automatiquement
+    // une fois levées, plutôt que de perdre le prompt sans aucun retour :
+    // - `sending` (un envoi déjà en cours — garde interne du hook, déjà couverte) ;
+    // - `loading` (bug trouvé en signalant le problème : au tout premier accès au chat dans une
+    //   session, ce panneau se monte AVANT que la session Gemini `chatRef.current` soit prête — le
+    //   listener Firestore initial n'a pas encore répondu. `sendMessage` no-opait alors
+    //   silencieusement en interne (`!chatRef.current`), mais `onDraftConsumed()` s'exécutait quand
+    //   même : le prompt disparaissait sans jamais être envoyé ni aucune erreur affichée. `loading`
+    //   redevient `false` exactement quand `chatRef.current` est prêt (même callback synchrone dans
+    //   useDealChat.js), donc un proxy fiable sans changer la surface du hook.
     useEffect(() => {
         if (!initialDraft) return;
         if (autoSend) {
-            if (sending) return;
+            if (sending || loading) return;
             sendMessage(initialDraft, []);
         } else {
             setInput(initialDraft);
         }
         onDraftConsumed?.();
-    }, [initialDraft, autoSend, sending, onDraftConsumed, sendMessage]);
+    }, [initialDraft, autoSend, sending, loading, onDraftConsumed, sendMessage]);
 
     // Révoque les URL locales de prévisualisation au démontage UNIQUEMENT (2026-08-22 — bug
     // trouvé en revue : lier ce cleanup à `[imagePreviews]` révoquait TOUT le tableau précédent à
