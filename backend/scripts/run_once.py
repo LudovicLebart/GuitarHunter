@@ -27,19 +27,19 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-24 : diagnostic exécuté — voir JOURNAL.md pour la conclusion (blocage anti-bot
-    massif, 22/22 villes, commencé ~18h avant le déploiement du correctif `sortBy`, résolu puis
-    revenu 4 min avant ce déploiement — sans lien avec le correctif). `run()` gardé pour
-    référence, désarmé (`ACTIVE=False`).
+    2026-08-24 : validation empirique (discussion Fable) — la boucle de 22 villes Facebook
+    pourrait-elle être remplacée par 1-3 points d'ancrage à rayon large ? Lecture seule sur
+    `deals_index` (aucune requête Facebook, aucune écriture) — voir
+    `backend/scripts/audit_anchor_coverage.py`.
     """
-    from backend.scripts.audit_facebook_cycles import run as audit_run
-    audit_run(1787486400.0)  # 2026-08-23T12:00:00Z
+    from backend.scripts.audit_anchor_coverage import run as audit_run
+    audit_run()
 
 
 if __name__ == "__main__":
