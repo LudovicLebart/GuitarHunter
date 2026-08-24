@@ -2,17 +2,22 @@
 Phase 0 du plan (docs/management/plans/NECK_RESET_VISION_PLAN.md §2/§7) — filtre d'utilisabilité :
 pour chaque photo (toutes les image_urls de chaque annonce, pas seulement la première), détecte
 si elle montre bien une guitare (OWLv2-base, validé sur un échantillon de 8 photos §7 étape 4 —
-8/8, VRAM 10%) et évalue sa "mesurabilité" (pas juste sa présence) via 3 critères indépendants :
+8/8, VRAM 10%) et évalue sa "mesurabilité" via 2 critères indépendants :
   - `usable` : score de détection "guitar" >= seuil (présence).
   - `low_resolution` : résolution min(largeur,hauteur) sous un seuil — reprend le mode de
     défaillance "vignette basse résolution, pas de photo HD stockée" identifié à la main (§3sexies,
     ex. 261×261px).
-  - `cropped_suspect` : la boîte de détection touche un bord de l'image — proxy pour un cadrage
-    incomplet (tête ou chevalet hors cadre), un des modes de défaillance identifiés §3sexies. Un
-    proxy, pas une vérité terrain : une vraie guitare bien cadrée peut aussi toucher un bord par
-    coïncidence, à valider empiriquement plutôt qu'à prendre pour acquis.
-`measurable` = ET des trois. Ne couvre toujours PAS (§6, pistes non conçues) : détection des
-photos générées par IA, estimation de l'angle de prise de vue (frontal vs 3/4).
+`measurable` = ET des deux. `cropped_suspect` (la boîte de détection touche un bord de l'image)
+reste calculé et enregistré pour information, mais **volontairement exclu de `measurable`** depuis
+le 2026-08-24 (§8ter/§8quater du plan) — inspection visuelle de cas réels a montré que ce proxy
+confond "guitare bien cadrée qui remplit le cadre" (faux positif, ex. tête à quelques px du bord
+mais rien de coupé) avec "vraiment coupée" (vrai positif), et que même un vrai recadrage serré peut
+rester exploitable pour ce projet (ex. tête hors cadre mais sillet→chevalet nets et bien visibles —
+c'est cette zone qui compte, pas l'instrument entier). Un test correct nécessiterait de savoir où
+sont le sillet et le chevalet, pas juste la boîte de la guitare entière — dépend de la détection
+automatique du manche/chevalet, toujours non résolue (§6). Ne couvre toujours pas (§6, pistes non
+conçues) : détection des photos générées par IA, estimation de l'angle de prise de vue (frontal
+vs 3/4).
 
 Tester la fiabilité des algos de détection ne nécessite pas tout le Dataset A (5974 photos) — le
 taux ne bouge pas significativement avec le volume une fois qu'on a un échantillon statistiquement
@@ -146,7 +151,9 @@ def main():
                     x1, y1, x2, y2 = best_box
                     mx, my = image.width * EDGE_MARGIN_FRAC, image.height * EDGE_MARGIN_FRAC
                     cropped_suspect = x1 <= mx or y1 <= my or x2 >= image.width - mx or y2 >= image.height - my
-                measurable = usable and not low_resolution and not cropped_suspect
+                # cropped_suspect volontairement exclu de measurable (§8ter/§8quater) — trop de
+                # faux positifs sur des photos bien cadrées, voir docstring en tête de fichier.
+                measurable = usable and not low_resolution
 
                 n_usable += usable
                 n_low_res += low_resolution
@@ -178,7 +185,8 @@ def main():
     print(f"Usable (score >= {args.threshold}) : {n_usable}/{img_count} ({100 * n_usable / img_count:.1f}%)")
     print(f"Basse résolution (< {MIN_RESOLUTION_PX}px) : {n_low_res}/{img_count} ({100 * n_low_res / img_count:.1f}%)")
     print(f"Cadrage suspect (boîte touchant un bord) : {n_cropped}/{img_count} ({100 * n_cropped / img_count:.1f}%)")
-    print(f"Measurable (usable ET pas basse résolution ET pas cadrage suspect) : {n_measurable}/{img_count} ({100 * n_measurable / img_count:.1f}%)")
+    print(f"Measurable (usable ET pas basse résolution) : {n_measurable}/{img_count} ({100 * n_measurable / img_count:.1f}%)")
+    print(f"  (cropped_suspect enregistré pour info, exclu de measurable — {n_cropped}/{img_count}, voir docstring)")
     print(f"Erreurs (téléchargement/inférence) : {n_errors}/{img_count}")
 
     if device == "cuda":
