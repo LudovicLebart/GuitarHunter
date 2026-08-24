@@ -399,7 +399,15 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 const { parts: photoParts, missing } = await resolvePhotoRefs(cappedRefs, photoRefIndex, messages);
 
                 if (photoParts.length) {
-                    const noteLines = [`[Photos demandées ci-jointes${truncatedCount > 0 ? ` — ${truncatedCount} référence(s) supplémentaire(s) ignorée(s), redemande-les séparément si besoin` : ''}${missing.length ? ` — introuvables : ${missing.join(', ')}` : ''}.]`];
+                    // Deux catégories distinctes, jamais mélangées dans une seule phrase (bug trouvé
+                    // en revue — un texte ambigu risquait de faire confondre au modèle "à
+                    // redemander plus tard" (plafonné ce tour-ci) et "n'existe pas" (réellement
+                    // introuvable/irrécupérable).
+                    const noteSegments = ['[Photos demandées ci-jointes.'];
+                    if (missing.length) noteSegments.push(` Introuvables (référence invalide ou photo non récupérable, ne redemande pas celles-ci) : ${missing.join(', ')}.`);
+                    if (truncatedCount > 0) noteSegments.push(` ${truncatedCount} référence(s) en plus du plafond de ${MAX_RECALLED_PHOTOS_PER_TURN}/tour n'ont pas été traitées cette fois — redemande-les séparément si tu en as toujours besoin.`);
+                    noteSegments.push(']');
+                    const noteLines = [noteSegments.join('')];
                     const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false })
                         .startChat({ history: buildApiHistory(messages, { elide: withPhotoRecall, photoRefIndex }) });
                     const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
@@ -438,7 +446,23 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     }));
                     const followUp = await chat.sendMessage(functionResponseParts);
                     logTokenUsage('tour de suite (rappel photo invalide)', followUp.response);
-                    responseText = followUp.response.text()?.trim() || "…";
+                    // Le modèle peut réagir à l'erreur en proposant une étape/un réordonnancement
+                    // dans ce même tour de suite (bug trouvé en revue — ce chemin ignorait
+                    // silencieusement ce cas, contrairement au chemin "rappel réussi" ci-dessus qui
+                    // le traite déjà) — même filet : on répond à CES appels avant de considérer le
+                    // tour terminé, sinon la proposition est perdue et la bulle persiste vide.
+                    const followUpCalls = followUp.response.functionCalls?.() || [];
+                    if (followUpCalls.length) {
+                        restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                        const functionResponseParts2 = followUpCalls.map(call => ({
+                            functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                        }));
+                        const followUp2 = await chat.sendMessage(functionResponseParts2);
+                        logTokenUsage('tour de suite (après erreur rappel photo)', followUp2.response);
+                        responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                    } else {
+                        responseText = followUp.response.text()?.trim() || "…";
+                    }
                 }
             } else if (calls.length) {
                 // Répond à TOUS les appels de ce tour — l'API exige une functionResponse par

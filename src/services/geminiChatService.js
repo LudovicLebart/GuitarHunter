@@ -10,9 +10,11 @@ export const DEFAULT_CHAT_MODEL = 'gemini-3.1-pro-preview';
 
 // Filet de sécurité (2026-08-23, Plan 1 tokens) — la consigne de concision dans SYSTEM_INSTRUCTION
 // est la règle de fond, ce plafond n'intervient qu'en cas de dérive (le modèle ignore la consigne
-// sur un tour donné). Volontairement large : une réponse normale même détaillée reste très en
-// dessous, on ne veut jamais tronquer une réponse légitime.
-const MAX_OUTPUT_TOKENS = 1024;
+// sur un tour donné). Volontairement large : le système invite explicitement à développer sur
+// demande ("raconte-moi l'histoire de cette guitare...") — un plafond trop bas (1024, valeur
+// initiale corrigée en revue) tronquait en plein milieu de phrase une réponse détaillée pourtant
+// légitime, et le texte tronqué est ce qui finit persisté en dur dans l'historique Firestore.
+const MAX_OUTPUT_TOKENS = 4096;
 
 const SYSTEM_INSTRUCTION = [
     "Tu es l'assistant conversationnel de Guitar Hunter AI, spécialisé dans l'évaluation de guitares,",
@@ -237,6 +239,23 @@ const pathnameOf = (url) => {
     try { return new URL(url).pathname; } catch { return url; }
 };
 
+// Génère `length` caractères en enchaînant des hash SALÉS (`pathname#0`, `pathname#1`, ...) jusqu'à
+// atteindre la longueur voulue — correctif (2026-08-23, trouvé en revue) : `fnv1aHash` seule
+// renvoie une chaîne de longueur FIXE (≤7 caractères en base36 pour un hash 32 bits) ; la tronquer
+// avec `.slice(0, length)` pour `length > 7` renvoyait systématiquement la même chaîne, rendant la
+// boucle de retry sur collision (ci-dessous) inopérante au-delà de la première tentative — deux
+// photos dont le hash colliderait sur les 6 premiers caractères auraient silencieusement partagé le
+// même ref, la seconde écrasant la première dans l'index.
+const hashPhotoRef = (pathname, length) => {
+    let out = '';
+    let salt = 0;
+    while (out.length < length) {
+        out += fnv1aHash(`${pathname}#${salt}`).padStart(7, '0');
+        salt++;
+    }
+    return out.slice(0, length);
+};
+
 export const buildPhotoRefIndex = (deal, messages) => {
     const refToLocation = new Map();
     const locationToRef = new Map(); // clé: `deal:${url}` ou `chat:${messageId}:${partIndex}`
@@ -246,7 +265,7 @@ export const buildPhotoRefIndex = (deal, messages) => {
         let length = REF_HASH_MIN_LENGTH;
         let ref;
         do {
-            ref = `d-${fnv1aHash(pathnameOf(url)).padStart(7, '0').slice(0, length)}`;
+            ref = `d-${hashPhotoRef(pathnameOf(url), length)}`;
             length += 2;
         } while (refToLocation.has(ref) && refToLocation.get(ref).url !== url && length < 20);
         refToLocation.set(ref, { kind: 'deal', url });
