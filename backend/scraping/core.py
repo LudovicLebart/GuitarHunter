@@ -389,9 +389,13 @@ class FacebookScraper:
 
         try:
             q = urllib.parse.quote(search_query)
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&query={q}&exact=false"
+            # sortBy=creation_time_descend : sans ce paramètre, Facebook trie par "Pertinence"
+            # (pas par date), donc une annonce fraîchement publiée peut ne jamais apparaître dans
+            # les max_ads premiers résultats scrapés, quel que soit le nombre de cycles écoulés.
+            # Kijiji n'a pas ce problème (tri par date par défaut, voir locations.py::build_search_url).
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&query={q}&exact=false&sortBy=creation_time_descend"
             if max_price > 0:
-                 url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={q}&exact=false"
+                 url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={q}&exact=false&sortBy=creation_time_descend"
 
             self.logger.info(f"   ➡️ Navigation: {url}")
             page.goto(url, timeout=self.config.timeout_navigation)
