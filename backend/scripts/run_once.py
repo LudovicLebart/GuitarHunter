@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -36,7 +36,10 @@ def run():
     2026-08-24 : validation empirique (discussion Fable) — la boucle de 22 villes Facebook
     pourrait-elle être remplacée par 1-3 points d'ancrage à rayon large ? Lecture seule sur
     `deals_index` (aucune requête Facebook, aucune écriture) — voir
-    `backend/scripts/audit_anchor_coverage.py`.
+    `backend/scripts/audit_anchor_coverage.py`. Exécuté le 2026-08-24 : 99.7% des annonces
+    Facebook déjà trouvées par la boucle actuelle tombent dans un rayon de 80km autour de
+    Longueuil ou Saint-Bruno-de-Montarville (2 ancrages), 3 annonces hors des deux même à ce
+    rayon max testé (résultat détaillé dans JOURNAL.md). Terminé — ACTIVE repassé à False.
     """
     from backend.scripts.audit_anchor_coverage import run as audit_run
     audit_run()
