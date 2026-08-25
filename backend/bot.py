@@ -520,7 +520,8 @@ class GuitarHunterBot:
             "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
             "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0, "already_rejected": 0,
             "duplicate_unchanged": 0, "duplicate_cross_platform": 0, "rejected_prefilter": 0,
-            "out_of_budget": 0, "processed": 0,
+            "out_of_budget": 0, "processed": 0, "total_cards_seen": 0,
+            "dropped_no_location": 0, "dropped_no_price": 0,
         }
 
         # Points d'ancrage (2026-08-25) : remplace une recherche Facebook par ville
@@ -577,6 +578,9 @@ class GuitarHunterBot:
                     scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
                     found_deals = scan_result["deals"]
                     cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
+                    cycle_stats["total_cards_seen"] += scan_result["total_cards_seen"]
+                    cycle_stats["dropped_no_location"] += scan_result["dropped_no_location"]
+                    cycle_stats["dropped_no_price"] += scan_result["dropped_no_price"]
                     if scan_result["anti_bot_blocked"]:
                         cycle_stats["anti_bot_blocked_cities"].append(city_name)
 
@@ -675,11 +679,14 @@ class GuitarHunterBot:
         blocked = cycle_stats["anti_bot_blocked_cities"]
         self.logger.info(
             "📊 Résumé du cycle Facebook : "
+            f"{cycle_stats['total_cards_seen']} carte(s) vue(s) au total, "
             f"{cycle_stats['processed']} traitée(s) (analyse IA), "
             f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
             f"{cycle_stats['out_of_budget']} ignorée(s) (hors budget), "
             f"{cycle_stats['matched_other_city']} récupérée(s) via une autre ville de la liste, "
             f"{cycle_stats['rejected_out_of_list']} hors liste de villes, "
+            f"{cycle_stats['dropped_no_location']} abandonnée(s) (localisation illisible sur la carte), "
+            f"{cycle_stats['dropped_no_price']} abandonnée(s) (prix illisible sur la carte), "
             f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
             f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
             f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "

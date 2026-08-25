@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -35,8 +35,10 @@ def run():
 
     2026-08-25 : l'utilisateur signale qu'une annonce précise (Saint-Bruno-de-Montarville,
     295$, id 4380960138835811) reste absente de la base malgré le passage aux points
-    d'ancrage — recherche directe par ID (lecture seule, aucune écriture) à travers tous
-    les utilisateurs, voir `backend/scripts/find_deal_by_id.py`.
+    d'ancrage — recherche directe par ID (lecture seule, aucune écriture), voir
+    `backend/scripts/find_deal_by_id.py`. Exécuté le 2026-08-25 : introuvable pour tout
+    utilisateur (ni ID brut, ni préfixé `kijiji_`) — jamais enregistrée, pas un problème
+    d'affichage. Terminé — ACTIVE repassé à False.
     """
     from backend.scripts.find_deal_by_id import run as find_run
     find_run("4380960138835811")

@@ -336,7 +336,8 @@ class FacebookScraper:
         self.logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
-    def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0):
+    def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0,
+                      dropped_no_location=0, dropped_no_price=0):
         """Forme standard retournée par scan_marketplace() à chaque point de sortie,
         pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés)."""
         return {
@@ -344,6 +345,8 @@ class FacebookScraper:
             "anti_bot_blocked": anti_bot_blocked,
             "rejected_out_of_list": rejected_out_of_list,
             "total_cards_seen": total_cards_seen,
+            "dropped_no_location": dropped_no_location,
+            "dropped_no_price": dropped_no_price,
         }
 
     def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None):
@@ -386,6 +389,8 @@ class FacebookScraper:
         found_deals = [] # Liste pour stocker les annonces trouvées
         rejected_out_of_list = 0
         listings_count = 0
+        dropped_no_location = 0
+        dropped_no_price = 0
 
         try:
             q = urllib.parse.quote(search_query)
@@ -414,6 +419,15 @@ class FacebookScraper:
             except Exception as e: self.logger.debug(f"Bouton cookies 'Decline' non cliqué: {e}")
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
+
+            # Instrumentation (2026-08-25, diagnostic annonce introuvable) : `_apply_filters()`
+            # rejoue le filtre prix via l'UI APRÈS que l'URL de départ ait déjà fixé
+            # `sortBy=creation_time_descend` — Facebook reconstruit sa propre query string à
+            # cette étape, rien ne garantissait jusqu'ici que ce paramètre (ou le city_id)
+            # survivait. Un retour silencieux au tri par défaut ("Pertinence") reproduirait
+            # exactement le bug corrigé le 2026-08-23 (voir JOURNAL.md).
+            if "sortBy=creation_time_descend" not in page.url:
+                self.logger.warning(f"   ⚠️ 'sortBy=creation_time_descend' absent de l'URL après application des filtres — tri probablement retombé sur 'Pertinence'. URL actuelle: {page.url}")
 
             self.logger.info("   📜 Défilement dynamique...")
             previous_count = 0
@@ -451,7 +465,8 @@ class FacebookScraper:
 
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
-                    return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count)
+                    return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
+                                              dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
                 
                 href = link.get_attribute("href")
                 if not href: continue
@@ -465,17 +480,23 @@ class FacebookScraper:
                 if not fb_id: continue
 
                 card_info = ListingParser.parse_listing_card(link, location, logger=self.logger)
-                
+
                 # --- NEW, STRICT FILTERING LOGIC ---
                 spec_loc = card_info['location']
-                
-                # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
+
+                # Instrumentation (2026-08-25, diagnostic annonce introuvable) : ces deux
+                # abandons étaient auparavant en `debug` (invisible, niveau INFO forcé en
+                # production) et non comptabilisés — une carte silencieusement perdue ici
+                # ne laissait AUCUNE trace permettant de la distinguer d'une carte qui
+                # n'existait simplement pas. `warning` + `fb_id`/titre pour pouvoir grep une
+                # annonce précise dans les logs. Voir JOURNAL.md pour le contexte complet.
                 if not spec_loc:
-                    self.logger.debug(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    self.logger.warning(f"   ⏩ Abandonné (localisation introuvable sur la carte) — id={fb_id} titre='{card_info['title']}'")
+                    dropped_no_location += 1
                     continue
 
                 if not self.is_city_allowed(spec_loc):
-                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc} — id={fb_id}")
                     rejected_out_of_list += 1
                     continue
                 # --- END OF NEW LOGIC ---
@@ -490,51 +511,56 @@ class FacebookScraper:
                     continue
                 # --- END OPTIMIZATION ---
 
-                if price > 0 or "Gratuit" in title or "Free" in title:
-                    self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
-                    
-                    details_page = self.context.new_page()
-                    try:
-                        details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                        self._close_login_popup(details_page)
-                        try: details_page.wait_for_selector("div[role='main']", timeout=10000)
-                        except Exception as e:
-                            self.logger.debug(f"Timeout fiche détail div[role='main']: {e}")
-                        time.sleep(2)
-                        self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+                if price <= 0 and "Gratuit" not in title and "Free" not in title:
+                    self.logger.warning(f"   ⏩ Abandonné (prix introuvable sur la carte, ni 'Gratuit'/'Free') — id={fb_id} titre='{title}' dans {spec_loc}")
+                    dropped_no_price += 1
+                    continue
 
-                        if self._is_valid_detail_page(details_page, fb_id):
-                            details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
-                        else:
-                            self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
-                            details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
-                    finally:
-                        details_page.close()
+                self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
 
-                    coords = details['coordinates']
-                    final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
-                    
-                    listing_data = {
-                        "title": title, "price": price, "description": details['description'],
-                        "imageUrl": final_img, "imageUrls": details['imageUrls'],
-                        "link": clean_link, "location": spec_loc,
-                        "id": fb_id, "published_at_raw": details.get('published_at_raw'),
-                        "published_at_ts": details.get('published_at_ts')
-                    }
-                    if coords:
-                        self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
-                        listing_data["latitude"] = coords["lat"]
-                        listing_data["longitude"] = coords["lng"]
+                details_page = self.context.new_page()
+                try:
+                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                    self._close_login_popup(details_page)
+                    try: details_page.wait_for_selector("div[role='main']", timeout=10000)
+                    except Exception as e:
+                        self.logger.debug(f"Timeout fiche détail div[role='main']: {e}")
+                    time.sleep(2)
+                    self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+
+                    if self._is_valid_detail_page(details_page, fb_id):
+                        details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
                     else:
-                        self.logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
-                    
-                    found_deals.append(listing_data) # Ajout à la liste
-                    count += 1
+                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
+                        details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
+                finally:
+                    details_page.close()
+
+                coords = details['coordinates']
+                final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
+
+                listing_data = {
+                    "title": title, "price": price, "description": details['description'],
+                    "imageUrl": final_img, "imageUrls": details['imageUrls'],
+                    "link": clean_link, "location": spec_loc,
+                    "id": fb_id, "published_at_raw": details.get('published_at_raw'),
+                    "published_at_ts": details.get('published_at_ts')
+                }
+                if coords:
+                    self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
+                    listing_data["latitude"] = coords["lat"]
+                    listing_data["longitude"] = coords["lng"]
+                else:
+                    self.logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
+
+                found_deals.append(listing_data) # Ajout à la liste
+                count += 1
         except Exception as e:
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
-        return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count)
+        return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
+                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()
