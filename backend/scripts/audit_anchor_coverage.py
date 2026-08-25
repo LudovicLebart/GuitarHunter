@@ -35,7 +35,13 @@ ANCHOR_CANDIDATES = {
     "Longueuil": (45.5369, -73.5105),
     "Saint-Bruno-de-Montarville": (45.5333, -73.3500),
 }
-RADII_KM = [40, 65, 80]
+# Balayage (2026-08-25, au lieu de 3 valeurs fixes devinées) — permet de repérer le
+# PLATEAU de saturation (rayon au-delà duquel ajouter du rayon ne trouve plus aucune
+# annonce supplémentaire), un signal plus fiable qu'un test de quelques valeurs isolées.
+# Complémentaire (pas un remplacement) du signal direct "📏 Rayon observé" ajouté dans
+# `bot.py::_run_facebook_scan()` — celui-ci vient de Facebook lui-même à chaque cycle,
+# celui-ci est une lecture unique sur l'historique déjà indexé.
+RADII_KM = list(range(20, 151, 5))
 
 
 def run():
@@ -74,6 +80,32 @@ def run():
                 )
                 pct = 100 * covered / len(deals_with_coords)
                 logger.info(f"  Ancrage={anchor_name:<28} rayon={radius:>3}km -> {covered}/{len(deals_with_coords)} ({pct:.1f}%)")
+
+        # Couverture COMBINÉE (union de tous les ancrages, ce qui compte réellement pour
+        # décider s'ils remplacent la boucle 22 villes) + détection du PLATEAU de
+        # saturation (2026-08-25) : le premier rayon à partir duquel élargir encore ne
+        # trouve plus aucune annonce supplémentaire dans cet historique — un signal plus
+        # fiable qu'un test de 3 valeurs fixes devinées pour choisir/recalibrer
+        # `FACEBOOK_ANCHOR_RADIUS_KM` (`bot.py`).
+        logger.info("  --- Couverture combinée (union de tous les ancrages) ---")
+        combined_counts = []
+        for radius in RADII_KM:
+            covered = sum(
+                1 for _, la, lo, _ in deals_with_coords
+                if any(calculate_distance(a_lat, a_lon, la, lo) <= radius for a_lat, a_lon in ANCHOR_CANDIDATES.values())
+            )
+            combined_counts.append((radius, covered))
+            pct = 100 * covered / len(deals_with_coords)
+            logger.info(f"  Combiné rayon={radius:>3}km -> {covered}/{len(deals_with_coords)} ({pct:.1f}%)")
+
+        plateau_radius = combined_counts[-1][0]
+        for i in range(len(combined_counts) - 1, 0, -1):
+            radius, covered = combined_counts[i]
+            prev_radius, prev_covered = combined_counts[i - 1]
+            if covered != prev_covered:
+                break
+            plateau_radius = prev_radius
+        logger.info(f"  📈 Plateau de saturation : à partir de {plateau_radius}km, aucune annonce supplémentaire jusqu'à {RADII_KM[-1]}km testé.")
 
         max_radius = max(RADII_KM)
         missed_all = [

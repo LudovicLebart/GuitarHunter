@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from backend.bot import GuitarHunterBot
+from backend.scraping.utils import calculate_distance
 
 
 def _make_bot():
@@ -33,6 +34,7 @@ def _make_bot():
 
 LONGUEUIL = {"name": "Longueuil", "id": "loc1", "latitude": 45.5369, "longitude": -73.5105}
 QUEBEC = {"name": "Quebec", "id": "loc2", "latitude": 46.8139, "longitude": -71.208}
+SAINT_BRUNO = {"name": "Saint-Bruno-de-Montarville", "id": "loc3", "latitude": 45.5333, "longitude": -73.3500}
 
 
 def _deal(deal_id="123", lat=None, lng=None):
@@ -157,6 +159,81 @@ class TestRunKijijiScan(unittest.TestCase):
 
         self.assertEqual(mock_scraper.scan_city.call_count, 2)
         self.bot.handle_deal_found.assert_called_once()
+
+    @patch("backend.bot.KijijiScraper")
+    def test_close_cities_are_clustered_into_a_single_search(self, mock_scraper_cls, _sleep):
+        """Deux villes proches (<80km, sans réglage `kijijiRadiusKm`) sont regroupées
+        derrière un seul point d'ancrage — une seule recherche Kijiji au lieu de deux
+        (2026-08-25, voir backend/scraping/geo_clustering.py)."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL, SAINT_BRUNO])
+
+        self.assertEqual(mock_scraper.scan_city.call_count, 1)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_clustered_search_radius_covers_every_member(self, mock_scraper_cls, _sleep):
+        """Le rayon envoyé à Kijiji pour un cluster doit être au moins celui requis pour
+        atteindre son membre le plus éloigné — sinon la consolidation en un seul point
+        d'ancrage perdrait des villes qu'une recherche dédiée aurait trouvées."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL, SAINT_BRUNO])
+
+        _, kwargs = mock_scraper.scan_city.call_args
+        required_radius = calculate_distance(
+            LONGUEUIL["latitude"], LONGUEUIL["longitude"], SAINT_BRUNO["latitude"], SAINT_BRUNO["longitude"]
+        )
+        self.assertGreaterEqual(kwargs["radius_km"], required_radius)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_clustered_search_radius_respects_larger_global_distance(self, mock_scraper_cls, _sleep):
+        """`scanConfig.distance` reste respecté tel quel s'il est plus grand que ce que le
+        cluster exige — la consolidation ne doit jamais RÉDUIRE la portée que
+        l'utilisateur a explicitement configurée."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        scan_config = {**self.scan_config, "distance": 60}
+        self.bot._run_kijiji_scan(scan_config, [LONGUEUIL, SAINT_BRUNO])
+
+        _, kwargs = mock_scraper.scan_city.call_args
+        self.assertEqual(kwargs["radius_km"], 60)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_city_with_radius_override_is_never_clustered(self, mock_scraper_cls, _sleep):
+        """Une ville avec `kijijiRadiusKm` explicite (réglage Firestore par ville) signale
+        une intention précise de l'utilisateur pour CETTE ville — jamais absorbée dans un
+        cluster, toujours scannée seule avec exactement ce rayon."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = []
+
+        city_with_override = {**SAINT_BRUNO, "kijijiRadiusKm": 3}
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL, city_with_override])
+
+        self.assertEqual(mock_scraper.scan_city.call_count, 2)
+        radius_by_city = {
+            call.args[0]: call.kwargs["radius_km"] for call in mock_scraper.scan_city.call_args_list
+        }
+        self.assertEqual(radius_by_city["Saint-Bruno-de-Montarville"], 3)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_deal_from_clustered_member_city_still_gets_its_own_location(self, mock_scraper_cls, _sleep):
+        """Une annonce retournée pour le cluster (recherché sous l'ancre Longueuil) mais
+        géolocalisée près de Saint-Bruno doit rester rattachée à Saint-Bruno — pas à
+        l'ancre par défaut (`nearest_configured_city` s'appuie sur TOUTES les villes
+        configurées, pas seulement les ancres)."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = [
+            _deal("555", lat=SAINT_BRUNO["latitude"], lng=SAINT_BRUNO["longitude"])
+        ]
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL, SAINT_BRUNO])
+
+        (processed_deal,), _ = self.bot.handle_deal_found.call_args
+        self.assertEqual(processed_deal["location"], "Saint-Bruno-de-Montarville")
 
     @patch("backend.bot.KijijiScraper")
     def test_stop_requested_skips_scan_entirely(self, mock_scraper_cls, _sleep):

@@ -20,6 +20,7 @@ from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
+from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
@@ -33,6 +34,22 @@ class GuitarHunterBot:
     # Distance GPS max (km) entre deux annonces de même prix/titre pour les considérer
     # comme le même objet — voir _find_cross_platform_duplicate().
     CROSS_PLATFORM_MAX_DISTANCE_KM = 5
+
+    # Rayon (km) utilisé pour regrouper les villes configurées en points d'ancrage, au
+    # lieu d'une recherche séparée par ville — voir docs/management/JOURNAL.md
+    # (2026-08-24/25) et `backend/scraping/geo_clustering.py`.
+    # Facebook applique déjà un rayon implicite non documenté autour de la ville
+    # recherchée : 80km est une valeur EMPIRIQUE (99.7% de couverture validée sur les
+    # annonces déjà indexées), pas une garantie du site. Voir les logs "📏 Rayon observé"
+    # (émis à chaque scan de ville, ci-dessous) pour son suivi dans le temps — à
+    # recalibrer si un jour ils révèlent une sous-estimation.
+    FACEBOOK_ANCHOR_RADIUS_KM = 80
+    # Kijiji, à l'inverse, reçoit un rayon EXPLICITE et réellement respecté par le site
+    # (`scan_city(..., radius_km=...)`) — cette valeur ne borne que la taille des
+    # clusters (quelles villes voyagent ensemble), jamais le rayon réellement envoyé à
+    # Kijiji : voir `_run_kijiji_scan()`, qui utilise `AnchorCluster.max_member_distance_km()`
+    # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
+    KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
 
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
@@ -506,20 +523,31 @@ class GuitarHunterBot:
             "out_of_budget": 0, "processed": 0,
         }
 
+        # Points d'ancrage (2026-08-25) : remplace une recherche Facebook par ville
+        # configurée (22 requêtes/cycle) par une recherche par cluster géographique — voir
+        # `FACEBOOK_ANCHOR_RADIUS_KM` et `backend/scraping/geo_clustering.py`. Le filtrage
+        # par ville ci-dessous (mode strict ou par rayon) reste inchangé : il continue de
+        # s'appuyer sur la liste COMPLÈTE des 22 villes (`all_allowed_cities_norm`), pas sur
+        # le cluster — une annonce localisée dans une ville membre non-ancre est donc traitée
+        # exactement comme aujourd'hui quand Facebook la retourne via la recherche de l'ancre.
+        clusters = compute_anchor_clusters(cities_to_scan, self.FACEBOOK_ANCHOR_RADIUS_KM)
+
         # Ordre de scan mélangé (2026-08-24, diagnostic blocages anti-bot) — copie locale
         # indépendante : `cities_to_scan` est le MÊME objet passé à `_run_kijiji_scan()`,
         # exécuté en parallèle dans un autre thread (voir `_run_sources_in_parallel()`), donc
         # jamais mélangé en place (ça ferait courir les deux threads sur une liste mutée sous
         # leurs pieds). Scanner toujours dans le même ordre est en soi un signal robotique,
-        # indépendamment du contenu des requêtes.
-        shuffled_cities = list(cities_to_scan)
-        random.shuffle(shuffled_cities)
+        # indépendamment du contenu des requêtes. Mélange désormais les CLUSTERS (indépendant
+        # de `cities_to_scan` lui-même, aucun risque de mutation partagée).
+        shuffled_clusters = list(clusters)
+        random.shuffle(shuffled_clusters)
 
-        for city_data in shuffled_cities:
+        for cluster in shuffled_clusters:
             if self._is_stop_requested():
                 self.logger.info("🛑 Interruption de la boucle des villes (Facebook).")
                 break
 
+            city_data = cluster.anchor
             city_name = city_data.get('name')
             city_id = city_data.get('id')
             city_lat = city_data.get('latitude')
@@ -532,7 +560,11 @@ class GuitarHunterBot:
 
             city_specific_config = scan_config.copy()
             city_specific_config['location'] = city_norm_name
-            self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
+            if len(cluster.members) > 1:
+                covered_names = ', '.join(m.get('name', '?') for m in cluster.members if m is not city_data)
+                self.logger.info(f"--- Scan de l'ancrage : {city_name} ({city_id}) — couvre aussi : {covered_names} ---")
+            else:
+                self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
 
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
@@ -547,6 +579,24 @@ class GuitarHunterBot:
                     cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
                     if scan_result["anti_bot_blocked"]:
                         cycle_stats["anti_bot_blocked_cities"].append(city_name)
+
+                    # --- INSTRUMENTATION : fiabiliser le rayon d'ancrage (2026-08-25) ---
+                    # Distance réelle entre le point recherché et CHAQUE annonce retournée par
+                    # Facebook, avant tout filtrage — preuve directe (pas une hypothèse testée
+                    # après coup) de l'étendue du rayon implicite que Facebook applique autour
+                    # de la ville recherchée. Le max observé dans le temps sur ces logs est une
+                    # borne fiable à suivre pour recalibrer `FACEBOOK_ANCHOR_RADIUS_KM` si besoin
+                    # (voir docs/management/JOURNAL.md, 2026-08-24).
+                    deal_distances = [
+                        calculate_distance(city_lat, city_lon, d['latitude'], d['longitude'])
+                        for d in found_deals
+                        if d.get('latitude') is not None and d.get('longitude') is not None
+                    ]
+                    if deal_distances:
+                        max_distance = max(deal_distances)
+                        self.logger.info(f"📏 Rayon observé pour '{city_name}' : {max_distance:.1f}km (max sur {len(deal_distances)} annonce(s) géolocalisée(s)).")
+                        if max_distance > self.FACEBOOK_ANCHOR_RADIUS_KM:
+                            self.logger.warning(f"⚠️ Annonce trouvée à {max_distance:.1f}km de '{city_name}', au-delà du rayon d'ancrage actuel ({self.FACEBOOK_ANCHOR_RADIUS_KM}km) — le rayon empirique est peut-être sous-estimé.")
 
                     # --- FILTRAGE PAR RAYON ---
                     radius_km = scan_config.get('distance', 0)
@@ -578,16 +628,30 @@ class GuitarHunterBot:
                         cycle_stats["matched_other_city"] += len(other_city_deals)
                         found_deals = own_city_deals + other_city_deals
                     elif radius_km > 0:
+                        # Distance mesurée par rapport à la ville membre du cluster la plus
+                        # proche (pas seulement l'ancre recherchée) : une annonce trouvée près
+                        # d'une ville membre non-ancre (ex: Saint-Bruno, couverte par l'ancre
+                        # Longueuil) doit être jugée selon SA propre distance à Saint-Bruno, pas
+                        # selon sa distance à Longueuil — sinon la consolidation en clusters
+                        # rétrécirait artificiellement la zone couverte par rapport au
+                        # comportement d'avant (une recherche dédiée par ville).
+                        members_with_coords = [
+                            m for m in cluster.members
+                            if m.get('latitude') is not None and m.get('longitude') is not None
+                        ]
                         deals_in_radius = []
                         for deal in found_deals:
                             deal_lat = deal.get('latitude')
                             deal_lon = deal.get('longitude')
                             if deal_lat is not None and deal_lon is not None:
-                                distance = calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
+                                distance = min(
+                                    calculate_distance(m['latitude'], m['longitude'], deal_lat, deal_lon)
+                                    for m in members_with_coords
+                                ) if members_with_coords else calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
                                 if distance <= radius_km:
                                     deals_in_radius.append(deal)
                                 else:
-                                    self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km).")
+                                    self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km de la ville membre la plus proche du cluster).")
                             else:
                                 deals_in_radius.append(deal)
 
@@ -657,20 +721,29 @@ class GuitarHunterBot:
         }
 
     def _run_kijiji_scan(self, scan_config, cities_to_scan):
-        """Scanne Kijiji.ca en plus de Facebook Marketplace, ville par ville, sur le même
-        catalogue de villes (`cities_to_scan`) et les mêmes filtres partagés (`max_ads`,
-        `search_query`, `distance`) que le scan Facebook — pas de config Kijiji séparée
-        dans cette itération. Source activable/désactivable via `scanConfig.kijiji_enabled`
+        """Scanne Kijiji.ca en plus de Facebook Marketplace, par point d'ancrage (2026-08-25,
+        voir `backend/scraping/geo_clustering.py`) sur le même catalogue de villes
+        (`cities_to_scan`) et les mêmes filtres partagés (`max_ads`, `search_query`,
+        `distance`) que le scan Facebook — pas de config Kijiji séparée dans cette
+        itération. Source activable/désactivable via `scanConfig.kijiji_enabled`
         (ConfigPanel), module autonome (`backend/scraping/kijiji/`), non fusionné avec
         `FacebookScraper`.
 
-        Rayon de recherche Kijiji (`radius_km` de `scan_city()`), priorité décroissante
-        (2026-07-27) : `city_data['kijijiRadiusKm']` (réglage par ville, Firestore) >
-        `scan_config['distance']` si > 0 (réglage global explicite, partagé avec Facebook)
-        > défaut à deux paliers appliqué par `scan_city()` elle-même (`None` transmis ici).
-        Un seul rayon fixe pour toutes les villes serait soit trop petit pour une grande
-        ville, soit trop large (faux positifs) pour une petite — voir `KijijiScraper.
-        DEFAULT_RADIUS_KM_RESOLVED`/`DEFAULT_RADIUS_KM_HUB_FALLBACK`.
+        Rayon de recherche Kijiji (`radius_km` de `scan_city()`), priorité décroissante :
+        `city_data['kijijiRadiusKm']` (réglage par ville, Firestore) — la ville n'est alors
+        JAMAIS regroupée dans un cluster, toujours scannée seule avec ce rayon exact > pour
+        une ville regroupée par défaut, le plus grand entre `scan_config['distance']`
+        (réglage global explicite, partagé avec Facebook) et le rayon minimal requis pour
+        couvrir tous les membres de son cluster > défaut à deux paliers appliqué par
+        `scan_city()` elle-même (`None` transmis) si aucun des deux ne s'applique (cluster
+        d'une seule ville, pas de réglage global). Un seul rayon fixe pour toutes les
+        villes serait soit trop petit pour une grande ville, soit trop large (faux
+        positifs) pour une petite — voir `KijijiScraper.DEFAULT_RADIUS_KM_RESOLVED`/
+        `DEFAULT_RADIUS_KM_HUB_FALLBACK`. Le filtre géographique d'appartenance
+        (`nearest_configured_city`, plus bas) continue de s'appuyer sur les coordonnées de
+        TOUTES les villes configurées, pas seulement les ancres — une annonce Kijiji
+        retournée pour le cluster reste rattachée à sa ville membre la plus proche, jamais
+        à l'ancre par défaut.
         """
         self.logger.info("--- Scan Kijiji (source additionnelle) ---")
 
@@ -696,6 +769,40 @@ class GuitarHunterBot:
         min_price = scan_config.get('min_price', 0)
         max_price = scan_config.get('max_price', 0)
 
+        # Points d'ancrage (2026-08-25), même principe que côté Facebook — voir
+        # `backend/scraping/geo_clustering.py` et `KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM`.
+        # Une ville avec `kijijiRadiusKm` (réglage Firestore explicite par ville) signale
+        # une intention précise de l'utilisateur POUR CETTE VILLE : jamais absorbée dans
+        # un cluster, toujours scannée seule avec son propre rayon, exactement comme
+        # avant. Seules les villes "par défaut" sont regroupées.
+        cities_with_override = [c for c in cities_to_scan if (c.get('kijijiRadiusKm') or 0) > 0]
+        cities_for_clustering = [c for c in cities_to_scan if c not in cities_with_override]
+        clusters = compute_anchor_clusters(cities_for_clustering, self.KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM)
+
+        # Chaque cible = une seule recherche Kijiji. Pour un cluster, le rayon envoyé est
+        # le PLUS GRAND entre le réglage global explicite (`scanConfig.distance`, à
+        # respecter tel quel) et `max_member_distance_km()` (le strict nécessaire pour
+        # couvrir tous les membres de CE cluster précis) — jamais une constante fixe
+        # arbitraire : Kijiji respecte réellement ce paramètre, l'élargir sans besoin
+        # récupérerait des annonces hors de toute ville configurée pour rien.
+        scan_targets = []
+        for cluster in clusters:
+            if not cluster.anchor.get('name'):
+                continue
+            cluster_min_radius = cluster.max_member_distance_km()
+            candidates = [v for v in (radius_km, cluster_min_radius) if v and v > 0]
+            scan_targets.append({
+                "city_data": cluster.anchor,
+                "radius_km": max(candidates) if candidates else None,
+                "cluster_members": cluster.members,
+            })
+        for c in cities_with_override:
+            scan_targets.append({
+                "city_data": c,
+                "radius_km": c.get('kijijiRadiusKm'),
+                "cluster_members": [c],
+            })
+
         # Comptabilisation du cycle Kijiji, symétrique à celle du scan Facebook — les deux
         # threads tournent en parallèle et écrivent dans le même logger, donc chaque entrée
         # (et le résumé final) doit porter son origine pour rester lisible dans le LogViewer.
@@ -710,31 +817,29 @@ class GuitarHunterBot:
         try:
             temp_scraper = KijijiScraper(logger=self.logger)
             try:
-                for city_data in cities_to_scan:
+                for target in scan_targets:
                     if self._is_stop_requested():
                         self.logger.info("🛑 Interruption du scan Kijiji.")
                         break
 
+                    city_data = target["city_data"]
                     city_name = city_data.get('name')
                     if not city_name:
                         continue
                     city_lat = city_data.get('latitude')
                     city_lon = city_data.get('longitude')
-                    # Priorité : réglage par ville (`kijijiRadiusKm`, Firestore) > réglage
-                    # global explicite (`scanConfig.distance`, partagé avec Facebook) >
-                    # défaut à deux paliers de `scan_city()` (None -> laissé à sa charge).
+                    # Rayon déjà résolu au moment de la construction de `scan_targets`
+                    # (voir sa construction plus haut et la docstring de cette méthode).
                     # Le sélecteur de rayon du site Kijiji n'autorise pas 0km, contrairement
                     # à `distance=0` côté Facebook ("correspondance exacte de ville", un
                     # concept qui n'existe pas pour Kijiji) — jamais 0 envoyé ici.
-                    city_radius_km = city_data.get('kijijiRadiusKm')
-                    if city_radius_km and city_radius_km > 0:
-                        kijiji_search_radius_km = city_radius_km
-                    elif radius_km > 0:
-                        kijiji_search_radius_km = radius_km
-                    else:
-                        kijiji_search_radius_km = None
+                    kijiji_search_radius_km = target["radius_km"]
 
-                    self.logger.info(f"--- Scan Kijiji : {city_name} ---")
+                    if len(target["cluster_members"]) > 1:
+                        covered_names = ', '.join(m.get('name', '?') for m in target["cluster_members"] if m is not city_data)
+                        self.logger.info(f"--- Scan Kijiji : ancrage {city_name} (rayon {kijiji_search_radius_km}km) — couvre aussi : {covered_names} ---")
+                    else:
+                        self.logger.info(f"--- Scan Kijiji : {city_name} ---")
                     try:
                         # ID préfixé avant même le check de dédup (pas seulement après coup
                         # sur `found_deals`) : `should_skip_deal` compare contre
