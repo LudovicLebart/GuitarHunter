@@ -398,9 +398,16 @@ class FacebookScraper:
             # (pas par date), donc une annonce fraîchement publiée peut ne jamais apparaître dans
             # les max_ads premiers résultats scrapés, quel que soit le nombre de cycles écoulés.
             # Kijiji n'a pas ce problème (tri par date par défaut, voir locations.py::build_search_url).
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&query={q}&exact=false&sortBy=creation_time_descend"
-            if max_price > 0:
-                 url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={q}&exact=false&sortBy=creation_time_descend"
+            #
+            # Prix volontairement absent de cette URL initiale (2026-08-25, retour utilisateur
+            # après test manuel) : l'ORDRE d'application des filtres compte pour Facebook — le
+            # prix doit être la toute DERNIÈRE action, sans ambiguïté. Le baker dans l'URL de
+            # départ en même temps que `sortBy` (comme avant) puis le retaper via `_apply_filters()`
+            # créait une double application concurrente ; des résultats hors-sujet ("n'importe quoi")
+            # ont été observés quand le tri se retrouvait être la dernière action effective plutôt
+            # que le prix. `_apply_filters()` (appelé après cette navigation) reste donc la SEULE
+            # source de vérité pour le prix, appliquée en tout dernier avant le défilement.
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?query={q}&exact=false&sortBy=creation_time_descend"
 
             self.logger.info(f"   ➡️ Navigation: {url}")
             page.goto(url, timeout=self.config.timeout_navigation)
