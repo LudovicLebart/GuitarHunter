@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { minDistanceToCities } from '../utils/geo';
+import { calculateDistanceKm, minDistanceToCities } from '../utils/geo';
 
 // Photon (photon.komoot.io, basé sur OpenStreetMap) plutôt que Nominatim directement depuis le
 // navigateur : la politique d'usage de Nominatim interdit explicitement l'autocomplete
@@ -14,15 +14,22 @@ const MIN_QUERY_LENGTH = 2;
  * Suggestions de villes en direct pour l'ajout d'une NOUVELLE ville (pas déjà dans le catalogue
  * partagé) — l'utilisateur choisit visuellement la bonne parmi plusieurs homonymes possibles,
  * plutôt qu'un algorithme qui devine (source du bug "Saint-Lambert" géocodé en France, voir
- * JOURNAL.md 2026-08-25/26). Reclassées par distance à la ville la plus proche déjà configurée
- * (jamais un filtre qui exclut — juste un tri, une ville légitimement lointaine reste visible en
- * tapant plus précis, ex: ajouter ", France").
+ * JOURNAL.md 2026-08-25/26). Reclassées par distance à la position GPS réelle de l'utilisateur
+ * quand elle est disponible (plus pertinent que les villes déjà configurées, qui peuvent être
+ * ailleurs — utilisateur en déplacement), sinon repli sur la distance à la ville la plus proche
+ * déjà configurée (jamais un filtre qui exclut — juste un tri, une ville légitimement lointaine
+ * reste visible en tapant plus précis, ex: ajouter ", France").
  */
 export const useCitySuggestions = (query, existingCities) => {
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
   const requestIdRef = useRef(0);
+  // Géolocalisation demandée une seule fois par instance du sélecteur (pas à l'ouverture du
+  // panneau de config entier, seulement à la première recherche) — jamais bloquant : un refus, une
+  // erreur ou un navigateur sans support retombe silencieusement sur le tri par ville configurée.
+  const geoRequestedRef = useRef(false);
+  const userPositionRef = useRef(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -31,6 +38,17 @@ export const useCitySuggestions = (query, existingCities) => {
       setSuggestions([]);
       setLoading(false);
       return undefined;
+    }
+
+    if (!geoRequestedRef.current) {
+      geoRequestedRef.current = true;
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { userPositionRef.current = { latitude: pos.coords.latitude, longitude: pos.coords.longitude }; },
+          () => { userPositionRef.current = null; },
+          { timeout: 5000, maximumAge: 300000 }
+        );
+      }
     }
 
     const requestId = ++requestIdRef.current;
@@ -62,11 +80,13 @@ export const useCitySuggestions = (query, existingCities) => {
           })
           .filter(c => c.name && c.latitude != null && c.longitude != null);
 
-        candidates.sort(
-          (a, b) =>
-            minDistanceToCities(a.latitude, a.longitude, existingCities) -
-            minDistanceToCities(b.latitude, b.longitude, existingCities)
-        );
+        const distanceTo = (c) => {
+          const pos = userPositionRef.current;
+          return pos
+            ? calculateDistanceKm(pos.latitude, pos.longitude, c.latitude, c.longitude)
+            : minDistanceToCities(c.latitude, c.longitude, existingCities);
+        };
+        candidates.sort((a, b) => distanceTo(a) - distanceTo(b));
 
         setSuggestions(candidates);
       } catch (e) {
