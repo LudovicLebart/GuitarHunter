@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, AlertCircle, Settings, MapPin, ArrowUp, ArrowDown, Maximize2, Minimize2, Save, Terminal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
@@ -244,34 +244,14 @@ const CityManagementSection = () => {
     }
     handlePhotonKeyDownBase(e);
   };
-  // Le menu déroulant est rendu via un portail (document.body, position fixe calculée depuis le
-  // champ) : `CollapsibleSection` (parent) a `overflow-hidden` pour son animation d'ouverture, ce
-  // qui rognait silencieusement le menu en position absolue classique (z-index seul ne suffit pas
-  // à sortir d'un ancêtre qui clippe son contenu).
-  const searchInputWrapperRef = useRef(null);
-  const [dropdownRect, setDropdownRect] = useState(null);
+  // Le menu est rendu dans le flux normal (pas en position absolue/fixe superposée) : à la fois le
+  // z-index (contexte d'empilement local à `CollapsibleSection`) et un portail en position fixe
+  // (coordonnées fiables mais viewport mobile perturbé par le clavier virtuel, cf. captures
+  // utilisateur) se sont révélés peu fiables. En flux normal, le menu pousse simplement le contenu
+  // suivant vers le bas — jamais caché, quel que soit l'appareil.
   const catalogDropdownOpen = suggestions.length > 0;
   const photonDropdownOpen = suggestions.length === 0 && showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0);
   const dropdownOpen = catalogDropdownOpen || photonDropdownOpen;
-  useEffect(() => {
-    if (!dropdownOpen) { setDropdownRect(null); return undefined; }
-    const updateRect = () => {
-      const el = searchInputWrapperRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      setDropdownRect({ top: r.bottom, left: r.left, width: r.width });
-    };
-    updateRect();
-    // `capture: true` : le panneau de configuration défile dans un conteneur interne, pas la
-    // fenêtre — un `scroll` sur cet ancêtre ne remonte pas en phase de bulles, mais la phase de
-    // capture, elle, traverse toujours `window` en premier quel que soit l'élément qui défile.
-    window.addEventListener('scroll', updateRect, true);
-    window.addEventListener('resize', updateRect);
-    return () => {
-      window.removeEventListener('scroll', updateRect, true);
-      window.removeEventListener('resize', updateRect);
-    };
-  }, [dropdownOpen]);
   const handleSaveCity = async () => {
     if (isAddingCity) return;
     if (pickedCandidate) {
@@ -314,8 +294,8 @@ const CityManagementSection = () => {
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Ajouter une zone</label>
           <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tight">Taper le nom et cliquer sur + pour ajouter</span>
         </div>
-        <div className="flex gap-2">
-          <div className="relative flex-grow" ref={searchInputWrapperRef}>
+        <div className="flex items-start gap-2">
+          <div className="flex-grow">
             <input
               type="text"
               placeholder="Rechercher une ville..."
@@ -324,11 +304,8 @@ const CityManagementSection = () => {
               onKeyDown={handlePhotonKeyDown}
               className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30"
             />
-            {dropdownOpen && dropdownRect && createPortal(
-              <div
-                style={{ position: 'fixed', top: dropdownRect.top + 8, left: dropdownRect.left, width: dropdownRect.width }}
-                className="z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark"
-              >
+            {dropdownOpen && (
+              <div className="mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
                 {catalogDropdownOpen && suggestions.map(suggestion => (
                   <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
                     {suggestion.name}
@@ -354,8 +331,7 @@ const CityManagementSection = () => {
                     )}
                   </div>
                 ))}
-              </div>,
-              document.body
+              </div>
             )}
           </div>
           <button
