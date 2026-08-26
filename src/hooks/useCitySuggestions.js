@@ -56,6 +56,15 @@ export const useCitySuggestions = (query, existingCities) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({ q: trimmed, limit: '8', lang: 'fr' });
+        // Biais géographique demandé à Photon lui-même (paramètres `lat`/`lon` de son API) plutôt
+        // que de se contenter de retrier les 8 résultats déjà choisis par SON classement par
+        // pertinence globale (population/notoriété) — sans ça, une ville proche mais peu connue
+        // peut ne jamais figurer dans les 8 résultats bruts, quel que soit notre tri côté client.
+        const pos = userPositionRef.current;
+        if (pos) {
+          params.set('lat', String(pos.latitude));
+          params.set('lon', String(pos.longitude));
+        }
         const res = await fetch(`${PHOTON_URL}?${params.toString()}`);
         if (!res.ok) throw new Error(`Photon a répondu ${res.status}`);
         const data = await res.json();
