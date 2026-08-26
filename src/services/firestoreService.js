@@ -650,7 +650,10 @@ export const onCitiesUpdate = (onUpdate, onError, userId) => {
   return () => { unsubCatalog(); unsubPrefs(); };
 };
 
-export const requestAddCity = (cityName, userId) => addCommand('ADD_CITY', cityName, userId);
+// `cityPayload` : chaîne simple (repli, ajout à l'aveugle) ou `{name, latitude, longitude,
+// regionHint}` depuis une suggestion choisie explicitement par l'utilisateur — voir
+// `useCitySuggestions.js` et `backend/bot.py::add_city_auto()`.
+export const requestAddCity = (cityPayload, userId) => addCommand('ADD_CITY', cityPayload, userId);
 
 /**
  * Supprime la préférence user pour cette ville (la retire de la liste active).

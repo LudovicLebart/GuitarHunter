@@ -247,6 +247,67 @@ class TestRunKijijiScan(unittest.TestCase):
         self.bot.handle_deal_found.assert_not_called()
 
 
+@patch("backend.bot.FacebookScraper")
+@patch("backend.bot.CityFinder")
+class TestAddCityAuto(unittest.TestCase):
+    """add_city_auto() (2026-08-26) : priorité des coordonnées (confirmées par l'utilisateur >
+    Facebook > Nominatim) et flag `needsReview` quand la suggestion Facebook cliquée ne
+    correspond pas à l'indice de région fourni — voir city_finder.py pour le correctif du
+    city_id "Saint-Lambert" retrouvé être un homonyme hors Québec."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot.offline_mode = False
+        self.bot.repo = MagicMock()
+        self.bot.repo.get_all_catalog_cities.return_value = {}
+        self.bot._geocode_nominatim = MagicMock(return_value={"lat": 1.0, "lon": 2.0})
+
+    def test_string_payload_falls_back_to_nominatim_when_no_fb_coords(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert", False)
+
+        self.bot.add_city_auto("Saint-Lambert")
+
+        self.bot._geocode_nominatim.assert_called_once_with("Saint-Lambert")
+        city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
+        self.assertEqual(city_data["latitude"], 1.0)
+        self.assertEqual(city_data["longitude"], 2.0)
+        self.assertNotIn("needsReview", city_data)  # pas d'indice de région -> pas de vérification possible
+
+    def test_confirmed_coords_take_priority_over_facebook_coords(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", {"lat": 40.0, "lon": 50.0}, "Saint-Lambert, QC", True)
+
+        self.bot.add_city_auto({"name": "Saint-Lambert", "latitude": 45.53, "longitude": -73.5, "region_hint": "Québec"})
+
+        self.bot._geocode_nominatim.assert_not_called()
+        city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
+        self.assertEqual(city_data["latitude"], 45.53)
+        self.assertEqual(city_data["longitude"], -73.5)
+
+    def test_needs_review_when_suggestion_does_not_match_region_hint(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert, Orne, France", False)
+
+        self.bot.add_city_auto({"name": "Saint-Lambert", "latitude": 45.53, "longitude": -73.5, "region_hint": "Québec"})
+
+        _, kwargs = mock_city_finder.find_city_id_and_coords.call_args
+        self.assertEqual(kwargs["region_hint"], "Québec")
+        city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
+        self.assertTrue(city_data["needsReview"])
+
+    def test_no_needs_review_when_suggestion_matches_region_hint(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert, Québec, Canada", True)
+
+        self.bot.add_city_auto({"name": "Saint-Lambert", "latitude": 45.53, "longitude": -73.5, "region_hint": "Québec"})
+
+        city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
+        self.assertNotIn("needsReview", city_data)
+
+    def test_raises_when_facebook_city_id_not_found(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = (None, None, None, False)
+
+        with self.assertRaises(Exception):
+            self.bot.add_city_auto("Ville introuvable")
+
+
 class TestRunSourcesInParallel(unittest.TestCase):
     """_run_sources_in_parallel() dispatche Facebook et Kijiji chacun dans son propre
     thread (au lieu de les enchaîner en séquence) — voir demande utilisateur du

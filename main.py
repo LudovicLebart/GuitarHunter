@@ -67,7 +67,10 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
         'CLEANUP': lambda _: bot.cleanup_sold_listings(),
         'REANALYZE_ALL': lambda _: bot.reanalyze_all_listings(),
         'SCAN_URL': lambda url: bot.scan_specific_url(url),
-        'ADD_CITY': lambda city_name: bot.add_city_auto(city_name),
+        # payload : chaîne simple (repli historique) ou dict {name, latitude, longitude,
+        # region_hint} depuis la sélection explicite d'une suggestion côté frontend — voir
+        # bot.py::add_city_auto().
+        'ADD_CITY': lambda payload: bot.add_city_auto(payload),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),

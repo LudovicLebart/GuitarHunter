@@ -18,14 +18,22 @@ export const useCities = (user, setError) => {
     return () => unsubscribe();
   }, [user, setError]);
 
-  const handleAddCity = useCallback(async (cityName) => {
-    const targetName = (typeof cityName === 'string' ? cityName : newCityName).trim();
+  const handleAddCity = useCallback(async (cityInput) => {
+    // `cityInput` : chaîne simple (repli historique) ou objet structuré
+    // `{name, latitude, longitude, regionHint}` venant d'une suggestion Photon choisie
+    // explicitement par l'utilisateur (voir ConfigPanel.jsx/useCitySuggestions.js) — traduit ici
+    // en `region_hint` pour matcher le payload attendu par `bot.py::add_city_auto()`.
+    const isStructured = cityInput && typeof cityInput === 'object';
+    const targetName = (isStructured ? cityInput.name : (typeof cityInput === 'string' ? cityInput : newCityName)).trim();
     if (!targetName || !user) return;
     const uid = user.uid;
     setIsAddingCity(true);
     try {
-      const commandDocRef = await requestAddCity(targetName, uid);
-      
+      const payload = isStructured
+        ? { name: targetName, latitude: cityInput.latitude, longitude: cityInput.longitude, region_hint: cityInput.regionHint }
+        : targetName;
+      const commandDocRef = await requestAddCity(payload, uid);
+
       const unsubscribe = onCommandUpdate(commandDocRef.id, (data) => {
           if (data.status === 'completed') {
               setNewCityName('');

@@ -1134,8 +1134,27 @@ class GuitarHunterBot:
             
         return None
 
-    def add_city_auto(self, city_name):
+    def add_city_auto(self, city_payload):
+        """`city_payload` : soit une simple chaîne (comportement historique, avant le sélecteur
+        de suggestions du frontend — recherche Facebook/Nominatim en aveugle, sans indice de
+        région), soit un dict `{name, latitude, longitude, region_hint}` produit par la sélection
+        explicite de l'utilisateur (ex: via Nominatim/Photon côté frontend) :
+        - `latitude`/`longitude` : coordonnées déjà confirmées visuellement par l'utilisateur —
+          priorité ABSOLUE sur toute coordonnée devinée (Facebook ou Nominatim), voir plus bas.
+        - `region_hint` : texte de région/pays (ex: "Québec, Canada") transmis à `CityFinder`
+          pour choisir la bonne suggestion Facebook parmi toutes celles proposées, plutôt que de
+          cliquer la première aveuglément (voir `city_finder.py`, correctif 2026-08-26 suite au
+          city_id de "Saint-Lambert" qui s'est révélé être un homonyme hors Québec).
+        """
         if self.offline_mode: return
+        if isinstance(city_payload, dict):
+            city_name = city_payload.get('name')
+            confirmed_lat = city_payload.get('latitude')
+            confirmed_lon = city_payload.get('longitude')
+            region_hint = city_payload.get('region_hint')
+        else:
+            city_name = city_payload
+            confirmed_lat = confirmed_lon = region_hint = None
         self.logger.info(f"Tentative d'ajout de la ville: {city_name}")
 
         # Dédoublonnage sur le catalogue partagé (nom)
@@ -1156,15 +1175,14 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"Ville '{city_name}' dans le catalogue mais sans coordonnées. Lancement CityFinder pour enrichissement...")
 
-        city_id = None
-        city_coords = None
-
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
-                city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
+                city_id, city_coords, matched_label, matched_confidently = CityFinder.find_city_id_and_coords(
+                    temp_scraper, city_name, region_hint=region_hint
+                )
             finally:
                 temp_scraper.close_session()
         finally:
@@ -1178,23 +1196,40 @@ class GuitarHunterBot:
             target_id = city_id_str if city_id_str in catalog else (existing_id_by_name or city_id_str)
 
             # --- GESTION DES COORDONNÉES ---
-            # Priorité 1 : Coordonnées extraites directement de l'URL Facebook (très fiable car lié au city_id)
-            # Priorité 2 : Coordonnées via Nominatim
-            
-            final_coords = city_coords # Coordonnées venant de CityFinder (FB URL)
-            
-            if not final_coords:
-                self.logger.info(f"Pas de coords FB pour '{city_name}', tentative Nominatim...")
-                final_coords = self._geocode_nominatim(city_name)
-            else:
+            # Priorité 1 : coordonnées déjà confirmées par l'utilisateur (sélection explicite
+            #              d'une suggestion Nominatim/Photon côté frontend) — jamais remplacées
+            #              par une devinette, c'est la source la plus fiable possible.
+            # Priorité 2 : coordonnées extraites de l'URL Facebook (souvent absentes en pratique).
+            # Priorité 3 : Nominatim en aveugle (repli historique, seulement si aucune des deux
+            #              autres sources n'est disponible — ex: ancien payload en simple chaîne).
+            if confirmed_lat is not None and confirmed_lon is not None:
+                final_coords = {'lat': confirmed_lat, 'lon': confirmed_lon}
+                self.logger.info(f"Utilisation des coordonnées déjà confirmées par l'utilisateur pour '{city_name}': {final_coords}")
+            elif city_coords:
+                final_coords = city_coords
                 self.logger.info(f"Utilisation des coords Facebook pour '{city_name}': {final_coords}")
+            else:
+                self.logger.info(f"Pas de coords confirmées ni FB pour '{city_name}', tentative Nominatim (repli)...")
+                final_coords = self._geocode_nominatim(city_name)
 
             if not final_coords:
-                self.logger.warning(f"Nominatim n'a pas trouvé de coords pour '{city_name}'. Ville ajoutée sans coordonnées.")
+                self.logger.warning(f"Aucune coordonnée trouvée pour '{city_name}'. Ville ajoutée sans coordonnées.")
+
+            # `needsReview` : la suggestion Facebook cliquée ne correspondait pas à l'indice de
+            # région fourni — le city_id lui-même est peut-être un homonyme (voir docstring plus
+            # haut). Jamais bloquant (le city_id reste indispensable au scraper), juste un signal
+            # à vérifier manuellement dans l'app.
+            needs_review = bool(region_hint) and not matched_confidently
 
             city_data = {'name': city_name, 'id': city_id_str}
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
+            if needs_review:
+                city_data['needsReview'] = True
+                self.logger.warning(
+                    f"'{city_name}' marquée needsReview : suggestion Facebook cliquée ('{matched_label}') "
+                    f"ne correspond pas à l'indice de région fourni ('{region_hint}')."
+                )
 
             if in_catalog:
                 self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")

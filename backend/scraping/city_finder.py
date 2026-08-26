@@ -5,11 +5,26 @@ from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
 class CityFinder:
     @staticmethod
-    def find_city_id_and_coords(scraper, city_name):
+    def find_city_id_and_coords(scraper, city_name, region_hint=None):
+        """`region_hint` (optionnel) : région/pays déjà confirmé par l'utilisateur (ex: "Québec,
+        Canada", venant de la sélection Nominatim côté frontend) — sert à choisir la BONNE
+        suggestion parmi celles proposées par l'auto-complétion Facebook plutôt que de cliquer
+        aveuglément la première (2026-08-26 : un `city_id` Facebook s'est révélé être un homonyme
+        hors Québec, jamais détecté puisque `.first` ne compare jamais le texte des suggestions).
+        Sans indice (repli historique, ex: villes ajoutées avant ce correctif), comportement
+        inchangé : première suggestion.
+
+        Retourne (city_id, city_coords, matched_label, matched_confidently) — `matched_label` est
+        le texte de la suggestion réellement cliquée (utile pour logger/comparer même quand
+        `city_coords` est absent, ce qui est le cas la majorité du temps) ; `matched_confidently`
+        est `True` seulement si `region_hint` était fourni ET qu'une suggestion le contenait
+        explicitement — sert à décider si la ville doit être marquée `needsReview`."""
         scraper._ensure_session()
         page = scraper.context.new_page()
         city_id = None
         city_coords = None
+        matched_label = None
+        matched_confidently = False
         
         try:
             scraper.logger.info(f"Début de la recherche d'ID et de coordonnées pour la ville: '{city_name}'")
@@ -28,7 +43,7 @@ class CityFinder:
                  # Fallback sur une icône de map ou un texte spécifique
                  loc_button = page.locator("i[style*='map-pin'], div:has-text('km')").last
                  scraper.logger.error("Bouton de localisation introuvable. Abandon.")
-                 return None, None
+                 return None, None, None, False
 
             scraper.logger.info("Bouton de localisation trouvé. Clic.")
             loc_button.click(force=True)
@@ -46,15 +61,33 @@ class CityFinder:
             scraper.logger.info(f"Champ rempli avec '{city_name}'.")
             time.sleep(3) # Attente accrue des suggestions pour les connexions lentes ou villes lointaines
 
-            # Clic sur la première suggestion
-            first_suggestion = page.locator("div[role='option']").first
-            if not first_suggestion.is_visible(timeout=5000):
+            # Sélection de la suggestion : par correspondance avec `region_hint` si fourni
+            # (parcourt TOUTES les suggestions, pas seulement la première), sinon repli sur la
+            # première comme avant.
+            suggestions = page.locator("div[role='option']").all()
+            if not suggestions:
                 scraper.logger.warning("Aucune suggestion de ville trouvée. Tentative avec la touche Entrée.")
                 page.keyboard.press("Enter")
             else:
-                suggestion_text = first_suggestion.inner_text()
-                scraper.logger.info(f"Clic sur la suggestion : {suggestion_text}")
-                first_suggestion.click()
+                chosen = suggestions[0]
+                matched_label = chosen.inner_text()
+                if region_hint:
+                    hint_norm = region_hint.strip().lower()
+                    for suggestion in suggestions:
+                        text = suggestion.inner_text()
+                        if hint_norm in text.strip().lower():
+                            chosen = suggestion
+                            matched_label = text
+                            matched_confidently = True
+                            break
+                    if not matched_confidently:
+                        scraper.logger.warning(
+                            f"Aucune suggestion Facebook ne correspond à l'indice de région '{region_hint}' "
+                            f"parmi {len(suggestions)} proposée(s) — repli sur la première ('{matched_label}'), "
+                            f"à vérifier manuellement (needsReview)."
+                        )
+                scraper.logger.info(f"Clic sur la suggestion : {matched_label}")
+                chosen.click()
             
             time.sleep(0.5)
 
@@ -111,4 +144,4 @@ class CityFinder:
             scraper.logger.info("Fermeture de la page CityFinder.")
             page.close()
             
-        return city_id, city_coords
+        return city_id, city_coords, matched_label, matched_confidently

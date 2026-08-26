@@ -3,6 +3,7 @@ import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, 
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
+import { useCitySuggestions } from '../hooks/useCitySuggestions';
 
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
@@ -198,8 +199,20 @@ const CityManagementSection = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
+  // Suggestions en direct (Photon) uniquement si aucune ville du catalogue partagé ne correspond
+  // déjà — sinon on privilégie la réactivation d'une ville existante plutôt que d'en recréer une.
+  const showPhotonSuggestions = searchTerm.trim().length >= 2 && suggestions.length === 0;
+  const { suggestions: photonSuggestions, loading: photonLoading } = useCitySuggestions(
+    showPhotonSuggestions ? searchTerm : '',
+    scannableCities
+  );
   const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
+  const addCityFromSuggestion = async (candidate) => {
+    if (isAddingCity) return;
+    await handleAddCity({ name: candidate.name, latitude: candidate.latitude, longitude: candidate.longitude, regionHint: candidate.regionHint });
+    setSearchTerm('');
+  };
   const handleSaveCity = async () => {
     const cityToAdd = searchTerm.trim();
     if (!cityToAdd || isAddingCity) return;
@@ -249,6 +262,27 @@ const CityManagementSection = () => {
                 {suggestions.map(suggestion => (
                   <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
                     {suggestion.name}
+                  </div>
+                ))}
+              </div>
+            )}
+            {suggestions.length === 0 && showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0) && (
+              <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
+                {photonLoading && (
+                  <div className="p-3 text-[11px] text-slate-500 italic flex items-center gap-2">
+                    <RefreshCw size={12} className="animate-spin" /> Recherche...
+                  </div>
+                )}
+                {!photonLoading && photonSuggestions.map((candidate, idx) => (
+                  <div
+                    key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
+                    onClick={() => addCityFromSuggestion(candidate)}
+                    className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0"
+                  >
+                    <span className="font-bold">{candidate.name}</span>
+                    {candidate.displayLabel !== candidate.name && (
+                      <span className="text-slate-500"> — {candidate.displayLabel.replace(`${candidate.name}, `, '')}</span>
+                    )}
                   </div>
                 ))}
               </div>
