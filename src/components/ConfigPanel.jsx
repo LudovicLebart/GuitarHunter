@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
 import { useCitySuggestions } from '../hooks/useCitySuggestions';
+import { createSuggestionKeyHandler } from './SearchSuggestions';
 
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
@@ -197,25 +198,52 @@ const CityKijijiRadiusInput = ({ city, onSave }) => {
 const CityManagementSection = () => {
   const { cities, handleToggleScannable, handleSetCityKijijiRadius, handleAddCity, isAddingCity } = useCitiesContext();
   const [searchTerm, setSearchTerm] = useState('');
+  // Candidat Photon choisi (clic ou Entrée) : remplit le champ mais n'ajoute rien tant que
+  // l'utilisateur n'a pas explicitement cliqué sur "+" — voir handleSaveCity. Effacé dès que
+  // l'utilisateur retape du texte (le champ ne représente alors plus ce candidat précis).
+  const [pickedCandidate, setPickedCandidate] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
   const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
   // Suggestions en direct (Photon) uniquement si aucune ville du catalogue partagé ne correspond
-  // déjà — sinon on privilégie la réactivation d'une ville existante plutôt que d'en recréer une.
-  const showPhotonSuggestions = searchTerm.trim().length >= 2 && suggestions.length === 0;
+  // déjà (sinon on privilégie la réactivation d'une ville existante) et tant qu'un candidat n'a
+  // pas déjà été choisi (sinon la liste se rouvrirait aussitôt sur le libellé complet inséré).
+  const showPhotonSuggestions = searchTerm.trim().length >= 2 && suggestions.length === 0 && !pickedCandidate;
   const { suggestions: photonSuggestions, loading: photonLoading } = useCitySuggestions(
     showPhotonSuggestions ? searchTerm : '',
     scannableCities
   );
+  const handleSearchTermChange = (value) => {
+    setSearchTerm(value);
+    setPickedCandidate(null);
+    setActiveIndex(-1);
+  };
   const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
-  const addCityFromSuggestion = async (candidate) => {
-    if (isAddingCity) return;
-    await handleAddCity({ name: candidate.name, latitude: candidate.latitude, longitude: candidate.longitude, regionHint: candidate.regionHint });
-    setSearchTerm('');
+  // Sélectionner un candidat (clic ou Entrée) ne fait que remplir le champ — l'ajout réel
+  // n'est déclenché que par le bouton "+" (handleSaveCity), jamais par la sélection elle-même.
+  const pickCandidate = (candidate) => {
+    setSearchTerm(candidate.displayLabel);
+    setPickedCandidate(candidate);
+    setActiveIndex(-1);
   };
+  const handlePhotonKeyDown = createSuggestionKeyHandler({
+    suggestions: photonSuggestions,
+    activeIndex,
+    setActiveIndex,
+    onSelect: pickCandidate,
+    onClose: () => setActiveIndex(-1),
+  });
   const handleSaveCity = async () => {
+    if (isAddingCity) return;
+    if (pickedCandidate) {
+      await handleAddCity({ name: pickedCandidate.name, latitude: pickedCandidate.latitude, longitude: pickedCandidate.longitude, regionHint: pickedCandidate.regionHint });
+      setSearchTerm('');
+      setPickedCandidate(null);
+      return;
+    }
     const cityToAdd = searchTerm.trim();
-    if (!cityToAdd || isAddingCity) return;
+    if (!cityToAdd) return;
     await handleAddCity(cityToAdd);
     setSearchTerm('');
   };
@@ -254,11 +282,12 @@ const CityManagementSection = () => {
               type="text"
               placeholder="Rechercher une ville..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchTermChange(e.target.value)}
+              onKeyDown={handlePhotonKeyDown}
               className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30"
             />
             {suggestions.length > 0 && (
-              <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
+              <div className="absolute z-50 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
                 {suggestions.map(suggestion => (
                   <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
                     {suggestion.name}
@@ -267,7 +296,7 @@ const CityManagementSection = () => {
               </div>
             )}
             {suggestions.length === 0 && showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0) && (
-              <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
+              <div className="absolute z-50 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
                 {photonLoading && (
                   <div className="p-3 text-[11px] text-slate-500 italic flex items-center gap-2">
                     <RefreshCw size={12} className="animate-spin" /> Recherche...
@@ -276,8 +305,11 @@ const CityManagementSection = () => {
                 {!photonLoading && photonSuggestions.map((candidate, idx) => (
                   <div
                     key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
-                    onClick={() => addCityFromSuggestion(candidate)}
-                    className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0"
+                    // onMouseDown (pas onClick) : le blur du champ, qui referme la liste,
+                    // se déclencherait avant le click et emporterait la sélection avec lui.
+                    onMouseDown={(e) => { e.preventDefault(); pickCandidate(candidate); }}
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    className={`p-3 text-xs text-slate-300 cursor-pointer transition-colors border-b border-slate-700/50 last:border-0 ${idx === activeIndex ? 'bg-slate-700 text-white' : 'hover:bg-slate-700 hover:text-white'}`}
                   >
                     <span className="font-bold">{candidate.name}</span>
                     {candidate.displayLabel !== candidate.name && (
