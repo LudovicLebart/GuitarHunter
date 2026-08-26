@@ -27,21 +27,20 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-25 : l'utilisateur signale qu'une annonce précise (Saint-Bruno-de-Montarville,
-    295$, id 4380960138835811) reste absente de la base malgré le passage aux points
-    d'ancrage — recherche directe par ID (lecture seule, aucune écriture), voir
-    `backend/scripts/find_deal_by_id.py`. Exécuté le 2026-08-25 : introuvable pour tout
-    utilisateur (ni ID brut, ni préfixé `kijiji_`) — jamais enregistrée, pas un problème
-    d'affichage. Terminé — ACTIVE repassé à False.
+    2026-08-25 : un scan Kijiji automatique a révélé que la ville configurée "Saint-Lambert"
+    utilise des coordonnées situées en France (48.9382, -0.5474) plutôt qu'au Québec — probable
+    géocodage erroné vers un homonyme (même piège que "Beloeil" Québec/Wallonie déjà documenté).
+    Vérifie TOUTES les villes configurées de tous les utilisateurs (lecture seule, aucune requête
+    réseau), voir `backend/scripts/audit_city_coordinates.py`.
     """
-    from backend.scripts.find_deal_by_id import run as find_run
-    find_run("4380960138835811")
+    from backend.scripts.audit_city_coordinates import run as audit_run
+    audit_run()
 
 
 if __name__ == "__main__":
