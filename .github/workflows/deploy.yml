@@ -3,6 +3,11 @@ name: Deploy Guitare Hunter
 on:
   push:
     branches: [ master, dev ]
+  # 2026-08-26 : filet de secours manuel — un push vers dev a mis à jour la référence Git sans
+  # jamais déclencher ce workflow (webhook `push` non émis, cause exacte non identifiée), laissant
+  # le serveur de prod sur l'ancien code sans avertissement. Permet de redéclencher le déploiement
+  # depuis l'onglet Actions ou l'API sans dépendre d'un nouveau push.
+  workflow_dispatch:
 
 jobs:
   deploy-frontend:
