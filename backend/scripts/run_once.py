@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -37,7 +37,10 @@ def run():
     utilise des coordonnées situées en France (48.9382, -0.5474) plutôt qu'au Québec — probable
     géocodage erroné vers un homonyme (même piège que "Beloeil" Québec/Wallonie déjà documenté).
     Vérifie TOUTES les villes configurées de tous les utilisateurs (lecture seule, aucune requête
-    réseau), voir `backend/scripts/audit_city_coordinates.py`.
+    réseau), voir `backend/scripts/audit_city_coordinates.py`. Exécuté le 2026-08-25 : confirmé,
+    UNE SEULE ville sur les 22 de l'utilisateur principal est concernée ("Saint-lambert",
+    48.9382/-0.5474, France) ; une ville "paris" existe chez un autre utilisateur mais à Paris,
+    France — probablement intentionnel, utilisateur différent. Terminé — ACTIVE repassé à False.
     """
     from backend.scripts.audit_city_coordinates import run as audit_run
     audit_run()
