@@ -204,10 +204,13 @@ const CityManagementSection = () => {
   const [pickedCandidate, setPickedCandidate] = useState(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
-  const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
-  // Photon toujours interrogé dès 2 caractères, même quand le catalogue a déjà une correspondance
-  // (les deux s'affichent côte à côte) — la déduplication réelle (éviter un doublon) se fait à
-  // l'exécution dans add_city_auto(), pas en masquant Photon par précaution ici.
+  // Le catalogue partagé (villes déjà ajoutées par N'IMPORTE QUEL utilisateur de l'app, pas
+  // seulement celui-ci) n'est plus proposé en suggestion de réactivation ici : une correspondance
+  // texte pure ("Sa" → "La saline", ville d'un tout autre utilisateur à l'autre bout du monde) est
+  // structurellement non pertinente pour cet utilisateur, contrairement à Photon qui est biaisé par
+  // sa position réelle (voir useCitySuggestions.js). La dédup réelle (éviter un doublon si le nom
+  // correspond exactement à une ville déjà au catalogue) reste gérée automatiquement à l'exécution
+  // dans add_city_auto() — elle n'a jamais dépendu de cette liste.
   const showPhotonSuggestions = searchTerm.trim().length >= 2 && !pickedCandidate;
   const { suggestions: photonSuggestions, loading: photonLoading } = useCitySuggestions(
     showPhotonSuggestions ? searchTerm : '',
@@ -218,7 +221,6 @@ const CityManagementSection = () => {
     setPickedCandidate(null);
     setActiveIndex(-1);
   };
-  const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
   // Sélectionner un candidat (clic ou Entrée) ne fait que remplir le champ — l'ajout réel
   // n'est déclenché que par le bouton "+" (handleSaveCity), jamais par la sélection elle-même.
@@ -249,9 +251,7 @@ const CityManagementSection = () => {
   // (coordonnées fiables mais viewport mobile perturbé par le clavier virtuel, cf. captures
   // utilisateur) se sont révélés peu fiables. En flux normal, le menu pousse simplement le contenu
   // suivant vers le bas — jamais caché, quel que soit l'appareil.
-  const catalogDropdownOpen = suggestions.length > 0;
-  const photonDropdownOpen = showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0);
-  const dropdownOpen = catalogDropdownOpen || photonDropdownOpen;
+  const dropdownOpen = showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0);
   const handleSaveCity = async () => {
     if (isAddingCity) return;
     if (pickedCandidate) {
@@ -306,45 +306,26 @@ const CityManagementSection = () => {
             />
             {dropdownOpen && (
               <div className="mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto overflow-x-hidden scrollbar-dark">
-                {catalogDropdownOpen && (
-                  <>
-                    {photonDropdownOpen && (
-                      <div className="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Déjà dans le catalogue</div>
-                    )}
-                    {suggestions.map(suggestion => (
-                      <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
-                        {suggestion.name}
-                      </div>
-                    ))}
-                  </>
+                {photonLoading && (
+                  <div className="p-3 text-[11px] text-slate-500 italic flex items-center gap-2">
+                    <RefreshCw size={12} className="animate-spin" /> Recherche...
+                  </div>
                 )}
-                {photonDropdownOpen && (
-                  <>
-                    {catalogDropdownOpen && (
-                      <div className="px-3 pt-2 pb-1 text-[9px] font-black uppercase tracking-widest text-slate-500">Nouvelles suggestions</div>
+                {!photonLoading && photonSuggestions.map((candidate, idx) => (
+                  <div
+                    key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
+                    // onMouseDown (pas onClick) : le blur du champ, qui referme la liste,
+                    // se déclencherait avant le click et emporterait la sélection avec lui.
+                    onMouseDown={(e) => { e.preventDefault(); pickCandidate(candidate); }}
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    className={`p-3 text-xs text-slate-300 cursor-pointer transition-colors border-b border-slate-700/50 last:border-0 ${idx === activeIndex ? 'bg-slate-700 text-white' : 'hover:bg-slate-700 hover:text-white'}`}
+                  >
+                    <span className="font-bold">{candidate.name}</span>
+                    {candidate.displayLabel !== candidate.name && (
+                      <span className="text-slate-500"> — {candidate.displayLabel.replace(`${candidate.name}, `, '')}</span>
                     )}
-                    {photonLoading && (
-                      <div className="p-3 text-[11px] text-slate-500 italic flex items-center gap-2">
-                        <RefreshCw size={12} className="animate-spin" /> Recherche...
-                      </div>
-                    )}
-                    {!photonLoading && photonSuggestions.map((candidate, idx) => (
-                      <div
-                        key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
-                        // onMouseDown (pas onClick) : le blur du champ, qui referme la liste,
-                        // se déclencherait avant le click et emporterait la sélection avec lui.
-                        onMouseDown={(e) => { e.preventDefault(); pickCandidate(candidate); }}
-                        onMouseEnter={() => setActiveIndex(idx)}
-                        className={`p-3 text-xs text-slate-300 cursor-pointer transition-colors border-b border-slate-700/50 last:border-0 ${idx === activeIndex ? 'bg-slate-700 text-white' : 'hover:bg-slate-700 hover:text-white'}`}
-                      >
-                        <span className="font-bold">{candidate.name}</span>
-                        {candidate.displayLabel !== candidate.name && (
-                          <span className="text-slate-500"> — {candidate.displayLabel.replace(`${candidate.name}, `, '')}</span>
-                        )}
-                      </div>
-                    ))}
-                  </>
-                )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
