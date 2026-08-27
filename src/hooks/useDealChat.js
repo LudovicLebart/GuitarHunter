@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
+    markChatMessageRequalificationProposalStatus, retryDealAnalysis,
 } from '../services/firestoreService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
     buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
-    buildPhotoRefIndex, resolvePhotoRefs,
+    buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal, formatRequalificationComment,
 } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
@@ -28,6 +29,10 @@ export const getAddedToGalleryUrl = (message, partIndex) =>
 // Lot B) — persisté sur le message (voir markChatMessageRestorationProposalStatus), pas en état
 // React local, pour qu'un reload ne réactive jamais un bouton déjà cliqué.
 export const getRestorationProposalState = (message, index) => message.restorationProposalStates?.[index];
+
+// État (appliquée/ignorée) de la proposition de requalification portée par un message (2026-08-27,
+// Lot 2) — au plus une par tour, contrairement aux propositions de restauration (tableau indexé).
+export const getRequalificationProposalState = (message) => message.requalificationProposalState;
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
@@ -76,6 +81,16 @@ const buildRestorationProposalsFromCalls = (calls) => {
         })
         .filter(Boolean);
     return [...addProposals, ...reorderProposals];
+};
+
+// Extrait la proposition de requalification (2026-08-27, Lot 2) d'un tableau de function calls — au
+// plus UNE par tour (contrairement aux propositions de restauration, qui peuvent s'accumuler) : la
+// fonction elle-même ne porte qu'un seul objet de correction, une 2e proposition dans le même tour
+// n'aurait pas de sens produit. Comme buildRestorationProposalsFromCalls, appelée depuis les 3
+// chemins de sendMessage (tour normal, tour rejoué après rappel de photo, rappel de photo invalide).
+const buildRequalificationProposalFromCalls = (calls) => {
+    const call = calls.find(c => c.name === 'propose_deal_requalification');
+    return call ? validateDealRequalificationProposal(call.args) : null;
 };
 
 // Budget en nombre d'images (pas en nombre de tours), 2026-08-23, Plan 1 tokens, Lot C — parcouru
@@ -135,11 +150,12 @@ const elideOldChatPhotos = (msgs, photoRefIndex) => {
 const buildApiHistory = (msgs, { elide, photoRefIndex }) =>
     sanitizeHistory(elide ? elideOldChatPhotos(msgs, photoRefIndex) : msgs);
 
-// `chatToolsRef` (2026-08-23, Plan 1 tokens, Lot D) — cesse d'être un booléen : `withPhotoRecall`
-// (jamais gaté sur `isPurchased`) et `withRestorationTools` (gaté sur `isPurchased`) varient
-// indépendamment, un simple booléen raterait une transition où l'un change mais pas l'autre.
-const toolsSignature = (withPhotoRecall, withRestorationTools) =>
-    `${withPhotoRecall ? 'p' : '-'}${withRestorationTools ? 'r' : '-'}`;
+// `chatToolsRef` (2026-08-23, Plan 1 tokens, Lot D ; étendu 2026-08-27, Lot 2) — cesse d'être un
+// booléen : `withPhotoRecall` et `withRequalification` (jamais gatés sur `isPurchased`) et
+// `withRestorationTools` (gaté sur `isPurchased`) varient indépendamment, un simple booléen
+// raterait une transition où l'un change mais pas les autres.
+const toolsSignature = (withPhotoRecall, withRestorationTools, withRequalification) =>
+    `${withPhotoRecall ? 'p' : '-'}${withRestorationTools ? 'r' : '-'}${withRequalification ? 'q' : '-'}`;
 
 // Heuristique (2026-08-23, Plan 1 tokens, Lot B) — décide si un échec de `chat.sendMessage()` avec
 // tools actifs signale VRAIMENT que le modèle configuré ne supporte pas le function calling (auquel
@@ -216,6 +232,13 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // envoi ou un retry réussi l'efface, un nouvel échec l'écrase. `errorMessageId` garde le retry
     // honnête après un reload de page (le ref repart à `null`, le bouton n'a alors plus rien à rejouer).
     const lastFailedTurnRef = useRef(null);
+    // Note invisible à préfixer au PROCHAIN message utilisateur (2026-08-27, Lot 2) — posée par
+    // `applyRequalificationProposal` : `buildDealContextText` (l'analyse de l'annonce) n'est injecté
+    // qu'au tout premier message de la conversation, donc une correction appliquée en cours de
+    // route ne serait jamais vue par Gemini sans ce mécanisme, qui re-proposerait alors la même
+    // correction plus tard dans le fil. Jamais un tour orphelin (sanitizeHistory exige une
+    // alternance stricte user/model) — la note est toujours accrochée à un vrai tour utilisateur.
+    const pendingRequalificationNoteRef = useRef(null);
 
     useEffect(() => {
         if (!deal?.id || !user) return;
@@ -226,10 +249,11 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             try {
                 const withRestorationTools = !!dealRef.current?.isPurchased && !toolsUnsupportedRef.current;
                 const withPhotoRecall = !toolsUnsupportedRef.current;
-                const model = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall });
+                const withRequalification = !toolsUnsupportedRef.current;
+                const model = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification });
                 const photoRefIndex = buildPhotoRefIndex(dealRef.current, msgs);
                 chatRef.current = model.startChat({ history: buildApiHistory(msgs, { elide: withPhotoRecall, photoRefIndex }) });
-                chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools);
+                chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
             } catch (e) {
                 console.error('Erreur initialisation session Gemini:', e);
                 setError(e.message);
@@ -246,7 +270,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // uniquement pour un retry) fait REMPLACER ce message existant (succès ou nouvel échec) au lieu
     // d'en créer un nouveau — deux tours 'model' consécutifs casseraient l'alternance stricte
     // qu'exige `sanitizeHistory` sur tout envoi suivant.
-    const executeTurn = useCallback(async (chat, parts, { withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages, replaceMessageId }) => {
+    const executeTurn = useCallback(async (chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages, replaceMessageId }) => {
         try {
             let result;
             try {
@@ -264,14 +288,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 // tools restent actifs pour les suivants (bug trouvé en revue : avant ce correctif,
                 // n'importe quelle erreur transitoire éteignait les tools pour le reste de la
                 // session, sans aucun signal).
-                if (withRestorationTools || withPhotoRecall) {
+                if (withRestorationTools || withPhotoRecall || withRequalification) {
                     const sticky = looksLikeToolsUnsupportedError(sendError);
                     console.error(`Échec avec function calling actif, repli sans tools ${sticky ? '(désactivés durablement — modèle sans support détecté)' : '(ponctuel, tools restent actifs pour les prochains tours)'}:`, sendError);
                     if (sticky) toolsUnsupportedRef.current = true;
-                    chat = getDealChatModel(modelName, { withRestorationTools: false, withPhotoRecall: false })
+                    chat = getDealChatModel(modelName, { withRestorationTools: false, withPhotoRecall: false, withRequalification: false })
                         .startChat({ history: buildApiHistory(historyMessages, { elide: false, photoRefIndex }) });
                     chatRef.current = chat;
-                    chatToolsRef.current = toolsSignature(false, false);
+                    chatToolsRef.current = toolsSignature(false, false, false);
                     result = await chat.sendMessage(parts);
                     logTokenUsage('tour principal (repli sans tools)', result.response);
                 } else {
@@ -289,6 +313,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             let responseText;
             let restorationProposals;
             let photoRecall;
+            let requalificationProposal;
 
             if (photoRecallCalls.length) {
                 // Alternative C (revue Opus) — mixer functionResponse + inlineData dans le même
@@ -314,19 +339,21 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     if (truncatedCount > 0) noteSegments.push(` ${truncatedCount} référence(s) en plus du plafond de ${MAX_RECALLED_PHOTOS_PER_TURN}/tour n'ont pas été traitées cette fois — redemande-les séparément si tu en as toujours besoin.`);
                     noteSegments.push(']');
                     const noteLines = [noteSegments.join('')];
-                    const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false })
+                    const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false, withRequalification })
                         .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
                     const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
                     logTokenUsage('tour rejoué (photos rappelées)', replayResult.response);
                     chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
-                    chatToolsRef.current = toolsSignature(false, withRestorationTools);
+                    chatToolsRef.current = toolsSignature(false, withRestorationTools, withRequalification);
                     photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };
 
                     const replayCalls = replayResult.response.functionCalls?.() || [];
                     if (replayCalls.length) {
-                        // Le tour rejoué peut lui-même proposer une étape/un réordonnancement (jamais
-                        // un 2e rappel de photo, plus déclaré sur cette session) — traité normalement.
+                        // Le tour rejoué peut lui-même proposer une étape/un réordonnancement/une
+                        // requalification (jamais un 2e rappel de photo, plus déclaré sur cette
+                        // session) — traité normalement.
                         restorationProposals = buildRestorationProposalsFromCalls(replayCalls);
+                        requalificationProposal = buildRequalificationProposalFromCalls(replayCalls);
                         const functionResponseParts2 = replayCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
@@ -342,6 +369,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     // d'erreur explicite. Les éventuels autres appels du même tour (ex: une
                     // proposition de restauration mêlée au même tour) sont traités normalement.
                     restorationProposals = buildRestorationProposalsFromCalls(calls);
+                    requalificationProposal = buildRequalificationProposalFromCalls(calls);
                     const functionResponseParts = calls.map(call => ({
                         functionResponse: {
                             name: call.name,
@@ -360,6 +388,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     const followUpCalls = followUp.response.functionCalls?.() || [];
                     if (followUpCalls.length) {
                         restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                        requalificationProposal = requalificationProposal || buildRequalificationProposalFromCalls(followUpCalls);
                         const functionResponseParts2 = followUpCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
@@ -378,12 +407,13 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 // l'état courant (voir resolveRestorationReorderProposal) est différée au
                 // rendu/à l'application — ici on ne valide que la forme.
                 restorationProposals = buildRestorationProposalsFromCalls(calls);
+                requalificationProposal = buildRequalificationProposalFromCalls(calls);
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                 }));
                 const followUp = await chat.sendMessage(functionResponseParts);
                 logTokenUsage('tour de suite (functionResponse)', followUp.response);
-                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition d'étape ci-dessous.";
+                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
             } else {
                 responseText = result.response.text()?.trim() || "…";
             }
@@ -391,12 +421,13 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             if (replaceMessageId) {
                 await replaceDealChatMessage(deal.id, replaceMessageId, {
                     parts: [{ text: responseText }], displayText: responseText,
-                    restorationProposals, photoRecall, isError: false,
+                    restorationProposals, photoRecall, isError: false, requalificationProposal,
                 }, user.uid);
             } else {
                 await addDealChatMessage(
                     deal.id, 'model', [{ text: responseText }], responseText, user.uid,
-                    undefined, restorationProposals?.length ? restorationProposals : undefined, photoRecall
+                    undefined, restorationProposals?.length ? restorationProposals : undefined, photoRecall,
+                    undefined, requalificationProposal
                 );
             }
             lastFailedTurnRef.current = null;
@@ -438,15 +469,16 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
 
         const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
         const withPhotoRecall = !toolsUnsupportedRef.current;
+        const withRequalification = !toolsUnsupportedRef.current;
         // Index de refs construit une seule fois pour ce tour, réutilisé pour l'élision de
         // l'historique ET pour résoudre un éventuel appel `request_photo_review` plus bas — toujours
         // depuis l'état COURANT (`deal`/`messages`), jamais mis en cache entre deux tours.
         const photoRefIndex = buildPhotoRefIndex(deal, messages);
-        if (chatToolsRef.current !== toolsSignature(withPhotoRecall, withRestorationTools)) {
+        if (chatToolsRef.current !== toolsSignature(withPhotoRecall, withRestorationTools, withRequalification)) {
             try {
-                chatRef.current = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall })
+                chatRef.current = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification })
                     .startChat({ history: buildApiHistory(messages, { elide: withPhotoRecall, photoRefIndex }) });
-                chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools);
+                chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
             } catch (e) {
                 console.error('Erreur reconstruction de session Gemini (tools):', e);
             }
@@ -481,7 +513,9 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         const contextBlocks = [
             isFirstMessage ? buildDealContextText(deal) : null,
             restorationContextText,
+            pendingRequalificationNoteRef.current,
         ].filter(Boolean);
+        pendingRequalificationNoteRef.current = null;
 
         const firstMessageText = contextBlocks.length
             ? [...contextBlocks, trimmed].filter(Boolean).join('\n\n')
@@ -539,7 +573,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             return;
         }
 
-        await executeTurn(chat, parts, { withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages: messages });
+        await executeTurn(chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages: messages });
     }, [deal, user, messages, sending, restorationItems, modelName, executeTurn]);
 
     // Bouton "Réessayer" sur une bulle d'erreur (2026-08-24) — ne fonctionne que pour le DERNIER
@@ -561,13 +595,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         setError(null);
         const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
         const withPhotoRecall = !toolsUnsupportedRef.current;
+        const withRequalification = !toolsUnsupportedRef.current;
         const photoRefIndex = buildPhotoRefIndex(deal, messages);
         let chat;
         try {
-            chat = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall })
+            chat = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification })
                 .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
             chatRef.current = chat;
-            chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools);
+            chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
         } catch (e) {
             console.error('Erreur reconstruction de session Gemini (retry):', e);
             setError(e.message);
@@ -576,7 +611,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         }
 
         await executeTurn(chat, cached.parts, {
-            withRestorationTools, withPhotoRecall, photoRefIndex, historyMessages, replaceMessageId: messageId,
+            withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages, replaceMessageId: messageId,
         });
     }, [deal, user, messages, sending, modelName, executeTurn]);
 
@@ -644,8 +679,29 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'dismissed', user.uid);
     }, [deal, user]);
 
+    // Applique une proposition de requalification (2026-08-27, Lot 2) — jamais une écriture directe
+    // sur l'annonce : formatte la correction en commentaire français et déclenche `retryDealAnalysis`
+    // (chemin ANALYZE_DEAL existant), asynchrone (dépend du bot actif). Pose `pendingRequalificationNoteRef`
+    // pour que Gemini soit informé de l'application au prochain tour (voir sendMessage) — sans ça, il
+    // ne verrait jamais le changement (le contexte de l'analyse n'est injecté qu'au premier message)
+    // et risquerait de re-proposer la même correction plus tard dans le fil.
+    const applyRequalificationProposal = useCallback(async (message) => {
+        const proposal = message.requalificationProposal;
+        if (!deal?.id || !user || !proposal || getRequalificationProposalState(message)?.status) return;
+        const comment = formatRequalificationComment(proposal);
+        await retryDealAnalysis(deal.id, user.uid, comment);
+        await markChatMessageRequalificationProposalStatus(deal.id, message.id, 'applied', user.uid);
+        pendingRequalificationNoteRef.current = "[Note système : la correction proposée ci-dessus vient d'être appliquée par l'utilisateur, une nouvelle analyse de l'annonce est en cours — ne la re-propose pas.]";
+    }, [deal, user]);
+
+    const dismissRequalificationProposal = useCallback(async (message) => {
+        if (!deal?.id || !user || getRequalificationProposalState(message)?.status) return;
+        await markChatMessageRequalificationProposalStatus(deal.id, message.id, 'dismissed', user.uid);
+    }, [deal, user]);
+
     return {
         messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
+        applyRequalificationProposal, dismissRequalificationProposal,
     };
 };

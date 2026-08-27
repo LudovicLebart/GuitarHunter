@@ -77,4 +77,6 @@ Points de la revue qui restent applicables quelle que soit l'architecture, donc 
 
 ## Statut
 
-📋 Plan validé par l'utilisateur (revu et corrigé après confrontation Opus) — 2026-08-21. Implémentation non démarrée.
+📋 Plan validé par l'utilisateur (revu et corrigé après confrontation Opus) — 2026-08-21.
+✅ Lot 1 (galerie) codé le 2026-08-21, validé en conditions réelles.
+✅ Lot 2 (requalification) codé le 2026-08-27 — voir JOURNAL.md pour le détail. Non testé en conditions réelles à ce stade (pas d'accès Gemini/Firebase depuis l'environnement de dev).

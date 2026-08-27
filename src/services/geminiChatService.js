@@ -1,6 +1,7 @@
 import { getGenerativeModel, Schema } from 'firebase/ai';
 import { ai } from './firebase';
 import { RESTORATION_CATEGORIES, RESTORATION_STATUS_LABELS } from '../constants/restorationPlan';
+import { NEW_VERDICTS } from '../constants';
 
 // Modèle par défaut si analysisConfig.expertModel n'est pas encore chargé — aligné sur
 // GEMINI_MODELS["default_expert"] (config.py), le même modèle que le Tier 3 Expert Pro du
@@ -385,6 +386,117 @@ const PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM = [
     "plusieurs photos non pertinentes à la fois.",
 ].join(' ');
 
+// Requalification d'annonce via le chat (2026-08-27, Lot 2 du plan CHAT_GALLERY_REQUALIFICATION_PLAN.md,
+// implémenté après le Lot 1 galerie) — indépendante d'`isPurchased` (contrairement aux outils de
+// restauration ci-dessous) : un désaccord factuel sur l'identification/le verdict peut survenir sur
+// n'importe quelle annonce discutée, pas seulement celles achetées. L'application réelle réutilise le
+// pipeline ANALYSE_DEAL existant (`retryDealAnalysis`, voir useDealChat.js) plutôt qu'un champ Firestore
+// dédié — décision prise après une revue critique (Opus) qui avait écarté un sous-système parallèle
+// (champ `chatRequalification` + mirroring d'index) pour plusieurs raisons bloquantes, voir le plan.
+const VERDICT_ENUM = Object.keys(NEW_VERDICTS);
+const FINISH_APPLICATION_ENUM = ['Peinture opaque', 'Vernis/Laque transparente', 'Teinture', 'Naturel/Brut', 'Inconnue'];
+const FINISH_TEXTURE_ENUM = ['Brillant', 'Satiné/Soyeux', 'Mat', 'Inconnue'];
+
+// Libellés affichés dans la carte de proposition (avant/après) ET utilisés pour construire le
+// commentaire français envoyé à `retryDealAnalysis` — une seule source, jamais deux formulations
+// différentes entre l'UI et le commentaire réellement transmis au backend.
+export const REQUALIFICATION_FIELD_LABELS = {
+    verdict: 'Verdict',
+    deal_score: 'Score Attractivité/Prix',
+    authenticity_score: 'Score Fiabilité/Contrefaçon',
+    condition_score: 'Score État',
+    liquidity_score: 'Score Liquidité',
+    restoration_interest_score: 'Score Intérêt de restauration',
+    brand: 'Marque',
+    model_name: 'Modèle',
+    production_year: 'Année de production',
+    country_of_origin: 'Pays de fabrication',
+    color: 'Couleur',
+    finish_application: "Type d'application de la finition",
+    finish_texture: 'Brillance de la finition',
+    neck_scale_length: "Longueur d'échelle du manche",
+};
+
+const REQUALIFICATION_FUNCTION_DECLARATIONS = [{
+    name: 'propose_deal_requalification',
+    description: "Propose une correction du verdict, des scores ou des caractéristiques identifiées de CETTE annonce, uniquement en cas de désaccord FACTUEL réel révélé par la conversation (ex: une photo jointe montre un défaut non vu par l'analyse initiale, une caractéristique mal identifiée, un verdict qui ne tient plus compte d'un élément discuté). N'inclus QUE les champs dont la valeur doit réellement changer, jamais un champ déjà correct. Jamais spontanément, jamais pour une simple question ou un avis sans fait nouveau.",
+    parameters: Schema.object({
+        properties: {
+            verdict: Schema.enumString({ enum: VERDICT_ENUM, description: 'Nouveau verdict, si à corriger.' }),
+            deal_score: Schema.number({ description: 'Nouveau score Attractivité/Prix, de 0 à 10, si à corriger.' }),
+            authenticity_score: Schema.number({ description: 'Nouveau score Fiabilité/Contrefaçon, de 0 à 10, si à corriger.' }),
+            condition_score: Schema.number({ description: 'Nouveau score État, de 0 à 10, si à corriger.' }),
+            liquidity_score: Schema.number({ description: 'Nouveau score Liquidité, de 0 à 10, si à corriger.' }),
+            restoration_interest_score: Schema.number({ description: 'Nouveau score Intérêt de restauration, de 0 à 10, si à corriger.' }),
+            brand: Schema.string({ description: 'Nouvelle marque, si à corriger.' }),
+            model_name: Schema.string({ description: 'Nouveau modèle, si à corriger.' }),
+            production_year: Schema.string({ description: "Nouvelle année ou décennie de production (ex: \"2010s\", \"1994\"), si à corriger." }),
+            country_of_origin: Schema.string({ description: 'Nouveau pays de fabrication, si à corriger.' }),
+            color: Schema.string({ description: 'Nouvelle couleur, si à corriger.' }),
+            finish_application: Schema.enumString({ enum: FINISH_APPLICATION_ENUM, description: "Nouveau type d'application de la finition, si à corriger." }),
+            finish_texture: Schema.enumString({ enum: FINISH_TEXTURE_ENUM, description: 'Nouvelle brillance de la finition, si à corriger.' }),
+            neck_scale_length: Schema.string({ description: "Nouvelle longueur d'échelle du manche (ex: 25.5\"), si à corriger." }),
+            justification: Schema.string({ description: 'Pourquoi cette correction, en te basant sur ce qui a été dit dans la conversation.' }),
+        },
+        optionalProperties: [
+            'verdict', 'deal_score', 'authenticity_score', 'condition_score', 'liquidity_score',
+            'restoration_interest_score', 'brand', 'model_name', 'production_year', 'country_of_origin',
+            'color', 'finish_application', 'finish_texture', 'neck_scale_length',
+        ],
+    }),
+}];
+
+const REQUALIFICATION_SYSTEM_INSTRUCTION_ADDENDUM = [
+    "Cette annonce a déjà été analysée automatiquement (verdict, scores, identification donnés en",
+    "contexte). Si la conversation révèle un désaccord FACTUEL réel avec cette analyse (une photo",
+    "montre un défaut ou un détail non vu, une caractéristique mal identifiée), tu peux appeler",
+    "propose_deal_requalification pour proposer une correction — jamais spontanément, jamais pour une",
+    "simple question ou un avis sans fait nouveau. N'inclus dans l'appel QUE les champs dont la valeur",
+    "doit changer. La correction n'est jamais appliquée automatiquement : l'utilisateur voit une carte",
+    "avant/après et doit cliquer sur Appliquer — ne la re-propose pas si elle a déjà été traitée",
+    "(appliquée ou ignorée), signalé le cas échéant dans le contexte.",
+].join(' ');
+
+// Valide/normalise les arguments bruts d'un appel `propose_deal_requalification` — même principe que
+// validateRestorationStepProposal (Gemini peut halluciner une valeur hors énumération ou un score
+// aberrant) : un champ invalide est silencieusement écarté plutôt que rendu avec un bouton Appliquer
+// qui écrirait n'importe quoi. Retourne `null` si AUCUN champ valide ne subsiste (rien à proposer).
+const SCORE_FIELDS = ['deal_score', 'authenticity_score', 'condition_score', 'liquidity_score', 'restoration_interest_score'];
+const STRING_FIELDS = ['brand', 'model_name', 'production_year', 'country_of_origin', 'color', 'neck_scale_length'];
+
+export const validateDealRequalificationProposal = (args) => {
+    if (!args || typeof args !== 'object') return null;
+    const fields = {};
+    if (VERDICT_ENUM.includes(args.verdict)) fields.verdict = args.verdict;
+    for (const key of SCORE_FIELDS) {
+        const value = args[key];
+        if (Number.isFinite(value) && value >= 0 && value <= 10) fields[key] = value;
+    }
+    for (const key of STRING_FIELDS) {
+        const value = args[key];
+        if (typeof value === 'string' && value.trim()) fields[key] = value.trim().slice(0, 100);
+    }
+    if (FINISH_APPLICATION_ENUM.includes(args.finish_application)) fields.finish_application = args.finish_application;
+    if (FINISH_TEXTURE_ENUM.includes(args.finish_texture)) fields.finish_texture = args.finish_texture;
+    if (!Object.keys(fields).length) return null;
+    const justification = typeof args.justification === 'string' ? args.justification.trim().slice(0, 500) : '';
+    return { fields, justification };
+};
+
+// Formatte la proposition en texte français pour `retryDealAnalysis(dealId, userId, userComment)` —
+// injecté dans le prompt de ré-analyse backend (`analyzer.py::analyze_deal(..., user_comment=...)`,
+// chemin déjà existant et en production). L'application n'est donc pas littérale (le backend peut
+// interpréter différemment la correction) et devient asynchrone (dépend du bot actif) — compromis
+// assumé dans le plan pour éviter tout nouveau champ Firestore/site de lecture à maintenir.
+export const formatRequalificationComment = ({ fields, justification }) => {
+    const lines = Object.entries(fields).map(([key, value]) => `${REQUALIFICATION_FIELD_LABELS[key] || key} : ${value}`);
+    return [
+        "Corrections demandées par l'utilisateur suite à une conversation avec l'assistant IA :",
+        ...lines,
+        justification ? `Justification : ${justification}` : null,
+    ].filter(Boolean).join('\n');
+};
+
 // Persona "luthier / vendeur référent" (2026-08-23, Plan 2) — actif dès `isPurchased`, pour TOUT
 // message sur cette annonce (message tapé librement ou envoyé via un bouton de prompt prédéfini,
 // aucune différence : le persona est porté par la session Gemini elle-même, pas par le contenu du
@@ -442,16 +554,18 @@ export const validateRestorationStepProposal = (args) => {
 // cette fonction doit rester disponible indépendamment du plan de restauration. Les deux jeux de
 // tools/addenda se composent librement (aucun, l'un, l'autre, ou les deux) ; comportement du chat
 // inchangé à zéro risque quand les deux sont `false`.
-export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false, withPhotoRecall = false } = {}) => {
+export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false, withPhotoRecall = false, withRequalification = false } = {}) => {
     if (!ai) throw new Error("Firebase AI Logic n'est pas initialisé (voir src/services/firebase.js).");
     const functionDeclarations = [
         ...(withPhotoRecall ? PHOTO_RECALL_FUNCTION_DECLARATIONS : []),
         ...(withRestorationTools ? RESTORATION_FUNCTION_DECLARATIONS : []),
+        ...(withRequalification ? REQUALIFICATION_FUNCTION_DECLARATIONS : []),
     ];
     const systemInstruction = [
         SYSTEM_INSTRUCTION,
         withPhotoRecall ? PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM : null,
         withRestorationTools ? RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
+        withRequalification ? REQUALIFICATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
     ].filter(Boolean).join(' ');
     return getGenerativeModel(ai, {
         model: modelName,

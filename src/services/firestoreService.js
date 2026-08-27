@@ -376,7 +376,7 @@ export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
 // affichée en carte sous la bulle. Retourne l'id du document créé (aucun appelant ne le capture
 // aujourd'hui — `message.id` du listener Firestore suffit pour `proposedByMessageId`/le marquage
 // Appliquer/Ignorer, une fois le message déjà visible côté client — gardé pour un futur usage).
-export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall, isError) => {
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall, isError, requalificationProposal) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     const payload = { role, parts, displayText, createdAt: new Date() };
@@ -390,6 +390,9 @@ export const addDealChatMessage = async (dealId, role, parts, displayText, userI
     // détecter le texte "⚠️ Erreur..." côté UI, fragile) — pilote l'affichage du bouton
     // "Réessayer" dans DealChatPanel.jsx::ChatBubble.
     if (isError) payload.isError = true;
+    // `requalificationProposal` (2026-08-27, Lot 2) : au plus une par tour, voir
+    // markChatMessageRequalificationProposalStatus pour l'état Appliquer/Ignorer associé.
+    if (requalificationProposal) payload.requalificationProposal = requalificationProposal;
     const docRef = await addDoc(chatCollectionRef, payload);
     return docRef.id;
   } catch (error) {
@@ -405,7 +408,7 @@ export const addDealChatMessage = async (dealId, role, parts, displayText, userI
 // suivant sur cette conversation. `restorationProposals`/`photoRecall` sont explicitement remis à
 // `null` quand absents (pas juste omis) pour effacer une éventuelle valeur laissée par une
 // tentative précédente sur ce même document.
-export const replaceDealChatMessage = async (dealId, messageId, { parts, displayText, restorationProposals, photoRecall, isError }, userId) => {
+export const replaceDealChatMessage = async (dealId, messageId, { parts, displayText, restorationProposals, photoRecall, isError, requalificationProposal }, userId) => {
   try {
     const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
     await updateDoc(doc(chatCollectionRef, messageId), {
@@ -413,6 +416,7 @@ export const replaceDealChatMessage = async (dealId, messageId, { parts, display
       restorationProposals: restorationProposals?.length ? restorationProposals : null,
       photoRecall: photoRecall?.refs?.length ? photoRecall : null,
       isError: !!isError,
+      requalificationProposal: requalificationProposal || null,
     });
   } catch (error) {
     console.error(`Error replacing chat message ${messageId} for deal ${dealId}:`, error);
@@ -446,6 +450,22 @@ export const markChatMessageRestorationProposalStatus = async (dealId, messageId
     await updateDoc(doc(chatCollectionRef, messageId), { [`restorationProposalStates.${proposalIndex}`]: value });
   } catch (error) {
     console.error(`Error marking restoration proposal ${proposalIndex} on message ${messageId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de la proposition.");
+  }
+};
+
+// Persiste l'état Appliquer/Ignorer d'une proposition de requalification (2026-08-27, Lot 2) SUR LE
+// MESSAGE — même principe que markChatMessageRestorationProposalStatus, mais un champ singulier
+// (`requalificationProposalState`, pas indexé) : au plus une proposition de requalification par
+// tour (voir useDealChat.js::buildRequalificationProposalFromCalls). "Appliquer" ne référence aucun
+// document créé (contrairement à `itemId` côté restauration) — la correction part par la commande
+// ANALYZE_DEAL existante, jamais une écriture directe sur l'annonce.
+export const markChatMessageRequalificationProposalStatus = async (dealId, messageId, status, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), { requalificationProposalState: { status } });
+  } catch (error) {
+    console.error(`Error marking requalification proposal on message ${messageId}:`, error);
     throw new Error("Erreur lors de la mise à jour de la proposition.");
   }
 };

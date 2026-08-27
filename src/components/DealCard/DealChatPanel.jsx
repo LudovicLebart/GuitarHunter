@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw } from 'lucide-react';
-import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState } from '../../hooks/useDealChat';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw, Sparkles } from 'lucide-react';
+import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState, getRequalificationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
-import { resolveRestorationReorderProposal } from '../../services/geminiChatService';
+import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS } from '../../services/geminiChatService';
+import { NEW_VERDICTS } from '../../constants';
 
 // Carte de proposition d'étape de restauration (2026-08-22, Lot B ; réordonnancement 2026-08-23)
 // — sous une bulle modèle portant `restorationProposals`. Jamais d'écriture silencieuse :
@@ -77,13 +78,79 @@ const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onAp
     );
 };
 
+// Carte de proposition de requalification d'annonce (2026-08-27, Lot 2) — sous une bulle modèle
+// portant `requalificationProposal`. Avant/après calculé à CHAQUE rendu contre `currentAnalysis`
+// (deal.aiAnalysis RÉEL et courant, jamais un instantané capturé au tour de chat) — même principe
+// que resolveRestorationReorderProposal côté restauration : si une autre correction a déjà changé
+// la valeur entretemps, le diff affiché reflète l'état réel de l'annonce, pas une valeur périmée.
+const RequalificationProposalCard = ({ proposal, currentAnalysis, state, busy, error, onApply, onDismiss }) => {
+    const formatValue = (key, value) => key === 'verdict' ? (NEW_VERDICTS[value]?.label || value) : value;
+    const changes = Object.entries(proposal.fields).map(([key, newValue]) => ({
+        key,
+        label: REQUALIFICATION_FIELD_LABELS[key] || key,
+        before: formatValue(key, currentAnalysis?.[key]),
+        after: formatValue(key, newValue),
+    }));
+
+    return (
+        <div className="mt-2 bg-slate-900/60 border border-amber-500/20 rounded-xl p-2.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-300 uppercase tracking-wide mb-1.5">
+                <Sparkles size={11} /> Proposition de requalification
+            </div>
+            <div className="space-y-1">
+                {changes.map(({ key, label, before, after }) => (
+                    <div key={key} className="text-xs text-slate-300">
+                        <span className="text-slate-500">{label} : </span>
+                        <span className="line-through text-slate-500">{before ?? '—'}</span>
+                        {' → '}
+                        <span className="font-bold text-slate-100">{after}</span>
+                    </div>
+                ))}
+            </div>
+            {proposal.justification && <div className="text-xs text-slate-400 mt-1.5 italic">{proposal.justification}</div>}
+            {state?.status === 'applied' ? (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                    <Check size={12} /> Correction appliquée — nouvelle analyse en cours
+                </div>
+            ) : state?.status === 'dismissed' ? (
+                <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
+            ) : (
+                <>
+                    <div className="flex gap-2 mt-2">
+                        <button
+                            onClick={onDismiss}
+                            disabled={busy}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50"
+                        >
+                            Ignorer
+                        </button>
+                        <button
+                            onClick={onApply}
+                            disabled={busy}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-amber-600 hover:bg-amber-500 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+                        >
+                            {busy && <Loader2 size={11} className="animate-spin" />}
+                            Appliquer
+                        </button>
+                    </div>
+                    {error && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-rose-300">
+                            <AlertTriangle size={11} className="shrink-0" /> {error}
+                        </div>
+                    )}
+                </>
+            )}
+        </div>
+    );
+};
+
 // `images` : tableau de photos jointes à ce message (2026-08-22, plusieurs par message) — chaque
 // entrée `{ partIndex, inlineData, addedToGalleryUrl, galleryState }`. `galleryState` : undefined
 // (rien à faire) | 'uploading' | 'error' — état LOCAL à cette photo précise (pas au message ni au
 // chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
 // de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
 // reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall, isError, onRetry, retrying, onCopy, copied }) => {
+const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalificationProposal, photoRecall, isError, onRetry, retrying, onCopy, copied }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -145,6 +212,17 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, photoRecall
                         onDismiss={p.onDismiss}
                     />
                 ))}
+                {requalificationProposal && (
+                    <RequalificationProposalCard
+                        proposal={requalificationProposal.proposal}
+                        currentAnalysis={requalificationProposal.currentAnalysis}
+                        state={requalificationProposal.state}
+                        busy={requalificationProposal.busy}
+                        error={requalificationProposal.error}
+                        onApply={requalificationProposal.onApply}
+                        onDismiss={requalificationProposal.onDismiss}
+                    />
+                )}
                 {(text || isError) && (
                     <div className={`flex items-center gap-2 ${text ? 'mt-1.5' : ''}`}>
                         {isError && onRetry && (
@@ -178,6 +256,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
     const {
         messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
+        applyRequalificationProposal, dismissRequalificationProposal,
     } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
     const [input, setInput] = useState('');
     const [imageFiles, setImageFiles] = useState([]);
@@ -263,6 +342,37 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
             await dismissRestorationProposal(message, index);
         } catch (e) {
             console.error('Erreur rejet de la proposition de restauration:', e);
+        } finally {
+            setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
+        }
+    };
+
+    // Requalification (2026-08-27, Lot 2) — même schéma que handleApplyProposal/handleDismissProposal
+    // ci-dessus, clé `${messageId}:requalification` (jamais un index numérique, une seule proposition
+    // possible par message) dans les mêmes maps `proposalBusyState`/`proposalErrorState`.
+    const handleApplyRequalification = async (message) => {
+        const key = `${message.id}:requalification`;
+        if (getRequalificationProposalState(message)?.status || proposalBusyState[key]) return;
+        setProposalBusyState(prev => ({ ...prev, [key]: true }));
+        setProposalErrorState(prev => { const next = { ...prev }; delete next[key]; return next; });
+        try {
+            await applyRequalificationProposal(message);
+        } catch (e) {
+            console.error('Erreur application de la requalification:', e);
+            setProposalErrorState(prev => ({ ...prev, [key]: e.message || "Impossible d'appliquer cette correction." }));
+        } finally {
+            setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
+        }
+    };
+
+    const handleDismissRequalification = async (message) => {
+        const key = `${message.id}:requalification`;
+        if (getRequalificationProposalState(message)?.status || proposalBusyState[key]) return;
+        setProposalBusyState(prev => ({ ...prev, [key]: true }));
+        try {
+            await dismissRequalificationProposal(message);
+        } catch (e) {
+            console.error('Erreur rejet de la requalification:', e);
         } finally {
             setProposalBusyState(prev => { const next = { ...prev }; delete next[key]; return next; });
         }
@@ -405,6 +515,15 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                         onApply: () => handleApplyProposal(m, index),
                         onDismiss: () => handleDismissProposal(m, index),
                     }));
+                    const requalificationProposal = m.requalificationProposal ? {
+                        proposal: m.requalificationProposal,
+                        currentAnalysis: deal.aiAnalysis,
+                        state: getRequalificationProposalState(m),
+                        busy: !!proposalBusyState[`${m.id}:requalification`],
+                        error: proposalErrorState[`${m.id}:requalification`],
+                        onApply: () => handleApplyRequalification(m),
+                        onDismiss: () => handleDismissRequalification(m),
+                    } : null;
                     return (
                         <ChatBubble
                             key={m.id}
@@ -413,6 +532,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
                             images={images}
                             onAddToGallery={(partIndex) => handleAddToGallery(m, partIndex)}
                             proposals={proposals}
+                            requalificationProposal={requalificationProposal}
                             photoRecall={m.photoRecall}
                             isError={m.isError && msgIndex === messages.length - 1}
                             onRetry={() => handleRetry(m.id)}
