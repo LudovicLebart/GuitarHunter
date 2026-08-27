@@ -1282,7 +1282,7 @@ class GuitarHunterBot:
             "price": deal_data.get('price'),
             "description": deal_data.get('description', ''),
             "location": deal_data.get('location', 'Inconnue'),
-            "imageUrls": deal_data.get('imageUrls', []),
+            "imageUrls": deal_data.get('storageImageUrls') or deal_data.get('imageUrls', []),
             "imageUrl": deal_data.get('imageUrl'),
             "link": deal_data.get('link'),
             "id": deal_id,

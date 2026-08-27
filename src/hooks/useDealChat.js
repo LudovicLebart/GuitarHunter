@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
-    markChatMessageRequalificationProposalStatus, retryDealAnalysis,
+    markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides,
 } from '../services/firestoreService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
     buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
-    buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal, formatRequalificationComment,
+    buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal,
 } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 
@@ -679,19 +679,19 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'dismissed', user.uid);
     }, [deal, user]);
 
-    // Applique une proposition de requalification (2026-08-27, Lot 2) — jamais une écriture directe
-    // sur l'annonce : formatte la correction en commentaire français et déclenche `retryDealAnalysis`
-    // (chemin ANALYZE_DEAL existant), asynchrone (dépend du bot actif). Pose `pendingRequalificationNoteRef`
-    // pour que Gemini soit informé de l'application au prochain tour (voir sendMessage) — sans ça, il
-    // ne verrait jamais le changement (le contexte de l'analyse n'est injecté qu'au premier message)
-    // et risquerait de re-proposer la même correction plus tard dans le fil.
+    // Applique une proposition de requalification (2026-08-27, Lot 2 ; patch direct depuis le
+    // 2026-08-27, 2e revue Opus — plus de ré-analyse Gemini derrière "Appliquer", voir
+    // `firestoreService.js::applyManualAnalysisOverrides`) : écrit directement les champs (déjà
+    // validés/bornés avant l'affichage du bouton) dans `aiAnalysis`, effet immédiat, aucun appel IA.
+    // Pose `pendingRequalificationNoteRef` pour que Gemini soit informé de l'application au prochain
+    // tour (voir sendMessage) — sans ça, il ne verrait jamais le changement (le contexte de l'analyse
+    // n'est injecté qu'au premier message) et risquerait de re-proposer la même correction plus tard.
     const applyRequalificationProposal = useCallback(async (message) => {
         const proposal = message.requalificationProposal;
         if (!deal?.id || !user || !proposal || getRequalificationProposalState(message)?.status) return;
-        const comment = formatRequalificationComment(proposal);
-        await retryDealAnalysis(deal.id, user.uid, comment);
+        await applyManualAnalysisOverrides(deal.id, deal.chunkId, user.uid, proposal.fields, deal.aiAnalysis);
         await markChatMessageRequalificationProposalStatus(deal.id, message.id, 'applied', user.uid);
-        pendingRequalificationNoteRef.current = "[Note système : la correction proposée ci-dessus vient d'être appliquée par l'utilisateur, une nouvelle analyse de l'annonce est en cours — ne la re-propose pas.]";
+        pendingRequalificationNoteRef.current = "[Note système : la correction proposée ci-dessus vient d'être appliquée par l'utilisateur — ne la re-propose pas.]";
     }, [deal, user]);
 
     const dismissRequalificationProposal = useCallback(async (message) => {

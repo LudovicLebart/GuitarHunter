@@ -111,6 +111,24 @@ class FirestoreRepository:
             logger.warning(f"Lecture de manualClassification impossible pour '{deal_id}': {e}")
         return None
 
+    def _get_manual_analysis_overrides(self, deal_id):
+        """Lit les corrections manuelles de champs d'analyse (verdict/scores/specs) d'une annonce,
+        appliquées directement par le client sans passer par Gemini (voir
+        `firestoreService.js::applyManualAnalysisOverrides`). Dict vide si absentes.
+
+        Ré-appliquées ICI par-dessus CHAQUE future (ré-)analyse IA : `aiAnalysis` est réécrit
+        intégralement à chaque analyse, la correction serait donc perdue au prochain scan ou
+        "Ré-analyser" sans ce mécanisme (même piège que `manualClassification`, généralisé aux
+        13 autres champs corrigeables depuis le chat).
+        """
+        try:
+            snapshot = self.collection_ref.document(deal_id).get(field_paths=['manualAnalysisOverrides'])
+            if snapshot.exists:
+                return (snapshot.to_dict() or {}).get('manualAnalysisOverrides') or {}
+        except Exception as e:
+            logger.warning(f"Lecture de manualAnalysisOverrides impossible pour '{deal_id}': {e}")
+        return {}
+
     def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None, manual_classification=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
@@ -292,6 +310,10 @@ class FirestoreRepository:
     def update_deal_analysis(self, deal_id, analysis_data):
         """Met à jour l'analyse d'une annonce existante."""
         try:
+            manual_overrides = self._get_manual_analysis_overrides(deal_id)
+            if manual_overrides:
+                analysis_data = {**analysis_data, **manual_overrides}
+
             status = "analyzed"
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
@@ -316,6 +338,10 @@ class FirestoreRepository:
     def update_deal_data_and_analysis(self, deal_id, deal_data, analysis_data):
         """Met à jour les données complètes de l'annonce (ex: baisse de prix) et son analyse."""
         try:
+            manual_overrides = self._get_manual_analysis_overrides(deal_id)
+            if manual_overrides:
+                analysis_data = {**analysis_data, **manual_overrides}
+
             status = "analyzed"
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"

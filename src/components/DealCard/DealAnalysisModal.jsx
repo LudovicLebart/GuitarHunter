@@ -34,7 +34,8 @@ const DealAnalysisModal = ({
     onDelete,
     isAnalyzing,
     onSetClassification,
-    onGalleryImageAdded
+    onGalleryImageAdded,
+    onAnalysisOverridesApplied
 }) => {
     const [activeView, setActiveView] = useState('analysis'); // 'analysis' | 'chat' | 'restoration'
     // Le chat n'est monté (et son listener Firestore/sa session Gemini ouverts) qu'à la première
@@ -149,6 +150,7 @@ const DealAnalysisModal = ({
                             deal={deal}
                             onBack={() => setActiveView('analysis')}
                             onGalleryImageAdded={onGalleryImageAdded}
+                            onAnalysisOverridesApplied={onAnalysisOverridesApplied}
                             initialDraft={chatDraftRequest?.text}
                             autoSend={chatDraftRequest?.autoSend}
                             onDraftConsumed={() => setChatDraftRequest(null)}

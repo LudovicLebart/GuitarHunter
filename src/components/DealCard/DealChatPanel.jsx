@@ -110,7 +110,7 @@ const RequalificationProposalCard = ({ proposal, currentAnalysis, state, busy, e
             {proposal.justification && <div className="text-xs text-slate-400 mt-1.5 italic">{proposal.justification}</div>}
             {state?.status === 'applied' ? (
                 <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                    <Check size={12} /> Correction appliquée — nouvelle analyse en cours
+                    <Check size={12} /> Correction appliquée
                 </div>
             ) : state?.status === 'dismissed' ? (
                 <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
@@ -250,7 +250,7 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalifica
     );
 };
 
-const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSend, onDraftConsumed, restorationItems }) => {
+const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesApplied, initialDraft, autoSend, onDraftConsumed, restorationItems }) => {
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
     const {
@@ -357,6 +357,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, initialDraft, autoSe
         setProposalErrorState(prev => { const next = { ...prev }; delete next[key]; return next; });
         try {
             await applyRequalificationProposal(message);
+            onAnalysisOverridesApplied?.(deal.id, message.requalificationProposal.fields);
         } catch (e) {
             console.error('Erreur application de la requalification:', e);
             setProposalErrorState(prev => ({ ...prev, [key]: e.message || "Impossible d'appliquer cette correction." }));

@@ -7,7 +7,7 @@ import DealCardImage from './DealCardImage';
 import DealCardActions from './DealCardActions';
 import DealAnalysisModal from './DealAnalysisModal';
 
-const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onDelete, onSetClassification, onGalleryImageAdded }) => {
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onDelete, onSetClassification, onGalleryImageAdded, onAnalysisOverridesApplied }) => {
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
     const [imageError, setImageError] = useState(false);
@@ -202,6 +202,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     isAnalyzing={isAnalyzing}
                     onSetClassification={onSetClassification}
                     onGalleryImageAdded={onGalleryImageAdded}
+                    onAnalysisOverridesApplied={onAnalysisOverridesApplied}
                 />
             )}
         </div>

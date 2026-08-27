@@ -79,4 +79,5 @@ Points de la revue qui restent applicables quelle que soit l'architecture, donc 
 
 📋 Plan validé par l'utilisateur (revu et corrigé après confrontation Opus) — 2026-08-21.
 ✅ Lot 1 (galerie) codé le 2026-08-21, validé en conditions réelles.
-✅ Lot 2 (requalification) codé le 2026-08-27 — voir JOURNAL.md pour le détail. Non testé en conditions réelles à ce stade (pas d'accès Gemini/Firebase depuis l'environnement de dev).
+✅ Lot 2 (requalification) codé le 2026-08-27, validé en conditions réelles le 2026-08-27 — voir JOURNAL.md.
+🔁 Mécanisme d'application revu le 2026-08-27 (2e confrontation Opus, suite au retour utilisateur "ça a pris du temps" + correction non suivie du premier coup) : "Appliquer" ne déclenche plus `retryDealAnalysis` (§3 ci-dessus, devenu obsolète) mais patche directement `aiAnalysis` — voir JOURNAL.md et `docs/reference/ARCHITECTURE.md`.

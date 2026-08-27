@@ -367,6 +367,7 @@ const Dashboard = ({ onClose }) => {
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
             onSetClassification={dealActions?.handleSetClassification}
             onGalleryImageAdded={dealActions?.handleGalleryImageAdded}
+            onAnalysisOverridesApplied={dealActions?.handleAnalysisOverridesApplied}
         />
     );
 

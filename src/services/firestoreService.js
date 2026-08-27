@@ -4,6 +4,7 @@ import {
   query, orderBy, limit, where, documentId, serverTimestamp, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { computeInterestScore } from '../constants';
 
 const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
 
@@ -320,6 +321,61 @@ export const setDealClassification = async (dealId, chunkId, userId, classificat
   } catch (error) {
     console.error(`Error setting classification for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la correction de la catégorie.");
+  }
+};
+
+// Champs de `aiAnalysis` reflétés dans l'index léger (voir `backend/repository.py::_update_deal_index`
+// et le mapping inverse dans `useDealsManager.js`) — seuls ceux-ci ont une clé courte à patcher ;
+// `production_year`/`country_of_origin`/`neck_scale_length` ne vivent que dans le document complet.
+const ANALYSIS_INDEX_KEYS = {
+  verdict: 'v', deal_score: 'ds', authenticity_score: 'as', condition_score: 'cs',
+  liquidity_score: 'ls', restoration_interest_score: 'rs', brand: 'b', model_name: 'mn',
+  color: 'co', finish_application: 'fa', finish_texture: 'ft',
+};
+
+/**
+ * Applique directement une correction validée (verdict/scores/specs) sur `aiAnalysis`, sans
+ * repasser par Gemini — utilisée par "Appliquer" sur une proposition de requalification du chat
+ * (voir `useDealChat.js::applyRequalificationProposal`). Contrairement à `setDealClassification`,
+ * écrit DIRECTEMENT dans `aiAnalysis.<champ>` (pas un champ séparé) : les valeurs sont déjà
+ * validées/bornées côté client (`geminiChatService.js::validateDealRequalificationProposal`) avant
+ * même l'affichage du bouton, aucun site de lecture n'a donc besoin de connaître une "valeur
+ * effective" distincte.
+ *
+ * Écrit AUSSI dans `manualAnalysisOverrides.<champ>` (même valeurs) — lu et ré-appliqué par le
+ * backend à chaque future (ré-)analyse (`repository.py::_get_manual_analysis_overrides`), sans quoi
+ * la correction serait perdue au prochain scan ou "Ré-analyser" (qui réécrit `aiAnalysis` en entier).
+ *
+ * `currentAnalysis` (l'`aiAnalysis` actuel de l'annonce, déjà chargé côté appelant) sert uniquement
+ * à recalculer `interestScore` (moyenne des 5 scores) avec les valeurs corrigées — décision codée
+ * une seule fois ici et dans `computeInterestScore` (constants.js), jamais dupliquée.
+ */
+export const applyManualAnalysisOverrides = async (dealId, chunkId, userId, fields, currentAnalysis) => {
+  if (!fields || !Object.keys(fields).length) return;
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    const dealUpdate = {};
+    for (const [key, value] of Object.entries(fields)) {
+      dealUpdate[`aiAnalysis.${key}`] = value;
+      dealUpdate[`manualAnalysisOverrides.${key}`] = value;
+    }
+    await updateDoc(doc(dealsCollectionRef, dealId), dealUpdate);
+
+    if (chunkId) {
+      const indexUpdate = {};
+      for (const [key, value] of Object.entries(fields)) {
+        const indexKey = ANALYSIS_INDEX_KEYS[key];
+        if (indexKey) indexUpdate[`deals.${dealId}.${indexKey}`] = value;
+      }
+      const interestScore = computeInterestScore({ ...currentAnalysis, ...fields });
+      if (interestScore != null) indexUpdate[`deals.${dealId}.is`] = interestScore;
+      if (Object.keys(indexUpdate).length) {
+        await updateDoc(doc(userDocRef, 'deals_index', chunkId), indexUpdate);
+      }
+    }
+  } catch (error) {
+    console.error(`Error applying manual analysis overrides for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'application de la correction.");
   }
 };
 

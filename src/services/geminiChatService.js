@@ -389,17 +389,18 @@ const PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM = [
 // Requalification d'annonce via le chat (2026-08-27, Lot 2 du plan CHAT_GALLERY_REQUALIFICATION_PLAN.md,
 // implémenté après le Lot 1 galerie) — indépendante d'`isPurchased` (contrairement aux outils de
 // restauration ci-dessous) : un désaccord factuel sur l'identification/le verdict peut survenir sur
-// n'importe quelle annonce discutée, pas seulement celles achetées. L'application réelle réutilise le
-// pipeline ANALYSE_DEAL existant (`retryDealAnalysis`, voir useDealChat.js) plutôt qu'un champ Firestore
-// dédié — décision prise après une revue critique (Opus) qui avait écarté un sous-système parallèle
-// (champ `chatRequalification` + mirroring d'index) pour plusieurs raisons bloquantes, voir le plan.
+// n'importe quelle annonce discutée, pas seulement celles achetées. L'application réelle patche
+// directement `aiAnalysis` (voir `firestoreService.js::applyManualAnalysisOverrides`), pas de nouvel
+// appel Gemini — une 1ère version passait par une ré-analyse complète (`retryDealAnalysis`), abandonnée
+// le 2026-08-27 (2e revue Opus) : lente (repaie 1 à 3 appels Gemini déjà faits) et pas fiable (l'IA
+// peut reconverger sur l'analyse d'origine au lieu de suivre la correction). Les champs sont déjà
+// validés/bornés côté client (voir `validateDealRequalificationProposal` ci-dessous) avant même
+// l'affichage du bouton Appliquer — aucune ré-inférence IA n'est nécessaire pour les écrire.
 const VERDICT_ENUM = Object.keys(NEW_VERDICTS);
 const FINISH_APPLICATION_ENUM = ['Peinture opaque', 'Vernis/Laque transparente', 'Teinture', 'Naturel/Brut', 'Inconnue'];
 const FINISH_TEXTURE_ENUM = ['Brillant', 'Satiné/Soyeux', 'Mat', 'Inconnue'];
 
-// Libellés affichés dans la carte de proposition (avant/après) ET utilisés pour construire le
-// commentaire français envoyé à `retryDealAnalysis` — une seule source, jamais deux formulations
-// différentes entre l'UI et le commentaire réellement transmis au backend.
+// Libellés affichés dans la carte de proposition (avant/après).
 export const REQUALIFICATION_FIELD_LABELS = {
     verdict: 'Verdict',
     deal_score: 'Score Attractivité/Prix',
@@ -481,20 +482,6 @@ export const validateDealRequalificationProposal = (args) => {
     if (!Object.keys(fields).length) return null;
     const justification = typeof args.justification === 'string' ? args.justification.trim().slice(0, 500) : '';
     return { fields, justification };
-};
-
-// Formatte la proposition en texte français pour `retryDealAnalysis(dealId, userId, userComment)` —
-// injecté dans le prompt de ré-analyse backend (`analyzer.py::analyze_deal(..., user_comment=...)`,
-// chemin déjà existant et en production). L'application n'est donc pas littérale (le backend peut
-// interpréter différemment la correction) et devient asynchrone (dépend du bot actif) — compromis
-// assumé dans le plan pour éviter tout nouveau champ Firestore/site de lecture à maintenir.
-export const formatRequalificationComment = ({ fields, justification }) => {
-    const lines = Object.entries(fields).map(([key, value]) => `${REQUALIFICATION_FIELD_LABELS[key] || key} : ${value}`);
-    return [
-        "Corrections demandées par l'utilisateur suite à une conversation avec l'assistant IA :",
-        ...lines,
-        justification ? `Justification : ${justification}` : null,
-    ].filter(Boolean).join('\n');
 };
 
 // Persona "luthier / vendeur référent" (2026-08-23, Plan 2) — actif dès `isPurchased`, pour TOUT

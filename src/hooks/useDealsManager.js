@@ -258,6 +258,19 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     });
   }, []);
 
+  // Mise à jour optimiste après application d'une requalification du chat (2026-08-27, patch direct
+  // — voir useDealChat.js::applyRequalificationProposal) — même nécessité que ci-dessus : `loadedDeals`
+  // n'est pas un listener temps réel, sans ce patch la fiche ouverte n'afficherait la correction
+  // qu'après un rechargement complet (l'index, lui, est déjà à jour via son propre listener temps réel).
+  const handleAnalysisOverridesApplied = useCallback((dealId, fields) => {
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], aiAnalysis: { ...next[dealId].aiAnalysis, ...fields } };
+      return next;
+    });
+  }, []);
+
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
     const chunkId = dealsIndexMap[dealId]?.h;
@@ -730,6 +743,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleTogglePurchased,
       handleSetClassification,
       handleGalleryImageAdded,
+      handleAnalysisOverridesApplied,
       handleSelectDeal: setSelectedDeal
     }
   };
