@@ -1,5 +1,21 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-24] [PRO] SAM 2.1 en segmentation point-guidée — mise en place + bug corrigé, résultat en attente (projet neck-reset) → Résultat :
+- **Décision utilisateur** ("essayons SAM") : après l'échec d'OWLv2 en détection multi-parties même étendue (entrée précédente), tester SAM 2.1 en segmentation point-guidée — jamais essayé sur le Dell jusqu'ici.
+- **`test_sam2_point_segmentation.py` (nouveau)** : segmente à partir d'un point dérivé du haut des boîtes OWLv2 "the nut of a guitar neck" (la requête la plus fiable du test précédent), pas cliqué à la main. API `Sam2Model`/`Sam2Processor` vérifiée dans la doc Hugging Face officielle avant d'écrire le code, pas devinée.
+- **Premier run CI (#10) : échec, root-causé via les logs plutôt que relancé à l'aveugle** — pas un problème de modèle/VRAM (poids chargés, GPU détecté normalement), mais un argument halluciné dans mon propre appel (`reshaped_input_sizes`, absent de l'API réelle, ajouté par analogie avec l'ancienne API SAM v1). Corrigé, rerun déclenché.
+- **Résultat visuel pas encore disponible au moment de cette entrée** — à documenter séparément une fois le rerun inspecté. Cette entrée ne dit rien sur la viabilité de SAM 2.1, seulement sur la mise en place technique.
+- Détail complet dans `NECK_RESET_VISION_PLAN.md` §10.
+
+[2026-08-24] [PRO] OWLv2 — extension des requêtes (sillet/touche/chevalet) et guitares électriques (projet neck-reset) → Résultat :
+- **Demande utilisateur** : après l'échec des 4 requêtes génériques (§8bis), tester 4 formulations plus proches de la zone de mesure ("fretboard"/"fingerboard with frets"/"saddle of a guitar bridge"/"nut of a guitar neck") + 2 photos de guitares électriques en plus des 2 acoustiques déjà testées.
+- **"the nut of a guitar neck" la plus fiable des 8** : boîte plausible sur les 4 photos (score 0.30-0.47), seule requête cohérente sur tout l'échantillon — mais pas assez serrée, ne couvre pas jusqu'au chevalet.
+- **"the saddle of a guitar bridge" activement trompeuse** : se verrouille systématiquement sur la tête (tuning pegs) au lieu du vrai chevalet, reproductible sur 3/3 détections. Tue la piste de réutiliser cette formulation pour la mesure hauteur-de-selle (proposition Fable).
+- **Correction utilisateur retenue** : "on savait déjà qu'OWLv2 était faible, le plus surprenant est l'échec sur la rosace" — vérifié : la rosace hallucine une détection sur un objet d'arrière-plan sans rapport (boîte à chaussures, mur) sur les 2 photos de guitares électriques solid body qui n'ont pourtant **aucune rosace** — pas juste une boîte trop large comme sur la Fender, une vraie hallucination en l'absence de l'objet cherché.
+- **Écart non expliqué signalé, pas caché** : les requêtes headstock/neck/bridge, qui détectaient quelque chose (imprécis) sur les 2 mêmes photos acoustiques en §8bis, ne détectent plus rien du tout cette fois (même seuil). Pas creusé faute de temps.
+- **Défaut de méthode reconnu** : une des 2 photos électriques (tirage aléatoire) est un mur de magasin avec plusieurs guitares — plusieurs requêtes ont accroché la mauvaise guitare. Biais d'échantillonnage à corriger pour la suite (vérifier le contenu avant usage comme cas de test "propre").
+- Détail complet dans `NECK_RESET_VISION_PLAN.md` §9.
+
 [2026-08-24] [PRO] Correction du proxy `cropped_suspect` après inspection visuelle — projet neck-reset → Résultat :
 - **Décision prise sur demande utilisateur, après avoir résisté à la solution facile** ("on modifie le seuil ?") : plutôt que de retoucher un chiffre à l'aveugle, inspection visuelle de 3 cas réels (image + marges bord-à-bord). Révèle un problème plus profond qu'un mauvais seuil : le proxy teste "l'instrument entier visible", pas "la zone sillet→chevalet visible" (ce qui compte réellement) — un cas serré sur les 4 bords, tête hors cadre, s'est avéré être l'une des meilleures photos des trois pour l'usage réel (sillet/frettes/chevalet nets en gros plan).
 - **`cropped_suspect` retiré du calcul de `measurable`** (conservé en donnée informative) — un vrai test nécessiterait de localiser le sillet/chevalet, pas juste la boîte de la guitare entière, ce qui dépend du problème toujours non résolu (§6/§8bis).
