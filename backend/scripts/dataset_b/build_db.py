@@ -37,7 +37,8 @@ CREATE TABLE configurations (
     guitare_id TEXT NOT NULL REFERENCES guitares(guitare_id),
     label TEXT NOT NULL,
     epaisseur_cale_mm REAL,
-    position_cale TEXT CHECK (position_cale IN ('fond', 'avant', '') OR position_cale IS NULL),
+    position_cale TEXT CHECK (position_cale IN ('tete', 'corps', '') OR position_cale IS NULL),
+    relief_mm REAL,
     date TEXT,
     mesureur TEXT,
     outil_mesure TEXT,
@@ -50,7 +51,7 @@ CREATE TABLE mesures (
     action_12e_mi_aigu_mm REAL,
     diametre_corde_mi_grave_mm REAL,
     hauteur_sillet_chevalet_mm REAL,
-    angle_manche_deg REAL,
+    projection_chevalet_mm REAL,
     decollement_chevalet_table TEXT CHECK (decollement_chevalet_table IN ('oui', 'non', '') OR decollement_chevalet_table IS NULL),
     notes TEXT
 );
@@ -58,7 +59,7 @@ CREATE TABLE mesures (
 CREATE TABLE photos (
     photo_id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_id TEXT NOT NULL REFERENCES configurations(config_id),
-    type_vue TEXT NOT NULL CHECK (type_vue IN ('ensemble', 'sillet_chevalet', 'table_chevalet', '12e_frette', 'profil', 'type_annonce')),
+    type_vue TEXT NOT NULL CHECK (type_vue IN ('ensemble', 'sillet_chevalet', 'table_chevalet', '12e_frette', 'profil', 'type_annonce', 'ardoise', 'reglet_reference')),
     chemin_fichier TEXT NOT NULL,
     date_prise TEXT,
     notes TEXT
@@ -90,9 +91,9 @@ def main():
 
     configurations = load_csv("configurations.csv")
     conn.executemany(
-        "INSERT INTO configurations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO configurations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [(r["config_id"], r["guitare_id"], r["label"], none_if_empty(r["epaisseur_cale_mm"]),
-          none_if_empty(r["position_cale"]), r["date"], r["mesureur"], r["outil_mesure"], r["notes"]) for r in configurations],
+          none_if_empty(r["position_cale"]), none_if_empty(r["relief_mm"]), r["date"], r["mesureur"], r["outil_mesure"], r["notes"]) for r in configurations],
     )
 
     mesures = load_csv("mesures.csv")
@@ -100,7 +101,7 @@ def main():
         "INSERT INTO mesures VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [(r["config_id"], none_if_empty(r["action_12e_mi_grave_mm"]), none_if_empty(r["action_12e_mi_aigu_mm"]),
           none_if_empty(r["diametre_corde_mi_grave_mm"]), none_if_empty(r["hauteur_sillet_chevalet_mm"]),
-          none_if_empty(r["angle_manche_deg"]), none_if_empty(r["decollement_chevalet_table"]), r["notes"]) for r in mesures],
+          none_if_empty(r["projection_chevalet_mm"]), none_if_empty(r["decollement_chevalet_table"]), r["notes"]) for r in mesures],
     )
 
     photos = load_csv("photos.csv")

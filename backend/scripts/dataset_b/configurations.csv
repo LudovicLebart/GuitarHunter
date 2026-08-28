@@ -1,3 +1,3 @@
-config_id,guitare_id,label,epaisseur_cale_mm,position_cale,date,mesureur,outil_mesure,notes
-exemple_vissee_etat_initial,exemple_vissee,Etat initial (sans cale),,,2026-08-28,Ludovic,Pied a coulisse,A remplacer/supprimer - ligne d'exemple
-exemple_vissee_cale_05_fond,exemple_vissee,Cale 0.5mm fond,0.5,fond,2026-08-28,Ludovic,Pied a coulisse,A remplacer/supprimer - ligne d'exemple
+config_id,guitare_id,label,epaisseur_cale_mm,position_cale,relief_mm,date,mesureur,outil_mesure,notes
+exemple_vissee_etat_initial,exemple_vissee,Etat initial (sans cale),,,0.2,2026-08-28,Ludovic,Pied a coulisse,A remplacer/supprimer - ligne d'exemple
+exemple_vissee_cale_05_tete,exemple_vissee,Cale 0.5mm cote tete,0.5,tete,0.2,2026-08-28,Ludovic,Pied a coulisse,A remplacer/supprimer - ligne d'exemple

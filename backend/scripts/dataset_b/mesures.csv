@@ -1,3 +1,3 @@
-config_id,action_12e_mi_grave_mm,action_12e_mi_aigu_mm,diametre_corde_mi_grave_mm,hauteur_sillet_chevalet_mm,angle_manche_deg,decollement_chevalet_table,notes
-exemple_vissee_etat_initial,2.4,1.8,1.35,2.0,,non,A remplacer/supprimer - ligne d'exemple
-exemple_vissee_cale_05_fond,2.9,2.2,1.35,1.6,,non,A remplacer/supprimer - ligne d'exemple
+config_id,action_12e_mi_grave_mm,action_12e_mi_aigu_mm,diametre_corde_mi_grave_mm,hauteur_sillet_chevalet_mm,projection_chevalet_mm,decollement_chevalet_table,notes
+exemple_vissee_etat_initial,2.4,1.8,1.35,2.0,1.0,non,A remplacer/supprimer - ligne d'exemple
+exemple_vissee_cale_05_tete,2.9,2.2,1.35,1.6,1.8,non,A remplacer/supprimer - ligne d'exemple

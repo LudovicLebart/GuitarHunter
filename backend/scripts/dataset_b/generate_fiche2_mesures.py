@@ -50,6 +50,8 @@ id_data = [
      Paragraph("Mesureur", cell_b), Paragraph("_______________________________", cell)],
     [Paragraph("Outil de mesure", cell_b), Paragraph("_______________________________", cell),
      Paragraph("Ø corde Mi grave", cell_b), Paragraph("_______________ mm (si constant sur la séance)", cell)],
+    [Paragraph("Relief (mesuré 1x, ne plus toucher)", cell_b), Paragraph("_______________ mm", cell),
+     Paragraph("Photos type annonce", cell_b), Paragraph("fichiers ______________ à ______________", cell)],
 ]
 t_id = Table(id_data, colWidths=[26 * mm, 60 * mm, 26 * mm, 74 * mm])
 t_id.setStyle(TableStyle([
@@ -63,7 +65,7 @@ story.append(t_id)
 # --- Tableau de session ---
 story.append(Paragraph("Configurations testées", h2))
 
-headers = ["Config\n(id court)", "Cale\n(mm)", "Pos.\n(F/A)", "AG\n(mm)", "AA\n(mm)", "Sillet\n(mm)", "Angle\n(°)", "Décol.\n(O/N)", "# photos\nannonce"]
+headers = ["Config\n(id court)", "Cale\n(mm)", "Pos.\n(T/C)", "AG\n(mm)", "AA\n(mm)", "Sillet\n(mm)", "Proj.\n(mm)", "Décol.\n(O/N)", "Fichiers\n(plage)"]
 header_row = [Paragraph(h.replace("\n", "<br/>"), th) for h in headers]
 
 data = [header_row]
@@ -83,10 +85,11 @@ story.append(t)
 
 story.append(Paragraph(
     "<b>AG</b> = action 12e frette corde Mi grave · <b>AA</b> = action 12e frette corde Mi aigu · "
-    "<b>Sillet</b> = hauteur de sillet de chevalet restante · <b>Pos.</b> = position de la cale, Fond (talon) ou Avant (touche), "
-    "vide si état initial (sans cale) · <b>Angle</b> = angle du manche, laisser vide si non mesurable · "
-    "<b>Décol.</b> = décollement chevalet/table visible · <b>Ø corde Mi grave</b> = étalon local (Fiche identification, ou noter par ligne si elle change) · "
-    "<b># photos annonce</b> = nombre de clichés volontairement non contrôlés pris pour cette configuration (Fiche 1, section C).",
+    "<b>Sillet</b> = hauteur de sillet de chevalet restante · <b>Pos.</b> = extrémité calée : <b>T</b>ête (augmente l'action, l'usage prévu de ce protocole) "
+    "ou <b>C</b>orps/chevalet (effet inverse), vide si état initial (sans cale) · "
+    "<b>Proj. chevalet</b> = règle droite posée sur les frettes, hauteur au-dessus du chevalet (méthode standard luthier), en mm — remplace un angle en degrés, non mesurable simplement · "
+    "<b>Décol.</b> = décollement chevalet/table visible · <b>Fichiers</b> = plage de numéros des 5 vues soignées (Fiche 1, section B) pour cette configuration, ex. 231-238 "
+    "(les photos type annonce, section C, sont notées une fois par séance en en-tête, pas par ligne).",
     legend_style,
 ))
 

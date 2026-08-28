@@ -1,6 +1,10 @@
 config_id,type_vue,chemin_fichier,date_prise,notes
+exemple_vissee_etat_initial,ardoise,photos/exemple_vissee/etat_initial/0_ardoise.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
 exemple_vissee_etat_initial,ensemble,photos/exemple_vissee/etat_initial/1_ensemble.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
 exemple_vissee_etat_initial,sillet_chevalet,photos/exemple_vissee/etat_initial/2_sillet_chevalet.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
-exemple_vissee_etat_initial,table_chevalet,photos/exemple_vissee/etat_initial/3_table_chevalet.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
+exemple_vissee_etat_initial,table_chevalet,photos/exemple_vissee/etat_initial/3_table_chevalet_diffus.jpg,2026-08-28,Lumiere diffuse - a remplacer/supprimer
+exemple_vissee_etat_initial,table_chevalet,photos/exemple_vissee/etat_initial/3b_table_chevalet_rasant.jpg,2026-08-28,Lumiere rasante - a remplacer/supprimer
 exemple_vissee_etat_initial,12e_frette,photos/exemple_vissee/etat_initial/4_12e_frette.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
 exemple_vissee_etat_initial,profil,photos/exemple_vissee/etat_initial/5_profil.jpg,2026-08-28,Optionnelle - a remplacer/supprimer
+exemple_vissee_etat_initial,reglet_reference,photos/exemple_vissee/etat_initial/6_reglet.jpg,2026-08-28,A remplacer/supprimer - ligne d'exemple
+exemple_vissee_etat_initial,type_annonce,photos/exemple_vissee/type_annonce_seance/annonce_01.jpg,2026-08-28,Une seule serie par guitare/seance - a remplacer/supprimer
