@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-28] [PRO] Outillage Dataset B — fiches imprimables + base locale (projet neck-reset) → Résultat :
+- **Demande utilisateur** : après avoir tranché (entrée précédente de discussion) que collecter Dataset B n'est pas conditionné par la résolution du problème de localisation automatique (Dataset A) — questions différentes, Dataset B teste l'hypothèse géométrique de base sous conditions contrôlées — produire l'outillage pour démarrer concrètement la collecte.
+- **2 fiches imprimables 1 page (PDF, reportlab)** dans `docs/assets/dataset_b_protocole/` : Fiche 1 (protocole étape par étape de réglage d'angle par cale sur manche vissé + protocole de prise de photo, 5 vues reprises du §5 du plan) ; Fiche 2 (grille de mesures à remplir à la main par configuration, champs alignés sur les métriques du §2 — action 12e frette, hauteur de sillet, angle du manche, décollement chevalet/table). Scripts de génération versionnés (`backend/scripts/dataset_b/generate_fiche*.py`) pour rester modifiables.
+- **Base locale `backend/scripts/dataset_b/`** : 4 CSV éditables (guitares/configurations/mesures/photos, avec lignes d'exemple à remplacer) comme source de vérité, + `build_db.py` qui reconstruit entièrement une base SQLite locale à la demande (non versionnée, comme les photos elles-mêmes — voir `.gitignore`) — mise à jour = éditer un tableur puis relancer le script, pas besoin de coder à chaque séance.
+- Détail complet dans `NECK_RESET_VISION_PLAN.md` §5 et `backend/scripts/dataset_b/README.md`.
+
 [2026-08-28] [PRO] SAM 2.1 en segmentation point-guidée — résultat inspecté, nettement plus précis qu'OWLv2 mais pas fiable en automatique (projet neck-reset) → Résultat :
 - **Rerun (#11) après correction du bug `reshaped_input_sizes`** (entrée précédente) : succès, VRAM pic 17,6% (1374 Mo/7785 Mo).
 - **Masques isolés proprement par diff pixel contre la photo brute** (pas seulement la teinte à l'œil sur le JPEG rendu, trop subtile à faible opacité sur du bois brun — un coup d'œil rapide aurait pu conclure à tort "pas de masque visible", vérifié avant de conclure quoi que ce soit).

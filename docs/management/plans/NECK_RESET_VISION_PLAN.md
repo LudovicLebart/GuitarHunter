@@ -170,6 +170,8 @@ Ce chiffre (1066) est le corpus Dataset A **brut** (toute photo présente), pas 
 
 ## 5. Protocole photo retenu (par guitare/configuration mesurée)
 
+**Outillage opérationnel (2026-08-28)** : ce protocole existe désormais sous forme de 2 fiches imprimables 1 page (`docs/assets/dataset_b_protocole/`) — Fiche 1 (réglage de l'angle par cale pour le manche vissé, étape par étape, + les 5 vues ci-dessous avec conseils de prise de photo) et Fiche 2 (grille de mesures à remplir à la main, une par configuration). Les fiches sont régénérables (`backend/scripts/dataset_b/generate_fiche1_protocole.py`/`generate_fiche2_mesures.py`, reportlab). La collecte s'enregistre dans 4 CSV éditables (`backend/scripts/dataset_b/*.csv`) qui reconstruisent une base SQLite locale à la demande (`build_db.py`) — voir `backend/scripts/dataset_b/README.md` pour le détail du workflow.
+
 1. Vue d'ensemble manche + corps dans le même cadre (sillet de tête → chevalet).
 2. Gros plan sur le sillet de chevalet.
 3. Gros plan sur la zone juste derrière le chevalet (table).

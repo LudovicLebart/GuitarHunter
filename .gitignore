@@ -16,3 +16,5 @@ backend/scripts/leboncoin_storage_state.json
 leboncoin_probe_*.png
 leboncoin_probe_*.html
 leboncoin_probe_*.json
+backend/scripts/dataset_b/dataset_b.sqlite
+backend/scripts/dataset_b/photos/
