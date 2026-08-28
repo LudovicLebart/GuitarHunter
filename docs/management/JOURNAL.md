@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-28] [PRO] SAM 2.1 en segmentation point-guidée — résultat inspecté, nettement plus précis qu'OWLv2 mais pas fiable en automatique (projet neck-reset) → Résultat :
+- **Rerun (#11) après correction du bug `reshaped_input_sizes`** (entrée précédente) : succès, VRAM pic 17,6% (1374 Mo/7785 Mo).
+- **Masques isolés proprement par diff pixel contre la photo brute** (pas seulement la teinte à l'œil sur le JPEG rendu, trop subtile à faible opacité sur du bois brun — un coup d'œil rapide aurait pu conclure à tort "pas de masque visible", vérifié avant de conclure quoi que ce soit).
+- **Sur les 2 photos acoustiques (Fender, Yamaha), le masque le mieux classé (IoU le plus élevé) est exactement "manche+corps, tête exclue"** — coupure nette au sillet, contour fidèle à la silhouette réelle au pixel près. Bien supérieur en précision géométrique aux boîtes rectangulaires d'OWLv2.
+- **Sur les 2 photos électriques, ce motif ne se reproduit pas** : aucun des 3 masques candidats n'isole "manche+corps sans la tête" — on obtient soit l'instrument entier, soit tête+manche seuls (sans le corps).
+- **Conclusion honnête** : SAM 2.1 > OWLv2 en précision, mais pas de règle simple ("toujours prendre le masque n°1") fiable sur les 4 photos. Piste non testée pour la suite : point de départ plus précis + un 2e point négatif sur la tête pour forcer son exclusion, plutôt qu'un abandon de la piste SAM 2.1.
+- Détail complet dans `NECK_RESET_VISION_PLAN.md` §10.
+
 [2026-08-24] [PRO] SAM 2.1 en segmentation point-guidée — mise en place + bug corrigé, résultat en attente (projet neck-reset) → Résultat :
 - **Décision utilisateur** ("essayons SAM") : après l'échec d'OWLv2 en détection multi-parties même étendue (entrée précédente), tester SAM 2.1 en segmentation point-guidée — jamais essayé sur le Dell jusqu'ici.
 - **`test_sam2_point_segmentation.py` (nouveau)** : segmente à partir d'un point dérivé du haut des boîtes OWLv2 "the nut of a guitar neck" (la requête la plus fiable du test précédent), pas cliqué à la main. API `Sam2Model`/`Sam2Processor` vérifiée dans la doc Hugging Face officielle avant d'écrire le code, pas devinée.
