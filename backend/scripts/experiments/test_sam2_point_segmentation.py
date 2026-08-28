@@ -87,7 +87,7 @@ def main():
             outputs = model(**inputs, multimask_output=True)
 
         masks = processor.post_process_masks(
-            outputs.pred_masks.cpu(), inputs["original_sizes"].cpu(), inputs["reshaped_input_sizes"].cpu()
+            outputs.pred_masks.cpu(), inputs["original_sizes"].cpu()
         )[0][0]  # (num_masks, H, W) pour ce point/objet
         scores = outputs.iou_scores.squeeze().tolist()
         if isinstance(scores, float):
