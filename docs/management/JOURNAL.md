@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-08-28] [PRO] Corrections outillage Dataset B — journal de session + vues type annonce (projet neck-reset) → Résultat :
+- **2 retours utilisateur sur la première version des fiches (entrée précédente), corrigés le jour même** :
+- **Fiche 2 refaite en journal de session** : l'ancien format (1 page pleine par configuration, avec bloc notes/checklist) était "trop complexe pour être utilisé à la main" (retour utilisateur) — recopier ensuite chaque fiche dans les CSV aurait été aussi lourd que la saisie directe. Remplacé par un tableau dense (1 feuille par guitare/séance, 1 ligne par configuration, 11 lignes, colonnes abrégées + légende) — remplissage rapide mains occupées, transcription en un seul lot en fin de séance plutôt que fiche par fiche.
+- **Section C ajoutée à la Fiche 1 : "photos type annonce"** — l'utilisateur avait noté qu'il manquait des clichés en conditions non contrôlées (lumière/angle/cadrage aléatoires, comme un vrai vendeur). Question posée en retour : faut-il les systématiser à chaque configuration plutôt que juste l'état initial, vu que la localisation automatique (Dataset A) reste le point dur du projet ? **Décision : oui, systématiser** — coût marginal faible (guitare déjà réglée), et chaque configuration à mesure connue + photo réaliste devient un exemple exploitable pour calibrer la localisation, pas juste un test de robustesse ponctuel.
+- `photos.csv`/`build_db.py` : `type_annonce` ajouté comme valeur valide de `type_vue`.
+- Détail complet dans `NECK_RESET_VISION_PLAN.md` §5.
+
 [2026-08-28] [PRO] Outillage Dataset B — fiches imprimables + base locale (projet neck-reset) → Résultat :
 - **Demande utilisateur** : après avoir tranché (entrée précédente de discussion) que collecter Dataset B n'est pas conditionné par la résolution du problème de localisation automatique (Dataset A) — questions différentes, Dataset B teste l'hypothèse géométrique de base sous conditions contrôlées — produire l'outillage pour démarrer concrètement la collecte.
 - **2 fiches imprimables 1 page (PDF, reportlab)** dans `docs/assets/dataset_b_protocole/` : Fiche 1 (protocole étape par étape de réglage d'angle par cale sur manche vissé + protocole de prise de photo, 5 vues reprises du §5 du plan) ; Fiche 2 (grille de mesures à remplir à la main par configuration, champs alignés sur les métriques du §2 — action 12e frette, hauteur de sillet, angle du manche, décollement chevalet/table). Scripts de génération versionnés (`backend/scripts/dataset_b/generate_fiche*.py`) pour rester modifiables.

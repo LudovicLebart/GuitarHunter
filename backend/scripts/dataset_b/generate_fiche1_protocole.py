@@ -65,7 +65,7 @@ story.append(Paragraph(
 ))
 
 # --- Section B ---
-story.append(Paragraph("B. Prise de photo — 5 vues, à répéter pour CHAQUE configuration de cale", h2))
+story.append(Paragraph("B. Prise de photo soignée — 5 vues, à répéter pour CHAQUE configuration de cale", h2))
 
 photo_data = [
     ["#", "Vue", "Cadrage"],
@@ -103,6 +103,21 @@ tips = [
 story.append(ListFlowable(
     [ListItem(Paragraph(s, body_small), spaceAfter=1.5) for s in tips],
     bulletType="bullet", leftIndent=10, bulletFontSize=6,
+))
+
+# --- Section C ---
+story.append(Paragraph("C. Photos type annonce (conditions non contrôlées) — à répéter pour CHAQUE configuration", h2))
+story.append(Paragraph(
+    "Objectif différent des vues 1-5 : simuler une vraie photo de vendeur peu soigné, pas une prise de vue de laboratoire. "
+    "Précieux vu la difficulté actuelle à localiser automatiquement le manche/sillet/chevalet sur de vraies photos d'annonces (Dataset A) — "
+    "chaque configuration déjà mesurée avec précision devient un exemple exploitable pour tester/calibrer cette localisation.",
+    body,
+))
+story.append(Paragraph(
+    "<b>3 à 5 clichés</b>, en variant à chaque fois <b>au moins un</b> de : éclairage (dur/faible/contre-jour), "
+    "angle (pas perpendiculaire, de travers, 3/4), cadrage (serré, large, décentré). Ne pas corriger la mise au point ni soigner le fond — "
+    "l'objectif est le réalisme, pas la qualité. Noter simplement le nombre pris dans la colonne dédiée de la Fiche 2, pas de détail par photo.",
+    body,
 ))
 
 story.append(Spacer(1, 6))

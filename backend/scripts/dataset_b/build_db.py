@@ -58,7 +58,7 @@ CREATE TABLE mesures (
 CREATE TABLE photos (
     photo_id INTEGER PRIMARY KEY AUTOINCREMENT,
     config_id TEXT NOT NULL REFERENCES configurations(config_id),
-    type_vue TEXT NOT NULL CHECK (type_vue IN ('ensemble', 'sillet_chevalet', 'table_chevalet', '12e_frette', 'profil')),
+    type_vue TEXT NOT NULL CHECK (type_vue IN ('ensemble', 'sillet_chevalet', 'table_chevalet', '12e_frette', 'profil', 'type_annonce')),
     chemin_fichier TEXT NOT NULL,
     date_prise TEXT,
     notes TEXT
