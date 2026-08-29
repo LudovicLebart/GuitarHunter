@@ -917,7 +917,23 @@ class GuitarHunterBot:
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
         if self._browser_semaphore:
-            self._browser_semaphore.acquire()
+            # Timeout défensif (2026-08-29) : un `acquire()` bloquant sans limite peut
+            # rester bloqué indéfiniment si un autre thread de scan (cycle Facebook/Kijiji
+            # planifié) reste accroché sans jamais relâcher son permis (ex: navigateur figé
+            # en anti-bot, `close_session()` sans timeout) — sans ce garde-fou, la commande
+            # ne loggue jamais rien (le premier log de `scan_specific_url()` côté scraper
+            # n'est atteint qu'après l'acquisition) et le statut reste bloqué sur
+            # `scanning_url`, symptôme signalé par l'utilisateur ("rien ne revient, rien
+            # dans les logs").
+            acquired = self._browser_semaphore.acquire(timeout=300)
+            if not acquired:
+                self.logger.error(
+                    "❌ Scan URL abandonné : impossible d'obtenir un navigateur disponible "
+                    "après 5 min (tous les créneaux Playwright sont occupés)."
+                )
+                if not self.offline_mode:
+                    self.set_status('idle', task_name='scanning_url')
+                return
         try:
             is_kijiji = "kijiji.ca" in url.lower()
             source = "Kijiji" if is_kijiji else "Facebook"
