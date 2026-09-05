@@ -11,6 +11,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🗄️ Migration Firestore → solution auto-hébergée (Plan sommaire — 2026-09-05)
+
+*Déclenché par l'analyse des factures GeminiDev (août/septembre 2026) : Firestore pèse ~16-20% de la facture (16,16$ sur 102,57$ en août), avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre). Plan sommaire (pas encore d'implémentation) : `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md`.*
+
+- [ ] **Trancher l'accessibilité réseau du serveur existant** (IP fixe/port forwarding 80/443 avec nom de domaine, ou tunnel type Cloudflare/Tailscale Funnel nécessaire) — conditionne toute la faisabilité du chantier (serveur = bot + Postgres + API/WS + frontend, à la place de Firestore + GitHub Pages).
+- [ ] **Si validé : détailler l'implémentation par tranche verticale** (ex: bus de commandes migré en premier, isolé, avant chat/deals/auth) plutôt qu'un big-bang complet.
+- *Firebase Auth et Firebase Storage restent inchangés dans tous les scénarios (coût négligeable).*
+
+---
+
 ## 💰 Optimisation IA : tokens, persona luthier, pages narratives (2026-08-23)
 
 *Stratégie complète (Fable) puis revue technique du mécanisme d'élision/rappel photo (Opus) avant tout code : `docs/management/plans/TOKEN_OPTIMIZATION_PLAN.md`. 3 plans séquencés à validation séparée.*
