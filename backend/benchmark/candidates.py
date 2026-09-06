@@ -2,7 +2,9 @@
 
 Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
 Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
-(GPT-5-mini, Qwen3.8-flash via TokenRouter) sur un même jeu de questions/photos.
+(GPT-5-mini, Qwen3.8-flash via TokenRouter) et à un candidat hybride expérimental
+(Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement) sur un même
+jeu de questions/photos.
 """
 import base64
 import logging
@@ -101,10 +103,36 @@ def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
     )
 
 
+_VISUAL_EXTRACTION_PROMPT = (
+    "Décris de façon factuelle et détaillée tout ce qui est visible sur ces photos d'un "
+    "instrument de musique : état général, finition, composants matériels (chevalet, "
+    "mécaniques, électronique, etc.), marques/logos/numéros de série lisibles, défauts ou "
+    "dommages visibles. Ne réponds à aucune question, décris uniquement ce que tu observes."
+)
+
+
+def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
+    """Candidat expérimental : Qwen (spécialiste vision, moins cher) décrit finement les photos
+    en texte, puis Gemini Tier 3 Expert Pro (l'"oracle") répond à la question à partir de cette
+    description SEULE, sans revoir les images. Teste l'hypothèse qu'un spécialiste vision dédié
+    à la perception + un modèle fort dédié au raisonnement peut battre un seul modèle qui fait
+    les deux — au prix d'un risque de "téléphone arabe" (l'oracle ne peut pas vérifier contre
+    l'image un détail halluciné par le spécialiste) et d'un appel API supplémentaire."""
+    visual_description = call_qwen_tokenrouter(_VISUAL_EXTRACTION_PROMPT, image_urls)
+    oracle_prompt = (
+        f"Voici la description factuelle des photos d'une annonce, produite par un modèle de "
+        f"vision spécialisé :\n\n{visual_description}\n\n"
+        f"Question : {question}\n\n"
+        f"Réponds à la question en te basant uniquement sur cette description."
+    )
+    return _call_gemini(oracle_prompt, [], GEMINI_MODELS["default_expert"])
+
+
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
 CANDIDATES = {
     "gemini": call_gemini,
     "gemini_pro": call_gemini_pro,
     "gpt4o_mini": call_gpt4o_mini,
     "qwen": call_qwen_tokenrouter,
+    "hybrid": call_hybrid_qwen_gemini,
 }
