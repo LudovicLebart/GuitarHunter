@@ -33,6 +33,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🖥️ Infrastructure : redondance serveur (2026-09-06)
+
+*Déclenché par un échec du job `deploy` (`deploy.yml`) — timeout SSH (`dial tcp ***:22`) vers le serveur de production, aucun rapport avec le code déployé. Le serveur ne répondait plus sur le tailnet ; redémarré manuellement par l'utilisateur.*
+
+- [ ] **Prévoir une redondance avec le Dell (machine GPU du cluster MoneyBot, 100.94.33.54)** : ce serveur est aujourd'hui un point de défaillance unique — s'il est injoignable, `deploy.yml` échoue ET le bot en production est down jusqu'à intervention manuelle. Le Dell est déjà sur le même tailnet (accès SSH validé, `run_script_dell.yml`, voir `ARCHITECTURE.md`), mais **pas prêt à servir de secours tel quel** : c'est une machine tierce (partagée avec le projet MoneyBot, pas dédiée), sans credentials Firebase déployés (`run_script_dell.yml` note explicitement "Pas d'accès Firebase"), sans le service systemd `guitare-hunter`, ni les dépendances Python/Playwright installées en continu. À traiter comme un vrai chantier (provisioning, secrets, bascule) plutôt qu'un simple ajout d'IP de secours dans le workflow — périmètre à définir avec l'utilisateur avant tout code (accord MoneyBot sur le partage de la machine, mécanisme de bascule automatique vs manuelle, etc.).
+
+---
+
 ## 💰 Optimisation IA : tokens, persona luthier, pages narratives (2026-08-23)
 
 *Stratégie complète (Fable) puis revue technique du mécanisme d'élision/rappel photo (Opus) avant tout code : `docs/management/plans/TOKEN_OPTIMIZATION_PLAN.md`. 3 plans séquencés à validation séparée.*
