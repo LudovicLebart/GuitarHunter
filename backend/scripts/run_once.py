@@ -29,7 +29,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -44,6 +44,10 @@ def run():
     présent) ET qui ont des photos (`storageImageUrls`), trie par score combiné
     (deal_score + restoration_interest_score) décroissant — pas juste la plus récente
     scannée — et imprime les 5 meilleures en JSON dans les logs GitHub Actions.
+
+    Exécuté le 2026-09-06 (run GitHub Actions du 03:32 UTC) : 149 annonces éligibles
+    (Tier 3 déclenché + photos), 5 meilleures extraites et versées dans
+    backend/benchmark/dataset.json. ACTIVE repassé à False.
     """
     import json
 
