@@ -54,13 +54,17 @@ def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: 
         # SDK anthropic >= 1.0 (2026-08-20) : temperature/top_p/top_k retirés de la
         # signature de messages.create() (non déplacés, supprimés) — impossible de
         # fixer la température pour la reproductibilité du juge avec cette version.
+        # claude-sonnet-5 a l'"adaptive thinking" activé par défaut, qui peut consommer
+        # tout le budget max_tokens en réflexion avant de produire le JSON attendu (pas
+        # besoin de raisonnement long pour ce verdict court) — désactivé explicitement.
         response = _get_client().messages.create(
             model=JUDGE_MODEL,
-            max_tokens=200,
+            max_tokens=300,
+            thinking={"type": "disabled"},
             messages=[{"role": "user", "content": prompt}],
         )
-        # claude-sonnet-5 peut renvoyer un ThinkingBlock avant le TextBlock (raisonnement
-        # étendu) — content[0] n'est donc pas fiable, on cherche le premier bloc texte.
+        # Filet de sécurité : même thinking désactivé, on cherche le premier bloc texte
+        # plutôt que de supposer content[0].
         text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
         if text_block is None:
             raise ValueError("Aucun bloc texte dans la réponse du juge (contenu : thinking uniquement ?)")
