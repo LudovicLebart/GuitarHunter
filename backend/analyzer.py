@@ -194,7 +194,7 @@ class DealAnalyzer:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
         config = (firestore_config or {}).get('analysisConfig', {})
-        analyst_model_name = config.get('mainModel', 'gemini-3.6-flash')
+        analyst_model_name = config.get('mainModel', 'gemini-3.7-flash')
         taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
 
@@ -271,7 +271,7 @@ class DealAnalyzer:
         # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
         # n'a jamais persisté sa config (voir CLAUDE.md § Points d'Attention Critiques).
         gatekeeper_model_name = config.get('gatekeeperModel', 'gemini-3.5-flash-lite')
-        analyst_model_name = config.get('mainModel', 'gemini-3.6-flash')
+        analyst_model_name = config.get('mainModel', 'gemini-3.7-flash')
         # Rétrocompatibilité : 'proModel' est la nouvelle clé, 'expertModel' est l'ancienne (encore écrite par le frontend)
         expert_pro_model_name = config.get('proModel') or config.get('expertModel', 'gemini-3.1-pro-preview')
 
