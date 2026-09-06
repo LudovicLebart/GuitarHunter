@@ -29,7 +29,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -45,6 +45,14 @@ def run():
     ex: "gemini-3.5-flash-lite -> gemini-3.7-flash" = 2 maillons = pas de T3 ;
     "... -> gemini-3.1-pro-preview" = 3 maillons = T3 déclenché). Imprime des
     statistiques agrégées (moyenne/médiane/min/max), pas les données brutes.
+
+    Exécuté le 2026-09-06 (run GitHub Actions #415) : 6116 annonces au total. Photos/annonce
+    moyenne=4, médiane=2, max=25. Longueur 'analysis' T2 seul (n=630) moyenne=542 caractères
+    (~135 tokens), médiane=514. Longueur 'analysis' T3 déclenché (n=271) moyenne=1061
+    caractères (~265 tokens), médiane=1389 (~347 tokens, un cas à 0 caractère tire la moyenne
+    vers le bas — probable échec T3 avec fallback). Part T3 déclenché : 271/901 (30.1%) des
+    annonces qui atteignent le Tier 2 (~4.4% de toutes les annonces scannées, la majorité étant
+    rejetées au Portier avant même le Tier 2). ACTIVE repassé à False.
     """
     import statistics
 
