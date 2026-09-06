@@ -27,23 +27,22 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-08-25 : un scan Kijiji automatique a révélé que la ville configurée "Saint-Lambert"
-    utilise des coordonnées situées en France (48.9382, -0.5474) plutôt qu'au Québec — probable
-    géocodage erroné vers un homonyme (même piège que "Beloeil" Québec/Wallonie déjà documenté).
-    Vérifie TOUTES les villes configurées de tous les utilisateurs (lecture seule, aucune requête
-    réseau), voir `backend/scripts/audit_city_coordinates.py`. Exécuté le 2026-08-25 : confirmé,
-    UNE SEULE ville sur les 22 de l'utilisateur principal est concernée ("Saint-lambert",
-    48.9382/-0.5474, France) ; une ville "paris" existe chez un autre utilisateur mais à Paris,
-    France — probablement intentionnel, utilisateur différent. Terminé — ACTIVE repassé à False.
+    2026-09-06 : avant de s'engager sur le chantier "pool d'annonces partagé entre
+    utilisateurs" (TODO.md), l'utilisateur doute être le seul utilisateur réellement actif —
+    si c'est le cas, la déduplication cross-utilisateur n'a presque aucun gain (rien à
+    dédupliquer). Lance `analyze_funnel_by_user.py` (lecture seule, aucune écriture Firestore,
+    voir en-tête du script) avec ses valeurs par défaut (30 jours, tous utilisateurs) pour
+    obtenir le volume quotidien réel par utilisateur — résultat à lire dans les logs de
+    l'étape GitHub Actions. Repasser ACTIVE à False juste après lecture du résultat.
     """
-    from backend.scripts.audit_city_coordinates import run as audit_run
-    audit_run()
+    from backend.scripts.analyze_funnel_by_user import main as analyze_funnel_main
+    analyze_funnel_main()
 
 
 if __name__ == "__main__":
