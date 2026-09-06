@@ -6,3 +6,5 @@ playwright
 requests
 pillow
 schedule
+anthropic
+openai
