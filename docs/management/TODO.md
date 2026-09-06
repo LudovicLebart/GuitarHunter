@@ -21,6 +21,17 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 💸 Optimisation coûts Gemini API — modèle Tier 2, photos, pool partagé (2026-09-06)
+
+*Suite à l'analyse des factures GeminiDev (août/septembre 2026, voir `JOURNAL.md`) : la migration de modèle de juillet a multiplié le prix/token par ~3-4x, indépendamment du volume. Détail et sources (Artificial Analysis) dans `JOURNAL.md` du 2026-09-06.*
+
+- [x] **Tier 2 (Analyste) migré vers `gemini-3.7-flash`** *(codé 2026-09-06, non testé en conditions réelles)* : meilleur score (Intelligence Index 56 vs 52) au tarif de lancement 0,75$/3,75$ par 1M tokens jusqu'au 31/12/2026, puis 1,50$/7,50$ (identique au tarif déjà payé pour `gemini-3.6-flash` — aucune régression de coût à terme, juste fin d'une remise temporaire). **Reste à valider par l'utilisateur** en usage réel.
+- [ ] **Alerte programmée pour le 2026-12-15** (Routine `trig_01M4kHt39BWECnmBKrf6W4a6`, email automatique) : revérifier le pricing Gemini réel à cette date et reconsidérer le choix de modèle T2 avant le retour au tarif standard le 01/01/2027.
+- [ ] **Ciblage des photos envoyées à Gemini (Tier 2/3)** *(identifié 2026-09-06, pas encore planifié)* : `analyzer.py::_download_and_optimize_image` envoie l'image entière à 2048px — cher et pas forcément idéal pour repérer des défauts localisés (frettes, table d'harmonie). Piste retenue : vue d'ensemble basse résolution + crop(s) haute résolution sur zones ciblées, plutôt qu'un simple redimensionnement global. Structurel (réduit le coût par appel), à différencier du point suivant (réduit le nombre d'appels).
+- [ ] **Pool d'annonces partagé entre utilisateurs** *(le plus gros levier identifié, toujours non implémenté — voir entrée détaillée section "🧹 Maintenabilité & Dette Technique")* : clarifié le 2026-09-06 suite à une confusion — ce n'est **pas** en place aujourd'hui, chaque utilisateur analyse séparément la même annonce si les zones de recherche se recoupent.
+
+---
+
 ## 💰 Optimisation IA : tokens, persona luthier, pages narratives (2026-08-23)
 
 *Stratégie complète (Fable) puis revue technique du mécanisme d'élision/rappel photo (Opus) avant tout code : `docs/management/plans/TOKEN_OPTIMIZATION_PLAN.md`. 3 plans séquencés à validation séparée.*
