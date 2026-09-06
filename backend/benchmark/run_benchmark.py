@@ -1,7 +1,11 @@
-"""Benchmark GuitarHunter — compare des modèles vision (Gemini / GPT-5-mini /
-Qwen3.8-flash, voir backend/benchmark/candidates.py pour les identifiants exacts
-et les surcharger via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu
-d'annonces réelles, jugés par Claude contre une vérité terrain de lutherie.
+"""Benchmark GuitarHunter — compare les modèles vision candidats (Gemini Tier 2
+Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3-VL-32B via OpenRouter —
+voir backend/benchmark/candidates.py pour les identifiants exacts et les
+surcharger via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu d'annonces
+réelles, jugés par Claude contre une vérité terrain de lutherie. Inclure le
+Tier 3 sert de plafond de référence : situer le Tier 2 (moins cher, utilisé en
+prod par défaut) par rapport à la fois aux concurrents externes et à ce que
+Gemini fait de mieux.
 
 Usage :
     python -m backend.benchmark.run_benchmark
@@ -53,7 +57,7 @@ def run_candidate(model_key, call_fn, dataset):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark GuitarHunter — comparaison de modèles vision")
-    parser.add_argument("--models", default="gemini,gpt4o_mini,qwen", help="Modèles candidats séparés par des virgules")
+    parser.add_argument("--models", default="gemini,gemini_pro,gpt4o_mini,qwen", help="Modèles candidats séparés par des virgules")
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")
     args = parser.parse_args()
 

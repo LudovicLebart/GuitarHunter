@@ -1,8 +1,8 @@
 """Appels aux modèles vision candidats du benchmark GuitarHunter.
 
-Isolé du pipeline de production (analyzer.py) : sert uniquement à comparer
-Gemini (modèle actuel) à GPT-4o-mini et Qwen2.5-VL (via OpenRouter, API
-compatible OpenAI) sur un même jeu de questions/photos.
+Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
+Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
+(GPT-5-mini, Qwen3-VL-32B via OpenRouter) sur un même jeu de questions/photos.
 """
 import base64
 import logging
@@ -43,11 +43,11 @@ def _download_image_bytes(url: str):
         return None
 
 
-def call_gemini(question: str, image_urls: list) -> str:
+def _call_gemini(question: str, image_urls: list, model_name: str) -> str:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY manquant")
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODELS["default_analyst"])
+    model = genai.GenerativeModel(model_name)
     parts = [question]
     for url in image_urls:
         image_bytes = _download_image_bytes(url)
@@ -55,6 +55,18 @@ def call_gemini(question: str, image_urls: list) -> str:
             parts.append({"mime_type": "image/jpeg", "data": image_bytes})
     response = model.generate_content(parts)
     return response.text.strip()
+
+
+def call_gemini(question: str, image_urls: list) -> str:
+    """Tier 2 (Analyste) — modèle utilisé aujourd'hui en production pour l'analyse standard."""
+    return _call_gemini(question, image_urls, GEMINI_MODELS["default_analyst"])
+
+
+def call_gemini_pro(question: str, image_urls: list) -> str:
+    """Tier 3 (Expert Pro) — modèle exhaustif, déclenché conditionnellement en production.
+    Ajouté à la comparaison pour situer le Tier 2 (moins cher) par rapport au plafond de
+    qualité actuel de Gemini, pas seulement par rapport aux concurrents externes."""
+    return _call_gemini(question, image_urls, GEMINI_MODELS["default_expert"])
 
 
 def _call_openai_compatible(question: str, image_urls: list, model_name: str, api_key: str, base_url: str = None) -> str:
@@ -89,6 +101,7 @@ def call_qwen_openrouter(question: str, image_urls: list) -> str:
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
 CANDIDATES = {
     "gemini": call_gemini,
+    "gemini_pro": call_gemini_pro,
     "gpt4o_mini": call_gpt4o_mini,
     "qwen": call_qwen_openrouter,
 }
