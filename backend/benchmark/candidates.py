@@ -2,7 +2,7 @@
 
 Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
 Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
-(GPT-5-mini, Qwen3.8-flash via OpenRouter) sur un même jeu de questions/photos.
+(GPT-5-mini, Qwen3.8-flash via TokenRouter) sur un même jeu de questions/photos.
 """
 import base64
 import logging
@@ -17,20 +17,22 @@ from config import GEMINI_API_KEY, GEMINI_MODELS
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+# TokenRouter (tokenrouter.com) plutôt qu'OpenRouter : compte déjà créé par l'utilisateur,
+# API compatible OpenAI Chat Completions, endpoint confirmé par l'utilisateur (2026-09-06).
+TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
+TOKENROUTER_BASE_URL = "https://api.tokenrouter.com/v1"
 # gpt-4o-mini est retiré de l'API OpenAI depuis février 2026 ; gpt-5-mini est son
 # remplaçant direct (vision confirmée, $0.25/$2.00 par M tokens in/out).
 GPT_MODEL = os.getenv("BENCHMARK_GPT_MODEL", "gpt-5-mini")
-# qwen2.5-vl-72b-instruct n'existe plus sur OpenRouter (lignée Qwen3 depuis 2026).
-# qwen3.8-flash retenu (vérifié 2026-09-06 directement sur GET /api/v1/models — le nom
-# "qwen3-vl-32b-instruct" cité par un classement OCRBench-V2 public n'existe PAS sur
-# OpenRouter, à ne pas réutiliser) : dans la lignée Qwen3.x réellement listée côté
-# OpenRouter (aucune ne porte "VL" dans le nom, la vision est native), qwen3.8-flash
-# offre le meilleur compromis prix/vision confirmé — nettement meilleur que
-# qwen3.7-flash sur RealWorldQA (88.5) pour un coût encore très bas ($0.15/$0.47 par
-# M tokens, contre $0.03/$0.13 pour 3.7-flash, $0.42/$3.00 pour qwen3.8-27b et $2/$6
-# pour qwen3.8-max-0902). Vérifier la disponibilité sur openrouter.ai/models si ce
-# candidat échoue (la lignée Qwen tourne vite).
+# qwen2.5-vl-72b-instruct n'existe plus (lignée Qwen3 depuis 2026). qwen3.8-flash
+# retenu (vérifié 2026-09-06 sur le catalogue OpenRouter — le nom "qwen3-vl-32b-instruct"
+# cité par un classement OCRBench-V2 public n'existe PAS chez ce fournisseur, à ne pas
+# réutiliser) : dans la lignée Qwen3.x réellement listée (aucune ne porte "VL" dans le
+# nom, la vision est native), qwen3.8-flash offre le meilleur compromis prix/vision
+# confirmé — nettement meilleur que qwen3.7-flash sur RealWorldQA (88.5) pour un coût
+# encore très bas. Vérifier la disponibilité sur le tableau de bord TokenRouter si ce
+# candidat échoue (la lignée Qwen tourne vite, et le catalogue de modèles diffère d'un
+# agrégateur à l'autre).
 QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 
 
@@ -92,10 +94,10 @@ def call_gpt4o_mini(question: str, image_urls: list) -> str:
     return _call_openai_compatible(question, image_urls, GPT_MODEL, OPENAI_API_KEY)
 
 
-def call_qwen_openrouter(question: str, image_urls: list) -> str:
+def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
     return _call_openai_compatible(
-        question, image_urls, QWEN_MODEL, OPENROUTER_API_KEY,
-        base_url="https://openrouter.ai/api/v1",
+        question, image_urls, QWEN_MODEL, TOKENROUTER_API_KEY,
+        base_url=TOKENROUTER_BASE_URL,
     )
 
 
@@ -104,5 +106,5 @@ CANDIDATES = {
     "gemini": call_gemini,
     "gemini_pro": call_gemini_pro,
     "gpt4o_mini": call_gpt4o_mini,
-    "qwen": call_qwen_openrouter,
+    "qwen": call_qwen_tokenrouter,
 }

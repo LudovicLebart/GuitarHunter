@@ -1,5 +1,5 @@
 """Benchmark GuitarHunter — compare les modèles vision candidats (Gemini Tier 2
-Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3.8-flash via OpenRouter —
+Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3.8-flash via TokenRouter —
 voir backend/benchmark/candidates.py pour les identifiants exacts et les
 surcharger via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu d'annonces
 réelles, jugés par Claude contre une vérité terrain de lutherie. Inclure le
@@ -12,7 +12,7 @@ Usage :
     python -m backend.benchmark.run_benchmark --models gemini,qwen --limit 5
 
 Clés API requises (.env), selon les candidats sélectionnés :
-    GEMINI_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, ANTHROPIC_API_KEY (juge, toujours requis)
+    GEMINI_API_KEY, OPENAI_API_KEY, TOKENROUTER_API_KEY, ANTHROPIC_API_KEY (juge, toujours requis)
 """
 import argparse
 import json
