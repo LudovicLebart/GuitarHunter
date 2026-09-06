@@ -1,4 +1,6 @@
 """
+
+
 Script "one-shot" exécuté automatiquement à CHAQUE déploiement
 (.github/workflows/deploy.yml, job `deploy`, étape "Script de maintenance ponctuel") —
 ce job est le seul contexte où le serveur a déjà les credentials Firebase en place
@@ -27,26 +29,69 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-06 : avant de s'engager sur le chantier "pool d'annonces partagé entre
-    utilisateurs" (TODO.md), l'utilisateur doute être le seul utilisateur réellement actif —
-    si c'est le cas, la déduplication cross-utilisateur n'a presque aucun gain (rien à
-    dédupliquer). Lance `analyze_funnel_by_user.py` (lecture seule, aucune écriture Firestore,
-    voir en-tête du script) avec ses valeurs par défaut (30 jours, tous utilisateurs) pour
-    obtenir le volume quotidien réel par utilisateur.
-
-    Exécuté le 2026-09-06 (run GitHub Actions #408) : confirmé — 7 utilisateurs enregistrés,
-    volume total 95.03/jour, dont 89.43/jour (94.1%) pour un seul utilisateur, 5.53/jour pour
-    un second, le reste quasi nul ou inexistant (2 UID visiblement placeholder). Voir
-    JOURNAL.md et TODO.md pour la conclusion sur le pool partagé. ACTIVE repassé à False.
+    2026-09-06 : pour amorcer `backend/benchmark/dataset.json` (pipeline de benchmark
+    vision Gemini/GPT-4o-mini/Qwen2.5-VL, jugé par Claude), on a besoin de quelques
+    "pépites" réelles déjà passées par le Tier 3 (Expert Pro) — photos stables
+    (Firebase Storage) + résumé technique détaillé. Lecture seule (aucune écriture
+    Firestore), idempotent : parcourt `guitar_deals` de tous les utilisateurs, ne garde
+    que les annonces où l'Expert Pro a bien été déclenché (`aiAnalysis.tier3_trigger`
+    présent) ET qui ont des photos (`storageImageUrls`), trie par score combiné
+    (deal_score + restoration_interest_score) décroissant — pas juste la plus récente
+    scannée — et imprime les 5 meilleures en JSON dans les logs GitHub Actions.
     """
-    from backend.scripts.analyze_funnel_by_user import main as analyze_funnel_main
-    analyze_funnel_main()
+    import json
+
+    from backend.scripts.export_neck_reset_sample import setup_firebase
+    from config import APP_ID_TARGET
+
+    db = setup_firebase()
+
+    print("🔍 Récupération de la liste des utilisateurs enregistrés...")
+    users_ref = db.collection('artifacts').document(APP_ID_TARGET).collection('users')
+    user_ids = [doc.id for doc in users_ref.stream()]
+    print(f"   {len(user_ids)} utilisateur(s) trouvé(s).")
+
+    gems = []
+    for uid in user_ids:
+        deals_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+                      .collection('users').document(uid).collection('guitar_deals')
+        for doc in deals_ref.stream():
+            deal = doc.to_dict()
+            analysis = deal.get('aiAnalysis') or {}
+            if not analysis.get('tier3_trigger'):
+                continue
+            image_urls = deal.get('storageImageUrls') or []
+            if not image_urls:
+                continue
+            gems.append({
+                'user_id': uid,
+                'deal_id': doc.id,
+                'title': deal.get('title'),
+                'classification': analysis.get('classification'),
+                'deal_score': analysis.get('deal_score'),
+                'restoration_interest_score': analysis.get('restoration_interest_score'),
+                'authenticity_score': analysis.get('authenticity_score'),
+                'condition_score': analysis.get('condition_score'),
+                'tier3_trigger': analysis.get('tier3_trigger'),
+                'summary': analysis.get('summary'),
+                'image_urls': image_urls,
+                'source_url': deal.get('url'),
+            })
+
+    print(f"📦 {len(gems)} annonce(s) passée(s) par le Tier 3 avec photos.")
+    gems.sort(
+        key=lambda g: (g.get('deal_score') or 0) + (g.get('restoration_interest_score') or 0),
+        reverse=True,
+    )
+    top = gems[:5]
+    print("🏆 TOP 5 PÉPITES (JSON) :")
+    print(json.dumps(top, indent=2, ensure_ascii=False, default=str))
 
 
 if __name__ == "__main__":
