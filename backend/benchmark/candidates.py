@@ -103,29 +103,39 @@ def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
     )
 
 
-_VISUAL_EXTRACTION_PROMPT = (
-    "Décris de façon factuelle et détaillée tout ce qui est visible sur ces photos d'un "
-    "instrument de musique : état général, finition, composants matériels (chevalet, "
-    "mécaniques, électronique, etc.), marques/logos/numéros de série lisibles, défauts ou "
-    "dommages visibles. Ne réponds à aucune question, décris uniquement ce que tu observes."
+_CONDITION_EXTRACTION_PROMPT = (
+    "Décris uniquement l'état physique et les détails techniques visibles sur ces photos d'un "
+    "instrument de musique : finition (rayures, éclats, ternissement, craquelures), état des "
+    "pièces métalliques (oxydation, jeu, corrosion), condition apparente des cordes et frettes, "
+    "défauts ou dommages visibles, qualité apparente de fabrication et d'assemblage. "
+    "N'essaie PAS d'identifier la marque, le modèle, le luthier ou l'origine de l'instrument — "
+    "ce n'est pas ton rôle ici, un autre expert s'en charge. Décris uniquement ce qui est "
+    "observable factuellement, ne réponds à aucune question."
 )
 
 
 def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
-    """Candidat expérimental : Qwen (spécialiste vision, moins cher) décrit finement les photos
-    en texte, puis Gemini Tier 3 Expert Pro (l'"oracle") répond à la question à partir de cette
-    description SEULE, sans revoir les images. Teste l'hypothèse qu'un spécialiste vision dédié
-    à la perception + un modèle fort dédié au raisonnement peut battre un seul modèle qui fait
-    les deux — au prix d'un risque de "téléphone arabe" (l'oracle ne peut pas vérifier contre
-    l'image un détail halluciné par le spécialiste) et d'un appel API supplémentaire."""
-    visual_description = call_qwen_tokenrouter(_VISUAL_EXTRACTION_PROMPT, image_urls)
+    """Candidat expérimental : division du travail par force de chaque modèle, plutôt qu'un
+    seul modèle qui fait tout. Constat du 2026-09-06 (annonce Guerrilla Guitars) : Qwen produit
+    une excellente analyse d'état/détails physiques mais peut halluciner l'identification de la
+    marque (confondu un luthier artisanal québécois avec une marque budget OEM). Architecture :
+    Qwen (spécialiste vision, moins cher) décrit UNIQUEMENT l'état physique/technique en texte
+    (consigne explicite de ne pas identifier la marque) ; Gemini Tier 3 Expert Pro (l'"oracle")
+    reçoit à la fois les photos ET ce rapport d'état, fait lui-même l'identification (marque/
+    modèle/origine) à partir des images, puis combine son identification avec le rapport de
+    Qwen pour répondre à la question. Contrairement à la première version de ce candidat,
+    l'oracle revoit bien les images — sinon il ne peut pas identifier l'instrument lui-même."""
+    condition_report = call_qwen_tokenrouter(_CONDITION_EXTRACTION_PROMPT, image_urls)
     oracle_prompt = (
-        f"Voici la description factuelle des photos d'une annonce, produite par un modèle de "
-        f"vision spécialisé :\n\n{visual_description}\n\n"
+        f"Un modèle de vision spécialisé a produit ce rapport détaillé sur l'état physique de "
+        f"l'instrument (il n'a volontairement PAS tenté de l'identifier — c'est à toi de le "
+        f"faire à partir des photos) :\n\n{condition_report}\n\n"
         f"Question : {question}\n\n"
-        f"Réponds à la question en te basant uniquement sur cette description."
+        f"Identifie d'abord la marque, le modèle et l'origine de l'instrument à partir des "
+        f"photos, puis réponds à la question en combinant ton identification avec le rapport "
+        f"d'état ci-dessus."
     )
-    return _call_gemini(oracle_prompt, [], GEMINI_MODELS["default_expert"])
+    return _call_gemini(oracle_prompt, image_urls, GEMINI_MODELS["default_expert"])
 
 
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
