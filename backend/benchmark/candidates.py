@@ -103,34 +103,27 @@ def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
     )
 
 
-_CONDITION_EXTRACTION_PROMPT = (
-    "Décris uniquement l'état physique et les détails techniques visibles sur ces photos d'un "
-    "instrument de musique : finition (rayures, éclats, ternissement, craquelures), état des "
-    "pièces métalliques (oxydation, jeu, corrosion), condition apparente des cordes et frettes, "
-    "défauts ou dommages visibles, qualité apparente de fabrication et d'assemblage. "
-    "N'essaie PAS d'identifier la marque, le modèle, le luthier ou l'origine de l'instrument — "
-    "ce n'est pas ton rôle ici, un autre expert s'en charge. Décris uniquement ce qui est "
-    "observable factuellement, ne réponds à aucune question."
-)
-
-# Séparé de l'extraction d'état : consigne stricte de transcription/OCR pure, sans
-# AUCUNE interprétation (ni sur la qualité de la marque, ni sur son positionnement
-# gamme/origine) — c'est précisément le saut interprétatif ("marque budget OEM") qui a
-# fait halluciner Qwen sur l'annonce Guerrilla Guitars, pas la lecture du logo elle-même.
-_IDENTIFICATION_EXTRACTION_PROMPT = (
-    "Fais un travail de pure transcription/OCR sur ces photos d'un instrument de musique, sans "
-    "aucune interprétation : \n"
-    "1. Transcris EXACTEMENT (lettre par lettre) tout texte lisible sur l'instrument (tête, "
-    "corps, matériel) : nom de marque, modèle, numéro de série, tout inscription gravée ou "
-    "imprimée.\n"
-    "2. Décris en détail la forme, les couleurs et les symboles de tout logo/emblème visible "
-    "(ex: formes géométriques, étoiles, animaux, etc.) sans essayer de le nommer ou de "
-    "l'associer à une marque connue.\n"
-    "3. Décris les caractéristiques de construction visibles qui pourraient indiquer une "
-    "origine (qualité de finition des joints, type de vis/quincaillerie, style de découpe).\n"
-    "N'émets AUCUN jugement sur la marque (ne dis jamais si c'est une marque \"connue\", "
-    "\"budget\", \"artisanale\", \"OEM\" ou autre) — transcris et décris seulement ce que tu vois, "
-    "laisse toute interprétation à un autre expert. Ne réponds à aucune question."
+# Un seul appel Qwen, deux sections distinctes dans le même prompt : la consigne
+# "pas d'interprétation" ne s'applique qu'à la section logo/marque — c'est précisément le
+# saut interprétatif ("marque budget OEM") qui a fait halluciner Qwen sur l'annonce
+# Guerrilla Guitars (2026-09-06), pas la lecture du logo elle-même (OCR fiable).
+_EXTRACTION_PROMPT = (
+    "Analyse ces photos d'un instrument de musique en deux parties distinctes, sans répondre "
+    "à aucune question.\n\n"
+    "PARTIE 1 — État physique : décris l'état et les détails techniques visibles (finition : "
+    "rayures/éclats/ternissement/craquelures ; pièces métalliques : oxydation/jeu/corrosion ; "
+    "état apparent des cordes et frettes ; défauts ou dommages ; qualité apparente de "
+    "fabrication et d'assemblage).\n\n"
+    "PARTIE 2 — Transcription OCR du logo/marque, SANS AUCUNE INTERPRÉTATION : "
+    "(a) transcris EXACTEMENT (lettre par lettre) tout texte lisible (tête, corps, matériel) : "
+    "marque, modèle, numéro de série, inscriptions gravées ou imprimées ; "
+    "(b) décris en détail la forme, les couleurs et les symboles de tout logo/emblème visible, "
+    "sans essayer de le nommer ou de l'associer à une marque connue ; "
+    "(c) décris les caractéristiques de construction qui pourraient indiquer une origine "
+    "(qualité des joints, type de vis/quincaillerie, style de découpe). "
+    "N'émets AUCUN jugement sur la marque dans cette partie (ne dis jamais si c'est une marque "
+    "\"connue\", \"budget\", \"artisanale\", \"OEM\" ou autre) — transcris et décris seulement ce "
+    "que tu vois, laisse toute interprétation à un autre expert."
 )
 
 
@@ -140,25 +133,22 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
     2026-09-06 (annonce Guerrilla Guitars) : Qwen lit correctement le texte/logo (OCR fiable)
     mais hallucine dès qu'il interprète ce qu'il lit (a conclu "marque budget OEM" pour un
     luthier artisanal québécois réel) — le problème est l'interprétation, pas la perception.
-    Architecture : Qwen produit deux rapports texte séparés, un sur l'état physique et un de
-    pure transcription/OCR du logo et du texte SANS aucune interprétation de marque ; Gemini
-    Tier 3 Expert Pro (l'"oracle") ne voit JAMAIS les images, seulement ces deux rapports texte,
-    et fait l'identification (marque/modèle/origine) lui-même à partir de la transcription brute
-    en s'appuyant sur ses propres connaissances, puis répond à la question."""
-    condition_report = call_qwen_tokenrouter(_CONDITION_EXTRACTION_PROMPT, image_urls)
-    identification_report = call_qwen_tokenrouter(_IDENTIFICATION_EXTRACTION_PROMPT, image_urls)
+    Architecture : un seul appel Qwen produit un rapport texte en deux parties (état physique +
+    transcription/OCR du logo SANS interprétation de marque) ; Gemini Tier 3 Expert Pro
+    (l'"oracle") ne voit JAMAIS les images, seulement ce rapport texte, et fait l'identification
+    (marque/modèle/origine) lui-même à partir de la transcription brute en s'appuyant sur ses
+    propres connaissances, puis répond à la question."""
+    extraction_report = call_qwen_tokenrouter(_EXTRACTION_PROMPT, image_urls)
     oracle_prompt = (
-        f"Un modèle de vision spécialisé a produit deux rapports factuels sur les photos d'une "
-        f"annonce (il n'a JAMAIS tenté d'identifier la marque ni porté de jugement dessus — "
-        f"c'est à toi de le faire à partir de ces éléments bruts, tu ne vois pas les photos "
-        f"toi-même) :\n\n"
-        f"--- Rapport 1 : état physique ---\n{condition_report}\n\n"
-        f"--- Rapport 2 : transcription OCR / description du logo (sans interprétation) ---\n"
-        f"{identification_report}\n\n"
+        f"Un modèle de vision spécialisé a produit ce rapport factuel en deux parties sur les "
+        f"photos d'une annonce (il n'a JAMAIS tenté d'identifier la marque ni porté de jugement "
+        f"dessus — c'est à toi de le faire à partir de ces éléments bruts, tu ne vois pas les "
+        f"photos toi-même) :\n\n{extraction_report}\n\n"
         f"Question : {question}\n\n"
         f"En te basant sur tes propres connaissances des marques/luthiers, identifie d'abord "
-        f"la marque, le modèle et l'origine probable de l'instrument à partir du Rapport 2, "
-        f"puis réponds à la question en combinant cette identification avec le Rapport 1."
+        f"la marque, le modèle et l'origine probable de l'instrument à partir de la Partie 2 "
+        f"(transcription OCR/logo), puis réponds à la question en combinant cette "
+        f"identification avec la Partie 1 (état physique)."
     )
     return _call_gemini(oracle_prompt, [], GEMINI_MODELS["default_expert"])
 
