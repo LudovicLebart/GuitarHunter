@@ -1,0 +1,18 @@
+[
+  {
+    "id": "annonce_9823_neck",
+    "question": "Décris l'état du vernis autour de la jonction corps/manche.",
+    "ground_truth": "Fine fissure circulaire dans le vernis (finish check) typique du vieillissement nitrocellulosique, mais aucune fracture du bois.",
+    "image_urls": [
+      "REMPLACER_PAR_URL_PHOTO_REELLE.jpg"
+    ]
+  },
+  {
+    "id": "annonce_1044_bridge",
+    "question": "Quel est le type de chevalet présent sur cet instrument ?",
+    "ground_truth": "Vibrato flottant de type Floyd Rose Original avec sillet bloque-cordes.",
+    "image_urls": [
+      "REMPLACER_PAR_URL_PHOTO_REELLE.jpg"
+    ]
+  }
+]
