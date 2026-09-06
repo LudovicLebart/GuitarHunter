@@ -1,15 +1,21 @@
 """Benchmark GuitarHunter — compare les modèles vision candidats (Gemini Tier 2
 Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3.8-flash via TokenRouter,
-et un candidat "hybrid" expérimental — voir backend/benchmark/candidates.py
-pour les identifiants exacts et les surcharger via
-BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu d'annonces réelles, jugés
-par Claude contre une vérité terrain de lutherie. Inclure le Tier 3 sert de
-plafond de référence : situer le Tier 2 (moins cher, utilisé en prod par
+un candidat "hybrid" et un candidat "gemini_pro_compact" expérimentaux — voir
+backend/benchmark/candidates.py pour les identifiants exacts et les surcharger
+via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu d'annonces réelles,
+jugés par Claude contre une vérité terrain de lutherie. Inclure le Tier 3 sert
+de plafond de référence : situer le Tier 2 (moins cher, utilisé en prod par
 défaut) par rapport à la fois aux concurrents externes et à ce que Gemini fait
 de mieux. Le candidat "hybrid" teste une architecture à deux étages : Qwen
 décrit les photos en texte (extraction vision), puis Gemini Tier 3 répond à la
 question à partir de ce texte seul (raisonnement) — à comparer aux candidats
 mono-modèle pour voir si séparer perception et raisonnement apporte un gain.
+Le candidat "gemini_pro_compact" teste si forcer le Tier 3 (dont le prompt de
+prod exige un rapport "EXHAUSTIF", contrairement au Tier 2 déjà en puces) à
+répondre en puces strictes, puis réécrire cette sortie en prose par un modèle
+bon marché (gemini-3.5-flash-lite), dégrade le raisonnement par rapport à
+`gemini_pro` — un score équivalent validerait ~55% d'économie sur le poste de
+sortie du Tier 3 ($12/M tokens).
 
 Usage :
     python -m backend.benchmark.run_benchmark
@@ -61,7 +67,7 @@ def run_candidate(model_key, call_fn, dataset):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark GuitarHunter — comparaison de modèles vision")
-    parser.add_argument("--models", default="gemini,gemini_pro,gpt4o_mini,qwen,hybrid", help="Modèles candidats séparés par des virgules")
+    parser.add_argument("--models", default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid", help="Modèles candidats séparés par des virgules")
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")
     args = parser.parse_args()
 
