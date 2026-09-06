@@ -137,6 +137,15 @@ class DealAnalyzer:
         for attempt in range(max_retries + 1):
             try:
                 response = model.generate_content(current_parts)
+                usage = getattr(response, "usage_metadata", None)
+                if usage:
+                    image_count = sum(1 for p in current_parts if isinstance(p, Image.Image))
+                    self.logger.info(
+                        f"[tokens] model={model_name} images={image_count} "
+                        f"in={getattr(usage, 'prompt_token_count', 0)} "
+                        f"out={getattr(usage, 'candidates_token_count', 0)} "
+                        f"total={getattr(usage, 'total_token_count', 0)}"
+                    )
                 cleaned_text = self._clean_json_response(response.text)
                 result = json.loads(cleaned_text)
                 if isinstance(result, list):
