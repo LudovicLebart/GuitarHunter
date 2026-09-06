@@ -59,7 +59,12 @@ def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: 
             max_tokens=200,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = response.content[0].text.strip()
+        # claude-sonnet-5 peut renvoyer un ThinkingBlock avant le TextBlock (raisonnement
+        # étendu) — content[0] n'est donc pas fiable, on cherche le premier bloc texte.
+        text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
+        if text_block is None:
+            raise ValueError("Aucun bloc texte dans la réponse du juge (contenu : thinking uniquement ?)")
+        text = text_block.text.strip()
         if text.startswith("```"):
             text = text.strip("`")
             if text.lower().startswith("json"):
