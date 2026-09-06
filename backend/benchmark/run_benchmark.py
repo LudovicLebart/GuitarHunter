@@ -1,5 +1,5 @@
 """Benchmark GuitarHunter — compare les modèles vision candidats (Gemini Tier 2
-Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3-VL-32B via OpenRouter —
+Analyste, Gemini Tier 3 Expert Pro, GPT-5-mini, Qwen3.8-flash via OpenRouter —
 voir backend/benchmark/candidates.py pour les identifiants exacts et les
 surcharger via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu d'annonces
 réelles, jugés par Claude contre une vérité terrain de lutherie. Inclure le

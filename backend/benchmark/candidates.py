@@ -2,7 +2,7 @@
 
 Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
 Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
-(GPT-5-mini, Qwen3-VL-32B via OpenRouter) sur un même jeu de questions/photos.
+(GPT-5-mini, Qwen3.8-flash via OpenRouter) sur un même jeu de questions/photos.
 """
 import base64
 import logging
@@ -22,15 +22,16 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 # remplaçant direct (vision confirmée, $0.25/$2.00 par M tokens in/out).
 GPT_MODEL = os.getenv("BENCHMARK_GPT_MODEL", "gpt-5-mini")
 # qwen2.5-vl-72b-instruct n'existe plus sur OpenRouter (lignée Qwen3 depuis 2026).
-# qwen3-vl-32b-instruct retenu (vérifié 2026-09-06) : 2e meilleur score public sur
-# OCRBench-V2 (0.674, juste derrière la variante "thinking" à 0.684 mais celle-ci
-# introuvable sur OpenRouter), le benchmark le plus pertinent pour la lecture de
-# numéros de série/logos — et moins cher que qwen3.8-flash ($0.104/$0.416 vs
-# $0.15/$0.47 par M tokens). Aucun modèle GPT/Gemini n'est évalué sur ce
-# classement OCRBench-V2 public, donc pas de comparaison directe possible côté OCR.
-# Vérifier la disponibilité sur openrouter.ai/models si ce candidat échoue (la
-# lignée Qwen tourne vite).
-QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3-vl-32b-instruct")
+# qwen3.8-flash retenu (vérifié 2026-09-06 directement sur GET /api/v1/models — le nom
+# "qwen3-vl-32b-instruct" cité par un classement OCRBench-V2 public n'existe PAS sur
+# OpenRouter, à ne pas réutiliser) : dans la lignée Qwen3.x réellement listée côté
+# OpenRouter (aucune ne porte "VL" dans le nom, la vision est native), qwen3.8-flash
+# offre le meilleur compromis prix/vision confirmé — nettement meilleur que
+# qwen3.7-flash sur RealWorldQA (88.5) pour un coût encore très bas ($0.15/$0.47 par
+# M tokens, contre $0.03/$0.13 pour 3.7-flash, $0.42/$3.00 pour qwen3.8-27b et $2/$6
+# pour qwen3.8-max-0902). Vérifier la disponibilité sur openrouter.ai/models si ce
+# candidat échoue (la lignée Qwen tourne vite).
+QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 
 
 def _download_image_bytes(url: str):
