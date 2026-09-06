@@ -1,6 +1,7 @@
-"""Benchmark GuitarHunter — compare des modèles vision (Gemini / GPT-4o-mini /
-Qwen2.5-VL) sur un jeu d'annonces réelles, jugés par Claude contre une vérité
-terrain de lutherie.
+"""Benchmark GuitarHunter — compare des modèles vision (Gemini / GPT-5-mini /
+Qwen3.8-flash, voir backend/benchmark/candidates.py pour les identifiants exacts
+et les surcharger via BENCHMARK_GPT_MODEL/BENCHMARK_QWEN_MODEL) sur un jeu
+d'annonces réelles, jugés par Claude contre une vérité terrain de lutherie.
 
 Usage :
     python -m backend.benchmark.run_benchmark

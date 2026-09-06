@@ -18,8 +18,15 @@ logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-GPT_MODEL = os.getenv("BENCHMARK_GPT_MODEL", "gpt-4o-mini")
-QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen2.5-vl-72b-instruct")
+# gpt-4o-mini est retiré de l'API OpenAI depuis février 2026 ; gpt-5-mini est son
+# remplaçant direct (vision confirmée, $0.25/$2.00 par M tokens in/out).
+GPT_MODEL = os.getenv("BENCHMARK_GPT_MODEL", "gpt-5-mini")
+# qwen2.5-vl-72b-instruct n'existe plus sur OpenRouter (lignée Qwen3 depuis 2026) ;
+# qwen3.8-flash offre le meilleur compromis prix/vision de la lignée à date de vérification
+# (2026-09-06) — $0.15/$0.47 par M tokens, nettement meilleur que qwen3.7-flash sur
+# RealWorldQA pour un surcoût minime. Vérifier la disponibilité sur openrouter.ai/models
+# si ce candidat échoue (la lignée Qwen tourne vite).
+QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 
 
 def _download_image_bytes(url: str):
