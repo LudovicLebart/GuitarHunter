@@ -51,10 +51,12 @@ def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: 
         question=question, ground_truth=ground_truth, candidate_answer=candidate_answer
     )
     try:
+        # SDK anthropic >= 1.0 (2026-08-20) : temperature/top_p/top_k retirés de la
+        # signature de messages.create() (non déplacés, supprimés) — impossible de
+        # fixer la température pour la reproductibilité du juge avec cette version.
         response = _get_client().messages.create(
             model=JUDGE_MODEL,
             max_tokens=200,
-            temperature=0.0,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text.strip()
