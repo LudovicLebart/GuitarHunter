@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -38,8 +38,12 @@ def run():
     si c'est le cas, la déduplication cross-utilisateur n'a presque aucun gain (rien à
     dédupliquer). Lance `analyze_funnel_by_user.py` (lecture seule, aucune écriture Firestore,
     voir en-tête du script) avec ses valeurs par défaut (30 jours, tous utilisateurs) pour
-    obtenir le volume quotidien réel par utilisateur — résultat à lire dans les logs de
-    l'étape GitHub Actions. Repasser ACTIVE à False juste après lecture du résultat.
+    obtenir le volume quotidien réel par utilisateur.
+
+    Exécuté le 2026-09-06 (run GitHub Actions #408) : confirmé — 7 utilisateurs enregistrés,
+    volume total 95.03/jour, dont 89.43/jour (94.1%) pour un seul utilisateur, 5.53/jour pour
+    un second, le reste quasi nul ou inexistant (2 UID visiblement placeholder). Voir
+    JOURNAL.md et TODO.md pour la conclusion sur le pool partagé. ACTIVE repassé à False.
     """
     from backend.scripts.analyze_funnel_by_user import main as analyze_funnel_main
     analyze_funnel_main()
