@@ -29,27 +29,24 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-06 : pour amorcer `backend/benchmark/dataset.json` (pipeline de benchmark
-    vision Gemini/GPT-4o-mini/Qwen2.5-VL, jugé par Claude), on a besoin de quelques
-    "pépites" réelles déjà passées par le Tier 3 (Expert Pro) — photos stables
-    (Firebase Storage) + résumé technique détaillé. Lecture seule (aucune écriture
-    Firestore), idempotent : parcourt `guitar_deals` de tous les utilisateurs, ne garde
-    que les annonces où l'Expert Pro a bien été déclenché (`aiAnalysis.tier3_trigger`
-    présent) ET qui ont des photos (`storageImageUrls`), trie par score combiné
-    (deal_score + restoration_interest_score) décroissant — pas juste la plus récente
-    scannée — et imprime les 5 meilleures en JSON dans les logs GitHub Actions.
-
-    Exécuté le 2026-09-06 (run GitHub Actions du 03:32 UTC) : 149 annonces éligibles
-    (Tier 3 déclenché + photos), 5 meilleures extraites et versées dans
-    backend/benchmark/dataset.json. ACTIVE repassé à False.
+    2026-09-06 : pour remplacer les suppositions du benchmark de coût Gemini (nombre de
+    photos/annonce, longueur de sortie par Tier) par de vraies distributions mesurées.
+    Lecture seule (aucune écriture Firestore), idempotent : parcourt `guitar_deals` de
+    tous les utilisateurs, mesure pour chaque annonce analysée le nombre de photos
+    (`storageImageUrls`) et la longueur du champ `aiAnalysis.analysis` (le rapport
+    Markdown/puces produit par le dernier Tier exécuté), ventilée selon que le Tier 3 a
+    été déclenché ou non (déduit du nombre de maillons dans `aiAnalysis.model_used`,
+    ex: "gemini-3.5-flash-lite -> gemini-3.7-flash" = 2 maillons = pas de T3 ;
+    "... -> gemini-3.1-pro-preview" = 3 maillons = T3 déclenché). Imprime des
+    statistiques agrégées (moyenne/médiane/min/max), pas les données brutes.
     """
-    import json
+    import statistics
 
     from backend.scripts.export_neck_reset_sample import setup_firebase
     from config import APP_ID_TARGET
@@ -61,41 +58,50 @@ def run():
     user_ids = [doc.id for doc in users_ref.stream()]
     print(f"   {len(user_ids)} utilisateur(s) trouvé(s).")
 
-    gems = []
+    photo_counts = []
+    analysis_len_no_t3 = []
+    analysis_len_t3 = []
+    total_deals = 0
+
     for uid in user_ids:
         deals_ref = db.collection('artifacts').document(APP_ID_TARGET) \
                       .collection('users').document(uid).collection('guitar_deals')
         for doc in deals_ref.stream():
             deal = doc.to_dict()
             analysis = deal.get('aiAnalysis') or {}
-            if not analysis.get('tier3_trigger'):
+            if not analysis:
                 continue
-            image_urls = deal.get('storageImageUrls') or []
-            if not image_urls:
-                continue
-            gems.append({
-                'user_id': uid,
-                'deal_id': doc.id,
-                'title': deal.get('title'),
-                'classification': analysis.get('classification'),
-                'deal_score': analysis.get('deal_score'),
-                'restoration_interest_score': analysis.get('restoration_interest_score'),
-                'authenticity_score': analysis.get('authenticity_score'),
-                'condition_score': analysis.get('condition_score'),
-                'tier3_trigger': analysis.get('tier3_trigger'),
-                'summary': analysis.get('summary'),
-                'image_urls': image_urls,
-                'source_url': deal.get('url'),
-            })
+            total_deals += 1
 
-    print(f"📦 {len(gems)} annonce(s) passée(s) par le Tier 3 avec photos.")
-    gems.sort(
-        key=lambda g: (g.get('deal_score') or 0) + (g.get('restoration_interest_score') or 0),
-        reverse=True,
-    )
-    top = gems[:5]
-    print("🏆 TOP 5 PÉPITES (JSON) :")
-    print(json.dumps(top, indent=2, ensure_ascii=False, default=str))
+            image_urls = deal.get('storageImageUrls') or []
+            photo_counts.append(len(image_urls))
+
+            analysis_text = analysis.get('analysis') or ''
+            model_used = analysis.get('model_used') or ''
+            tier_count = model_used.count('->') + 1 if model_used else 0
+            if tier_count >= 3:
+                analysis_len_t3.append(len(analysis_text))
+            elif tier_count == 2 and analysis_text:
+                analysis_len_no_t3.append(len(analysis_text))
+
+    def print_stats(values, label):
+        if not values:
+            print(f"📊 {label} : aucune donnée")
+            return
+        print(
+            f"📊 {label} : n={len(values)}, moyenne={statistics.mean(values):.0f}, "
+            f"médiane={statistics.median(values):.0f}, min={min(values)}, max={max(values)}"
+        )
+
+    print(f"📦 {total_deals} annonce(s) analysée(s) au total.")
+    print_stats(photo_counts, "Photos par annonce")
+    print_stats(analysis_len_no_t3, "Longueur champ 'analysis' en caractères (Tier 2 seul, sans T3)")
+    print_stats(analysis_len_t3, "Longueur champ 'analysis' en caractères (Tier 3 déclenché)")
+    n_t3 = len(analysis_len_t3)
+    n_no_t3 = len(analysis_len_no_t3)
+    denom = n_t3 + n_no_t3
+    if denom:
+        print(f"🎯 Part Tier 3 déclenché : {n_t3}/{denom} ({100 * n_t3 / denom:.1f}%)")
 
 
 if __name__ == "__main__":
