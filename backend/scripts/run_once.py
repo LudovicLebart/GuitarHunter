@@ -29,41 +29,35 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
-# Annonce ciblée par l'utilisateur (2026-09-06) : une conversation de chat "qui va continuer",
-# pour vérifier concrètement l'effet de l'élision de photos (Plan 1 tokens, Lot C/D,
-# useDealChat.js) et la taille réelle des photos jointes par l'utilisateur depuis son téléphone
-# (suspicion : peut-être pas compressées avant envoi à Gemini — à vérifier, `filesToInlineParts`
-# les fait pourtant passer par le même redimensionnement 1024px/JPEG 80% que les photos
-# d'annonce, voir geminiChatService.js).
+# Annonce ciblée par l'utilisateur (2026-09-06/07) : conversation de chat réelle, pour estimer
+# le vrai coût en tokens cumulé sur toute la conversation (chaque tour Gemini renvoie l'historique
+# complet en entrée, donc le coût croît avec le nombre de tours, pas linéairement).
 TARGET_DEAL_ID = "1021543367184410"
+
+CHARS_PER_TOKEN = 4  # approximation grossière (pas le vrai tokenizer Gemini, non disponible ici)
+TOKENS_PER_IMAGE = 900  # calibré sur les tokens/photo réels mesurés côté cascade T1 (run #415)
+# SYSTEM_INSTRUCTION (geminiChatService.js) : ~700 caractères, fixe, envoyé à CHAQUE appel du chat
+# (pas seulement au premier tour) — via le paramètre systemInstruction du modèle, jamais dans
+# `parts` donc invisible dans les documents `chat` eux-mêmes.
+SYSTEM_INSTRUCTION_CHARS = 700
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-06 : récupère la conversation de chat d'une annonce précise (voir TARGET_DEAL_ID)
-    pour vérifier concrètement, sur un cas réel, si l'élision de vieilles photos jointes par
-    l'utilisateur (`elideOldChatPhotos`, useDealChat.js, budget MAX_HISTORY_IMAGES=6) fonctionne
-    comme prévu, et la taille réelle des photos jointes (prises au téléphone, donc a priori plus
-    grosses que les photos d'annonce Marketplace) une fois passées par le redimensionnement
-    partagé (`blobToInlinePart`, 1024px/JPEG 80%) — l'annonce elle-même ne stocke JAMAIS ses
-    photos en base64 dans le chat (uniquement des URLs dans `storageImageUrls`, résolues à la
-    demande), donc toute part `inlineData` trouvée ici est nécessairement une photo jointe par
-    l'utilisateur. Lecture seule (aucune écriture Firestore), idempotent : essaie chaque
-    utilisateur enregistré jusqu'à trouver le document, imprime pour chaque message du tour :
-    rôle, texte affiché (tronqué), nombre de parts image et taille base64 totale (octets) de ces
-    parts. Termine par un total agrégé sur toute la conversation.
-
-    Exécuté le 2026-09-07 (run GitHub Actions #417) : annonce "Guitar acoustique Yamaha fg 332",
-    40 messages. Seulement 5 images sur toute la conversation (2 au message 1, 3 au message 23)
-    — jamais assez pour déclencher l'élision (budget 6), donc pas de conclusion possible sur son
-    fonctionnement ici. Tailles réelles ~60-120 Ko/photo après compression, cohérentes avec le
-    redimensionnement 1024px/JPEG 80% — pas de trace de photo brute de téléphone non compressée.
-    Découverte annexe : 4 messages "⚠️ Erreur lors de la génération de la réponse" (indices 8, 24,
-    28, 30) — chaque réessai après échec repaye l'historique complet de la conversation, un coût
-    invisible dans l'analyse Firestore de la cascade T1-T3. ACTIVE repassé à False.
+    2026-09-07 : suite après l'extraction de la conversation (run #417) — l'utilisateur demande
+    une estimation du coût réel en tokens de toute la conversation. Un chat Gemini renvoie
+    l'historique COMPLET à chaque tour (pas juste le dernier message) : le coût cumulé croît donc
+    avec le carré du nombre de tours, pas linéairement. Reconstruit ce cumul tour par tour à
+    partir de `parts` (pas `displayText` — `parts` inclut le contexte de plan de restauration
+    injecté invisiblement à chaque tour utilisateur, voir buildRestorationPlanContextText,
+    geminiChatService.js) : pour chaque message modèle, input = tout ce qui précède (cumul texte
+    + images déjà vues) + SYSTEM_INSTRUCTION_CHARS fixe ; output = la taille de ce message modèle
+    lui-même. Approximation grossière (CHARS_PER_TOKEN=4, pas le vrai tokenizer Gemini,
+    inaccessible ici) — donne un ordre de grandeur, pas un chiffre facturé exact. Lecture seule
+    (aucune écriture Firestore), idempotent.
     """
     from backend.scripts.export_neck_reset_sample import setup_firebase
     from config import APP_ID_TARGET
@@ -100,27 +94,57 @@ def run():
     messages = list(chat_ref.stream())
     print(f"💬 {len(messages)} message(s) dans la conversation.\n")
 
-    total_image_parts = 0
-    total_image_bytes = 0
+    def parts_stats(parts):
+        text_chars = 0
+        n_images = 0
+        for p in (parts or []):
+            if not isinstance(p, dict):
+                continue
+            if p.get('text'):
+                text_chars += len(p['text'])
+            elif p.get('inlineData'):
+                n_images += 1
+        return text_chars, n_images
+
+    cumulative_text_chars = 0
+    cumulative_images = 0
+    total_input_tokens = 0
+    total_output_tokens = 0
+    num_calls = 0
+    num_errors = 0
+
     for i, msg_doc in enumerate(messages, 1):
         msg = msg_doc.to_dict()
         role = msg.get('role', '?')
-        display_text = (msg.get('displayText') or '').replace('\n', ' ')
         parts = msg.get('parts') or []
-        image_parts = [p for p in parts if isinstance(p, dict) and p.get('inlineData')]
-        msg_image_bytes = sum(len(p['inlineData'].get('data', '')) for p in image_parts)
-        total_image_parts += len(image_parts)
-        total_image_bytes += msg_image_bytes
+        text_chars, n_images = parts_stats(parts)
 
-        truncated = display_text[:300] + ('…' if len(display_text) > 300 else '')
-        print(f"[{i}] {role} — {len(parts)} part(s), {len(image_parts)} image(s) "
-              f"({msg_image_bytes:,} octets base64) — attachedImagePartIndices="
-              f"{msg.get('attachedImagePartIndices')}")
-        if truncated:
-            print(f"    \"{truncated}\"")
+        if role == 'model':
+            num_calls += 1
+            input_tokens = (
+                cumulative_text_chars // CHARS_PER_TOKEN
+                + SYSTEM_INSTRUCTION_CHARS // CHARS_PER_TOKEN
+                + cumulative_images * TOKENS_PER_IMAGE
+            )
+            output_tokens = text_chars // CHARS_PER_TOKEN
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            if msg.get('isError'):
+                num_errors += 1
+            print(f"[{i}] model, appel #{num_calls} — input≈{input_tokens:,} tokens "
+                  f"(historique : {cumulative_text_chars:,} car. + {cumulative_images} image(s)), "
+                  f"output≈{output_tokens:,} tokens{' [ERREUR]' if msg.get('isError') else ''}")
 
-    print(f"\n📊 TOTAL : {total_image_parts} part(s) image sur {len(messages)} messages, "
-          f"{total_image_bytes:,} octets base64 cumulés (~{total_image_bytes * 3 // 4:,} octets image réels).")
+        cumulative_text_chars += text_chars
+        cumulative_images += n_images
+
+    total_tokens = total_input_tokens + total_output_tokens
+    print(f"\n📊 TOTAL SUR TOUTE LA CONVERSATION ({num_calls} appels, dont {num_errors} en erreur) :")
+    print(f"   input cumulé ≈ {total_input_tokens:,} tokens")
+    print(f"   output cumulé ≈ {total_output_tokens:,} tokens")
+    print(f"   total ≈ {total_tokens:,} tokens")
+    cost_low = total_input_tokens * 2.00 / 1_000_000 + total_output_tokens * 12.00 / 1_000_000
+    print(f"   coût estimé (tarif gemini-3.1-pro-preview, $2.00/$12.00 par M in/out) ≈ ${cost_low:.4f}")
 
 
 if __name__ == "__main__":
