@@ -27,7 +27,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 # Fenêtre de la facture GeminiDev fournie par l'utilisateur (rapport "20260901-20260930", mais
 # les données ne couvrent en réalité que le début du mois — cf. JOURNAL.md "septembre partiel").
@@ -106,6 +106,17 @@ def run():
     l'historique). Additionne tout pour donner un total bottom-up comparable directement à la
     facture réelle Gemini de la période ($9.76 sur le CSV fourni par l'utilisateur, 1-6 sept
     2026). Lecture seule (aucune écriture Firestore), idempotent.
+
+    Exécuté le 2026-09-07 (run GitHub Actions #421) : 1377 annonces dans la fenêtre, photos/
+    annonce moyenne=3.5/médiane=3/max=10, répartition Tier T1 seul=971/T2=342/T3=64, 19 annonces
+    avec chat (46 appels modèle). Coût cascade ≈ $9.10, coût chat ≈ $0.33, TOTAL bottom-up ≈
+    $9.4282 contre facture réelle $9.76 — écart de 3.4%, dans la marge d'erreur du modèle. Clôt
+    l'enquête coût : le modèle par-annonce était correct, l'estimation mensuelle précédente
+    (~$12-14, basée sur un snapshot 30 jours à 95 annonces/jour) sous-estimait simplement parce
+    que le volume réel sur cette période facturée est ~2.4x plus élevé (~229 annonces/jour). Le
+    chat (même modèle que le Tier 3, historique complet repayé à chaque tour) ne pèse que ~3.5%
+    du total ici mais confirme être un poste de coût réel, jusque-là non compté séparément. ACTIVE
+    repassé à False.
     """
     import statistics
     from datetime import datetime
