@@ -17,10 +17,52 @@
 L'enquête de cette session (`JOURNAL.md` 2026-09-06/07) a fermé la boucle sur le "pourquoi la
 facture Gemini est si élevée" : un calcul bottom-up sur la période de facturation réelle
 (1377 annonces, 1-6 septembre 2026) reconstruit la facture à 3,4% près (9,43$ estimés contre
-9,76$ réels). Ce qui semblait un mystère de coût par annonce était en réalité un problème de
+9,76$ réels). **Mise à jour post-consultation Opus** : ce chiffre à 3,4% signifiait aussi que
+le cache implicite Gemini ne mord probablement pas du tout (le calcul suppose le plein tarif
+sur toute l'entrée) — voir Chantier 0, ajouté après coup, qui prend le pas sur tout le reste.
+Ce qui semblait un mystère de coût par annonce était en réalité un problème de
 **volume mal calibré** (95 annonces/jour mesurées 30 jours plus tôt vs ~229/jour sur la
 période réelle facturée) — le modèle de coût par annonce était juste depuis le début. Cette
 clôture ouvre la voie à des chantiers d'optimisation ciblés plutôt qu'à une chasse au fantôme.
+
+---
+
+## Chantier 0 — Deux leviers gratuits identifiés par Opus (à investiguer AVANT tout le reste)
+
+**Ajouté après la consultation Opus (2026-09-07)** : absents du document initial, jugés par
+Opus plus importants que les chantiers B et C réunis, sans aucun risque qualité.
+
+**0.a — Expliquer le passage de 95 à ~229 annonces/jour.** Le coût est linéaire en volume : ce
+facteur 2,4x explique à lui seul l'essentiel de l'écart entre l'estimation mensuelle
+précédente (~12-14$) et la réalité (~82-87$). Cause non confirmée (backfill, ré-analyses en
+masse, ou vraie hausse d'activité) — si une part notable des 1377 annonces de la période sont
+des ré-analyses ou des doublons déjà vus, c'est un gain à deux chiffres en pourcentage sans
+toucher à la qualité d'aucune analyse. Probablement la même cause que la hausse Firestore de
+septembre (+41% lectures/+74% écritures, non expliquée) — une seule investigation répondrait
+aux deux, et recadrerait le Chantier A.
+
+**0.b — Vérifier que le caching implicite Gemini fonctionne réellement.** Le calcul bottom-up
+qui colle à 3,4% de la facture réelle suppose le plein tarif sur 100% des tokens d'entrée — un
+signe que le cache implicite ne mord probablement pas du tout, alors qu'il devrait (le prompt
+de base ne change pas d'un appel à l'autre). Deux causes identifiées par Opus dans le code
+réel :
+- `backend/analyzer.py:97` : `json.dumps(taxonomy_data, indent=2, ensure_ascii=False)` **sans
+  `sort_keys=True`** — le préfixe envoyé à Gemini n'est pas garanti identique octet pour octet
+  entre threads/redémarrages, cassant le cache implicite. `GEMINI_PROMPT_CACHING_PLAN.md` §2.3
+  demandait déjà ce correctif, jamais appliqué.
+- `backend/analyzer.py:406` : `full_prompt_t3 = f"{context_t3}\n\n{base_prompt}"` — le Tier 3
+  place le contexte **variable** (annonce en cours) *avant* le bloc statique (taxonomie/prompt
+  de base), détruisant son propre préfixe cacheable. T1/T2 font l'inverse (statique d'abord,
+  `analyzer.py:320`/`353`) et sont corrects.
+- Correctif proposé : ajouter `sort_keys=True`, inverser l'ordre du prompt T3, et logger
+  `usage_metadata.cached_content_token_count` (actuellement absent du log `[tokens]` déjà en
+  place) pour mesurer objectivement l'effet plutôt que de le déduire.
+- **Gain potentiel estimé par Opus : 30-40% sur le poste d'entrée texte, zéro risque qualité**
+  (aucun changement de comportement du modèle, seulement de la mise en cache).
+
+**Aucun code écrit pour ce chantier à ce stade** — nécessite validation utilisateur avant
+d'être engagé, malgré son risque nul, par respect du protocole (aucune modification
+`analyzer.py` sans plan validé).
 
 ---
 
@@ -88,6 +130,18 @@ coût.
 
 **Non fait à ce stade** : aucun code écrit pour ce chantier — reste au stade d'idée à évaluer.
 
+**Correction Opus (2026-09-07) — la prémisse coût est confirmée mais la conclusion coût est
+fausse.** Chiffré sur la période réelle (1377 annonces) : la redondance T2+T3 (photos déjà
+payées une fois par T1) vaut ~1,36$/9,43$, soit 14% — mais la variante 1 (T1 produit la
+description) fait payer cette description en **sortie** T1 à 2,50$/M sur les 1377 annonces,
+dont 70% sont rejetées et n'en feront jamais rien : ~350 tokens de description → ~1,21$, plus
+la réinjection en entrée T2/T3 (~0,15$). **Net ≈ 0, voire négatif.** La variante "T2 décrit
+pour T3" est pire (sortie T2 à 3,75$/M pour économiser seulement 0,40$ de redondance T3).
+**Conclusion d'Opus : ce chantier ne se justifie pas par le coût** — seulement par les raisons
+produit déjà citées plus haut (cohérence, tagging, réutilisation neck-reset). À traiter comme
+un chantier produit, jamais comme une économie, et le signal de prudence neck-reset reste
+entier (voir "Risque à vérifier" ci-dessus).
+
 ---
 
 ## Chantier C — Chat : compression bullet-point par message (nouvelle piste, 2026-09-07)
@@ -123,6 +177,30 @@ la croissance du coût à mesure que la conversation s'allonge.
 - **Mesure attendue** : si validé, gain proportionnellement croissant avec la longueur de
   conversation (le pire cas actuel, ex. la conversation Yamaha FG-332 à ~20 tours, est
   justement celui où l'économie serait la plus visible).
+
+**Correction Opus (2026-09-07) — le vrai piège n'est pas la perte de nuance, c'est le cache.**
+Le chat ne pèse que ~2$/mois (0,33$/6 jours) — une compression à 50% ne rapporte qu'~1$/mois,
+sur le code le plus délicat du dépôt. Plus important : `useDealChat.js::logTokenUsage` logue
+déjà `cachedContentTokenCount`, ce qui veut dire que le chat bénéficie potentiellement du cache
+implicite Gemini (préfixe identique renvoyé à chaque tour). **Si la compression est recalculée
+à la volée** à chaque reconstruction d'historique, le préfixe change à chaque tour et le cache
+tombe à zéro — risque réel d'**augmenter** la facture plutôt que de la réduire. Vérifier ce log
+avant d'écrire une ligne de ce chantier.
+
+**Angle mort plus rentable, identifié par Opus** : `buildRestorationPlanContextText`
+(`useDealChat.js:512`) réinjecte le plan de restauration complet à **chaque tour utilisateur**,
+et `elideOldChatPhotos` n'élide que les photos (`inlineData`), jamais ce bloc de texte — une
+conversation à 20 tours transporte donc 20 copies du plan. Dédupliquer ce bloc spécifique est
+plus simple, plus sûr (aucun risque de cache, c'est un texte fixe pas recalculé par tour) et
+probablement d'un gain supérieur à la compression bullet-point générale — à traiter en premier
+si ce chantier est engagé.
+
+**Si la compression est retenue malgré tout**, la version saine est quasi gratuite : dans
+`executeTurn`, `addDealChatMessage` écrit déjà le même texte dans `parts` et `displayText` —
+il suffirait de demander au modèle sa version en puces **dans le même appel** (pas d'appel
+supplémentaire), de persister les puces dans `parts` (réinjecté, préfixe stable) et la prose
+dans `displayText` (affiché à l'utilisateur), plutôt que de recompresser après coup à chaque
+lecture d'historique (`buildApiHistory`).
 
 ---
 
@@ -210,25 +288,74 @@ spécifique de Gemini, un changement de fournisseur pour le Tier 2 aurait un co�
 qualité à revalider entièrement (déjà noté au TODO pour GPT-5-mini/Qwen, s'applique de la même
 façon à Claude).
 
+**Correction Opus (2026-09-07) — le harnais actuel ne peut pas répondre à la question posée,
+et il est structurellement biaisé en faveur de Gemini.** Six problèmes identifiés, par ordre de
+gravité :
+1. **n=5** dans `dataset.json` — l'intervalle de confiance à 95% sur un score binaire à n=5 est
+   de l'ordre de ±40 points ; un écart de 3/5 vs 4/5 ne veut rien dire. Il faut 30-50+ items.
+2. **La vérité terrain EST la sortie de production Gemini** (`dataset.json` reprend les champs
+   `aiAnalysis` déjà produits par Gemini) — comparer un candidat à Gemini contre les propres
+   réponses de Gemini est circulaire et pénalise mécaniquement toute formulation différente.
+3. **La règle 3 du juge** (`judge.py` : score 0 si un détail de la vérité terrain est omis)
+   aggrave ce biais — un candidat qui n'énonce pas les scores au format Gemini ("8/10") se fait
+   sanctionner pour ne pas imiter le format, pas pour une erreur de lutherie.
+4. Une question du dataset fuite indirectement la réponse attendue (prix affiché mentionné
+   alors que la vérité terrain porte sur l'écart prix/valeur).
+5. **Le juge est un modèle Claude qui note un candidat Claude** — même sans biais réel, un
+   résultat favorable serait invendable à un utilisateur déjà sceptique sans un juge croisé
+   (Gemini notant aussi) et une mesure d'accord inter-juges.
+6. **Les candidats sont appelés en texte libre**, sans le `system_instruction`/contrat JSON/
+   taxonomie de production — le vrai risque d'un changement de fournisseur (conformité JSON,
+   dérive de taxonomie, `_canonicalize_classification` existe justement parce que Gemini dérive
+   déjà) n'est pas testé du tout.
+
+**Plus fondamentalement** : la question de l'utilisateur ("Gemini se dégrade-t-il ?") est
+**longitudinale**, pas comparative — un benchmark one-shot ne peut pas y répondre, il n'y a pas
+de référence antérieure. Piste alternative identifiée par Opus, gratuite et déjà en place :
+tracer dans le temps le taux de correction du Portier (`initialVerdict`/`initialModelUsed`,
+déjà snapshotté à la création) et le taux d'acceptation des propositions de requalification via
+le chat (`requalificationProposalState === 'applied'`, déjà persisté) — si ce taux monte, la
+dégradation est établie sur données de production réelles ; sinon, c'est une impression.
+
+**Reconstruction recommandée avant de comparer Claude et Gemini** : dataset à 30-50 annonces
+avec vérité terrain écrite à la main par l'utilisateur (pas reprise de Gemini), grille de score
+par axe plutôt que binaire (identification, état, valeur, hallucination), candidats appelés
+avec le vrai prompt/contrat JSON de production, juge croisé sur plusieurs runs.
+
+Sur le tableau de coût brut lui-même (2,00$/10,00$ vs 2,00$/12,00$), Opus le juge exact mais
+peu significatif : 17% sur la sortie d'un tier qui ne représente que 5% des annonces (T3) pèse
+moins que le facteur 2,4x sur le volume (Chantier 0.a). **Le choix de modèle T3 est une
+décision de qualité, pas d'économie** — à ne pas présenter comme telle.
+
 ---
 
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
 |---|---|---|---|
-| A — Firestore | Infra serveur | Rien des autres | Accessibilité réseau du serveur |
-| B — Dédup image inter-Tiers | `analyzer.py`, cascade Gemini | Rien des autres (mais partage une idée avec D/hybrid) | Validation qualité (risque de perte de nuance) |
-| C — Compression chat | `geminiChatService.js`, `useDealChat.js` | Rien des autres | Validation qualité (risque de perte de nuance) |
-| D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) |
-| E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Rien | Priorité (gain plafonné bas) |
-| F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Exécution réelle (clés API) |
+| 0 — Volume + caching implicite | `analyzer.py` (2 lignes) + investigation Firestore | Rien | Validation utilisateur (risque nul mais touche `analyzer.py`) |
+| A — Firestore | Infra serveur | Chantier 0.a (recadre le diagnostic) | Accessibilité réseau du serveur |
+| B — Dédup image inter-Tiers | `analyzer.py`, cascade Gemini | Rien des autres (mais partage une idée avec D/hybrid) | Validation qualité (net coût ≈ 0, à ne poursuivre que pour des raisons produit) |
+| C — Compression chat | `geminiChatService.js`, `useDealChat.js` | Rien des autres | Vérifier `cachedContentTokenCount` avant tout code (risque d'augmenter la facture) |
+| D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) + dataset à refaire (voir F) |
+| E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
+| F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire avant toute conclusion (voir correction Opus) |
 
-Aucun chantier n'en bloque un autre — ils peuvent être décidés et exécutés dans n'importe quel
-ordre, chacun avec sa propre validation.
+**Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
+reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses
+raisons produit uniquement → A → E (parking, à revérifier après 0.a).
 
 ---
 
-## Consultation Claude Opus
+## Consultation Claude Opus (rendue le 2026-09-07)
 
-Ce document a été soumis à Claude Opus pour un second avis avant toute priorisation — voir
-l'entrée correspondante dans `JOURNAL.md` (2026-09-07) pour sa réponse.
+Consultation menée en aveugle sur le code réel du projet (pas seulement ce document), avec
+consigne explicite de corriger son propre biais pro-Claude sur le Chantier F. Verdict global :
+le document sous-estimait deux leviers gratuits et sans risque (Chantier 0, ajouté), surestimait
+le gain coût du Chantier B (net ≈ 0, corrigé ci-dessus), identifiait un vrai risque sur le
+Chantier C mais pas le bon (le cache implicite, pas la perte de nuance — corrigé ci-dessus), et
+jugeait le harnais du Chantier F non concluant en l'état pour la question réellement posée par
+l'utilisateur (dégradation dans le temps, pas comparaison one-shot — corrigé ci-dessus). Le
+détail complet (citations fichier:ligne, calculs) est intégré dans chaque section concernée
+plutôt que dupliqué ici. Aucune de ces corrections n'a encore été traduite en code — chaque
+chantier reste à valider individuellement avant exécution.
