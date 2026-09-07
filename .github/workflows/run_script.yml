@@ -13,8 +13,9 @@
 # artefact GitHub Actions téléchargeable (bouton "Artifacts") ; si le script n'en produit pas,
 # cette étape est un no-op toléré, le résultat se lit directement dans les logs du job.
 #
-# Script actuellement exécuté : backend/scripts/export_dataset_a.py (export à l'échelle du
-# Dataset A — toutes guitares, items rejetés exclus — docs/management/plans/NECK_RESET_VISION_PLAN.md).
+# Script actuellement exécuté : backend/scripts/sample_benchmark_dataset.py (échantillonnage du
+# dataset de benchmark Chantier B, rejets Tier 1 compris —
+# docs/management/plans/CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §7 étape 8).
 # Pour lancer un autre script ponctuel, modifier la commande de l'étape "Exécution du script"
 # et le nom de fichier de l'étape "Récupération du rapport généré" ci-dessous.
 name: Run One-Off Script
@@ -86,12 +87,12 @@ jobs:
             pip install -r requirements.txt
 
             echo "--- Exécution du script ---"
-            rm -f dataset_a_manifest.jsonl
-            python3 -m backend.scripts.export_dataset_a
+            rm -f benchmark_dataset_draft.json
+            python3 -m backend.scripts.sample_benchmark_dataset
 
       - name: Récupération du rapport généré
         env:
-          FICHIER_A_RECUPERER: dataset_a_manifest.jsonl
+          FICHIER_A_RECUPERER: benchmark_dataset_draft.json
         run: |
           mkdir -p ~/.ssh output
           printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -103,7 +104,7 @@ jobs:
       - name: Publication de l'artefact
         uses: actions/upload-artifact@v4
         with:
-          name: neck-reset-sample-report
+          name: benchmark-dataset-draft
           path: output/
           if-no-files-found: warn
           retention-days: 14
