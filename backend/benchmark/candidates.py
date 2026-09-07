@@ -17,6 +17,7 @@ les candidats qui font une étape de perception distincte du raisonnement final
 garde-fou anti-interprétation séparément de la réponse finale.
 """
 import base64
+import json
 import logging
 import os
 import time
@@ -26,6 +27,7 @@ import requests
 import google.generativeai as genai
 from openai import OpenAI
 
+from backend.benchmark.perception_contract import PERCEPTION_INSTRUCTION, build_reasoning_prompt, parse_perception_json
 from config import GEMINI_API_KEY, GEMINI_MODELS
 
 logger = logging.getLogger(__name__)
@@ -321,6 +323,57 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> dict:
     )
 
 
+# Contrat de perception formel (Chantier B, CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §7 étape
+# 10 / "8.3") — dérivé champ par champ du JSON de production réel (prompts.json), contrairement
+# à _EXTRACTION_PROMPT ci-dessus (candidat `hybrid`, expérimental, plus ancien, qui ne couvrait
+# que l'état physique général et le logo en texte libre non structuré). Portée strictement
+# limitée au benchmark : aucun de ces candidats ne touche analyzer.py/prompts.json de production
+# (§7 étape 12 : l'implémentation en production n'a lieu qu'après un résultat favorable du
+# benchmark sur l'axe verrou).
+
+
+def _perception_reasoning_candidate(question: str, image_urls: list, perception_call_fn) -> dict:
+    """Squelette commun aux candidats perception+raisonnement : `perception_call_fn(image_urls)`
+    fait l'appel de perception brut (renvoie un triplet (texte, usage, latence), même contrat que
+    `_call_gemini`/`_call_openai_compatible`) ; cette fonction parse son JSON, construit le prompt
+    du raisonneur (Gemini Tier 3, comme l'oracle du candidat `hybrid`) et combine l'usage/latence
+    des deux appels. Le rapport de perception (JSON sérialisé, clés triées pour une comparaison
+    stable) est retourné dans `perception_report` pour être jugé séparément (garde-fou §2)."""
+    raw_perception, perception_usage, perception_latency = perception_call_fn(image_urls)
+    perception = parse_perception_json(raw_perception)
+    reasoning_prompt = build_reasoning_prompt(question, perception)
+    answer, oracle_usage, oracle_latency = _call_gemini(reasoning_prompt, [], GEMINI_MODELS["default_expert"])
+    return _candidate_result(
+        answer,
+        _sum_usage([perception_usage, oracle_usage]),
+        perception_latency + oracle_latency,
+        perception_report=json.dumps(perception, ensure_ascii=False, sort_keys=True),
+        calls=2,
+    )
+
+
+def call_perception_reasoning_qwen(question: str, image_urls: list) -> dict:
+    """Candidat perception (§4, option 2) : Qwen3.8-Flash applique le contrat de perception
+    complet, Gemini Tier 3 raisonne ensuite sur le texte seul — le candidat le moins cher des
+    deux variantes testées ici."""
+    def perception_call(urls):
+        return _call_openai_compatible(
+            PERCEPTION_INSTRUCTION, urls, QWEN_MODEL, TOKENROUTER_API_KEY,
+            base_url=TOKENROUTER_BASE_URL,
+        )
+    return _perception_reasoning_candidate(question, image_urls, perception_call)
+
+
+def call_perception_reasoning_flash_lite(question: str, image_urls: list) -> dict:
+    """Candidat perception (§4, option 1) : réutilise le modèle du Tier 1 actuel
+    (gemini-3.5-flash-lite, déjà appelé sur 100% des photos en production) pour le contrat de
+    perception complet, Gemini Tier 3 raisonne ensuite sur le texte seul — zéro nouveau
+    fournisseur, à comparer au coût marginal réel plutôt qu'à un tarif théorique."""
+    def perception_call(urls):
+        return _call_gemini(PERCEPTION_INSTRUCTION, urls, GEMINI_MODELS["default_gatekeeper"])
+    return _perception_reasoning_candidate(question, image_urls, perception_call)
+
+
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
 CANDIDATES = {
     "gemini": call_gemini,
@@ -330,4 +383,6 @@ CANDIDATES = {
     "qwen": call_qwen_tokenrouter,
     "hybrid": call_hybrid_qwen_gemini,
     "claude_sonnet": call_claude_sonnet,
+    "perception_qwen": call_perception_reasoning_qwen,
+    "perception_flash_lite": call_perception_reasoning_flash_lite,
 }

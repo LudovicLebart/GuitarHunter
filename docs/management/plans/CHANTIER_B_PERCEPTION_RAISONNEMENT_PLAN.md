@@ -283,13 +283,31 @@ chiffre. Verrou non satisfait → pas de déploiement, quels que soient les autr
    (§7 étape 2, déjà codé côté harnais).
 
 **Contrat de perception (8.3)** :
-10. Écrire le contrat de sortie, dérivé champ par champ du JSON de prod réel, couvrant **T1 et T2
-    autant que T3** (T2 traite 342 annonces contre 64 pour T3 sur la période de référence — c'est
-    T2 qui écrit majoritairement `color`/`finish_*` en production), avec le champ de couverture
-    (§2) et la contrainte de placement après le bloc statique du prompt (§6).
-11. Réécrire les trois instructions de prod (`prompts.json`) pour un consommateur texte-only —
-    note : ces prompts sont éditables par utilisateur en Firestore, la migration des comptes
-    existants reste un point ouvert, non résolu ici.
+10. ✅ **Codé** (2026-09-07) : `backend/benchmark/perception_contract.py` — contrat de sortie
+    dérivé champ par champ du JSON de prod réel (`color`, `finish_application`, `finish_texture`
+    aux mêmes valeurs fermées que `prompts.json` ; `logo_transcription` sous le garde-fou §2 ;
+    `condition_notes` factuel, jamais de score ; `unclear_or_hidden_areas` comme champ de
+    couverture explicite). Champs qui demandent une connaissance de lutherie (`brand`,
+    `model_name`, `production_year`, `country_of_origin`, `classification`) volontairement
+    **exclus** du contrat — ça reste le travail du raisonneur, jamais de la perception.
+    Intégré au harnais via deux nouveaux candidats (`perception_qwen`, `perception_flash_lite`,
+    `backend/benchmark/candidates.py`) qui appliquent ce contrat puis font raisonner Gemini
+    Tier 3 sur le texte seul — couvre les deux options de perception les plus simples de §4
+    (Qwen3.8-Flash / réutilisation du modèle T1). **Portée volontairement limitée au
+    benchmark** : aucun de ces candidats ne touche `analyzer.py`/`prompts.json` de production.
+    Testé par 6 cas unitaires isolés (JSON valide, fences markdown, réponse non structurée,
+    entrée vide/`None`, présence de tous les champs dans le prompt du raisonneur) — succès.
+    **Reste à faire, hors périmètre de ce contrat lui-même** : le couvrir pour T1 **et** T2 (pas
+    seulement l'oracle T3 actuel des candidats `hybrid`/`perception_*`) suppose un candidat qui
+    appelle réellement la cascade `DealAnalyzer` à 3 étages plutôt qu'un unique appel Tier 3 —
+    c'est le travail du protocole de mesure fidèle à la prod (§5, toujours non fait, cf. 9.4(b)).
+11. **Regroupé avec l'étape 12 ci-dessous, pas fait séparément.** La réécriture des trois
+    instructions de prod (`prompts.json`) pour un consommateur texte-only n'a de sens qu'au
+    moment où le candidat retenu est effectivement implémenté dans `analyzer.py` — la faire
+    maintenant, avant tout résultat de benchmark, reviendrait à modifier le comportement réel du
+    Portier/Analyste/Expert sur la seule base d'une intuition, exactement ce que §7 étape 12
+    interdit explicitement. Reste un point ouvert pour ce moment-là : ces prompts sont éditables
+    par utilisateur en Firestore, la migration des comptes existants n'est pas résolue ici.
 
 **Chat — différé explicitement, pas dans ce premier passage.** La cible reste "une perception,
 plusieurs consommateurs" (§0, axe informatif "cohérence chat"), mais trois frictions réelles du

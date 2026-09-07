@@ -18,7 +18,13 @@ bon marché (gemini-3.5-flash-lite), dégrade le raisonnement par rapport à
 sortie du Tier 3 ($12/M tokens). Le candidat "claude_sonnet" compare Claude
 Sonnet 5 (vision native) à Gemini sur le même jeu de questions — comparatif
 coût ET qualité demandé par l'utilisateur (2026-09-07), pas seulement le rôle
-de juge que Claude tient déjà (judge.py).
+de juge que Claude tient déjà (judge.py). Les candidats "perception_qwen" et
+"perception_flash_lite" appliquent le contrat de perception formel du Chantier
+B (`backend/benchmark/perception_contract.py`, dérivé champ par champ du JSON
+de prod) via Qwen3.8-Flash ou le modèle du Tier 1 actuel, puis font raisonner
+Gemini Tier 3 sur le texte seul — à comparer à `hybrid` (extraction plus
+ancienne, non structurée) et aux candidats mono-modèle pour mesurer si la
+perception bon marché égale la qualité actuelle, à quel coût (§0/§5 du plan).
 
 Score par axe (CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §0/§5) : identification/
 etat/valeur/hallucination, jamais agrégés en un score composite. Le rapport de
@@ -123,7 +129,11 @@ def summarize(results):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark GuitarHunter — comparaison de modèles vision")
-    parser.add_argument("--models", default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid,claude_sonnet", help="Modèles candidats séparés par des virgules")
+    parser.add_argument(
+        "--models",
+        default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid,claude_sonnet,perception_qwen,perception_flash_lite",
+        help="Modèles candidats séparés par des virgules",
+    )
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")
     args = parser.parse_args()
 
