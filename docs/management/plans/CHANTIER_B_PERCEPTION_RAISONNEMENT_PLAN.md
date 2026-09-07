@@ -1,11 +1,13 @@
 # Plan d'implémentation — Chantier B : séparer perception et raisonnement (2026-09-07)
 
 **Statut :** ⚠️ en révision — la consultation Opus du 2026-09-07 (§8) a été menée sur une
-**motivation mal formulée par erreur** (corrigé ci-dessous le même jour, avant toute suite) ; les
-points techniques 8.1-8.5 et 8.7-8.8 restent valides et bloquants, mais 8.6 ("aucune preuve que le
-problème existe") ne s'applique plus tel quel — voir la correction de cadrage juste en dessous.
-Formalise et étend `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` (Chantier B) suite à la
-demande explicite de l'utilisateur du 2026-09-07.
+**motivation mal formulée par erreur** (corrigée en §0, le même jour). **8.1 est désormais tranché**
+(option large, T1 compris — voir §1) et **8.3 est acté comme travail à faire** (contrat de
+perception complet, dérivé champ par champ du JSON de prod — voir §2 pour le niveau de précision
+attendu). Restent à faire avant tout code : écrire ce contrat complet (8.3), couvrir les deux
+chemins qui sautent T1 (conséquence de 8.1, voir §1), et les corrections de rédaction/périmètre
+8.2/8.4/8.5/8.7/8.8. Formalise et étend `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md`
+(Chantier B) suite à la demande explicite de l'utilisateur du 2026-09-07.
 
 ## 0. Correction de cadrage (2026-09-07, avant toute suite technique)
 
@@ -44,6 +46,22 @@ Séparer deux rôles aujourd'hui confondus dans chaque appel Gemini de la cascad
   cette description texte (jamais des photos brutes), répondre aux questions qui comptent pour
   l'utilisateur — "Gibson ou copie ?", "quelle année ?", valeur, état structurel.
 
+**Décision utilisateur sur 8.1 (2026-09-07) : option large retenue.** Les trois Tiers (T1 Portier
+compris) passent à la description texte du modèle de perception bon marché plutôt que de voir les
+photos eux-mêmes — pas seulement T3. Gain de coût maximal (touche 100% du volume, pas seulement
+les 5% qui atteignent T3), au prix du risque plus élevé déjà identifié : le Portier s'appuie
+aujourd'hui sur l'examen visuel direct du logo/plaque comme preuve prioritaire pour filtrer
+(`prompts.json:331`) — son comportement sur 100% du volume dépend désormais entièrement de la
+qualité de la description, pas seulement de son propre jugement visuel. À valider en priorité par
+le benchmark avant tout déploiement (§5).
+
+**Conséquence directe, à traiter avant le code (héritée de 8.1)** : puisque la perception précède
+maintenant tous les Tiers, les deux chemins qui sautent T1 doivent chacun obtenir leur propre appel
+de perception avant de continuer, sans quoi ils se retrouveraient sans photos ET sans description :
+- `force_expert=True` (ré-analyse manuelle, `analyzer.py:318,346-347`) — doit déclencher un appel
+  de perception dédié avant T2/T3 plutôt que de sauter directement dessus.
+- `analyze_deal_light()` (`analyzer.py:214-215,226`) — même chose avant son appel T2 direct.
+
 ## 1bis. Lien avec le Chantier F (remplacement de Gemini 3.1 Pro par Claude Sonnet 5 au Tier 3)
 
 Deux variantes d'intégration, à trancher séparément de tout le reste de ce plan — mais le choix
@@ -71,10 +89,20 @@ détermine si le Chantier B devient un prérequis du Chantier F ou reste totalem
 **Décision explicite de l'utilisateur (2026-09-07)** : la généralisation de ce garde-fou à toute
 la couche de perception (au-delà du logo — bois, matériel, année...) a été envisagée puis
 **reportée** : elle mérite une discussion détaillée à part, pas une extension actée en une ligne
-dans ce plan. Pour cette itération, le garde-fou reste **exactement** celui déjà en place pour le
-candidat `hybrid` du benchmark : le modèle de perception transcrit le texte d'un logo/étiquette
-sans l'interpréter (ne conclut jamais une marque à partir d'un logo qu'il ne fait que lire),
-conformément à la leçon tirée de l'incident Qwen/Guerrilla Guitars.
+dans ce plan. Pour cette itération, le garde-fou reste **scopé au logo**, conformément à la leçon
+tirée de l'incident Qwen/Guerrilla Guitars (Qwen avait conclu "marque budget OEM" au lieu de
+simplement décrire ce qu'il voyait).
+
+**Précision du critère (2026-09-07)** : "ne pas interpréter" ne veut pas dire "décrire au minimum"
+— c'est l'inverse. Le modèle de perception doit produire une description **aussi précise et
+complète que possible** de ce qu'il voit sur le logo/l'étiquette (forme, police, couleurs, texte
+exact lu, position, état d'usure du marquage) — **suffisante pour que le LLM de raisonnement en
+aval puisse lui-même identifier l'instrument à partir de cette seule description**, sans jamais
+que la perception fasse ce travail d'identification à sa place. Exemple concret (incident de
+référence) : jamais "marque budget OEM" (jugement), mais quelque chose comme "logo doré appliqué
+en lettres cursives inclinées, texte '[transcription exacte]', positionné au centre de la tête
+juste sous le sillet, léger écaillage sur le bord gauche" (description) — assez riche pour que le
+Tier 3, lui, puisse reconnaître ou non une marque connue à partir de ces détails.
 
 **Point ouvert, noté au `TODO.md`** : étendre ce garde-fou (bois, matériel, année, authenticité...)
 est probablement nécessaire à terme pour la même raison de fond, mais à trancher dans une
@@ -164,7 +192,8 @@ refus de vendre comme économie) est saine, mais **une décision d'architecture 
 tranchée et rend le reste du document incohérent**, et §5 hérite silencieusement de défauts du
 harnais déjà identifiés lors de la correction Chantier F. Points bloquants, par ordre :
 
-**8.1 — Où s'insère la perception ? Non tranché, et §1 est auto-contradictoire selon la réponse.**
+**8.1 — TRANCHÉ (2026-09-07, §1) : option large retenue, T1 compris.** Reformulé ci-dessous pour
+mémoire — l'objection technique originale, qui suit :
 Les Tiers 1, 2 et 3 reçoivent aujourd'hui tous la même liste d'images construite une fois
 (`analyzer.py:298-299`, passée telle quelle à `analyzer.py:326/359/417`). Si T1/T2 gardent les
 photos, la perception n'est pas "faite une seule fois" (§1) — seul l'étage à 5% du volume (T3) en
@@ -187,8 +216,8 @@ généralisation.** Le prompt d'extraction `hybrid` (`candidates.py:203-204,209-
 TODO (bois/matériel/année, hors périmètre logo) : c'est une incohérence interne au périmètre déjà
 acté, à corriger dans le prompt réutilisé lui-même avant de s'en servir comme perception.
 
-**8.3 — Le contrat de sortie de perception doit être dérivé du contrat JSON de prod, pas copié du
-prompt de benchmark.** Le contrat T3 de production exige des champs purement perceptuels que le
+**8.3 — ACTÉ COMME TRAVAIL À FAIRE (2026-09-07, §2) : le contrat de sortie de perception doit être
+dérivé du contrat JSON de prod, pas copié du prompt de benchmark.** Le contrat T3 de production exige des champs purement perceptuels que le
 prompt `hybrid` ne couvre pas : `color` (`prompts.json:302`, obligatoire dès qu'une photo montre
 l'instrument), `finish_application`/`finish_texture` (énumérations fermées, `prompts.json:303-304`),
 `visual_inspection` (`prompts.json:297`). Un T3 aveugle ne peut pas les remplir sans que la
@@ -259,10 +288,10 @@ de 0,5-1,4$ sur 9,43$, modeste mais de **signe opposé** à ce que §6 affirmait
 précise. La conclusion pratique ("ne jamais présenter comme une économie") reste valide, mais doit
 s'appuyer sur ce chiffrage-ci pour la variante externe, pas sur celui du Chantier B générique.
 
-**Verdict (mis à jour après correction de cadrage, §0)** : non prêt pour l'implémentation, mais
-pour un sous-ensemble plus restreint qu'initialement rendu — 8.6 ne bloque plus rien (corrigé
-ci-dessus). Restent bloquants : **8.1** (où s'insère la perception dans la cascade — décision à
-prendre avec l'utilisateur, §1bis en dépend aussi pour la variante (b) du Chantier F), **8.3**
-(dériver le contrat de perception du JSON de prod). 8.2, 8.4, 8.5, 8.8 restent des corrections de
-rédaction/périmètre à intégrer une fois 8.1/8.3 tranchés, avant tout code. 8.7 (cohérence chat) à
-retrancher des motivations affichées ou à ajouter explicitement au plan technique.
+**Verdict (mis à jour après décisions du 2026-09-07)** : 8.1 et 8.6 sont réglés (§1, §0). Reste
+bloquant avant tout code : **8.3** — écrire le contrat de perception complet, champ par champ du
+JSON de prod, avec le niveau de précision défini en §2 (décrire sans conclure, mais assez
+richement pour que le raisonnement en aval reste possible) — et couvrir les deux chemins qui
+sautent T1 (conséquence de 8.1, notée en §1). 8.2, 8.4, 8.5, 8.8 restent des corrections de
+rédaction/périmètre à intégrer en écrivant le code. 8.7 (cohérence chat) à retrancher des
+motivations affichées ou à ajouter explicitement au plan technique.
