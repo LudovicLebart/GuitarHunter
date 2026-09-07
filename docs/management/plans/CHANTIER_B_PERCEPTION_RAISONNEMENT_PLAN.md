@@ -263,12 +263,24 @@ chiffre. Verrou non satisfait → pas de déploiement, quels que soient les autr
    sur le rapport de perception (respect du garde-fou §2).
 
 **Dataset** :
-8. `backend/scripts/sample_benchmark_dataset.py` (dérivé d'`export_neck_reset_sample.py`, même
-   pattern lecture-seule via `ops/run-script`) : 30-50 annonces, mix Tier atteint **incluant des
-   rejets T1**, vérité terrain structurée par champ (pas prose), écrite/confirmée par
-   l'utilisateur — pas reprise telle quelle de la sortie Gemini de prod.
-9. Interface de validation (Artifact) : photos + champs pré-remplis pour confirmation + rectangles
-   de localisation en aperçu (axe informatif, §3).
+8. ✅ **Codé** (2026-09-07) : `backend/scripts/sample_benchmark_dataset.py` (dérivé
+   d'`export_neck_reset_sample.py`, même pattern lecture-seule via `ops/run-script`) : 30-50
+   annonces, mix Tier atteint **incluant des rejets T1**, vérité terrain structurée par champ
+   (pas prose) — pas reprise telle quelle de la sortie Gemini de prod, seulement un point de
+   départ. Non exécuté (pas d'accès Firestore depuis ce sandbox).
+9. ✅ **Codé et publié** (2026-09-07) : interface de validation —
+   [Banc d'Essai](https://claude.ai/code/artifact/87151727-77d7-42f7-a6aa-31d70d37de35)
+   (Artifact, capacité `db`). Photos + champs pré-remplis (identification/authenticité/état/
+   valeur, calqués sur le contrat JSON de prod, `finish_application`/`finish_texture` en menus
+   déroulants avec les valeurs fermées exactes de `prompts.json`) + confirmation par fiche +
+   suivi de progression + filtres par strate. **Vide pour l'instant** : lit `deals`/`meta` depuis
+   sa base — à peupler une fois l'étape 8 exécutée en prod (`write_db` batch depuis le manifeste
+   JSON + upload des photos en `data:` URI dans une sous-collection `deals/{id}/photos`, la
+   capacité `assets` de l'Artifact n'étant pas disponible sur ce compte). Une fiche d'exemple non
+   modifiable s'affiche en l'absence de données, pour montrer le rendu final sans risquer de
+   confirmer par erreur une donnée fictive. Rectangles de localisation (axe informatif, §3) pas
+   encore intégrés à cette interface — à ajouter une fois le format de sortie des candidats fixé
+   (§7 étape 2, déjà codé côté harnais).
 
 **Contrat de perception (8.3)** :
 10. Écrire le contrat de sortie, dérivé champ par champ du JSON de prod réel, couvrant **T1 et T2
