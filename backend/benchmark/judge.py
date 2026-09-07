@@ -1,7 +1,11 @@
 """Juge LLM (Claude) du benchmark GuitarHunter.
 
-Sanctionne la réponse d'un modèle candidat contre une vérité terrain de
-lutherie, avec un score binaire et une justification technique courte.
+Note la réponse d'un modèle candidat contre une vérité terrain de lutherie, par
+axe indépendant plutôt qu'en un score binaire unique (CHANTIER_B_PERCEPTION_
+RAISONNEMENT_PLAN.md §0 : les axes ne s'agrègent jamais entre eux). Fournit
+aussi une passe de jugement séparée sur un rapport de perception seul (le
+garde-fou anti-interprétation §2 se vérifie sur la perception, indépendamment
+de la qualité du raisonnement final qui la consomme).
 """
 import json
 import logging
@@ -12,6 +16,8 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 JUDGE_MODEL = os.getenv("BENCHMARK_JUDGE_MODEL", "claude-sonnet-5")
+
+JUDGE_AXES = ("identification", "etat", "valeur", "hallucination")
 
 _client = None
 
@@ -26,30 +32,9 @@ def _get_client():
     return _client
 
 
-JUDGE_PROMPT_TEMPLATE = """Tu es un expert intraitable en lutherie et un juge d'évaluation de modèles d'IA.
-Ta tâche est de sanctionner la réponse d'un modèle candidat par rapport à une vérité terrain (Ground Truth).
-
-Question posée : {question}
-Vérité terrain : {ground_truth}
-Réponse du modèle candidat : {candidate_answer}
-
-Règles de jugement :
-1. Ignore les différences de style ou de syntaxe.
-2. Pénalise sévèrement toute hallucination technique (ex: confondre un Floyd Rose avec un Tune-o-matic, ou rater une fissure structurelle).
-3. Si le candidat omet un détail critique présent dans la vérité terrain, le score est 0.
-
-Réponds UNIQUEMENT avec un objet JSON strict :
-{{
-    "score": 1,
-    "justification": "Explication technique courte de la décision."
-}}
-"""
-
-
-def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: str) -> dict:
-    prompt = JUDGE_PROMPT_TEMPLATE.format(
-        question=question, ground_truth=ground_truth, candidate_answer=candidate_answer
-    )
+def _call_judge(prompt: str, error_result: dict) -> dict:
+    """Appelle le juge, parse son JSON, et renvoie `error_result` (avec la justification
+    remplie) si l'appel échoue ou si le JSON est invalide — jamais d'exception remontée."""
     try:
         # SDK anthropic >= 1.0 (2026-08-20) : temperature/top_p/top_k retirés de la
         # signature de messages.create() (non déplacés, supprimés) — impossible de
@@ -59,7 +44,7 @@ def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: 
         # besoin de raisonnement long pour ce verdict court) — désactivé explicitement.
         response = _get_client().messages.create(
             model=JUDGE_MODEL,
-            max_tokens=300,
+            max_tokens=400,
             thinking={"type": "disabled"},
             messages=[{"role": "user", "content": prompt}],
         )
@@ -75,7 +60,81 @@ def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: 
                 text = text[4:]
         return json.loads(text.strip())
     except json.JSONDecodeError:
-        return {"score": 0, "justification": "Erreur critique : le juge n'a pas renvoyé un JSON valide."}
+        return {**error_result, "justification": "Erreur critique : le juge n'a pas renvoyé un JSON valide."}
     except Exception as e:
         logger.error(f"Échec de l'appel au juge LLM : {e}")
-        return {"score": 0, "justification": f"Échec de l'appel API : {e}"}
+        return {**error_result, "justification": f"Échec de l'appel API : {e}"}
+
+
+JUDGE_PROMPT_TEMPLATE = """Tu es un expert intraitable en lutherie et un juge d'évaluation de modèles d'IA.
+Ta tâche est de noter la réponse d'un modèle candidat par rapport à une vérité terrain (Ground Truth), un axe à la fois — les axes sont indépendants, ne les mélange pas dans un score unique.
+
+Question posée : {question}
+Vérité terrain : {ground_truth}
+Réponse du modèle candidat : {candidate_answer}
+
+Note chacun de ces 4 axes indépendamment, avec un score 0 (échec) ou 1 (réussite) :
+- "identification" : la marque/le modèle/le type d'instrument identifié est-il correct par rapport à la vérité terrain ?
+- "etat" : l'évaluation de l'état physique correspond-elle à la vérité terrain ?
+- "valeur" : l'estimation de valeur ou du rapport prix/valeur est-elle cohérente avec la vérité terrain ?
+- "hallucination" : 1 si la réponse ne contient AUCUNE affirmation technique fausse ou inventée, 0 sinon (ex: confondre un Floyd Rose avec un Tune-o-matic, inventer un défaut ou une caractéristique absente de la vérité terrain).
+
+Règles de jugement :
+1. Ignore le style, la longueur et le niveau de détail — juge le CONTENU des affirmations, jamais la forme.
+2. Une différence de formulation ou l'omission d'un détail mineur ne fait JAMAIS, à elle seule, baisser un score. Ne pénalise une omission sur un axe que si elle change la conclusion pratique de CET axe précis (ex : omettre une fissure structurelle change la conclusion de l'axe "etat", pas celle de l'axe "identification").
+3. Pénalise sévèrement toute affirmation technique fausse, sur l'axe "hallucination" uniquement — ne fais pas baisser les autres axes à cause d'une hallucination si le reste de leur contenu est correct.
+
+Réponds UNIQUEMENT avec un objet JSON strict :
+{{
+    "scores": {{"identification": 1, "etat": 1, "valeur": 1, "hallucination": 1}},
+    "justification": "Explication technique courte, axe par axe si pertinent."
+}}
+"""
+
+
+def evaluate_with_llm_judge(question: str, ground_truth: str, candidate_answer: str) -> dict:
+    """Renvoie {"scores": {axe: 0|1, ...}, "justification": str}. En cas d'échec, tous les
+    axes sont mis à 0 (échec sévère par défaut, jamais une exception qui interromprait le run)."""
+    prompt = JUDGE_PROMPT_TEMPLATE.format(
+        question=question, ground_truth=ground_truth, candidate_answer=candidate_answer
+    )
+    error_result = {"scores": {axis: 0 for axis in JUDGE_AXES}}
+    result = _call_judge(prompt, error_result)
+    scores = result.get("scores") or {}
+    # Défensif : un axe manquant dans la réponse du juge compte comme un échec sur cet axe,
+    # jamais une absence silencieuse qui fausserait l'agrégat (voir run_benchmark.py).
+    result["scores"] = {axis: int(scores.get(axis, 0)) for axis in JUDGE_AXES}
+    result.setdefault("justification", "")
+    return result
+
+
+PERCEPTION_JUDGE_PROMPT_TEMPLATE = """Tu es un expert en lutherie chargé de vérifier qu'un rapport de perception visuelle respecte une règle stricte : il doit décrire ce qui est vu, jamais conclure une identification ou porter un jugement de qualité — cette conclusion revient à un autre modèle, qui ne voit que ce rapport, pas les photos.
+
+Rapport à vérifier :
+{perception_report}
+
+Réponds UNIQUEMENT avec un objet JSON strict :
+{{
+    "contains_judgment": false,
+    "identification_possible": true,
+    "justification": "Explication courte."
+}}
+
+- "contains_judgment" : true si le rapport contient une conclusion ou un jugement plutôt qu'une observation factuelle (ex : nomme une marque au lieu de transcrire un logo, utilise un adjectif évaluatif comme "qualité", "soigné", "artisanal", "bon marché", ou affirme une origine plutôt que de décrire les indices qui y mènent).
+- "identification_possible" : true si, à partir de cette seule description écrite (sans jamais voir les photos), un expert en lutherie pourrait identifier ou au moins restreindre significativement la marque/le modèle de l'instrument.
+"""
+
+
+def evaluate_perception_report(perception_report: str) -> dict:
+    """Juge le garde-fou anti-interprétation (§2) sur un rapport de perception seul,
+    indépendamment de la réponse finale du raisonneur qui le consomme. Renvoie un dict neutre
+    (aucune évaluation possible) si le candidat ne produit pas de rapport de perception séparé."""
+    if not perception_report:
+        return {
+            "contains_judgment": None,
+            "identification_possible": None,
+            "justification": "Aucun rapport de perception à évaluer (candidat sans étape de perception séparée).",
+        }
+    prompt = PERCEPTION_JUDGE_PROMPT_TEMPLATE.format(perception_report=perception_report)
+    error_result = {"contains_judgment": None, "identification_possible": None}
+    return _call_judge(prompt, error_result)

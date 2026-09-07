@@ -6,10 +6,20 @@ Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externe
 (Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement) et à un
 candidat de compression expérimental (Tier 3 forcé en puces + réécriture par
 Gemini Flash-Lite) sur un même jeu de questions/photos.
+
+Contrat de retour des candidats (CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §7,
+étape 4) : chaque fonction enregistrée dans CANDIDATES renvoie un dict, jamais
+un `str` nu — `{"answer": str, "perception_report": str|None, "usage": {...},
+"latency_s": float, "calls": int}`. `perception_report` n'est renseigné que par
+les candidats qui font une étape de perception distincte du raisonnement final
+(aujourd'hui : `hybrid`) — c'était auparavant jeté après usage
+(`extraction_report`, jamais retourné), rendant impossible de juger le
+garde-fou anti-interprétation séparément de la réponse finale.
 """
 import base64
 import logging
 import os
+import time
 
 import anthropic
 import requests
@@ -39,6 +49,12 @@ GPT_MODEL = os.getenv("BENCHMARK_GPT_MODEL", "gpt-5-mini")
 # agrégateur à l'autre).
 QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 
+# Chemin OpenAI-compatible (GPT/Qwen via TokenRouter) : aucun timeout auparavant, sur un
+# appel qui peut être rejoué en série sur 30-50 items — un fournisseur qui pend bloque tout
+# le run. CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §1 (repli obligatoire de l'étage de
+# perception en production) part du même constat.
+CANDIDATE_TIMEOUT_S = 30
+
 
 def _download_image_bytes(url: str):
     try:
@@ -50,7 +66,30 @@ def _download_image_bytes(url: str):
         return None
 
 
-def _call_gemini(question: str, image_urls: list, model_name: str) -> str:
+def _candidate_result(answer, usage, latency_s, perception_report=None, calls=1):
+    return {
+        "answer": answer,
+        "perception_report": perception_report,
+        "usage": usage,
+        "latency_s": latency_s,
+        "calls": calls,
+    }
+
+
+def _sum_usage(usage_dicts):
+    """Additionne plusieurs relevés d'usage (candidat multi-appels, ex. `hybrid`).
+    None si aucun des appels sommés n'a de valeur pour ce champ (distinct de 0)."""
+    input_tokens = [u["input_tokens"] for u in usage_dicts if u and u.get("input_tokens") is not None]
+    output_tokens = [u["output_tokens"] for u in usage_dicts if u and u.get("output_tokens") is not None]
+    return {
+        "input_tokens": sum(input_tokens) if input_tokens else None,
+        "output_tokens": sum(output_tokens) if output_tokens else None,
+    }
+
+
+def _call_gemini(question: str, image_urls: list, model_name: str):
+    """Renvoie (texte, usage_dict, latence_s). Usage lu sur `usage_metadata`, mêmes
+    champs que `analyzer.py::_call_gemini_json` (`prompt_token_count`/`candidates_token_count`)."""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY manquant")
     genai.configure(api_key=GEMINI_API_KEY)
@@ -60,20 +99,29 @@ def _call_gemini(question: str, image_urls: list, model_name: str) -> str:
         image_bytes = _download_image_bytes(url)
         if image_bytes:
             parts.append({"mime_type": "image/jpeg", "data": image_bytes})
+    t0 = time.monotonic()
     response = model.generate_content(parts)
-    return response.text.strip()
+    latency_s = time.monotonic() - t0
+    usage = getattr(response, "usage_metadata", None)
+    usage_dict = {
+        "input_tokens": getattr(usage, "prompt_token_count", None) if usage else None,
+        "output_tokens": getattr(usage, "candidates_token_count", None) if usage else None,
+    }
+    return response.text.strip(), usage_dict, latency_s
 
 
-def call_gemini(question: str, image_urls: list) -> str:
+def call_gemini(question: str, image_urls: list) -> dict:
     """Tier 2 (Analyste) — modèle utilisé aujourd'hui en production pour l'analyse standard."""
-    return _call_gemini(question, image_urls, GEMINI_MODELS["default_analyst"])
+    answer, usage, latency_s = _call_gemini(question, image_urls, GEMINI_MODELS["default_analyst"])
+    return _candidate_result(answer, usage, latency_s)
 
 
-def call_gemini_pro(question: str, image_urls: list) -> str:
+def call_gemini_pro(question: str, image_urls: list) -> dict:
     """Tier 3 (Expert Pro) — modèle exhaustif, déclenché conditionnellement en production.
     Ajouté à la comparaison pour situer le Tier 2 (moins cher) par rapport au plafond de
     qualité actuel de Gemini, pas seulement par rapport aux concurrents externes."""
-    return _call_gemini(question, image_urls, GEMINI_MODELS["default_expert"])
+    answer, usage, latency_s = _call_gemini(question, image_urls, GEMINI_MODELS["default_expert"])
+    return _candidate_result(answer, usage, latency_s)
 
 
 _COMPACT_INSTRUCTION_SUFFIX = (
@@ -91,7 +139,7 @@ _REWRITE_PROMPT_TEMPLATE = (
 )
 
 
-def call_gemini_pro_compact(question: str, image_urls: list) -> str:
+def call_gemini_pro_compact(question: str, image_urls: list) -> dict:
     """Candidat expérimental : teste si compresser la sortie du Tier 3 (Expert Pro, $12/M
     tokens de sortie, prompt de prod exigeant un "rapport Markdown EXHAUSTIF") en puces
     strictes, puis la faire réécrire en prose par un modèle bon marché (gemini-3.5-flash-lite,
@@ -104,11 +152,14 @@ def call_gemini_pro_compact(question: str, image_urls: list) -> str:
     "réfléchir en écrivant" et dégrade son raisonnement, ce candidat devrait obtenir un score
     nettement inférieur à `gemini_pro` sur le même jeu de questions — sinon la compression est
     sans risque et fait économiser environ 55% du coût de sortie du Tier 3."""
-    compact_answer = _call_gemini(
+    compact_answer, usage1, latency1 = _call_gemini(
         question + _COMPACT_INSTRUCTION_SUFFIX, image_urls, GEMINI_MODELS["default_expert"]
     )
     rewrite_prompt = _REWRITE_PROMPT_TEMPLATE.format(compact_answer=compact_answer)
-    return _call_gemini(rewrite_prompt, [], GEMINI_MODELS["default_gatekeeper"])
+    final_answer, usage2, latency2 = _call_gemini(rewrite_prompt, [], GEMINI_MODELS["default_gatekeeper"])
+    return _candidate_result(
+        final_answer, _sum_usage([usage1, usage2]), latency1 + latency2, calls=2
+    )
 
 
 # Comparatif demandé par l'utilisateur (2026-09-07) : Claude Sonnet 5 comme candidat vision
@@ -133,7 +184,7 @@ def _get_claude_client():
     return _claude_client
 
 
-def call_claude_sonnet(question: str, image_urls: list) -> str:
+def call_claude_sonnet(question: str, image_urls: list) -> dict:
     """Claude Sonnet 5 (vision native) sur le même jeu de questions/photos que les candidats
     Gemini/GPT/Qwen — comparatif coût ET qualité, pas seulement un rôle de juge."""
     client = _get_claude_client()
@@ -150,45 +201,62 @@ def call_claude_sonnet(question: str, image_urls: list) -> str:
 
     # thinking désactivé : comparaison à budget de raisonnement équivalent aux autres
     # candidats (aucun ne "réfléchit" avant de répondre), et coût/latence prévisibles.
+    t0 = time.monotonic()
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=2048,
         thinking={"type": "disabled"},
         messages=[{"role": "user", "content": content}],
     )
+    latency_s = time.monotonic() - t0
     text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
     if text_block is None:
         raise RuntimeError("Aucun bloc texte dans la réponse Claude (thinking seul ?)")
-    return text_block.text.strip()
+    usage = getattr(response, "usage", None)
+    usage_dict = {
+        "input_tokens": getattr(usage, "input_tokens", None) if usage else None,
+        "output_tokens": getattr(usage, "output_tokens", None) if usage else None,
+    }
+    return _candidate_result(text_block.text.strip(), usage_dict, latency_s)
 
 
-def _call_openai_compatible(question: str, image_urls: list, model_name: str, api_key: str, base_url: str = None) -> str:
+def _call_openai_compatible(question: str, image_urls: list, model_name: str, api_key: str, base_url: str = None):
+    """Renvoie (texte, usage_dict, latence_s)."""
     if not api_key:
         raise RuntimeError(f"Clé API manquante pour le modèle {model_name}")
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=CANDIDATE_TIMEOUT_S)
     content = [{"type": "text", "text": question}]
     for url in image_urls:
         image_bytes = _download_image_bytes(url)
         if image_bytes:
             b64 = base64.b64encode(image_bytes).decode("utf-8")
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+    t0 = time.monotonic()
     response = client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": content}],
         temperature=0.0,
     )
-    return response.choices[0].message.content.strip()
+    latency_s = time.monotonic() - t0
+    usage = getattr(response, "usage", None)
+    usage_dict = {
+        "input_tokens": getattr(usage, "prompt_tokens", None) if usage else None,
+        "output_tokens": getattr(usage, "completion_tokens", None) if usage else None,
+    }
+    return response.choices[0].message.content.strip(), usage_dict, latency_s
 
 
-def call_gpt4o_mini(question: str, image_urls: list) -> str:
-    return _call_openai_compatible(question, image_urls, GPT_MODEL, OPENAI_API_KEY)
+def call_gpt4o_mini(question: str, image_urls: list) -> dict:
+    answer, usage, latency_s = _call_openai_compatible(question, image_urls, GPT_MODEL, OPENAI_API_KEY)
+    return _candidate_result(answer, usage, latency_s)
 
 
-def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
-    return _call_openai_compatible(
+def call_qwen_tokenrouter(question: str, image_urls: list) -> dict:
+    answer, usage, latency_s = _call_openai_compatible(
         question, image_urls, QWEN_MODEL, TOKENROUTER_API_KEY,
         base_url=TOKENROUTER_BASE_URL,
     )
+    return _candidate_result(answer, usage, latency_s)
 
 
 # Un seul appel Qwen, deux sections distinctes dans le même prompt : la consigne
@@ -215,7 +283,7 @@ _EXTRACTION_PROMPT = (
 )
 
 
-def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
+def call_hybrid_qwen_gemini(question: str, image_urls: list) -> dict:
     """Candidat expérimental : division du travail par force de chaque modèle, SANS jamais
     envoyer les photos à Gemini (tout le coût vision reste sur Qwen, moins cher). Constat du
     2026-09-06 (annonce Guerrilla Guitars) : Qwen lit correctement le texte/logo (OCR fiable)
@@ -225,8 +293,13 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
     transcription/OCR du logo SANS interprétation de marque) ; Gemini Tier 3 Expert Pro
     (l'"oracle") ne voit JAMAIS les images, seulement ce rapport texte, et fait l'identification
     (marque/modèle/origine) lui-même à partir de la transcription brute en s'appuyant sur ses
-    propres connaissances, puis répond à la question."""
-    extraction_report = call_qwen_tokenrouter(_EXTRACTION_PROMPT, image_urls)
+    propres connaissances, puis répond à la question. Le rapport d'extraction est retourné dans
+    `perception_report` (auparavant jeté après usage) pour être jugé séparément sur le respect
+    du garde-fou anti-interprétation, indépendamment de la réponse finale de l'oracle."""
+    extraction_report, extraction_usage, extraction_latency = _call_openai_compatible(
+        _EXTRACTION_PROMPT, image_urls, QWEN_MODEL, TOKENROUTER_API_KEY,
+        base_url=TOKENROUTER_BASE_URL,
+    )
     oracle_prompt = (
         f"Un modèle de vision spécialisé a produit ce rapport factuel en deux parties sur les "
         f"photos d'une annonce (il n'a JAMAIS tenté d'identifier la marque ni porté de jugement "
@@ -238,7 +311,14 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> str:
         f"(transcription OCR/logo), puis réponds à la question en combinant cette "
         f"identification avec la Partie 1 (état physique)."
     )
-    return _call_gemini(oracle_prompt, [], GEMINI_MODELS["default_expert"])
+    answer, oracle_usage, oracle_latency = _call_gemini(oracle_prompt, [], GEMINI_MODELS["default_expert"])
+    return _candidate_result(
+        answer,
+        _sum_usage([extraction_usage, oracle_usage]),
+        extraction_latency + oracle_latency,
+        perception_report=extraction_report,
+        calls=2,
+    )
 
 
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).

@@ -20,6 +20,13 @@ Sonnet 5 (vision native) à Gemini sur le même jeu de questions — comparatif
 coût ET qualité demandé par l'utilisateur (2026-09-07), pas seulement le rôle
 de juge que Claude tient déjà (judge.py).
 
+Score par axe (CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §0/§5) : identification/
+etat/valeur/hallucination, jamais agrégés en un score composite. Le rapport de
+perception d'un candidat (aujourd'hui : `hybrid`) est jugé séparément sur le
+respect du garde-fou anti-interprétation (§2), indépendamment de sa réponse
+finale. Usage (tokens) et latence sont capturés par candidate, pour l'étude des
+paliers de longueur de description prévue au §5/§7.
+
 Usage :
     python -m backend.benchmark.run_benchmark
     python -m backend.benchmark.run_benchmark --models gemini,qwen --limit 5
@@ -34,7 +41,7 @@ import os
 from datetime import datetime, timezone
 
 from backend.benchmark.candidates import CANDIDATES
-from backend.benchmark.judge import evaluate_with_llm_judge
+from backend.benchmark.judge import JUDGE_AXES, evaluate_perception_report, evaluate_with_llm_judge
 
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "dataset.json")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
@@ -49,24 +56,69 @@ def run_candidate(model_key, call_fn, dataset):
     results = []
     for item in dataset:
         try:
-            answer = call_fn(item["question"], item.get("image_urls", []))
+            candidate_result = call_fn(item["question"], item.get("image_urls", []))
         except Exception as e:
             print(f"  [{model_key}] {item['id']} : échec appel modèle ({e})")
             results.append({
-                "id": item["id"], "candidate_answer": None,
-                "score": 0, "justification": f"Échec appel modèle : {e}",
+                "id": item["id"],
+                "candidate_answer": None,
+                "perception_report": None,
+                "usage": None,
+                "latency_s": None,
+                "scores": {axis: 0 for axis in JUDGE_AXES},
+                "justification": f"Échec appel modèle : {e}",
+                "perception_verdict": None,
             })
             continue
 
+        answer = candidate_result["answer"]
         verdict = evaluate_with_llm_judge(item["question"], item["ground_truth"], answer)
+        perception_report = candidate_result.get("perception_report")
+        perception_verdict = evaluate_perception_report(perception_report)
         results.append({
             "id": item["id"],
             "candidate_answer": answer,
-            "score": verdict.get("score", 0),
+            "perception_report": perception_report,
+            "usage": candidate_result.get("usage"),
+            "latency_s": candidate_result.get("latency_s"),
+            "scores": verdict["scores"],
             "justification": verdict.get("justification", ""),
+            "perception_verdict": perception_verdict,
         })
-        print(f"  [{model_key}] {item['id']} : score={verdict.get('score', 0)} — {verdict.get('justification', '')}")
+        scores_str = " ".join(f"{axis}={verdict['scores'][axis]}" for axis in JUDGE_AXES)
+        print(f"  [{model_key}] {item['id']} : {scores_str} — {verdict.get('justification', '')}")
     return results
+
+
+def summarize(results):
+    """Une ligne par axe, jamais un score composite (§0). Ajoute les totaux d'usage/latence
+    pour situer le coût réel — informatif, pas agrégé avec les scores de qualité."""
+    total = len(results)
+    axis_pass_rate = {
+        axis: round(100 * sum(r["scores"].get(axis, 0) for r in results) / total, 1) if total else 0.0
+        for axis in JUDGE_AXES
+    }
+    perception_items = [r for r in results if (r.get("perception_verdict") or {}).get("contains_judgment") is not None]
+    perception_summary = None
+    if perception_items:
+        judgment_leaks = sum(1 for r in perception_items if r["perception_verdict"]["contains_judgment"])
+        identifiable = sum(1 for r in perception_items if r["perception_verdict"]["identification_possible"])
+        perception_summary = {
+            "items_avec_perception_report": len(perception_items),
+            "fuites_interpretation": judgment_leaks,
+            "identification_possible_depuis_texte_seul": identifiable,
+        }
+    input_tokens = [r["usage"]["input_tokens"] for r in results if r.get("usage") and r["usage"].get("input_tokens") is not None]
+    output_tokens = [r["usage"]["output_tokens"] for r in results if r.get("usage") and r["usage"].get("output_tokens") is not None]
+    latencies = [r["latency_s"] for r in results if r.get("latency_s") is not None]
+    return {
+        "n_items": total,
+        "taux_reussite_par_axe": axis_pass_rate,
+        "garde_fou_perception": perception_summary,
+        "tokens_entree_moyen": round(sum(input_tokens) / len(input_tokens), 1) if input_tokens else None,
+        "tokens_sortie_moyen": round(sum(output_tokens) / len(output_tokens), 1) if output_tokens else None,
+        "latence_moyenne_s": round(sum(latencies) / len(latencies), 2) if latencies else None,
+    }
 
 
 def main():
@@ -92,15 +144,21 @@ def main():
         print(f"\n--- Évaluation de : {model_key} ---")
         results = run_candidate(model_key, CANDIDATES[model_key], dataset)
         all_results[model_key] = results
-        total = len(results)
-        score_sum = sum(r["score"] for r in results)
-        summary[model_key] = round((score_sum / total) * 100, 2) if total else 0.0
+        summary[model_key] = summarize(results)
 
-    print("\n" + "=" * 40)
-    print("RÉSULTATS FINAUX")
-    print("=" * 40)
-    for model_key, accuracy in summary.items():
-        print(f"{model_key:15s} : {accuracy:.2f}%")
+    print("\n" + "=" * 60)
+    print("RÉSULTATS FINAUX — une ligne par axe, jamais un score composite")
+    print("=" * 60)
+    for model_key, s in summary.items():
+        print(f"\n{model_key} ({s['n_items']} items) :")
+        for axis, rate in s["taux_reussite_par_axe"].items():
+            print(f"   {axis:15s} : {rate:.1f}%")
+        if s["garde_fou_perception"]:
+            print(f"   garde-fou perception : {s['garde_fou_perception']}")
+        if s["tokens_entree_moyen"] is not None:
+            print(f"   tokens (in/out, moy.) : {s['tokens_entree_moyen']}/{s['tokens_sortie_moyen']}")
+        if s["latence_moyenne_s"] is not None:
+            print(f"   latence moyenne : {s['latence_moyenne_s']}s")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_path = os.path.join(RESULTS_DIR, f"benchmark_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json")
