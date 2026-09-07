@@ -29,33 +29,33 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
+
+# Annonce ciblée par l'utilisateur (2026-09-06) : une conversation de chat "qui va continuer",
+# pour vérifier concrètement l'effet de l'élision de photos (Plan 1 tokens, Lot C/D,
+# useDealChat.js) et la taille réelle des photos jointes par l'utilisateur depuis son téléphone
+# (suspicion : peut-être pas compressées avant envoi à Gemini — à vérifier, `filesToInlineParts`
+# les fait pourtant passer par le même redimensionnement 1024px/JPEG 80% que les photos
+# d'annonce, voir geminiChatService.js).
+TARGET_DEAL_ID = "1021543367184410"
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-06 : pour remplacer les suppositions du benchmark de coût Gemini (nombre de
-    photos/annonce, longueur de sortie par Tier) par de vraies distributions mesurées.
-    Lecture seule (aucune écriture Firestore), idempotent : parcourt `guitar_deals` de
-    tous les utilisateurs, mesure pour chaque annonce analysée le nombre de photos
-    (`storageImageUrls`) et la longueur du champ `aiAnalysis.analysis` (le rapport
-    Markdown/puces produit par le dernier Tier exécuté), ventilée selon que le Tier 3 a
-    été déclenché ou non (déduit du nombre de maillons dans `aiAnalysis.model_used`,
-    ex: "gemini-3.5-flash-lite -> gemini-3.7-flash" = 2 maillons = pas de T3 ;
-    "... -> gemini-3.1-pro-preview" = 3 maillons = T3 déclenché). Imprime des
-    statistiques agrégées (moyenne/médiane/min/max), pas les données brutes.
-
-    Exécuté le 2026-09-06 (run GitHub Actions #415) : 6116 annonces au total. Photos/annonce
-    moyenne=4, médiane=2, max=25. Longueur 'analysis' T2 seul (n=630) moyenne=542 caractères
-    (~135 tokens), médiane=514. Longueur 'analysis' T3 déclenché (n=271) moyenne=1061
-    caractères (~265 tokens), médiane=1389 (~347 tokens, un cas à 0 caractère tire la moyenne
-    vers le bas — probable échec T3 avec fallback). Part T3 déclenché : 271/901 (30.1%) des
-    annonces qui atteignent le Tier 2 (~4.4% de toutes les annonces scannées, la majorité étant
-    rejetées au Portier avant même le Tier 2). ACTIVE repassé à False.
+    2026-09-06 : récupère la conversation de chat d'une annonce précise (voir TARGET_DEAL_ID)
+    pour vérifier concrètement, sur un cas réel, si l'élision de vieilles photos jointes par
+    l'utilisateur (`elideOldChatPhotos`, useDealChat.js, budget MAX_HISTORY_IMAGES=6) fonctionne
+    comme prévu, et la taille réelle des photos jointes (prises au téléphone, donc a priori plus
+    grosses que les photos d'annonce Marketplace) une fois passées par le redimensionnement
+    partagé (`blobToInlinePart`, 1024px/JPEG 80%) — l'annonce elle-même ne stocke JAMAIS ses
+    photos en base64 dans le chat (uniquement des URLs dans `storageImageUrls`, résolues à la
+    demande), donc toute part `inlineData` trouvée ici est nécessairement une photo jointe par
+    l'utilisateur. Lecture seule (aucune écriture Firestore), idempotent : essaie chaque
+    utilisateur enregistré jusqu'à trouver le document, imprime pour chaque message du tour :
+    rôle, texte affiché (tronqué), nombre de parts image et taille base64 totale (octets) de ces
+    parts. Termine par un total agrégé sur toute la conversation.
     """
-    import statistics
-
     from backend.scripts.export_neck_reset_sample import setup_firebase
     from config import APP_ID_TARGET
 
@@ -66,50 +66,52 @@ def run():
     user_ids = [doc.id for doc in users_ref.stream()]
     print(f"   {len(user_ids)} utilisateur(s) trouvé(s).")
 
-    photo_counts = []
-    analysis_len_no_t3 = []
-    analysis_len_t3 = []
-    total_deals = 0
-
+    deal_doc = None
+    owner_uid = None
     for uid in user_ids:
-        deals_ref = db.collection('artifacts').document(APP_ID_TARGET) \
-                      .collection('users').document(uid).collection('guitar_deals')
-        for doc in deals_ref.stream():
-            deal = doc.to_dict()
-            analysis = deal.get('aiAnalysis') or {}
-            if not analysis:
-                continue
-            total_deals += 1
+        ref = db.collection('artifacts').document(APP_ID_TARGET) \
+                .collection('users').document(uid).collection('guitar_deals').document(TARGET_DEAL_ID)
+        snap = ref.get()
+        if snap.exists:
+            deal_doc = snap
+            owner_uid = uid
+            break
 
-            image_urls = deal.get('storageImageUrls') or []
-            photo_counts.append(len(image_urls))
+    if deal_doc is None:
+        print(f"❌ Annonce {TARGET_DEAL_ID} introuvable chez aucun des {len(user_ids)} utilisateurs.")
+        return
 
-            analysis_text = analysis.get('analysis') or ''
-            model_used = analysis.get('model_used') or ''
-            tier_count = model_used.count('->') + 1 if model_used else 0
-            if tier_count >= 3:
-                analysis_len_t3.append(len(analysis_text))
-            elif tier_count == 2 and analysis_text:
-                analysis_len_no_t3.append(len(analysis_text))
+    deal = deal_doc.to_dict()
+    print(f"📄 Annonce trouvée chez l'utilisateur {owner_uid[:8]}… : \"{deal.get('title', 'N/A')}\"")
 
-    def print_stats(values, label):
-        if not values:
-            print(f"📊 {label} : aucune donnée")
-            return
-        print(
-            f"📊 {label} : n={len(values)}, moyenne={statistics.mean(values):.0f}, "
-            f"médiane={statistics.median(values):.0f}, min={min(values)}, max={max(values)}"
-        )
+    chat_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+                 .collection('users').document(owner_uid) \
+                 .collection('guitar_deals').document(TARGET_DEAL_ID).collection('chat') \
+                 .order_by('createdAt')
+    messages = list(chat_ref.stream())
+    print(f"💬 {len(messages)} message(s) dans la conversation.\n")
 
-    print(f"📦 {total_deals} annonce(s) analysée(s) au total.")
-    print_stats(photo_counts, "Photos par annonce")
-    print_stats(analysis_len_no_t3, "Longueur champ 'analysis' en caractères (Tier 2 seul, sans T3)")
-    print_stats(analysis_len_t3, "Longueur champ 'analysis' en caractères (Tier 3 déclenché)")
-    n_t3 = len(analysis_len_t3)
-    n_no_t3 = len(analysis_len_no_t3)
-    denom = n_t3 + n_no_t3
-    if denom:
-        print(f"🎯 Part Tier 3 déclenché : {n_t3}/{denom} ({100 * n_t3 / denom:.1f}%)")
+    total_image_parts = 0
+    total_image_bytes = 0
+    for i, msg_doc in enumerate(messages, 1):
+        msg = msg_doc.to_dict()
+        role = msg.get('role', '?')
+        display_text = (msg.get('displayText') or '').replace('\n', ' ')
+        parts = msg.get('parts') or []
+        image_parts = [p for p in parts if isinstance(p, dict) and p.get('inlineData')]
+        msg_image_bytes = sum(len(p['inlineData'].get('data', '')) for p in image_parts)
+        total_image_parts += len(image_parts)
+        total_image_bytes += msg_image_bytes
+
+        truncated = display_text[:300] + ('…' if len(display_text) > 300 else '')
+        print(f"[{i}] {role} — {len(parts)} part(s), {len(image_parts)} image(s) "
+              f"({msg_image_bytes:,} octets base64) — attachedImagePartIndices="
+              f"{msg.get('attachedImagePartIndices')}")
+        if truncated:
+            print(f"    \"{truncated}\"")
+
+    print(f"\n📊 TOTAL : {total_image_parts} part(s) image sur {len(messages)} messages, "
+          f"{total_image_bytes:,} octets base64 cumulés (~{total_image_bytes * 3 // 4:,} octets image réels).")
 
 
 if __name__ == "__main__":
