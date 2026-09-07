@@ -1,16 +1,10 @@
 # Plan d'implémentation — Chantier B : séparer perception et raisonnement (2026-09-07)
 
-**Statut :** ⚠️ **non prêt, second passage Opus (2026-09-07, §9)** — trois blocages réels
-identifiés, différents des précédents : (1) le cadrage §0 ("coût seul") contredit encore §6 de ce
-même document et la déclaration utilisateur archivée dans `COST_OPTIMIZATION_CHANTIERS.md:89-94` —
-non réconcilié ; (2) le contrat de perception (8.3) ne peut pas être écrit sans un **budget de
-tokens explicite**, calculé par Opus à un point mort d'environ 1385 tokens de description par
-annonce (au-delà, le chantier coûte plus cher que la cascade actuelle) — la décision "description
-aussi précise et complète que possible" (§2) et la décision "coût seul" (§1) tirent dans des sens
-opposés, non arbitré ; (3) §5 (critère de validation) est **inexécutable tel qu'écrit** — mesurer
-une non-régression contre "la cascade actuelle" suppose de construire une cascade perçue fidèle à
-la prod dans le harnais, ce qui revient à toucher `analyzer.py` avant le benchmark, que §7.5
-interdit pourtant explicitement. Détail complet en §9. Formalise et étend
+**Statut :** ⚠️ décisions de résolution prises (2026-09-07, §10) sur les 3 blocages du second
+passage Opus (§9) — cadrage multi-objectifs non agrégé, critère de suffisance opérationnalisé en
+test d'ablation, budget de tokens volontairement laissé à déduire par le benchmark plutôt que fixé
+a priori. **Reste à faire avant d'écrire 8.3** : traduire ces décisions en méthode de benchmark
+concrète (§10) — pas encore vérifié par Opus. Formalise et étend
 `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` (Chantier B) suite à la demande explicite
 de l'utilisateur du 2026-09-07.
 
@@ -436,3 +430,61 @@ attendre** : le périmètre de 8.3 (T1+T2+T3, pas T3 seul), la suppression de `v
 la correction sur `force_expert` (pas d'appel dédié), l'exclusion de `analyze_deal_light()` du
 chantier, et l'ajout au périmètre §7 de la réécriture des trois prompts de prod + la question des
 configs Firestore déjà persistées.
+
+---
+
+## 10. Décisions de résolution (2026-09-07)
+
+Réponses de l'utilisateur aux trois blocages de §9, à vérifier par un troisième passage Opus avant
+d'écrire 8.3 (non fait à ce stade).
+
+**10.1 — Résout 9.1 (cadrage) : plusieurs objectifs, jamais agrégés en un score unique.** Chantier
+B sert bien plusieurs desseins à la fois (coût, cohérence chat, réutilisation
+`NECK_RESET_VISION_PLAN.md`, tagging) — mais **chaque objectif produit son propre résultat séparé**,
+pas une moyenne ou un score composite, parce qu'ils "servent des dessins différents". §0/§6 de ce
+document et `COST_OPTIMIZATION_CHANTIERS.md:89-94` doivent être lus comme listant des critères de
+succès **indépendants**, pas concurrents : le chantier peut être un succès coût et un échec
+cohérence-chat (ou l'inverse) sans que ça se compense. Le tableau de résultats du benchmark (§7)
+devra donc rapporter une ligne par objectif, jamais un score global.
+
+**10.2 — Résout 9.3 (critère de suffisance non mesurable) : test d'ablation formalisé.** Critère
+opérationnel donné par l'utilisateur : *la description doit permettre à un LLM (le raisonneur
+candidat) de tirer les mêmes conclusions, voire de meilleures, sur un modèle faible que si ce
+modèle avait analysé lui-même l'image — comme si on était dans sa propre boucle d'évaluation.*
+Traduction en protocole de mesure (à intégrer au harnais, §7.2) : pour un même modèle raisonneur
+bon marché, deux passes sur les mêmes items — **(A)** photos brutes + question, **(B)** description
+de perception + question — jugées séparément, puis comparées. La description "suffit" si (B) ≥ (A)
+sur l'axe identification, pas seulement si elle s'en approche. C'est la cellule d'ablation que 8.4
+(9.3) réclamait, désormais définie précisément plutôt que laissée à l'intuition.
+
+**10.3 — Résout 9.4/9.5.2 (budget de tokens absent) : volontairement pas fixé a priori, déduit du
+benchmark.** Décision explicite de l'utilisateur : ne pas imposer une longueur cible avant mesure
+("je ne sais pas, c'est à déduire a posteriori"). Méthode retenue : faire varier expérimentalement
+la longueur de description autorisée (plusieurs paliers, ex. ~150/350/700/1400 tokens) et, pour
+chaque palier, mesurer (a) le taux de passage du test d'ablation (§10.2) et (b) le coût réel
+résultant. Le budget cible devient la longueur **minimale** qui passe le test de façon fiable sur
+l'échantillon — confrontée ensuite au point mort déjà chiffré par Opus (≈1385 tokens/annonce, §9.4)
+pour juger si le chantier reste rentable à cette longueur. Si la longueur minimale suffisante
+dépasse le point mort, le chantier B (axe coût) échoue **sans que ça invalide les autres axes**
+(cf. 10.1) — un résultat de test possible, pas une raison de ne pas mesurer.
+
+**10.4 — Confirme et formalise la décision "une seule perception pour tous les consommateurs"**
+(donnée par l'utilisateur avant §10, déjà notée en passant) : la même description de perception
+doit alimenter T1, T2, T3 **et** le chat — pas une description différente par consommateur. Ça
+résout 8.7 en le rendant explicite : la "cohérence avec le chat" citée en motivation (10.1) devient
+une conséquence directe de cette décision d'architecture, pas une aspiration séparée à vérifier
+après coup. Implique une extension hors périmètre `analyzer.py` : `buildDealContextText`
+(`geminiChatService.js:36-62`) devra injecter la description de perception stockée, en plus des
+champs déjà listés.
+
+**10.5 — Exception accordée pour débloquer 9.4(b) (paradoxe d'ordonnancement §5)** : autorisation
+explicite d'un changement instrumental dans `backend/analyzer.py` (ou un point d'entrée équivalent
+dans `backend/benchmark/`), **sous drapeau, désactivé par défaut**, strictement pour permettre au
+harnais de construire un candidat fidèle à la configuration de prod réelle (`system_instruction`,
+taxonomie, few-shot, JSON mode, `temperature=0.1`) et de mesurer la source de perception comme
+paramètre commutable. Ce n'est pas un déploiement — le drapeau reste désactivé en production tant
+que 10.1-10.3 n'ont pas produit un résultat favorable sur tous les axes pertinents (§5, inchangé).
+
+**Non encore fait** : traduire 10.1-10.5 en plan de benchmark concret (quels candidats, quels
+paliers de longueur, quel format de rapport par objectif) et le soumettre à un troisième passage
+Opus avant d'écrire le contrat de perception (8.3) lui-même.
