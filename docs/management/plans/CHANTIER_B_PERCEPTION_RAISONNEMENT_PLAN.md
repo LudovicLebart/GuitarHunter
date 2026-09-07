@@ -1,13 +1,18 @@
 # Plan d'implémentation — Chantier B : séparer perception et raisonnement (2026-09-07)
 
-**Statut :** ⚠️ en révision — la consultation Opus du 2026-09-07 (§8) a été menée sur une
-**motivation mal formulée par erreur** (corrigée en §0, le même jour). **8.1 est désormais tranché**
-(option large, T1 compris — voir §1) et **8.3 est acté comme travail à faire** (contrat de
-perception complet, dérivé champ par champ du JSON de prod — voir §2 pour le niveau de précision
-attendu). Restent à faire avant tout code : écrire ce contrat complet (8.3), couvrir les deux
-chemins qui sautent T1 (conséquence de 8.1, voir §1), et les corrections de rédaction/périmètre
-8.2/8.4/8.5/8.7/8.8. Formalise et étend `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md`
-(Chantier B) suite à la demande explicite de l'utilisateur du 2026-09-07.
+**Statut :** ⚠️ **non prêt, second passage Opus (2026-09-07, §9)** — trois blocages réels
+identifiés, différents des précédents : (1) le cadrage §0 ("coût seul") contredit encore §6 de ce
+même document et la déclaration utilisateur archivée dans `COST_OPTIMIZATION_CHANTIERS.md:89-94` —
+non réconcilié ; (2) le contrat de perception (8.3) ne peut pas être écrit sans un **budget de
+tokens explicite**, calculé par Opus à un point mort d'environ 1385 tokens de description par
+annonce (au-delà, le chantier coûte plus cher que la cascade actuelle) — la décision "description
+aussi précise et complète que possible" (§2) et la décision "coût seul" (§1) tirent dans des sens
+opposés, non arbitré ; (3) §5 (critère de validation) est **inexécutable tel qu'écrit** — mesurer
+une non-régression contre "la cascade actuelle" suppose de construire une cascade perçue fidèle à
+la prod dans le harnais, ce qui revient à toucher `analyzer.py` avant le benchmark, que §7.5
+interdit pourtant explicitement. Détail complet en §9. Formalise et étend
+`docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` (Chantier B) suite à la demande explicite
+de l'utilisateur du 2026-09-07.
 
 ## 0. Correction de cadrage (2026-09-07, avant toute suite technique)
 
@@ -295,3 +300,139 @@ richement pour que le raisonnement en aval reste possible) — et couvrir les de
 sautent T1 (conséquence de 8.1, notée en §1). 8.2, 8.4, 8.5, 8.8 restent des corrections de
 rédaction/périmètre à intégrer en écrivant le code. 8.7 (cohérence chat) à retrancher des
 motivations affichées ou à ajouter explicitement au plan technique.
+
+**Mise à jour (§9) : ce verdict était prématuré** — un second passage Opus, demandé avant d'écrire
+8.3, a trouvé trois blocages réels supplémentaires (cadrage encore contradictoire, absence de
+budget de tokens, §5 auto-contradictoire dans son ordonnancement). Voir §9 pour le détail et les
+décisions qui restent à prendre avec l'utilisateur.
+
+---
+
+## 9. Second passage Opus (2026-09-07) — verdict : 8.3 ne peut toujours pas être écrit
+
+Consultation demandée après les décisions de §1/§2, avec instruction explicite de vérifier si
+elles répondaient vraiment aux objections précédentes plutôt que de les prendre pour acquises.
+Relecture directe de `analyzer.py`, `bot.py`, `prompts.json`, `backend/benchmark/`,
+`geminiChatService.js`, `useDealsManager.js`, `FilterDrawer.jsx`, `repository.py`.
+
+**9.1 — Le cadrage §0 ("coût seul") n'est pas stabilisé : il contredit §6 de ce même document ET
+la déclaration utilisateur archivée dans le fichier frère.** §6 (juste au-dessus) dit encore "ce
+plan ne doit jamais être présenté comme une économie […] seulement comme un gain de cohérence/
+fiabilité produit" ; `COST_OPTIMIZATION_CHANTIERS.md:89-94` cite l'utilisateur le même jour :
+"motivé aussi par des raisons autres que le coût (cohérence de la description photo entre Tiers et
+avec le chat, réutilisation pour `NECK_RESET_VISION_PLAN.md`, tagging de vue)". Trois motivations
+mutuellement exclusives coexistent aujourd'hui dans deux fichiers. **Tant que ce n'est pas
+réconcilié à un seul endroit, §5 n'a pas de critère de décision unique** — et "égaler la qualité
+actuelle" cache trois hypothèses non vérifiées : (a) aucune mesure de qualité de perception
+actuelle n'existe (aucun run réel du harnais à ce jour) ; (b) T1/T2 ne produisent aujourd'hui
+**aucune description à égaler** — T1 sort `{status, reasoning, brand, classification}`
+(`prompts.json:333`), T2 sort des scores/puces (`prompts.json:337-341`), pas de texte de
+perception — l'objet de comparaison n'existe encore d'aucun côté ; (c) le critère a trois jambes
+(qualité ≥, coût &lt;, risque acceptable) et §5 n'en mesure qu'une, imparfaitement.
+
+**Décision utilisateur nécessaire** : Chantier B est-il *exclusivement* motivé par le coût
+(auquel cas §6 et `COST_OPTIMIZATION_CHANTIERS.md:89-94` doivent être corrigés en conséquence), ou
+les motivations produit (chat, neck-reset, tagging) restent-elles actives en plus du coût (auquel
+cas §0 doit être réécrit pour ne plus dire "coût seul") ?
+
+**9.2 — Option large (8.1) : le constat était juste, deux conséquences tirées à tort ou manquantes.**
+- **Corrigé** : `force_expert=True` n'a **pas** besoin d'un appel de perception dédié comme
+  l'affirme §1 — le saut se fait à `analyzer.py:318` (`if not force_expert:`), donc toute
+  perception insérée **avant** cette ligne est obtenue automatiquement par ce chemin. L'objection
+  n'était valable que dans la variante "T1 produit la description", recopiée à tort ici.
+- **Décision manquante** : `analyze_deal_light()` (`analyzer.py:189-231`) existe spécifiquement
+  pour être bon marché sur de l'historique déjà vendu, et son prompt interdit déjà tout texte libre
+  (`visual_inspection` compris). Lui greffer une perception payante contredit sa raison d'être.
+  **Recommandation Opus : l'exclure du chantier, la laisser sur photos.**
+- **Aucun repli prévu pour l'étage de perception** (seul étage sans redondance — T1/T2/T3 ont
+  chacun un fail-open existant, `analyzer.py:328-331/361-362/419-422`) : sous l'option large, une
+  panne du fournisseur externe aveugle 100% du pipeline, silencieusement. Le code candidat porté
+  n'a en plus aucun timeout (`candidates.py:165-180`), sur un chemin synchrone (`bot.py:410`).
+- **Hors périmètre §7, à ajouter** : les trois instructions de prod supposent l'accès direct aux
+  photos et devraient être réécrites (`prompts.json:331`, T1 : "examine TOUTE photo montrant la
+  tête/logo" — inexécutable pour un T1 aveugle ; `prompts.json:302`, `color` conditionné à "au
+  moins une photo") — et ces prompts sont modifiables par l'utilisateur en Firestore, donc les
+  comptes existants ne suivront pas une mise à jour de `prompts.json` sans migration.
+- **Angle mort** : la classification taxonomique (guitare vs étui, déjà source d'un bug corrigé,
+  `analyzer.py:250-253`) est elle-même une décision perceptuelle prise par T1 sur 100% du volume —
+  aucune question de `dataset.json` (5 items, tous des instruments déjà acceptés) ne la teste.
+
+**9.3 — "Suffisante pour que T3 identifie lui-même" (§2) : non mesurable en l'état, le trou est
+réel.** Confirmé : le rapport de perception `hybrid` est jeté après usage (`candidates.py:229`),
+le juge ne voit que la réponse finale (`judge.py:49`) — après un run, aucun artefact n'existe pour
+distinguer "perception insuffisante" de "raisonnement défaillant". Il manque, avant que 8.3 soit
+mesurable : (1) persister le rapport de perception par item (contrat de retour des candidats
+`str` → `{answer, perception_report}`) ; (2) une passe de juge sur la perception seule ("un expert
+peut-il nommer la marque à partir de cette seule description ?" + "contient-elle un jugement plutôt
+qu'une observation ?") ; (3) une cellule d'ablation (même raisonneur, deux entrées : photos vs
+texte de perception). Point de rédaction lié : "aussi précise et complète que possible" (§2) est un
+critère non borné — voir 9.5, c'est exactement la variable qui décide de la rentabilité du
+chantier, il faut un critère **suffisant** avec un budget, pas un maximum.
+
+**9.4 — Reprise de 8.2/8.4/8.5/8.7/8.8 : elles tiennent, deux s'aggravent.**
+- **8.2 s'aggrave** : le prompt `hybrid` (`candidates.py:203-204,209-211`, "qualité apparente",
+  "pourraient indiquer une origine") reste un prompt d'inférence, et la décision §2 ("aussi riche
+  que possible") pousse vers plus de contenu sans distinguer observable d'évaluatif. **Correctif
+  concret proposé par Opus** : n'autoriser que des prédicats objectivement observables (largeur de
+  jeu aux jonctions, bavure de colle visible, type de vis, régularité du contour) et bannir les
+  adjectifs évaluatifs ("qualité", "soigné", "artisanal", "bon marché").
+- **8.4(a) devient bloquant** (cf. 9.3). **8.4(b) devient un paradoxe d'ordonnancement, le point le
+  plus important de ce second passage** : §5 exige une comparaison contre "la cascade actuelle",
+  mais aucun candidat du harnais n'est fidèle à la prod des deux côtés (`gemini_pro`,
+  `candidates.py:53-64,72-76`, n'a ni `system_instruction`, ni taxonomie, ni `temperature=0.1`).
+  Construire les deux bras fidèles suppose de rendre la source de perception commutable dans
+  `DealAnalyzer` — c'est-à-dire modifier `analyzer.py`, **avant** le benchmark, que §7.5 interdit
+  pourtant. **§5 est auto-contradictoire tant que cette exception n'est pas explicitement
+  accordée** (un changement sous drapeau, désactivé par défaut, uniquement pour permettre la
+  mesure — pas un déploiement).
+  Nouveau : §5 ne mesure pas non plus le risque n°1 nommé en §1 (dérive du Portier sur 100% du
+  volume) — le dataset ne contient que des annonces déjà acceptées, aucun échantillon d'annonces
+  **rejetées** pour mesurer un taux de faux rejet/faux passage. Et le benchmark note du texte
+  libre alors que le vrai risque de régression porte sur les champs à énumération fermée
+  (`finish_application`/`finish_texture`, `prompts.json:303-304`) utilisés en comparaison stricte
+  dans un filtre utilisateur réel (`src/hooks/useDealsManager.js:454-455`,
+  `src/components/FilterDrawer.jsx:56-57`) — une régression y serait invisible au score du juge.
+- **8.5 tient intégralement** ; `sample_benchmark_dataset.py` n'existe toujours pas. Nouveau, lié
+  au cadrage "coût seul" : l'axe localisation (§3) n'a plus de lien avec le critère de décision et
+  ne doit **surtout pas** entrer dans le contrat de perception de production (il gonflerait le
+  seul poste qui décide de la rentabilité) — §7.2 le remet pourtant dans le même appel.
+- **8.7 tient mot pour mot** (vérifié : `geminiChatService.js:36-62` n'injecte toujours ni
+  `analysis` ni `visual_inspection`). Sous le cadrage "coût seul" (§0), cette motivation est déjà
+  implicitement abandonnée — mais elle reste écrite dans `COST_OPTIMIZATION_CHANTIERS.md:89-94`
+  sans que les deux documents soient réconciliés (cf. 9.1).
+- **8.8 devient le paragraphe central.** Chiffrage refait par Opus sur les mêmes bases (1377/342/64
+  annonces, 3,5 photos, tarifs vérifiés) : coût image actuel ≈ **2,51$** (1,30+0,81+0,40). Variante
+  large + Qwen : coût images 0,61$ **plus 1,376$ par tranche de 1000 tokens de description** (sortie
+  Qwen + réinjection texte à chaque Tier). **Point mort ≈ 1385 tokens de description par annonce**
+  — en dessous, gain réel (ex. 350 tokens → 1,09$, gain 1,42$/9,43$ ≈ 15% de la facture) ; au-delà,
+  perte nette. **Les décisions §1 (coût) et §2 ("aussi précise et complète que possible") tirent
+  donc en sens opposés, sans que rien dans le document ne le note avant ce passage.**
+
+**9.5 — Angles morts nouveaux, introduits par les décisions elles-mêmes :**
+1. Cadrage à trois motivations incompatibles (9.1) — bloquant pour tout le reste.
+2. **Aucun budget de tokens écrit nulle part**, alors que c'est la variable qui décide de tout
+   (point mort ≈ 1385 tokens/annonce, 9.4).
+3. **8.3 doit couvrir T2, pas seulement T3** : sur la période de référence, 342 annonces atteignent
+   T2 contre 64 T3 — c'est T2 qui écrit majoritairement `color`/`finish_*` en production, pas T3.
+4. **`visual_inspection` est un champ mort** : demandé (`prompts.json:297`), stocké, **lu par
+   personne** (aucune occurrence hors `prompts.json` dans tout `src/`, `DealAnalysisModal.jsx:85-93`
+   ne l'affiche pas). Construire un contrat de perception pour l'alimenter gaspille des tokens sur
+   un champ inutilisé. **Recommandation : le supprimer, gain de sortie gratuit, indépendant du
+   chantier.**
+5. **Piège cache déjà vécu** : la description est dynamique par annonce, elle doit être ajoutée
+   **après** le bloc statique (prompt + taxonomie + few-shot) dans chaque prompt de Tier — jamais
+   avant, exactement la régression déjà corrigée pour T3 (`analyzer.py:410-415`, Chantier 0.b). À
+   écrire explicitement dans 8.3, sinon le gain image sera annulé par la perte de cache.
+6. **Latence de scan** : un aller-retour bloquant supplémentaire sur 100% des annonces, jamais
+   chiffré ni mentionné.
+
+**Verdict** : non — 8.3 ne peut pas être utilement écrit en l'état. Trois blocages réels, dans cet
+ordre : **(1)** cadrage non stabilisé (9.1, décision utilisateur nécessaire) ; **(2)** contrat 8.3
+impossible à rédiger sans budget de tokens (9.4/9.5.2, décision utilisateur nécessaire : quel
+budget cible, sachant le point mort ≈1385 tokens/annonce) ; **(3)** §5 auto-contradictoire dans son
+ordonnancement (9.4, nécessite d'accorder explicitement une exception "changement `analyzer.py`
+sous drapeau avant benchmark, désactivé par défaut"). **Prêts à écrire dès maintenant, sans
+attendre** : le périmètre de 8.3 (T1+T2+T3, pas T3 seul), la suppression de `visual_inspection`,
+la correction sur `force_expert` (pas d'appel dédié), l'exclusion de `analyze_deal_light()` du
+chantier, et l'ajout au périmètre §7 de la réécriture des trois prompts de prod + la question des
+configs Firestore déjà persistées.
