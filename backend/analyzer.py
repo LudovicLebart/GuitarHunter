@@ -94,7 +94,10 @@ class DealAnalyzer:
             examples_lines = few_shot_examples if isinstance(few_shot_examples, list) else str(few_shot_examples).split('\n')
             examples_str = "\n".join(examples_lines) + "\n\n"
 
-        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False)
+        # sort_keys=True : garantit un préfixe identique octet pour octet entre threads/
+        # redémarrages (le cache implicite Gemini est un match de préfixe exact) — sans ça,
+        # l'ordre des clés d'un dict Python n'est pas garanti stable d'un process à l'autre.
+        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False, sort_keys=True)
 
         return (
             f"{main_prompt_str}\n\n"
@@ -144,6 +147,7 @@ class DealAnalyzer:
                         f"[tokens] model={model_name} images={image_count} "
                         f"in={getattr(usage, 'prompt_token_count', 0)} "
                         f"out={getattr(usage, 'candidates_token_count', 0)} "
+                        f"cached={getattr(usage, 'cached_content_token_count', 0)} "
                         f"total={getattr(usage, 'total_token_count', 0)}"
                     )
                 cleaned_text = self._clean_json_response(response.text)
@@ -403,7 +407,12 @@ class DealAnalyzer:
                 reasoning=result_t2.get('summary', 'Analyse rapide T2 terminée.')
             )
             
-            full_prompt_t3 = f"{context_t3}\n\n{base_prompt}"
+            # base_prompt avant context_t3 (et non l'inverse) : aligne T3 sur le pattern déjà
+            # correct de T1/T2 (bloc statique taxonomie/prompt de base en tête, addendum
+            # spécifique au Tier après) pour laisser le cache implicite Gemini matcher le
+            # préfixe statique commun — l'ordre précédent plaçait le contexte T2 (dynamique,
+            # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
+            full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
             
             result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email)
             
