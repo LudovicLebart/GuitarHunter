@@ -29,7 +29,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 # Annonce ciblée par l'utilisateur (2026-09-06/07) : conversation de chat réelle, pour estimer
 # le vrai coût en tokens cumulé sur toute la conversation (chaque tour Gemini renvoie l'historique
@@ -58,6 +58,16 @@ def run():
     lui-même. Approximation grossière (CHARS_PER_TOKEN=4, pas le vrai tokenizer Gemini,
     inaccessible ici) — donne un ordre de grandeur, pas un chiffre facturé exact. Lecture seule
     (aucune écriture Firestore), idempotent.
+
+    Exécuté le 2026-09-07 (run GitHub Actions #419) : 20 appels modèle sur la conversation
+    complète (aucun marqué isError, malgré les 4 placeholders "⚠️ Erreur" vus au run #417 — leur
+    contenu compte quand même dans le cumul, output≈14 tokens chacun, l'essentiel du coût de ces
+    tours vient de l'input déjà accumulé à ce point). Input cumulé ≈162 051 tokens, output cumulé
+    ≈7 570 tokens, total ≈169 621 tokens. Coût estimé (tarif gemini-3.1-pro-preview) ≈$0.41 pour
+    CETTE SEULE conversation — à comparer aux ~$0.004-0.005 estimés pour toute la cascade T1-T3
+    de cette même annonce (run #415) : le chat coûterait ~80-100x plus que l'analyse automatique.
+    Croissance de l'input par appel clairement super-linéaire (2 121 → 14 419 tokens du 1er au
+    20e appel), confirmant que chaque tour repaye l'historique complet. ACTIVE repassé à False.
     """
     from backend.scripts.export_neck_reset_sample import setup_firebase
     from config import APP_ID_TARGET
