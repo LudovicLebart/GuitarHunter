@@ -327,6 +327,47 @@ peu significatif : 17% sur la sortie d'un tier qui ne représente que 5% des ann
 moins que le facteur 2,4x sur le volume (Chantier 0.a). **Le choix de modèle T3 est une
 décision de qualité, pas d'économie** — à ne pas présenter comme telle.
 
+**Vérification d'un rapport comparatif externe (2026-09-07)** — l'utilisateur a fourni un PDF
+("Benchmark API IA : Scores, Tarifs et Évaluation — Septembre 2026 V6") comparant GPT-6 Astra,
+GPT-5.6 Sol, Gemini 3.1 Pro, Claude Sonnet 5, GPT-6 Mini, Qwen3.8 Max/Flash sur MMLU/MMMU/
+HumanEval et tarifs, concluant à un remplacement de Gemini 3.1 Pro par Sonnet 5. **Généré par
+Gemini 3.1 Pro Thinking lui-même** — il a fallu 3 rondes de correction et forcer le modèle à
+citer ses sources pour obtenir ce document ; confiance de l'utilisateur dans le résultat : 0%.
+Vérification menée (WebSearch + skill `claude-api`), verdict : le document ne résiste pas au
+contrôle.
+
+- **Tarifs faux ou périmés** : Gemini 3.1 Pro surestimé de 25% (2,50$/15,00$ annoncés contre
+  2,00$/12,00$ réels — soit le tarif déjà câblé dans `run_once.py::PRICING["t3"]`, le document
+  se contredit avec les propres données de facturation du projet). GPT-5.6 Sol au tarif
+  d'avant la baisse du 24/08/2026 (5,00$/30,00$ au lieu de 4,00$/20,00$ en vigueur). Qwen3.8-
+  Flash surestimé ×3,5 (0,50$/1,50$ annoncés contre 0,14$/0,42$ réels). Seuls Claude Sonnet 5
+  (2,00$/10,00$), Qwen3.8 Max (2,00$/6,00$) et GPT-6 Astra (10,00$/50,00$) sont exacts.
+- **Un modèle inventé** : "GPT-6 Mini" n'existe pas dans le catalogue OpenAI (familles réelles :
+  GPT-5.4 Mini/Nano/Pro, GPT-5.6 Luna/Terra/Sol) — le document lui attribue un tarif et des
+  scores de toutes pièces.
+- **Méthodologie de scoring obsolète** : MMLU et HumanEval sont saturés/contaminés depuis
+  longtemps pour tout modèle de pointe 2026 (tous >90%, plus aucun labo ne les publie sur ses
+  fiches modèles actuelles — remplacés par GPQA Diamond, SWE-bench Verified, MMMU-Pro,
+  ARC-AGI-2, HLE). Un comparatif 2026 construit sur MMLU/HumanEval n'a pas de source
+  vérifiable correspondant à ses chiffres précis.
+- **Sur les benchmarks 2026 réellement publiés et pertinents pour le cas d'usage (vision de
+  guitares)** : GPQA Diamond — Sonnet 5 96,2% vs Gemini 3.1 Pro 94,3% (Sonnet devant, raisonnement
+  pur) ; **MMMU-Pro (vision, le plus proche de l'usage réel) — Sonnet 5 76,3% vs Gemini 3.1 Pro
+  80,5% (Gemini devant)**. Sur le seul axe où Guitar Hunter engage réellement le modèle T3 en
+  production (analyse de photos), les données publiques disponibles ne soutiennent PAS
+  l'hypothèse du document ("Sonnet 5 remplace Gemini avec gain qualité ET prix") — prix quasi
+  identique une fois corrigé, qualité vision penchant plutôt pour Gemini sur ce benchmark public.
+
+**Conclusion** : ce faux départ confirme, plutôt qu'il ne remplace, la nécessité du harnais de
+benchmark maison (Chantier D, reconstruction recommandée ci-dessus) — un score générique ne
+peut pas trancher pour le cas d'usage précis de ce projet (photos de guitares, contrat JSON de
+prod). Il ajoute un signal opérationnel indépendant des scores publics, cohérent avec la
+déception initiale de l'utilisateur envers Gemini : sur une tâche de pure synthèse
+bibliographique avec sourcing exigé, Gemini 3.1 Pro Thinking (le modèle même évalué comme
+"modèle de pointe pour l'analyse" du projet) a produit un document nécessitant 3 corrections et
+un forçage de sourcing avant d'être seulement vérifiable — sans que cela permette de conclure
+sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de production.
+
 ---
 
 ## Synthèse : indépendance des chantiers
