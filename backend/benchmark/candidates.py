@@ -11,6 +11,7 @@ import base64
 import logging
 import os
 
+import anthropic
 import requests
 import google.generativeai as genai
 from openai import OpenAI
@@ -110,6 +111,57 @@ def call_gemini_pro_compact(question: str, image_urls: list) -> str:
     return _call_gemini(rewrite_prompt, [], GEMINI_MODELS["default_gatekeeper"])
 
 
+# Comparatif demandé par l'utilisateur (2026-09-07) : Claude Sonnet 5 comme candidat vision
+# à part entière (pas seulement comme juge, voir judge.py) — motivé par une déception
+# croissante envers la qualité perçue de Gemini. Tarif $2,00/$10,00 par M tokens (in/out,
+# skill claude-api vérifié 2026-09-07) contre $2,00/$12,00 pour gemini-3.1-pro-preview :
+# entrée identique, sortie ~17% moins chère chez Claude. Tokenisation image ≈ (largeur×hauteur)/750
+# (formule Anthropic documentée) : pour une photo d'annonce moyenne ~650x960px, ≈830 tokens —
+# du même ordre de grandeur que le calibrage Gemini (~900 tokens/photo, run_once.py).
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+CLAUDE_MODEL = os.getenv("BENCHMARK_CLAUDE_MODEL", "claude-sonnet-5")
+
+_claude_client = None
+
+
+def _get_claude_client():
+    global _claude_client
+    if _claude_client is None:
+        if not ANTHROPIC_API_KEY:
+            raise RuntimeError("ANTHROPIC_API_KEY manquant")
+        _claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return _claude_client
+
+
+def call_claude_sonnet(question: str, image_urls: list) -> str:
+    """Claude Sonnet 5 (vision native) sur le même jeu de questions/photos que les candidats
+    Gemini/GPT/Qwen — comparatif coût ET qualité, pas seulement un rôle de juge."""
+    client = _get_claude_client()
+    content = []
+    for url in image_urls:
+        image_bytes = _download_image_bytes(url)
+        if image_bytes:
+            b64 = base64.b64encode(image_bytes).decode("utf-8")
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+            })
+    content.append({"type": "text", "text": question})
+
+    # thinking désactivé : comparaison à budget de raisonnement équivalent aux autres
+    # candidats (aucun ne "réfléchit" avant de répondre), et coût/latence prévisibles.
+    response = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        thinking={"type": "disabled"},
+        messages=[{"role": "user", "content": content}],
+    )
+    text_block = next((b for b in response.content if getattr(b, "type", None) == "text"), None)
+    if text_block is None:
+        raise RuntimeError("Aucun bloc texte dans la réponse Claude (thinking seul ?)")
+    return text_block.text.strip()
+
+
 def _call_openai_compatible(question: str, image_urls: list, model_name: str, api_key: str, base_url: str = None) -> str:
     if not api_key:
         raise RuntimeError(f"Clé API manquante pour le modèle {model_name}")
@@ -197,4 +249,5 @@ CANDIDATES = {
     "gpt4o_mini": call_gpt4o_mini,
     "qwen": call_qwen_tokenrouter,
     "hybrid": call_hybrid_qwen_gemini,
+    "claude_sonnet": call_claude_sonnet,
 }

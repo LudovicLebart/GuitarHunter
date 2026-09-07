@@ -15,14 +15,18 @@ prod exige un rapport "EXHAUSTIF", contrairement au Tier 2 déjà en puces) à
 répondre en puces strictes, puis réécrire cette sortie en prose par un modèle
 bon marché (gemini-3.5-flash-lite), dégrade le raisonnement par rapport à
 `gemini_pro` — un score équivalent validerait ~55% d'économie sur le poste de
-sortie du Tier 3 ($12/M tokens).
+sortie du Tier 3 ($12/M tokens). Le candidat "claude_sonnet" compare Claude
+Sonnet 5 (vision native) à Gemini sur le même jeu de questions — comparatif
+coût ET qualité demandé par l'utilisateur (2026-09-07), pas seulement le rôle
+de juge que Claude tient déjà (judge.py).
 
 Usage :
     python -m backend.benchmark.run_benchmark
     python -m backend.benchmark.run_benchmark --models gemini,qwen --limit 5
 
 Clés API requises (.env), selon les candidats sélectionnés :
-    GEMINI_API_KEY, OPENAI_API_KEY, TOKENROUTER_API_KEY, ANTHROPIC_API_KEY (juge, toujours requis)
+    GEMINI_API_KEY, OPENAI_API_KEY, TOKENROUTER_API_KEY, ANTHROPIC_API_KEY
+    (ANTHROPIC_API_KEY sert à la fois au juge, toujours requis, et au candidat claude_sonnet)
 """
 import argparse
 import json
@@ -67,7 +71,7 @@ def run_candidate(model_key, call_fn, dataset):
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark GuitarHunter — comparaison de modèles vision")
-    parser.add_argument("--models", default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid", help="Modèles candidats séparés par des virgules")
+    parser.add_argument("--models", default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid,claude_sonnet", help="Modèles candidats séparés par des virgules")
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")
     args = parser.parse_args()
 
