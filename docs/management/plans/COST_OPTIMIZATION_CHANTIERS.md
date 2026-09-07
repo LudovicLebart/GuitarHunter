@@ -358,6 +358,16 @@ contrôle.
   l'hypothèse du document ("Sonnet 5 remplace Gemini avec gain qualité ET prix") — prix quasi
   identique une fois corrigé, qualité vision penchant plutôt pour Gemini sur ce benchmark public.
 
+**Précision de motivation (2026-09-07)** : le reproche de l'utilisateur à Gemini 3.1 Pro n'est pas
+la qualité brute mais la fiabilité factuelle — "il ne vérifie pas les données", illustré
+directement par l'épisode ci-dessus. Deux variantes d'intégration pour Claude Sonnet 5 au Tier 3,
+formalisées dans `CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md` §1bis : **(a)** remplacement
+intégral (Sonnet 5 fait vision + raisonnement, indépendant du Chantier B) ou **(b)** remplacement
+du seul raisonnement (Sonnet 5 reçoit une description texte produite par le modèle de perception
+bon marché du Chantier B — auquel cas Chantier B devient un prérequis technique de cette variante,
+et permet de comparer Gemini/Sonnet 5 sur le seul raisonnement, à vision égale). Pas encore
+tranché — à mesurer par le harnais (candidat `claude_sonnet` déjà codé pour (a)) avant de choisir.
+
 **Conclusion** : ce faux départ confirme, plutôt qu'il ne remplace, la nécessité du harnais de
 benchmark maison (Chantier D, reconstruction recommandée ci-dessus) — un score générique ne
 peut pas trancher pour le cas d'usage précis de ce projet (photos de guitares, contrat JSON de

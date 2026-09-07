@@ -1,18 +1,35 @@
 # Plan d'implémentation — Chantier B : séparer perception et raisonnement (2026-09-07)
 
-**Statut :** ⚠️ **non prêt pour l'implémentation** (verdict Claude Opus, consultation du 2026-09-07,
-voir §8) — décision d'architecture centrale non tranchée (§8.1) et absence de preuve que le
-problème que ce chantier résout existe réellement en production (§8.6). Rien à coder tant que ces
-deux points n'ont pas été arbitrés avec l'utilisateur. Formalise et étend
-`docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` (Chantier B) suite à la demande explicite
-de l'utilisateur du 2026-09-07.
+**Statut :** ⚠️ en révision — la consultation Opus du 2026-09-07 (§8) a été menée sur une
+**motivation mal formulée par erreur** (corrigé ci-dessous le même jour, avant toute suite) ; les
+points techniques 8.1-8.5 et 8.7-8.8 restent valides et bloquants, mais 8.6 ("aucune preuve que le
+problème existe") ne s'applique plus tel quel — voir la correction de cadrage juste en dessous.
+Formalise et étend `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` (Chantier B) suite à la
+demande explicite de l'utilisateur du 2026-09-07.
 
-**Rappel de portée (déjà acté au document de synthèse)** : ce chantier n'est **pas** motivé par
-l'économie — Opus a chiffré le gain net à ≈0, voire négatif selon la variante. Il est motivé par
-des raisons produit : cohérence de la description entre Tiers et avec le chat, réutilisation pour
-`NECK_RESET_VISION_PLAN.md`, et — nouveau, discuté le 2026-09-07 — fiabiliser le Tier 3 comme
-source d'analyse "complète, factuelle et vérifiable" (identification marque/authenticité/année)
-en le déchargeant d'un travail de perception brute déjà fait en amont.
+## 0. Correction de cadrage (2026-09-07, avant toute suite technique)
+
+**Erreur de brief corrigée par l'utilisateur** : la première version de ce plan présentait le
+Chantier B comme motivé par une "fiabilisation du Tier 3" — ce qui a orienté à tort la
+consultation Opus (§8) vers la question "Gemini T3 a-t-il un vrai problème de perception ?".
+**Ce n'est pas la bonne question.** Ce chantier et le Chantier F (`COST_OPTIMIZATION_CHANTIERS.md`)
+répondent à **deux motivations complètement séparées**, à ne plus jamais recombiner :
+
+- **Chantier B (ce document) = coût, pas fiabilité.** Objectif : trouver un modèle de perception
+  visuelle moins cher que Gemini pour le travail que font déjà T1/T2 aujourd'hui — Qwen3.8-Flash,
+  un GPT vision bon marché, ou une autre suggestion — **idéalement d'aussi bonne qualité que
+  Gemini 3.1 Pro**, pas parce que Gemini se trompe. Aucun jugement de fiabilité sur Gemini
+  là-dedans.
+- **Chantier F (`COST_OPTIMIZATION_CHANTIERS.md`) = fiabilité du raisonnement Tier 3, pas coût.**
+  Le reproche de l'utilisateur à Gemini 3.1 Pro : il "ne vérifie pas les données" — illustré par
+  l'épisode du PDF de benchmark fabriqué (`COST_OPTIMIZATION_CHANTIERS.md`, section vérification
+  du 2026-09-07). Objectif : remplacer Gemini 3.1 Pro par Claude Sonnet 5 au Tier 3, selon deux
+  variantes à trancher (§1bis) — **indépendamment** de tout ce qui touche au coût de la
+  perception.
+
+L'incident Qwen/Guerrilla Guitars (§2) reste pertinent **uniquement** comme leçon pour le
+garde-fou du modèle de perception bon marché — il ne dit rien sur Gemini et ne doit plus servir
+d'argument pour ou contre l'existence d'un "problème T3" (§8.6 corrigé en conséquence).
 
 ---
 
@@ -26,6 +43,28 @@ Séparer deux rôles aujourd'hui confondus dans chaque appel Gemini de la cascad
 - **Raisonnement** (fait par le Tier 3, qui reste responsable de la conclusion) : à partir de
   cette description texte (jamais des photos brutes), répondre aux questions qui comptent pour
   l'utilisateur — "Gibson ou copie ?", "quelle année ?", valeur, état structurel.
+
+## 1bis. Lien avec le Chantier F (remplacement de Gemini 3.1 Pro par Claude Sonnet 5 au Tier 3)
+
+Deux variantes d'intégration, à trancher séparément de tout le reste de ce plan — mais le choix
+détermine si le Chantier B devient un prérequis du Chantier F ou reste totalement indépendant :
+
+- **(a) Remplacement intégral** : Claude Sonnet 5 fait vision + raisonnement lui-même au Tier 3
+  (appel multimodal natif, voit les photos directement, ne dépend d'aucune étape de perception
+  externe). Dans ce cas, **le Chantier B ne conditionne pas le Chantier F** — les deux avancent
+  indépendamment, chacun sur son propre axe (coût de la perception T1/T2 d'un côté, qualité du
+  raisonnement T3 de l'autre).
+- **(b) Remplacement partiel** : Claude Sonnet 5 ne fait que le raisonnement, à partir d'une
+  description textuelle des photos produite par le modèle de perception bon marché de ce
+  Chantier B. Dans ce cas, **le Chantier B devient un prérequis technique du Chantier F** — le
+  même texte de perception alimenterait alors soit Gemini 3.1 Pro, soit Sonnet 5, ce qui permet
+  au passage de comparer les deux raisonneurs sur un pied d'égalité (même entrée, seul le
+  raisonnement diffère) plutôt que de confondre différence de raisonnement et différence de
+  vision dans le résultat du benchmark.
+
+**Pas encore tranché.** Les deux méritent d'être mesurées par le harnais de benchmark (candidat
+`claude_sonnet` déjà codé pour (a), variante (b) à ajouter si retenue) avant de choisir — voir
+`COST_OPTIMIZATION_CHANTIERS.md` Chantier F pour l'état d'avancement de cette comparaison.
 
 ## 2. Garde-fou — scope volontairement limité au logo pour l'instant
 
@@ -194,16 +233,16 @@ un besoin très proche (page HTML de revue humaine sur échantillon Firestore) �
 dériver plutôt que réinventer, de même pour `sample_benchmark_dataset.py` qui n'existe pas encore
 malgré une référence prématurée en §5.
 
-**8.6 — Angle mort le plus important : aucune preuve dans le dépôt que ce chantier résout un
-problème réel.** T3 est le meilleur modèle vision du pipeline (`gemini-3.1-pro-preview`) ; tous
-les candidats de perception (§4) sont des modèles plus faibles — le chantier remplace la
-perception du modèle le plus fort par le résumé texte d'un modèle plus faible. Le seul incident
-documenté (Qwen/Guerrilla) est une hallucination d'**interprétation** de Qwen, pas un échec de
-perception de Gemini T3. Le seul signal externe disponible va dans l'autre sens (MMMU-Pro : Gemini
-3.1 Pro devant Sonnet 5). **Avant tout code : rassembler 3-5 échecs T3 réels de production
-imputables à la perception** (gisements déjà identifiés dans le projet : `initialVerdict`/
-`initialModelUsed` snapshotté, `requalificationProposalState === 'applied'`) — si aucun ne se
-confirme, ce chantier n'a pas de problème à résoudre et sa priorité doit être revue à la baisse.
+**8.6 — CORRIGÉ (2026-09-07, §0) : cette objection ne s'applique plus telle quelle.** Formulée à
+l'origine contre une motivation "fiabiliser T3" que ce plan n'a en réalité jamais eue — la vraie
+motivation du Chantier B est le coût de la perception, indépendante de toute question de fiabilité
+de Gemini (§0). L'observation technique sous-jacente reste vraie et utile, reformulée sous la
+bonne question : T3 (`gemini-3.1-pro-preview`) est le meilleur modèle vision du pipeline, et tous
+les candidats de perception bon marché (§4) sont *a priori* plus faibles sur la vision pure — donc
+**le vrai critère n'est pas "Gemini a-t-il un problème ?" mais "le candidat bon marché retenu
+égale-t-il la qualité de perception actuelle, à un prix inférieur ?"**, exactement ce que mesure
+déjà §5. Rien à rassembler comme "preuve d'échec" avant de commencer — le §5 (benchmark) est la
+preuve à produire, pas un prérequis distinct.
 
 **8.7 — Motivation "cohérence avec le chat" non tenue par le plan tel qu'écrit.** Le chat envoie
 déjà les photos lui-même (`geminiChatService.js:202-214`) et son contexte texte n'injecte ni
@@ -220,7 +259,10 @@ de 0,5-1,4$ sur 9,43$, modeste mais de **signe opposé** à ce que §6 affirmait
 précise. La conclusion pratique ("ne jamais présenter comme une économie") reste valide, mais doit
 s'appuyer sur ce chiffrage-ci pour la variante externe, pas sur celui du Chantier B générique.
 
-**Verdict** : non prêt pour l'implémentation. Points 8.1, 8.3 et 8.6 sont des décisions à prendre
-avec l'utilisateur avant toute chose ; 8.2, 8.4, 8.5, 8.8 sont des corrections de rédaction/
-périmètre à intégrer une fois les décisions prises. Ordre de blocage recommandé : 8.6 (établir que
-le problème existe) → 8.1 (où insérer) → 8.3 (contrat de perception) → reste.
+**Verdict (mis à jour après correction de cadrage, §0)** : non prêt pour l'implémentation, mais
+pour un sous-ensemble plus restreint qu'initialement rendu — 8.6 ne bloque plus rien (corrigé
+ci-dessus). Restent bloquants : **8.1** (où s'insère la perception dans la cascade — décision à
+prendre avec l'utilisateur, §1bis en dépend aussi pour la variante (b) du Chantier F), **8.3**
+(dériver le contrat de perception du JSON de prod). 8.2, 8.4, 8.5, 8.8 restent des corrections de
+rédaction/périmètre à intégrer une fois 8.1/8.3 tranchés, avant tout code. 8.7 (cohérence chat) à
+retrancher des motivations affichées ou à ajouter explicitement au plan technique.
