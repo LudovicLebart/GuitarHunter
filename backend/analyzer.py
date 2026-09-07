@@ -80,6 +80,18 @@ class DealAnalyzer:
             self.logger.warning(f"⚠️ Impossible de traiter l'image {url}: {e}")
             return None
 
+    def _prepare_visual_parts(self, listing_data):
+        """Télécharge et prépare les parts visuelles (photos) envoyées à la cascade Gemini.
+
+        Extrait de `_run_analysis_cascade` (refactoring pur, comportement inchangé) pour offrir un
+        point de substitution unique — le harnais de benchmark du Chantier B
+        (`docs/management/plans/CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md`) peut y brancher une
+        description de perception à la place des photos brutes sans toucher au reste de la cascade
+        ni introduire de drapeau en production.
+        """
+        image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
+        return [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+
     def _clean_json_response(self, text_response):
         match = re.search(r'```json\s*([\s\S]*?)\s*```', text_response)
         return match.group(1).strip() if match else text_response.strip()
@@ -194,7 +206,7 @@ class DealAnalyzer:
         déclencher l'Expert Pro T3 (coûteux, inutile pour de l'historique déjà écoulé). Un seul
         appel au modèle Analyste T2, avec une instruction dédiée (`sold_backfill_instruction`)
         demandant un JSON réduit sans champ de texte libre (pas de `analysis`/`reasoning`/
-        `summary`/`visual_inspection`) — économise à la fois des appels entiers (T1, risque T3) et
+        `summary`) — économise à la fois des appels entiers (T1, risque T3) et
         des tokens de sortie par appel, par rapport à `analyze_deal()`. Utilisé par
         `backend/scripts/backfill_sold_scores.py`.
 
@@ -279,7 +291,7 @@ class DealAnalyzer:
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
-        config = firestore_config.get('analysisConfig', {})
+        config = (firestore_config or {}).get('analysisConfig', {})
         # Défauts alignés sur GEMINI_MODELS (config.py) — gemini-2.5-* est retiré par Google en
         # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
         # n'a jamais persisté sa config (voir CLAUDE.md § Points d'Attention Critiques).
@@ -295,8 +307,7 @@ class DealAnalyzer:
         self.logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
         # Téléchargement des images
-        image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
-        images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+        images = self._prepare_visual_parts(listing_data)
 
         # 1. Construction du Prompt de Base (DRY : Fait une seule fois)
         base_prompt = self._construct_base_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples)
