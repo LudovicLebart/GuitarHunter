@@ -29,7 +29,7 @@ import os
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 # Annonce ciblée par l'utilisateur (2026-09-06) : une conversation de chat "qui va continuer",
 # pour vérifier concrètement l'effet de l'élision de photos (Plan 1 tokens, Lot C/D,
@@ -55,6 +55,15 @@ def run():
     utilisateur enregistré jusqu'à trouver le document, imprime pour chaque message du tour :
     rôle, texte affiché (tronqué), nombre de parts image et taille base64 totale (octets) de ces
     parts. Termine par un total agrégé sur toute la conversation.
+
+    Exécuté le 2026-09-07 (run GitHub Actions #417) : annonce "Guitar acoustique Yamaha fg 332",
+    40 messages. Seulement 5 images sur toute la conversation (2 au message 1, 3 au message 23)
+    — jamais assez pour déclencher l'élision (budget 6), donc pas de conclusion possible sur son
+    fonctionnement ici. Tailles réelles ~60-120 Ko/photo après compression, cohérentes avec le
+    redimensionnement 1024px/JPEG 80% — pas de trace de photo brute de téléphone non compressée.
+    Découverte annexe : 4 messages "⚠️ Erreur lors de la génération de la réponse" (indices 8, 24,
+    28, 30) — chaque réessai après échec repaye l'historique complet de la conversation, un coût
+    invisible dans l'analyse Firestore de la cascade T1-T3. ACTIVE repassé à False.
     """
     from backend.scripts.export_neck_reset_sample import setup_firebase
     from config import APP_ID_TARGET
