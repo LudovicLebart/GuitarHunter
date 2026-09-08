@@ -228,6 +228,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **Recréation du Logging** : Le `firestore_handler` est recréé à chaque redémarrage de thread car l'instance précédente est définitivement fermée lors du crash/arrêt du thread précédent.
 - **Hygiène Multi-tenant** : Le watchdog supprime désormais les contextes de bots pour les utilisateurs retirés de Firestore (ou non présents dans `USER_IDS_TARGET`), évitant les fuites de ressources.
 - **Isolation Absolue** : Chaque bot possède son propre logger Python (`bot.{user_id[:8]}`) et son propre `FirestoreHandler` pointant vers `artifacts/{app}/users/{user}/logs`.
+- **Filet de sécurité local (2026-09-08)** : ce même logger reçoit aussi un `TimedRotatingFileHandler` (`backend/logging_config.py`, dossier `logs/` sur le serveur, un fichier par utilisateur, rotation quotidienne) — indépendant du TTL Firestore de 3 jours sur la sous-collection `logs` et actif même en mode offline. Rétention gérée par `backend/log_retention.py`, job quotidien planifié (compression `.gz` >30j, suppression >1 an). Voir `DATA_FLOW.md` §7.
 
 **Mécanisme de redémarrage :**
 ```python
