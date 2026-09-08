@@ -8,7 +8,8 @@
 
 ## 0. Rappel du Fonctionnement du Caching Gemini
 
-- **Caching implicite** : activé par défaut sur tous les modèles 2.5+ (nos 3 Tiers). Automatique, **aucun code requis**. Seuil minimum ~2048 tokens de préfixe commun. Ne matche que sur un **préfixe identique octet-pour-octet** entre appels — y compris entre utilisateurs différents partageant la même clé API, tant que le contenu est rigoureusement identique.
+- **Caching implicite** : activé par défaut sur tous les modèles 2.5+ (nos 3 Tiers). Automatique, **aucun code requis**. Ne matche que sur un **préfixe identique octet-pour-octet** entre appels — y compris entre utilisateurs différents partageant la même clé API, tant que le contenu est rigoureusement identique. **Mécanisme opportuniste / best-effort côté serveur Google** : aucun objet de cache persistant n'existe, rien n'est garanti même au-dessus du seuil minimum (confirmé empiriquement le 2026-09-08 — voir §9, taux de hit partiel de 17,5% sur un Tier pourtant éligible).
+- **Seuil minimum de préfixe commun, DÉPENDANT DU MODÈLE** *(vérifié sur `ai.google.dev/gemini-api/docs/caching`, 2026-09-08 — corrige le chiffre unique "~2048" utilisé jusqu'ici dans ce document)* : **4096 tokens** pour toute la famille Gemini 3/3.1 (Flash 3.5 à 3.8 **et** Pro 3.1 Preview — nos 3 Tiers actuels), contre 2048 tokens sur l'ancienne génération 2.5. Le support du cache implicite sur le palier **Flash-Lite** spécifiquement reste flou dans la documentation trouvée — aucun seuil précis identifié pour ce palier, voir §9.
 - **Caching explicite** (`client.caches.create()`, SDK `google-genai`) : réduction garantie de **90%** sur les tokens réutilisés (modèles 2.5+), mais facturation de **stockage** selon le `ttl`, et gestion manuelle du cycle de vie (création, refresh, expiration).
 - **Scope par modèle** : un cache est lié à un modèle précis → il faut un cache distinct par Tier (Portier, Analyste, Expert Pro), puisque chacun utilise un `model_name` différent.
 
@@ -199,6 +200,44 @@ Le taux de rejet mesuré (~92%) est élevé, mais l'échantillonnage (`--sample-
 ### 8.3 Suivi Continu dans l'UI (2026-07-11)
 
 L'échantillonnage manuel ci-dessus (§8.2) a confirmé un cas de faux positif mais reste un contrôle ponctuel, à relancer à la main. Un suivi permanent a été ajouté côté produit : `repository.py::create_new_deal()` snapshotte désormais `initialVerdict`/`initialModelUsed` (figés à la création), et `StatsView.jsx` affiche en continu le nombre d'annonces arrêtées au Portier seul puis validées après réanalyse manuelle ("Erreurs Portier corrigées", voir `ARCHITECTURE.md` et `JOURNAL.md`). Ne remplace pas `analyze_funnel_by_user.py --sample-size` pour le diagnostic qualitatif (lire le `reasoning` d'un rejet) mais donne un taux d'erreur mesurable sans script à lancer.
+
+---
+
+## 9. Mesure Réelle du Caching Implicite Après le Fix (2026-09-08)
+
+Le correctif prévu par ce plan (§2.3, sérialisation canonique de la taxonomie) a fini par être appliqué le 2026-09-07 (`sort_keys=True` + réordonnancement du prompt Tier 3 — voir `JOURNAL.md`). Deux mesures ont suivi le lendemain.
+
+### 9.1 Première mesure (`run_once.py`, run GitHub Actions #427)
+
+| Tier | Modèle | Appels | Cachés | Ratio |
+|---|---|---:|---:|---:|
+| 1 — Portier | `gemini-3.5-flash-lite` | 81 | 0 | 0% |
+| 2 — Analyste | `gemini-3.7-flash` | 41 | 7 | 17,1% |
+| 3 — Expert Pro | `gemini-3.1-pro-preview` | 11 | 0 | 0% |
+
+Hypothèse initiale : les hits du Tier 2 seraient des retries JSON sur la même annonce (`_call_gemini_json` rappelle avec le prompt précédent + texte ajouté en cas d'erreur de parsing), pas un vrai partage inter-annonces du bloc statique.
+
+### 9.2 Diagnostic de timing (`run_once.py`, run #431) — hypothèses réfutées
+
+| Tier | Modèle | Appels | Cachés | Écart médian entre appels | Avertissements JSON invalide |
+|---|---|---:|---:|---:|---:|
+| 1 | `gemini-3.5-flash-lite` | 78 | 0 | **8,9s** (le plus serré) | 0 |
+| 2 | `gemini-3.7-flash` | 40 | 7 (17,5%) | 13,2s | 0 |
+| 3 | `gemini-3.1-pro-preview` | 11 | 0 | 53,8s | 0 |
+
+- **Hypothèse "retry JSON" réfutée** : zéro avertissement JSON invalide sur toute la fenêtre — les hits du Tier 2 sont des hits authentiques entre appels distincts, pas des retries.
+- **Hypothèse "écart de temps/TTL trop court" réfutée** : le Tier 1 a l'espacement le plus serré des 3 et pourtant 0% de cache — si l'écart entre appels limitait le cache, le Tier 1 devrait cacher au moins autant que le Tier 2.
+
+### 9.3 Recherche documentaire officielle (`ai.google.dev/gemini-api/docs/caching`, 2026-09-08)
+
+Voir §0 (mis à jour) pour le détail des seuils par modèle. Point clé : le cache implicite est **opportuniste/best-effort**, sans objet persistant — un taux de hit partiel (17,5%) sur un Tier par ailleurs éligible n'est donc pas anormal en soi. Seul le cache **explicite** garantirait un taux proche de 100% (déjà écarté pour ROI insuffisant, §7.6).
+
+### 9.4 Conclusion révisée
+
+- **Tier 2** : le fix fonctionne probablement comme prévu — cache authentique, le taux <100% s'explique par la nature best-effort du mécanisme, pas par un bug du projet.
+- **Tier 3** : **fausse alerte**. Avec seulement 11 appels, observer 0 hit est statistiquement cohérent avec le même taux que le Tier 2 (~2 hits attendus). Aucune preuve que le fix soit insuffisant pour ce Tier — à revérifier seulement si le volume augmente et reste bloqué à 0%.
+- **Tier 1 reste la vraie anomalie** : 0/78, statistiquement quasi impossible par hasard au taux du Tier 2. Cause probable non confirmée — le palier Flash-Lite pourrait avoir un comportement de cache implicite différent/plus restrictif (documentation floue sur ce point précis, §0). C'est aussi le Tier au plus gros volume de tokens (820k+/mesure), donc le plus gros levier potentiel si la cause est un jour confirmée et corrigée.
+- **Piste non explorée** : le bloc statique partagé (taxonomie + few-shot + prompt) n'a jamais été remesuré depuis l'estimation de ~3205 tokens (§7.1) — probablement dépassé aujourd'hui (taxonomie enrichie plusieurs fois depuis), ce qui expliquerait que le cache morde du tout sur Tier 2/3 malgré un seuil actuel de 4096 tokens supérieur à l'ancienne estimation.
 
 ---
 
