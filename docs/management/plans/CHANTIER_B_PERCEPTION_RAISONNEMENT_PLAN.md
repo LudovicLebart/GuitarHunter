@@ -95,6 +95,55 @@ de choisir.
 
 ---
 
+## 1ter. Élargissement du Chantier F aux 3 Tiers (2026-09-09) — enseignements de l'enquête caching Gemini
+
+**Le champ de test et d'évaluation du Chantier F s'élargit** : jusqu'ici scopé au seul Tier 3
+(`gemini-3.1-pro-preview` → Claude Sonnet 5), il couvre désormais les **3 Tiers** (Portier,
+Analyste, Expert Pro) — motivé par ce qui suit, mesuré sur la branche `dev` en marge de ce
+chantier (`JOURNAL.md`/`GEMINI_PROMPT_CACHING_PLAN.md §9` sur `dev`, non fusionné ici).
+
+**Ce qu'on a mesuré côté Gemini (les 3 Tiers actuels)** :
+- Le cache implicite Gemini (`§0` de ce document, mécanisme équivalent côté Gemini au caching
+  Claude ci-dessous) a un seuil minimum de préfixe commun **dépendant du modèle** : 4096 tokens
+  pour toute la famille Gemini 3/3.1 (Flash 3.5-3.8 et Pro 3.1 Preview — nos 3 Tiers), contre 2048
+  sur l'ancienne génération 2.5.
+- Le bloc statique partagé (taxonomie + few-shot + prompt principal, `prompts.json`) mesure
+  aujourd'hui **~4712 tokens** (remesuré le 2026-09-09, corrige l'estimation de ~3205 tokens du
+  `GEMINI_PROMPT_CACHING_PLAN.md §7.1`, devenue obsolète après plusieurs enrichissements de la
+  taxonomie) — au-dessus du seuil, ce qui explique que le cache morde un peu sur T2/T3.
+- **Mesure réelle en production (2026-09-08, 20776 logs Firestore scannés)** : Tier 2
+  (`gemini-3.7-flash`) 17,5% des appels cachés ; **Tier 3 (`gemini-3.1-pro-preview`, notre cible
+  actuelle du Chantier F) 0% sur 11 appels** — mais un diagnostic de timing a montré que c'est
+  cohérent avec une simple variance d'échantillon au taux de T2 (~2 hits attendus), pas une
+  preuve de dysfonctionnement ; **Tier 1 (`gemini-3.5-flash-lite`, Portier) 0% sur 78 appels**,
+  malgré l'espacement entre appels le plus serré des 3 — anomalie statistiquement significative,
+  cause non confirmée (comportement Flash-Lite possiblement différent/plus restrictif).
+- Le cache implicite Gemini est un mécanisme **opportuniste/best-effort côté serveur** : aucun
+  objet persistant, taux de hit partiel même sur un Tier éligible, pas de garantie.
+
+**Ce qui rend l'élargissement à Claude pertinent pour les 3 Tiers, pas seulement T3** : le caching
+Claude (`cache_control`, prefix match) est **explicite et vérifiable** — un `cache_control` sur le
+bloc statique donne un hit garanti tant que le TTL n'a pas expiré, avec un signal direct
+(`usage.cache_read_input_tokens`) pour savoir si ça marche, contrairement au best-effort Gemini
+qu'on vient de mettre des jours à diagnostiquer indirectement via les logs. Seuils minimums par
+modèle : 512 tokens (Opus 5, Fable 5/5.1), 1024 tokens (Sonnet 5), 4096 tokens (Haiku 4.5 — le
+plus proche du rôle "Portier" bon marché). Notre bloc statique (~4712 tokens) passe tous ces
+seuils. Économiquement, le cache explicite Claude n'a **pas de coût de stockage au repos**
+(contrairement au cache explicite Gemini, facturé à l'heure qu'il serve ou non) — seulement un
+surcoût à l'écriture (1,25×/2× selon TTL) et une réduction à la lecture (~0,1×), ce qui change
+complètement le calcul de rentabilité qu'on avait fait côté Gemini (`GEMINI_PROMPT_CACHING_PLAN.md
+§9`, marginal/négatif à cause du stockage).
+
+**Conséquence concrète pour le protocole de benchmark (§5)** : instrumenter le candidat
+`claude_sonnet` (et tout futur candidat Anthropic pour T1/T2) avec `cache_control` sur le bloc
+statique dès l'écriture du contrat de perception/raisonnement — en respectant le même ordre
+statique-puis-dynamique déjà noté comme piège en §6 — plutôt que d'ajouter le caching après coup.
+Élargir aussi la mesure tokens/coût/latence (§7, point 5) aux 3 Tiers, avec une colonne dédiée
+`cache_read_input_tokens`/`cache_creation_input_tokens` pour vérifier objectivement le hit rate
+Claude par Tier, comparable au taux Gemini mesuré ci-dessus.
+
+---
+
 ## 2. Garde-fou de perception — scope logo, prédicats observables uniquement
 
 **Scope** : limité au logo pour cette itération (généralisation à d'autres indices visuels —
