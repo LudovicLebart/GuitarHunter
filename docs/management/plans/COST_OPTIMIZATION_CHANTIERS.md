@@ -251,12 +251,22 @@ aussi concentrée.
 
 ---
 
-## Chantier F — Claude Sonnet 5 vs Gemini 3.1 Pro : coût et performance (nouveau, 2026-09-07)
+## Chantier F — Vers un pipeline sans Gemini (3 Tiers) : coût et performance (élargi 2026-09-09)
 
-**Motivation de l'utilisateur** : déception croissante envers la qualité perçue de Gemini
-("je ne serais pas surpris que tu sois meilleur"). Comparatif demandé à la fois sur le coût et
-sur la performance réelle pour les cas d'usage Guitar Hunter (analyse d'annonce, identification
-d'instrument, raisonnement sur l'état/la valeur).
+**Motivation initiale de l'utilisateur (2026-09-07)** : déception croissante envers la qualité
+perçue de Gemini ("je ne serais pas surpris que tu sois meilleur"). Comparatif demandé à la fois
+sur le coût et sur la performance réelle pour les cas d'usage Guitar Hunter (analyse d'annonce,
+identification d'instrument, raisonnement sur l'état/la valeur).
+
+**Motivation ajoutée (2026-09-09), périmètre élargi aux 3 Tiers** : le caching Gemini
+(mécanisme best-effort côté serveur, sans garantie ni objet persistant) s'avère peu fiable en
+production sur ce projet — voir `CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §1ter` pour le détail
+des mesures (Tier 1/Portier à 0% de hits sur 78 appels malgré l'espacement le plus serré des 3
+Tiers, anomalie non expliquée ; Tier 2 à 17,5% seulement ; Tier 3 à 0% sur un échantillon trop
+petit pour conclure). Plutôt que de continuer à chasser ce problème côté Gemini, l'objectif de ce
+chantier s'élargit : **tester la possibilité de ne plus utiliser Gemini du tout**, sur les 3 Tiers
+de la cascade (Portier, Analyste, Expert Pro), pas seulement le remplacement T3 déjà engagé
+ci-dessous — voir "Proposition de tests de modèles par Tier" plus bas.
 
 **Comparatif de coût (tarifs vérifiés 2026-09-07 via le skill `claude-api`)** :
 
@@ -278,15 +288,40 @@ qualité du raisonnement (moins de ré-analyses/corrections manuelles nécessair
 candidats), enregistré dans `CANDIDATES` et dans la liste `--models` par défaut de
 `run_benchmark.py`. **Pas encore exécuté.**
 
-**Portée à clarifier avant d'aller plus loin** : ce comparatif vise le rôle Tier 3 (Expert Pro)
-en premier lieu — c'est le rôle le plus coûteux et le plus qualitatif de la cascade, et celui
-où la déception de l'utilisateur envers Gemini semble la plus directement pertinente. Une
-bascule éventuelle du Tier 2 (volume beaucoup plus élevé, 25% des annonces contre 5% pour T3)
-serait une décision distincte, à ne considérer qu'après un signal clair sur T3 — la
-taxonomie/prompts/few-shot de prod sont calibrés depuis des mois sur le comportement JSON
-spécifique de Gemini, un changement de fournisseur pour le Tier 2 aurait un coût de bascule
-qualité à revalider entièrement (déjà noté au TODO pour GPT-5-mini/Qwen, s'applique de la même
-façon à Claude).
+**Portée initiale (2026-09-07), maintenant élargie ci-dessous** : ce comparatif visait le rôle
+Tier 3 (Expert Pro) en premier lieu — c'est le rôle le plus coûteux et le plus qualitatif de la
+cascade, et celui où la déception de l'utilisateur envers Gemini semblait la plus directement
+pertinente. Une bascule du Tier 2 (volume beaucoup plus élevé, 25% des annonces contre 5% pour
+T3) restait jugée plus risquée — la taxonomie/prompts/few-shot de prod sont calibrés depuis des
+mois sur le comportement JSON spécifique de Gemini, un changement de fournisseur pour le Tier 2
+(et a fortiori le Tier 1, appelé sur 100% des annonces) a un coût de bascule qualité à revalider
+entièrement (déjà noté au TODO pour GPT-5-mini/Qwen, s'applique de la même façon à Claude). La
+motivation caching (2026-09-09) ne supprime pas ce risque, mais justifie de le mesurer plutôt que
+de le laisser bloquer indéfiniment un chantier T1/T2 — voir la proposition ci-dessous.
+
+**Proposition de tests de modèles par Tier (2026-09-09), pour évaluer un pipeline sans Gemini** :
+
+| Tier | Rôle | Modèle prod actuel | Candidat à tester | Pourquoi ce candidat |
+|---|---|---|---|---|
+| 1 — Portier | Filtre rapide, 100% des annonces | `gemini-3.5-flash-lite` | Claude Haiku 4.5 | Le moins cher côté Claude, rôle le plus proche d'un filtre bon marché à haut volume ; seuil de cache le plus bas des 3 modèles Claude (4096 tokens, identique à Gemini) n'est pas un obstacle vu la taille du bloc statique (~4712 tokens, §1ter) |
+| 2 — Analyste | 5 scores numériques, ~25% des annonces | `gemini-3.7-flash` | Claude Sonnet 5 (ou Fable 5.1 si un point de comparaison low-cost supplémentaire est utile) | Volume le plus significatif après T1 — c'est là que la fiabilité du cache pèse le plus en pratique (17,5% de hits mesurés, meilleur des 3 Tiers mais loin d'un cache garanti) |
+| 3 — Expert Pro | Analyse exhaustive conditionnelle, ~5% des annonces | `gemini-3.1-pro-preview` | Claude Sonnet 5 (candidat `claude_sonnet`, déjà codé) | Déjà engagé (2026-09-07), voir ci-dessus — reste le point d'entrée le plus avancé de ce chantier |
+
+**Ce qu'il manque au harnais pour tester ça pour de vrai (pas codé dans cette passe documentation)** :
+- `backend/benchmark/candidates.py` n'a aujourd'hui qu'un seul candidat Claude, au niveau T3 et en
+  texte libre (sans le `system_instruction`/contrat JSON/taxonomie de production) — la correction
+  Opus §6 ci-dessous s'applique : le vrai risque d'un changement de fournisseur (conformité JSON,
+  dérive de taxonomie que `_canonicalize_classification` corrige déjà côté Gemini) n'est testé nulle
+  part pour l'instant, à aucun Tier.
+- Un candidat T1/T2 fidèle à la prod appellerait Claude avec le même contrat JSON strict que
+  `analyzer.py` (schéma de sortie, few-shot, taxonomie fermée) plutôt qu'en question ouverte —
+  sans quoi un score favorable à Claude ne validerait qu'un format de réponse différent, pas une
+  vraie capacité de substitution en production.
+- Le dataset actuel (40 fiches du Banc d'Essai) reste utilisable tel quel pour T3 (une question
+  ouverte par fiche) mais pas directement pour T1/T2 : ces rôles répondent à un contrat JSON
+  structuré, pas à une question en langage naturel — un candidat T1/T2 fidèle devrait être jugé
+  sur sa sortie JSON (conformité de schéma, verdict correct) plutôt que sur une réponse en prose,
+  ce qui suppose un `judge.py` étendu ou un juge dédié à cette forme de sortie.
 
 **Correction Opus (2026-09-07) — le harnais actuel ne peut pas répondre à la question posée,
 et il est structurellement biaisé en faveur de Gemini.** Six problèmes identifiés, par ordre de
@@ -390,7 +425,7 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 | C — Compression chat | `geminiChatService.js`, `useDealChat.js` | Rien des autres | Vérifier `cachedContentTokenCount` avant tout code (risque d'augmenter la facture) |
 | D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) + dataset à refaire (voir F) |
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
-| F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire avant toute conclusion (voir correction Opus) |
+| F — Vers un pipeline sans Gemini (3 Tiers) | `backend/benchmark/` (candidats T1/T2 à écrire, T3 déjà codé) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire pour T3 (voir correction Opus) ; candidats T1/T2 fidèles au contrat JSON de prod pas encore écrits |
 
 **Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
 reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses

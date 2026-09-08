@@ -142,6 +142,11 @@ statique-puis-dynamique déjà noté comme piège en §6 — plutôt que d'ajout
 `cache_read_input_tokens`/`cache_creation_input_tokens` pour vérifier objectivement le hit rate
 Claude par Tier, comparable au taux Gemini mesuré ci-dessus.
 
+**Objectif produit qui en découle (2026-09-09)** : au-delà de la seule question du caching,
+tester la possibilité de ne plus utiliser Gemini du tout sur les 3 Tiers — proposition de tests de
+modèles par Tier (candidats, ce qu'il manque au harnais) détaillée dans
+`COST_OPTIMIZATION_CHANTIERS.md` (Chantier F, élargi), pas dupliquée ici.
+
 ---
 
 ## 2. Garde-fou de perception — scope logo, prédicats observables uniquement
