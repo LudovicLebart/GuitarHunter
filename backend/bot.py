@@ -1202,6 +1202,7 @@ class GuitarHunterBot:
             # Priorité 2 : coordonnées extraites de l'URL Facebook (souvent absentes en pratique).
             # Priorité 3 : Nominatim en aveugle (repli historique, seulement si aucune des deux
             #              autres sources n'est disponible — ex: ancien payload en simple chaîne).
+            coords_from_blind_geocode = False
             if confirmed_lat is not None and confirmed_lon is not None:
                 final_coords = {'lat': confirmed_lat, 'lon': confirmed_lon}
                 self.logger.info(f"Utilisation des coordonnées déjà confirmées par l'utilisateur pour '{city_name}': {final_coords}")
@@ -1211,25 +1212,37 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"Pas de coords confirmées ni FB pour '{city_name}', tentative Nominatim (repli)...")
                 final_coords = self._geocode_nominatim(city_name)
+                coords_from_blind_geocode = final_coords is not None
 
             if not final_coords:
                 self.logger.warning(f"Aucune coordonnée trouvée pour '{city_name}'. Ville ajoutée sans coordonnées.")
 
-            # `needsReview` : la suggestion Facebook cliquée ne correspondait pas à l'indice de
-            # région fourni — le city_id lui-même est peut-être un homonyme (voir docstring plus
-            # haut). Jamais bloquant (le city_id reste indispensable au scraper), juste un signal
-            # à vérifier manuellement dans l'app.
-            needs_review = bool(region_hint) and not matched_confidently
+            # `needsReview` : deux sources possibles, jamais bloquantes (le city_id reste
+            # indispensable au scraper), juste un signal à vérifier manuellement dans l'app.
+            # 1) la suggestion Facebook cliquée ne correspondait pas à l'indice de région fourni —
+            #    le city_id lui-même est peut-être un homonyme (voir docstring plus haut).
+            # 2) les coordonnées viennent du repli Nominatim en aveugle (Priorité 3 ci-dessus,
+            #    sans indice régional) : Nominatim retourne son 1er résultat sans distinction de
+            #    pays (volontaire — cet outil sert aussi à des villes hors Québec/Canada, voir
+            #    `_geocode_nominatim`), donc un homonyme lointain (ex: "Saint-Lambert" -> France,
+            #    voir `run_once.py` 2026-08-25/2026-09-08) passe sans être détecté autrement.
+            needs_review = (bool(region_hint) and not matched_confidently) or coords_from_blind_geocode
 
             city_data = {'name': city_name, 'id': city_id_str}
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
             if needs_review:
                 city_data['needsReview'] = True
-                self.logger.warning(
-                    f"'{city_name}' marquée needsReview : suggestion Facebook cliquée ('{matched_label}') "
-                    f"ne correspond pas à l'indice de région fourni ('{region_hint}')."
-                )
+                if coords_from_blind_geocode:
+                    self.logger.warning(
+                        f"'{city_name}' marquée needsReview : coordonnées obtenues via le repli Nominatim "
+                        f"en aveugle (aucun indice régional), à vérifier manuellement — voir {final_coords}."
+                    )
+                else:
+                    self.logger.warning(
+                        f"'{city_name}' marquée needsReview : suggestion Facebook cliquée ('{matched_label}') "
+                        f"ne correspond pas à l'indice de région fourni ('{region_hint}')."
+                    )
 
             if in_catalog:
                 self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")

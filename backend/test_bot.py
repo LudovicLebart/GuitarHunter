@@ -271,7 +271,9 @@ class TestAddCityAuto(unittest.TestCase):
         city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
         self.assertEqual(city_data["latitude"], 1.0)
         self.assertEqual(city_data["longitude"], 2.0)
-        self.assertNotIn("needsReview", city_data)  # pas d'indice de région -> pas de vérification possible
+        # Repli Nominatim en aveugle (aucun indice régional pour distinguer un homonyme,
+        # ex: "Saint-Lambert" -> France, voir bot.py 2026-09-08) -> toujours needsReview.
+        self.assertTrue(city_data["needsReview"])
 
     def test_confirmed_coords_take_priority_over_facebook_coords(self, mock_city_finder, _mock_fb_scraper):
         mock_city_finder.find_city_id_and_coords.return_value = ("999", {"lat": 40.0, "lon": 50.0}, "Saint-Lambert, QC", True)
