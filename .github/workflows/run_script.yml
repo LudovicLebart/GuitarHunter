@@ -49,7 +49,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 10m
+          command_timeout: 30m
           envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
           script: |
             set -e
@@ -92,7 +92,12 @@ jobs:
 
             echo "--- Exécution du script ---"
             rm -rf backend/benchmark/results
-            python3 -m backend.benchmark.run_benchmark --limit 5
+            # -u (sortie non bufferisée) : sans ça, les logs "out:" restent invisibles jusqu'à
+            # la fin (ou le kill par command_timeout) sur un SSH non-interactif — 1er run réel
+            # (2026-09-08) tué à 10m sans une seule ligne de progression visible, rendant
+            # impossible de distinguer "lent" de "raccroché" (candidat sans timeout, corrigé
+            # séparément dans candidates.py/judge.py).
+            python3 -u -m backend.benchmark.run_benchmark --limit 5
 
       - name: Récupération du rapport généré
         env:

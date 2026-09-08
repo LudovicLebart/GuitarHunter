@@ -56,6 +56,14 @@ QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 # le run. CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §1 (repli obligatoire de l'étage de
 # perception en production) part du même constat.
 CANDIDATE_TIMEOUT_S = 30
+# Même constat pour Gemini (SDK `google.generativeai`, sans timeout par défaut) et Claude
+# (SDK par défaut ~10 min, invisible tant qu'on ne le fixe pas explicitement) — un appel qui
+# pend sur l'un des 9 candidats, exécutés en série sans concurrence, bloque tout le run
+# jusqu'au timeout externe de `run_script.yml` (`command_timeout`), qui tue le job sans
+# distinguer "lent" de "raccroché". Un peu plus généreux que CANDIDATE_TIMEOUT_S : la vision
+# + un rapport "EXHAUSTIF" (Tier 3) prend légitimement plus de temps qu'un appel texte court.
+GEMINI_TIMEOUT_S = 60
+CLAUDE_TIMEOUT_S = 60
 
 
 def _download_image_bytes(url: str):
@@ -102,7 +110,7 @@ def _call_gemini(question: str, image_urls: list, model_name: str):
         if image_bytes:
             parts.append({"mime_type": "image/jpeg", "data": image_bytes})
     t0 = time.monotonic()
-    response = model.generate_content(parts)
+    response = model.generate_content(parts, request_options={"timeout": GEMINI_TIMEOUT_S})
     latency_s = time.monotonic() - t0
     usage = getattr(response, "usage_metadata", None)
     usage_dict = {
@@ -182,7 +190,7 @@ def _get_claude_client():
     if _claude_client is None:
         if not ANTHROPIC_API_KEY:
             raise RuntimeError("ANTHROPIC_API_KEY manquant")
-        _claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=CLAUDE_TIMEOUT_S)
     return _claude_client
 
 

@@ -28,7 +28,9 @@ def _get_client():
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("ANTHROPIC_API_KEY manquant")
-        _client = anthropic.Anthropic(api_key=api_key)
+        # Timeout explicite (le SDK par défaut, ~10 min, masque un raccroché jusqu'au
+        # timeout externe de run_script.yml — même correctif que candidates.py).
+        _client = anthropic.Anthropic(api_key=api_key, timeout=60.0)
     return _client
 
 
