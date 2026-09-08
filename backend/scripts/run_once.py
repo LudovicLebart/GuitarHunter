@@ -34,25 +34,28 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-08 : correction définitive de la ville "Saint-lambert" du catalogue partagé
-    (`artifacts/{APP_ID}/cities`), déjà repérée par l'audit du 2026-08-25
-    (`backend/scripts/audit_city_coordinates.py`, coordonnées 48.9382/-0.5474 = homonyme en
-    France, même piège que "Beloeil" Québec/Wallonie) mais jamais corrigée en base — un scan
-    Kijiji en production a redonné 0 résultat le 2026-09-08 à cause de ce même point. Réécrit
-    lat/lng vers le "Saint-Lambert" voulu par l'utilisateur (Montérégie, agglomération de
-    Longueuil — confirmé via Nominatim, `display_name`: "Saint-Lambert, Agglomération de
-    Longueuil, Montérégie, Québec, Canada") et retire `needsReview` (coordonnées maintenant
-    vérifiées manuellement). Idempotent : no-op si la ville n'a plus ces coordonnées fautives.
+    2026-09-08 : mesure de l'effet réel du correctif de caching implicite Gemini
+    (`ce2e7fb`, déployé le 2026-09-07 ~03:49 UTC — voir JOURNAL.md). Parcourt
+    `artifacts/{APP_ID}/users/*/logs` (collection_group, TTL Firestore 3 jours sur ces
+    documents — d'où l'urgence) à la recherche des lignes `[tokens] model=... cached=...`
+    émises par `analyzer.py::_call_gemini_json`, et logue un résumé avant/après le
+    déploiement (appels, ratio cached>0, tokens cachés par modèle) dans les logs du job
+    GitHub Actions. Lecture seule, aucune écriture Firestore.
     """
-    from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
+    import re
+    import datetime
+    from collections import defaultdict
+    from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
     from backend.database import DatabaseService
-    from firebase_admin import firestore as fb_firestore
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    BAD_LAT, BAD_LNG = 48.9382022, -0.547455
-    FIXED_LAT, FIXED_LNG = 45.5016203, -73.5102981
+    DEPLOY_TS = datetime.datetime(2026, 9, 7, 3, 49, 2, tzinfo=datetime.timezone.utc).timestamp()
+    TOKENS_RE = re.compile(
+        r"\[tokens\] model=(?P<model>\S+) images=(?P<images>\d+) "
+        r"in=(?P<in_>\d+) out=(?P<out>\d+) cached=(?P<cached>\d+) total=(?P<total>\d+)"
+    )
 
     db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
     db = db_service.db
@@ -60,22 +63,62 @@ def run():
         logger.error("Erreur de connexion à Firebase.")
         return
 
-    shared_cities_ref = db.collection('artifacts').document(APP_ID_TARGET).collection('cities')
-    fixed = 0
-    for doc in shared_cities_ref.stream():
-        data = doc.to_dict()
-        if data.get('name', '').strip().lower() != 'saint-lambert':
-            continue
-        if abs((data.get('latitude') or 0) - BAD_LAT) > 0.01 or abs((data.get('longitude') or 0) - BAD_LNG) > 0.01:
-            continue
-        shared_cities_ref.document(doc.id).set(
-            {'latitude': FIXED_LAT, 'longitude': FIXED_LNG, 'needsReview': fb_firestore.DELETE_FIELD},
-            merge=True,
-        )
-        logger.info(f"Ville '{data.get('name')}' (id={doc.id}) corrigée : {FIXED_LAT}, {FIXED_LNG}.")
-        fixed += 1
+    # Regroupe les compteurs par période (avant/après déploiement) puis par modèle.
+    stats = {
+        'before': defaultdict(lambda: {'calls': 0, 'cached_calls': 0, 'in_tokens': 0, 'cached_tokens': 0}),
+        'after': defaultdict(lambda: {'calls': 0, 'cached_calls': 0, 'in_tokens': 0, 'cached_tokens': 0}),
+    }
+    recent_cached_examples = []
+    scanned = 0
+    matched = 0
 
-    logger.info(f"Terminé : {fixed} ville(s) corrigée(s).")
+    for doc in db.collection_group('logs').stream():
+        scanned += 1
+        data = doc.to_dict() or {}
+        message = data.get('message', '')
+        m = TOKENS_RE.search(message)
+        if not m:
+            continue
+        matched += 1
+
+        created_at = data.get('createdAt')
+        period = 'after' if (created_at is not None and created_at >= DEPLOY_TS) else 'before'
+        model = m.group('model')
+        in_tokens = int(m.group('in_'))
+        cached_tokens = int(m.group('cached'))
+
+        bucket = stats[period][model]
+        bucket['calls'] += 1
+        bucket['in_tokens'] += in_tokens
+        bucket['cached_tokens'] += cached_tokens
+        if cached_tokens > 0:
+            bucket['cached_calls'] += 1
+            if period == 'after':
+                recent_cached_examples.append((created_at, message))
+
+    logger.info(f"Scan terminé : {scanned} documents lus, {matched} lignes [tokens] trouvées.")
+
+    for period_label, period_key in (("AVANT le déploiement (< 2026-09-07 03:49 UTC)", 'before'),
+                                      ("APRÈS le déploiement (>= 2026-09-07 03:49 UTC)", 'after')):
+        logger.info(f"--- {period_label} ---")
+        period_stats = stats[period_key]
+        if not period_stats:
+            logger.info("  (aucun appel [tokens] trouvé sur cette période)")
+            continue
+        for model, s in sorted(period_stats.items()):
+            ratio = (s['cached_calls'] / s['calls'] * 100) if s['calls'] else 0.0
+            token_ratio = (s['cached_tokens'] / s['in_tokens'] * 100) if s['in_tokens'] else 0.0
+            logger.info(
+                f"  model={model} calls={s['calls']} cached_calls={s['cached_calls']} "
+                f"({ratio:.1f}%) in_tokens={s['in_tokens']} cached_tokens={s['cached_tokens']} "
+                f"({token_ratio:.1f}% des tokens d'entrée)"
+            )
+
+    recent_cached_examples.sort(key=lambda t: t[0] or 0, reverse=True)
+    logger.info(f"Exemples récents (après déploiement) avec cached>0, max 10 sur {len(recent_cached_examples)} :")
+    for created_at, message in recent_cached_examples[:10]:
+        ts = datetime.datetime.fromtimestamp(created_at, tz=datetime.timezone.utc).isoformat() if created_at else '?'
+        logger.info(f"  [{ts}] {message}")
 
 
 if __name__ == "__main__":
