@@ -28,19 +28,26 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-08 : mesure de l'effet réel du correctif de caching implicite Gemini
-    (`ce2e7fb`, déployé le 2026-09-07 ~03:49 UTC — voir JOURNAL.md). Parcourt
-    `artifacts/{APP_ID}/users/*/logs` (collection_group, TTL Firestore 3 jours sur ces
-    documents — d'où l'urgence) à la recherche des lignes `[tokens] model=... cached=...`
-    émises par `analyzer.py::_call_gemini_json`, et logue un résumé avant/après le
-    déploiement (appels, ratio cached>0, tokens cachés par modèle) dans les logs du job
-    GitHub Actions. Lecture seule, aucune écriture Firestore.
+    2026-09-09 : diagnostic de timing pour confirmer/infirmer l'hypothèse posée dans
+    JOURNAL.md (2026-09-08, mesure du fix caching) — le cache observé sur Tier 2
+    (17,1% des appels, run #427) ressemble à des retries JSON sur la MÊME annonce
+    (`_call_gemini_json` rappelle avec le prompt précédent + un texte ajouté, préfixe
+    quasi identique garanti) plutôt qu'un vrai partage du bloc statique (taxonomie/
+    few-shot) entre annonces différentes — ce qui expliquerait aussi pourquoi Tier 1
+    (JSON simple, peu de retries) est resté à 0%.
+
+    Parcourt TOUS les appels [tokens] (pas seulement cached>0, contrairement au run
+    précédent) et les avertissements "JSON invalide" de _call_gemini_json. Pour
+    chaque modèle : écart entre appels consécutifs (indique si des annonces
+    différentes sont assez rapprochées pour espérer un cache implicite), et pour
+    chaque appel caché, présence ou non d'un avertissement JSON juste avant (retry
+    confirmé vs partage inter-annonces possible). Lecture seule, aucune écriture Firestore.
     """
     import re
     import datetime
@@ -51,11 +58,12 @@ def run():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    DEPLOY_TS = datetime.datetime(2026, 9, 7, 3, 49, 2, tzinfo=datetime.timezone.utc).timestamp()
     TOKENS_RE = re.compile(
         r"\[tokens\] model=(?P<model>\S+) images=(?P<images>\d+) "
         r"in=(?P<in_>\d+) out=(?P<out>\d+) cached=(?P<cached>\d+) total=(?P<total>\d+)"
     )
+    JSON_INVALID_RE = re.compile(r"JSON invalide généré par (?P<model>\S+)")
+    RETRY_WINDOW_S = 30  # fenêtre de recherche d'un avertissement JSON juste avant un appel caché
 
     db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
     db = db_service.db
@@ -63,62 +71,59 @@ def run():
         logger.error("Erreur de connexion à Firebase.")
         return
 
-    # Regroupe les compteurs par période (avant/après déploiement) puis par modèle.
-    stats = {
-        'before': defaultdict(lambda: {'calls': 0, 'cached_calls': 0, 'in_tokens': 0, 'cached_tokens': 0}),
-        'after': defaultdict(lambda: {'calls': 0, 'cached_calls': 0, 'in_tokens': 0, 'cached_tokens': 0}),
-    }
-    recent_cached_examples = []
+    calls_by_model = defaultdict(list)     # model -> [(created_at, cached_tokens)]
+    warnings_by_model = defaultdict(list)  # model -> [created_at]
     scanned = 0
-    matched = 0
 
     for doc in db.collection_group('logs').stream():
         scanned += 1
         data = doc.to_dict() or {}
         message = data.get('message', '')
-        m = TOKENS_RE.search(message)
-        if not m:
-            continue
-        matched += 1
-
         created_at = data.get('createdAt')
-        period = 'after' if (created_at is not None and created_at >= DEPLOY_TS) else 'before'
-        model = m.group('model')
-        in_tokens = int(m.group('in_'))
-        cached_tokens = int(m.group('cached'))
-
-        bucket = stats[period][model]
-        bucket['calls'] += 1
-        bucket['in_tokens'] += in_tokens
-        bucket['cached_tokens'] += cached_tokens
-        if cached_tokens > 0:
-            bucket['cached_calls'] += 1
-            if period == 'after':
-                recent_cached_examples.append((created_at, message))
-
-    logger.info(f"Scan terminé : {scanned} documents lus, {matched} lignes [tokens] trouvées.")
-
-    for period_label, period_key in (("AVANT le déploiement (< 2026-09-07 03:49 UTC)", 'before'),
-                                      ("APRÈS le déploiement (>= 2026-09-07 03:49 UTC)", 'after')):
-        logger.info(f"--- {period_label} ---")
-        period_stats = stats[period_key]
-        if not period_stats:
-            logger.info("  (aucun appel [tokens] trouvé sur cette période)")
+        if created_at is None:
             continue
-        for model, s in sorted(period_stats.items()):
-            ratio = (s['cached_calls'] / s['calls'] * 100) if s['calls'] else 0.0
-            token_ratio = (s['cached_tokens'] / s['in_tokens'] * 100) if s['in_tokens'] else 0.0
-            logger.info(
-                f"  model={model} calls={s['calls']} cached_calls={s['cached_calls']} "
-                f"({ratio:.1f}%) in_tokens={s['in_tokens']} cached_tokens={s['cached_tokens']} "
-                f"({token_ratio:.1f}% des tokens d'entrée)"
-            )
 
-    recent_cached_examples.sort(key=lambda t: t[0] or 0, reverse=True)
-    logger.info(f"Exemples récents (après déploiement) avec cached>0, max 10 sur {len(recent_cached_examples)} :")
-    for created_at, message in recent_cached_examples[:10]:
-        ts = datetime.datetime.fromtimestamp(created_at, tz=datetime.timezone.utc).isoformat() if created_at else '?'
-        logger.info(f"  [{ts}] {message}")
+        m = TOKENS_RE.search(message)
+        if m:
+            calls_by_model[m.group('model')].append((created_at, int(m.group('cached'))))
+            continue
+
+        w = JSON_INVALID_RE.search(message)
+        if w:
+            warnings_by_model[w.group('model')].append(created_at)
+
+    logger.info(f"Scan terminé : {scanned} documents lus.")
+
+    for model, events in sorted(calls_by_model.items()):
+        events.sort(key=lambda t: t[0])
+        gaps = [events[i][0] - events[i - 1][0] for i in range(1, len(events))]
+        cached_events = [e for e in events if e[1] > 0]
+        warns = sorted(warnings_by_model.get(model, []))
+
+        retry_confirmed = sum(
+            1 for created_at, _ in cached_events
+            if any(0 <= (created_at - w) <= RETRY_WINDOW_S for w in warns)
+        )
+        retry_unconfirmed = len(cached_events) - retry_confirmed
+
+        logger.info(
+            f"--- model={model} : {len(events)} appels, {len(cached_events)} cachés, "
+            f"{len(warns)} avertissements JSON invalide ---"
+        )
+        if gaps:
+            gaps_sorted = sorted(gaps)
+            under_60s = sum(1 for g in gaps if g < 60)
+            logger.info(
+                f"  Écart entre appels consécutifs (s) : min={gaps_sorted[0]:.1f} "
+                f"médiane={gaps_sorted[len(gaps_sorted) // 2]:.1f} max={gaps_sorted[-1]:.1f} "
+                f"({under_60s}/{len(gaps)} écarts < 60s)"
+            )
+        logger.info(
+            f"  Cachés AVEC avertissement JSON <{RETRY_WINDOW_S}s avant (= retry confirmé sur la même annonce) : {retry_confirmed}"
+        )
+        logger.info(
+            f"  Cachés SANS avertissement JSON à proximité (= partage inter-annonces possible) : {retry_unconfirmed}"
+        )
 
 
 if __name__ == "__main__":
