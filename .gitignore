@@ -17,3 +17,4 @@ leboncoin_probe_*.png
 leboncoin_probe_*.html
 leboncoin_probe_*.json
 backend/benchmark/results/
+/logs/

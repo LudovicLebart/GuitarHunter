@@ -16,6 +16,7 @@ from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
 from backend.admin_stats import run_admin_stats_job
+from backend.log_retention import run_log_retention_job
 import firebase_admin.auth as fb_auth
 
 # --- Sémaphore global : limite le nombre de navigateurs Playwright simultanés ---
@@ -296,6 +297,10 @@ def main():
     # pour le Dashboard Administrateur. Tourne au premier passage du watchdog qui
     # suit l'heure planifiée, peu importe quel(s) thread(s) utilisateur(s) actif(s).
     schedule.every().day.at("03:00").do(run_admin_stats_job, db_service).tag('admin_stats')
+
+    # Job global (singleton) : rétention de l'archive de logs locale (backend/logging_config.py,
+    # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Firestore/db_service.
+    schedule.every().day.at("03:15").do(run_log_retention_job).tag('log_retention')
 
     try:
         # Boucle de surveillance (watchdog) + Découverte dynamique
