@@ -78,7 +78,17 @@ def run_candidate(model_key, call_fn, dataset):
             continue
 
         answer = candidate_result["answer"]
-        verdict = evaluate_with_llm_judge(item["question"], item["ground_truth"], answer)
+        if item.get("ground_truth"):
+            verdict = evaluate_with_llm_judge(item["question"], item["ground_truth"], answer)
+        else:
+            # Rejet Tier 1 sans transcription manuelle dans le Banc d'Essai (rien à comparer) :
+            # le candidat tourne quand même (utile pour une mesure future du comportement du
+            # garde-fou Tier 1), mais hors scoring identification/etat/valeur/hallucination —
+            # un axe à None (pas 0) pour ne pas fausser silencieusement le taux de réussite.
+            verdict = {
+                "scores": {axis: None for axis in JUDGE_AXES},
+                "justification": "Pas de vérité terrain (rejet Tier 1 non transcrit) — hors scoring, exécuté à titre informatif.",
+            }
         perception_report = candidate_result.get("perception_report")
         perception_verdict = evaluate_perception_report(perception_report)
         results.append({
@@ -100,10 +110,12 @@ def summarize(results):
     """Une ligne par axe, jamais un score composite (§0). Ajoute les totaux d'usage/latence
     pour situer le coût réel — informatif, pas agrégé avec les scores de qualité."""
     total = len(results)
-    axis_pass_rate = {
-        axis: round(100 * sum(r["scores"].get(axis, 0) for r in results) / total, 1) if total else 0.0
-        for axis in JUDGE_AXES
-    }
+    # Un axe à None (pas de vérité terrain, ex. rejet Tier 1 non transcrit) est exclu du
+    # dénominateur de son propre taux de réussite plutôt que compté comme un échec.
+    axis_pass_rate = {}
+    for axis in JUDGE_AXES:
+        scored = [r["scores"].get(axis) for r in results if r["scores"].get(axis) is not None]
+        axis_pass_rate[axis] = round(100 * sum(scored) / len(scored), 1) if scored else None
     perception_items = [r for r in results if (r.get("perception_verdict") or {}).get("contains_judgment") is not None]
     perception_summary = None
     if perception_items:
@@ -162,7 +174,7 @@ def main():
     for model_key, s in summary.items():
         print(f"\n{model_key} ({s['n_items']} items) :")
         for axis, rate in s["taux_reussite_par_axe"].items():
-            print(f"   {axis:15s} : {rate:.1f}%")
+            print(f"   {axis:15s} : {rate:.1f}%" if rate is not None else f"   {axis:15s} : n/a (aucune vérité terrain)")
         if s["garde_fou_perception"]:
             print(f"   garde-fou perception : {s['garde_fou_perception']}")
         if s["tokens_entree_moyen"] is not None:

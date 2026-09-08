@@ -1,61 +1,547 @@
 [
   {
-    "id": "deal_1029589606791704",
-    "question": "Quel est l'état général de cette guitare électrique 7 cordes et sa valeur estimée par rapport à son prix de vente affiché (200$) ?",
-    "ground_truth": "Guitare électrique 7 cordes de la marque Guerrilla (luthier québécois), extended range solid body. Authenticité confirmée (10/10), bon état général (7/10). Vendue à 200$ alors que sa valeur réelle est estimée à au moins 1000$ — très bonne affaire, restaurabilité modérée (8/10).",
+    "id": "deal_1029093909991562",
+    "question": "Identifie cette annonce (Telecaster) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (200$).",
+    "ground_truth": "",
     "image_urls": [
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029589606791704/0_1e3909ee.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029589606791704/1_94613267.jpg"
-    ]
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029093909991562/0_6e13f0d2.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029093909991562/1_07f99218.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029093909991562/2_44ff2186.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
   },
   {
-    "id": "deal_1549978726564575",
-    "question": "Quel est l'état de cette guitare acoustique Simon & Patrick et quelles réparations sont nécessaires avant revente ?",
-    "ground_truth": "Simon & Patrick vendue à 100$ avec étui. Authenticité confirmée (9/10), état moyen (4/10) : nécessite des réparations suite au retrait d'un micro (pickup) installé précédemment sur la table. Bon potentiel de revente après réparation (profit estimé ~250$), restaurabilité élevée (9/10).",
+    "id": "deal_1037517449170400",
+    "question": "Identifie cette annonce (Super_Strat) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (350$).",
+    "ground_truth": "",
     "image_urls": [
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/0_97ce63bc.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/1_b8add067.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/2_6349e3a8.jpg"
-    ]
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1037517449170400/0_957d1bc4.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
   },
   {
-    "id": "deal_2311998946003438",
-    "question": "Identifie le type de cette guitare et évalue son authenticité ainsi que son état général.",
-    "ground_truth": "Archtop hollow-body de type Jazz Box, probablement une Harmony vintage, modifiée avec un micro P90 non d'origine — ce qui limite son authenticité (5/10). Vendue à 75$, état moyen (4/10) mais fort potentiel de restauration (9/10) : bon projet pour un bricoleur capable de refaire l'électronique.",
+    "id": "deal_1049987997842229",
+    "question": "Identifie cette annonce (Les Paul) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (160$).",
+    "ground_truth": "Epiphone & Ibanez Lot: Les Paul Special II + GIO GRX20 (Inconnue), fabriquée en Inconnu. Authenticité confirmée (10/10). État général 7/10, couleur/finition vintage sunburst / bleu, vernis/laque transparente, brillant. Valeur estimée 230$, potentiel de revente 270$, marge brute estimée 110$.",
     "image_urls": [
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/0_be1cf956.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/1_366c397f.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/2_ee9c8998.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/3_7a115147.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/4_7b4ccd40.jpg"
-    ]
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1049987997842229/0_cfa9149f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1049987997842229/1_b57e6847.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_1087356597319149",
+    "question": "Identifie cette annonce (Travel) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (30$).",
+    "ground_truth": "",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1087356597319149/0_be900747.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1087356597319149/1_ff91c6fa.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1087356597319149/2_4a372b65.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1087356597319149/3_3149b0bf.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1087356597319149/4_df53ba88.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1091495133328495",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (50$).",
+    "ground_truth": "Squier Dreadnought Acoustic (Série SA estimée) (Inconnue), fabriquée en China. Authenticité confirmée (10/10). État général 7/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 100$, potentiel de revente 100$, marge brute estimée 50$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1091495133328495/0_9c8f49c4.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1091495133328495/1_1c10f65d.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_1298071885527703",
+    "question": "Identifie cette annonce (standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (250$).",
+    "ground_truth": "Ditson by Sigma GC-10E TBK. Authenticité confirmée (10/10). État général 8/10, couleur/finition satin transparent black sunburst, peinture opaque, brillant. Marge brute estimée -30$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1298071885527703/0_f31ec554.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1298071885527703/1_63d72e0c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1298071885527703/2_eee7dc02.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1298071885527703/3_84008a3d.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1363661435345224",
+    "question": "Identifie cette annonce (HSS Modern) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (175$).",
+    "ground_truth": "Yamaha RGX112 (1988-1993), fabriquée en Taiwan. Authenticité confirmée (10/10). État général 7/10, couleur/finition rouge, peinture opaque, brillant. Valeur estimée 200$, potentiel de revente 220$, marge brute estimée 45$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1363661435345224/0_b0575389.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1363661435345224/1_5b209df7.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1363661435345224/2_95f42d36.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1363661435345224/3_d06bc80f.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1366333381749087",
+    "question": "Identifie cette annonce (Modern Soapbar (BTB/SR)) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (200$).",
+    "ground_truth": "",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1366333381749087/0_0dd683fe.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1448937450439173",
+    "question": "Identifie cette annonce (Dreadnought Cutaway) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (250$).",
+    "ground_truth": "Fender CD-100CE NAT-DS-V2 (2013), fabriquée en Indonesia. Authenticité confirmée (10/10). État général 8/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 280$, potentiel de revente 300$, marge brute estimée 50$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1448937450439173/0_05fd7454.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1448937450439173/1_cffee03d.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1448937450439173/2_67d363cf.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1448937450439173/3_31d81021.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1473281984520285",
+    "question": "Identifie cette annonce (S_Style) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (175$).",
+    "ground_truth": "Squier Mini Stratocaster. Authenticité confirmée (10/10). État général 8/10, couleur/finition noir, peinture opaque, brillant. Valeur estimée 175$, potentiel de revente 180$, marge brute estimée 5$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1473281984520285/0_d1a5eda8.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1473281984520285/1_624026e2.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1473281984520285/2_2dd9efaa.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1473281984520285/3_1124745f.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1508415154242976",
+    "question": "Identifie cette annonce (S-Type Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "GWL S-Type Electric Guitar. Authenticité confirmée (10/10). État général 7/10, couleur/finition sunburst 3-tons, peinture opaque, brillant. Valeur estimée 50$, potentiel de revente 50$, marge brute estimée -50$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1508415154242976/0_d7988389.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1667108064318026",
+    "question": "Identifie cette annonce (S_Style) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (40$).",
+    "ground_truth": "Inconnue Tremolo pour Stratocaster. Authenticité confirmée (5/10). État général 10/10, couleur/finition chrome. Marge brute estimée 0$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/0_61cfa26a.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/1_8c24630f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/2_f954df33.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/3_50ae98dd.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/4_44847a1e.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/5_b2371e55.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/6_2f1b177c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/7_cbfd2e75.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/8_e2b9f14f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/9_e90f17f6.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/10_c6736cca.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/11_429b73b5.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/12_71163887.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/13_9da990a5.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/14_3b14cc69.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/15_ab985a92.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/16_40999258.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/17_1e8757e5.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1667108064318026/18_e1bab33c.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1675969563656219",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (120$).",
+    "ground_truth": "Yamaha C40. Authenticité confirmée (10/10). État général 2/10, couleur/finition naturel, vernis/laque transparente, brillant. Marge brute estimée -70$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/0_0d1af440.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/1_5c7a4ff7.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/2_d5354a50.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/3_fd9dbaa9.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/4_70a1150a.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/5_d04b4a86.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/6_1e565f5b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/7_4a18c6ed.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1675969563656219/8_c62619f9.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1703277404286529",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (99$).",
+    "ground_truth": "Madera Dreadnought Acoustic. Authenticité confirmée (10/10). État général 7/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 50$, marge brute estimée -30$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/0_84b777c6.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/1_3068cafb.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/2_85b724a1.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/3_1697d577.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/4_7410fb1b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/5_fb0b74b7.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/6_871f2678.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1703277404286529/7_7bd2783a.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_1712598213187755",
+    "question": "Identifie cette annonce (Single_Cut) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (125$).",
+    "ground_truth": "Fesley LP FLP35, fabriquée en Chine. Authenticité confirmée (10/10). État général 9/10, couleur/finition noire, peinture opaque, brillant. Valeur estimée 125$, potentiel de revente 125$, marge brute estimée 0$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1712598213187755/0_cd3f1b12.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1712598213187755/1_55f97850.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1712598213187755/2_7f92d75a.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1750117126023544",
+    "question": "Identifie cette annonce (S_Style) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (185$).",
+    "ground_truth": "LyxPro. Authenticité confirmée (10/10). État général 10/10, peinture opaque, brillant. Valeur estimée 150$, potentiel de revente 185$, marge brute estimée -35$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1750117126023544/0_8aa67373.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1750117126023544/1_701c2a11.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1750117126023544/2_3dfd5b43.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1750117126023544/3_75e7dd8b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1750117126023544/4_2676c0dd.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1778576760002911",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Couleur/finition bleu, peinture opaque, brillant.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1778576760002911/0_48ac67cc.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1778576760002911/1_5411dcc2.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1784487372688096",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (90$).",
+    "ground_truth": "Eko Classique d'étude (type CS-10) (Inconnue), fabriquée en China. Authenticité confirmée (0/10). État général 0/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 40$, potentiel de revente 40$, marge brute estimée -50$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1784487372688096/0_77c2470b.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_1832448987749917",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (30$).",
+    "ground_truth": "Aria Dreadnought 70s (Modèle exact non identifiable sans étiquette) (1970s), fabriquée en Japan. Authenticité confirmée (9/10). État général 4/10, couleur/finition sunburst, vernis/laque transparente, brillant. Valeur estimée 50$, potentiel de revente 150$, marge brute estimée 120$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1832448987749917/0_7bce805f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1832448987749917/1_ac3dbb55.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_1876410676660621",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (325$).",
+    "ground_truth": "El Dégas C130 (70), fabriquée en Asie. Authenticité confirmée (10/10). État général 9/10, couleur/finition bois , vernis/laque transparente, brillant. Valeur estimée 90$, potentiel de revente 90$, marge brute estimée -215$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/0_d5642b05.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/1_9e61f14c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/2_35bdcb3f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/3_287fd663.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/4_041555c3.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/5_39135563.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1876410676660621/6_6ee0f34a.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_1926242838051413",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (300$).",
+    "ground_truth": "Harmony (Post 1975), fabriquée en KOREA coree. Authenticité confirmée (10/10). État général 5/10, couleur/finition rouge sunburst , peinture opaque, brillant. Valeur estimée 75$, potentiel de revente 90$, marge brute estimée 25$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/0_cf4eec40.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/1_4d2f20cd.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/2_21378c06.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/3_bbc93a32.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/4_c6228b56.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/5_45839c40.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/6_ea3a3dfa.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/7_240adb9b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1926242838051413/8_cdf3e882.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_2020476985231113",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (140$).",
+    "ground_truth": "Samick SSC 325. Authenticité confirmée (10/10). État général 8/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 90$, potentiel de revente 100$, marge brute estimée 50$. Case win",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2020476985231113/0_bb499360.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2020476985231113/1_d4ced63e.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2020476985231113/2_7d7d3673.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2020476985231113/3_fe8ee167.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2020476985231113/4_6d8577b2.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_2104905883431775",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (150$).",
+    "ground_truth": "Vernis/laque transparente, brillant.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2104905883431775/0_0944bc08.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_2412725352551316",
+    "question": "Identifie cette annonce (Les Paul) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Epiphone Les Paul Custom Black Beauty (3 Pickups) (2010), fabriquée en China. Authenticité confirmée (10/10). État général 9/10, couleur/finition noir, peinture opaque, brillant. Valeur estimée 750$, potentiel de revente 750$, marge brute estimée 650$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/0_4dff1b56.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/1_13d29189.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/2_1b13677e.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/3_e8496326.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/4_67d902df.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/5_ed340f10.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/6_f8bdadad.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/7_3f145e65.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/8_11a1b07c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2412725352551316/9_ddb842b3.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_2428946747928017",
+    "question": "Identifie cette annonce (Headless_Solid) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (250$).",
+    "ground_truth": "Traveler Guitar Speedster (2010s), fabriquée en China. Authenticité confirmée (10/10). État général 9/10, couleur/finition blanc, peinture opaque, brillant. Valeur estimée 375$, potentiel de revente 375$, marge brute estimée 125$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2428946747928017/0_fa6b03ce.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2428946747928017/1_200b6c95.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
   },
   {
     "id": "deal_2517287152079113",
-    "question": "De quel modèle de guitare acoustique s'agit-il, et quel est son état / son authenticité ?",
-    "ground_truth": "Mansfield F-360, copie japonaise (MIJ, années 70) d'une Martin D-35, dreadnought standard — une copie assumée, cohérente avec elle-même (authenticité 10/10 pour ce qu'elle prétend être). État moyen (5/10) nécessitant nettoyage et réglage. Vendue à 100$, potentiel de revente ~350$ après remise en état.",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Mansfield F-360 (Copie Martin D-35) (1970s), fabriquée en Japan. Authenticité confirmée (10/10). État général 5/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 150$, potentiel de revente 350$, marge brute estimée 250$.",
     "image_urls": [
       "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/0_feaac3ef.jpg",
       "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/1_bfae8404.jpg",
       "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/2_75cd5d2e.jpg",
       "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/3_6b7b8f5a.jpg"
-    ]
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
   },
   {
-    "id": "deal_1389347789972368",
-    "question": "Décris l'état de cette guitare classique Kamouraska de 1979, notamment ses défauts structurels visibles.",
-    "ground_truth": "Kamouraska Concert I de 1979, guitare classique en bois massif. Authenticité confirmée (10/10). État dégradé (3/10) avec des fissures visibles à réparer. Vendue à 50$, bon projet de restauration (9/10) avec potentiel de revente ~250$ après réparation des fissures.",
+    "id": "deal_2595140830906389",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (20$).",
+    "ground_truth": "Epiphone DR-100 VS (2014), fabriquée en China. Authenticité confirmée (10/10). État général 6/10, couleur/finition sunburst 2-tons, vernis/laque transparente, brillant. Valeur estimée 50$, potentiel de revente 130$, marge brute estimée 110$.",
     "image_urls": [
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/0_609ee5da.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/1_3aaafd36.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/2_0dbba3cd.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/3_332e16d9.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/4_ab63ec29.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/5_251fbe6f.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/6_45b7c2a0.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/7_7bca72cb.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/8_9bdbc8b6.jpg",
-      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/9_0a5670bb.jpg"
-    ]
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2595140830906389/0_1367bb9b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2595140830906389/1_97da7674.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2595140830906389/2_b05fdc19.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2595140830906389/3_c058004c.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_2602138500141276",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (50$).",
+    "ground_truth": "Yamaha F-Series (e.g., F310, F335) (Inconnue), fabriquée en Indonesia. Authenticité confirmée (10/10). État général 1/10. Valeur estimée 50$, potentiel de revente 150$, marge brute estimée 100$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2602138500141276/0_6cc5e16c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2602138500141276/1_e2030e46.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_27160910970238093",
+    "question": "Identifie cette annonce (Parlor) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Cort Small Body Acoustic. Authenticité confirmée (10/10). État général 7/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 130$, potentiel de revente 130$, marge brute estimée 30$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27160910970238093/0_6fc32eaf.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27160910970238093/1_a2421860.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27160910970238093/2_57c038e3.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27160910970238093/3_e99ee7f2.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_27276114612051342",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Donner DAG-1CB Cutaway Acoustic Kit. Authenticité confirmée (10/10). État général 9/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 50$, potentiel de revente 60$, marge brute estimée 10$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/0_54d74cd1.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/1_2cac118f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/2_788b2489.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/3_53072934.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/4_93ffa84f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27276114612051342/5_ab7353e5.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_27389140250711167",
+    "question": "Identifie cette annonce (S_Style) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (100$).",
+    "ground_truth": "Inconnue S-Type Standard, fabriquée en Chine. Authenticité confirmée (8/10). État général 7/10, couleur/finition noir, peinture opaque, brillant. Marge brute estimée -20$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27389140250711167/0_b1633216.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/27389140250711167/1_bd02cb4f.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_3212485845611521",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (120$).",
+    "ground_truth": "Archambault Ophélia (2000s), fabriquée en Canada. Authenticité confirmée (10/10). État général 6/10, couleur/finition naturel, vernis/laque transparente, satiné/soyeux. Valeur estimée 180$, potentiel de revente 200$, marge brute estimée 80$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/3212485845611521/0_332ac7da.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/3212485845611521/1_4bf545a0.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/3212485845611521/2_c40179cf.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/3212485845611521/3_9ab54c41.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_867494953101757",
+    "question": "Identifie cette annonce (Travel) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (30$).",
+    "ground_truth": "Disney by Washburn PGA34 Hannah Montana / Princess 3/4 Acoustic. Authenticité confirmée (10/10). État général 7/10, couleur/finition rose. Marge brute estimée 0$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/867494953101757/0_a1270521.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/867494953101757/1_c1648662.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/867494953101757/2_eb9f7439.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/867494953101757/3_8aaa67ac.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_kijiji_1741885566",
+    "question": "Identifie cette annonce (Classique Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (80$).",
+    "ground_truth": "Vernis/laque transparente, satiné/soyeux.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1741885566/0_acf6954d.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1741885566/1_d238067f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1741885566/2_079fc936.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_kijiji_1742024500",
+    "question": "Identifie cette annonce (Archtop Acoustique) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (375$).",
+    "ground_truth": "Godin 5th Avenue Acoustic (2010s), fabriquée en Canada. Authenticité confirmée (10/10). État général 8/10, couleur/finition sunburst, vernis/laque transparente, satiné/soyeux. Valeur estimée 550$, potentiel de revente 600$, marge brute estimée 225$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742024500/0_de095e2a.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_kijiji_1742129210",
+    "question": "Identifie cette annonce (SG) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (250$).",
+    "ground_truth": "Epiphone  sg special satin e1. Authenticité confirmée (10/10). État général 5/10, couleur/finition rouge vintage cherry , peinture opaque, brillant. Valeur estimée 150$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/0_67d7d070.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/1_ccd90081.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/2_0b4d48e8.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/3_f0f21eb1.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/4_cb61a987.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742129210/5_0ab67a7d.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_kijiji_1742389747",
+    "question": "Identifie cette annonce (Thin_Hollow_1_4_caisse) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (145$).",
+    "ground_truth": "Samick A-Style Electric Mandolin (SM-20E ou similaire) (1990s), fabriquée en Korea. Authenticité confirmée (10/10). État général 9/10, couleur/finition red sunburst, vernis/laque transparente, brillant. Valeur estimée 175$, potentiel de revente 250$, marge brute estimée 105$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/0_ad9e4c4e.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/1_d09f2b05.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/2_94affc8b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/3_9efcf6da.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/4_201e6c62.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/5_f4b35c11.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/6_b5d1b452.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/7_cb3b33e7.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742389747/8_79a3abeb.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
+  },
+  {
+    "id": "deal_kijiji_1742680676",
+    "question": "Identifie cette annonce (Dreadnought Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (110$).",
+    "ground_truth": "Yamaha Eterna EF-35 (1990s), fabriquée en Taiwan. Authenticité confirmée (10/10). État général 8/10, couleur/finition naturel, vernis/laque transparente, satiné/soyeux. Valeur estimée 130$, potentiel de revente 140$, marge brute estimée 30$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/0_c0e93592.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/1_1ed0d384.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/2_0ff5dc43.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/3_b9c8de57.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/4_e3dc7df0.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/5_fcf3704b.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/6_9f82e79c.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742680676/7_984a67bb.jpg"
+    ],
+    "stratum": "tier2",
+    "tier_reached": 2
+  },
+  {
+    "id": "deal_kijiji_1742786485",
+    "question": "Identifie cette annonce (Modern Soapbar (BTB/SR)) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (175$).",
+    "ground_truth": "",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742786485/0_c60142a5.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742786485/1_4062540f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742786485/2_ccdf8f5a.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1742786485/3_44603ec4.jpg"
+    ],
+    "stratum": "rejet_t1",
+    "tier_reached": 1
+  },
+  {
+    "id": "deal_kijiji_1743007419",
+    "question": "Identifie cette annonce (Parlor Standard) et évalue son authenticité, son état général et sa valeur estimée par rapport à son prix affiché (175$).",
+    "ground_truth": "Carmelo Catania Parlor 'Deer' Model (1963), fabriquée en Italy. Authenticité confirmée (10/10). État général 4/10, couleur/finition naturel, vernis/laque transparente, brillant. Valeur estimée 150$, potentiel de revente 350$, marge brute estimée 175$.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/0_2befe788.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/1_30aa1be7.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/2_3bfbd503.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/3_98acd4aa.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/4_eef43d75.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/5_30cc92ba.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/6_c2d4fb07.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/7_29b23cf3.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/8_8dc952cd.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/kijiji_1743007419/9_1975a1ac.jpg"
+    ],
+    "stratum": "tier3",
+    "tier_reached": 3
   }
 ]
