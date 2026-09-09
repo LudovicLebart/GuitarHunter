@@ -55,13 +55,15 @@ QWEN_MODEL = os.getenv("BENCHMARK_QWEN_MODEL", "qwen/qwen3.8-flash")
 # appel qui peut être rejoué en série sur 30-50 items — un fournisseur qui pend bloque tout
 # le run. CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §1 (repli obligatoire de l'étage de
 # perception en production) part du même constat.
-CANDIDATE_TIMEOUT_S = 30
+# Relevé (smoke test run #21, 2026-09-09) : qwen/hybrid réussis mesurent 52-86s de latence
+# totale — 30s faisait échouer une bonne partie des appels Qwen bruts en "Request timed out"
+# avant même qu'ils aient une chance d'aboutir. Aligné sur GEMINI_TIMEOUT_S/CLAUDE_TIMEOUT_S.
+CANDIDATE_TIMEOUT_S = 60
 # Même constat pour Gemini (SDK `google.generativeai`, sans timeout par défaut) et Claude
 # (SDK par défaut ~10 min, invisible tant qu'on ne le fixe pas explicitement) — un appel qui
 # pend sur l'un des 9 candidats, exécutés en série sans concurrence, bloque tout le run
 # jusqu'au timeout externe de `run_script.yml` (`command_timeout`), qui tue le job sans
-# distinguer "lent" de "raccroché". Un peu plus généreux que CANDIDATE_TIMEOUT_S : la vision
-# + un rapport "EXHAUSTIF" (Tier 3) prend légitimement plus de temps qu'un appel texte court.
+# distinguer "lent" de "raccroché".
 GEMINI_TIMEOUT_S = 60
 CLAUDE_TIMEOUT_S = 60
 
@@ -242,10 +244,14 @@ def _call_openai_compatible(question: str, image_urls: list, model_name: str, ap
             b64 = base64.b64encode(image_bytes).decode("utf-8")
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
     t0 = time.monotonic()
+    # Pas de `temperature` explicite : gpt-5-mini rejette toute valeur autre que le défaut
+    # (1) — "Unsupported value: 'temperature' does not support 0.0 with this model" (100%
+    # d'échec sur le smoke test run #21, 2026-09-09). Les autres candidats de ce chemin
+    # (Qwen via TokenRouter) tournent aussi au défaut du fournisseur plutôt que de garder un
+    # paramètre spécifique par modèle pour un gain de déterminisme non critique ici.
     response = client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": content}],
-        temperature=0.0,
     )
     latency_s = time.monotonic() - t0
     usage = getattr(response, "usage", None)
