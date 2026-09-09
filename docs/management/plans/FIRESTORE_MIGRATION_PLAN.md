@@ -73,4 +73,12 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 - `backend/api/commands_repo.py` + `backend/api/main.py` : `POST /commands`/`GET /commands/{id}`, même contrat que `firestoreService.js::addCommand()`. Le bot lira directement Postgres en SQL (pas via cette API) une fois la bascule décidée, conforme à §3.
 - **Testé pour de vrai** (`backend/api/test_api.py`, 4 tests contre un Postgres local réel, pas des mocks) : round-trip création/lecture, payload objet, isolation multi-tenant, lecture "côté bot" de ce que l'API a écrit.
 
-**Reste à faire** : tranches `guitar_deals` (+ canal WebSocket temps réel remplaçant `onDealsIndexUpdate`), puis `deal_chat`/`restoration_plan_items`/`cities`, avant toute décision de bascule réelle (§5.3).
+**Tranche 2 — `guitar_deals` + canal WebSocket temps réel : codée et validée en conditions réelles.**
+- `backend/api/deals_repo.py` : list/get/by-ids/favori/achat/classification manuelle/reject/delete. Simplification vs `firestoreService.js` actuel : une seule écriture par mutation (colonnes indexées nativement) contre deux aujourd'hui (document + `deals_index`).
+- `schema.sql` : trigger `notify_deal_change` sur `guitar_deals`, remplace `onDealsIndexUpdate` — notifie sur toute écriture, bot en SQL direct comme cette API, sans dupliquer de `NOTIFY` manuel par site d'écriture.
+- `main.py` : endpoints REST `/deals/...` + WebSocket `/ws/deals` (canal `LISTEN` partagé, filtré côté serveur par `user_id`, token Firebase en paramètre de requête).
+- **Bug réel trouvé et corrigé par les tests** : condition de course entre `websocket.accept()` et l'enregistrement effectif du `LISTEN` juste après — une notification émise dans cette fenêtre se serait perdue silencieusement (Postgres ne rejoue jamais les `NOTIFY` manqués). Corrigé par un accusé de réception explicite (`{"type": "ready"}`) que le client attend avant de compter sur le canal.
+- Outillage : le `TestClient` Starlette ne délivre pas fiablement un message envoyé depuis une tâche créée hors du flot requête/réponse direct — un vrai serveur `uvicorn` + client `websockets` réel ont été nécessaires pour tester le canal correctement (`backend/api/test_deals_api.py::TestDealsWebSocket`).
+- 11 tests d'intégration au total (Postgres local réel, pas de mocks).
+
+**Reste à faire** : tranches `deal_chat`, `restoration_plan_items`, `cities`/`user_city_prefs`, `shared_deals`, avant toute décision de bascule réelle (§5.3).
