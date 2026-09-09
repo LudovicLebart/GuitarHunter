@@ -207,6 +207,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_user_created ON logs(user_id, created_at DES
 -- Remplace la TTL policy Firestore (3 jours) : job cron/schedule côté API à écrire
 -- (`DELETE FROM logs WHERE created_at < now() - interval '3 days'`), voir plan §2.
 
+-- Catalogue partagé (remplace `artifacts/{APP_ID}/cities`, écrit par bot.py::add_city_auto()
+-- avec un `.set(merge=True)` — hors périmètre ici : cette tranche ne construit que la surface
+-- consommée par le frontend, le bot restant sur Firestore jusqu'à la bascule, voir §5.1).
 CREATE TABLE IF NOT EXISTS cities (
     id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -216,12 +219,56 @@ CREATE TABLE IF NOT EXISTS cities (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS created_by TEXT;   -- uid, voir add_city_auto()
+
+-- Préférences par utilisateur (remplace `users/{uid}/cities`, architecture actuelle). L'absence
+-- de ligne pour un (user_id, city_id) donné == "non scannable" côté Firestore (`isScannable ??
+-- false`, `onCitiesUpdate`) — d'où `active DEFAULT false` : une ligne créée UNIQUEMENT pour y
+-- poser `kijiji_radius_km` (setCityKijijiRadius, `merge: true` côté Firestore, jamais
+-- `isScannable` en même temps) ne doit jamais activer implicitement le scan de la ville.
 CREATE TABLE IF NOT EXISTS user_city_prefs (
     user_id     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
     city_id     TEXT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
-    active      BOOLEAN NOT NULL DEFAULT true,
+    active      BOOLEAN NOT NULL DEFAULT false,
     PRIMARY KEY (user_id, city_id)
 );
+
+ALTER TABLE user_city_prefs ALTER COLUMN active SET DEFAULT false;   -- voir commentaire ci-dessus (corrige le défaut d'un tout premier jet, jamais utilisé jusqu'ici)
+ALTER TABLE user_city_prefs ADD COLUMN IF NOT EXISTS kijiji_radius_km NUMERIC;
+
+-- Temps réel (remplace les deux onSnapshot d'onCitiesUpdate) : contrairement à deal_changes/
+-- chat_changes/restoration_plan_changes, on ne pousse ici qu'un signal léger (deal_id/city_id
+-- concerné) plutôt que la ligne fusionnée — le calcul du merge catalogue+prefs vit côté requête
+-- SQL (cities_repo.py::list_cities_for_user), pas dans le trigger ; le client réagit en
+-- rafraîchissant l'entrée concernée. `user_city_prefs` est filtré par user_id (propre à chaque
+-- utilisateur) ; `cities` (catalogue partagé) ne l'est pas, broadcast à tous les clients connectés.
+CREATE OR REPLACE FUNCTION notify_city_pref_change() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM pg_notify('city_prefs_changes', json_build_object('user_id', OLD.user_id, 'city_id', OLD.city_id)::text);
+        RETURN OLD;
+    END IF;
+    PERFORM pg_notify('city_prefs_changes', json_build_object('user_id', NEW.user_id, 'city_id', NEW.city_id)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS user_city_prefs_notify ON user_city_prefs;
+CREATE TRIGGER user_city_prefs_notify
+    AFTER INSERT OR UPDATE OR DELETE ON user_city_prefs
+    FOR EACH ROW EXECUTE FUNCTION notify_city_pref_change();
+
+CREATE OR REPLACE FUNCTION notify_catalog_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('cities_catalog_changes', json_build_object('city_id', NEW.id)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS cities_notify ON cities;
+CREATE TRIGGER cities_notify
+    AFTER INSERT OR UPDATE ON cities
+    FOR EACH ROW EXECUTE FUNCTION notify_catalog_change();
 
 -- Table publique (partage d'annonce) : exposée sans auth côté API, équivalent
 -- `allow read: if true` des règles Firestore actuelles.

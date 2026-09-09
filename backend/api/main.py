@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, commands_repo, deals_repo, restoration_repo
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo
 
 
 @asynccontextmanager
@@ -455,4 +455,87 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
         pass
     finally:
         await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Villes (tranche 5) -----------------------------------------------------------------------
+# Remplace onCitiesUpdate/deleteCity/toggleCityScannable/setCityKijijiRadius (firestoreService.js).
+# L'ajout d'une ville passe déjà par la commande ADD_CITY (tranche 1, table `commands`) — le
+# catalogue partagé lui-même reste écrit par bot.py côté Firestore jusqu'à la bascule, rien à
+# construire ici pour ce chemin (voir cities_repo.py).
+
+@app.get("/cities")
+async def list_cities(uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    rows = await cities_repo.list_cities_for_user(pool, uid)
+    return [dict(r) for r in rows]
+
+
+async def _require_city_exists(pool, city_id: str) -> None:
+    if not await cities_repo.city_exists(pool, city_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ville introuvable dans le catalogue.")
+
+
+@app.delete("/cities/{city_id}/pref", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_city_pref(city_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    await cities_repo.delete_city_pref(pool, uid, city_id)
+
+
+@app.patch("/cities/{city_id}/scannable")
+async def toggle_city_scannable(city_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    new_value = await cities_repo.toggle_scannable(pool, uid, city_id)
+    return {"isScannable": new_value}
+
+
+class KijijiRadiusBody(BaseModel):
+    radiusKm: Optional[float] = None
+
+
+@app.patch("/cities/{city_id}/kijiji-radius")
+async def set_city_kijiji_radius(city_id: str, body: KijijiRadiusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    await cities_repo.set_kijiji_radius(pool, uid, city_id, body.radiusKm)
+    return {"kijijiRadiusKm": body.radiusKm}
+
+
+@app.websocket("/ws/cities")
+async def ws_cities(websocket: WebSocket, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    loop = asyncio.get_running_loop()
+
+    def _on_pref_notify(connection, pid, channel, payload):
+        data = json.loads(payload)
+        if data.get("user_id") != uid:
+            return  # canal partagé entre tous les utilisateurs, filtré ici
+        loop.create_task(websocket.send_json({"type": "city_pref_changed", "cityId": data["city_id"]}))
+
+    def _on_catalog_notify(connection, pid, channel, payload):
+        data = json.loads(payload)
+        # Catalogue partagé : diffusé à tous les clients connectés, pas de filtrage par uid.
+        loop.create_task(websocket.send_json({"type": "catalog_changed", "cityId": data["city_id"]}))
+
+    await listen_conn.add_listener("city_prefs_changes", _on_pref_notify)
+    await listen_conn.add_listener("cities_catalog_changes", _on_catalog_notify)
+    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
+        await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
         await listen_conn.close()
