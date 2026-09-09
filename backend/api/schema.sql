@@ -97,6 +97,24 @@ CREATE TABLE IF NOT EXISTS restoration_plan_items (
 
 CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_items(deal_id, item_order);
 
+-- Temps réel (remplace `onDealsIndexUpdate`, voir FIRESTORE_MIGRATION_PLAN.md §1) : un
+-- trigger au niveau base notifie sur TOUTE écriture, quelle que soit son origine (bot en SQL
+-- direct comme cette API) — plus fiable qu'un NOTIFY manuel à dupliquer dans chaque site
+-- d'écriture applicatif. Canal unique `deal_changes` ; le filtrage par utilisateur se fait
+-- côté serveur WS (backend/api/main.py), pas par un canal dédié par uid (échelle du projet
+-- trop restreinte pour que ça vaille la complexité).
+CREATE OR REPLACE FUNCTION notify_deal_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('deal_changes', json_build_object('user_id', NEW.user_id, 'id', NEW.id)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS guitar_deals_notify ON guitar_deals;
+CREATE TRIGGER guitar_deals_notify
+    AFTER INSERT OR UPDATE ON guitar_deals
+    FOR EACH ROW EXECUTE FUNCTION notify_deal_change();
+
 -- Bus de commandes Frontend -> Backend (première tranche migrée, voir §3 du plan).
 -- `status` : pending | completed | failed. Le bot lit directement cette table (accès SQL
 -- direct, pas via l'API HTTP) ; seul le frontend passe par POST /commands.
