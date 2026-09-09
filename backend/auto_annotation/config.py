@@ -8,7 +8,7 @@ YOLO_V1_OBB_WEIGHTS = 'yolov8n-obb.pt'
 
 # Configuration Oracle VLM Local
 OLLAMA_API_URL = 'http://localhost:11434/api/generate'
-VLM_MODEL = 'qwen2.5-vl'
+VLM_MODEL = 'llava'
 
 # Chemins d'exportation du dataset
 OUTPUT_DIR = Path('dataset_v2')
