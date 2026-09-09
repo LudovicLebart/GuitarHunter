@@ -69,17 +69,43 @@ CREATE INDEX IF NOT EXISTS idx_guitar_deals_timestamp   ON guitar_deals(user_id,
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_favorite    ON guitar_deals(user_id, is_favorite) WHERE is_favorite;
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_classification ON guitar_deals(user_id, classification);
 
+-- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
+-- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
+-- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle
+-- n'est silencieusement jamais appliquée sur une base déjà initialisée par une tranche
+-- précédente (piège réel rencontré en écrivant la tranche 3 — chat).
 CREATE TABLE IF NOT EXISTS deal_chat (
-    id                      BIGSERIAL PRIMARY KEY,
-    deal_id                 TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
-    role                    TEXT NOT NULL,
-    parts                   JSONB NOT NULL DEFAULT '[]'::jsonb,
-    display_text            TEXT,
-    restoration_proposals   JSONB,
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    id            BIGSERIAL PRIMARY KEY,
+    deal_id       TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
+    role          TEXT NOT NULL,
+    parts         JSONB NOT NULL DEFAULT '[]'::jsonb,
+    display_text  TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS attached_image_part_indices JSONB;       -- tableau d'index dans `parts`
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS restoration_proposals       JSONB;       -- tableau de propositions (statut inclus par item)
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS added_to_gallery_urls       JSONB;       -- map {"<partIndex>": url}
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS photo_recall                JSONB;
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS is_error                    BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS requalification_proposal    JSONB;
+
 CREATE INDEX IF NOT EXISTS idx_deal_chat_deal_id ON deal_chat(deal_id, created_at);
+
+-- Temps réel du chat (remplace onDealChatUpdate) : canal séparé de deal_changes, filtré par
+-- deal_id côté serveur WS (pas par user_id — la propriété du deal est vérifiée une fois à la
+-- connexion, voir main.py::ws_deal_chat).
+CREATE OR REPLACE FUNCTION notify_chat_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('chat_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS deal_chat_notify ON deal_chat;
+CREATE TRIGGER deal_chat_notify
+    AFTER INSERT OR UPDATE ON deal_chat
+    FOR EACH ROW EXECUTE FUNCTION notify_chat_change();
 
 CREATE TABLE IF NOT EXISTS restoration_plan_items (
     id           BIGSERIAL PRIMARY KEY,

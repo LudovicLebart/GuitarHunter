@@ -2,9 +2,11 @@
 directement par le bot (accès Postgres direct, pas via l'API — voir
 FIRESTORE_MIGRATION_PLAN.md §3). Isolé pour être réutilisable des deux côtés sans dépendre
 de FastAPI.
-"""
-import json
 
+Les colonnes JSONB (payload) prennent des objets Python bruts, jamais du JSON déjà
+sérialisé à la main : le codec asyncpg (voir db.py::_register_json_codecs) s'en charge —
+lui repasser une chaîne déjà encodée la ré-encoderait une seconde fois (double guillemets).
+"""
 import asyncpg
 
 
@@ -15,7 +17,7 @@ async def create_command(pool: asyncpg.Pool, user_id: str, type_: str, payload) 
         VALUES ($1, $2, $3, 'pending')
         RETURNING id, created_at
         """,
-        user_id, type_, json.dumps(payload) if payload is not None else None,
+        user_id, type_, payload,
     )
     return row["id"]
 

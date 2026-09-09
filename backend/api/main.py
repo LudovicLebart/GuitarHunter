@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import commands_repo, deals_repo
+from backend.api import chat_repo, commands_repo, deals_repo
 
 
 @asynccontextmanager
@@ -184,4 +184,144 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
         pass
     finally:
         await listen_conn.remove_listener("deal_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Chat (tranche 3) ----------------------------------------------------------------------
+# Remplace onDealChatUpdate/addDealChatMessage/replaceDealChatMessage/markChatMessage*
+# (firestoreService.js). `deal_chat` n'a pas de user_id propre (FK vers guitar_deals) :
+# chaque route vérifie la propriété du deal parent avant d'exposer/modifier son chat.
+
+async def _require_deal_owner(pool, deal_id: str, uid: str) -> None:
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner is None or owner != uid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+
+
+@app.get("/deals/{deal_id}/chat")
+async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    rows = await chat_repo.list_messages(pool, deal_id)
+    return [dict(r) for r in rows]
+
+
+class ChatMessageCreate(BaseModel):
+    role: str
+    parts: Any
+    displayText: Optional[str] = None
+    attachedImagePartIndices: Optional[list[int]] = None
+    restorationProposals: Optional[list[dict]] = None
+    photoRecall: Optional[dict] = None
+    isError: bool = False
+    requalificationProposal: Optional[dict] = None
+
+
+@app.post("/deals/{deal_id}/chat", status_code=status.HTTP_201_CREATED)
+async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    message_id = await chat_repo.add_message(
+        pool, deal_id, body.role, body.parts, body.displayText,
+        body.attachedImagePartIndices, body.restorationProposals,
+        body.photoRecall, body.isError, body.requalificationProposal,
+    )
+    return {"id": message_id}
+
+
+class ChatMessageReplace(BaseModel):
+    parts: Any
+    displayText: Optional[str] = None
+    restorationProposals: Optional[list[dict]] = None
+    photoRecall: Optional[dict] = None
+    isError: bool = False
+    requalificationProposal: Optional[dict] = None
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}")
+async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await chat_repo.replace_message(
+        pool, message_id, body.parts, body.displayText,
+        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
+    )
+    return {"status": "ok"}
+
+
+class GalleryMarkBody(BaseModel):
+    partIndex: int
+    url: str
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/gallery")
+async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await chat_repo.mark_added_to_gallery(pool, message_id, body.partIndex, body.url)
+    return {"status": "ok"}
+
+
+class RestorationProposalStatusBody(BaseModel):
+    proposalIndex: int
+    status: str
+    itemId: Optional[str] = None
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/restoration-proposal")
+async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await chat_repo.mark_restoration_proposal_status(pool, message_id, body.proposalIndex, body.status, body.itemId)
+    return {"status": "ok"}
+
+
+class RequalificationStatusBody(BaseModel):
+    status: str
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/requalification-proposal")
+async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await chat_repo.mark_requalification_proposal_status(pool, message_id, body.status)
+    return {"status": "ok"}
+
+
+@app.websocket("/ws/deals/{deal_id}/chat")
+async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    # Vérifié via une connexion à part (avant accept()) : le pool applicatif normal convient
+    # ici, contrairement à listen_conn qui doit rester dédiée à LISTEN pour toute la durée du socket.
+    pool = get_pool()
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner != uid:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    loop = asyncio.get_running_loop()
+
+    def _on_notify(connection, pid, channel, payload):
+        data = json.loads(payload)
+        if data.get("deal_id") != deal_id:
+            return  # canal partagé entre toutes les annonces, filtré ici
+        loop.create_task(websocket.send_json(data))
+
+    await listen_conn.add_listener("chat_changes", _on_notify)
+    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await listen_conn.remove_listener("chat_changes", _on_notify)
         await listen_conn.close()
