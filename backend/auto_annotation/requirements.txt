@@ -1,0 +1,5 @@
+ultralytics
+opencv-python
+aiohttp
+requests
+numpy

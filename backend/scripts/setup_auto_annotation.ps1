@@ -21,7 +21,7 @@ Write-Host "Version détectée : $pythonVersion" -ForegroundColor Green
 # 2. Installation des dépendances
 Write-Host "`n[2/4] Installation des packages requis..." -ForegroundColor Yellow
 python -m pip install --upgrade pip
-python -m pip install ultralytics opencv-python aiohttp requests numpy
+python -m pip install -r backend/auto_annotation/requirements.txt
 Write-Host "Dépendances Python installées." -ForegroundColor Green
 
 # 3. Téléchargement des poids YOLO-OBB
