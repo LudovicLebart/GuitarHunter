@@ -31,7 +31,7 @@ on:
 jobs:
   run-script:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 420
     steps:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v2
@@ -50,7 +50,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 45m
+          command_timeout: 6h
           envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
           script: |
             set -e
@@ -99,13 +99,14 @@ jobs:
             # impossible de distinguer "lent" de "raccroché" (candidat sans timeout, corrigé
             # séparément dans candidates.py/judge.py).
             # Run complet (40 fiches) lancé une fois (run #25, 2026-09-09) puis ANNULÉ après
-            # ~15 min : l'axe "valeur" tombe à 0% pour tous les candidats y compris gemini/
-            # gemini_pro (prod) — le harnais n'a pas d'étalon (aucun candidat n'utilise le
-            # vrai prompt/schéma JSON de production, cf. JOURNAL.md/TODO.md). Repassé à
-            # --limit 5 pour empêcher qu'un futur push ici ne relance un run complet coûteux
-            # par accident avant qu'un candidat `analyzer_prod` (vrai Bras A, `analyze_deal()`
-            # tel quel) existe. Retirer --limit 5 seulement une fois ce candidat codé.
-            python3 -u -m backend.benchmark.run_benchmark --limit 5
+            # ~15 min : l'axe "valeur" tombait à 0% pour tous les candidats y compris gemini/
+            # gemini_pro (prod) — le harnais n'avait pas d'étalon de production. Corrigé par le
+            # candidat `analyzer_prod` (vrai Bras A, DealAnalyzer.analyze_deal() tel quel),
+            # confirmé sur smoke test #26 (2026-09-09) : seul candidat à score "valeur" non nul,
+            # aucune régression sur les 9 autres. Run complet relancé (10 candidats x 40 fiches,
+            # ~4h estimées par extrapolation du smoke test) — command_timeout/timeout-minutes
+            # remontés en conséquence (voir plus haut).
+            python3 -u -m backend.benchmark.run_benchmark
 
       - name: Récupération du rapport généré
         env:
