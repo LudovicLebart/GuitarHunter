@@ -37,21 +37,27 @@ async def toggle_favorite(pool: asyncpg.Pool, user_id: str, deal_id: str):
 
 
 async def toggle_purchased(pool: asyncpg.Pool, user_id: str, deal_id: str, purchase_price: float | None = None):
-    current = await pool.fetchrow("SELECT is_purchased FROM guitar_deals WHERE id = $1 AND user_id = $2", deal_id, user_id)
-    if current is None:
-        return None
-    new_status = not current["is_purchased"]
+    """Bascule atomique en une seule requête (comme `toggle_favorite` ci-dessus) — un
+    lire-puis-écrire séparé en deux allers-retours (version précédente) laissait une fenêtre où
+    deux requêtes concurrentes (double-clic, deux onglets) lisent la même valeur avant que l'une
+    ou l'autre n'écrive, perdant une des deux bascules (race trouvée en revue de code). `NOT
+    is_purchased` dans le SET est évalué contre la valeur AVANT la mise à jour (sémantique SQL
+    standard d'un UPDATE), donc `CASE WHEN NOT is_purchased` ci-dessous lit bien l'état déjà
+    inversé, cohérent avec `RETURNING is_purchased`. `purchased_at` suit `toggleDealPurchased`
+    (firestoreService.js) : posé à l'instant de l'achat, effacé au retour à `false` — comme
+    `purchase_price` (posées/effacées ensemble, jamais l'une sans l'autre)."""
     row = await pool.fetchrow(
         """
         UPDATE guitar_deals
-        SET is_purchased = $3,
-            purchase_price = CASE WHEN $3 THEN $4 ELSE NULL END
+        SET is_purchased = NOT is_purchased,
+            purchase_price = CASE WHEN NOT is_purchased THEN $3::numeric ELSE NULL END,
+            purchased_at = CASE WHEN NOT is_purchased THEN now() ELSE NULL END
         WHERE id = $1 AND user_id = $2
         RETURNING is_purchased
         """,
-        deal_id, user_id, new_status, purchase_price,
+        deal_id, user_id, purchase_price,
     )
-    return row["is_purchased"]
+    return row["is_purchased"] if row else None
 
 
 async def set_classification(pool: asyncpg.Pool, user_id: str, deal_id: str, classification_path: str | None):

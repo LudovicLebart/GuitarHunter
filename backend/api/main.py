@@ -162,28 +162,37 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
     # Connexion dédiée à ce socket (pas le pool applicatif) : LISTEN doit tenir sur UNE
     # connexion vivante en continu, incompatible avec un pool qui recycle ses connexions.
     listen_conn = await asyncpg.connect(DATABASE_URL)
-    loop = asyncio.get_running_loop()
-
-    def _on_notify(connection, pid, channel, payload):
-        data = json.loads(payload)
-        if data.get("user_id") != uid:
-            return  # canal partagé entre tous les utilisateurs, filtré ici (voir schema.sql)
-        loop.create_task(websocket.send_json(data))
-
-    await listen_conn.add_listener("deal_changes", _on_notify)
-    # Accusé de réception explicite : entre l'établissement de la connexion WS (accept())
-    # et l'enregistrement effectif du LISTEN ci-dessus, une notification Postgres émise
-    # entre-temps ne serait jamais délivrée (Postgres ne rejoue pas les NOTIFY manqués).
-    # Le client attend ce message avant de déclencher une action censée produire un push,
-    # au lieu de deviner un délai arbitraire.
-    await websocket.send_json({"type": "ready"})
+    # `listener_added` + le try englobant dès ici (pas seulement autour de la boucle de
+    # réception) : si add_listener() ou send_json() lève (ex: client déconnecté juste après
+    # accept()) avant d'atteindre le try/finally plus bas, listen_conn ne serait jamais fermée
+    # — fuite de connexion Postgres réelle trouvée en revue de code, hors du pool borné
+    # (max_size=10), qui finit par épuiser les connexions disponibles côté serveur.
+    listener_added = False
     try:
-        while True:
-            await websocket.receive_text()  # ne sert qu'à détecter la déconnexion du client
-    except WebSocketDisconnect:
-        pass
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return  # canal partagé entre tous les utilisateurs, filtré ici (voir schema.sql)
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("deal_changes", _on_notify)
+        listener_added = True
+        # Accusé de réception explicite : entre l'établissement de la connexion WS (accept())
+        # et l'enregistrement effectif du LISTEN ci-dessus, une notification Postgres émise
+        # entre-temps ne serait jamais délivrée (Postgres ne rejoue pas les NOTIFY manqués).
+        # Le client attend ce message avant de déclencher une action censée produire un push,
+        # au lieu de deviner un délai arbitraire.
+        await websocket.send_json({"type": "ready"})
+        try:
+            while True:
+                await websocket.receive_text()  # ne sert qu'à détecter la déconnexion du client
+        except WebSocketDisconnect:
+            pass
     finally:
-        await listen_conn.remove_listener("deal_changes", _on_notify)
+        if listener_added:
+            await listen_conn.remove_listener("deal_changes", _on_notify)
         await listen_conn.close()
 
 
@@ -238,14 +247,20 @@ class ChatMessageReplace(BaseModel):
     requalificationProposal: Optional[dict] = None
 
 
+async def _require_chat_message_found(found: bool) -> None:
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message introuvable pour cette annonce.")
+
+
 @app.patch("/deals/{deal_id}/chat/{message_id}")
 async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await chat_repo.replace_message(
-        pool, message_id, body.parts, body.displayText,
+    found = await chat_repo.replace_message(
+        pool, deal_id, message_id, body.parts, body.displayText,
         body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
     )
+    await _require_chat_message_found(found)
     return {"status": "ok"}
 
 
@@ -258,7 +273,8 @@ class GalleryMarkBody(BaseModel):
 async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await chat_repo.mark_added_to_gallery(pool, message_id, body.partIndex, body.url)
+    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)
+    await _require_chat_message_found(found)
     return {"status": "ok"}
 
 
@@ -272,7 +288,8 @@ class RestorationProposalStatusBody(BaseModel):
 async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await chat_repo.mark_restoration_proposal_status(pool, message_id, body.proposalIndex, body.status, body.itemId)
+    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId)
+    await _require_chat_message_found(found)
     return {"status": "ok"}
 
 
@@ -284,7 +301,8 @@ class RequalificationStatusBody(BaseModel):
 async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await chat_repo.mark_requalification_proposal_status(pool, message_id, body.status)
+    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status)
+    await _require_chat_message_found(found)
     return {"status": "ok"}
 
 
@@ -307,23 +325,27 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
     await websocket.accept()
 
     listen_conn = await asyncpg.connect(DATABASE_URL)
-    loop = asyncio.get_running_loop()
-
-    def _on_notify(connection, pid, channel, payload):
-        data = json.loads(payload)
-        if data.get("deal_id") != deal_id:
-            return  # canal partagé entre toutes les annonces, filtré ici
-        loop.create_task(websocket.send_json(data))
-
-    await listen_conn.add_listener("chat_changes", _on_notify)
-    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("deal_id") != deal_id:
+                return  # canal partagé entre toutes les annonces, filtré ici
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("chat_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
     finally:
-        await listen_conn.remove_listener("chat_changes", _on_notify)
+        if listener_added:
+            await listen_conn.remove_listener("chat_changes", _on_notify)
         await listen_conn.close()
 
 
@@ -373,7 +395,7 @@ class RestorationReorderBody(BaseModel):
 async def reorder_restoration_items(deal_id: str, body: RestorationReorderBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.reorder_items(pool, body.orderedItemIds)
+    await restoration_repo.reorder_items(pool, deal_id, body.orderedItemIds)
     return {"status": "ok"}
 
 
@@ -386,11 +408,17 @@ class RestorationItemPatch(BaseModel):
     notes: Optional[str] = None
 
 
+async def _require_restoration_item_found(found: bool) -> None:
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Étape introuvable pour cette annonce.")
+
+
 @app.patch("/deals/{deal_id}/restoration-plan/{item_id}")
 async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationItemPatch, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.update_item(pool, item_id, body.model_dump(exclude_unset=True))
+    found = await restoration_repo.update_item(pool, deal_id, item_id, body.model_dump(exclude_unset=True))
+    await _require_restoration_item_found(found)
     return {"status": "ok"}
 
 
@@ -398,7 +426,8 @@ async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationIt
 async def delete_restoration_item(deal_id: str, item_id: int, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.delete_item(pool, item_id)
+    found = await restoration_repo.delete_item(pool, deal_id, item_id)
+    await _require_restoration_item_found(found)
 
 
 class RestorationPhotoBody(BaseModel):
@@ -409,7 +438,8 @@ class RestorationPhotoBody(BaseModel):
 async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.add_photo(pool, item_id, body.url)
+    found = await restoration_repo.add_photo(pool, deal_id, item_id, body.url)
+    await _require_restoration_item_found(found)
     return {"status": "ok"}
 
 
@@ -417,7 +447,8 @@ async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPho
 async def remove_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.remove_photo(pool, item_id, body.url)
+    found = await restoration_repo.remove_photo(pool, deal_id, item_id, body.url)
+    await _require_restoration_item_found(found)
     return {"status": "ok"}
 
 
@@ -438,23 +469,27 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
     await websocket.accept()
 
     listen_conn = await asyncpg.connect(DATABASE_URL)
-    loop = asyncio.get_running_loop()
-
-    def _on_notify(connection, pid, channel, payload):
-        data = json.loads(payload)
-        if data.get("deal_id") != deal_id:
-            return  # canal partagé entre toutes les annonces, filtré ici
-        loop.create_task(websocket.send_json(data))
-
-    await listen_conn.add_listener("restoration_plan_changes", _on_notify)
-    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("deal_id") != deal_id:
+                return  # canal partagé entre toutes les annonces, filtré ici
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("restoration_plan_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
     finally:
-        await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
+        if listener_added:
+            await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
         await listen_conn.close()
 
 
@@ -514,30 +549,39 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
 
     listen_conn = await asyncpg.connect(DATABASE_URL)
-    loop = asyncio.get_running_loop()
-
-    def _on_pref_notify(connection, pid, channel, payload):
-        data = json.loads(payload)
-        if data.get("user_id") != uid:
-            return  # canal partagé entre tous les utilisateurs, filtré ici
-        loop.create_task(websocket.send_json({"type": "city_pref_changed", "cityId": data["city_id"]}))
-
-    def _on_catalog_notify(connection, pid, channel, payload):
-        data = json.loads(payload)
-        # Catalogue partagé : diffusé à tous les clients connectés, pas de filtrage par uid.
-        loop.create_task(websocket.send_json({"type": "catalog_changed", "cityId": data["city_id"]}))
-
-    await listen_conn.add_listener("city_prefs_changes", _on_pref_notify)
-    await listen_conn.add_listener("cities_catalog_changes", _on_catalog_notify)
-    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    # Deux flags distincts (voir ws_deals pour le raisonnement) : chaque add_listener() peut
+    # échouer indépendamment, remove_listener() ne doit être tenté que sur celui qui a réussi.
+    pref_listener_added = False
+    catalog_listener_added = False
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
+        loop = asyncio.get_running_loop()
+
+        def _on_pref_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return  # canal partagé entre tous les utilisateurs, filtré ici
+            loop.create_task(websocket.send_json({"type": "city_pref_changed", "cityId": data["city_id"]}))
+
+        def _on_catalog_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            # Catalogue partagé : diffusé à tous les clients connectés, pas de filtrage par uid.
+            loop.create_task(websocket.send_json({"type": "catalog_changed", "cityId": data["city_id"]}))
+
+        await listen_conn.add_listener("city_prefs_changes", _on_pref_notify)
+        pref_listener_added = True
+        await listen_conn.add_listener("cities_catalog_changes", _on_catalog_notify)
+        catalog_listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
     finally:
-        await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
-        await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
+        if pref_listener_added:
+            await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
+        if catalog_listener_added:
+            await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
         await listen_conn.close()
 
 

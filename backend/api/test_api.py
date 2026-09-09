@@ -19,18 +19,7 @@ from fastapi.testclient import TestClient
 from backend.api.db import DATABASE_URL
 from backend.api.main import app
 from backend.api.auth import get_current_uid
-
-
-def _pg_reachable() -> bool:
-    async def _check():
-        conn = await asyncpg.connect(DATABASE_URL, timeout=2)
-        await conn.close()
-
-    try:
-        asyncio.run(_check())
-        return True
-    except Exception:
-        return False
+from backend.api.test_deals_api import _pg_reachable  # évite une deuxième implémentation identique
 
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")

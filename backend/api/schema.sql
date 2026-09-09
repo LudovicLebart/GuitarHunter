@@ -69,6 +69,14 @@ CREATE INDEX IF NOT EXISTS idx_guitar_deals_timestamp   ON guitar_deals(user_id,
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_favorite    ON guitar_deals(user_id, is_favorite) WHERE is_favorite;
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_classification ON guitar_deals(user_id, classification);
 
+-- `purchase_price`/`purchased_at` manquaient du tout premier jet de ce schéma alors que
+-- deals_repo.py::toggle_purchased les référence depuis la tranche 2 — bug latent jamais
+-- détecté faute de test de correction fonctionnelle sur cet endpoint (trouvé en écrivant un
+-- tel test lors d'une revue de code). Ajoutées ici en ALTER TABLE (voir l'avertissement
+-- juste en dessous : `guitar_deals` est déjà créée sur toute base ayant déjà joué ce fichier).
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_at   TIMESTAMPTZ;
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle
@@ -111,11 +119,17 @@ CREATE TRIGGER deal_chat_notify
 -- contrat réel dans firestoreService.js) jamais utilisées par aucun code — remplacées ici
 -- avant toute tranche 4 par les vrais champs (estimated_cost/actual_cost/source/...), voir
 -- addRestorationItem/updateRestorationItem. Retirées explicitement plutôt que laissées mortes.
+-- `status` inclus dès le CREATE TABLE (nullable ici) : sur une base fraîche, un simple
+-- ADD COLUMN IF NOT EXISTS status ... plus bas serait un no-op silencieux si la colonne
+-- existe déjà (voir le piège documenté juste après), mais s'il ne l'était PAS déjà présente,
+-- les ALTER COLUMN suivants échoueraient avec "column status does not exist" — la colonne
+-- doit donc exister dès la création, quelle que soit l'histoire de la base cible.
 CREATE TABLE IF NOT EXISTS restoration_plan_items (
     id           BIGSERIAL PRIMARY KEY,
     deal_id      TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
     label        TEXT,
     category     TEXT,
+    status       TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

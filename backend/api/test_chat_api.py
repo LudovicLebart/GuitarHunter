@@ -122,6 +122,50 @@ class TestChatAPI(unittest.TestCase):
         resp = self.client.get("/deals/chat-deal-other/chat")
         self.assertEqual(resp.status_code, 404)
 
+    def test_mutations_reject_message_id_from_another_users_deal(self):
+        """IDOR trouvé en revue de code : les mutations ne filtraient QUE sur `message_id`
+        (clé primaire globale, trivialement énumérable), jamais sur `deal_id` — un attaquant
+        propriétaire de self.DEAL_ID (passe _require_deal_owner) pouvait donc modifier un
+        message d'une annonce appartenant à un AUTRE utilisateur en visant son id directement."""
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        create = self.client.post("/deals/chat-deal-other/chat", json={
+            "role": "user", "parts": [{"text": "original"}], "displayText": "original",
+            "restorationProposals": [{"label": "Refret", "status": "pending"}],
+        })
+        self.assertEqual(create.status_code, 201, create.text)
+        other_message_id = create.json()["id"]
+
+        # L'attaquant repasse à son propre uid et vise l'id du message d'autrui, avec SON
+        # PROPRE deal_id dans l'URL (qui passe la vérification de propriété).
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+        replace = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{other_message_id}", json={
+            "parts": [{"text": "hacked"}], "displayText": "hacked",
+        })
+        self.assertEqual(replace.status_code, 404)
+
+        gallery = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{other_message_id}/gallery", json={
+            "partIndex": 0, "url": "https://storage.example/hacked.jpg",
+        })
+        self.assertEqual(gallery.status_code, 404)
+
+        restoration = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{other_message_id}/restoration-proposal", json={
+            "proposalIndex": 0, "status": "applied",
+        })
+        self.assertEqual(restoration.status_code, 404)
+
+        requalification = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{other_message_id}/requalification-proposal", json={
+            "status": "applied",
+        })
+        self.assertEqual(requalification.status_code, 404)
+
+        # Le message d'origine n'a subi AUCUNE des 4 tentatives de modification.
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        listing = self.client.get("/deals/chat-deal-other/chat").json()
+        self.assertEqual(listing[0]["display_text"], "original")
+        self.assertEqual(listing[0]["restoration_proposals"][0]["status"], "pending")
+        self.assertIsNone(listing[0]["added_to_gallery_urls"])
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestChatWebSocket(unittest.TestCase):

@@ -139,6 +139,44 @@ class TestRestorationPlanAPI(unittest.TestCase):
         resp = self.client.get("/deals/plan-deal-other/restoration-plan")
         self.assertEqual(resp.status_code, 404)
 
+    def test_mutations_reject_item_id_from_another_users_deal(self):
+        """IDOR trouvé en revue de code : les mutations ne filtraient QUE sur `item_id` (clé
+        primaire globale, trivialement énumérable), jamais sur `deal_id` — un attaquant
+        propriétaire de self.DEAL_ID (passe _require_deal_owner) pouvait donc modifier/supprimer
+        l'étape de restauration d'une annonce appartenant à un AUTRE utilisateur."""
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        create = self.client.post("/deals/plan-deal-other/restoration-plan", json={"label": "original"})
+        self.assertEqual(create.status_code, 201, create.text)
+        other_item_id = create.json()["id"]
+
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+        patch = self.client.patch(f"/deals/{self.DEAL_ID}/restoration-plan/{other_item_id}", json={"label": "hacked"})
+        self.assertEqual(patch.status_code, 404)
+
+        photo = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan/{other_item_id}/photos", json={
+            "url": "https://storage.example/hacked.jpg",
+        })
+        self.assertEqual(photo.status_code, 404)
+
+        delete = self.client.delete(f"/deals/{self.DEAL_ID}/restoration-plan/{other_item_id}")
+        self.assertEqual(delete.status_code, 404)
+
+        # Réordonnancement (bulk, sans 404 individuel) : un id étranger glissé dans la liste
+        # ne doit toucher AUCUNE ligne hors de self.DEAL_ID — vérifié en confirmant que l'étape
+        # d'autrui garde son ordre d'origine (None, jamais assigné) après coup.
+        reorder = self.client.patch(f"/deals/{self.DEAL_ID}/restoration-plan/order", json={
+            "orderedItemIds": [other_item_id],
+        })
+        self.assertEqual(reorder.status_code, 200)
+
+        # L'étape d'origine n'a subi AUCUNE des tentatives ci-dessus.
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        listing = self.client.get("/deals/plan-deal-other/restoration-plan").json()
+        self.assertEqual(listing[0]["label"], "original")
+        self.assertEqual(listing[0]["photo_urls"], None)
+        self.assertIsNone(listing[0]["item_order"])
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestRestorationPlanWebSocket(unittest.TestCase):

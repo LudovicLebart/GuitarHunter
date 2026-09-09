@@ -154,6 +154,22 @@ class TestDealsAPI(unittest.TestCase):
         resp = self.client.patch("/deals/deal-2/favorite")
         self.assertEqual(resp.status_code, 404)
 
+    def test_toggle_purchased_twice_round_trips_and_clears_price(self):
+        """`toggle_purchased` a été réécrit en un UPDATE atomique (`SET is_purchased = NOT
+        is_purchased`) plutôt qu'un lire-puis-écrire séparé en deux requêtes — cette table
+        n'avait jusqu'ici AUCUN test de correction fonctionnelle, seulement le raisonnement.
+        La bascule elle-même (round-trip + prix posé/effacé) est ce qu'un test unique peut
+        vérifier ; la race sous requêtes concurrentes que le lire-puis-écrire permettait n'est
+        pas reproductible de façon fiable ici — l'atomicité du UPDATE l'élimine par construction."""
+        first = self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 450})
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()["isPurchased"])
+        self.assertEqual(float(self.client.get("/deals/deal-1").json()["purchase_price"]), 450.0)
+
+        second = self.client.patch("/deals/deal-1/purchased", json={})
+        self.assertFalse(second.json()["isPurchased"])
+        self.assertIsNone(self.client.get("/deals/deal-1").json()["purchase_price"])  # effacé au retour à False
+
     def test_set_and_clear_manual_classification(self):
         set_resp = self.client.patch("/deals/deal-1/classification", json={"classificationPath": "acoustique_acier.parlor"})
         self.assertEqual(set_resp.status_code, 200)
