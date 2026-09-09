@@ -13,10 +13,10 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🗄️ Migration Firestore → solution auto-hébergée (Plan sommaire — 2026-09-05)
 
-*Déclenché par l'analyse des factures GeminiDev (août/septembre 2026) : Firestore pèse ~16-20% de la facture (16,16$ sur 102,57$ en août), avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre). Plan sommaire (pas encore d'implémentation) : `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md`.*
+*Déclenché par l'analyse des factures GeminiDev (août/septembre 2026) : Firestore pèse ~16-20% de la facture (16,16$ sur 102,57$ en août), avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre). Plan : `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md`. Chantier démarré (2026-09-09) sur la branche dédiée `claude/firestore-postgres-migration`.*
 
-- [ ] **Trancher l'accessibilité réseau du serveur existant** (IP fixe/port forwarding 80/443 avec nom de domaine, ou tunnel type Cloudflare/Tailscale Funnel nécessaire) — conditionne toute la faisabilité du chantier (serveur = bot + Postgres + API/WS + frontend, à la place de Firestore + GitHub Pages).
-- [ ] **Si validé : détailler l'implémentation par tranche verticale** (ex: bus de commandes migré en premier, isolé, avant chat/deals/auth) plutôt qu'un big-bang complet.
+- [x] **Accessibilité réseau du serveur tranchée** *(2026-09-09)* : **Tailscale Funnel**, cohérent avec l'infra déjà utilisée pour le déploiement CI (`deploy.yml`).
+- [/] **Implémentation par tranche verticale, bascule finale en une seule fois** *(stratégie actée avec l'utilisateur 2026-09-09)* : construction tranche par tranche sur la branche dédiée (Firestore reste l'unique source de vérité en prod jusqu'à la bascule), mais le passage en production de toutes les tranches se fera d'un coup, pas au fur et à mesure. **Tranche 1 — bus de commandes : codée et validée en conditions réelles** (`backend/api/`, schéma Postgres complet + service FastAPI + auth Firebase + `commands_repo.py`, 4 tests d'intégration contre un vrai Postgres local — voir `JOURNAL.md`). **Reste à faire** : tranche `guitar_deals` (+ canal WebSocket temps réel), puis chat/plan de restauration/cities, avant toute décision de bascule réelle.
 - *Firebase Auth et Firebase Storage restent inchangés dans tous les scénarios (coût négligeable).*
 
 ---

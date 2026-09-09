@@ -1,5 +1,17 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-09] [PRO] Chantier A (migration Firestore → Postgres) démarré sur branche dédiée — tranche 1 (bus de commandes) codée et validée en conditions réelles.
+- **Décision préalable** : accessibilité réseau du serveur (`FIRESTORE_MIGRATION_PLAN.md §6`, point bloquant) tranchée avec l'utilisateur — **Tailscale Funnel**, cohérent avec l'infra déjà utilisée pour le déploiement CI (`deploy.yml`), pas de nouvel outil.
+- **Stratégie de bascule ajustée avec l'utilisateur** : construction tranche par tranche (comme prévu au plan), mais la **bascule en production se fera en une seule fois**, une fois toutes les tranches validées à parité — pas de mise en production progressive tranche par tranche. Firestore reste l'unique source de vérité en production jusqu'à ce moment.
+- **Branche dédiée créée** : `claude/firestore-postgres-migration` (base `dev`), aucun risque de déploiement accidentel (`deploy.yml` n'écoute que `master`/`dev`).
+- **`backend/api/`** (nouveau module, isolé — rien de branché à Firestore/au bot/au frontend existants) :
+  - `schema.sql` : schéma Postgres complet (9 tables — `users`, `guitar_deals`, `deal_chat`, `restoration_plan_items`, `commands`, `logs`, `cities`, `user_city_prefs`, `shared_deals`), idempotent.
+  - `db.py` : pool `asyncpg` + init du schéma au démarrage.
+  - `auth.py` : vérification du ID token Firebase (dépendance FastAPI) — l'autorisation `WHERE user_id = uid` remplace les Firestore Security Rules.
+  - `commands_repo.py` + `main.py` : première tranche verticale (bus de commandes) — `POST /commands`/`GET /commands/{id}`, même contrat que `firestoreService.js::addCommand()` ; le futur accès du bot passera directement par SQL, pas par l'API HTTP.
+- **Validé en conditions réelles** (fait rare cette session — Postgres tourne localement dans cet environnement, contrairement à Firestore/Gemini) : 4 tests d'intégration (`backend/api/test_api.py`) contre un vrai Postgres — round-trip création/lecture, payload objet, isolation multi-tenant (uid différent → 404), lecture côté "bot" (connexion séparée) de ce que l'API a écrit. Les 4 passent.
+- **Reste à faire** : tranche suivante (`guitar_deals` + canal WebSocket temps réel), puis les tranches restantes, avant toute décision de bascule réelle.
+
 [2026-09-08] [PRO] Diagnostic de timing du cache Gemini + recherche doc officielle → deux hypothèses précédentes réfutées, conclusion révisée.
 - **Contexte** : suite à la mesure du fix caching (entrée du jour ci-dessous) montrant Tier 2 à 17,1% caché / Tier 1 et Tier 3 à 0%, hypothèse posée que le cache Tier 2 venait de retries JSON sur la même annonce plutôt que d'un vrai partage inter-annonces du bloc statique (taxonomie/few-shot).
 - **`run_once.py`** armé pour un diagnostic de timing (run GitHub Actions #431) : parcourt TOUS les appels `[tokens]` (pas seulement `cached>0`) et les avertissements "JSON invalide" de `_call_gemini_json`, calcule l'écart entre appels consécutifs par modèle et corrèle chaque appel caché avec un éventuel avertissement JSON dans les 30s précédentes.

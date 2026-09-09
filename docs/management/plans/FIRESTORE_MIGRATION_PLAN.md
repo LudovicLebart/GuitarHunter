@@ -52,15 +52,25 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 
 ## 6. Points ouverts à trancher avant tout code
 
-- **Accessibilité publique du serveur** : IP fixe/port forwarding possible sur 80/443 avec un nom de domaine, ou serveur derrière un NAT sans IP publique (auquel cas un tunnel type Cloudflare Tunnel/Tailscale Funnel serait nécessaire en plus) ? Conditionne toute la partie déploiement frontend.
-- **Sauvegardes** : Firestore est managé/répliqué automatiquement ; Postgres sur un seul serveur ne l'est pas — prévoir un `pg_dump` planifié + stockage externe des backups (le serveur devient un point de défaillance unique pour les données ET le site).
-- **Tolérance à la coupure** pendant la fenêtre de bascule.
+- ✅ **Accessibilité publique du serveur — tranché (2026-09-09) : Tailscale Funnel.** Cohérent avec l'infra déjà utilisée pour le déploiement CI (`deploy.yml` s'y connecte déjà pour le SSH), pas de nouvel outil à intégrer.
+- **Sauvegardes** : Firestore est managé/répliqué automatiquement ; Postgres sur un seul serveur ne l'est pas — prévoir un `pg_dump` planifié + stockage externe des backups (le serveur devient un point de défaillance unique pour les données ET le site). Toujours ouvert.
+- **Tolérance à la coupure** pendant la fenêtre de bascule. Toujours ouvert.
 
 ## 7. Hors périmètre de ce plan
 
 - Optimisation des photos envoyées à Gemini (Tier 2/3, redimensionnement 2048px → ciblage de zones détaillées) — sujet séparé, déjà identifié dans l'analyse de coûts.
 - Migration du SDK `google.generativeai` → `google-genai` (`TODO.md`, dette technique existante).
 
-## 8. Non fait à ce stade
+## 8. Avancement (mis à jour 2026-09-09)
 
-Aucun code écrit. Ce document est le seul livrable de ce chantier pour l'instant — prochaine étape à définir avec l'utilisateur (probablement : trancher le point 6 accessibilité réseau, puis détailler l'implémentation par tranche verticale).
+**Stratégie de bascule précisée avec l'utilisateur** : construction tranche par tranche (comme prévu ci-dessus), mais la bascule en production de toutes les tranches se fait **en une seule fois**, une fois la parité fonctionnelle complète validée — pas de mise en production progressive tranche par tranche. Firestore reste l'unique source de vérité en production jusqu'à ce moment.
+
+**Branche dédiée** : `claude/firestore-postgres-migration` (base `dev`) — construite en isolation complète, aucun code de production (Firestore, frontend, bot) modifié à ce stade.
+
+**Tranche 1 — bus de commandes : codée et validée en conditions réelles.**
+- `backend/api/schema.sql` : schéma Postgres complet (les 9 tables de §2), idempotent.
+- `backend/api/db.py`, `backend/api/auth.py` : pool `asyncpg` + vérification du ID token Firebase (dépendance FastAPI).
+- `backend/api/commands_repo.py` + `backend/api/main.py` : `POST /commands`/`GET /commands/{id}`, même contrat que `firestoreService.js::addCommand()`. Le bot lira directement Postgres en SQL (pas via cette API) une fois la bascule décidée, conforme à §3.
+- **Testé pour de vrai** (`backend/api/test_api.py`, 4 tests contre un Postgres local réel, pas des mocks) : round-trip création/lecture, payload objet, isolation multi-tenant, lecture "côté bot" de ce que l'API a écrit.
+
+**Reste à faire** : tranches `guitar_deals` (+ canal WebSocket temps réel remplaçant `onDealsIndexUpdate`), puis `deal_chat`/`restoration_plan_items`/`cities`, avant toute décision de bascule réelle (§5.3).
