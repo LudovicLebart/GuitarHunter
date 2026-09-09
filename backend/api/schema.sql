@@ -107,21 +107,59 @@ CREATE TRIGGER deal_chat_notify
     AFTER INSERT OR UPDATE ON deal_chat
     FOR EACH ROW EXECUTE FUNCTION notify_chat_change();
 
+-- Colonnes cost_low/cost_high de la première version de ce schéma (avant lecture complète du
+-- contrat réel dans firestoreService.js) jamais utilisées par aucun code — remplacées ici
+-- avant toute tranche 4 par les vrais champs (estimated_cost/actual_cost/source/...), voir
+-- addRestorationItem/updateRestorationItem. Retirées explicitement plutôt que laissées mortes.
 CREATE TABLE IF NOT EXISTS restoration_plan_items (
     id           BIGSERIAL PRIMARY KEY,
     deal_id      TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
     label        TEXT,
     category     TEXT,
-    status       TEXT,
-    cost_low     NUMERIC,
-    cost_high    NUMERIC,
-    item_order   INTEGER,
-    photo_urls   JSONB,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE restoration_plan_items DROP COLUMN IF EXISTS cost_low;
+ALTER TABLE restoration_plan_items DROP COLUMN IF EXISTS cost_high;
+-- `status` existait déjà (sans défaut) dans la toute première version de ce schéma : un simple
+-- ADD COLUMN IF NOT EXISTS est alors un no-op qui n'applique JAMAIS le nouveau défaut/contrainte
+-- (même piège que documenté plus haut, mais sur une colonne existante plutôt qu'absente) — d'où
+-- les 3 lignes explicites ci-dessous plutôt qu'un simple ADD COLUMN.
+ALTER TABLE restoration_plan_items ALTER COLUMN status SET DEFAULT 'pending';
+UPDATE restoration_plan_items SET status = 'pending' WHERE status IS NULL;
+ALTER TABLE restoration_plan_items ALTER COLUMN status SET NOT NULL;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS estimated_cost          NUMERIC;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS actual_cost             NUMERIC;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS notes                   TEXT;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS source                  TEXT NOT NULL DEFAULT 'user';   -- 'user' | 'ai' (proposition Gemini appliquée)
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS proposed_by_message_id  BIGINT REFERENCES deal_chat(id) ON DELETE SET NULL;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS item_order              INTEGER;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS photo_urls              JSONB;
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS updated_at              TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS completed_at            TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_items(deal_id, item_order);
+
+-- Temps réel (remplace onRestorationPlanUpdate) : canal séparé, filtré par deal_id comme
+-- chat_changes. Couvre aussi DELETE (contrairement à deal_changes/chat_changes, qui n'en ont
+-- pas besoin dans leurs flux actuels) car la suppression d'étape est une action réelle exposée
+-- ici (deleteRestorationItem) — un client resterait sinon en désaccord avec la base jusqu'au
+-- prochain reload.
+CREATE OR REPLACE FUNCTION notify_restoration_plan_change() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', OLD.deal_id, 'id', OLD.id, 'deleted', true)::text);
+        RETURN OLD;
+    END IF;
+    PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS restoration_plan_items_notify ON restoration_plan_items;
+CREATE TRIGGER restoration_plan_items_notify
+    AFTER INSERT OR UPDATE OR DELETE ON restoration_plan_items
+    FOR EACH ROW EXECUTE FUNCTION notify_restoration_plan_change();
 
 -- Temps réel (remplace `onDealsIndexUpdate`, voir FIRESTORE_MIGRATION_PLAN.md §1) : un
 -- trigger au niveau base notifie sur TOUTE écriture, quelle que soit son origine (bot en SQL

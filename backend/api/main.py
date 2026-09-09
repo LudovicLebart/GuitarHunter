@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, commands_repo, deals_repo
+from backend.api import chat_repo, commands_repo, deals_repo, restoration_repo
 
 
 @asynccontextmanager
@@ -324,4 +324,135 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
         pass
     finally:
         await listen_conn.remove_listener("chat_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Plan de restauration (tranche 4) --------------------------------------------------------
+# Remplace onRestorationPlanUpdate/addRestorationItem/updateRestorationItem/deleteRestorationItem/
+# reorderRestorationItems/backfillRestorationOrder/addRestorationItemPhoto/removeRestorationItemPhoto
+# (firestoreService.js). Même absence de user_id propre que deal_chat -> même vérification via
+# _require_deal_owner (chat_repo.get_deal_owner, générique sur guitar_deals).
+
+@app.get("/deals/{deal_id}/restoration-plan")
+async def list_restoration_plan(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    rows = await restoration_repo.list_items(pool, deal_id)
+    return [dict(r) for r in rows]
+
+
+class RestorationItemCreate(BaseModel):
+    label: str
+    category: Optional[str] = None
+    estimatedCost: Optional[float] = None
+    notes: Optional[str] = None
+    source: str = "user"
+    proposedByMessageId: Optional[int] = None
+    order: Optional[int] = None
+
+
+@app.post("/deals/{deal_id}/restoration-plan", status_code=status.HTTP_201_CREATED)
+async def create_restoration_item(deal_id: str, body: RestorationItemCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    item_id = await restoration_repo.add_item(
+        pool, deal_id, body.label, body.category, body.estimatedCost, body.notes,
+        body.source, body.proposedByMessageId, body.order,
+    )
+    return {"id": item_id}
+
+
+class RestorationReorderBody(BaseModel):
+    orderedItemIds: list[int]
+
+
+# Enregistrée AVANT les routes /{item_id} ci-dessous : Starlette matche les routes dans leur
+# ordre de déclaration, et "order" collerait sinon sur le pattern {item_id} (échouant la
+# validation int -> 422) plutôt que sur cette route dédiée.
+@app.patch("/deals/{deal_id}/restoration-plan/order")
+async def reorder_restoration_items(deal_id: str, body: RestorationReorderBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.reorder_items(pool, body.orderedItemIds)
+    return {"status": "ok"}
+
+
+class RestorationItemPatch(BaseModel):
+    label: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    estimatedCost: Optional[float] = None
+    actualCost: Optional[float] = None
+    notes: Optional[str] = None
+
+
+@app.patch("/deals/{deal_id}/restoration-plan/{item_id}")
+async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationItemPatch, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.update_item(pool, item_id, body.model_dump(exclude_unset=True))
+    return {"status": "ok"}
+
+
+@app.delete("/deals/{deal_id}/restoration-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_restoration_item(deal_id: str, item_id: int, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.delete_item(pool, item_id)
+
+
+class RestorationPhotoBody(BaseModel):
+    url: str
+
+
+@app.post("/deals/{deal_id}/restoration-plan/{item_id}/photos")
+async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.add_photo(pool, item_id, body.url)
+    return {"status": "ok"}
+
+
+@app.delete("/deals/{deal_id}/restoration-plan/{item_id}/photos")
+async def remove_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.remove_photo(pool, item_id, body.url)
+    return {"status": "ok"}
+
+
+@app.websocket("/ws/deals/{deal_id}/restoration-plan")
+async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    pool = get_pool()
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner != uid:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    loop = asyncio.get_running_loop()
+
+    def _on_notify(connection, pid, channel, payload):
+        data = json.loads(payload)
+        if data.get("deal_id") != deal_id:
+            return  # canal partagé entre toutes les annonces, filtré ici
+        loop.create_task(websocket.send_json(data))
+
+    await listen_conn.add_listener("restoration_plan_changes", _on_notify)
+    await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
         await listen_conn.close()
