@@ -8,3 +8,6 @@ pillow
 schedule
 anthropic
 openai
+fastapi
+uvicorn[standard]
+asyncpg
