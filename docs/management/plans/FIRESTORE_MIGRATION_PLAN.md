@@ -105,4 +105,18 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 - `main.py` : endpoints REST `/cities...` + WebSocket `/ws/cities`. **Simplification assumée** vs les tranches précédentes : pousse un signal léger (`cityId` concerné) plutôt que la ligne fusionnée complète — le calcul catalogue+prefs reste dans la requête SQL, pas dupliqué dans le trigger Postgres.
 - 32 tests d'intégration au total (Postgres local réel, pas de mocks) — 7 nouveaux pour cette tranche.
 
-**Reste à faire** : tranche `shared_deals`, avant toute décision de bascule réelle (§5.3).
+**Tranche 6 (dernière) — `shared_deals` : codée et validée en conditions réelles.**
+- `backend/api/shared_repo.py` : upsert (remplacement complet du snapshot, jamais un merge — même sémantique que le `setDoc` de `createSharedDeal`) + lecture.
+- **Pas de canal WebSocket** : `SharedDealPage` fait un `getDoc` ponctuel côté Firestore, jamais un `onSnapshot` — rien à répliquer ici, contrairement à toutes les tranches précédentes.
+- **Correction de schéma trouvée par relecture du contrat réel** : les colonnes `deal_id`/`user_id` du premier jet de `schema.sql` (§2) ne correspondaient à rien de réel — `createSharedDeal` utilise l'id du deal LUI-MÊME comme id de document (pas un id de partage séparé) et n'écrit aucun `user_id` (écriture ouverte à tout utilisateur authentifié, pas réservée au propriétaire du deal — vérifié dans `firestore.rules`). Colonnes retirées, table réduite à `(id, snapshot, created_at)`.
+- `main.py` : `GET /shared-deals/{id}` public (équivalent `allow read: if true`), `PUT /shared-deals/{id}` réservé à un utilisateur authentifié quelconque (équivalent `allow write: if request.auth != null`).
+- 36 tests d'intégration au total (Postgres local réel, pas de mocks) — 4 nouveaux pour cette tranche.
+
+**Bilan de la construction (2026-09-09)** : les 6 tranches prévues (`commands`, `guitar_deals`, `deal_chat`, `restoration_plan_items`, `cities`/`user_city_prefs`, `shared_deals`) sont désormais codées et testées en conditions réelles — 36 tests au total, aucun mock, contre un vrai Postgres local. Toujours rien de branché à la production (Firestore reste l'unique source de vérité, conforme à la stratégie actée avec l'utilisateur).
+
+**Reste à faire avant toute mise en production** — hors de ce chantier de construction, jamais entamé sans décision explicite de l'utilisateur (§5.3) :
+1. Décider et documenter le protocole de bascule réelle (ordre des étapes, fenêtre de maintenance ou non, plan de rollback).
+2. Migrer les données existantes Firestore → Postgres (script de migration ponctuel, pas construit dans ce chantier).
+3. Basculer le bot (`backend/bot.py` et modules associés) vers un accès SQL direct — actuellement hors périmètre : le bot continue d'écrire sur Firestore, y compris pour les tables déjà migrées côté API (ex: `cities` reste écrit par `add_city_auto()` côté Firestore, voir tranche 5).
+4. Basculer le frontend (`src/services/firestoreService.js` → nouvelle API HTTP/WebSocket).
+5. Déployer le service réseau (Tailscale Funnel, décidé le 2026-09-09, non encore mis en place).
