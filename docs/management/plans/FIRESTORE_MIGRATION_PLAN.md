@@ -98,4 +98,11 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 - **Bug de routage FastAPI trouvé et corrigé par les tests** : `PATCH /restoration-plan/order` était intercepté par la route `PATCH /restoration-plan/{item_id}` déclarée avant elle (Starlette matche dans l'ordre de déclaration, `"order"` échouait la validation `int` → 422). Corrigé en déclarant la route littérale avant la route paramétrée.
 - 25 tests d'intégration au total (Postgres local réel, pas de mocks) — 8 nouveaux pour cette tranche.
 
-**Reste à faire** : tranches `cities`/`user_city_prefs`, `shared_deals`, avant toute décision de bascule réelle (§5.3).
+**Tranche 5 — `cities`/`user_city_prefs` + canal WebSocket temps réel : codée et validée en conditions réelles.**
+- `backend/api/cities_repo.py` : liste fusionnée catalogue partagé + préférences utilisateur (LEFT JOIN, remplace les deux `onSnapshot` d'`onCitiesUpdate`), toggle scannable, réglage/effacement du rayon Kijiji, suppression de préférence.
+- **Périmètre volontairement limité** à ce que le frontend consomme aujourd'hui : l'écriture du catalogue partagé (`cities`) reste faite par `bot.py::add_city_auto()` côté Firestore jusqu'à la bascule (conforme à §5.1 — ne pas toucher au chemin Firestore existant), et l'ajout de ville passe déjà par la commande `ADD_CITY` (tranche 1) — rien de plus à construire ici pour ce chemin.
+- **Bug de sémantique trouvé et corrigé avant même d'écrire les tests** (relecture attentive du contrat Firestore) : le tout premier jet de `schema.sql` posait `active DEFAULT true` sur `user_city_prefs` — aurait implicitement activé le scan d'une ville dès qu'un utilisateur y règle seulement un rayon Kijiji (`setCityKijijiRadius`, `merge: true` côté Firestore, qui ne touche jamais `isScannable`). Corrigé en `DEFAULT false` (absence de ligne de préférence == non scannable, comme `isScannable ?? false` côté `onCitiesUpdate`), vérifié par un test dédié plutôt que laissé au seul raisonnement.
+- `main.py` : endpoints REST `/cities...` + WebSocket `/ws/cities`. **Simplification assumée** vs les tranches précédentes : pousse un signal léger (`cityId` concerné) plutôt que la ligne fusionnée complète — le calcul catalogue+prefs reste dans la requête SQL, pas dupliqué dans le trigger Postgres.
+- 32 tests d'intégration au total (Postgres local réel, pas de mocks) — 7 nouveaux pour cette tranche.
+
+**Reste à faire** : tranche `shared_deals`, avant toute décision de bascule réelle (§5.3).
