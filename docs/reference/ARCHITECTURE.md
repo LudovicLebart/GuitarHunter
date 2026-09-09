@@ -547,3 +547,18 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 - **(+) Éditeur Ligne par Ligne :** Le composant `PromptListEditor` permet une édition intuitive.
 - **(-) Risque de Casse :** L'utilisateur peut supprimer les instructions de format JSON critiques dans `mainAnalysisPrompt`, rendant les réponses de l'IA non parsables.
 - **(-) Taxonomie non éditable :** La taxonomie (liste des types d'objets : guitares, amplis, étuis) est statique et non modifiable via l'interface.
+
+---
+
+## 5. 🧠 Pipeline d'Auto-Annotation (YOLO-OBB)
+
+Le module `backend/auto_annotation/` permet de générer des datasets de haute qualité pour la détection orientée (Oriented Bounding Boxes) à partir d'images brutes stockées dans Firestore, sans supervision humaine. Ce pipeline tourne en hors-ligne (ex: sur une machine GPU locale via Tailscale) pour préparer les entraînements de modèles.
+
+### 5.1 Architecture du Pipeline
+1. **Inférence Amorçage (`YOLOv8n-OBB`)** : Un modèle léger détecte les parties de guitare grossièrement.
+2. **Filtrage Géométrique (`heuristics.py`)** : Vérification des inclusions strictes (les têtes, rosaces et chevalets doivent être géométriquement inclus dans le corps/manche de l'instrument).
+3. **Redressement OpenCV (`geometry.py`)** : Les boîtes obliques sont redressées (rotation de la matrice d'image sans clipping du canevas) puis recadrées de façon strictement orthogonale.
+4. **Oracle VLM (`vlm_client.py`)** : Chaque recadrage redressé est soumis à un VLM local (ex: Qwen2.5-VL via Ollama) avec une question de validation stricte (TRUE/FALSE) pour purger les faux positifs.
+5. **Export YOLO-OBB (`exporter.py`)** : Les boîtes validées par la cascade sont exportées au format normé YOLO-OBB (8 coordonnées spatiales normalisées `xyxyxyxyn`).
+
+**Point d'attention** : L'accès à Firebase Storage (`data_loader.py`) récupère les images des annonces existantes pour enrichir le dataset. L'exécution requiert les credentials admin Firebase.

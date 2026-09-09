@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-09] [PRO] Création et implémentation du pipeline YOLO-OBB d'auto-annotation avec redressement géométrique (OpenCV) et filtrage VLM local → validé.
+- **Contexte** : Implémentation de l'Étape 2 (Code) du plan d'auto-annotation sur la machine `dell-5810`. L'objectif est de générer un dataset OBB de très haute qualité de manière automatique, en filtrant les inférences de YOLOv8n-OBB par des contraintes géométriques (OpenCV) et un appel LLM de validation (Qwen2.5-VL via Ollama).
+- **Actions** :
+  - Suppression de l'ancien script monolithique.
+  - Création du module `backend/auto_annotation/` 100% factorisé et documenté.
+  - Code review à 360° et résolution de 3 bugs mathématiques/API.
+  - L'export YOLO-OBB est corrigé pour utiliser `xyxyxyxyn` (8 coordonnées normalisées).
+- **Statut** : Code prêt et validé.
+
 [2026-09-07] [PRO] Chantier B — décisions utilisateur sur 8.1/8.3 : option large (T1 compris) + niveau de précision du garde-fou logo.
 - **8.1 tranché** : les trois Tiers (T1 Portier compris) passeront par la description texte du modèle de perception bon marché plutôt que de voir les photos eux-mêmes — pas seulement T3. Gain de coût maximal (100% du volume), au prix du risque déjà identifié : le Portier s'appuie aujourd'hui sur l'examen visuel direct du logo comme preuve prioritaire (`prompts.json:331`), à valider par le benchmark avant tout déploiement. Conséquence actée : les deux chemins qui sautent T1 (`force_expert=True`, `analyze_deal_light()`) devront chacun déclencher leur propre appel de perception.
 - **Précision du garde-fou logo (§2)** : "ne pas interpréter" ne veut pas dire "décrire au minimum" — le modèle de perception doit produire une description aussi précise et complète que possible (forme, police, couleurs, texte exact lu, position, usure du marquage), suffisante pour que le Tier 3 puisse lui-même identifier l'instrument à partir de cette seule description, sans jamais que la perception conclue à sa place (jamais "marque budget OEM", toujours la description qui permettrait à un tiers de le déduire).
