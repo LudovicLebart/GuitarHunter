@@ -279,20 +279,27 @@ def call_qwen_tokenrouter(question: str, image_urls: list) -> dict:
 # "pas d'interprétation" ne s'applique qu'à la section logo/marque — c'est précisément le
 # saut interprétatif ("marque budget OEM") qui a fait halluciner Qwen sur l'annonce
 # Guerrilla Guitars (2026-09-06), pas la lecture du logo elle-même (OCR fiable).
+# Correctif 2026-09-09 : la Partie 1 demandait initialement la "qualité apparente de
+# fabrication et d'assemblage" — Qwen recopiait ce titre de section quasi mot pour mot dans
+# ses 5/5 rapports (smoke tests réels), et le juge du garde-fou (§2 du plan) le pointait
+# systématiquement comme du jugement plutôt que de l'observation ("qualité" est évaluatif par
+# nature). Reformulé en prédicats observables (jeu visible, alignement, régularité) — le
+# garde-fou ne portait pas sur une dérive de Qwen mais sur une formulation du prompt lui-même.
 _EXTRACTION_PROMPT = (
     "Analyse ces photos d'un instrument de musique en deux parties distinctes, sans répondre "
     "à aucune question.\n\n"
     "PARTIE 1 — État physique : décris l'état et les détails techniques visibles (finition : "
     "rayures/éclats/ternissement/craquelures ; pièces métalliques : oxydation/jeu/corrosion ; "
-    "état apparent des cordes et frettes ; défauts ou dommages ; qualité apparente de "
-    "fabrication et d'assemblage).\n\n"
+    "état apparent des cordes et frettes ; défauts ou dommages ; assemblage : présence/absence "
+    "de jeu visible dans les joints, alignement des pièces, régularité de la découpe — décris "
+    "ce que tu observes, jamais un niveau de qualité).\n\n"
     "PARTIE 2 — Transcription OCR du logo/marque, SANS AUCUNE INTERPRÉTATION : "
     "(a) transcris EXACTEMENT (lettre par lettre) tout texte lisible (tête, corps, matériel) : "
     "marque, modèle, numéro de série, inscriptions gravées ou imprimées ; "
     "(b) décris en détail la forme, les couleurs et les symboles de tout logo/emblème visible, "
     "sans essayer de le nommer ou de l'associer à une marque connue ; "
     "(c) décris les caractéristiques de construction qui pourraient indiquer une origine "
-    "(qualité des joints, type de vis/quincaillerie, style de découpe). "
+    "(régularité et finition apparente des joints, type de vis/quincaillerie, style de découpe). "
     "N'émets AUCUN jugement sur la marque dans cette partie (ne dis jamais si c'est une marque "
     "\"connue\", \"budget\", \"artisanale\", \"OEM\" ou autre) — transcris et décris seulement ce "
     "que tu vois, laisse toute interprétation à un autre expert."
