@@ -270,12 +270,18 @@ CREATE TRIGGER cities_notify
     AFTER INSERT OR UPDATE ON cities
     FOR EACH ROW EXECUTE FUNCTION notify_catalog_change();
 
--- Table publique (partage d'annonce) : exposée sans auth côté API, équivalent
--- `allow read: if true` des règles Firestore actuelles.
+-- Table publique (partage d'annonce) : exposée sans auth en LECTURE côté API, équivalent
+-- `allow read: if true` / `allow write: if request.auth != null` des règles Firestore actuelles
+-- (écriture par n'importe quel utilisateur authentifié, PAS réservée au propriétaire du deal —
+-- vérifié dans firestore.rules, pas une supposition). `deal_id`/`user_id` de la première version
+-- de ce schéma retirées : `createSharedDeal` (firestoreService.js) écrit `doc(db, 'shared_deals',
+-- deal.id)` — l'id du document EST l'id du deal, jamais un id de partage séparé — et ne stocke
+-- aucun `user_id` dans le document (write ouvert à tout utilisateur authentifié).
 CREATE TABLE IF NOT EXISTS shared_deals (
-    id          TEXT PRIMARY KEY,
-    deal_id     TEXT NOT NULL,
-    user_id     TEXT NOT NULL,
-    snapshot    JSONB NOT NULL,
+    id          TEXT PRIMARY KEY,   -- = id du deal (guitar_deals.id), pas un id de partage séparé
+    snapshot    JSONB NOT NULL,     -- payload exact écrit par createSharedDeal, opaque ici
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE shared_deals DROP COLUMN IF EXISTS deal_id;
+ALTER TABLE shared_deals DROP COLUMN IF EXISTS user_id;

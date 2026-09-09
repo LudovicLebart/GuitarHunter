@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo
 
 
 @asynccontextmanager
@@ -539,3 +539,39 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
         await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
         await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
         await listen_conn.close()
+
+
+# --- Annonces partagées (tranche 6, dernière) -----------------------------------------------
+# Remplace createSharedDeal/getSharedDeal (firestoreService.js). Pas de temps réel : SharedDealPage
+# fait un getDoc ponctuel, jamais un onSnapshot — rien à répliquer côté WebSocket ici.
+# Écriture réservée à un utilisateur authentifié QUELCONQUE (pas au propriétaire du deal — vérifié
+# dans firestore.rules : `allow write: if request.auth != null`), lecture publique sans auth.
+
+class SharedDealCreate(BaseModel):
+    title: Optional[str] = None
+    price: Optional[float] = None
+    location: Optional[str] = None
+    link: Optional[str] = None
+    description: Optional[str] = None
+    storageImageUrls: list[str] = []
+    imageUrls: list[str] = []
+    verdict: Optional[str] = None
+    scores: dict = {}
+    analysis: Optional[str] = None
+    tier3_summary: Optional[str] = None
+    sharedAt: Optional[str] = None
+
+
+@app.put("/shared-deals/{deal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def upsert_shared_deal(deal_id: str, body: SharedDealCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await shared_repo.upsert_shared_deal(pool, deal_id, body.model_dump())
+
+
+@app.get("/shared-deals/{deal_id}")
+async def get_shared_deal(deal_id: str):
+    pool = get_pool()
+    row = await shared_repo.get_shared_deal(pool, deal_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce partagée introuvable.")
+    return row["snapshot"]
