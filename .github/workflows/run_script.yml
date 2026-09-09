@@ -50,7 +50,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 5h
+          command_timeout: 45m
           envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
           script: |
             set -e
@@ -98,10 +98,14 @@ jobs:
             # (2026-09-08) tué à 10m sans une seule ligne de progression visible, rendant
             # impossible de distinguer "lent" de "raccroché" (candidat sans timeout, corrigé
             # séparément dans candidates.py/judge.py).
-            # Run complet (40 fiches, sans --limit) après 4 smoke tests --limit 5 concluants
-            # (2026-09-09) : ~25-27 min pour 5 fiches x 9 candidats en série sans concurrence
-            # -> command_timeout/timeout-minutes remontés à 5h/6h en conséquence (voir plus haut).
-            python3 -u -m backend.benchmark.run_benchmark
+            # Run complet (40 fiches) lancé une fois (run #25, 2026-09-09) puis ANNULÉ après
+            # ~15 min : l'axe "valeur" tombe à 0% pour tous les candidats y compris gemini/
+            # gemini_pro (prod) — le harnais n'a pas d'étalon (aucun candidat n'utilise le
+            # vrai prompt/schéma JSON de production, cf. JOURNAL.md/TODO.md). Repassé à
+            # --limit 5 pour empêcher qu'un futur push ici ne relance un run complet coûteux
+            # par accident avant qu'un candidat `analyzer_prod` (vrai Bras A, `analyze_deal()`
+            # tel quel) existe. Retirer --limit 5 seulement une fois ce candidat codé.
+            python3 -u -m backend.benchmark.run_benchmark --limit 5
 
       - name: Récupération du rapport généré
         env:
