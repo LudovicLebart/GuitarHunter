@@ -25,6 +25,15 @@ de prod) via Qwen3.8-Flash ou le modèle du Tier 1 actuel, puis font raisonner
 Gemini Tier 3 sur le texte seul — à comparer à `hybrid` (extraction plus
 ancienne, non structurée) et aux candidats mono-modèle pour mesurer si la
 perception bon marché égale la qualité actuelle, à quel coût (§0/§5 du plan).
+Le candidat "analyzer_prod" est le Bras A (référence) du protocole §5 : il
+appelle `DealAnalyzer.analyze_deal()` tel quel (vrai prompt/taxonomie/few-shot/
+schéma JSON de production), contrairement à tous les autres candidats qui
+posent la question en texte libre — sans lui, aucun score de ce harnais n'a
+d'étalon de production (voir JOURNAL.md 2026-09-09, run complet #25 annulé
+avant sa création précisément pour cette raison : l'axe "valeur" tombait à 0%
+pour tous les candidats, y compris "gemini"/"gemini_pro", sans qu'on puisse
+distinguer un vrai problème de candidat d'un protocole qui handicapait tout le
+monde pareil).
 
 Score par axe (CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §0/§5) : identification/
 etat/valeur/hallucination, jamais agrégés en un score composite. Le rapport de
@@ -62,7 +71,7 @@ def run_candidate(model_key, call_fn, dataset):
     results = []
     for item in dataset:
         try:
-            candidate_result = call_fn(item["question"], item.get("image_urls", []))
+            candidate_result = call_fn(item)
         except Exception as e:
             print(f"  [{model_key}] {item['id']} : échec appel modèle ({e})")
             results.append({
@@ -143,7 +152,7 @@ def main():
     parser = argparse.ArgumentParser(description="Benchmark GuitarHunter — comparaison de modèles vision")
     parser.add_argument(
         "--models",
-        default="gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid,claude_sonnet,perception_qwen,perception_flash_lite",
+        default="analyzer_prod,gemini,gemini_pro,gemini_pro_compact,gpt4o_mini,qwen,hybrid,claude_sonnet,perception_qwen,perception_flash_lite",
         help="Modèles candidats séparés par des virgules",
     )
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")

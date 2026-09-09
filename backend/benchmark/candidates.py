@@ -3,18 +3,25 @@
 Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
 Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
 (GPT-5-mini, Qwen3.8-flash via TokenRouter), à un candidat hybride expérimental
-(Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement) et à un
+(Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement), à un
 candidat de compression expérimental (Tier 3 forcé en puces + réécriture par
-Gemini Flash-Lite) sur un même jeu de questions/photos.
+Gemini Flash-Lite), et au candidat `analyzer_prod` — le vrai Bras A du
+protocole (§5) : `DealAnalyzer.analyze_deal()` appelé tel quel (vrai prompt/
+taxonomie/few-shot/schéma JSON de production), qui sert d'étalon aux autres
+candidats — sans lui, aucun score de ce harnais n'a de référence de production
+à comparer (voir JOURNAL.md 2026-09-09, run complet #25 annulé pour cette
+raison).
 
 Contrat de retour des candidats (CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §7,
-étape 4) : chaque fonction enregistrée dans CANDIDATES renvoie un dict, jamais
-un `str` nu — `{"answer": str, "perception_report": str|None, "usage": {...},
-"latency_s": float, "calls": int}`. `perception_report` n'est renseigné que par
-les candidats qui font une étape de perception distincte du raisonnement final
-(aujourd'hui : `hybrid`) — c'était auparavant jeté après usage
-(`extraction_report`, jamais retourné), rendant impossible de juger le
-garde-fou anti-interprétation séparément de la réponse finale.
+étape 4) : chaque fonction enregistrée dans CANDIDATES prend l'`item` complet
+du dataset (dict avec au moins `question`/`image_urls`, `title`/`price` pour
+`analyzer_prod`) et renvoie un dict, jamais un `str` nu — `{"answer": str,
+"perception_report": str|None, "usage": {...}, "latency_s": float,
+"calls": int}`. `perception_report` n'est renseigné que par les candidats qui
+font une étape de perception distincte du raisonnement final (aujourd'hui :
+`hybrid`) — c'était auparavant jeté après usage (`extraction_report`, jamais
+retourné), rendant impossible de juger le garde-fou anti-interprétation
+séparément de la réponse finale.
 """
 import base64
 import json
@@ -27,6 +34,7 @@ import requests
 import google.generativeai as genai
 from openai import OpenAI
 
+from backend.analyzer import DealAnalyzer
 from backend.benchmark.perception_contract import PERCEPTION_INSTRUCTION, build_reasoning_prompt, parse_perception_json
 from config import GEMINI_API_KEY, GEMINI_MODELS
 
@@ -122,17 +130,17 @@ def _call_gemini(question: str, image_urls: list, model_name: str):
     return response.text.strip(), usage_dict, latency_s
 
 
-def call_gemini(question: str, image_urls: list) -> dict:
+def call_gemini(item: dict) -> dict:
     """Tier 2 (Analyste) — modèle utilisé aujourd'hui en production pour l'analyse standard."""
-    answer, usage, latency_s = _call_gemini(question, image_urls, GEMINI_MODELS["default_analyst"])
+    answer, usage, latency_s = _call_gemini(item["question"], item.get("image_urls", []), GEMINI_MODELS["default_analyst"])
     return _candidate_result(answer, usage, latency_s)
 
 
-def call_gemini_pro(question: str, image_urls: list) -> dict:
+def call_gemini_pro(item: dict) -> dict:
     """Tier 3 (Expert Pro) — modèle exhaustif, déclenché conditionnellement en production.
     Ajouté à la comparaison pour situer le Tier 2 (moins cher) par rapport au plafond de
     qualité actuel de Gemini, pas seulement par rapport aux concurrents externes."""
-    answer, usage, latency_s = _call_gemini(question, image_urls, GEMINI_MODELS["default_expert"])
+    answer, usage, latency_s = _call_gemini(item["question"], item.get("image_urls", []), GEMINI_MODELS["default_expert"])
     return _candidate_result(answer, usage, latency_s)
 
 
@@ -151,7 +159,7 @@ _REWRITE_PROMPT_TEMPLATE = (
 )
 
 
-def call_gemini_pro_compact(question: str, image_urls: list) -> dict:
+def call_gemini_pro_compact(item: dict) -> dict:
     """Candidat expérimental : teste si compresser la sortie du Tier 3 (Expert Pro, $12/M
     tokens de sortie, prompt de prod exigeant un "rapport Markdown EXHAUSTIF") en puces
     strictes, puis la faire réécrire en prose par un modèle bon marché (gemini-3.5-flash-lite,
@@ -165,7 +173,7 @@ def call_gemini_pro_compact(question: str, image_urls: list) -> dict:
     nettement inférieur à `gemini_pro` sur le même jeu de questions — sinon la compression est
     sans risque et fait économiser environ 55% du coût de sortie du Tier 3."""
     compact_answer, usage1, latency1 = _call_gemini(
-        question + _COMPACT_INSTRUCTION_SUFFIX, image_urls, GEMINI_MODELS["default_expert"]
+        item["question"] + _COMPACT_INSTRUCTION_SUFFIX, item.get("image_urls", []), GEMINI_MODELS["default_expert"]
     )
     rewrite_prompt = _REWRITE_PROMPT_TEMPLATE.format(compact_answer=compact_answer)
     final_answer, usage2, latency2 = _call_gemini(rewrite_prompt, [], GEMINI_MODELS["default_gatekeeper"])
@@ -196,12 +204,12 @@ def _get_claude_client():
     return _claude_client
 
 
-def call_claude_sonnet(question: str, image_urls: list) -> dict:
+def call_claude_sonnet(item: dict) -> dict:
     """Claude Sonnet 5 (vision native) sur le même jeu de questions/photos que les candidats
     Gemini/GPT/Qwen — comparatif coût ET qualité, pas seulement un rôle de juge."""
     client = _get_claude_client()
     content = []
-    for url in image_urls:
+    for url in item.get("image_urls", []):
         image_bytes = _download_image_bytes(url)
         if image_bytes:
             b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -209,7 +217,7 @@ def call_claude_sonnet(question: str, image_urls: list) -> dict:
                 "type": "image",
                 "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
             })
-    content.append({"type": "text", "text": question})
+    content.append({"type": "text", "text": item["question"]})
 
     # thinking désactivé : comparaison à budget de raisonnement équivalent aux autres
     # candidats (aucun ne "réfléchit" avant de répondre), et coût/latence prévisibles.
@@ -262,14 +270,14 @@ def _call_openai_compatible(question: str, image_urls: list, model_name: str, ap
     return response.choices[0].message.content.strip(), usage_dict, latency_s
 
 
-def call_gpt4o_mini(question: str, image_urls: list) -> dict:
-    answer, usage, latency_s = _call_openai_compatible(question, image_urls, GPT_MODEL, OPENAI_API_KEY)
+def call_gpt4o_mini(item: dict) -> dict:
+    answer, usage, latency_s = _call_openai_compatible(item["question"], item.get("image_urls", []), GPT_MODEL, OPENAI_API_KEY)
     return _candidate_result(answer, usage, latency_s)
 
 
-def call_qwen_tokenrouter(question: str, image_urls: list) -> dict:
+def call_qwen_tokenrouter(item: dict) -> dict:
     answer, usage, latency_s = _call_openai_compatible(
-        question, image_urls, QWEN_MODEL, TOKENROUTER_API_KEY,
+        item["question"], item.get("image_urls", []), QWEN_MODEL, TOKENROUTER_API_KEY,
         base_url=TOKENROUTER_BASE_URL,
     )
     return _candidate_result(answer, usage, latency_s)
@@ -306,7 +314,7 @@ _EXTRACTION_PROMPT = (
 )
 
 
-def call_hybrid_qwen_gemini(question: str, image_urls: list) -> dict:
+def call_hybrid_qwen_gemini(item: dict) -> dict:
     """Candidat expérimental : division du travail par force de chaque modèle, SANS jamais
     envoyer les photos à Gemini (tout le coût vision reste sur Qwen, moins cher). Constat du
     2026-09-06 (annonce Guerrilla Guitars) : Qwen lit correctement le texte/logo (OCR fiable)
@@ -320,7 +328,7 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> dict:
     `perception_report` (auparavant jeté après usage) pour être jugé séparément sur le respect
     du garde-fou anti-interprétation, indépendamment de la réponse finale de l'oracle."""
     extraction_report, extraction_usage, extraction_latency = _call_openai_compatible(
-        _EXTRACTION_PROMPT, image_urls, QWEN_MODEL, TOKENROUTER_API_KEY,
+        _EXTRACTION_PROMPT, item.get("image_urls", []), QWEN_MODEL, TOKENROUTER_API_KEY,
         base_url=TOKENROUTER_BASE_URL,
     )
     oracle_prompt = (
@@ -328,7 +336,7 @@ def call_hybrid_qwen_gemini(question: str, image_urls: list) -> dict:
         f"photos d'une annonce (il n'a JAMAIS tenté d'identifier la marque ni porté de jugement "
         f"dessus — c'est à toi de le faire à partir de ces éléments bruts, tu ne vois pas les "
         f"photos toi-même) :\n\n{extraction_report}\n\n"
-        f"Question : {question}\n\n"
+        f"Question : {item['question']}\n\n"
         f"En te basant sur tes propres connaissances des marques/luthiers, identifie d'abord "
         f"la marque, le modèle et l'origine probable de l'instrument à partir de la Partie 2 "
         f"(transcription OCR/logo), puis réponds à la question en combinant cette "
@@ -373,7 +381,7 @@ def _perception_reasoning_candidate(question: str, image_urls: list, perception_
     )
 
 
-def call_perception_reasoning_qwen(question: str, image_urls: list) -> dict:
+def call_perception_reasoning_qwen(item: dict) -> dict:
     """Candidat perception (§4, option 2) : Qwen3.8-Flash applique le contrat de perception
     complet, Gemini Tier 3 raisonne ensuite sur le texte seul — le candidat le moins cher des
     deux variantes testées ici."""
@@ -382,17 +390,103 @@ def call_perception_reasoning_qwen(question: str, image_urls: list) -> dict:
             PERCEPTION_INSTRUCTION, urls, QWEN_MODEL, TOKENROUTER_API_KEY,
             base_url=TOKENROUTER_BASE_URL,
         )
-    return _perception_reasoning_candidate(question, image_urls, perception_call)
+    return _perception_reasoning_candidate(item["question"], item.get("image_urls", []), perception_call)
 
 
-def call_perception_reasoning_flash_lite(question: str, image_urls: list) -> dict:
+def call_perception_reasoning_flash_lite(item: dict) -> dict:
     """Candidat perception (§4, option 1) : réutilise le modèle du Tier 1 actuel
     (gemini-3.5-flash-lite, déjà appelé sur 100% des photos en production) pour le contrat de
     perception complet, Gemini Tier 3 raisonne ensuite sur le texte seul — zéro nouveau
     fournisseur, à comparer au coût marginal réel plutôt qu'à un tarif théorique."""
     def perception_call(urls):
         return _call_gemini(PERCEPTION_INSTRUCTION, urls, GEMINI_MODELS["default_gatekeeper"])
-    return _perception_reasoning_candidate(question, image_urls, perception_call)
+    return _perception_reasoning_candidate(item["question"], item.get("image_urls", []), perception_call)
+
+
+# Bras A du protocole de validation (§5) : DealAnalyzer.analyze_deal() appelé tel quel, avec
+# le vrai prompt/taxonomie/few-shot/schéma JSON de production (defaults de prompts.json/
+# config.py, pas de config Firestore réelle — limite documentée du §5). Sans écriture
+# Firestore ni effet de bord (user_email=None rend _notify_model_unavailable un no-op) —
+# lecture/appel modèle seul, comme les autres candidats. Instance mémorisée (singleton) : le
+# constructeur fait un appel `genai.list_models()` réel, à ne payer qu'une fois par run, pas
+# par item.
+_analyzer_instance = None
+
+
+def _get_analyzer():
+    global _analyzer_instance
+    if _analyzer_instance is None:
+        _analyzer_instance = DealAnalyzer()
+    return _analyzer_instance
+
+
+def _prod_result_to_text(result: dict) -> str:
+    """Convertit le dict structuré renvoyé par analyze_deal() en texte comparable à la vérité
+    terrain (même logique de mise en forme que `sample_benchmark_dataset.py`/le Banc d'Essai —
+    le juge compare du texte, pas des dicts)."""
+    if not isinstance(result, dict):
+        return str(result)
+
+    verdict = str(result.get("verdict") or "")
+    if verdict.startswith("REJECTED"):
+        return f"Rejetée au Portier (verdict {verdict}) : {result.get('reasoning', '')}"
+
+    parts = []
+    ident_bits = [b for b in (result.get("brand"), result.get("model_name")) if b]
+    if ident_bits:
+        line = " ".join(ident_bits)
+        if result.get("production_year"):
+            line += f" ({result['production_year']})"
+        if result.get("country_of_origin"):
+            line += f", fabriquée en {result['country_of_origin']}"
+        parts.append(line + ".")
+
+    if result.get("authenticity_score") is not None:
+        parts.append(f"Authenticité {result['authenticity_score']}/10.")
+
+    etat_bits = []
+    if result.get("condition_score") is not None:
+        etat_bits.append(f"état {result['condition_score']}/10")
+    for key in ("color", "finish_application", "finish_texture"):
+        if result.get(key):
+            etat_bits.append(str(result[key]))
+    if etat_bits:
+        parts.append(", ".join(etat_bits).capitalize() + ".")
+
+    valeur_bits = []
+    if result.get("estimated_value") is not None:
+        valeur_bits.append(f"valeur estimée {result['estimated_value']}$")
+    if result.get("resale_potential") is not None:
+        valeur_bits.append(f"potentiel de revente {result['resale_potential']}$")
+    if result.get("estimated_gross_margin") is not None:
+        valeur_bits.append(f"marge brute estimée {result['estimated_gross_margin']}$")
+    if valeur_bits:
+        parts.append(", ".join(valeur_bits).capitalize() + ".")
+
+    if result.get("analysis"):
+        parts.append(result["analysis"])
+    elif result.get("summary"):
+        parts.append(result["summary"])
+
+    return " ".join(parts) or "Réponse vide."
+
+
+def call_analyzer_prod(item: dict) -> dict:
+    """Bras A (référence) du protocole §5 : appelle `DealAnalyzer.analyze_deal()` tel quel,
+    aucune modification d'`analyzer.py` requise. Sert d'étalon de production aux autres
+    candidats — sans lui, un score de ce harnais ne peut pas distinguer un candidat faible d'un
+    protocole (texte libre, sans schéma) qui handicape tout le monde pareil (JOURNAL.md
+    2026-09-09)."""
+    analyzer = _get_analyzer()
+    listing_data = {
+        "title": item.get("title", ""),
+        "price": item.get("price", ""),
+        "imageUrls": item.get("image_urls", []),
+    }
+    t0 = time.monotonic()
+    result = analyzer.analyze_deal(listing_data, user_email=None)
+    latency_s = time.monotonic() - t0
+    return _candidate_result(_prod_result_to_text(result), usage=None, latency_s=latency_s)
 
 
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
@@ -406,4 +500,5 @@ CANDIDATES = {
     "claude_sonnet": call_claude_sonnet,
     "perception_qwen": call_perception_reasoning_qwen,
     "perception_flash_lite": call_perception_reasoning_flash_lite,
+    "analyzer_prod": call_analyzer_prod,
 }
