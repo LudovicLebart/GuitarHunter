@@ -46,7 +46,12 @@ def _call_judge(prompt: str, error_result: dict) -> dict:
         # besoin de raisonnement long pour ce verdict court) — désactivé explicitement.
         response = _get_client().messages.create(
             model=JUDGE_MODEL,
-            max_tokens=400,
+            # 400 (valeur précédente) tronquait le JSON avant sa fermeture dès que le juge
+            # détaillait sa justification "axe par axe" comme le prompt l'y invite — 6 des ~18
+            # évaluations réelles du smoke test #22 (2026-09-09) ont échoué au parsing pour
+            # cette raison, faussant silencieusement les scores (tout à 0) de candidats par
+            # ailleurs corrects (ex. hybrid : ses 2 seules fiches notées ont échoué ainsi).
+            max_tokens=1024,
             thinking={"type": "disabled"},
             messages=[{"role": "user", "content": prompt}],
         )
@@ -62,7 +67,10 @@ def _call_judge(prompt: str, error_result: dict) -> dict:
                 text = text[4:]
         return json.loads(text.strip())
     except json.JSONDecodeError:
-        return {**error_result, "justification": "Erreur critique : le juge n'a pas renvoyé un JSON valide."}
+        # `text` est toujours défini ici (l'exception vient forcément de json.loads(text),
+        # la ligne juste avant) — extrait conservé plutôt qu'un message générique, pour
+        # diagnostiquer une éventuelle récidive directement depuis les résultats du run.
+        return {**error_result, "justification": f"Erreur critique : le juge n'a pas renvoyé un JSON valide. Extrait : {text[:200]!r}"}
     except Exception as e:
         logger.error(f"Échec de l'appel au juge LLM : {e}")
         return {**error_result, "justification": f"Échec de l'appel API : {e}"}
