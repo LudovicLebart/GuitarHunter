@@ -415,6 +415,65 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 
 ---
 
+## Chantier G — Recherche ciblée : piloter le routage T1→T2/T3 par la classification du Portier (nouveau, 2026-09-09)
+
+**Motivation utilisateur** : le mode actuel (analyser toutes les annonces, filtrer après coup
+dans l'UI) reste précieux pour la découverte de pépites et **ne doit pas être supprimé**. Mais
+pour une recherche active précise (ex : "une parlor, en bois satiné plutôt foncé"), l'utilisateur
+voudrait que cette intention pilote directement le pipeline plutôt que de tout analyser au même
+niveau de détail puis filtrer.
+
+**Principe** : le Tier 1 (Portier, `gemini-3.5-flash-lite`, qui voit déjà 100% des annonces à
+coût marginal) produit, en plus de son verdict actuel accept/reject, une classification
+structurée (type de corps, couleur/finition) avec un score de confiance par champ. Une recherche
+active définit des critères cibles ; seules les annonces dont la classification T1 correspond
+(ou dont la confiance est trop faible pour trancher — voir garde-fou plus bas) sont promues vers
+T2/T3, au lieu de systématiquement tout promouvoir comme aujourd'hui.
+
+**Le scraping reste large** — aucune réduction du volume Playwright/Facebook. La réduction de
+coût porte uniquement sur le **routage T1→T2/T3**, jamais sur ce qui est scrapé. C'est un choix
+délibéré : filtrer au niveau du scraping empêcherait mécaniquement le garde-fou ci-dessous
+(une pépite hors-filtre ne serait même jamais vue).
+
+**Garde-fou explicite (non négociable)** : une annonce jugée pépite potentielle par T1/T2 (score
+d'attractivité élevé, indépendamment de sa correspondance aux critères de recherche actifs)
+continue de passer **tous** les Tiers, qu'elle corresponde ou non au filtre. Le filtre ne réduit
+que le volume de ce qui n'est ni une pépite évidente ni une correspondance à la recherche — il ne
+doit jamais pouvoir cacher une pépite hors-filtre.
+
+**Bonus — réutilisation de l'historique déjà classé** : une fois T1 stocke cette classification
+structurée sur chaque annonce (acceptée ou non), une nouvelle recherche ciblée peut d'abord
+interroger les annonces déjà en base (`guitar_deals`) avant d'attendre un nouveau scan — zéro
+nouvel appel Gemini pour l'historique déjà vu par T1.
+
+**Deux plans d'implémentation, pas encore tranchés** :
+- **Plan A (préféré, dépend du Chantier B)** : si un candidat de perception externe du Chantier B
+  est concluant, sa description textuelle (déjà tenue de couvrir forme et couleurs par le
+  garde-fou `CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §2`) alimente directement la
+  classification recherchée — aucun travail de prompt-engineering supplémentaire, la
+  classification est un sous-produit du travail de perception déjà en cours de test.
+- **Plan B (repli, indépendant de B)** : si les candidats de perception du Chantier B ne sont pas
+  concluants, enrichir directement le contrat JSON du Tier 1 actuel (taxonomie +
+  `gatekeeperVerbosityInstruction`) avec les champs recherchés et un score de confiance par champ,
+  et n'escalader vers T2 que si la confiance est sous un seuil pour au moins un critère actif de
+  la recherche — même pattern de déclenchement par seuil que T2→T3 déjà en place
+  (`_run_analysis_cascade`, `trigger_reason`), appliqué un cran plus tôt.
+
+**Risque principal, à valider avant tout code** : la fiabilité de Flash-Lite (modèle T1 actuel)
+sur des distinctions visuelles fines (couleur/finition en particulier — le type de corps est
+probablement plus grossier donc moins à risque) n'est pas validée sur ce projet — même signal de
+prudence que `NECK_RESET_VISION_PLAN.md` et que le tagging T1 déjà noté "pas planifié"
+(`CHANTIER_B_PERCEPTION_RAISONNEMENT_PLAN.md §4`). Un faux négatif ici est plus grave qu'un
+mauvais tri dans le mode actuel : il **cache silencieusement** l'annonce recherchée plutôt que de
+la mal classer dans une liste que l'utilisateur voit quand même. Recommandation : valider la
+précision de T1 sur un petit échantillon annoté (type de corps + couleur/finition) avant de
+construire le routage, plan A comme plan B.
+
+**Non fait à ce stade** : aucun code écrit pour ce chantier — reste au stade d'idée à évaluer,
+comme B l'était avant sa correction Opus.
+
+---
+
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
@@ -426,10 +485,13 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 | D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) + dataset à refaire (voir F) |
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
 | F — Vers un pipeline sans Gemini (3 Tiers) | `backend/benchmark/` (candidats T1/T2 à écrire, T3 déjà codé) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire pour T3 (voir correction Opus) ; candidats T1/T2 fidèles au contrat JSON de prod pas encore écrits |
+| G — Recherche ciblée (routage T1→T2/T3) | `analyzer.py` (contrat T1), `bot.py`/`firestoreService.js` (critères de recherche), `guitar_deals` (nouveaux champs classification) | Plan A dépend de B (résultat perception) ; Plan B indépendant | Précision de T1 sur couleur/finition non validée — échantillon à valider avant tout routage |
 
-**Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
-reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses
-raisons produit uniquement → A → E (parking, à revérifier après 0.a).
+**Ordre recommandé par Opus (2026-09-07, antérieur à G)** : 0 (gratuit, risque nul) → D+F ensemble
+mais seulement après reconstruction du dataset/juge → C réduit à la dédup du plan de restauration
+→ B pour ses raisons produit uniquement → A → E (parking, à revérifier après 0.a). **G (ajouté
+2026-09-09) se greffe sur B** : sa validation de précision (routage) peut être menée en parallèle
+de l'évaluation qualité déjà prévue pour B, plutôt que d'attendre la fin de B avant de commencer.
 
 ---
 

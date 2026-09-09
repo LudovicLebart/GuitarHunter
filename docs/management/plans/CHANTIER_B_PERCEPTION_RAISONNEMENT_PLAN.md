@@ -149,6 +149,28 @@ modèles par Tier (candidats, ce qu'il manque au harnais) détaillée dans
 
 ---
 
+## 1quater. Lien avec le Chantier G (recherche ciblée par classification Tier 1)
+
+**Nouveau chantier (2026-09-09), détaillé dans `COST_OPTIMIZATION_CHANTIERS.md` (Chantier G),
+pas dupliqué ici** : utiliser une classification structurée du Tier 1 (type de corps, couleur/
+finition) pour router les annonces vers T2/T3 selon une recherche active de l'utilisateur (ex :
+"une parlor en bois satiné foncé"), plutôt que de systématiquement tout promouvoir. Le scraping
+reste large ; seul le routage post-T1 change, avec un garde-fou explicite (une pépite potentielle
+passe toujours tous les Tiers, filtre ou pas).
+
+**Dépendance directe à ce Chantier B** : le plan A du Chantier G réutilise directement la
+description textuelle produite par un candidat de perception concluant (§2 ci-dessus tient déjà
+la description de la forme et des couleurs comme un champ de couverture obligatoire) — si B
+aboutit, G en hérite la classification recherchée sans travail de prompt-engineering
+supplémentaire. Le plan B de secours (T1 actuel enrichi directement, sans dépendre de B) est
+indépendant.
+
+**Risque partagé avec ce Chantier B** : le même signal de prudence (fiabilité de Flash-Lite sur
+des distinctions visuelles fines, `NECK_RESET_VISION_PLAN.md`) s'applique aux deux — à valider par
+un même type d'échantillon annoté avant tout routage, que ce soit via B ou via le plan de secours.
+
+---
+
 ## 2. Garde-fou de perception — scope logo, prédicats observables uniquement
 
 **Scope** : limité au logo pour cette itération (généralisation à d'autres indices visuels —
