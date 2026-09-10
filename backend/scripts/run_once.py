@@ -28,85 +28,105 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 (suite) : le diagnostic précédent (run GitHub Actions #436) a montré que le port
-    5432 est déjà occupé par un conteneur Docker SANS RAPPORT avec ce projet
-    (`moneybot_optuna_db`, `postgres:15-alpine`, projet distinct sur ce même serveur) — décision
-    prise avec l'utilisateur : provisionner un conteneur Postgres DÉDIÉ à Guitar Hunter, isolé de
-    celui-là, sur un port différent (5433), pour le dry-run de migration (Chantier A, voir
-    FIRESTORE_MIGRATION_PLAN.md §8). Idempotent : si le conteneur existe déjà (ex: second
-    déclenchement dev+master du même push), ne le recrée pas.
+    2026-09-10 (suite) : le conteneur Postgres de staging est prêt (run GitHub Actions #437,
+    `guitarhunter_pg_staging`, DSN dans `~/.guitarhunter_staging_db.env`). Cette étape lance enfin
+    le dry-run d'export réel — Firestore -> Postgres, limité à `config.USER_ID_TARGET` (un seul
+    utilisateur d'abord, décidé avec l'utilisateur) — voir FIRESTORE_MIGRATION_PLAN.md §8.
 
-    Le mot de passe généré n'est JAMAIS écrit dans les logs GitHub Actions (visibles dans
-    l'historique CI) — uniquement dans un fichier local au serveur (permissions 600), relu par un
-    futur run_once.py pour lancer le dry-run lui-même sans jamais transiter par ces logs.
+    `backend/api/db.py`, `backend/api/schema.sql` et `backend/scripts/export_firestore_to_postgres.py`
+    n'existent PAS sur `dev` (Chantier A reste isolé sur `claude/firestore-postgres-migration`,
+    jamais mergé — stratégie de bascule "en une seule fois" actée avec l'utilisateur). Plutôt que
+    de les fusionner dans `dev`, cette action les extrait TEMPORAIREMENT via `git show` depuis
+    cette branche (aucun checkout, aucun commit, aucune modification de l'historique de `dev`),
+    les exécute, puis les supprime explicitement à la fin (`finally`) — le dépôt sur le serveur
+    revient exactement à l'état de `dev` après coup, comme si cette étape n'avait jamais eu lieu
+    (hors le conteneur/le fichier de credentials déjà en place depuis l'étape précédente).
     """
-    import secrets
+    import shutil
     import subprocess
-    import time
+    import sys
     from pathlib import Path
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    CONTAINER_NAME = "guitarhunter_pg_staging"
-    HOST_PORT = "5433"
-    DB_NAME = "guitarhunter_staging"
-    DB_USER = "guitarhunter"
-    CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
-
-    def _run(cmd, timeout=30):
+    def _run(cmd, timeout=60):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
-    logger.info(f"=== Provisioning du conteneur Postgres de staging '{CONTAINER_NAME}' ===")
+    MIGRATION_BRANCH = "claude/firestore-postgres-migration"
+    FILES_TO_EXTRACT = [
+        "backend/api/__init__.py",
+        "backend/api/db.py",
+        "backend/api/schema.sql",
+        "backend/scripts/export_firestore_to_postgres.py",
+    ]
+    CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
 
-    existing = _run(["docker", "ps", "-a", "--filter", f"name=^{CONTAINER_NAME}$", "--format", "{{.Names}}"])
-    if CONTAINER_NAME in existing.stdout:
-        logger.info(f"Conteneur '{CONTAINER_NAME}' déjà présent — rien recréé (idempotent).")
-        status = _run(["docker", "ps", "--filter", f"name=^{CONTAINER_NAME}$", "--format", "{{.Status}}"])
-        logger.info(f"Statut : {status.stdout.strip() or 'ARRÊTÉ (docker start requis manuellement)'}")
-        logger.info(f"Fichier de credentials : {'présent' if CREDS_PATH.exists() else 'ABSENT (voir avertissement plus bas si besoin)'} ({CREDS_PATH}).")
+    logger.info("=== Dry-run d'export Firestore -> Postgres (un seul utilisateur) ===")
+
+    fetch = _run(["git", "fetch", "origin", MIGRATION_BRANCH], timeout=30)
+    if fetch.returncode != 0:
+        logger.error(f"git fetch de '{MIGRATION_BRANCH}' impossible : {fetch.stderr.strip()}")
         return
 
-    password = secrets.token_urlsafe(24)
-    logger.info(f"Création de '{CONTAINER_NAME}' (postgres:16-alpine, 127.0.0.1:{HOST_PORT}, volume dédié)...")
+    extracted_paths = []
+    try:
+        for rel_path in FILES_TO_EXTRACT:
+            show = _run(["git", "show", f"FETCH_HEAD:{rel_path}"], timeout=15)
+            if show.returncode != 0:
+                logger.error(f"Impossible d'extraire '{rel_path}' : {show.stderr.strip()}")
+                return
+            dest = Path(rel_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(show.stdout)
+            extracted_paths.append(dest)
+        logger.info(f"{len(extracted_paths)} fichier(s) extrait(s) temporairement (jamais commités sur dev).")
 
-    result = _run([
-        "docker", "run", "-d",
-        "--name", CONTAINER_NAME,
-        "--restart", "unless-stopped",
-        "-e", f"POSTGRES_USER={DB_USER}",
-        "-e", f"POSTGRES_PASSWORD={password}",
-        "-e", f"POSTGRES_DB={DB_NAME}",
-        "-p", f"127.0.0.1:{HOST_PORT}:5432",
-        "-v", f"{CONTAINER_NAME}_data:/var/lib/postgresql/data",
-        "postgres:16-alpine",
-    ], timeout=180)  # premier pull de l'image possible ici
-    if result.returncode != 0:
-        logger.error(f"Échec de la création du conteneur : {result.stderr.strip()}")
-        return
-    logger.info(f"Conteneur créé : {result.stdout.strip()}")
+        if not CREDS_PATH.exists():
+            logger.error(f"{CREDS_PATH} introuvable — le conteneur de staging a-t-il bien été provisionné (run #437) ?")
+            return
+        database_url = None
+        for line in CREDS_PATH.read_text().splitlines():
+            if line.startswith("DATABASE_URL="):
+                database_url = line[len("DATABASE_URL="):].strip()
+        if not database_url:
+            logger.error(f"DATABASE_URL absent de {CREDS_PATH}.")
+            return
 
-    database_url = f"postgresql://{DB_USER}:{password}@127.0.0.1:{HOST_PORT}/{DB_NAME}"
-    CREDS_PATH.write_text(f"DATABASE_URL={database_url}\n")
-    CREDS_PATH.chmod(0o600)
-    logger.info(f"DSN écrit dans {CREDS_PATH} (permissions 600) — volontairement pas affiché ici.")
+        pip = _run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], timeout=60)
+        if pip.returncode != 0:
+            logger.error(f"Échec de l'installation d'asyncpg : {pip.stderr.strip()}")
+            return
+        logger.info("asyncpg installé dans le venv du bot.")
 
-    for attempt in range(10):
-        check = _run(["docker", "exec", CONTAINER_NAME, "pg_isready", "-U", DB_USER])
-        if check.returncode == 0:
-            logger.info(f"Postgres prêt après {attempt + 1} tentative(s) : {check.stdout.strip()}")
-            break
-        time.sleep(2)
-    else:
-        logger.warning("Postgres ne répond pas encore à pg_isready après ~20s — à vérifier manuellement.")
+        from config import USER_ID_TARGET
+        if not USER_ID_TARGET:
+            logger.error("config.USER_ID_TARGET est vide — impossible de limiter le dry-run à un seul utilisateur.")
+            return
+        logger.info(f"Lancement de l'export pour l'utilisateur {USER_ID_TARGET[:8]}...")
 
-    logger.info("=== Fin du provisioning ===")
+        export = _run([
+            sys.executable, "backend/scripts/export_firestore_to_postgres.py",
+            "--database-url", database_url, "--user", USER_ID_TARGET,
+        ], timeout=300)
+        logger.info(f"--- Sortie de l'export (exit={export.returncode}) ---\n{export.stdout}")
+        if export.stderr:
+            logger.info(f"--- stderr de l'export ---\n{export.stderr}")
+    finally:
+        if Path("backend/api").exists():
+            shutil.rmtree("backend/api")
+        script_path = Path("backend/scripts/export_firestore_to_postgres.py")
+        if script_path.exists():
+            script_path.unlink()
+        logger.info("Fichiers temporaires supprimés — arbre de travail revenu à l'état de dev.")
+
+    logger.info("=== Fin du dry-run ===")
 
 
 if __name__ == "__main__":
