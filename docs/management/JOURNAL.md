@@ -1,5 +1,23 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-09] [FLASH] Audit du plan YOLO-OBB V2 et corrections pipeline auto-annotation → plan V2.1 formalisé, 7 corrections code appliquées.
+- **Contexte** : Comparaison du plan d'implémentation V2 (extrait du fichier texte utilisateur) avec l'état réel du code dans `backend/auto_annotation/`. Audit critique du plan lui-même et de l'implémentation.
+- **Critique du plan original** : 4 lacunes identifiées — (1) Phase 0 absente (modèle DOTA non fine-tuné ne peut pas prédire des guitares), (2) VLM non tranché (Qwen2.5-VL vs Moondream sans critère), (3) Phase 5 sans seuils de validation quantitatifs, (4) routage Phase 6 non spécifié (quand OCR vs Vision LLM ?).
+- **Critique de l'implémentation** : 5 bugs/écarts identifiés — (1) `stream=True` manquant sur `model.predict()`, (2) `post_processing.py` dead code non connecté au pipeline, (3) absence de déduplication (crash = restart zéro), (4) `logging.basicConfig` au niveau module (conflit logger Firebase), (5) `extract_phase1.py` : mauvais algorithme (round-robin Firestore au lieu de stratification proportionnelle locale).
+- **Actions — Plan** :
+  - Création de `docs/management/plans/YOLO_OBB_AUTO_ANNOTATION_PLAN.md` (plan V2.1 formel).
+  - Ajout Phase 0 (fine-tuning obligatoire, critère mAP50-OBB ≥ 0.50).
+  - VLM tranché : **Moondream (2B)** acté, LLaVA écarté (3× plus rapide pour TRUE/FALSE binaire).
+  - Phase 5 : seuils quantitatifs (500 images min, mAP50-OBB ≥ 0.70 val, ≥ 0.60 hors-distribution).
+  - Phase 6 : routage explicité (`headstock` → OCR Surya, autres → Vision LLM).
+- **Actions — Code** :
+  - `extract_phase1.py` : réécrit intégralement — stratification proportionnelle depuis dossier local (shutil.copy2), préfixe catégorie sur les noms de fichiers, suppression de la dépendance Firestore.
+  - `config.py` : suppression de `logging.basicConfig` niveau module + `llava` → `moondream`.
+  - `main.py` : ajout `stream=True` sur `model.predict()` + skip déduplication (check label existant dans `dataset_v2/labels/`).
+  - `auto_annotation/post_processing.py` : converti en stub de redirection avec avertissement explicite.
+  - Création de `backend/production_pipeline/` (nouveau module) : `post_processing.py` (code Phase 6 canonique) + `router.py` (`route_crop()` — dispatch `headstock`→OCR, autres→Vision).
+- **Statut** : Pipeline d'annotation corrigé et cohérent avec le plan V2.1. Pipeline de production Phase 6 structuré, en attente de connexion au futur code d'inférence YOLO V2.
+
 [2026-09-09] [PRO] Création et implémentation du pipeline YOLO-OBB d'auto-annotation avec redressement géométrique (OpenCV) et filtrage VLM local → validé.
 - **Contexte** : Implémentation de l'Étape 2 (Code) du plan d'auto-annotation sur la machine `dell-5810`. L'objectif est de générer un dataset OBB de très haute qualité de manière automatique, en filtrant les inférences de YOLOv8n-OBB par des contraintes géométriques (OpenCV) et un appel LLM de validation (Qwen2.5-VL via Ollama).
 - **Actions** :

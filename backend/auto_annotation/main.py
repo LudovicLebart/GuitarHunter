@@ -27,8 +27,9 @@ async def process_image_pipeline(image_id, image_url, model):
     image = fetch_image(image_url)
     if image is None: return
 
-    # 1. Inférence YOLO OBB
-    results = model.predict(source=image, verbose=False)
+    # 1. Inférence YOLO OBB (stream=True évite de charger tous les résultats en RAM)
+    results = model.predict(source=image, stream=True, verbose=False)
+    results = list(results)  # Matérialiser une seule image
     if not results or not hasattr(results[0], 'obb') or results[0].obb is None:
         return
         
@@ -74,6 +75,11 @@ async def run_pipeline(limit=None):
     image_count = 0
     
     for image_id, image_url in get_deal_images(db_service.db, APP_ID_TARGET, limit=limit):
+        # Déduplication : sauter les images déjà traitées (résumabilité après crash)
+        from .config import LABELS_DIR
+        if (LABELS_DIR / f"{image_id}.txt").exists():
+            logger.debug(f"Déjà traité, skip: {image_id}")
+            continue
         logger.info(f"Traitement de {image_id}")
         await process_image_pipeline(image_id, image_url, model)
         image_count += 1

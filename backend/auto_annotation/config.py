@@ -1,14 +1,13 @@
 import logging
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(name)s | %(message)s')
-
 # Poids du modèle d'amorçage
 YOLO_V1_OBB_WEIGHTS = 'yolov8n-obb.pt'
 
 # Configuration Oracle VLM Local
 OLLAMA_API_URL = 'http://localhost:11434/api/generate'
-VLM_MODEL = 'llava'
+# Moondream (2B) choisi sur LLaVA (7B+) : 3x plus rapide, suffisant pour TRUE/FALSE binaire
+VLM_MODEL = 'moondream'
 
 # Chemins d'exportation du dataset
 OUTPUT_DIR = Path('dataset_v2')
