@@ -28,25 +28,19 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 : diagnostic PostgreSQL en préparation du dry-run de migration Firestore ->
-    Postgres (Chantier A, voir docs/management/plans/FIRESTORE_MIGRATION_PLAN.md §8).
-    AUCUNE trace dans JOURNAL.md d'une installation de Postgres sur CE serveur — tout ce qui a
-    été construit/testé jusqu'ici (schema.sql, backend/api/*) l'a été uniquement dans un
-    environnement de dev isolé, jamais déployé. Avant de lancer
-    `backend/scripts/export_firestore_to_postgres.py` pour de vrai ici, on vérifie l'état réel
-    plutôt que de le supposer : binaire `psql` présent, service actif, rôles/bases existants.
-
-    Purement en LECTURE : aucune commande d'installation ou d'écriture ici, uniquement des
-    commandes de diagnostic (which/--version/systemctl status/liste des rôles et bases).
-    Chaque commande est protégée individuellement (binaire absent, permission refusée, timeout)
-    pour que l'absence de Postgres/sudo ne fasse pas planter tout le diagnostic — le but est
-    justement de découvrir cet état, pas de le présupposer.
+    2026-09-10 (suite) : le premier diagnostic PostgreSQL (run GitHub Actions #434) a montré
+    `psql` client présent (16.13) mais AUCUN service `postgresql.service` ni utilisateur OS
+    `postgres` — donc pas de paquet serveur natif installé. Pourtant une connexion TCP à
+    `localhost:5432` a renvoyé "fe_sendauth: no password supplied" (PAS "connection refused")
+    — quelque chose répond déjà sur ce port. Ce deuxième passage identifie QUOI (le plus
+    probable : un Postgres via Docker), toujours en LECTURE SEULE, avant de décider comment
+    provisionner une base de dry-run (voir FIRESTORE_MIGRATION_PLAN.md §8).
     """
     import subprocess
 
@@ -69,19 +63,13 @@ def run():
         except Exception as e:
             logger.info(f"$ {label}\n  -> erreur : {e}")
 
-    logger.info("=== Diagnostic PostgreSQL (avant dry-run de migration, Chantier A) ===")
-    _try(["which", "psql"])
-    _try(["psql", "--version"])
-    _try(["pg_lsclusters"])
-    _try(["systemctl", "status", "postgresql", "--no-pager"])
-    # sudo -n : échoue proprement (pas de blocage sur un prompt) si le compte de déploiement
-    # n'a pas ce droit précis — deploy.yml n'accorde explicitement sudo -n que pour le restart
-    # du service `guitare-hunter`, rien ne garantit qu'il couvre aussi `postgres`.
-    _try(["sudo", "-n", "-u", "postgres", "psql", "-c", "\\du"])
-    _try(["sudo", "-n", "-u", "postgres", "psql", "-c", "\\l"])
-    # Sans sudo : si le rôle applicatif `guitarhunter` existe déjà avec un accès local
-    # configuré (voir backend/api/db.py::DATABASE_URL), cette commande seule suffit à le confirmer.
-    _try(["psql", "-U", "guitarhunter", "-h", "localhost", "-d", "guitarhunter", "-c", "SELECT 1;", "-w"])
+    logger.info("=== Diagnostic : qu'est-ce qui écoute sur le port 5432 ? ===")
+    _try(["id"])
+    _try(["docker", "--version"])
+    _try(["docker", "ps"])
+    _try(["docker", "ps", "-a"])
+    _try(["ss", "-tlnp"])
+    _try(["lsof", "-i", ":5432"])
     logger.info("=== Fin du diagnostic ===")
 
 
