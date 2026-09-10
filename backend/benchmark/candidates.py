@@ -86,6 +86,23 @@ def _download_image_bytes(url: str):
         return None
 
 
+def _guess_image_media_type(image_bytes: bytes) -> str:
+    """Détecte le vrai type d'image via sa signature binaire — l'API Anthropic (contrairement
+    à Gemini/TokenRouter, jamais mis en défaut sur ce point) rejette une image dont le
+    `media_type` déclaré ne correspond pas au contenu réel (ex: annonces Kijiji, servies en
+    WebP, envoyées avec un `image/jpeg` codé en dur avant ce correctif — 7/40 échecs
+    `call_claude_sonnet`, JOURNAL.md 2026-09-10)."""
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if image_bytes[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if image_bytes[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return "image/jpeg"  # repli : format non reconnu, comportement antérieur inchangé
+
+
 def _candidate_result(answer, usage, latency_s, perception_report=None, calls=1):
     return {
         "answer": answer,
@@ -215,7 +232,7 @@ def call_claude_sonnet(item: dict) -> dict:
             b64 = base64.b64encode(image_bytes).decode("utf-8")
             content.append({
                 "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+                "source": {"type": "base64", "media_type": _guess_image_media_type(image_bytes), "data": b64},
             })
     content.append({"type": "text", "text": item["question"]})
 
