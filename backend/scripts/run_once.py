@@ -28,102 +28,61 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-09 : diagnostic de timing pour confirmer/infirmer l'hypothèse posée dans
-    JOURNAL.md (2026-09-08, mesure du fix caching) — le cache observé sur Tier 2
-    (17,1% des appels, run #427) ressemble à des retries JSON sur la MÊME annonce
-    (`_call_gemini_json` rappelle avec le prompt précédent + un texte ajouté, préfixe
-    quasi identique garanti) plutôt qu'un vrai partage du bloc statique (taxonomie/
-    few-shot) entre annonces différentes — ce qui expliquerait aussi pourquoi Tier 1
-    (JSON simple, peu de retries) est resté à 0%.
+    2026-09-10 : diagnostic PostgreSQL en préparation du dry-run de migration Firestore ->
+    Postgres (Chantier A, voir docs/management/plans/FIRESTORE_MIGRATION_PLAN.md §8).
+    AUCUNE trace dans JOURNAL.md d'une installation de Postgres sur CE serveur — tout ce qui a
+    été construit/testé jusqu'ici (schema.sql, backend/api/*) l'a été uniquement dans un
+    environnement de dev isolé, jamais déployé. Avant de lancer
+    `backend/scripts/export_firestore_to_postgres.py` pour de vrai ici, on vérifie l'état réel
+    plutôt que de le supposer : binaire `psql` présent, service actif, rôles/bases existants.
 
-    Parcourt TOUS les appels [tokens] (pas seulement cached>0, contrairement au run
-    précédent) et les avertissements "JSON invalide" de _call_gemini_json. Pour
-    chaque modèle : écart entre appels consécutifs (indique si des annonces
-    différentes sont assez rapprochées pour espérer un cache implicite), et pour
-    chaque appel caché, présence ou non d'un avertissement JSON juste avant (retry
-    confirmé vs partage inter-annonces possible). Lecture seule, aucune écriture Firestore.
+    Purement en LECTURE : aucune commande d'installation ou d'écriture ici, uniquement des
+    commandes de diagnostic (which/--version/systemctl status/liste des rôles et bases).
+    Chaque commande est protégée individuellement (binaire absent, permission refusée, timeout)
+    pour que l'absence de Postgres/sudo ne fasse pas planter tout le diagnostic — le but est
+    justement de découvrir cet état, pas de le présupposer.
     """
-    import re
-    import datetime
-    from collections import defaultdict
-    from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
-    from backend.database import DatabaseService
+    import subprocess
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    TOKENS_RE = re.compile(
-        r"\[tokens\] model=(?P<model>\S+) images=(?P<images>\d+) "
-        r"in=(?P<in_>\d+) out=(?P<out>\d+) cached=(?P<cached>\d+) total=(?P<total>\d+)"
-    )
-    JSON_INVALID_RE = re.compile(r"JSON invalide généré par (?P<model>\S+)")
-    RETRY_WINDOW_S = 30  # fenêtre de recherche d'un avertissement JSON juste avant un appel caché
-
-    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
-    db = db_service.db
-    if not db:
-        logger.error("Erreur de connexion à Firebase.")
-        return
-
-    calls_by_model = defaultdict(list)     # model -> [(created_at, cached_tokens)]
-    warnings_by_model = defaultdict(list)  # model -> [created_at]
-    scanned = 0
-
-    for doc in db.collection_group('logs').stream():
-        scanned += 1
-        data = doc.to_dict() or {}
-        message = data.get('message', '')
-        created_at = data.get('createdAt')
-        if created_at is None:
-            continue
-
-        m = TOKENS_RE.search(message)
-        if m:
-            calls_by_model[m.group('model')].append((created_at, int(m.group('cached'))))
-            continue
-
-        w = JSON_INVALID_RE.search(message)
-        if w:
-            warnings_by_model[w.group('model')].append(created_at)
-
-    logger.info(f"Scan terminé : {scanned} documents lus.")
-
-    for model, events in sorted(calls_by_model.items()):
-        events.sort(key=lambda t: t[0])
-        gaps = [events[i][0] - events[i - 1][0] for i in range(1, len(events))]
-        cached_events = [e for e in events if e[1] > 0]
-        warns = sorted(warnings_by_model.get(model, []))
-
-        retry_confirmed = sum(
-            1 for created_at, _ in cached_events
-            if any(0 <= (created_at - w) <= RETRY_WINDOW_S for w in warns)
-        )
-        retry_unconfirmed = len(cached_events) - retry_confirmed
-
-        logger.info(
-            f"--- model={model} : {len(events)} appels, {len(cached_events)} cachés, "
-            f"{len(warns)} avertissements JSON invalide ---"
-        )
-        if gaps:
-            gaps_sorted = sorted(gaps)
-            under_60s = sum(1 for g in gaps if g < 60)
+    def _try(cmd, timeout=15):
+        label = " ".join(cmd)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             logger.info(
-                f"  Écart entre appels consécutifs (s) : min={gaps_sorted[0]:.1f} "
-                f"médiane={gaps_sorted[len(gaps_sorted) // 2]:.1f} max={gaps_sorted[-1]:.1f} "
-                f"({under_60s}/{len(gaps)} écarts < 60s)"
+                f"$ {label}\n  [exit={result.returncode}]\n"
+                f"  STDOUT: {result.stdout.strip() or '(vide)'}\n"
+                f"  STDERR: {result.stderr.strip() or '(vide)'}"
             )
-        logger.info(
-            f"  Cachés AVEC avertissement JSON <{RETRY_WINDOW_S}s avant (= retry confirmé sur la même annonce) : {retry_confirmed}"
-        )
-        logger.info(
-            f"  Cachés SANS avertissement JSON à proximité (= partage inter-annonces possible) : {retry_unconfirmed}"
-        )
+        except FileNotFoundError:
+            logger.info(f"$ {label}\n  -> binaire introuvable.")
+        except subprocess.TimeoutExpired:
+            logger.info(f"$ {label}\n  -> timeout après {timeout}s.")
+        except Exception as e:
+            logger.info(f"$ {label}\n  -> erreur : {e}")
+
+    logger.info("=== Diagnostic PostgreSQL (avant dry-run de migration, Chantier A) ===")
+    _try(["which", "psql"])
+    _try(["psql", "--version"])
+    _try(["pg_lsclusters"])
+    _try(["systemctl", "status", "postgresql", "--no-pager"])
+    # sudo -n : échoue proprement (pas de blocage sur un prompt) si le compte de déploiement
+    # n'a pas ce droit précis — deploy.yml n'accorde explicitement sudo -n que pour le restart
+    # du service `guitare-hunter`, rien ne garantit qu'il couvre aussi `postgres`.
+    _try(["sudo", "-n", "-u", "postgres", "psql", "-c", "\\du"])
+    _try(["sudo", "-n", "-u", "postgres", "psql", "-c", "\\l"])
+    # Sans sudo : si le rôle applicatif `guitarhunter` existe déjà avec un accès local
+    # configuré (voir backend/api/db.py::DATABASE_URL), cette commande seule suffit à le confirmer.
+    _try(["psql", "-U", "guitarhunter", "-h", "localhost", "-d", "guitarhunter", "-c", "SELECT 1;", "-w"])
+    logger.info("=== Fin du diagnostic ===")
 
 
 if __name__ == "__main__":
