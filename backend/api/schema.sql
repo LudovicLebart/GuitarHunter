@@ -77,6 +77,23 @@ CREATE INDEX IF NOT EXISTS idx_guitar_deals_classification ON guitar_deals(user_
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_at   TIMESTAMPTZ;
 
+-- `description` : présente dans `listing_data` du scraper (parser.py, jusqu'à 3000 caractères)
+-- et spread dans le document Firestore par `create_new_deal`/`update_deal_data_and_analysis`,
+-- mais jamais promue en colonne ici — trouvé en traçant le vrai besoin de lecture du bot
+-- (`analyze_single_deal`/`bot.py`) pour la Phase A.1 (bascule bot -> Postgres, voir
+-- docs/management/plans/FIRESTORE_MIGRATION_PLAN.md §5.3), pas par l'export ponctuel (qui
+-- l'aurait silencieusement rangée dans `ai_analysis_raw['_unmapped']` sans le signaler comme
+-- un manque — seule une relecture attentive du CODE CONSOMMATEUR, pas des données migrées,
+-- pouvait le révéler).
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS description TEXT;
+
+-- `sold_notes` : équivalent du champ Firestore `soldNotes` (tableau `[{info, timestamp}, ...]`,
+-- alimenté par `mark_deal_as_sold(reason=...)`) — trouvé manquant en même temps que
+-- `description`, en traçant les besoins réels du bot pour la Phase A.1. L'export ponctuel le
+-- rangeait jusqu'ici dans `ai_analysis_raw['_unmapped']` (garde-fou générique) faute de colonne
+-- dédiée ; devient un champ mappé normalement désormais.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS sold_notes JSONB;
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle

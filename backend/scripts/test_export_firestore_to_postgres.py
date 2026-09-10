@@ -72,9 +72,12 @@ class TestMapDeal(unittest.TestCase):
         self.assertEqual(unmapped, ["champInconnu"])
         self.assertEqual(row["ai_analysis_raw"]["_unmapped"]["champInconnu"], 42)
 
-    def test_sold_notes_preserved_in_unmapped(self):
-        row, _ = map_deal("deal-1", {"title": "x", "soldNotes": [{"info": "vendu cher"}]})
-        self.assertEqual(row["ai_analysis_raw"]["_unmapped"]["soldNotes"], [{"info": "vendu cher"}])
+    def test_sold_notes_promoted_to_own_column(self):
+        """soldNotes a sa propre colonne (sold_notes) depuis la Phase A.1 (bascule bot) — plus
+        besoin de la ranger dans ai_analysis_raw['_unmapped'] comme au tout premier jet."""
+        row, unmapped = map_deal("deal-1", {"title": "x", "soldNotes": [{"info": "vendu cher"}]})
+        self.assertEqual(row["sold_notes"], [{"info": "vendu cher"}])
+        self.assertEqual(unmapped, [])
 
     def test_missing_status_defaults_to_analyzed(self):
         row, _ = map_deal("deal-1", {"title": "x"})
