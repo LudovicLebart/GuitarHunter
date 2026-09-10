@@ -562,3 +562,6 @@ Le module `backend/auto_annotation/` permet de générer des datasets de haute q
 5. **Export YOLO-OBB (`exporter.py`)** : Les boîtes validées par la cascade sont exportées au format normé YOLO-OBB (8 coordonnées spatiales normalisées `xyxyxyxyn`).
 
 **Point d'attention** : L'accès à Firebase Storage (`data_loader.py`) récupère les images des annonces existantes pour enrichir le dataset. L'exécution requiert les credentials admin Firebase.
+
+### 5.3 Extraction d'Amorçage (Phase 1)
+- **`extract_phase1.py`** : Script utilitaire chargé d'extraire de Firestore un échantillon de 150 images représentatives. Il itère sur l'ensemble des `guitar_deals`, regroupe la première image de chaque annonce par sa `classification` (taxonomie), et sélectionne les images via un algorithme de round-robin pour garantir une représentativité maximale de chaque type d'instrument avant l'annotation manuelle.

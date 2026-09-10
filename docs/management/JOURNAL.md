@@ -2236,3 +2236,9 @@ La vérification initiale (recherche web confirmant "gs:// fonctionne") était c
 
 #### Raisonnement
 Cette session illustre une chaîne de diagnostic en couches successives, chacune masquant la suivante : déploiement manquant → secret GitHub incomplet → type de clé reCAPTCHA incorrect → mécanisme `gs://` incompatible avec le backend choisi → requête trop volumineuse → CORS. Chaque couche a nécessité un signal différent (message d'erreur explicite, comportement silencieux, ou absence totale de signal) et le réflexe systématique a été de vérifier plutôt que de supposer résolu — en particulier le cas CORS, où l'absence de toute erreur visible aurait pu faire croire à un problème côté prompt/IA plutôt qu'un échec de chargement réseau silencieusement avalé. La leçon générale pour les prochaines fonctionnalités touchant Firebase Storage + appels `fetch()` cross-origin côté client : vérifier CORS dès la conception plutôt qu'en réaction à un symptôme.
+
+
+[2026-09-09] [PRO] Action effectuée -> Déploiement et correction du pipeline d'auto-annotation OBB (Phase 2) et création de l'amorçage (Phase 1) -> Résultat : Pipeline stabilisé et prêt.
+- **`requirements.txt`** : Conflits `grpcio` résolus en retirant `google-genai` de l'environnement global. Dépendances vision (PyTorch, OpenCV) isolées dans `backend/auto_annotation/requirements.txt` pour préserver le déploiement de production.
+- **Crash `IndexError`** : Protégé `heuristics.py` contre les prédictions DOTA (index > 5) du modèle par défaut pour éviter le plantage du processus d'inférence.
+- **Phase 1** : Création de `backend/auto_annotation/extract_phase1.py` pour échantillonner équitablement 150 images représentatives de la taxonomie (round-robin) afin de réaliser la Ground Truth initiale.
