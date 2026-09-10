@@ -118,11 +118,18 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 - `backend/scripts/export_firestore_to_postgres.py` : lecture seule Firestore → écriture idempotente Postgres, couvre tout sauf `commands`/`logs` (transitoires). Détails complets, limitations connues (id `itemId` non retraduit dans les propositions de chat déjà traitées, cosmétique) et bug réel trouvé (`is_favorite`/`is_purchased` NOT NULL) dans `JOURNAL.md` [2026-09-10].
 - `backend/scripts/compare_firestore_postgres.py` : comptages + échantillon comparé champ par champ, pour vérifier une copie après coup.
 - 24 tests (19 purs + 5 d'intégration contre un vrai Postgres local, Firestore simulé faute d'accès réel depuis cette session) — tous verts, aucune régression sur les 39 tests existants.
-- **Jamais exécuté pour de vrai** : cette session n'a aucun credential Firebase — le dry-run réel doit être lancé depuis le serveur contre un Postgres de staging, reste à faire.
+
+**Point 2 terminé, dry-run réel exécuté et validé (2026-09-10)** : via `run_once.py` (seul accès aux credentials Firebase réels depuis un environnement de dev, voir CLAUDE.md), extraction temporaire des fichiers du Chantier A directement sur le serveur (jamais mergés dans `dev` — `git show FETCH_HEAD:...`, supprimés après usage). Détails complets dans `JOURNAL.md` [2026-09-10] ("dry-run de migration exécuté pour de vrai sur le serveur"). Résumé :
+- Postgres natif jamais installé sur le serveur ; port 5432 déjà occupé par un conteneur Docker d'un **autre projet** (`moneybot_optuna_db`) — non touché. Conteneur dédié `guitarhunter_pg_staging` (`postgres:16-alpine`, `127.0.0.1:5433`, isolé) provisionné à la place, credentials jamais exposés dans les logs CI.
+- L'utilisateur cible a **5978 annonces** Firestore (bien plus que supposé) — un export complet excède la fenêtre de 10 min du `command_timeout` CI (~12-13 min mesurées). **2414 annonces (~40%)** migrées proprement avant l'arrêt (transactionnel par annonce, rien de corrompu).
+- Décidé avec l'utilisateur : valider avec ces 2414 plutôt que d'augmenter le timeout CI partagé.
+- **Validation par échantillon (40/2414) : 0 écart** sur toutes les colonnes + comptages chat/restoration_plan_items, après correction de deux bugs dans le script de validation ponctuel lui-même (codec JSON oublié, puis paramètre `init=` invalide sur `asyncpg.connect()` — aucun des deux n'affectait l'export réel).
+- **Mapping Firestore → Postgres validé en conditions réelles de production.** Conteneur de staging et ses 2414 annonces laissés en place sur le serveur pour inspection.
+- **Reste ouvert** : couverture complète des 5978 annonces (bloquée par le timeout CI, décision reportée), migration des autres utilisateurs.
 
 **Reste à faire avant toute mise en production** — hors de ce chantier de construction, jamais entamé sans décision explicite de l'utilisateur (§5.3) :
 1. Décider et documenter le protocole de bascule réelle (ordre des étapes, fenêtre de maintenance ou non, plan de rollback).
-2. Lancer le dry-run réel (`export_firestore_to_postgres.py` puis `compare_firestore_postgres.py`, depuis le serveur, contre un Postgres de staging) — scripts prêts (voir ci-dessus), jamais exécutés contre de vraies données.
+2. Terminer la couverture du dry-run : 2414/5978 annonces migrées et validées par échantillon pour l'utilisateur cible (voir ci-dessus) — reste la fin de cet utilisateur (bloqué par le `command_timeout` CI de `deploy.yml`, décision d'augmenter ou non reportée) et les autres utilisateurs.
 3. Basculer le bot (`backend/bot.py` et modules associés) vers un accès SQL direct — actuellement hors périmètre : le bot continue d'écrire sur Firestore, y compris pour les tables déjà migrées côté API (ex: `cities` reste écrit par `add_city_auto()` côté Firestore, voir tranche 5).
 4. Basculer le frontend (`src/services/firestoreService.js` → nouvelle API HTTP/WebSocket).
 5. Déployer le service réseau (Tailscale Funnel, décidé le 2026-09-09, non encore mis en place).
