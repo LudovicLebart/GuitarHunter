@@ -1,5 +1,5 @@
 import cv2
-from .config import CLASS_NAMES
+from .config import CLASS_NAMES, NECK_RATIO_MIN, INCLUSION_RATIO_MIN
 
 def rotated_rect_intersection_area(rect1, rect2):
     """Calcule l'aire d'intersection entre deux RotatedRect OpenCV."""
@@ -16,8 +16,8 @@ def check_inclusion_obb(inner_rect, outer_rect):
     
     if inner_area == 0: 
         return False
-    # Un seuil de 80% d'inclusion est requis pour tolérer de légers débordements de boîte
-    return (inter_area / inner_area) > 0.8 
+    # Seuil configurable dans config.py (INCLUSION_RATIO_MIN)
+    return (inter_area / inner_area) > INCLUSION_RATIO_MIN
 
 def check_connectivity_obb(rect1, rect2):
     """Vérifie s'il y a une intersection non nulle entre deux RotatedRect."""
@@ -51,7 +51,9 @@ def apply_heuristics(rects, classes):
             w, h = max(w, 1), max(h, 1) # Éviter la division par zéro
             ratio = max(w/h, h/w)
             
-            if ratio < 2.0: 
+            # Seuil configurable dans config.py (NECK_RATIO_MIN)
+            # Un manche est long et fin. Valeur empirique : 2.0 (basses incluses)
+            if ratio < NECK_RATIO_MIN:
                 continue
             
             # Connectivité : doit toucher le corps et la tête (si détectée)

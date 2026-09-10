@@ -13,9 +13,14 @@ def save_yolo_obb_format(image_id, image, obb_boxes, classes, final_indices):
         
     img_path = IMAGES_DIR / f"{image_id}.jpg"
     lbl_path = LABELS_DIR / f"{image_id}.txt"
-    
-    # Sauvegarde de l'image (sans aucun redressement, l'image originale)
-    cv2.imwrite(str(img_path), image)
+
+    # Sauvegarde de l'image originale (non redressée — l'OBB encode déjà l'angle)
+    ok = cv2.imwrite(str(img_path), image)
+    if not ok:
+        raise IOError(
+            f"cv2.imwrite a échoué pour {img_path} — "
+            "vérifier les permissions et l'espace disque."
+        )
     
     with open(lbl_path, 'w') as f:
         for i in final_indices:

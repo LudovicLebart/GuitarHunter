@@ -28,7 +28,12 @@ logger = logging.getLogger(__name__)
 EXTENSIONS_VALIDES = {'.jpg', '.jpeg', '.png', '.webp'}
 
 
-def extraire_echantillon_stratifie(dossier_source: str, dossier_destination: str, total_cible: int = 150):
+def extraire_echantillon_stratifie(
+    dossier_source: str,
+    dossier_destination: str,
+    total_cible: int = 150,
+    seed: int = 42,
+):
     """
     Extrait `total_cible` images depuis `dossier_source` avec une stratification
     proportionnelle stricte : chaque catégorie (sous-dossier) contribue
@@ -38,6 +43,9 @@ def extraire_echantillon_stratifie(dossier_source: str, dossier_destination: str
         dossier_source:      Dossier racine contenant un sous-dossier par catégorie.
         dossier_destination: Dossier de sortie pour Label Studio (sera créé si absent).
         total_cible:         Nombre total d'images à extraire (défaut : 150).
+        seed:                Graine aléatoire pour la reproductibilité (défaut : 42).
+                             Changer la valeur produit un échantillon différent mais
+                             toujours déterministe.
     """
     source_path = Path(dossier_source)
     dest_path = Path(dossier_destination)
@@ -46,6 +54,10 @@ def extraire_echantillon_stratifie(dossier_source: str, dossier_destination: str
         raise FileNotFoundError(f"Dossier source introuvable : {dossier_source}")
 
     dest_path.mkdir(parents=True, exist_ok=True)
+
+    # Reproductibilité : graine fixée pour des expériences comparables
+    random.seed(seed)
+    logger.info(f"Graine aléatoire fixée à {seed}")
 
     # 1. Recenser les catégories et les images valides
     categories = {}
