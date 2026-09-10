@@ -44,15 +44,19 @@ def run():
     Réutilise `map_deal` du script d'export (même mapping, pas dupliqué) pour dériver la valeur
     ATTENDUE depuis le document Firestore, comparée à la valeur RÉELLEMENT lue en base.
 
-    Correctif (après un premier essai, run #441) : la connexion `asyncpg.connect()` ci-dessous
-    n'enregistrait PAS le codec JSON/JSONB (`backend.api.db._register_json_codecs`, appliqué via
-    le paramètre `init=` de `create_pool()`/`connect()`) — asyncpg renvoyait donc les colonnes
-    JSONB (`image_urls`/`storage_image_urls`/`storage_image_gs_uris`) comme des CHAÎNES JSON
-    brutes plutôt que des listes Python, faisant "échouer" la comparaison sur ces 3 colonnes pour
-    quasiment chaque annonce (110 faux positifs sur 40) — un bug de CE script de validation, pas de
-    l'export lui-même (`export_firestore_to_postgres.py` utilise bien `_register_json_codecs` via
-    `db.py`, confirmé en relisant son code). Toutes les 38 autres colonnes comparées, elles,
-    correspondaient déjà parfaitement au premier essai — corrigé ici en appliquant le même codec.
+    Correctif 1 (après le run #441) : la connexion `asyncpg.connect()` ci-dessous n'enregistrait
+    PAS le codec JSON/JSONB (`backend.api.db._register_json_codecs`) — asyncpg renvoyait donc les
+    colonnes JSONB (`image_urls`/`storage_image_urls`/`storage_image_gs_uris`) comme des CHAÎNES
+    JSON brutes plutôt que des listes Python, faisant "échouer" la comparaison sur ces 3 colonnes
+    pour quasiment chaque annonce (110 faux positifs sur 40) — un bug de CE script de validation,
+    pas de l'export lui-même (`export_firestore_to_postgres.py` utilise bien `_register_json_codecs`
+    via `db.py`, confirmé en relisant son code). Toutes les 38 autres colonnes comparées, elles,
+    correspondaient déjà parfaitement au premier essai.
+
+    Correctif 2 (après le run #442) : le correctif 1 passait `init=_register_json_codecs` à
+    `asyncpg.connect()` — mais ce paramètre n'existe QUE sur `create_pool()` (voir
+    `db.py::init_pool()`), pas sur `connect()` (`TypeError` immédiate). Appelé manuellement sur la
+    connexion après coup à la place.
     """
     import random
     import subprocess
@@ -137,7 +141,8 @@ def run():
             return expected == actual
 
         async def _validate():
-            conn = await asyncpg.connect(database_url, timeout=10, init=_register_json_codecs)
+            conn = await asyncpg.connect(database_url, timeout=10)
+            await _register_json_codecs(conn)  # connect() n'a pas de paramètre init= (contrairement à create_pool())
             try:
                 rows = await conn.fetch("SELECT id FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
                 migrated_ids = [r["id"] for r in rows]
