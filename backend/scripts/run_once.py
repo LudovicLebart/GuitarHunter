@@ -43,6 +43,16 @@ def run():
     de Postgres pour l'instant, ce qui noierait le signal utile sous des "absences" attendues).
     Réutilise `map_deal` du script d'export (même mapping, pas dupliqué) pour dériver la valeur
     ATTENDUE depuis le document Firestore, comparée à la valeur RÉELLEMENT lue en base.
+
+    Correctif (après un premier essai, run #441) : la connexion `asyncpg.connect()` ci-dessous
+    n'enregistrait PAS le codec JSON/JSONB (`backend.api.db._register_json_codecs`, appliqué via
+    le paramètre `init=` de `create_pool()`/`connect()`) — asyncpg renvoyait donc les colonnes
+    JSONB (`image_urls`/`storage_image_urls`/`storage_image_gs_uris`) comme des CHAÎNES JSON
+    brutes plutôt que des listes Python, faisant "échouer" la comparaison sur ces 3 colonnes pour
+    quasiment chaque annonce (110 faux positifs sur 40) — un bug de CE script de validation, pas de
+    l'export lui-même (`export_firestore_to_postgres.py` utilise bien `_register_json_codecs` via
+    `db.py`, confirmé en relisant son code). Toutes les 38 autres colonnes comparées, elles,
+    correspondaient déjà parfaitement au premier essai — corrigé ici en appliquant le même codec.
     """
     import random
     import subprocess
@@ -99,6 +109,7 @@ def run():
 
         sys.path.insert(0, str(Path.cwd()))
         from backend.scripts.export_firestore_to_postgres import map_deal, DEAL_COLUMNS
+        from backend.api.db import _register_json_codecs
         from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET, USER_ID_TARGET, APP_ID_TARGET
         from backend.database import DatabaseService
         import asyncio
@@ -126,7 +137,7 @@ def run():
             return expected == actual
 
         async def _validate():
-            conn = await asyncpg.connect(database_url, timeout=10)
+            conn = await asyncpg.connect(database_url, timeout=10, init=_register_json_codecs)
             try:
                 rows = await conn.fetch("SELECT id FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
                 migrated_ids = [r["id"] for r in rows]
@@ -166,7 +177,8 @@ def run():
         if mismatches:
             logger.warning(f"{len(mismatches)} écart(s) trouvé(s) :")
             for deal_id, field, expected, actual in mismatches:
-                logger.warning(f"  {deal_id} . {field} : Firestore={expected!r}  Postgres={actual!r}")
+                exp_repr, act_repr = repr(expected)[:150], repr(actual)[:150]
+                logger.warning(f"  {deal_id} . {field} : Firestore={exp_repr}  Postgres={act_repr}")
         else:
             logger.info("Aucun écart détecté sur l'échantillon vérifié.")
     finally:
