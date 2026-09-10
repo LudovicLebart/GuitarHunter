@@ -106,16 +106,20 @@ jobs:
             # aucune régression sur les 9 autres.
             # Run complet #27 (10 candidats x 40 fiches, terminé 2026-09-09) contaminé en cours
             # de route par un crédit Anthropic épuisé (clé partagée par le juge, utilisé pour
-            # noter TOUS les candidats, et par le candidat claude_sonnet lui-même) — voir
-            # JOURNAL.md 2026-09-10. Crédit rechargé par l'utilisateur. Relance CIBLÉE via
-            # `--resume` (nouveau mode, run_benchmark.py) sur les seuls candidats affectés :
-            # ne rejoue que les items dont la réponse ou le jugement a échoué à cause du crédit
-            # (ou d'un timeout réel non lié), réutilise le reste tel quel — qwen en premier
-            # (priorité explicite de l'utilisateur) pour sécuriser ses données même si le run
-            # est interrompu en route.
-            python3 -u -m backend.benchmark.run_benchmark \
-              --models qwen,perception_qwen,hybrid,claude_sonnet \
-              --resume backend/benchmark/resume_run27_credit_incident.json
+            # noter TOUS les candidats, et par le candidat claude_sonnet lui-même). Crédit
+            # rechargé par l'utilisateur, relancé CIBLÉ via le nouveau mode `--resume`
+            # (run_benchmark.py) sur run #28 (2026-09-10, réussi) : ne rejoue que les items
+            # dont la réponse ou le jugement avait échoué à cause du crédit ou d'un timeout
+            # réel non lié, réutilise le reste tel quel — qwen en premier (priorité explicite
+            # de l'utilisateur), confirmé propre (0 échec). A aussi mis en lumière un bug
+            # distinct sur `claude_sonnet` (photos Kijiji au format WebP envoyées avec un type
+            # image/jpeg codé en dur, 7/40 échecs) — voir JOURNAL.md 2026-09-10, pas encore
+            # corrigé. Fichier de résultats `resume_run27_credit_incident.json` utilisé comme
+            # entrée de cette relance retiré du dépôt une fois la relance confirmée (même
+            # discipline que run_once.py ACTIVE=False) : la commande ci-dessous est repassée à
+            # l'invocation standard (10 candidats x 40 fiches), à adapter avant tout nouveau
+            # lancement de ce workflow.
+            python3 -u -m backend.benchmark.run_benchmark
 
       - name: Récupération du rapport généré
         env:
