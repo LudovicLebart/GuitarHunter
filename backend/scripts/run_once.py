@@ -34,43 +34,79 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 (suite) : le premier diagnostic PostgreSQL (run GitHub Actions #434) a montré
-    `psql` client présent (16.13) mais AUCUN service `postgresql.service` ni utilisateur OS
-    `postgres` — donc pas de paquet serveur natif installé. Pourtant une connexion TCP à
-    `localhost:5432` a renvoyé "fe_sendauth: no password supplied" (PAS "connection refused")
-    — quelque chose répond déjà sur ce port. Ce deuxième passage identifie QUOI (le plus
-    probable : un Postgres via Docker), toujours en LECTURE SEULE, avant de décider comment
-    provisionner une base de dry-run (voir FIRESTORE_MIGRATION_PLAN.md §8).
+    2026-09-10 (suite) : le diagnostic précédent (run GitHub Actions #436) a montré que le port
+    5432 est déjà occupé par un conteneur Docker SANS RAPPORT avec ce projet
+    (`moneybot_optuna_db`, `postgres:15-alpine`, projet distinct sur ce même serveur) — décision
+    prise avec l'utilisateur : provisionner un conteneur Postgres DÉDIÉ à Guitar Hunter, isolé de
+    celui-là, sur un port différent (5433), pour le dry-run de migration (Chantier A, voir
+    FIRESTORE_MIGRATION_PLAN.md §8). Idempotent : si le conteneur existe déjà (ex: second
+    déclenchement dev+master du même push), ne le recrée pas.
+
+    Le mot de passe généré n'est JAMAIS écrit dans les logs GitHub Actions (visibles dans
+    l'historique CI) — uniquement dans un fichier local au serveur (permissions 600), relu par un
+    futur run_once.py pour lancer le dry-run lui-même sans jamais transiter par ces logs.
     """
+    import secrets
     import subprocess
+    import time
+    from pathlib import Path
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _try(cmd, timeout=15):
-        label = " ".join(cmd)
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            logger.info(
-                f"$ {label}\n  [exit={result.returncode}]\n"
-                f"  STDOUT: {result.stdout.strip() or '(vide)'}\n"
-                f"  STDERR: {result.stderr.strip() or '(vide)'}"
-            )
-        except FileNotFoundError:
-            logger.info(f"$ {label}\n  -> binaire introuvable.")
-        except subprocess.TimeoutExpired:
-            logger.info(f"$ {label}\n  -> timeout après {timeout}s.")
-        except Exception as e:
-            logger.info(f"$ {label}\n  -> erreur : {e}")
+    CONTAINER_NAME = "guitarhunter_pg_staging"
+    HOST_PORT = "5433"
+    DB_NAME = "guitarhunter_staging"
+    DB_USER = "guitarhunter"
+    CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
 
-    logger.info("=== Diagnostic : qu'est-ce qui écoute sur le port 5432 ? ===")
-    _try(["id"])
-    _try(["docker", "--version"])
-    _try(["docker", "ps"])
-    _try(["docker", "ps", "-a"])
-    _try(["ss", "-tlnp"])
-    _try(["lsof", "-i", ":5432"])
-    logger.info("=== Fin du diagnostic ===")
+    def _run(cmd, timeout=30):
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    logger.info(f"=== Provisioning du conteneur Postgres de staging '{CONTAINER_NAME}' ===")
+
+    existing = _run(["docker", "ps", "-a", "--filter", f"name=^{CONTAINER_NAME}$", "--format", "{{.Names}}"])
+    if CONTAINER_NAME in existing.stdout:
+        logger.info(f"Conteneur '{CONTAINER_NAME}' déjà présent — rien recréé (idempotent).")
+        status = _run(["docker", "ps", "--filter", f"name=^{CONTAINER_NAME}$", "--format", "{{.Status}}"])
+        logger.info(f"Statut : {status.stdout.strip() or 'ARRÊTÉ (docker start requis manuellement)'}")
+        logger.info(f"Fichier de credentials : {'présent' if CREDS_PATH.exists() else 'ABSENT (voir avertissement plus bas si besoin)'} ({CREDS_PATH}).")
+        return
+
+    password = secrets.token_urlsafe(24)
+    logger.info(f"Création de '{CONTAINER_NAME}' (postgres:16-alpine, 127.0.0.1:{HOST_PORT}, volume dédié)...")
+
+    result = _run([
+        "docker", "run", "-d",
+        "--name", CONTAINER_NAME,
+        "--restart", "unless-stopped",
+        "-e", f"POSTGRES_USER={DB_USER}",
+        "-e", f"POSTGRES_PASSWORD={password}",
+        "-e", f"POSTGRES_DB={DB_NAME}",
+        "-p", f"127.0.0.1:{HOST_PORT}:5432",
+        "-v", f"{CONTAINER_NAME}_data:/var/lib/postgresql/data",
+        "postgres:16-alpine",
+    ], timeout=180)  # premier pull de l'image possible ici
+    if result.returncode != 0:
+        logger.error(f"Échec de la création du conteneur : {result.stderr.strip()}")
+        return
+    logger.info(f"Conteneur créé : {result.stdout.strip()}")
+
+    database_url = f"postgresql://{DB_USER}:{password}@127.0.0.1:{HOST_PORT}/{DB_NAME}"
+    CREDS_PATH.write_text(f"DATABASE_URL={database_url}\n")
+    CREDS_PATH.chmod(0o600)
+    logger.info(f"DSN écrit dans {CREDS_PATH} (permissions 600) — volontairement pas affiché ici.")
+
+    for attempt in range(10):
+        check = _run(["docker", "exec", CONTAINER_NAME, "pg_isready", "-U", DB_USER])
+        if check.returncode == 0:
+            logger.info(f"Postgres prêt après {attempt + 1} tentative(s) : {check.stdout.strip()}")
+            break
+        time.sleep(2)
+    else:
+        logger.warning("Postgres ne répond pas encore à pg_isready après ~20s — à vérifier manuellement.")
+
+    logger.info("=== Fin du provisioning ===")
 
 
 if __name__ == "__main__":
