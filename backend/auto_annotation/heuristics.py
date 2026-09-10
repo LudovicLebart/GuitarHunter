@@ -31,10 +31,12 @@ def apply_heuristics(rects, classes):
     valid_indices = []
     
     # Indexation par type de pièce
-    body_boxes = [i for i, c in enumerate(classes) if CLASS_NAMES[int(c)] == 'body']
-    headstock_boxes = [i for i, c in enumerate(classes) if CLASS_NAMES[int(c)] == 'headstock']
+    body_boxes = [i for i, c in enumerate(classes) if int(c) < len(CLASS_NAMES) and CLASS_NAMES[int(c)] == 'body']
+    headstock_boxes = [i for i, c in enumerate(classes) if int(c) < len(CLASS_NAMES) and CLASS_NAMES[int(c)] == 'headstock']
     
     for i, (rect, cls) in enumerate(zip(rects, classes)):
+        if int(cls) >= len(CLASS_NAMES):
+            continue
         c_name = CLASS_NAMES[int(cls)]
         
         if c_name in ['pickups', 'soundhole']:
