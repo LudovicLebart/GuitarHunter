@@ -34,21 +34,15 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 (suite) : le conteneur Postgres de staging est prêt (run GitHub Actions #437,
-    `guitarhunter_pg_staging`, DSN dans `~/.guitarhunter_staging_db.env`). Cette étape lance enfin
-    le dry-run d'export réel — Firestore -> Postgres, limité à `config.USER_ID_TARGET` (un seul
-    utilisateur d'abord, décidé avec l'utilisateur) — voir FIRESTORE_MIGRATION_PLAN.md §8.
-
-    `backend/api/db.py`, `backend/api/schema.sql` et `backend/scripts/export_firestore_to_postgres.py`
-    n'existent PAS sur `dev` (Chantier A reste isolé sur `claude/firestore-postgres-migration`,
-    jamais mergé — stratégie de bascule "en une seule fois" actée avec l'utilisateur). Plutôt que
-    de les fusionner dans `dev`, cette action les extrait TEMPORAIREMENT via `git show` depuis
-    cette branche (aucun checkout, aucun commit, aucune modification de l'historique de `dev`),
-    les exécute, puis les supprime explicitement à la fin (`finally`) — le dépôt sur le serveur
-    revient exactement à l'état de `dev` après coup, comme si cette étape n'avait jamais eu lieu
-    (hors le conteneur/le fichier de credentials déjà en place depuis l'étape précédente).
+    2026-09-10 (suite) : le premier essai du dry-run (run #439) a été tué par mon propre timeout
+    de 300s sur le sous-processus d'export — pas un crash, juste plus long que prévu (le script
+    boucle en série sur chaque annonce + ses sous-collections chat/restorationPlan, un aller-retour
+    Firestore à la fois). Chaque annonce est migrée dans sa propre transaction Postgres (voir
+    `_migrate_deal`), donc rien n'est corrompu — juste incomplet. Avant de relancer avec un timeout
+    plus long, ce passage mesure : (a) le nombre réel d'annonces de `config.USER_ID_TARGET` côté
+    Firestore, (b) ce qui est déjà arrivé côté Postgres de staging — pour calibrer le prochain essai
+    plutôt que de deviner. Purement en LECTURE des deux côtés.
     """
-    import shutil
     import subprocess
     import sys
     from pathlib import Path
@@ -56,77 +50,80 @@ def run():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _run(cmd, timeout=60):
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-
-    MIGRATION_BRANCH = "claude/firestore-postgres-migration"
-    FILES_TO_EXTRACT = [
-        "backend/api/__init__.py",
-        "backend/api/db.py",
-        "backend/api/schema.sql",
-        "backend/scripts/export_firestore_to_postgres.py",
-    ]
     CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
 
-    logger.info("=== Dry-run d'export Firestore -> Postgres (un seul utilisateur) ===")
+    logger.info("=== Mesure : taille réelle des données + progression du dry-run précédent ===")
 
-    fetch = _run(["git", "fetch", "origin", MIGRATION_BRANCH], timeout=30)
-    if fetch.returncode != 0:
-        logger.error(f"git fetch de '{MIGRATION_BRANCH}' impossible : {fetch.stderr.strip()}")
+    from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET, USER_ID_TARGET, APP_ID_TARGET
+    from backend.database import DatabaseService
+
+    if not USER_ID_TARGET:
+        logger.error("config.USER_ID_TARGET est vide.")
         return
 
-    extracted_paths = []
+    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
+    if db_service.offline_mode or not db_service.db:
+        logger.error("Firebase en mode hors-ligne.")
+        return
+    user_ref = (
+        db_service.db.collection("artifacts").document(APP_ID_TARGET)
+        .collection("users").document(USER_ID_TARGET)
+    )
+    deal_docs = list(user_ref.collection("guitar_deals").stream())
+    logger.info(f"Firestore : {len(deal_docs)} annonce(s) pour l'utilisateur {USER_ID_TARGET[:8]}.")
+    # Échantillon (10 premières) pour estimer le nombre moyen de messages de chat par annonce —
+    # le vrai coût en allers-retours Firestore, pas juste le nombre d'annonces.
+    sample = deal_docs[:10]
+    total_chat = sum(len(list(d.reference.collection("chat").stream())) for d in sample)
+    total_resto = sum(len(list(d.reference.collection("restorationPlan").stream())) for d in sample)
+    if sample:
+        logger.info(
+            f"Échantillon ({len(sample)} annonces) : {total_chat} message(s) de chat, "
+            f"{total_resto} étape(s) de restauration au total."
+        )
+
+    if not CREDS_PATH.exists():
+        logger.warning(f"{CREDS_PATH} introuvable — impossible de vérifier la progression côté Postgres.")
+        return
+    database_url = None
+    for line in CREDS_PATH.read_text().splitlines():
+        if line.startswith("DATABASE_URL="):
+            database_url = line[len("DATABASE_URL="):].strip()
+    if not database_url:
+        logger.warning("DATABASE_URL absent du fichier de credentials.")
+        return
+
+    pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], capture_output=True, text=True, timeout=60)
+    if pip.returncode != 0:
+        logger.error(f"Échec de l'installation d'asyncpg : {pip.stderr.strip()}")
+        return
+
+    import asyncio
+    import asyncpg
+
+    async def _count():
+        conn = await asyncpg.connect(database_url, timeout=5)
+        try:
+            deals = await conn.fetchval("SELECT count(*) FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
+            chat = await conn.fetchval(
+                "SELECT count(*) FROM deal_chat WHERE deal_id IN (SELECT id FROM guitar_deals WHERE user_id = $1)",
+                USER_ID_TARGET,
+            )
+            resto = await conn.fetchval(
+                "SELECT count(*) FROM restoration_plan_items WHERE deal_id IN (SELECT id FROM guitar_deals WHERE user_id = $1)",
+                USER_ID_TARGET,
+            )
+            return deals, chat, resto
+        finally:
+            await conn.close()
+
     try:
-        for rel_path in FILES_TO_EXTRACT:
-            show = _run(["git", "show", f"FETCH_HEAD:{rel_path}"], timeout=15)
-            if show.returncode != 0:
-                logger.error(f"Impossible d'extraire '{rel_path}' : {show.stderr.strip()}")
-                return
-            dest = Path(rel_path)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(show.stdout)
-            extracted_paths.append(dest)
-        logger.info(f"{len(extracted_paths)} fichier(s) extrait(s) temporairement (jamais commités sur dev).")
+        deals, chat, resto = asyncio.run(_count())
+        logger.info(f"Postgres (staging) déjà présent : {deals} annonce(s), {chat} message(s) de chat, {resto} étape(s) de restauration.")
+    except Exception as e:
+        logger.error(f"Connexion au Postgres de staging impossible : {e}")
 
-        if not CREDS_PATH.exists():
-            logger.error(f"{CREDS_PATH} introuvable — le conteneur de staging a-t-il bien été provisionné (run #437) ?")
-            return
-        database_url = None
-        for line in CREDS_PATH.read_text().splitlines():
-            if line.startswith("DATABASE_URL="):
-                database_url = line[len("DATABASE_URL="):].strip()
-        if not database_url:
-            logger.error(f"DATABASE_URL absent de {CREDS_PATH}.")
-            return
-
-        pip = _run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], timeout=60)
-        if pip.returncode != 0:
-            logger.error(f"Échec de l'installation d'asyncpg : {pip.stderr.strip()}")
-            return
-        logger.info("asyncpg installé dans le venv du bot.")
-
-        from config import USER_ID_TARGET
-        if not USER_ID_TARGET:
-            logger.error("config.USER_ID_TARGET est vide — impossible de limiter le dry-run à un seul utilisateur.")
-            return
-        logger.info(f"Lancement de l'export pour l'utilisateur {USER_ID_TARGET[:8]}...")
-
-        export = _run([
-            sys.executable, "backend/scripts/export_firestore_to_postgres.py",
-            "--database-url", database_url, "--user", USER_ID_TARGET,
-        ], timeout=300)
-        logger.info(f"--- Sortie de l'export (exit={export.returncode}) ---\n{export.stdout}")
-        if export.stderr:
-            logger.info(f"--- stderr de l'export ---\n{export.stderr}")
-    finally:
-        if Path("backend/api").exists():
-            shutil.rmtree("backend/api")
-        script_path = Path("backend/scripts/export_firestore_to_postgres.py")
-        if script_path.exists():
-            script_path.unlink()
-        logger.info("Fichiers temporaires supprimés — arbre de travail revenu à l'état de dev.")
-
-    logger.info("=== Fin du dry-run ===")
+    logger.info("=== Fin de la mesure ===")
 
 
 if __name__ == "__main__":
