@@ -34,96 +34,151 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 (suite) : le premier essai du dry-run (run #439) a été tué par mon propre timeout
-    de 300s sur le sous-processus d'export — pas un crash, juste plus long que prévu (le script
-    boucle en série sur chaque annonce + ses sous-collections chat/restorationPlan, un aller-retour
-    Firestore à la fois). Chaque annonce est migrée dans sa propre transaction Postgres (voir
-    `_migrate_deal`), donc rien n'est corrompu — juste incomplet. Avant de relancer avec un timeout
-    plus long, ce passage mesure : (a) le nombre réel d'annonces de `config.USER_ID_TARGET` côté
-    Firestore, (b) ce qui est déjà arrivé côté Postgres de staging — pour calibrer le prochain essai
-    plutôt que de deviner. Purement en LECTURE des deux côtés.
+    2026-09-10 (suite) : l'utilisateur a 5978 annonces Firestore — trop pour tenir dans la fenêtre
+    de 10 min du pipeline de déploiement en un seul essai (run #439, tué par mon propre timeout de
+    300s). Décidé avec l'utilisateur : valider avec les 2414 déjà migrées (run #440) plutôt que
+    d'augmenter le timeout CI partagé. Cette étape compare un ÉCHANTILLON de ces 2414 annonces déjà
+    en Postgres, champ par champ, contre le document Firestore correspondant — PAS
+    `compare_firestore_postgres.py` tel quel (il échantillonne dans les 5978, la plupart absentes
+    de Postgres pour l'instant, ce qui noierait le signal utile sous des "absences" attendues).
+    Réutilise `map_deal` du script d'export (même mapping, pas dupliqué) pour dériver la valeur
+    ATTENDUE depuis le document Firestore, comparée à la valeur RÉELLEMENT lue en base.
     """
+    import random
     import subprocess
     import sys
+    from datetime import timedelta
+    from decimal import Decimal
     from pathlib import Path
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
+    def _run(cmd, timeout=30):
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    MIGRATION_BRANCH = "claude/firestore-postgres-migration"
+    FILES_TO_EXTRACT = ["backend/api/__init__.py", "backend/api/db.py", "backend/scripts/export_firestore_to_postgres.py"]
     CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
+    SAMPLE_SIZE = 40
 
-    logger.info("=== Mesure : taille réelle des données + progression du dry-run précédent ===")
+    logger.info("=== Validation d'un échantillon déjà migré (champ par champ) ===")
 
-    from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET, USER_ID_TARGET, APP_ID_TARGET
-    from backend.database import DatabaseService
-
-    if not USER_ID_TARGET:
-        logger.error("config.USER_ID_TARGET est vide.")
+    fetch = _run(["git", "fetch", "origin", MIGRATION_BRANCH])
+    if fetch.returncode != 0:
+        logger.error(f"git fetch impossible : {fetch.stderr.strip()}")
         return
 
-    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
-    if db_service.offline_mode or not db_service.db:
-        logger.error("Firebase en mode hors-ligne.")
-        return
-    user_ref = (
-        db_service.db.collection("artifacts").document(APP_ID_TARGET)
-        .collection("users").document(USER_ID_TARGET)
-    )
-    deal_docs = list(user_ref.collection("guitar_deals").stream())
-    logger.info(f"Firestore : {len(deal_docs)} annonce(s) pour l'utilisateur {USER_ID_TARGET[:8]}.")
-    # Échantillon (10 premières) pour estimer le nombre moyen de messages de chat par annonce —
-    # le vrai coût en allers-retours Firestore, pas juste le nombre d'annonces.
-    sample = deal_docs[:10]
-    total_chat = sum(len(list(d.reference.collection("chat").stream())) for d in sample)
-    total_resto = sum(len(list(d.reference.collection("restorationPlan").stream())) for d in sample)
-    if sample:
-        logger.info(
-            f"Échantillon ({len(sample)} annonces) : {total_chat} message(s) de chat, "
-            f"{total_resto} étape(s) de restauration au total."
+    extracted = []
+    try:
+        for rel_path in FILES_TO_EXTRACT:
+            show = _run(["git", "show", f"FETCH_HEAD:{rel_path}"], timeout=15)
+            if show.returncode != 0:
+                logger.error(f"Impossible d'extraire '{rel_path}' : {show.stderr.strip()}")
+                return
+            dest = Path(rel_path)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(show.stdout)
+            extracted.append(dest)
+
+        if not CREDS_PATH.exists():
+            logger.error(f"{CREDS_PATH} introuvable.")
+            return
+        database_url = None
+        for line in CREDS_PATH.read_text().splitlines():
+            if line.startswith("DATABASE_URL="):
+                database_url = line[len("DATABASE_URL="):].strip()
+        if not database_url:
+            logger.error("DATABASE_URL absent du fichier de credentials.")
+            return
+
+        pip = _run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], timeout=60)
+        if pip.returncode != 0:
+            logger.error(f"Échec pip install asyncpg : {pip.stderr.strip()}")
+            return
+
+        sys.path.insert(0, str(Path.cwd()))
+        from backend.scripts.export_firestore_to_postgres import map_deal, DEAL_COLUMNS
+        from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET, USER_ID_TARGET, APP_ID_TARGET
+        from backend.database import DatabaseService
+        import asyncio
+        import asyncpg
+
+        db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
+        if db_service.offline_mode or not db_service.db:
+            logger.error("Firebase en mode hors-ligne.")
+            return
+        user_ref = (
+            db_service.db.collection("artifacts").document(APP_ID_TARGET)
+            .collection("users").document(USER_ID_TARGET)
         )
 
-    if not CREDS_PATH.exists():
-        logger.warning(f"{CREDS_PATH} introuvable — impossible de vérifier la progression côté Postgres.")
-        return
-    database_url = None
-    for line in CREDS_PATH.read_text().splitlines():
-        if line.startswith("DATABASE_URL="):
-            database_url = line[len("DATABASE_URL="):].strip()
-    if not database_url:
-        logger.warning("DATABASE_URL absent du fichier de credentials.")
-        return
+        SKIP_COLUMNS = {"ai_analysis_raw", "user_id"}
+        TOLERANCE = timedelta(seconds=1)
 
-    pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], capture_output=True, text=True, timeout=60)
-    if pip.returncode != 0:
-        logger.error(f"Échec de l'installation d'asyncpg : {pip.stderr.strip()}")
-        return
+        def _match(expected, actual):
+            if isinstance(expected, Decimal):
+                expected = float(expected)
+            if isinstance(actual, Decimal):
+                actual = float(actual)
+            if hasattr(expected, "isoformat") and hasattr(actual, "isoformat"):
+                return abs(expected - actual) <= TOLERANCE
+            return expected == actual
 
-    import asyncio
-    import asyncpg
+        async def _validate():
+            conn = await asyncpg.connect(database_url, timeout=10)
+            try:
+                rows = await conn.fetch("SELECT id FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
+                migrated_ids = [r["id"] for r in rows]
+                sample_ids = random.sample(migrated_ids, min(SAMPLE_SIZE, len(migrated_ids)))
+                logger.info(f"{len(migrated_ids)} annonce(s) déjà migrée(s) — échantillon de {len(sample_ids)}.")
 
-    async def _count():
-        conn = await asyncpg.connect(database_url, timeout=5)
-        try:
-            deals = await conn.fetchval("SELECT count(*) FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
-            chat = await conn.fetchval(
-                "SELECT count(*) FROM deal_chat WHERE deal_id IN (SELECT id FROM guitar_deals WHERE user_id = $1)",
-                USER_ID_TARGET,
-            )
-            resto = await conn.fetchval(
-                "SELECT count(*) FROM restoration_plan_items WHERE deal_id IN (SELECT id FROM guitar_deals WHERE user_id = $1)",
-                USER_ID_TARGET,
-            )
-            return deals, chat, resto
-        finally:
-            await conn.close()
+                mismatches = []
+                checked = 0
+                for deal_id in sample_ids:
+                    doc = user_ref.collection("guitar_deals").document(deal_id).get()
+                    if not doc.exists:
+                        mismatches.append((deal_id, "existence", "présent (Postgres)", "ABSENT de Firestore"))
+                        continue
+                    expected, _ = map_deal(deal_id, doc.to_dict() or {})
+                    pg_row = await conn.fetchrow("SELECT * FROM guitar_deals WHERE id = $1", deal_id)
+                    checked += 1
+                    for col in DEAL_COLUMNS:
+                        if col in SKIP_COLUMNS or col == "id":
+                            continue
+                        if not _match(expected.get(col), pg_row[col]):
+                            mismatches.append((deal_id, col, expected.get(col), pg_row[col]))
 
-    try:
-        deals, chat, resto = asyncio.run(_count())
-        logger.info(f"Postgres (staging) déjà présent : {deals} annonce(s), {chat} message(s) de chat, {resto} étape(s) de restauration.")
-    except Exception as e:
-        logger.error(f"Connexion au Postgres de staging impossible : {e}")
+                    chat_fs = len(list(doc.reference.collection("chat").stream()))
+                    chat_pg = await conn.fetchval("SELECT count(*) FROM deal_chat WHERE deal_id = $1", deal_id)
+                    if chat_fs != chat_pg:
+                        mismatches.append((deal_id, "chat_count", chat_fs, chat_pg))
+                    resto_fs = len(list(doc.reference.collection("restorationPlan").stream()))
+                    resto_pg = await conn.fetchval("SELECT count(*) FROM restoration_plan_items WHERE deal_id = $1", deal_id)
+                    if resto_fs != resto_pg:
+                        mismatches.append((deal_id, "restoration_count", resto_fs, resto_pg))
+                return checked, mismatches
+            finally:
+                await conn.close()
 
-    logger.info("=== Fin de la mesure ===")
+        checked, mismatches = asyncio.run(_validate())
+        logger.info(f"{checked} annonce(s) vérifiée(s) champ par champ + comptages chat/restauration.")
+        if mismatches:
+            logger.warning(f"{len(mismatches)} écart(s) trouvé(s) :")
+            for deal_id, field, expected, actual in mismatches:
+                logger.warning(f"  {deal_id} . {field} : Firestore={expected!r}  Postgres={actual!r}")
+        else:
+            logger.info("Aucun écart détecté sur l'échantillon vérifié.")
+    finally:
+        for path in extracted:
+            if path.exists():
+                path.unlink()
+        api_dir = Path("backend/api")
+        if api_dir.exists() and not any(api_dir.iterdir()):
+            api_dir.rmdir()
+        logger.info("Fichiers temporaires supprimés.")
+
+    logger.info("=== Fin de la validation ===")
 
 
 if __name__ == "__main__":
