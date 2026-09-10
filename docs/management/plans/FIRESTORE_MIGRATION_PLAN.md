@@ -114,9 +114,15 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 
 **Bilan de la construction (2026-09-09)** : les 6 tranches prévues (`commands`, `guitar_deals`, `deal_chat`, `restoration_plan_items`, `cities`/`user_city_prefs`, `shared_deals`) sont désormais codées et testées en conditions réelles — 36 tests au total, aucun mock, contre un vrai Postgres local. Toujours rien de branché à la production (Firestore reste l'unique source de vérité, conforme à la stratégie actée avec l'utilisateur).
 
+**Point 2 avancé (2026-09-10)** : plutôt qu'un vrai système de double-écriture en parallèle (bot → Firestore + Postgres en continu, jugé disproportionné vu la stratégie "bascule en une seule fois" déjà actée et l'échelle du projet), décision prise avec l'utilisateur de construire un script d'export ponctuel + un script de comparaison, pour un dry-run de migration sans toucher au bot/frontend :
+- `backend/scripts/export_firestore_to_postgres.py` : lecture seule Firestore → écriture idempotente Postgres, couvre tout sauf `commands`/`logs` (transitoires). Détails complets, limitations connues (id `itemId` non retraduit dans les propositions de chat déjà traitées, cosmétique) et bug réel trouvé (`is_favorite`/`is_purchased` NOT NULL) dans `JOURNAL.md` [2026-09-10].
+- `backend/scripts/compare_firestore_postgres.py` : comptages + échantillon comparé champ par champ, pour vérifier une copie après coup.
+- 24 tests (19 purs + 5 d'intégration contre un vrai Postgres local, Firestore simulé faute d'accès réel depuis cette session) — tous verts, aucune régression sur les 39 tests existants.
+- **Jamais exécuté pour de vrai** : cette session n'a aucun credential Firebase — le dry-run réel doit être lancé depuis le serveur contre un Postgres de staging, reste à faire.
+
 **Reste à faire avant toute mise en production** — hors de ce chantier de construction, jamais entamé sans décision explicite de l'utilisateur (§5.3) :
 1. Décider et documenter le protocole de bascule réelle (ordre des étapes, fenêtre de maintenance ou non, plan de rollback).
-2. Migrer les données existantes Firestore → Postgres (script de migration ponctuel, pas construit dans ce chantier).
+2. Lancer le dry-run réel (`export_firestore_to_postgres.py` puis `compare_firestore_postgres.py`, depuis le serveur, contre un Postgres de staging) — scripts prêts (voir ci-dessus), jamais exécutés contre de vraies données.
 3. Basculer le bot (`backend/bot.py` et modules associés) vers un accès SQL direct — actuellement hors périmètre : le bot continue d'écrire sur Firestore, y compris pour les tables déjà migrées côté API (ex: `cities` reste écrit par `add_city_auto()` côté Firestore, voir tranche 5).
 4. Basculer le frontend (`src/services/firestoreService.js` → nouvelle API HTTP/WebSocket).
 5. Déployer le service réseau (Tailscale Funnel, décidé le 2026-09-09, non encore mis en place).
