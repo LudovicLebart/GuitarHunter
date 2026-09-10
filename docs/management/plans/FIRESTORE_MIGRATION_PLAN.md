@@ -50,11 +50,29 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 3. Fenêtre de bascule : arrêt bref du bot + gel des écritures frontend, export final incrémental, bascule des URLs (frontend → nouveau serveur, bot → Postgres), vérification.
 4. Filet de sécurité : garder Firestore intact (lecture seule) quelques jours avant suppression définitive, pour un rollback rapide si besoin.
 
+### 5.3. Protocole de bascule détaillé (tranché avec l'utilisateur le 2026-09-10 : coupure courte acceptée)
+
+Deux phases distinctes — la Phase A construit tout ce qui manque encore (en isolation, comme jusqu'ici, aucune interruption) ; seule la Phase B interrompt le service, et brièvement.
+
+**Phase A — Construction (isolée, pas encore commencée à ce jour) :**
+1. **Bot → Postgres** : nouvelle classe repository (miroir de `FirestoreRepository`/`repository.py`) donnant à `backend/bot.py` un accès SQL direct — n'existe pas encore, le bot écrit aujourd'hui exclusivement sur Firestore, y compris pour les tables déjà migrées côté API (ex: `cities`).
+2. **Frontend → nouvelle API** : `src/services/firestoreService.js` (~35 fonctions) et les hooks qui les consomment remplacés par un client REST/WebSocket de `backend/api/*` — n'existe pas encore, le frontend parle aujourd'hui exclusivement au SDK Firestore.
+3. **Déploiement infra** : service systemd pour l'API FastAPI (à côté de `guitare-hunter`), reverse proxy (nginx/Caddy), Tailscale Funnel (accessibilité tranchée le 2026-09-09, jamais mise en place) — rien de tout ça n'est déployé à ce jour.
+4. **Couverture complète du dry-run** : le mapping est validé sur un échantillon (2414/5978 annonces d'un utilisateur, voir `JOURNAL.md` 2026-09-10), pas encore sur l'intégralité des données de tous les utilisateurs.
+
+**Phase B — Fenêtre de bascule courte (le jour J, une fois la Phase A complète) :**
+1. **Geler les écritures** : arrêt du service `guitare-hunter` (bot) + règles Firestore temporairement resserrées en lecture seule sur les chemins concernés (bloque aussi les écritures directes du frontend, ex. le chat, qui n'a jamais transité par le bot).
+2. **Export final** : rejoue l'export complet (idempotent, voir `export_firestore_to_postgres.py`) vers le Postgres de production — capture tout ce qui a été écrit sur Firestore jusqu'à l'instant du gel.
+3. **Bascule** : bot redémarré en mode Postgres (Phase A.1), nouveau frontend déployé (Phase A.2/A.3).
+4. **Vérification** : `compare_firestore_postgres.py` sur l'ensemble des données + test manuel du parcours principal (scan, chat, plan de restauration) avant de dégeler.
+5. **Dégel** : règles Firestore restaurées à leur état normal (désormais sans effet, plus aucune écriture ne devrait plus les cibler) ou retirées.
+6. **Filet de sécurité** (déjà acté au point 4 ci-dessus) : Firestore gardé intact en lecture seule quelques jours avant suppression définitive.
+
 ## 6. Points ouverts à trancher avant tout code
 
 - ✅ **Accessibilité publique du serveur — tranché (2026-09-09) : Tailscale Funnel.** Cohérent avec l'infra déjà utilisée pour le déploiement CI (`deploy.yml` s'y connecte déjà pour le SSH), pas de nouvel outil à intégrer.
 - **Sauvegardes** : Firestore est managé/répliqué automatiquement ; Postgres sur un seul serveur ne l'est pas — prévoir un `pg_dump` planifié + stockage externe des backups (le serveur devient un point de défaillance unique pour les données ET le site). Toujours ouvert.
-- **Tolérance à la coupure** pendant la fenêtre de bascule. Toujours ouvert.
+- ✅ **Tolérance à la coupure — tranché (2026-09-10) : coupure courte acceptée** (arrêt bref du bot + gel temporaire des écritures Firestore pendant la fenêtre de bascule, voir §5.3), plutôt qu'un export incrémental sans interruption.
 
 ## 7. Hors périmètre de ce plan
 
