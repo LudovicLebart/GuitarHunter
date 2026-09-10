@@ -105,22 +105,18 @@ jobs:
             # confirmé sur smoke test #26 (2026-09-09) : seul candidat à score "valeur" non nul,
             # aucune régression sur les 9 autres.
             # Run complet #27 (10 candidats x 40 fiches, terminé 2026-09-09) contaminé en cours
-            # de route par un crédit Anthropic épuisé (clé partagée par le juge, utilisé pour
-            # noter TOUS les candidats, et par le candidat claude_sonnet lui-même). Crédit
-            # rechargé par l'utilisateur, relancé CIBLÉ via le nouveau mode `--resume`
-            # (run_benchmark.py) sur run #28 (2026-09-10, réussi) : qwen/perception_qwen/hybrid
-            # confirmés propres. Run #28 a aussi mis en lumière un bug distinct sur
-            # `claude_sonnet` (photos Kijiji réellement servies en WebP malgré leur extension
-            # .jpg, envoyées à l'API Anthropic avec un media_type image/jpeg codé en dur —
-            # 7/40 échecs) — corrigé (`_guess_image_media_type()`, détection par signature
-            # binaire). Relance CIBLÉE run #29 : uniquement `claude_sonnet`, `--resume` sur le
-            # fichier de résultats du run #28 (33/40 déjà propres réutilisés tels quels, les
-            # 7 échecs WebP rejoués avec le correctif). Fichier d'entrée
-            # `resume_run28_claude_webp.json` à retirer du dépôt une fois cette relance
-            # confirmée (même discipline que run_once.py ACTIVE=False).
-            python3 -u -m backend.benchmark.run_benchmark \
-              --models claude_sonnet \
-              --resume backend/benchmark/resume_run28_claude_webp.json
+            # de route par un crédit Anthropic épuisé — résolu par une relance ciblée via le
+            # nouveau mode `--resume` (run_benchmark.py) : run #28 (qwen/perception_qwen/hybrid
+            # confirmés propres) puis run #29 (bug distinct découvert sur `claude_sonnet` —
+            # photos Kijiji réellement en WebP malgré leur extension .jpg, envoyées à l'API
+            # Anthropic avec un media_type image/jpeg codé en dur, corrigé via
+            # `_guess_image_media_type()` — 40/40 propre après relance). Les 10 candidats sont
+            # désormais comparables sur les 40 items (voir JOURNAL.md 2026-09-10). Fichiers de
+            # résultats utilisés comme entrées de ces relances retirés du dépôt une fois
+            # chacune confirmée (même discipline que run_once.py ACTIVE=False) : la commande
+            # ci-dessous est repassée à l'invocation standard, à adapter avant tout nouveau
+            # lancement de ce workflow.
+            python3 -u -m backend.benchmark.run_benchmark
 
       - name: Récupération du rapport généré
         env:
