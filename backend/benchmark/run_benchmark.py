@@ -45,10 +45,24 @@ paliers de longueur de description prévue au §5/§7.
 Usage :
     python -m backend.benchmark.run_benchmark
     python -m backend.benchmark.run_benchmark --models gemini,qwen --limit 5
+    python -m backend.benchmark.run_benchmark --models qwen,hybrid \
+        --resume backend/benchmark/results/benchmark_20260909T153213Z.json
 
 Clés API requises (.env), selon les candidats sélectionnés :
     GEMINI_API_KEY, OPENAI_API_KEY, TOKENROUTER_API_KEY, ANTHROPIC_API_KEY
     (ANTHROPIC_API_KEY sert à la fois au juge, toujours requis, et au candidat claude_sonnet)
+
+`--resume` (ajouté 2026-09-10, incident de crédit Anthropic épuisé en cours du run complet
+#27) : réutilise un fichier de résultats précédent (même format que celui produit dans
+RESULTS_DIR) item par item, sans jamais rappeler un candidat ni un juge qui a déjà réussi.
+Trois cas par item, décidés indépendamment pour la réponse candidate et pour chaque juge
+(principal + garde-fou perception, tous deux exposés à la même panne car ils partagent
+ANTHROPIC_API_KEY) : (1) réponse ET jugements déjà propres → réutilisé tel quel, zéro appel ;
+(2) réponse propre mais un jugement contaminé (`justification` contient le message d'erreur
+crédit Anthropic) → seul le juge concerné est rejoué, la réponse candidate déjà bonne n'est
+pas repayée ; (3) réponse absente ou échouée (timeout ou crédit épuisé au moment de l'appel
+candidat lui-même) → tout est rejoué comme un run normal. Permet de ne payer que ce qui a
+réellement échoué plutôt qu'un rerun complet de chaque candidat concerné.
 """
 import argparse
 import json
@@ -61,57 +75,110 @@ from backend.benchmark.judge import JUDGE_AXES, evaluate_perception_report, eval
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "dataset.json")
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 
+# Message d'erreur exact renvoyé par l'API Anthropic à crédit épuisé (voir JOURNAL.md
+# 2026-09-10) — sert à distinguer, dans un fichier de résultats précédent, un échec de panne
+# de facturation (à rejouer via --resume) d'un vrai échec de qualité (scores 0 légitimes,
+# jamais rejoués silencieusement par --resume).
+_CREDIT_ERROR_MARKER = "credit balance is too low"
+
+
+def _is_credit_contaminated(justification):
+    return bool(justification) and _CREDIT_ERROR_MARKER in justification.lower()
+
 
 def load_dataset(path=DATASET_PATH):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def run_candidate(model_key, call_fn, dataset):
+def load_previous_results(path):
+    """Charge un fichier de résultats précédent (format RESULTS_DIR) en {model_key: {id: résultat}}
+    pour un accès direct par item dans run_candidate(). `path` peut être None (pas de --resume)."""
+    if not path:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return {
+        model_key: {r["id"]: r for r in results}
+        for model_key, results in data.get("details", {}).items()
+    }
+
+
+def run_candidate(model_key, call_fn, dataset, previous=None):
     results = []
     for item in dataset:
-        try:
-            candidate_result = call_fn(item)
-        except Exception as e:
-            print(f"  [{model_key}] {item['id']} : échec appel modèle ({e})")
-            results.append({
-                "id": item["id"],
-                "candidate_answer": None,
-                "perception_report": None,
-                "usage": None,
-                "latency_s": None,
-                "scores": {axis: 0 for axis in JUDGE_AXES},
-                "justification": f"Échec appel modèle : {e}",
-                "perception_verdict": None,
-            })
+        prev = (previous or {}).get(item["id"])
+        call_failed_before = prev is not None and prev.get("candidate_answer") is None
+        need_full_rerun = prev is None or call_failed_before
+
+        if need_full_rerun:
+            try:
+                candidate_result = call_fn(item)
+            except Exception as e:
+                print(f"  [{model_key}] {item['id']} : échec appel modèle ({e})")
+                results.append({
+                    "id": item["id"],
+                    "candidate_answer": None,
+                    "perception_report": None,
+                    "usage": None,
+                    "latency_s": None,
+                    "scores": {axis: 0 for axis in JUDGE_AXES},
+                    "justification": f"Échec appel modèle : {e}",
+                    "perception_verdict": None,
+                })
+                continue
+            answer = candidate_result["answer"]
+            perception_report = candidate_result.get("perception_report")
+            usage = candidate_result.get("usage")
+            latency_s = candidate_result.get("latency_s")
+            need_rejudge = True
+            need_re_perception_judge = True
+        else:
+            answer = prev["candidate_answer"]
+            perception_report = prev.get("perception_report")
+            usage = prev.get("usage")
+            latency_s = prev.get("latency_s")
+            need_rejudge = _is_credit_contaminated(prev.get("justification"))
+            need_re_perception_judge = _is_credit_contaminated((prev.get("perception_verdict") or {}).get("justification"))
+
+        if not need_full_rerun and not need_rejudge and not need_re_perception_judge:
+            results.append(prev)
+            print(f"  [{model_key}] {item['id']} : réutilisé tel quel (déjà propre)")
             continue
 
-        answer = candidate_result["answer"]
-        if item.get("ground_truth"):
-            verdict = evaluate_with_llm_judge(item["question"], item["ground_truth"], answer)
+        if need_rejudge:
+            if item.get("ground_truth"):
+                verdict = evaluate_with_llm_judge(item["question"], item["ground_truth"], answer)
+            else:
+                # Rejet Tier 1 sans transcription manuelle dans le Banc d'Essai (rien à comparer) :
+                # le candidat tourne quand même (utile pour une mesure future du comportement du
+                # garde-fou Tier 1), mais hors scoring identification/etat/valeur/hallucination —
+                # un axe à None (pas 0) pour ne pas fausser silencieusement le taux de réussite.
+                verdict = {
+                    "scores": {axis: None for axis in JUDGE_AXES},
+                    "justification": "Pas de vérité terrain (rejet Tier 1 non transcrit) — hors scoring, exécuté à titre informatif.",
+                }
         else:
-            # Rejet Tier 1 sans transcription manuelle dans le Banc d'Essai (rien à comparer) :
-            # le candidat tourne quand même (utile pour une mesure future du comportement du
-            # garde-fou Tier 1), mais hors scoring identification/etat/valeur/hallucination —
-            # un axe à None (pas 0) pour ne pas fausser silencieusement le taux de réussite.
-            verdict = {
-                "scores": {axis: None for axis in JUDGE_AXES},
-                "justification": "Pas de vérité terrain (rejet Tier 1 non transcrit) — hors scoring, exécuté à titre informatif.",
-            }
-        perception_report = candidate_result.get("perception_report")
-        perception_verdict = evaluate_perception_report(perception_report)
+            verdict = {"scores": prev["scores"], "justification": prev.get("justification", "")}
+
+        if need_re_perception_judge:
+            perception_verdict = evaluate_perception_report(perception_report)
+        else:
+            perception_verdict = prev.get("perception_verdict") if prev else None
+
         results.append({
             "id": item["id"],
             "candidate_answer": answer,
             "perception_report": perception_report,
-            "usage": candidate_result.get("usage"),
-            "latency_s": candidate_result.get("latency_s"),
+            "usage": usage,
+            "latency_s": latency_s,
             "scores": verdict["scores"],
             "justification": verdict.get("justification", ""),
             "perception_verdict": perception_verdict,
         })
+        tag = "rejoué entièrement" if need_full_rerun else "rejugé seulement"
         scores_str = " ".join(f"{axis}={verdict['scores'][axis]}" for axis in JUDGE_AXES)
-        print(f"  [{model_key}] {item['id']} : {scores_str} — {verdict.get('justification', '')}")
+        print(f"  [{model_key}] {item['id']} ({tag}) : {scores_str} — {verdict.get('justification', '')}")
     return results
 
 
@@ -156,11 +223,21 @@ def main():
         help="Modèles candidats séparés par des virgules",
     )
     parser.add_argument("--limit", type=int, default=None, help="Limiter le nombre d'items du dataset")
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Chemin vers un fichier de résultats JSON précédent : ne rejoue que ce qui a "
+             "échoué ou a été contaminé (voir docstring du module)",
+    )
     args = parser.parse_args()
 
     dataset = load_dataset()
     if args.limit:
         dataset = dataset[: args.limit]
+
+    previous_by_model = load_previous_results(args.resume)
+    if args.resume:
+        print(f"Mode resume : {args.resume}")
 
     requested = [m.strip() for m in args.models.split(",") if m.strip()]
     unknown = [m for m in requested if m not in CANDIDATES]
@@ -173,7 +250,7 @@ def main():
         if model_key not in CANDIDATES:
             continue
         print(f"\n--- Évaluation de : {model_key} ---")
-        results = run_candidate(model_key, CANDIDATES[model_key], dataset)
+        results = run_candidate(model_key, CANDIDATES[model_key], dataset, previous=previous_by_model.get(model_key))
         all_results[model_key] = results
         summary[model_key] = summarize(results)
 

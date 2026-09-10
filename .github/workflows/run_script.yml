@@ -103,10 +103,19 @@ jobs:
             # gemini_pro (prod) — le harnais n'avait pas d'étalon de production. Corrigé par le
             # candidat `analyzer_prod` (vrai Bras A, DealAnalyzer.analyze_deal() tel quel),
             # confirmé sur smoke test #26 (2026-09-09) : seul candidat à score "valeur" non nul,
-            # aucune régression sur les 9 autres. Run complet relancé (10 candidats x 40 fiches,
-            # ~4h estimées par extrapolation du smoke test) — command_timeout/timeout-minutes
-            # remontés en conséquence (voir plus haut).
-            python3 -u -m backend.benchmark.run_benchmark
+            # aucune régression sur les 9 autres.
+            # Run complet #27 (10 candidats x 40 fiches, terminé 2026-09-09) contaminé en cours
+            # de route par un crédit Anthropic épuisé (clé partagée par le juge, utilisé pour
+            # noter TOUS les candidats, et par le candidat claude_sonnet lui-même) — voir
+            # JOURNAL.md 2026-09-10. Crédit rechargé par l'utilisateur. Relance CIBLÉE via
+            # `--resume` (nouveau mode, run_benchmark.py) sur les seuls candidats affectés :
+            # ne rejoue que les items dont la réponse ou le jugement a échoué à cause du crédit
+            # (ou d'un timeout réel non lié), réutilise le reste tel quel — qwen en premier
+            # (priorité explicite de l'utilisateur) pour sécuriser ses données même si le run
+            # est interrompu en route.
+            python3 -u -m backend.benchmark.run_benchmark \
+              --models qwen,perception_qwen,hybrid,claude_sonnet \
+              --resume backend/benchmark/resume_run27_credit_incident.json
 
       - name: Récupération du rapport généré
         env:
