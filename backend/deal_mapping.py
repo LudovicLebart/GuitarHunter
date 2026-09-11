@@ -238,10 +238,15 @@ def map_restoration_item(deal_id: str, data: dict, proposed_by_message_id: int |
     }
 
 
+CITY_FIELD_TO_COLUMN = {
+    "name": "name", "latitude": "latitude", "longitude": "longitude",
+    "needsReview": "needs_review", "createdBy": "created_by",
+}
+
+
 def map_city(city_id: str, data: dict) -> dict:
     return {
-        "id": city_id, "name": data.get("name"),
-        "latitude": data.get("latitude"), "longitude": data.get("longitude"),
+        "id": city_id,
+        **{col: data.get(field) for field, col in CITY_FIELD_TO_COLUMN.items()},
         "needs_review": bool(data.get("needsReview", False)),
-        "created_by": data.get("createdBy"),
     }

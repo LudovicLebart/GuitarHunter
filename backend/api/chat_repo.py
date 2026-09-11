@@ -90,26 +90,38 @@ async def mark_restoration_proposal_status(
     item_id: str | None = None,
 ) -> bool:
     """`restoration_proposals` est un tableau JSON ; on met à jour l'élément `proposal_index`
-    par fusion (jsonb_set), sans réécrire tout le tableau depuis l'application."""
+    par fusion (jsonb_set), sans réécrire tout le tableau depuis l'application.
+
+    `jsonb_set()`/`||` sont STRICT : un `proposal_index` hors bornes (ou une colonne NULL) rend
+    l'opérande de gauche NULL, et `jsonb_set()` renverrait alors NULL pour toute la colonne — la
+    garde `CASE WHEN ... jsonb_array_length ...` ci-dessous laisse la colonne inchangée dans ce
+    cas plutôt que de l'effacer silencieusement (bug trouvé en revue de code)."""
     patch = {"status": new_status}
     if item_id is not None:
         patch["itemId"] = item_id
     result = await pool.execute(
         """
         UPDATE deal_chat
-        SET restoration_proposals = jsonb_set(
-            restoration_proposals, ARRAY[$3::text], (restoration_proposals -> $3::int) || $4::jsonb
-        )
+        SET restoration_proposals = CASE
+            WHEN jsonb_typeof(restoration_proposals) = 'array'
+                 AND jsonb_array_length(restoration_proposals) > $3::int
+            THEN jsonb_set(
+                restoration_proposals, ARRAY[$3::text], (restoration_proposals -> $3::int) || $4::jsonb
+            )
+            ELSE restoration_proposals
+        END
         WHERE id = $1 AND deal_id = $2
         """,
-        message_id, deal_id, str(proposal_index), patch,
+        message_id, deal_id, proposal_index, patch,
     )
     return result.endswith("1")
 
 
 async def mark_requalification_proposal_status(pool: asyncpg.Pool, deal_id: str, message_id: int, new_status: str) -> bool:
+    """`||` est STRICT : si `requalification_proposal` est NULL, le résultat serait NULL et
+    effacerait silencieusement la colonne — `COALESCE` garde un objet vide comme base neutre."""
     result = await pool.execute(
-        "UPDATE deal_chat SET requalification_proposal = requalification_proposal || jsonb_build_object('status', $3::text) WHERE id = $1 AND deal_id = $2",
+        "UPDATE deal_chat SET requalification_proposal = COALESCE(requalification_proposal, '{}'::jsonb) || jsonb_build_object('status', $3::text) WHERE id = $1 AND deal_id = $2",
         message_id, deal_id, new_status,
     )
     return result.endswith("1")

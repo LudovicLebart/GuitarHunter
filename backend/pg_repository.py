@@ -19,7 +19,14 @@ from datetime import datetime, timedelta, timezone
 
 from psycopg.types.json import Jsonb
 
-from backend.deal_mapping import AI_ANALYSIS_COLUMNS, DEAL_COLUMNS, DEAL_FIELD_TO_COLUMN, map_city, map_deal
+from backend.deal_mapping import (
+    AI_ANALYSIS_COLUMNS,
+    CITY_FIELD_TO_COLUMN,
+    DEAL_COLUMNS,
+    DEAL_FIELD_TO_COLUMN,
+    map_city,
+    map_deal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +67,17 @@ def _deal_row_to_bot_shape(row: dict) -> dict:
 
 
 class PostgresRepository:
-    def __init__(self, pool, user_id: str, bucket=None):
+    def __init__(self, pool, user_id: str, bucket=None, logger=None):
+        """`logger` optionnel (repli sur le logger de module) : voir CLAUDE.md — tout module
+        backend qui logue quelque chose d'observable par l'utilisateur doit accepter ce
+        paramètre et le faire propager depuis `bot.py`, sans quoi ses logs (annonce créée,
+        commande traitée, ...) resteraient invisibles dans le LogViewer (seul `bot.{uid[:8]}`,
+        raccordé à `FirestoreHandler`, y est visible — piège déjà documenté et déjà rencontré
+        dans d'autres modules, reproduit ici une première fois puis corrigé par cette revue)."""
         self.pool = pool
         self.user_id = user_id
         self._bucket = bucket
+        self.logger = logger or logging.getLogger(__name__)
 
     # ------------------------------------------------------------------ structure / config
 
@@ -71,13 +85,13 @@ class PostgresRepository:
         with self.pool.connection() as conn:
             row = conn.execute("SELECT 1 FROM users WHERE uid = %s", (self.user_id,)).fetchone()
             if row is None:
-                logger.info(f"User document for {self.user_id} not found. Creating with initial config.")
+                self.logger.info(f"User document for {self.user_id} not found. Creating with initial config.")
                 conn.execute(
                     "INSERT INTO users (uid, bot_status, config) VALUES (%s, 'idle', %s)",
                     (self.user_id, _to_pg_param(initial_config)),
                 )
             else:
-                logger.info("User document already exists. Config preserved.")
+                self.logger.info("User document already exists. Config preserved.")
 
     def get_user_config(self):
         with self.pool.connection() as conn:
@@ -177,12 +191,19 @@ class PostgresRepository:
         placeholders = ", ".join(["%s"] * len(DEAL_COLUMNS))
         set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in DEAL_COLUMNS if c != "id")
         with self.pool.connection() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 f"INSERT INTO guitar_deals ({', '.join(DEAL_COLUMNS)}) VALUES ({placeholders}) "
-                f"ON CONFLICT (id) DO UPDATE SET {set_clause}",
+                f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
+                f"WHERE guitar_deals.user_id = EXCLUDED.user_id",
                 [_to_pg_param(row[c]) for c in DEAL_COLUMNS],
             )
-        logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
+            if cursor.rowcount == 0:
+                self.logger.warning(
+                    f"create_new_deal: id '{deal_id}' existe déjà pour un AUTRE utilisateur — "
+                    f"écriture ignorée pour ne pas réassigner l'appartenance de l'annonce."
+                )
+                return
+        self.logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
 
     def update_deal_analysis(self, deal_id: str, analysis_data: dict):
         """Ne touche QUE les colonnes promues depuis aiAnalysis + ai_analysis_raw + status/
@@ -204,7 +225,7 @@ class PostgresRepository:
                 f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s AND user_id = %s",
                 [*values, deal_id, self.user_id],
             )
-        logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
+        self.logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
 
     def update_deal_data_and_analysis(self, deal_id: str, deal_data: dict, analysis_data: dict):
         """Équivalent du `.update()` Firestore qui fusionne `deal_data` au niveau racine du
@@ -228,7 +249,7 @@ class PostgresRepository:
                 f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s AND user_id = %s",
                 [*values, deal_id, self.user_id],
             )
-        logger.info(f"Updated full data and analysis for deal '{deal_id}'. Status: '{status}'.")
+        self.logger.info(f"Updated full data and analysis for deal '{deal_id}'. Status: '{status}'.")
 
     def update_deal_status(self, deal_id: str, status: str, error_message: str | None = None):
         with self.pool.connection() as conn:
@@ -257,7 +278,7 @@ class PostgresRepository:
                     "UPDATE guitar_deals SET status = %s WHERE id = %s AND user_id = %s",
                     (status, deal_id, self.user_id),
                 )
-        logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
+        self.logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
 
     def mark_deal_as_sold(self, deal_id: str, reason: str | None = None):
         with self.pool.connection() as conn:
@@ -278,7 +299,7 @@ class PostgresRepository:
                        WHERE id = %s AND user_id = %s""",
                     (deal_id, self.user_id),
                 )
-        logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
+        self.logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
 
     def mark_all_for_reanalysis(self) -> int:
         with self.pool.connection() as conn:
@@ -327,11 +348,6 @@ class PostgresRepository:
             for row in rows
         }
 
-    _CITY_FIELD_TO_COLUMN = {
-        "name": "name", "latitude": "latitude", "longitude": "longitude",
-        "needsReview": "needs_review", "createdBy": "created_by",
-    }
-
     def add_city_to_catalog(self, city_id: str, city_data: dict):
         """`.set(city_data, merge=True)` côté Firestore : ne touche QUE les champs présents dans
         `city_data`, comme `update_deal_data_and_analysis` ci-dessus pour les mêmes raisons.
@@ -345,8 +361,8 @@ class PostgresRepository:
         la ville existe déjà, INSERT complet sinon (qui échoue correctement si `name` manque pour
         une VRAIE nouvelle ville — cas réel, pas un bug, une ville a besoin d'un nom)."""
         present = {
-            self._CITY_FIELD_TO_COLUMN[k]: v for k, v in city_data.items()
-            if k in self._CITY_FIELD_TO_COLUMN
+            CITY_FIELD_TO_COLUMN[k]: v for k, v in city_data.items()
+            if k in CITY_FIELD_TO_COLUMN
         }
         if not present:
             return
@@ -365,7 +381,7 @@ class PostgresRepository:
                     f"INSERT INTO cities ({', '.join(columns)}) VALUES ({placeholders})",
                     [city_id] + list(present.values()),
                 )
-        logger.info(f"Ville '{city_data.get('name')}' (id={city_id}) ajoutée au catalogue partagé.")
+        self.logger.info(f"Ville '{city_data.get('name')}' (id={city_id}) ajoutée au catalogue partagé.")
 
     def set_city_user_pref(self, city_id: str, is_scannable: bool):
         with self.pool.connection() as conn:
@@ -376,7 +392,7 @@ class PostgresRepository:
                 """,
                 (self.user_id, city_id, is_scannable),
             )
-        logger.info(f"Préférence ville {city_id} pour user {self.user_id[:8]}: isScannable={is_scannable}")
+        self.logger.info(f"Préférence ville {city_id} pour user {self.user_id[:8]}: isScannable={is_scannable}")
 
     # ------------------------------------------------------------------ commandes
 
@@ -395,7 +411,7 @@ class PostgresRepository:
                 "UPDATE commands SET status = 'completed', completed_at = now() WHERE id = %s",
                 (int(command_id),),
             )
-        logger.info(f"Command '{command_id}' marked as completed.")
+        self.logger.info(f"Command '{command_id}' marked as completed.")
 
     def mark_command_failed(self, command_id, error_message: str):
         with self.pool.connection() as conn:
@@ -403,7 +419,7 @@ class PostgresRepository:
                 "UPDATE commands SET status = 'failed', error_message = %s, completed_at = now() WHERE id = %s",
                 (error_message, int(command_id)),
             )
-        logger.info(f"Command '{command_id}' marked as failed: {error_message}")
+        self.logger.info(f"Command '{command_id}' marked as failed: {error_message}")
 
     # ------------------------------------------------------------------ logs
 
@@ -428,7 +444,7 @@ class PostgresRepository:
             try:
                 response = requests.get(url, timeout=10)
                 if response.status_code != 200:
-                    logger.warning(f"Image {i + 1}/{len(image_urls)} non téléchargeable (HTTP {response.status_code}) pour deal {deal_id}.")
+                    self.logger.warning(f"Image {i + 1}/{len(image_urls)} non téléchargeable (HTTP {response.status_code}) pour deal {deal_id}.")
                     continue
                 blob_path = f"deals/{deal_id}/{i}_{uuid.uuid4().hex[:8]}.jpg"
                 blob = self._bucket.blob(blob_path)
@@ -436,9 +452,9 @@ class PostgresRepository:
                 blob.make_public()
                 stable_urls.append(blob.public_url)
                 gs_uris.append(f"gs://{self._bucket.name}/{blob_path}")
-                logger.info(f"   ☁️ Image {i + 1} uploadée pour deal {deal_id}: {blob_path}")
+                self.logger.info(f"   ☁️ Image {i + 1} uploadée pour deal {deal_id}: {blob_path}")
             except Exception as e:
-                logger.warning(f"Erreur upload image {i + 1} pour deal {deal_id}: {e}")
+                self.logger.warning(f"Erreur upload image {i + 1} pour deal {deal_id}: {e}")
         return stable_urls, gs_uris
 
     def list_deal_image_gs_uris(self, deal_id):
@@ -450,7 +466,7 @@ class PostgresRepository:
 
     def delete_deal_images(self, deal_id: str) -> int:
         if not self._bucket:
-            logger.warning(f"delete_deal_images: Pas de bucket Storage configuré pour deal {deal_id}.")
+            self.logger.warning(f"delete_deal_images: Pas de bucket Storage configuré pour deal {deal_id}.")
             return 0
         try:
             prefix = f"deals/{deal_id}/"
@@ -459,7 +475,7 @@ class PostgresRepository:
             for blob in blobs:
                 blob.delete()
             if deleted_count:
-                logger.info(f"🗑️ {deleted_count} image(s) supprimée(s) du Storage pour deal {deal_id}.")
+                self.logger.info(f"🗑️ {deleted_count} image(s) supprimée(s) du Storage pour deal {deal_id}.")
             with self.pool.connection() as conn:
                 conn.execute(
                     "UPDATE guitar_deals SET storage_image_urls = NULL WHERE id = %s AND user_id = %s",
@@ -467,12 +483,12 @@ class PostgresRepository:
                 )
             return deleted_count
         except Exception as e:
-            logger.error(f"Erreur lors de la suppression des images pour deal {deal_id}: {e}", exc_info=True)
+            self.logger.error(f"Erreur lors de la suppression des images pour deal {deal_id}: {e}", exc_info=True)
             return 0
 
     def purge_rejected_images(self, retention_days=30, rejection_verdicts=None) -> int:
         if not self._bucket:
-            logger.warning("purge_rejected_images: Pas de bucket Storage configuré.")
+            self.logger.warning("purge_rejected_images: Pas de bucket Storage configuré.")
             return 0
         if rejection_verdicts is None:
             rejection_verdicts = ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA", "REJECTED"]
@@ -497,19 +513,22 @@ class PostgresRepository:
                     deal_id = row["id"]
                     prefix = f"deals/{deal_id}/"
                     blobs = list(self._bucket.list_blobs(prefix=prefix))
+                    for blob in blobs:
+                        blob.delete()
+                    # Toujours nettoyer la colonne, même sans blob trouvé (déjà supprimé, ou
+                    # jamais uploadé) — sinon la ligne reste éligible au WHERE storage_image_urls
+                    # IS NOT NULL et est re-sélectionnée indéfiniment à chaque passage de purge.
+                    with self.pool.connection() as conn:
+                        conn.execute(
+                            "UPDATE guitar_deals SET storage_image_urls = NULL WHERE id = %s",
+                            (deal_id,),
+                        )
                     if blobs:
-                        for blob in blobs:
-                            blob.delete()
-                        with self.pool.connection() as conn:
-                            conn.execute(
-                                "UPDATE guitar_deals SET storage_image_urls = NULL WHERE id = %s",
-                                (deal_id,),
-                            )
                         purged_count += len(blobs)
-                        logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {deal_id} (ancien de {retention_days}j+).")
+                        self.logger.info(f"🗑️ {len(blobs)} image(s) purgée(s) pour deal rejeté {deal_id} (ancien de {retention_days}j+).")
                 if len(rows) < BATCH_SIZE:
                     break
         except Exception as e:
-            logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
-        logger.info(f"Purge lifecycle terminée. {purged_count} image(s) supprimée(s).")
+            self.logger.error(f"Erreur lors de la purge des images: {e}", exc_info=True)
+        self.logger.info(f"Purge lifecycle terminée. {purged_count} image(s) supprimée(s).")
         return purged_count

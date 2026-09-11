@@ -51,8 +51,10 @@ import asyncpg
 from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
 from backend.api.db import _register_json_codecs, SCHEMA_PATH
+from datetime import datetime, timezone
+
 from backend.deal_mapping import (
-    CHAT_COLUMNS, DEAL_COLUMNS, RESTO_COLUMNS, _sanitize_json,
+    CHAT_COLUMNS, DEAL_COLUMNS, RESTO_COLUMNS, _sanitize_json, _to_datetime,
     map_chat_message, map_city, map_deal, map_restoration_item,
 )
 
@@ -182,7 +184,14 @@ async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool,
         report.unmapped_deal_fields[deal_id] = unmapped_keys
 
     deal_ref = user_ref.collection("guitar_deals").document(deal_id)
-    chat_docs = list(deal_ref.collection("chat").order_by("createdAt").stream())
+    # `.order_by("createdAt")` EXCLUT silencieusement du résultat tout document sans ce champ
+    # (comportement Firestore documenté, pas juste un tri) — un message de chat sans `createdAt`
+    # serait alors perdu à l'export plutôt que simplement mal ordonné. Tri côté Python à la place.
+    chat_docs = sorted(
+        deal_ref.collection("chat").stream(),
+        key=lambda doc: _to_datetime((doc.to_dict() or {}).get("createdAt"))
+        or datetime.min.replace(tzinfo=timezone.utc),
+    )
     resto_docs = list(deal_ref.collection("restorationPlan").stream())
 
     async with pool.acquire() as conn:

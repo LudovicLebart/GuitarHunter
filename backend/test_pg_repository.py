@@ -55,6 +55,7 @@ class _NoCloseConnectionCtx:
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({_sync_dsn()}) depuis cet environnement.")
 class TestPostgresRepository(unittest.TestCase):
     UID = "test-uid-pgrepo-1"
+    OTHER_UID = "test-uid-pgrepo-2"
     DEAL_ID = "pgrepo-deal-1"
     CITY_ID = "pgrepo-city-1"
 
@@ -65,16 +66,18 @@ class TestPostgresRepository(unittest.TestCase):
         with self.pool.connection() as conn:
             conn.execute(schema_sql)
             conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (self.UID,))
+            conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (self.OTHER_UID,))
         self.repo = PostgresRepository(self.pool, self.UID)
+        self.other_repo = PostgresRepository(self.pool, self.OTHER_UID)
 
     def tearDown(self):
         with self.pool.connection() as conn:
-            conn.execute("DELETE FROM guitar_deals WHERE user_id = %s", (self.UID,))
+            conn.execute("DELETE FROM guitar_deals WHERE user_id IN (%s, %s)", (self.UID, self.OTHER_UID))
             conn.execute("DELETE FROM user_city_prefs WHERE user_id = %s", (self.UID,))
             conn.execute("DELETE FROM cities WHERE id = %s", (self.CITY_ID,))
             conn.execute("DELETE FROM commands WHERE user_id = %s", (self.UID,))
             conn.execute("DELETE FROM logs WHERE user_id = %s", (self.UID,))
-            conn.execute("DELETE FROM users WHERE uid = %s", (self.UID,))
+            conn.execute("DELETE FROM users WHERE uid IN (%s, %s)", (self.UID, self.OTHER_UID))
         self.pool.close()
 
     # ---------------------------------------------------------------- structure / config
@@ -118,6 +121,24 @@ class TestPostgresRepository(unittest.TestCase):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "REJECTED"})
         self.assertEqual(self.repo.get_deal_by_id(self.DEAL_ID)["status"], "rejected")
 
+    def test_create_new_deal_does_not_reassign_ownership_of_another_users_deal(self):
+        """`guitar_deals.id` est une clé globale (id de l'annonce marketplace, pas scopée par
+        utilisateur) : deux bots (deux users) peuvent tomber sur la même annonce publique. Le
+        second `create_new_deal` sur le même `deal_id` ne doit PAS réassigner la ligne à l'autre
+        utilisateur (bug de revue de code — `ON CONFLICT DO UPDATE` sans garde de propriétaire)."""
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "Original owner's title"}, {"verdict": "GOOD_DEAL"})
+
+        self.other_repo.create_new_deal(self.DEAL_ID, {"title": "Intruder's title"}, {"verdict": "GOOD_DEAL"})
+
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                "SELECT user_id, title FROM guitar_deals WHERE id = %s", (self.DEAL_ID,)
+            ).fetchone()
+        self.assertEqual(row["user_id"], self.UID)
+        self.assertEqual(row["title"], "Original owner's title")
+        # L'autre utilisateur ne voit tout simplement pas l'annonce d'un autre.
+        self.assertIsNone(self.other_repo.get_deal_by_id(self.DEAL_ID))
+
     def test_update_deal_analysis_touches_only_ai_columns(self):
         """Ne doit PAS altérer les colonnes issues de deal_data (title/price/...) — seulement
         aiAnalysis + status/timestamp, comme le `.update()` partiel Firestore d'origine."""
@@ -156,6 +177,34 @@ class TestPostgresRepository(unittest.TestCase):
         self.assertEqual(deal["status"], "analysis_failed")
         self.assertEqual(deal["ai_analysis_raw"]["error"], "boom")
         self.assertEqual(deal["ai_analysis_raw"]["verdict"], "GOOD_DEAL")  # pas écrasé (pas d'ArrayUnion-sur-objet)
+
+    def test_purge_rejected_images_clears_column_even_without_matching_blobs(self):
+        """Une ligne candidate sans blob Storage restant (déjà supprimé, ou jamais uploadé) doit
+        quand même voir `storage_image_urls` remis à NULL, sinon elle reste éligible au filtre
+        `WHERE storage_image_urls IS NOT NULL` et est resélectionnée indéfiniment (boucle infinie
+        — bug de revue de code, la remise à NULL n'avait lieu qu'à l'intérieur de `if blobs:`)."""
+        class _EmptyBucket:
+            def list_blobs(self, prefix):
+                return []
+
+        self.repo.create_new_deal(
+            self.DEAL_ID, {"title": "x", "storageImageUrls": ["gs://old/1.jpg"]}, {"verdict": "BAD_DEAL"}
+        )
+        with self.pool.connection() as conn:
+            conn.execute(
+                "UPDATE guitar_deals SET \"timestamp\" = now() - interval '60 days' WHERE id = %s",
+                (self.DEAL_ID,),
+            )
+        repo_with_bucket = PostgresRepository(self.pool, self.UID, bucket=_EmptyBucket())
+
+        purged = repo_with_bucket.purge_rejected_images(retention_days=30)
+
+        self.assertEqual(purged, 0)
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                "SELECT storage_image_urls FROM guitar_deals WHERE id = %s", (self.DEAL_ID,)
+            ).fetchone()
+        self.assertIsNone(row["storage_image_urls"])
 
     def test_mark_deal_as_sold_with_reason_appends_to_sold_notes(self):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})

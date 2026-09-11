@@ -118,6 +118,44 @@ class TestChatAPI(unittest.TestCase):
         self.assertEqual(proposal["itemId"], "item-1")
         self.assertEqual(proposal["label"], "Refret")  # champs existants préservés
 
+    def test_mark_restoration_proposal_status_out_of_range_index_leaves_column_unchanged(self):
+        """`jsonb_set`/`||` sont STRICT : sans garde, un index hors bornes rendrait tout le
+        tableau NULL au lieu de laisser la ligne inchangée (bug de revue de code)."""
+        create = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={
+            "role": "model", "parts": [{"text": "..."}],
+            "restorationProposals": [{"label": "Refret", "status": "pending"}],
+        })
+        message_id = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/deals/{self.DEAL_ID}/chat/{message_id}/restoration-proposal",
+            json={"proposalIndex": 5, "status": "applied"},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        listing = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()
+        self.assertEqual(
+            listing[0]["restoration_proposals"], [{"label": "Refret", "status": "pending"}]
+        )
+
+    def test_mark_requalification_proposal_status_when_initially_null(self):
+        """`requalification_proposal || jsonb_build_object(...)` est STRICT : sans `COALESCE`,
+        une colonne NULL au départ resterait NULL après l'appel, alors que l'endpoint répond
+        200 comme si le statut avait bien été enregistré (bug de revue de code)."""
+        create = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={
+            "role": "model", "parts": [{"text": "..."}],
+        })
+        message_id = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/deals/{self.DEAL_ID}/chat/{message_id}/requalification-proposal",
+            json={"status": "applied"},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        listing = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()
+        self.assertEqual(listing[0]["requalification_proposal"], {"status": "applied"})
+
     def test_chat_isolated_from_other_users_deal(self):
         resp = self.client.get("/deals/chat-deal-other/chat")
         self.assertEqual(resp.status_code, 404)
