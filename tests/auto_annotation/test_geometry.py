@@ -15,15 +15,28 @@ from backend.auto_annotation.geometry import parse_obb, rotate_and_crop
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+class _NumpyRow:
+    """Simule un tenseur 1D Ultralytics avec les méthodes .cpu().numpy()."""
+
+    def __init__(self, row: np.ndarray):
+        self._row = row
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self._row
+
+
 class MockOBBBoxes:
-    """Simule l'objet obb d'Ultralytics avec un tenseur xywhr synthétique."""
+    """Simule l'objet obb d'Ultralytics — pur numpy, sans torch."""
 
     def __init__(self, boxes_xywhr: list[tuple]):
         """
         boxes_xywhr: liste de (x_c, y_c, w, h, angle_rad)
         """
-        import torch
-        self.xywhr = torch.tensor(boxes_xywhr, dtype=torch.float32)
+        rows = [np.array(b, dtype=np.float32) for b in boxes_xywhr]
+        self.xywhr = [_NumpyRow(r) for r in rows]
 
     def __len__(self):
         return len(self.xywhr)

@@ -25,11 +25,15 @@ def rect(cx, cy, w, h, angle=0.0):
     return ((cx, cy), (w, h), angle)
 
 
-def cls_tensor(names: list[str]):
-    """Crée un tenseur de classes à partir de noms de classes."""
-    import torch
-    indices = [CLASS_NAMES.index(n) for n in names]
-    return torch.tensor(indices, dtype=torch.float32)
+def cls_list(names: list[str]) -> list[int]:
+    """Crée une liste d'indices de classes à partir de noms de classes.
+    Utilise des int Python purs — pas de dépendance torch dans les tests unitaires.
+    """
+    return [CLASS_NAMES.index(n) for n in names]
+
+
+# Alias pour compatibilité avec les tests existants
+cls_tensor = cls_list
 
 
 # ─── Tests rotated_rect_intersection_area ─────────────────────────────────────

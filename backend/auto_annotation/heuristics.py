@@ -4,7 +4,7 @@ from .config import CLASS_NAMES, NECK_RATIO_MIN, INCLUSION_RATIO_MIN
 def rotated_rect_intersection_area(rect1, rect2):
     """Calcule l'aire d'intersection entre deux RotatedRect OpenCV."""
     res, pts = cv2.rotatedRectangleIntersection(rect1, rect2)
-    if res == cv2.INTER_NONE or pts is None:
+    if res == cv2.INTERSECT_NONE or pts is None:
         return 0.0
     return cv2.contourArea(pts)
 

@@ -121,12 +121,13 @@ def extraire_echantillon_stratifie(
 
 
 if __name__ == "__main__":
-    # ─── À CONFIGURER ────────────────────────────────────────────────────────
-    # Dossier local structuré : un sous-dossier par catégorie de guitare
-    DOSSIER_SOURCE = "chemin/vers/le/dossier/brut"
-    # Dossier de sortie que tu importeras dans Label Studio
-    DOSSIER_AMORCAGE = "dataset_phase1"
-    # ─────────────────────────────────────────────────────────────────────────
+    import pathlib
+    _PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+
+    # Dossier source : images téléchargées par download_phase1_images.py
+    DOSSIER_SOURCE = str(_PROJECT_ROOT / "scratch" / "dataset_brut")
+    # Dossier de sortie à importer dans Label Studio
+    DOSSIER_AMORCAGE = str(_PROJECT_ROOT / "scratch" / "dataset_phase1")
 
     extraire_echantillon_stratifie(DOSSIER_SOURCE, DOSSIER_AMORCAGE, total_cible=150)
 

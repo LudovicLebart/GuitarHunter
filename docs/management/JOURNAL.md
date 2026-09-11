@@ -1,5 +1,21 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-10/11] [SONNET] Session YOLO-Pipeline Phase 1 — corrections tests, téléchargement dataset, extraction échantillon, setup Label Studio → annotation en cours.
+- **Corrections tests (76/76 PASS)** :
+  - `heuristics.py` : `cv2.INTER_NONE` → `cv2.INTERSECT_NONE` (renommé OpenCV 5).
+  - `test_geometry.py` / `test_heuristics.py` : suppression dépendance `torch` dans `MockOBBBoxes` et `cls_tensor` → remplacés par numpy/listes Python pures.
+  - `test_extract_phase1.py` : isolation `test_reproducibility_with_same_seed` — `tmp_path_factory` pour éviter que `out1/` soit scanné comme catégorie lors du 2e run.
+- **Téléchargement dataset** : création de `backend/scripts/download_phase1_images.py` — lit `dataset_a_phase0.jsonl` (3 263 images usables), télécharge en parallèle (8 threads) vers `scratch/dataset_brut/{electrique,acoustique,basse}/`. Résultat : 3 258 téléchargées, 5 sautées (déjà présentes), 0 erreur.
+- **Extraction Phase 1** : `extract_phase1.py` — `DOSSIER_SOURCE` mis à jour (`scratch/dataset_brut`), extraction stratifiée de 150 images vers `scratch/dataset_phase1/` (acoustique: 92, électrique: 55, basse: 3 — proportionnel, seed=42).
+- **Label Studio** :
+  - Installation Python 3.11.9 (winget) — venv isolé `scratch/venv_labelstudio/` (conflit protobuf avec SDK Gemini sur venv principal résolu).
+  - `scratch/label_studio_template_obb.xml` : template XML avec 6 classes (headstock/neck/body/bridge/pickups/soundhole), `canRotate="true"`, raccourcis 1-6.
+  - `scratch/GUIDE_ANNOTATION_PHASE1.md` : guide complet annotateur.
+  - `scratch/start_label_studio.ps1` : script de lancement avec `DATA_UPLOAD_MAX_NUMBER_FILES=300`.
+  - Import des 150 images dans Label Studio (projet GuitarHunter OBB Phase 1, http://localhost:8080). Annotation en cours.
+- **Règle d'annotation actée** : boîte coupée par bord d'image = ne pas annoter cette classe sur cette image (OBB doit être précis). Les autres classes visibles sur la même image sont annotées normalement.
+- **Statut** : annotation manuelle Phase 1 en cours (objectif 150 images annotées → fine-tuning Phase 0 sur Dell-5810).
+
 [2026-09-09] [FLASH] Audit du plan YOLO-OBB V2 et corrections pipeline auto-annotation → plan V2.1 formalisé, 7 corrections code appliquées.
 - **Contexte** : Comparaison du plan d'implémentation V2 (extrait du fichier texte utilisateur) avec l'état réel du code dans `backend/auto_annotation/`. Audit critique du plan lui-même et de l'implémentation.
 - **Critique du plan original** : 4 lacunes identifiées — (1) Phase 0 absente (modèle DOTA non fine-tuné ne peut pas prédire des guitares), (2) VLM non tranché (Qwen2.5-VL vs Moondream sans critère), (3) Phase 5 sans seuils de validation quantitatifs, (4) routage Phase 6 non spécifié (quand OCR vs Vision LLM ?).

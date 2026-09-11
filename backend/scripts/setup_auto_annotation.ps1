@@ -22,7 +22,8 @@ Write-Host "Version détectée : $pythonVersion" -ForegroundColor Green
 Write-Host "`n[2/4] Installation des packages requis..." -ForegroundColor Yellow
 python -m pip install --upgrade pip
 python -m pip install -r backend/auto_annotation/requirements.txt
-Write-Host "Dépendances Python installées." -ForegroundColor Green
+python -m pip install label-studio
+Write-Host "Dependances Python installees (dont label-studio)." -ForegroundColor Green
 
 # 3. Téléchargement des poids YOLO-OBB
 Write-Host "`n[3/4] Téléchargement du modèle YOLOv8n-OBB..." -ForegroundColor Yellow
@@ -45,13 +46,13 @@ if ($SkipOllama) {
     Write-Host "Ignoré via le flag -SkipOllama." -ForegroundColor DarkGray
 } else {
     if (Get-Command "ollama" -ErrorAction SilentlyContinue) {
-        Write-Host "Ollama détecté. Téléchargement de qwen2.5-vl (peut être long la première fois)..."
-        ollama pull qwen2.5-vl
-        Write-Host "Modèle Qwen2.5-VL prêt." -ForegroundColor Green
+        Write-Host "Ollama detecte. Telechargement de moondream (peut etre long la premiere fois)..."
+        ollama pull moondream
+        Write-Host "Modele Moondream pret." -ForegroundColor Green
     } else {
-        Write-Host "ATTENTION: Ollama n'est pas détecté sur cette machine." -ForegroundColor Red
+        Write-Host "ATTENTION: Ollama n'est pas detecte sur cette machine." -ForegroundColor Red
         Write-Host "Veuillez l'installer manuellement depuis https://ollama.com/" -ForegroundColor Yellow
-        Write-Host "Une fois installé, exécutez: ollama pull qwen2.5-vl" -ForegroundColor Yellow
+        Write-Host "Une fois installe, executez: ollama pull moondream" -ForegroundColor Yellow
     }
 }
 

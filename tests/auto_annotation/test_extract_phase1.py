@@ -85,22 +85,31 @@ class TestExtraction:
             prefix = f.name.split("_")[0]
             assert prefix in known_prefixes, f"Préfixe inattendu: {f.name}"
 
-    def test_reproducibility_with_same_seed(self, dataset_root, tmp_path):
+    def test_reproducibility_with_same_seed(self, tmp_path_factory):
         """Deux runs avec la même seed doivent produire le même ensemble de fichiers."""
-        out1 = tmp_path / "out1"
-        out2 = tmp_path / "out2"
-        extraire_echantillon_stratifie(str(dataset_root), str(out1), total_cible=50, seed=42)
-        extraire_echantillon_stratifie(str(dataset_root), str(out2), total_cible=50, seed=42)
+        # Dossiers isolés : dataset_root ne contient PAS les dossiers de sortie
+        src = tmp_path_factory.mktemp("src")
+        create_category_folder(src, "electrique", 100)
+        create_category_folder(src, "acoustique", 60)
+        create_category_folder(src, "basse", 40)
+        out1 = tmp_path_factory.mktemp("out1")
+        out2 = tmp_path_factory.mktemp("out2")
+        extraire_echantillon_stratifie(str(src), str(out1), total_cible=50, seed=42)
+        extraire_echantillon_stratifie(str(src), str(out2), total_cible=50, seed=42)
         files1 = sorted(f.name for f in out1.glob("*.jpg"))
         files2 = sorted(f.name for f in out2.glob("*.jpg"))
         assert files1 == files2
 
-    def test_different_seeds_produce_different_results(self, dataset_root, tmp_path):
+    def test_different_seeds_produce_different_results(self, tmp_path_factory):
         """Deux seeds différentes doivent (très probablement) produire des résultats différents."""
-        out1 = tmp_path / "out1"
-        out2 = tmp_path / "out2"
-        extraire_echantillon_stratifie(str(dataset_root), str(out1), total_cible=50, seed=42)
-        extraire_echantillon_stratifie(str(dataset_root), str(out2), total_cible=50, seed=99)
+        src = tmp_path_factory.mktemp("src")
+        create_category_folder(src, "electrique", 100)
+        create_category_folder(src, "acoustique", 60)
+        create_category_folder(src, "basse", 40)
+        out1 = tmp_path_factory.mktemp("out1")
+        out2 = tmp_path_factory.mktemp("out2")
+        extraire_echantillon_stratifie(str(src), str(out1), total_cible=50, seed=42)
+        extraire_echantillon_stratifie(str(src), str(out2), total_cible=50, seed=99)
         files1 = sorted(f.name for f in out1.glob("*.jpg"))
         files2 = sorted(f.name for f in out2.glob("*.jpg"))
         # Avec 200 images et un tirage de 50, la probabilité de collision est négligeable
