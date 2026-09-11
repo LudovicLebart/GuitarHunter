@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
-import { MapPin, FileText, RefreshCw } from 'lucide-react';
+import { MapPin, FileText, RefreshCw, Facebook } from 'lucide-react';
 import { computeInterestScore } from '../../constants';
+import { formatClassificationLabel } from '../../utils/taxonomy';
 import { VERDICT_CONFIG, toTitleCase, formatRelativeDate } from './utils';
 import DealCardImage from './DealCardImage';
 import DealCardActions from './DealCardActions';
 import DealAnalysisModal from './DealAnalysisModal';
 
-const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onDelete }) => {
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onDelete, onSetClassification, onGalleryImageAdded, onAnalysisOverridesApplied }) => {
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
     const [imageError, setImageError] = useState(false);
@@ -40,7 +41,13 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const computedMargin = (estValue != null && price != null) ? Math.round(estValue - price) : null;
     const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;
 
-    const taxonomy = ai.classification || null;
+    // Classification affichée : la correction manuelle de l'utilisateur prime sur celle de l'IA,
+    // et le libellé est toujours résolu — jamais la valeur brute (qui peut être un chemin technique
+    // "guitare.electrique.lespaul", ou une feuille ambiguë comme "Guitare Electrique" qui est en
+    // réalité un ÉTUI et se lisait alors comme une guitare).
+    const rawClassification = deal.manualClassification || ai.classification || null;
+    const taxonomy = formatClassificationLabel(rawClassification);
+    const isManualClassification = !!deal.manualClassification;
     const relDate = formatRelativeDate(deal.timestamp);
     const pubDate = formatRelativeDate(deal.publishTimestamp);
     const images = deal.storageImageUrls?.length > 0 ? deal.storageImageUrls : (deal.imageUrls || []);
@@ -51,14 +58,19 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
 
     const isAnalyzing = ['analyzing', 'analyzing_expert'].includes(deal.status);
     const isSold = deal.status === 'sold';
+    // Déduit du domaine du lien plutôt que de deal.source : ce dernier n'existe que pour
+    // les annonces Kijiji (source), jamais pour Facebook (historique et futures) — l'URL
+    // est la seule source de vérité fiable pour les deux origines.
+    const isKijiji = (deal.link || '').includes('kijiji.ca');
 
     return (
-        <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold ? 'opacity-60 saturate-50' : ''}`}>
+        <div className={`bg-slate-900 rounded-2xl border border-slate-800 flex flex-col overflow-hidden hover:border-slate-600 transition-all duration-300 hover:shadow-2xl hover:shadow-black/40 group ${isSold && !deal.isPurchased ? 'opacity-60 saturate-50' : ''}`}>
 
             <DealCardImage
                 images={images}
                 title={deal.title}
                 isSold={isSold}
+                isPurchased={deal.isPurchased}
                 vc={vc}
                 isAnalyzing={isAnalyzing}
                 alsoPepite={alsoPepite}
@@ -76,12 +88,22 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         {toTitleCase(deal.title || '')}
                     </h3>
                     <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400 flex-wrap">
+                        {isKijiji ? (
+                            <span className="w-3.5 h-3.5 rounded-full bg-orange-600 text-white text-[8px] font-black flex items-center justify-center shrink-0" title="Kijiji">K</span>
+                        ) : (
+                            <Facebook size={12} className="text-blue-500 shrink-0" title="Facebook Marketplace" />
+                        )}
                         <MapPin size={11} />
                         <span>{deal.location}</span>
                         {taxonomy && (
                             <>
                                 <span className="text-slate-700">•</span>
-                                <span className="text-purple-400 truncate max-w-[120px]" title={taxonomy}>{taxonomy}</span>
+                                <span
+                                    className="text-purple-400 truncate max-w-[140px]"
+                                    title={isManualClassification ? `${taxonomy} (corrigé manuellement)` : taxonomy}
+                                >
+                                    {taxonomy}{isManualClassification && ' ✎'}
+                                </span>
                             </>
                         )}
                     </div>
@@ -142,6 +164,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         deal={deal}
                         isAnalyzing={isAnalyzing}
                         onToggleFavorite={onToggleFavorite}
+                        onTogglePurchased={onTogglePurchased}
                         onReject={onReject}
                         onDelete={onDelete}
                         onRetry={onRetry}
@@ -157,6 +180,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     images={images}
                     vc={vc}
                     isSold={isSold}
+                    isPurchased={deal.isPurchased}
                     alsoPepite={alsoPepite}
                     price={price}
                     estValue={estValue}
@@ -173,8 +197,12 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     onForceExpert={onForceExpert}
                     onReject={onReject}
                     onToggleFavorite={onToggleFavorite}
+                    onTogglePurchased={onTogglePurchased}
                     onDelete={onDelete}
                     isAnalyzing={isAnalyzing}
+                    onSetClassification={onSetClassification}
+                    onGalleryImageAdded={onGalleryImageAdded}
+                    onAnalysisOverridesApplied={onAnalysisOverridesApplied}
                 />
             )}
         </div>

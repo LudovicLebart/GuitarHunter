@@ -1,6 +1,10 @@
 import React, { useMemo } from 'react';
-import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap } from 'lucide-react';
+import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
+import { RADAR_GROUP } from '../constants';
+import { normalizeCityKey, pickBestLabel } from '../utils/cities';
+import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
+import DealsExplorer from './DealsExplorer';
 
 const StatCard = ({ title, value, subtitle, icon: Icon, colorClass, trend }) => (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col relative overflow-hidden group">
@@ -45,47 +49,73 @@ const FunnelStage = ({ label, count, percentage, color, isLast }) => (
     </div>
 );
 
-// Noms lisibles pour les types de classification
-const TYPE_LABELS = {
-    'Guitare acoustique': 'Acoustique',
-    'Guitare électrique': 'Électrique',
-    'Guitare basse': 'Basse',
-    'Guitare classique': 'Classique',
-    'Guitare folk': 'Folk',
-    'Guitare semi-acoustique': 'Semi-Acoustique',
-    'Guitare résonateur': 'Résonateur',
-    'Ukulélé': 'Ukulélé',
-    'Mandoline': 'Mandoline',
-    'Pedal Steel': 'Pedal Steel',
-};
-
 const SELL_SPEED_COLORS = ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#f0fdf4'];
 
-const StatsView = ({ deals, loadedDeals = {} }) => {
+const PRICE_BUCKETS = [
+    { label: '0-250$', min: 0, max: 250 },
+    { label: '250-500$', min: 250, max: 500 },
+    { label: '500-1000$', min: 500, max: 1000 },
+    { label: '1000-2000$', min: 1000, max: 2000 },
+    { label: '2000$+', min: 2000, max: Infinity },
+];
 
-    // ─── Merge : index léger + cache complet ───────────────────────────────
-    // Pour les stats on fusionne ce qu'on a dans le cache avec l'index.
-    // Les deals non encore chargés (lazy) utilisent les champs de l'index.
-    const enrichedDeals = useMemo(() => {
-        return deals.map(d => {
+const CATEGORY_LABELS = {
+    'guitare.electrique': 'Guitare Électrique',
+    'guitare.acoustique_acier': 'Guitare Acoustique',
+    'guitare.electro_acoustique': 'Guitare Électro-Acoustique',
+    'guitare.classique_nylon': 'Guitare Classique',
+    'guitare.basse': 'Basse',
+    'amplificateur.lampes': 'Ampli à Lampes',
+    'amplificateur.transistor_numerique': 'Ampli Transistor/Num.',
+    'etui_housse': 'Étui / Housse',
+};
+
+// Résolution déléguée au module partagé (`utils/taxonomy.js`) depuis le 2026-08-16 : la copie
+// locale normalisait le chemin en supprimant les points, si bien que "guitare.electrique"
+// (l'instrument) et "Guitare Electrique" (une feuille d'ÉTUI) produisaient la même clé — le bug
+// corrigé partout ailleurs survivait ici, et la canonicalisation des classifications l'a même
+// aggravé en généralisant les chemins complets en base.
+const resolveCategoryLabel = (classification) => {
+    if (!classification) return null;
+    const { segments: path } = resolveClassification(classification);
+    if (!path || path.length === 0) return null;
+    if (path[0] === 'etui_housse') return CATEGORY_LABELS['etui_housse'];
+    const key = path.length >= 2 ? `${path[0]}.${path[1]}` : path[0];
+    return CATEGORY_LABELS[key] || (path[0] === 'guitare' ? 'Autre Guitare' : path[0]);
+};
+
+const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
+
+    // ─── Jeu de données unique : l'inventaire complet, jamais l'onglet actif ──
+    // Les stats sont des statistiques générales de marché — elles ne doivent pas dépendre du
+    // filtre/onglet actuellement sélectionné dans le Dashboard (2026-08-06, retour utilisateur :
+    // "trop cher"/"rejetées"/etc. disparaissaient des stats selon l'onglet "Toutes" actif).
+    // `allDeals` (inventaire complet, toujours fourni par Dashboard.jsx) prime sur `deals` (onglet
+    // filtré, gardé en repli défensif uniquement). Fusionné avec `loadedDeals` (cache des documents
+    // complets) uniquement pour les champs qui n'existent pas dans l'index léger (ex: reasoning) —
+    // tous les scores IA et champs utilisés ci-dessous sont désormais indexés (voir
+    // repository.py::_update_deal_index), donc disponibles même pour un deal jamais ouvert.
+    const analysisDeals = useMemo(() => {
+        const source = allDeals || deals;
+        return source.map(d => {
             const full = loadedDeals[d.id];
             return full ? { ...d, ...full } : d;
         });
-    }, [deals, loadedDeals]);
+    }, [allDeals, deals, loadedDeals]);
 
-    const totalDeals = enrichedDeals.length;
+    const totalDeals = analysisDeals.length;
 
-    const radarDeals = enrichedDeals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
-    const marketDeals = enrichedDeals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
+    const radarDeals = analysisDeals.filter(d => ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'GOOD_DEAL'].includes(d.aiAnalysis?.verdict));
+    const marketDeals = analysisDeals.filter(d => ['COLLECTION', 'BAD_DEAL', 'FAIR'].includes(d.aiAnalysis?.verdict));
 
     // Funnel réel dérivé de aiAnalysis.model_used
     const chainTokens = (used) => (typeof used === 'string' && used.trim()) ? used.split('->').map(s => s.trim()).filter(Boolean) : [];
     const modelChainTokens = (deal) => chainTokens(deal.aiAnalysis?.model_used);
-    const reachedT2Count = enrichedDeals.filter(d => modelChainTokens(d).length >= 2).length;
-    const reachedT3Count = enrichedDeals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
+    const reachedT2Count = analysisDeals.filter(d => modelChainTokens(d).length >= 2).length;
+    const reachedT3Count = analysisDeals.filter(d => modelChainTokens(d).some(m => m.toLowerCase().includes('pro'))).length;
 
     // Qualité Portier
-    const portierRejectedDeals = enrichedDeals.filter(d => chainTokens(d.initialModelUsed).length === 1);
+    const portierRejectedDeals = analysisDeals.filter(d => chainTokens(d.initialModelUsed).length === 1);
     const portierErrorsCorrected = portierRejectedDeals.filter(d => modelChainTokens(d).length >= 2);
     const portierErrorRate = portierRejectedDeals.length > 0
         ? Math.round((portierErrorsCorrected.length / portierRejectedDeals.length) * 100)
@@ -110,12 +140,22 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
     });
 
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
-    const averageScore = Math.round(enrichedDeals.reduce((acc, d) => acc + (d.aiAnalysis?.deal_score != null ? d.aiAnalysis.deal_score * 10 : 0), 0) / (totalDeals || 1));
+    // Moyenne sur les annonces réellement analysées (deal_score renseigné), pas sur l'inventaire
+    // complet (2026-08-12, bug confirmé) : diviser par totalDeals inclut les milliers d'annonces
+    // rejetées au Portier seul (jamais scorées par l'Analyste), diluant la moyenne vers 0.
+    const scoredDeals = analysisDeals.filter(d => d.aiAnalysis?.deal_score != null);
+    const averageScore = scoredDeals.length > 0
+        ? Math.round(scoredDeals.reduce((acc, d) => acc + d.aiAnalysis.deal_score * 10, 0) / scoredDeals.length)
+        : 0;
 
     // ─── Temps de vente réel ──────────────────────────────────────────────
+    // `> publishTimestamp` (pas juste la présence des deux) : exclut les paires de timestamps
+    // incohérentes (vente antérieure à la publication — erreur de données ponctuelle) plutôt que
+    // de laisser un delta négatif fausser la moyenne, surtout visible sur les petits échantillons
+    // (croisements par tranche ci-dessous).
     const sellTimeStats = useMemo(() => {
-        const soldDeals = enrichedDeals.filter(d =>
-            d.soldTimestamp?.seconds && d.publishTimestamp?.seconds
+        const soldDeals = analysisDeals.filter(d =>
+            d.soldTimestamp?.seconds && d.publishTimestamp?.seconds && d.soldTimestamp.seconds > d.publishTimestamp.seconds
         );
         if (soldDeals.length === 0) return { avg: null, count: 0 };
 
@@ -129,13 +169,15 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             avg: avg < 24 ? `${Math.round(avg)}h` : `${Math.round(avg / 24)}j`,
             count: soldDeals.length,
         };
-    }, [enrichedDeals]);
+    }, [analysisDeals]);
 
-    // ─── Radar Chart : profil moyen IA (utilise enrichedDeals) ────────────
+    // ─── Radar Chart : profil moyen IA ─────────────────────────────────────
+    // Scores individuels tous indexés (2026-08-06) : plus besoin d'avoir chargé le document complet
+    // d'une annonce pour que son profil compte ici — voir useDealsManager.js.
     const radarData = useMemo(() => {
         if (totalDeals === 0) return [];
         let rData = { deal: 0, auth: 0, cond: 0, liq: 0, resto: 0, count: 0 };
-        enrichedDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             const ai = d.aiAnalysis;
             if (ai && ai.deal_score != null) {
                 rData.deal += ai.deal_score;
@@ -154,11 +196,11 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             { subject: 'Liquidité', A: Math.round((rData.liq / c) * 10), fullMark: 100 },
             { subject: 'Potentiel Resto.', A: Math.round((rData.resto / c) * 10), fullMark: 100 },
         ];
-    }, [enrichedDeals, totalDeals]);
+    }, [analysisDeals, totalDeals]);
 
     const radarHasData = radarData.some(d => d.A > 0);
 
-    // ─── Distribution par marque (source : aiAnalysis.brand sur enrichedDeals) ─
+    // ─── Distribution par marque (source : aiAnalysis.brand) ──────────────
     const brandData = useMemo(() => {
         if (totalDeals === 0) return [];
         const counts = {};
@@ -171,7 +213,7 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             'jackson', 'schecter', 'washburn', 'ovation', 'takamine', 'breedlove',
         ];
 
-        enrichedDeals.forEach(d => {
+        analysisDeals.forEach(d => {
             let rawBrand = d.aiAnalysis?.brand;
 
             // Invalider les valeurs génériques
@@ -220,22 +262,85 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
         if (autresCount > 0) sorted.push({ name: 'Autres', count: autresCount });
 
         return sorted;
-    }, [enrichedDeals, totalDeals]);
+    }, [analysisDeals, totalDeals]);
+
+    // ─── Distribution par couleur/finition (source : aiAnalysis.color) ────
+    const colorData = useMemo(() => {
+        if (totalDeals === 0) return [];
+        const counts = {};
+
+        analysisDeals.forEach(d => {
+            const rawColor = d.aiAnalysis?.color;
+            const isInvalid = !rawColor
+                || typeof rawColor !== 'string'
+                || rawColor.trim().length < 2
+                || rawColor.toLowerCase().includes('inconnue')
+                || rawColor.toLowerCase().includes('unknown')
+                || rawColor.toLowerCase() === 'n/a';
+            if (isInvalid) return;
+
+            const cleanColor = rawColor.trim();
+            counts[cleanColor] = (counts[cleanColor] || 0) + 1;
+        });
+
+        return Object.entries(counts)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 8);
+    }, [analysisDeals, totalDeals]);
+
+    // ─── Volume de scraping quotidien (fenêtre glissante) ─────────────────
+    const VOLUME_WINDOW_DAYS = 14;
+    const dailyVolumeData = useMemo(() => {
+        const days = [];
+        const now = new Date();
+        for (let i = VOLUME_WINDOW_DAYS - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            days.push(d);
+        }
+        const counts = {};
+        days.forEach(d => { counts[d.toISOString().slice(0, 10)] = 0; });
+
+        analysisDeals.forEach(deal => {
+            const seconds = deal.timestamp?.seconds;
+            if (!seconds) return;
+            const key = new Date(seconds * 1000).toISOString().slice(0, 10);
+            if (key in counts) counts[key]++;
+        });
+
+        return days.map(d => {
+            const key = d.toISOString().slice(0, 10);
+            return {
+                date: d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }),
+                count: counts[key],
+            };
+        });
+    }, [analysisDeals]);
+
+    const avgDailyVolume = useMemo(() => {
+        if (dailyVolumeData.length === 0) return '0';
+        const total = dailyVolumeData.reduce((acc, d) => acc + d.count, 0);
+        return (total / dailyVolumeData.length).toFixed(1);
+    }, [dailyVolumeData]);
 
     // ─── Vitesse de vente par type de guitare ─────────────────────────────
     const sellSpeedByType = useMemo(() => {
-        // Deals vendus avec les deux timestamps
-        const soldDeals = enrichedDeals.filter(d =>
+        // Deals vendus avec les deux timestamps (cohérents — vente après publication)
+        const soldDeals = analysisDeals.filter(d =>
             d.soldTimestamp?.seconds &&
             d.publishTimestamp?.seconds &&
+            d.soldTimestamp.seconds > d.publishTimestamp.seconds &&
             d.aiAnalysis?.classification
         );
         if (soldDeals.length < 2) return [];
 
         const byType = {};
         soldDeals.forEach(d => {
-            const classification = d.aiAnalysis.classification;
-            const label = TYPE_LABELS[classification] || classification.split(' ').slice(-1)[0];
+            // formatClassificationLabel plutôt qu'un découpage manuel : avec les chemins complets
+            // désormais stockés ("guitare.electrique.solid_body.Double_Cut.SG"), un split(' ')
+            // affichait le chemin technique entier — ou un mot isolé ("Paul" pour "Les Paul").
+            const label = formatClassificationLabel(d.aiAnalysis.classification) || 'Inconnue';
             const diffH = (d.soldTimestamp.seconds - d.publishTimestamp.seconds) / 3600;
             if (!byType[label]) byType[label] = [];
             byType[label].push(diffH);
@@ -249,7 +354,141 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
             }))
             .filter(e => e.count >= 2) // Au moins 2 observations
             .sort((a, b) => a.avgH - b.avgH); // Plus rapide en premier
-    }, [enrichedDeals]);
+    }, [analysisDeals]);
+
+    // ─── Sweet Spot : score IA moyen et marge moyenne par tranche de prix ─
+    const priceScoreData = useMemo(() => {
+        const buckets = PRICE_BUCKETS.map(b => ({ ...b, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0, count: 0 }));
+        analysisDeals.forEach(d => {
+            const price = d.price;
+            if (!(price > 0)) return;
+            const bucket = buckets.find(b => price >= b.min && price < b.max);
+            if (!bucket) return;
+            bucket.count++;
+            const score = d.interestScore ?? d.aiAnalysis?.deal_score;
+            if (typeof score === 'number') {
+                bucket.scoreSum += score;
+                bucket.scoreCount++;
+            }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') {
+                bucket.marginSum += margin;
+                bucket.marginCount++;
+            }
+        });
+        return buckets
+            // Au moins une annonce avec un score dans la tranche — sinon la barre serait un 0
+            // trompeur (aucune donnée) plutôt qu'une vraie moyenne.
+            .filter(b => b.scoreCount > 0)
+            .map(b => ({
+                name: `${b.label} (${b.scoreCount})`,
+                count: b.count,
+                scoreCount: b.scoreCount,
+                avgScore: Math.round((b.scoreSum / b.scoreCount) * 10),
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }));
+    }, [analysisDeals]);
+    const priceScoreTotal = priceScoreData.reduce((sum, b) => sum + b.scoreCount, 0);
+
+    // ─── Marge moyenne par catégorie (taxonomie résolue via resolveCategoryLabel) ─
+    const categoryData = useMemo(() => {
+        const buckets = {};
+        analysisDeals.forEach(d => {
+            const label = resolveCategoryLabel(d.aiAnalysis?.classification);
+            if (!label) return;
+            if (!buckets[label]) buckets[label] = { count: 0, scoreSum: 0, scoreCount: 0, marginSum: 0, marginCount: 0 };
+            const b = buckets[label];
+            b.count++;
+            const score = d.interestScore ?? d.aiAnalysis?.deal_score;
+            if (typeof score === 'number') { b.scoreSum += score; b.scoreCount++; }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { b.marginSum += margin; b.marginCount++; }
+        });
+        return Object.entries(buckets)
+            .map(([name, b]) => ({
+                name,
+                count: b.count,
+                avgScore: b.scoreCount > 0 ? Math.round((b.scoreSum / b.scoreCount) * 10) : 0,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }))
+            .filter(b => b.count >= 2) // Au moins 2 observations
+            .sort((a, b) => b.avgMargin - a.avgMargin);
+    }, [analysisDeals]);
+
+    // ─── Véracité IA : score initial des annonces réellement vendues vs l'ensemble ─
+    const aiAccuracyData = useMemo(() => {
+        const HIGH_SCORE_THRESHOLD = 7;
+        const withScore = analysisDeals.filter(d => typeof (d.interestScore ?? d.aiAnalysis?.deal_score) === 'number');
+        const soldWithScore = withScore.filter(d => d.status === 'sold');
+        if (soldWithScore.length === 0) return null;
+
+        const highScoreRate = (list) => {
+            if (list.length === 0) return 0;
+            const high = list.filter(d => (d.interestScore ?? d.aiAnalysis?.deal_score) >= HIGH_SCORE_THRESHOLD).length;
+            return Math.round((high / list.length) * 100);
+        };
+
+        return {
+            soldCount: soldWithScore.length,
+            marketCount: withScore.length,
+            data: [
+                { name: `Vendues (${soldWithScore.length})`, rate: highScoreRate(soldWithScore) },
+                { name: `Ensemble (${withScore.length})`, rate: highScoreRate(withScore) },
+            ],
+        };
+    }, [analysisDeals]);
+
+    // ─── Facebook vs Kijiji (source dérivée du préfixe `kijiji_` de l'ID, même convention que le backend) ─
+    const sourceComparisonData = useMemo(() => {
+        const bySource = {
+            Facebook: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
+            Kijiji: { count: 0, priceSum: 0, priceCount: 0, marginSum: 0, marginCount: 0, opportunityCount: 0 },
+        };
+        analysisDeals.forEach(d => {
+            const source = d.id?.startsWith('kijiji_') ? 'Kijiji' : 'Facebook';
+            const b = bySource[source];
+            b.count++;
+            if (typeof d.price === 'number' && d.price > 0) { b.priceSum += d.price; b.priceCount++; }
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { b.marginSum += margin; b.marginCount++; }
+            if (RADAR_GROUP.includes(d.aiAnalysis?.verdict)) b.opportunityCount++;
+        });
+        return Object.entries(bySource)
+            .map(([name, b]) => ({
+                name,
+                count: b.count,
+                avgPrice: b.priceCount > 0 ? Math.round(b.priceSum / b.priceCount) : 0,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+                opportunityRate: b.count > 0 ? Math.round((b.opportunityCount / b.count) * 100) : 0,
+            }))
+            .filter(s => s.count > 0);
+    }, [analysisDeals]);
+
+    // ─── Géographie des opportunités : volume + marge moyenne par ville ───
+    // Regroupement par CLÉ canonique de ville, pas par chaîne brute : Facebook stocke
+    // "Montréal, QC" pendant que Kijiji écrivait "montreal" (la clé de la ville configurée) —
+    // la même ville apparaissait donc en double dans ce graphique. Le libellé affiché est la
+    // graphie la plus riche rencontrée (région + accents), voir `utils/cities.js`.
+    const geoOpportunityData = useMemo(() => {
+        const byCity = {};
+        analysisDeals.forEach(d => {
+            if (!RADAR_GROUP.includes(d.aiAnalysis?.verdict)) return;
+            const key = normalizeCityKey(d.location) || 'inconnue';
+            if (!byCity[key]) byCity[key] = { count: 0, marginSum: 0, marginCount: 0, labels: [] };
+            byCity[key].count++;
+            if (d.location) byCity[key].labels.push(d.location);
+            const margin = d.aiAnalysis?.estimated_gross_margin;
+            if (typeof margin === 'number') { byCity[key].marginSum += margin; byCity[key].marginCount++; }
+        });
+        return Object.entries(byCity)
+            .map(([key, b]) => ({
+                name: pickBestLabel(b.labels) || (key === 'inconnue' ? 'Inconnue' : key),
+                count: b.count,
+                avgMargin: b.marginCount > 0 ? Math.round(b.marginSum / b.marginCount) : 0,
+            }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 8);
+    }, [analysisDeals]);
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -260,7 +499,7 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                         <BarChart2 className="text-blue-500" />
                         Intelligence Stratégique
                     </h2>
-                    <p className="text-slate-400 text-sm mt-1">Statistiques calculées sur {totalDeals} annonce{totalDeals !== 1 ? 's' : ''} · {Object.keys(loadedDeals).length} chargées.</p>
+                    <p className="text-slate-400 text-sm mt-1">Statistiques calculées sur l'inventaire complet : {totalDeals} annonce{totalDeals !== 1 ? 's' : ''}, tous statuts confondus.</p>
                 </div>
                 <div className="bg-purple-500/10 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2">
                     <Activity size={14} className="animate-pulse" />
@@ -339,7 +578,6 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[300px] flex flex-col relative overflow-hidden group">
                         <h4 className="font-bold text-slate-300 mb-2 flex items-center justify-between z-10">
                             Profil Moyen (Scores IA)
-                            {!radarHasData && <span className="text-[10px] text-amber-400 font-normal">Scroll pour charger les deals</span>}
                         </h4>
                         <div className="flex-1 w-full min-h-0 relative z-10 -ml-4">
                             {radarHasData ? (
@@ -356,7 +594,7 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                                     </RadarChart>
                                 </ResponsiveContainer>
                             ) : (
-                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Données en cours de chargement…</div>
+                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Pas encore de scores IA disponibles</div>
                             )}
                         </div>
                     </div>
@@ -395,6 +633,61 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                         </div>
                     </div>
 
+                    {/* Bar Chart - Color Distribution */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 h-[300px] flex flex-col relative overflow-hidden group">
+                        <h4 className="font-bold text-slate-300 mb-2 flex items-center justify-between z-10">
+                            Distribution (Couleurs / Finitions)
+                        </h4>
+                        <div className="flex-1 w-full min-h-0 relative z-10">
+                            {colorData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={colorData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                        <XAxis type="number" hide />
+                                        <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={95} />
+                                        <Tooltip
+                                            cursor={{ fill: '#1e293b' }}
+                                            contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                            itemStyle={{ color: '#f472b6' }}
+                                        />
+                                        <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={16} fill="#f472b6" />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-slate-600 text-sm">Pas assez de données</div>
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            {/* Volume de scraping quotidien */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest flex items-center gap-2">
+                        <TrendingUp size={16} className="text-blue-400" />
+                        Volume de Scraping Quotidien (FB)
+                    </h3>
+                    <span className="text-xs font-bold text-slate-400">Moy. {avgDailyVolume}/jour</span>
+                </div>
+                <p className="text-slate-500 text-xs mb-6">Annonces découvertes par jour · {VOLUME_WINDOW_DAYS} derniers jours</p>
+
+                <div className="h-[200px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={dailyVolumeData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                            <YAxis allowDecimals={false} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <Tooltip
+                                cursor={{ fill: '#1e293b' }}
+                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                itemStyle={{ color: '#38bdf8' }}
+                                formatter={(value) => [value, 'Annonces']}
+                            />
+                            <Bar dataKey="count" fill="#38bdf8" radius={[4, 4, 0, 0]} barSize={20} />
+                        </BarChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
@@ -404,9 +697,9 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                     <Zap size={16} className="text-amber-400" />
                     Vitesse de vente par type de guitare
                 </h3>
-                <p className="text-slate-500 text-xs mb-6">Délai moyen entre publication et vente · Uniquement les types avec ≥2 observations</p>
+                <p className="text-slate-500 text-xs mb-6">Délai moyen entre publication et vente</p>
 
-                {sellSpeedByType.length >= 2 ? (
+                {sellSpeedByType.length > 0 ? (
                     <div className="h-[220px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={sellSpeedByType} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -438,13 +731,200 @@ const StatsView = ({ deals, loadedDeals = {} }) => {
                         </ResponsiveContainer>
                     </div>
                 ) : (
-                    <div className="h-[120px] flex flex-col items-center justify-center text-slate-600 text-sm gap-2">
+                    <div className="h-[120px] flex flex-col items-center justify-center text-slate-600 text-sm gap-2 text-center px-4">
                         <TrendingUp size={24} className="opacity-30" />
-                        <span>Pas encore assez de deals vendus avec timestamp de publication</span>
-                        <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que les ventes sont trackées</span>
+                        <span>Pas encore assez de deals vendus ayant été classifiés par l'IA</span>
+                        <span className="text-xs text-slate-700">Les données s'enrichiront à mesure que de nouvelles ventes scannées trouveront preneur</span>
                     </div>
                 )}
             </div>
+
+            {/* Croisements : Sweet Spot Prix x Score & Marge par catégorie */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* Score moyen par tranche de prix */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <Coins size={16} className="text-emerald-400" />
+                        Score moyen par tranche de prix
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces les mieux notées par l'IA sont-elles plutôt bon marché ou plus chères ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
+                        Chiffre entre parenthèses = nombre d'annonces analysées dans la tranche.
+                        {priceScoreTotal > 0 && priceScoreTotal < 30 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {priceScoreTotal} annonces au total — à interpréter avec prudence.</span>
+                        )}
+                    </p>
+
+                    {priceScoreData.length > 0 ? (
+                        <div className="h-[220px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={priceScoreData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                    <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value, name, props) => [
+                                            `${value}/100`,
+                                            `Score moy. sur ${props.payload.scoreCount} annonce${props.payload.scoreCount > 1 ? 's' : ''} (marge moy. ${props.payload.avgMargin}$)`
+                                        ]}
+                                    />
+                                    <Bar dataKey="avgScore" fill="#10b981" radius={[4, 4, 0, 0]} barSize={28} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+                {/* Marge moyenne par catégorie */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <Layers size={16} className="text-blue-400" />
+                        Marge moyenne par catégorie
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">Marge brute estimée par type d'instrument</p>
+
+                    {categoryData.length > 0 ? (
+                        <div className="h-[220px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={categoryData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                    <XAxis type="number" hide />
+                                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={140} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value, name, props) => [
+                                            `${value}$`,
+                                            `Marge moy. (${props.payload.count} annonces, score moy. ${props.payload.avgScore}/100)`
+                                        ]}
+                                    />
+                                    <Bar dataKey="avgMargin" fill="#38bdf8" radius={[0, 4, 4, 0]} barSize={18} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+            </div>
+
+            {/* Croisements : Facebook vs Kijiji & Véracité IA */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* Facebook vs Kijiji */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <GitCompare size={16} className="text-amber-400" />
+                        Facebook vs Kijiji
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-6">Volume, prix et marge moyens par source</p>
+
+                    {sourceComparisonData.length > 0 ? (
+                        <div className="space-y-3">
+                            {sourceComparisonData.map(s => (
+                                <div key={s.name} className="flex items-center justify-between bg-slate-800/50 border border-slate-700/50 rounded-xl px-4 py-3">
+                                    <div>
+                                        <div className="text-sm font-bold text-slate-200">{s.name}</div>
+                                        <div className="text-xs text-slate-500">{s.count} annonce{s.count > 1 ? 's' : ''} · {s.opportunityRate}% opportunités</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-sm font-bold text-emerald-400">{s.avgMargin}$ marge moy.</div>
+                                        <div className="text-xs text-slate-500">{s.avgPrice}$ prix moy.</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+                {/* Véracité IA */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                    <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                        <ShieldCheck size={16} className="text-purple-400" />
+                        Score IA élevé = vendu plus souvent ?
+                    </h3>
+                    <p className="text-slate-500 text-xs mb-1">
+                        Les annonces bien notées par l'IA se vendent-elles vraiment plus souvent que la moyenne du marché ?
+                    </p>
+                    <p className="text-slate-600 text-[11px] mb-4">
+                        {aiAccuracyData?.soldCount > 0
+                            ? `Chiffre entre parenthèses = nombre d'annonces derrière chaque barre (${aiAccuracyData.soldCount} vente${aiAccuracyData.soldCount > 1 ? 's' : ''} tracée${aiAccuracyData.soldCount > 1 ? 's' : ''} avec score, sur ${aiAccuracyData.marketCount} au total).`
+                            : "Nécessite des annonces vendues avec score IA"}
+                        {aiAccuracyData?.soldCount > 0 && aiAccuracyData.soldCount < 20 && (
+                            <span className="text-amber-500"> ⚠️ Seulement {aiAccuracyData.soldCount} ventes tracées — à interpréter avec prudence.</span>
+                        )}
+                    </p>
+
+                    {aiAccuracyData ? (
+                        <div className="h-[180px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={aiAccuracyData.data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
+                                    <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        cursor={{ fill: '#1e293b' }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                        formatter={(value) => [`${value}%`, 'Score élevé (≥7/10)']}
+                                    />
+                                    <Bar dataKey="rate" radius={[4, 4, 0, 0]} barSize={40}>
+                                        {aiAccuracyData.data.map((entry, index) => (
+                                            <Cell key={`accuracy-${index}`} fill={index === 0 ? '#a78bfa' : '#475569'} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
+                    ) : (
+                        <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                    )}
+                </div>
+
+            </div>
+
+            {/* Géographie des opportunités */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+                <h3 className="text-sm font-black text-slate-300 uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <MapPin size={16} className="text-rose-400" />
+                    Géographie des opportunités
+                </h3>
+                <p className="text-slate-500 text-xs mb-6">Volume de Pépites/Fast Flip/Luthier/Case Win par ville</p>
+
+                {geoOpportunityData.length > 0 ? (
+                    <div className="h-[240px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={geoOpportunityData} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#1e293b" />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={110} />
+                                <Tooltip
+                                    cursor={{ fill: '#1e293b' }}
+                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '0.5rem' }}
+                                    formatter={(value, name, props) => [
+                                        `${value} opportunité${value > 1 ? 's' : ''}`,
+                                        `Marge moy. ${props.payload.avgMargin}$`
+                                    ]}
+                                />
+                                <Bar dataKey="count" fill="#fb7185" radius={[0, 4, 4, 0]} barSize={18} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                ) : (
+                    <div className="h-[120px] flex items-center justify-center text-slate-600 text-sm">Pas assez de données</div>
+                )}
+            </div>
+
+            <DealsExplorer deals={analysisDeals} />
 
         </div>
     );

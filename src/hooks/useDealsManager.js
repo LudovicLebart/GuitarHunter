@@ -6,13 +6,18 @@ import {
   deleteDeal,
   retryDealAnalysis,
   forceExpertAnalysis,
-  toggleDealFavorite
+  toggleDealFavorite,
+  toggleDealPurchased,
+  setDealClassification
 } from '../services/firestoreService';
-import promptsData from '../../prompts.json';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
+// Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
+import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
-const MASTER_TAXONOMY = promptsData.taxonomy_master || {};
+
+// Un chemin de taxonomie est ancêtre d'un autre s'il en est un préfixe strict (segment par segment).
+const isAncestorPath = (a, b) => b.startsWith(`${a}.`);
 
 // Helper pour normaliser les chaînes pour la comparaison (minuscules, sans espaces, SANS ACCENTS)
 const normalize = (str) => {
@@ -23,14 +28,21 @@ const normalize = (str) => {
     .replace(/[^a-z0-9]/g, ''); // Ne garde que alphanumérique
 };
 
-// Recherche floue : retourne le path si une clé normalisée de la taxonomie est contenue dans la string
-const findPathFuzzy = (normalizedSearchStr, taxonomyPaths) => {
-  for (const [key, path] of Object.entries(taxonomyPaths)) {
-    if (normalizedSearchStr.includes(key)) {
-      return path;
-    }
-  }
-  return null;
+// Normalisation "souple" pour la RECHERCHE TEXTE LIBRE : minuscules, sans accents, ponctuation et
+// underscores convertis en espaces — mais les séparations de mots sont CONSERVÉES, contrairement à
+// normalize() ci-dessus qui les supprime.
+// C'est la différence critique : normalize() est fait pour comparer des identifiants de taxonomie
+// entre eux (où l'espacement ne doit pas compter), alors qu'ici on compare une saisie utilisateur à
+// du texte libre. Supprimer les espaces des deux côtés recréerait exactement le faux positif déjà
+// corrigé sur la recherche floue (`utils/taxonomy.js`) : "cordes guitare" -> "cordesguitare"
+// contient "sg".
+const normalizeLoose = (str) => {
+  if (!str) return '';
+  return str
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 };
 
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
@@ -45,12 +57,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const [filterType, setFilterType] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [level1Filter, setLevel1Filter] = useState('ALL');
-  const [level2Filter, setLevel2Filter] = useState('ALL');
-  const [level3Filter, setLevel3Filter] = useState('ALL');
-  const [level4Filter, setLevel4Filter] = useState('ALL');
+  // Chemins de taxonomie sélectionnés (multi-sélection, ex: ["guitare.acoustique_acier.formes_standard.Parlor",
+  // "guitare.acoustique_acier.specialites.Travel.Baby / Mini"]) — un tableau vide = "Tous les types".
+  // Un deal correspond si son chemin de classification égale ou descend (préfixe) d'AU MOINS un chemin sélectionné.
+  const [selectedTypePaths, setSelectedTypePaths] = useState([]);
   const [conditionFilter, setConditionFilter] = useState('ALL');
   const [priceFilter, setPriceFilter] = useState('ALL');
+  const [finishApplicationFilter, setFinishApplicationFilter] = useState('ALL');
+  const [finishTextureFilter, setFinishTextureFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
 
   // Reconstruction des deals légers à partir de l'index
@@ -66,12 +80,27 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         classification: entry.c,
         condition_score: entry.cs,
         also_qualifies_pepite: entry.ap,
-        deal_score: entry.is,
+        // Scores individuels (2026-08-06) : auparavant absents de l'index léger, "deal_score" était
+        // substitué par la moyenne des 5 scores ("is") — imprécis pour toute annonce non chargée en
+        // entier. Désormais indexés individuellement (voir repository.py::_update_deal_index), donc
+        // toujours corrects même sans charger le document complet.
+        deal_score: entry.ds,
+        authenticity_score: entry.as,
+        liquidity_score: entry.ls,
+        restoration_interest_score: entry.rs,
         estimated_value: entry.ev,
         model_used: entry.mu,
-        estimated_gross_margin: entry.egm
+        estimated_gross_margin: entry.egm,
+        brand: entry.b,
+        model_name: entry.mn,
+        color: entry.co,
+        finish_application: entry.fa,
+        finish_texture: entry.ft
       },
+      // `mc` marque une classification corrigée à la main : `c` porte alors la valeur corrigée.
+      manualClassification: entry.mc ? entry.c : undefined,
       isFavorite: entry.f,
+      isPurchased: entry.pu,
       timestamp: entry.t ? { seconds: entry.t } : null,
       publishTimestamp: entry.pt ? { seconds: entry.pt } : null,
       soldTimestamp: entry.st ? { seconds: entry.st } : null,
@@ -92,12 +121,29 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (uiFilters == null || hydratedFiltersRef.current) return;
     hydratedFiltersRef.current = true;
     if (uiFilters.filterType) setFilterType(uiFilters.filterType);
-    if (uiFilters.level1Filter) setLevel1Filter(uiFilters.level1Filter);
-    if (uiFilters.level2Filter) setLevel2Filter(uiFilters.level2Filter);
-    if (uiFilters.level3Filter) setLevel3Filter(uiFilters.level3Filter);
-    if (uiFilters.level4Filter) setLevel4Filter(uiFilters.level4Filter);
+    if (Array.isArray(uiFilters.selectedTypePaths)) {
+      // Purge défensive d'une sélection sauvegardée avant le fix anti-chaîne (chemins
+      // ancêtre+descendant coexistant) : ne garde que les chemins les plus spécifiques,
+      // en retirant tout chemin qui a un DESCENDANT aussi présent dans la sélection (donc
+      // moins spécifique que ce descendant, qui doit primer).
+      const saved = uiFilters.selectedTypePaths;
+      setSelectedTypePaths(saved.filter(p => !saved.some(o => o !== p && isAncestorPath(p, o))));
+    } else if (uiFilters.level1Filter && uiFilters.level1Filter !== 'ALL') {
+      // Migration douce depuis l'ancien format (un seul chemin en cascade level1..4) :
+      // reconstruit le chemin déjà sélectionné par l'utilisateur plutôt que de le perdre.
+      if (uiFilters.level1Filter === 'OTHER') {
+        setSelectedTypePaths(['OTHER']);
+      } else {
+        const legacyPath = [uiFilters.level1Filter, uiFilters.level2Filter, uiFilters.level3Filter, uiFilters.level4Filter]
+          .filter(v => v && v !== 'ALL')
+          .join('.');
+        if (legacyPath) setSelectedTypePaths([legacyPath]);
+      }
+    }
     if (uiFilters.conditionFilter) setConditionFilter(uiFilters.conditionFilter);
     if (uiFilters.priceFilter) setPriceFilter(uiFilters.priceFilter);
+    if (uiFilters.finishApplicationFilter) setFinishApplicationFilter(uiFilters.finishApplicationFilter);
+    if (uiFilters.finishTextureFilter) setFinishTextureFilter(uiFilters.finishTextureFilter);
     if (uiFilters.sortMode) setSortMode(uiFilters.sortMode);
   }, [uiFilters]);
 
@@ -106,16 +152,16 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   useEffect(() => {
     if (!hydratedFiltersRef.current || !saveUiFilters) return;
     saveUiFilters({
-      filterType, level1Filter, level2Filter, level3Filter, level4Filter,
-      conditionFilter, priceFilter, sortMode
+      filterType, selectedTypePaths,
+      conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, sortMode
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, sortMode]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, sortMode]);
 
   // Reset visibleCount when filters change
   useEffect(() => {
     setVisibleCount(30);
-  }, [filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery]);
+  }, [filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery]);
 
   useEffect(() => {
     if (!user) return;
@@ -174,73 +220,95 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
+  // Correction manuelle de la catégorie (null = annuler et revenir à la classification de l'IA).
+  const handleSetClassification = useCallback(async (dealId, classificationPath) => {
+    if (!user) return;
+    const entry = dealsIndexMap[dealId];
+    try {
+      // En annulation, l'index doit retomber sur la classification d'origine de l'IA — or `c`
+      // porte la valeur corrigée quand `mc` est posé. On la relit donc sur le document complet
+      // (toujours chargé : la correction se fait depuis la modale d'analyse).
+      const aiClassification = loadedDeals[dealId]?.aiAnalysis?.classification
+        ?? (entry?.mc ? null : entry?.c);
+      await setDealClassification(dealId, entry?.h, user.uid, classificationPath, aiClassification);
+      // `loadedDeals` est un cache écrit une seule fois, et il PRIME sur l'index dans la fusion
+      // ({ ...deal, ...full }) : sans invalidation, une 2e correction ou un retour à la catégorie
+      // de l'IA continuait d'afficher la valeur précédente jusqu'au rechargement de la page.
+      setLoadedDeals(prev => {
+        if (!prev[dealId]) return prev;
+        const next = { ...prev };
+        next[dealId] = { ...next[dealId], manualClassification: classificationPath || undefined };
+        return next;
+      });
+    } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, loadedDeals, setError]);
+
+  // Mise à jour optimiste après ajout d'une photo du chat à la galerie (2026-08-21, voir
+  // useDealChat.js::addPhotoToGallery) — même nécessité que handleSetClassification ci-dessus :
+  // le doc complet de l'annonce n'est pas un listener temps réel (`loadedDeals` = fetch one-shot),
+  // sans ce patch la galerie ouverte n'afficherait le nouvel ajout qu'après un rechargement complet.
+  const handleGalleryImageAdded = useCallback((dealId, url) => {
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const existing = prev[dealId].storageImageUrls || [];
+      if (existing.includes(url)) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], storageImageUrls: [...existing, url] };
+      return next;
+    });
+  }, []);
+
+  // Mise à jour optimiste après application d'une requalification du chat (2026-08-27, patch direct
+  // — voir useDealChat.js::applyRequalificationProposal) — même nécessité que ci-dessus : `loadedDeals`
+  // n'est pas un listener temps réel, sans ce patch la fiche ouverte n'afficherait la correction
+  // qu'après un rechargement complet (l'index, lui, est déjà à jour via son propre listener temps réel).
+  const handleAnalysisOverridesApplied = useCallback((dealId, fields) => {
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], aiAnalysis: { ...next[dealId].aiAnalysis, ...fields } };
+      return next;
+    });
+  }, []);
+
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
     const chunkId = dealsIndexMap[dealId]?.h;
     try { await toggleDealFavorite(dealId, currentStatus, chunkId, user.uid); } catch (e) { setError(e.message); }
   }, [user, dealsIndexMap, setError]);
 
-  // Construction de la map de chemins normalisés
-  const { taxonomyFullPaths, taxonomyLeafPaths } = useMemo(() => {
-    const fullPaths = {};
-    const leafPaths = {};
-    const traverse = (node, currentPath) => {
-      if (Array.isArray(node)) {
-        node.forEach(item => {
-          const path = [...currentPath, item];
-          const fullKey = normalize(path.join('.'));
-          const leafKey = normalize(item);
-          fullPaths[fullKey] = path;
-          // Leaf only: prioritize the deeper node if there's a collision? 
-          // For now, simple leaf mapping for fallback.
-          leafPaths[leafKey] = path;
-        });
-      } else if (typeof node === 'object' && node !== null) {
-        Object.keys(node).forEach(key => {
-          const path = [...currentPath, key];
-          const fullKey = normalize(path.join('.'));
-          const leafKey = normalize(key);
-          fullPaths[fullKey] = path;
-          leafPaths[leafKey] = path;
-          traverse(node[key], path);
-        });
-      }
-    };
-    traverse(MASTER_TAXONOMY, []);
-    return { taxonomyFullPaths: fullPaths, taxonomyLeafPaths: leafPaths };
+  const handleTogglePurchased = useCallback(async (dealId, currentStatus, purchasePrice) => {
+    if (!user) return;
+    const chunkId = dealsIndexMap[dealId]?.h;
+    try {
+      await toggleDealPurchased(dealId, currentStatus, chunkId, user.uid, purchasePrice);
+      // Même raison que handleSetClassification : loadedDeals prime sur l'index dans la fusion
+      // ({...deal, ...full}), donc sans patch explicite le badge resterait figé jusqu'au rechargement.
+      setLoadedDeals(prev => {
+        if (!prev[dealId]) return prev;
+        const next = { ...prev };
+        next[dealId] = {
+          ...next[dealId],
+          isPurchased: !currentStatus,
+          purchasedAt: !currentStatus ? new Date() : undefined,
+          purchasePrice: !currentStatus ? (purchasePrice ?? undefined) : undefined,
+        };
+        return next;
+      });
+    } catch (e) { setError(e.message); }
+  }, [user, dealsIndexMap, setError]);
+
+  // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
+  // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un
+  // autre) : cocher un chemin plus profond agit comme un drill-down et retire les cases parentes
+  // déjà cochées, sinon celles-ci (moins spécifiques) dominent le filtre OR-préfixe et réaffichent
+  // tout — cas où "Guitare" + "Parlor" cochés ensemble ne filtraient plus rien.
+  const toggleTypePath = useCallback((path) => {
+    setSelectedTypePaths(prev => prev.includes(path)
+      ? prev.filter(p => p !== path)
+      : [...prev.filter(p => !isAncestorPath(p, path) && !isAncestorPath(path, p)), path]
+    );
   }, []);
-
-  const level1Options = useMemo(() => ['ALL', ...Object.keys(MASTER_TAXONOMY), 'OTHER'], []);
-
-  const level2Options = useMemo(() => {
-    if (level1Filter === 'ALL' || level1Filter === 'OTHER' || !MASTER_TAXONOMY[level1Filter]) return ['ALL'];
-    const node = MASTER_TAXONOMY[level1Filter];
-    return ['ALL', ...(Array.isArray(node) ? node : Object.keys(node))];
-  }, [level1Filter]);
-
-  const level3Options = useMemo(() => {
-    if (level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
-    const node1 = MASTER_TAXONOMY[level1Filter];
-    if (Array.isArray(node1)) return ['ALL'];
-    const node2 = node1[level2Filter];
-    if (!node2 || Array.isArray(node2)) return ['ALL'];
-    return ['ALL', ...Object.keys(node2)];
-  }, [level1Filter, level2Filter]);
-
-  const level4Options = useMemo(() => {
-    if (level3Filter === 'ALL' || level2Filter === 'ALL' || level1Filter === 'ALL' || level1Filter === 'OTHER') return ['ALL'];
-    const node1 = MASTER_TAXONOMY[level1Filter];
-    if (!node1 || Array.isArray(node1)) return ['ALL'];
-    const node2 = node1[level2Filter];
-    if (!node2 || Array.isArray(node2)) return ['ALL'];
-    const node3 = node2[level3Filter];
-    if (!node3 || Array.isArray(node3)) return ['ALL'];
-    return ['ALL', ...Object.keys(node3)];
-  }, [level1Filter, level2Filter, level3Filter]);
-
-  useEffect(() => { setLevel2Filter('ALL'); setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level1Filter]);
-  useEffect(() => { setLevel3Filter('ALL'); setLevel4Filter('ALL'); }, [level2Filter]);
-  useEffect(() => { setLevel4Filter('ALL'); }, [level3Filter]);
 
   // --- LOGIQUE DE FILTRAGE ET COMPTAGE DYNAMIQUE ---
 
@@ -259,9 +327,18 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (currentFilterType === 'ERROR') return isError;
     if (currentFilterType === 'REJECTED') return false;
     if (currentFilterType === 'SOLD') return deal.status === 'sold';
+    // Achat = flag manuel totalement indépendant du status/verdict (peut être actif, vendu, etc.) :
+    // ce filtre montre TOUT ce qui est marqué acheté, sans passer par le masquage/verdict ci-dessous.
+    if (currentFilterType === 'PURCHASED') return !!deal.isPurchased;
 
     // Si l'annonce est vendue et qu'on n'est pas dans le filtre SOLD, on cache (sauf favoris)
     if (deal.status === 'sold' && currentFilterType !== 'FAVORITES') return false;
+
+    // Une ré-analyse en cours (mise à jour optimiste locale : verdict -> 'PENDING' dès le clic,
+    // avant même que le backend ne la traite) reste visible dans l'onglet verdict où l'utilisateur
+    // se trouve déjà, plutôt que de disparaître le temps de l'analyse — sinon le badge "Analyse..."
+    // existant (DealCardImage.jsx) n'a jamais l'occasion de s'afficher.
+    if (['analyzing', 'analyzing_expert'].includes(deal.status)) return true;
 
     // Favoris : on montre le favori sauf s'il est tombé dans le bruit (erreur d'analyse, ou
     // verdict archivé autre que BAD_DEAL — "trop cher" reste un favori légitime, le reste non).
@@ -289,42 +366,69 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     return false;
   }, []);
 
-  // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE
-  const matchesTypeFilter = useCallback((deal, l1, l2, l3, l4, search) => {
-    if (deal.status === 'rejected') return false;
-    // Note: Pour le type filter, on ne bloque pas 'sold' ici car matchesVerdictFilter s'en charge.
-
-    // Recherche textuelle
-    if (search && !deal.title?.toLowerCase().includes(search.toLowerCase())) return false;
-
-    // Classification
+  // 2. Helper pour vérifier si un deal correspond aux filtres de TYPE (multi-sélection)
+  const matchesTypeFilter = useCallback((deal, typePaths, search) => {
+    // Note: on ne bloque aucun statut ici (ni 'sold' ni 'rejected') — les onglets REJECTED/SOLD/
+    // PURCHASED appellent aussi cette fonction (filteredDeals/verdictCounts) pour que recherche et
+    // filtre de catégorie s'y appliquent également ; le statut lui-même est vérifié séparément.
     const analysis = deal.aiAnalysis || {};
-    const classification = analysis.classification;
-    if (!classification) return l1 === 'ALL' || l1 === 'OTHER';
+    const hasTypeFilter = typePaths && typePaths.length > 0;
+    const needle = search ? normalizeLoose(search) : '';
 
-    const normalizedClass = normalize(classification);
-    // 1. Try exact full path lookup
-    let path = taxonomyFullPaths[normalizedClass];
-    // 2. Fallback to leaf lookup
-    if (!path) path = taxonomyLeafPaths[normalizedClass];
-    // 3. Last resort fuzzy search
-    if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+    // Recherche par ID d'annonce (le numéro dans l'URL Facebook/Kijiji) : coller l'ID seul ou
+    // l'URL complète de l'annonce doit la faire remonter, même si aucun mot du texte ne matche.
+    // Comparaison en EXACT sur deal.id (pas en substring comme le texte libre plus bas) : un ID
+    // est un identifiant unique, pas une chaîne à retrouver partiellement. Un match ID court-
+    // circuite le filtre texte ci-dessous (mais pas le filtre de type, qui reste appliqué).
+    const idDigits = search ? search.match(/\d{6,}/)?.[0] : null;
+    const idMatched = !!idDigits && (deal.id === idDigits || deal.id === `kijiji_${idDigits}`);
 
-    if (l1 !== 'ALL') {
-      if (l1 === 'OTHER') {
-        if (path) return false;
-      } else {
-        if (!path || path[0] !== l1) return false;
-        if (l2 !== 'ALL' && (path.length < 2 || path[1] !== l2)) return false;
-        if (l3 !== 'ALL' && (path.length < 3 || path[2] !== l3)) return false;
-        if (l4 !== 'ALL' && (path.length < 4 || path[3] !== l4)) return false;
-      }
+    // Le chemin de taxonomie résolu sert aux DEUX usages ci-dessous (recherche texte + filtre de
+    // type) : on ne le résout qu'une seule fois, et uniquement si l'un des deux est actif.
+    let path = null;
+    if (needle || hasTypeFilter) {
+      // Résolution centralisée (chemin complet → feuille unique → recherche floue). Une feuille
+      // AMBIGUË (nom porté par plusieurs branches, ex: "Guitare Acoustique" = étui ET instrument)
+      // n'est volontairement pas résolue : l'annonce retombe dans "OTHER" plutôt que d'être
+      // rattachée à la mauvaise branche — c'est le bug des étuis classés comme guitares.
+      path = resolveClassification(analysis.classification).segments;
     }
-    return true;
-  }, [taxonomyFullPaths, taxonomyLeafPaths]);
 
-  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX et CONDITION
-  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter) => {
+    // Recherche textuelle (titre + marque/modèle/couleur identifiés par l'IA + TAXONOMIE résolue).
+    // La taxonomie dans le haystack permet à "acoustique" ou "parlor" de ramener les annonces
+    // classées dans cette branche même si le mot n'apparaît nulle part dans le texte de l'annonce.
+    // Comparaison via normalizeLoose() des deux côtés : insensible aux accents et à la ponctuation
+    // (donc "electrique" trouve "électrique", "les paul" trouve "Les-Paul") mais respectueuse des
+    // séparations de mots — voir le commentaire de normalizeLoose() pour le faux positif évité.
+    if (needle && !idMatched) {
+      const haystack = normalizeLoose(
+        [deal.title, analysis.brand, analysis.model_name, analysis.color, path ? path.join(' ') : null]
+          .filter(Boolean).join(' ')
+      );
+      if (!haystack.includes(needle)) return false;
+    }
+
+    if (!hasTypeFilter) return true; // Aucune sélection = Tous les types
+    if (!path) return typePaths.includes('OTHER');
+
+    // Un deal correspond si son chemin égale ou descend (préfixe) d'AU MOINS un des chemins
+    // sélectionnés — permet de cocher "Parlor" ET "Baby / Mini" simultanément même si ces deux
+    // catégories se trouvent dans des branches différentes de la taxonomie.
+    const fullPathStr = path.join('.');
+    return typePaths.some(selected =>
+      selected === fullPathStr || fullPathStr.startsWith(`${selected}.`)
+    );
+  }, []);
+
+  // 2.5 Helper pour vérifier si un deal correspond aux filtres de PRIX, CONDITION et FINITION
+  // (finish_application/finish_texture : listes fermées demandées à l'IA, cf. prompts.json — mais
+  // analyzer.py fait un json.loads() brut, sans response_schema/enum qui forcerait la valeur exacte.
+  // Comparer en égalité stricte reproduirait le même bug déjà rencontré sur la taxonomie (l'IA
+  // dérive du texte attendu — casse, espacement — et le filtre ne matche plus rien). Comparaison
+  // sur chaînes normalisées (même helper que la taxonomie) plutôt qu'un `!==` brut : tolère la
+  // variance de formatage sans réintroduire la recherche par sous-chaîne (qui, elle, avait causé
+  // les faux-positifs sur la taxonomie — non pertinente ici, ce sont des valeurs courtes et fermées).
+  const matchesConditionAndPrice = useCallback((deal, condition, priceFilter, finishApplication, finishTexture) => {
     // === CONDITION ===
     if (condition !== 'ALL') {
       const conditionScore = deal.aiAnalysis?.condition_score;
@@ -346,6 +450,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       if (priceFilter === 'over600' && price <= 600) return false;
     }
 
+    // === FINITION ===
+    if (finishApplication && finishApplication !== 'ALL' && normalize(deal.aiAnalysis?.finish_application) !== normalize(finishApplication)) return false;
+    if (finishTexture && finishTexture !== 'ALL' && normalize(deal.aiAnalysis?.finish_texture) !== normalize(finishTexture)) return false;
+
     return true;
   }, []);
 
@@ -354,7 +462,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     const c = { OTHER: 0, all: 0 };
     deals.forEach(deal => {
       if (!matchesVerdictFilter(deal, filterType)) return;
-      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
 
       c.all++;
 
@@ -364,9 +472,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         return;
       }
 
-      const normalizedClass = normalize(classification);
-      let path = taxonomyFullPaths[normalizedClass] || taxonomyLeafPaths[normalizedClass];
-      if (!path) path = findPathFuzzy(normalizedClass, taxonomyLeafPaths);
+      const path = resolveClassification(classification).segments;
 
       if (path) {
         let currentPath = "";
@@ -379,31 +485,62 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
     });
     return c;
-  }, [deals, filterType, conditionFilter, priceFilter, matchesVerdictFilter, matchesConditionAndPrice, taxonomyFullPaths, taxonomyLeafPaths]);
+  }, [deals, filterType, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, matchesVerdictFilter, matchesConditionAndPrice]);
+
+  // 3.5 Suggestions de catégories pour l'autocomplétion de la barre de recherche.
+  // Le matching porte sur le LIBELLÉ PROPRE du nœud (son dernier segment), pas sur son chemin
+  // complet : sinon taper "guitare" proposerait les ~100 nœuds de la branche, ce qui n'aide pas.
+  // Les catégories déjà cochées sont retirées de la liste (les re-proposer les décocherait).
+  const searchSuggestions = useMemo(() => {
+    const needle = normalizeLoose(searchQuery);
+    if (needle.length < 2) return []; // 1 seule lettre = trop de bruit
+    return TAXONOMY_NODES
+      .filter(node => !selectedTypePaths.includes(node.path))
+      .map(node => {
+        const position = node.labelNormalized.indexOf(needle);
+        if (position < 0) return null;
+        const count = typeCounts[node.path] || 0;
+        return { ...node, count, startsWith: position === 0, hasResults: count > 0 };
+      })
+      .filter(Boolean)
+      // Un libellé qui COMMENCE par la saisie d'abord, puis les catégories qui contiennent
+      // réellement des annonces (cocher une catégorie vide n'affiche rien — elle reste proposée,
+      // mais en bas), puis les plus larges (profondeur faible), puis les mieux fournies.
+      .sort((a, b) =>
+        (b.startsWith - a.startsWith) || (b.hasResults - a.hasResults) ||
+        (a.depth - b.depth) || (b.count - a.count)
+      )
+      .slice(0, 8);
+  }, [searchQuery, selectedTypePaths, typeCounts]);
 
   // 4. Calcul des compteurs de VERDICT (Basé sur les deals filtrés par TYPE, CONDITION et PRICE)
   const verdictCounts = useMemo(() => {
-    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0 };
+    const c = { ALL: 0, FAVORITES: 0, REJECTED: 0, ERROR: 0, SOLD: 0, PURCHASED: 0 };
     // Initialiser tous les compteurs de verdicts possibles
     Object.keys(ALL_VERDICTS).forEach(key => c[key] = 0);
 
     deals.forEach(deal => {
+      // Type/recherche/condition/prix s'appliquent à TOUS les compteurs désormais, y compris
+      // REJECTED/SOLD/PURCHASED ci-dessous (bug corrigé le 2026-08-19, même cause que filteredDeals).
+      if (!matchesTypeFilter(deal, selectedTypePaths, searchQuery)) return;
+      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter)) return;
+
+      // Achat : flag indépendant du status/verdict, compté à part avant tout autre cas spécial
+      // (une annonce achetée peut être encore active, ou déjà marquée vendue par le bot).
+      if (deal.isPurchased) c.PURCHASED++;
+
       // Cas spécial : REJECTED compte tous les rejetés
       if (deal.status === 'rejected') {
         c.REJECTED++;
         return;
       }
 
-      // Cas spécial : SOLD compte TOUTES les annonces vendues, indépendamment des autres filtres
+      // Cas spécial : SOLD compte toutes les annonces vendues (qui passent les filtres ci-dessus)
       if (deal.status === 'sold') {
         c.SOLD++;
         if (deal.isFavorite) c.FAVORITES++; // Compter aussi dans les favoris si applicable
         return; // On sort pour ne pas les compter dans "ALL" ni dans les autres catégories de base
       }
-
-      // On n'inclut que les deals qui passent les filtres de type, condition et prix actuels
-      if (!matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery)) return;
-      if (!matchesConditionAndPrice(deal, conditionFilter, priceFilter)) return;
 
       const verdict = deal.aiAnalysis?.verdict || 'PENDING';
       const knownVerdict = verdict === 'PENDING' || !!ALL_VERDICTS[verdict] || ARCHIVE_GROUP.includes(verdict);
@@ -432,21 +569,23 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       if (deal.isFavorite && !favoriteNoise) c.FAVORITES++;
     });
     return c;
-  }, [deals, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery, matchesTypeFilter, matchesConditionAndPrice]);
 
   // 5. Liste finale filtrée (Intersection de tous les filtres)
   const filteredDeals = useMemo(() => {
     const result = deals.filter(deal => {
+      // Type/recherche/condition/prix s'appliquent à TOUS les onglets, y compris les statuts
+      // spéciaux ci-dessous (bug corrigé le 2026-08-19 : REJECTED/SOLD/PURCHASED ignoraient
+      // auparavant ces filtres, recherche comprise — voir JOURNAL.md).
+      const typeMatch = matchesTypeFilter(deal, selectedTypePaths, searchQuery);
+      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter);
+      if (!typeMatch || !condPriceMatch) return false;
+
       if (filterType === 'REJECTED') return deal.status === 'rejected';
       if (filterType === 'SOLD') return deal.status === 'sold';
+      if (filterType === 'PURCHASED') return !!deal.isPurchased;
 
-
-      // Pour les autres filtres, on combine verdict, type, condition et prix
-      const verdictMatch = matchesVerdictFilter(deal, filterType);
-      const typeMatch = matchesTypeFilter(deal, level1Filter, level2Filter, level3Filter, level4Filter, searchQuery);
-      const condPriceMatch = matchesConditionAndPrice(deal, conditionFilter, priceFilter);
-
-      return verdictMatch && typeMatch && condPriceMatch;
+      return matchesVerdictFilter(deal, filterType);
     });
 
     if (sortMode === 'interest') {
@@ -493,7 +632,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       const timeB = b.timestamp?.seconds || 0;
       return timeB - timeA;
     });
-  }, [deals, filterType, level1Filter, level2Filter, level3Filter, level4Filter, conditionFilter, priceFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
+  }, [deals, filterType, selectedTypePaths, conditionFilter, priceFilter, finishApplicationFilter, finishTextureFilter, searchQuery, sortMode, matchesVerdictFilter, matchesTypeFilter, matchesConditionAndPrice]);
 
   const visibleDeals = useMemo(() => {
     return filteredDeals.slice(0, visibleCount);
@@ -586,18 +725,13 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     counts,
     filterProps: {
       filterType, setFilterType,
-      searchQuery, setSearchQuery,
-      level1Filter, setLevel1Filter,
-      level2Filter, setLevel2Filter,
-      level3Filter, setLevel3Filter,
-      level4Filter, setLevel4Filter,
+      searchQuery, setSearchQuery, searchSuggestions,
+      selectedTypePaths, setSelectedTypePaths, toggleTypePath,
       conditionFilter, setConditionFilter,
       priceFilter, setPriceFilter,
+      finishApplicationFilter, setFinishApplicationFilter,
+      finishTextureFilter, setFinishTextureFilter,
       sortMode, setSortMode,
-      level1Options,
-      level2Options,
-      level3Options,
-      level4Options,
       counts,
     },
     dealActions: {
@@ -606,7 +740,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleRetryAnalysis,
       handleForceExpertAnalysis,
       handleToggleFavorite,
-      handleSelectDeal: setSelectedDeal 
+      handleTogglePurchased,
+      handleSetClassification,
+      handleGalleryImageAdded,
+      handleAnalysisOverridesApplied,
+      handleSelectDeal: setSelectedDeal
     }
   };
 };

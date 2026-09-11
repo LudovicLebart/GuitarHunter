@@ -39,6 +39,7 @@ export const useBotConfig = (user) => {
   const [error, setError] = useState(null);
 
   // --- NOUVELLE GESTION DE LA CONFIGURATION ---
+  const [isNewUser, setIsNewUser] = useState(false);
   const [scanConfig, setScanConfig] = useState({
     max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
@@ -46,9 +47,9 @@ export const useBotConfig = (user) => {
 
   // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
-    gatekeeperModel: 'gemini-2.5-flash-lite',
-    mainModel: 'gemini-3.5-flash',
-    expertModel: 'gemini-2.5-pro',
+    gatekeeperModel: 'gemini-3.5-flash-lite',
+    mainModel: 'gemini-3.7-flash',
+    expertModel: 'gemini-3.1-pro-preview',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
     expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -97,7 +98,12 @@ export const useBotConfig = (user) => {
       console.log("🔄 useBotConfig: Received update from Firestore", data);
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
 
-      if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      if (!data.scanConfig) {
+        setIsNewUser(true);
+      } else {
+        setIsNewUser(false);
+        setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      }
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
 
       if (data.availableModels && Array.isArray(data.availableModels)) {
@@ -185,9 +191,9 @@ export const useBotConfig = (user) => {
     if (!user) return;
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       const defaultAnalysis = {
-        gatekeeperModel: 'gemini-2.5-flash-lite',
-        mainModel: 'gemini-3.5-flash',
-        expertModel: 'gemini-2.5-pro',
+        gatekeeperModel: 'gemini-3.5-flash-lite',
+        mainModel: 'gemini-3.7-flash',
+        expertModel: 'gemini-3.1-pro-preview',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
         expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -226,6 +232,7 @@ export const useBotConfig = (user) => {
     logLimit, setLogLimit,
     uiFilters, saveUiFilters,
     botStatus, // Exposé pour affichage dynamique du statut
+    isNewUser, // Exposé pour détecter un premier démarrage
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused,
     saveConfig,
     handleManualRefresh, handleManualCleanup,

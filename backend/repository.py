@@ -22,6 +22,10 @@ class FirestoreRepository:
 
         self.collection_ref = self.user_ref.collection('guitar_deals')
 
+        # Index léger (sharding sur 20 docs, voir _get_chunk_id) pour des recherches
+        # transverses peu coûteuses sans charger les documents complets de guitar_deals.
+        self.deals_index_ref = self.user_ref.collection('deals_index')
+
         # Catalogue de villes partagé entre tous les utilisateurs.
         # DocId = Facebook city ID (unique). Contient: name, id, latitude, longitude.
         self.shared_cities_ref = self.db.collection('artifacts').document(self.app_id) \
@@ -72,6 +76,20 @@ class FirestoreRepository:
             logger.error(f"Failed to get deal by ID '{deal_id}': {e}", exc_info=True)
             return None
 
+    def get_deals_index_snapshot(self):
+        """Lit les 20 chunks de l'index léger et retourne un dict {deal_id: {champs...}}
+        fusionné (title, p=price, l=location, la=latitude, lo=longitude, s=status, ...).
+        Utilisé pour des recherches transverses (ex: détection de doublons
+        cross-plateforme, comparaison par distance GPS) sans lire guitar_deals."""
+        merged = {}
+        try:
+            for chunk_doc in self.deals_index_ref.stream():
+                chunk_data = chunk_doc.to_dict() or {}
+                merged.update(chunk_data.get('deals', {}))
+        except Exception as e:
+            logger.error(f"Failed to read deals_index snapshot: {e}", exc_info=True)
+        return merged
+
     def _get_chunk_id(self, deal_id):
         """Calcule un ID de chunk déterministe (MD5) pour distribuer les annonces sur 20 documents."""
         import hashlib
@@ -79,30 +97,68 @@ class FirestoreRepository:
         val = int(h[:8], 16)
         return f"chunk_{val % 20}"
 
-    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None):
+    def _get_manual_classification(self, deal_id):
+        """Lit la correction manuelle de catégorie d'une annonce (None si absente).
+
+        Une lecture Firestore unitaire, faite uniquement lors d'une (ré-)analyse — négligeable face
+        aux 1 à 3 appels Gemini que celle-ci vient de coûter.
+        """
+        try:
+            snapshot = self.collection_ref.document(deal_id).get(field_paths=['manualClassification'])
+            if snapshot.exists:
+                return (snapshot.to_dict() or {}).get('manualClassification')
+        except Exception as e:
+            logger.warning(f"Lecture de manualClassification impossible pour '{deal_id}': {e}")
+        return None
+
+    def _get_manual_analysis_overrides(self, deal_id):
+        """Lit les corrections manuelles de champs d'analyse (verdict/scores/specs) d'une annonce,
+        appliquées directement par le client sans passer par Gemini (voir
+        `firestoreService.js::applyManualAnalysisOverrides`). Dict vide si absentes.
+
+        Ré-appliquées ICI par-dessus CHAQUE future (ré-)analyse IA : `aiAnalysis` est réécrit
+        intégralement à chaque analyse, la correction serait donc perdue au prochain scan ou
+        "Ré-analyser" sans ce mécanisme (même piège que `manualClassification`, généralisé aux
+        13 autres champs corrigeables depuis le chat).
+        """
+        try:
+            snapshot = self.collection_ref.document(deal_id).get(field_paths=['manualAnalysisOverrides'])
+            if snapshot.exists:
+                return (snapshot.to_dict() or {}).get('manualAnalysisOverrides') or {}
+        except Exception as e:
+            logger.warning(f"Lecture de manualAnalysisOverrides impossible pour '{deal_id}': {e}")
+        return {}
+
+    def _update_deal_index(self, deal_id, status=None, ai_analysis=None, is_favorite=None, timestamp=None, title=None, price=None, published_at=None, sold_at=None, location=None, initial_model=None, image_url=None, latitude=None, longitude=None, manual_classification=None):
         """Met à jour l'index découpé en chunks (sharding) pour contourner les limites Firestore."""
         try:
             chunk_id = self._get_chunk_id(deal_id)
             index_ref = self.user_ref.collection('deals_index').document(chunk_id)
-            
+
             update_data = {}
             prefix = f"deals.{deal_id}"
             update_data[f"{prefix}.h"] = chunk_id
-            
+
             if status is not None:
                 update_data[f"{prefix}.s"] = status
-            
+
             if is_favorite is not None:
                 update_data[f"{prefix}.f"] = is_favorite
-                
+
             if title is not None:
                 update_data[f"{prefix}.title"] = title
-                
+
             if price is not None:
                 update_data[f"{prefix}.p"] = price
 
             if location is not None:
                 update_data[f"{prefix}.l"] = location
+
+            if latitude is not None:
+                update_data[f"{prefix}.la"] = latitude
+
+            if longitude is not None:
+                update_data[f"{prefix}.lo"] = longitude
 
             if initial_model is not None:
                 update_data[f"{prefix}.imu"] = initial_model
@@ -132,14 +188,40 @@ class FirestoreRepository:
                     update_data[f"{prefix}.st"] = ts_sold
             
             if ai_analysis is not None:
+                # La correction manuelle est relue ICI par défaut plutôt que confiée aux appelants :
+                # rebuild_index.py, reanalyze_sold_deals.py et recover_initial_verdict.py ne la
+                # passaient pas, et réécrivaient donc `c` avec la valeur de l'IA tout en laissant
+                # `mc: true` — l'UI affichait "corrigé manuellement" sur une catégorie qui ne l'était
+                # plus, et les filtres revenaient silencieusement à la valeur de l'IA.
+                if manual_classification is None:
+                    manual_classification = self._get_manual_classification(deal_id)
                 ai = ai_analysis or {}
                 if isinstance(ai, list):
                     ai = ai[0] if len(ai) > 0 else {}
                 if not isinstance(ai, dict):
                     ai = {}
                 update_data[f"{prefix}.v"] = ai.get('verdict') or 'UNKNOWN'
-                update_data[f"{prefix}.c"] = ai.get('classification') or None
+                # Une correction manuelle de l'utilisateur prime sur la classification de l'IA et
+                # SURVIT aux ré-analyses : sans ça, chaque "Ré-analyser" réécrirait l'index avec la
+                # valeur de l'IA et la correction ne servirait plus qu'à l'affichage du document
+                # complet, pendant que filtres, compteurs et stats (qui lisent l'index) reviendraient
+                # silencieusement à la mauvaise catégorie.
+                update_data[f"{prefix}.c"] = manual_classification or ai.get('classification') or None
+                if manual_classification:
+                    update_data[f"{prefix}.mc"] = True
                 update_data[f"{prefix}.cs"] = ai.get('condition_score') or None
+                # Scores individuels (en plus de la moyenne "is" ci-dessous) : indexés pour que les
+                # statistiques croisées (StatsView.jsx) n'aient jamais besoin de charger le document
+                # complet d'une annonce pour accéder à un score précis.
+                update_data[f"{prefix}.ds"] = ai.get('deal_score') if isinstance(ai.get('deal_score'), (int, float)) else None
+                update_data[f"{prefix}.as"] = ai.get('authenticity_score') if isinstance(ai.get('authenticity_score'), (int, float)) else None
+                update_data[f"{prefix}.ls"] = ai.get('liquidity_score') if isinstance(ai.get('liquidity_score'), (int, float)) else None
+                update_data[f"{prefix}.rs"] = ai.get('restoration_interest_score') if isinstance(ai.get('restoration_interest_score'), (int, float)) else None
+                update_data[f"{prefix}.b"] = ai.get('brand') or None
+                update_data[f"{prefix}.mn"] = ai.get('model_name') or None
+                update_data[f"{prefix}.co"] = ai.get('color') or None
+                update_data[f"{prefix}.fa"] = ai.get('finish_application') or None
+                update_data[f"{prefix}.ft"] = ai.get('finish_texture') or None
                 update_data[f"{prefix}.ap"] = ai.get('also_qualifies_pepite', False)
                 update_data[f"{prefix}.ev"] = ai.get('estimated_value') or ai.get('estimated_guitar_value') or None
                 update_data[f"{prefix}.mu"] = ai.get('model_used') or None
@@ -217,7 +299,9 @@ class FirestoreRepository:
                 published_at=deal_data.get('published_at_ts'),
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
             )
             logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
         except Exception as e:
@@ -226,6 +310,10 @@ class FirestoreRepository:
     def update_deal_analysis(self, deal_id, analysis_data):
         """Met à jour l'analyse d'une annonce existante."""
         try:
+            manual_overrides = self._get_manual_analysis_overrides(deal_id)
+            if manual_overrides:
+                analysis_data = {**analysis_data, **manual_overrides}
+
             status = "analyzed"
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
@@ -240,7 +328,8 @@ class FirestoreRepository:
                 deal_id,
                 status=status,
                 ai_analysis=analysis_data,
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc),
+                manual_classification=self._get_manual_classification(deal_id)
             )
             logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
         except Exception as e:
@@ -249,6 +338,10 @@ class FirestoreRepository:
     def update_deal_data_and_analysis(self, deal_id, deal_data, analysis_data):
         """Met à jour les données complètes de l'annonce (ex: baisse de prix) et son analyse."""
         try:
+            manual_overrides = self._get_manual_analysis_overrides(deal_id)
+            if manual_overrides:
+                analysis_data = {**analysis_data, **manual_overrides}
+
             status = "analyzed"
             if analysis_data.get('verdict') == 'REJECTED':
                 status = "rejected"
@@ -274,7 +367,10 @@ class FirestoreRepository:
                 location=deal_data.get('location'),
                 initial_model=deal_data.get('initialModelUsed'),
                 published_at=deal_data.get('published_at_ts'),
-                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0]
+                image_url=(deal_data.get('storageImageUrls') or [None])[0] or (deal_data.get('imageUrls') or [None])[0],
+                latitude=deal_data.get('latitude'),
+                longitude=deal_data.get('longitude'),
+                manual_classification=self._get_manual_classification(deal_id),
             )
             logger.info(f"Updated full data and analysis for deal '{deal_id}' (e.g. Price drop). Status: '{status}'.")
         except Exception as e:
@@ -306,9 +402,14 @@ class FirestoreRepository:
                 'timestamp': firestore.SERVER_TIMESTAMP
             }
             if reason:
-                # Utilisation de datetime.now() pour ArrayUnion
-                update_data['aiAnalysis'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
-            
+                # Bug corrigé (2026-08-12) : ArrayUnion appliqué directement sur 'aiAnalysis' (un
+                # objet partout ailleurs dans le code — create_new_deal/update_deal_analysis/
+                # update_deal_data_and_analysis) écrasait silencieusement tout le contenu du champ
+                # par un tableau (comportement documenté de Firestore ArrayUnion sur un champ qui
+                # n'est pas déjà un tableau) — détruisant verdict/scores/classification/marque/marge
+                # de CHAQUE annonce marquée vendue. Stocké dans un champ dédié à la place.
+                update_data['soldNotes'] = firestore.firestore.ArrayUnion([{'info': reason, 'timestamp': datetime.now()}])
+
             self.collection_ref.document(deal_id).update(update_data)
             self._update_deal_index(deal_id, status='sold', timestamp=datetime.now(timezone.utc), sold_at=datetime.now(timezone.utc))
             logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
@@ -328,7 +429,9 @@ class FirestoreRepository:
         Nouvelle architecture : fusionne le catalogue partagé avec les préférences user.
         Fallback ancienne architecture : si le catalogue est vide, lit directement
         users/{uid}/cities (données complètes dans un seul document).
-        Retourne une liste de dicts (name, id, latitude, longitude, isScannable).
+        Retourne une liste de dicts (name, id, latitude, longitude, isScannable,
+        kijijiRadiusKm — préférence user optionnelle, `None` si non réglée, voir
+        `bot.py::_run_kijiji_scan()`).
         """
         try:
             catalog = {doc.id: doc.to_dict() for doc in self.shared_cities_ref.stream()}
@@ -340,7 +443,7 @@ class FirestoreRepository:
                 for city_id, city_data in catalog.items():
                     pref = user_prefs.get(city_id, {})
                     if pref.get('isScannable', False):
-                        result.append({**city_data, 'isScannable': True})
+                        result.append({**city_data, 'isScannable': True, 'kijijiRadiusKm': pref.get('kijijiRadiusKm')})
                 logger.info(f"Cities loaded from shared catalog: {len(result)} scannable / {len(catalog)} total.")
                 return result
             else:
@@ -491,12 +594,15 @@ class FirestoreRepository:
         """
         Télécharge les images depuis leurs URLs d'origine et les stocke
         de manière pérenne dans Firebase Storage.
-        Retourne la liste des URLs Firebase stables.
+        Retourne un tuple (URLs publiques HTTPS stables, URIs gs:// correspondantes) —
+        les URIs gs:// (2026-07-31) permettent au chat Gemini (Firebase AI Logic, frontend)
+        de lire les images directement sur Cloud Storage sans les re-télécharger/encoder.
         """
         if not self._bucket:
-            return []
-        
+            return [], []
+
         stable_urls = []
+        gs_uris = []
         for i, url in enumerate(image_urls):
             if not url:
                 continue
@@ -505,17 +611,30 @@ class FirestoreRepository:
                 if response.status_code != 200:
                     logger.warning(f"Image {i+1}/{len(image_urls)} non téléchargeable (HTTP {response.status_code}) pour deal {deal_id}.")
                     continue
-                
+
                 blob_path = f"deals/{deal_id}/{i}_{uuid.uuid4().hex[:8]}.jpg"
                 blob = self._bucket.blob(blob_path)
                 blob.upload_from_string(response.content, content_type='image/jpeg')
                 blob.make_public()
                 stable_urls.append(blob.public_url)
+                gs_uris.append(f"gs://{self._bucket.name}/{blob_path}")
                 logger.info(f"   ☁️ Image {i+1} uploadée pour deal {deal_id}: {blob_path}")
             except Exception as e:
                 logger.warning(f"Erreur upload image {i+1} pour deal {deal_id}: {e}")
-        
-        return stable_urls
+
+        return stable_urls, gs_uris
+
+    def list_deal_image_gs_uris(self, deal_id):
+        """
+        Liste les URIs gs:// des images déjà présentes dans Firebase Storage pour un deal,
+        sans re-téléchargement — pour rétro-remplir storageImageGsUris (2026-07-31) sur des
+        annonces déjà uploadées (storageImageUrls déjà renseigné) avant l'ajout de ce champ.
+        """
+        if not self._bucket:
+            return []
+        prefix = f"deals/{deal_id}/"
+        blobs = sorted(self._bucket.list_blobs(prefix=prefix), key=lambda b: b.name)
+        return [f"gs://{self._bucket.name}/{blob.name}" for blob in blobs]
 
     def delete_deal_images(self, deal_id):
         """

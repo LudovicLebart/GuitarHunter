@@ -1,5 +1,8 @@
 import time
+import re
+import unicodedata
 import threading
+import random
 import logging
 import requests
 from firebase_admin import firestore
@@ -7,19 +10,47 @@ import firebase_admin.auth as fb_auth
 
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
-    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT, 
+    DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
-    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS
+    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID
 )
 from backend.analyzer import DealAnalyzer
+from backend.cities import normalize_city_key, format_city_label, pick_best_label
+from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
+from backend.scraping.geo_clustering import compute_anchor_clusters
+from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
 
 class GuitarHunterBot:
+    # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
+    # de même prix venant d'une AUTRE source (Facebook vs Kijiji, distinguées via le
+    # préfixe `kijiji_` de l'ID) est considérée comme le même objet déjà analysé.
+    CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD = 0.6
+    # Distance GPS max (km) entre deux annonces de même prix/titre pour les considérer
+    # comme le même objet — voir _find_cross_platform_duplicate().
+    CROSS_PLATFORM_MAX_DISTANCE_KM = 5
+
+    # Rayon (km) utilisé pour regrouper les villes configurées en points d'ancrage, au
+    # lieu d'une recherche séparée par ville — voir docs/management/JOURNAL.md
+    # (2026-08-24/25) et `backend/scraping/geo_clustering.py`.
+    # Facebook applique déjà un rayon implicite non documenté autour de la ville
+    # recherchée : 80km est une valeur EMPIRIQUE (99.7% de couverture validée sur les
+    # annonces déjà indexées), pas une garantie du site. Voir les logs "📏 Rayon observé"
+    # (émis à chaque scan de ville, ci-dessous) pour son suivi dans le temps — à
+    # recalibrer si un jour ils révèlent une sous-estimation.
+    FACEBOOK_ANCHOR_RADIUS_KM = 80
+    # Kijiji, à l'inverse, reçoit un rayon EXPLICITE et réellement respecté par le site
+    # (`scan_city(..., radius_km=...)`) — cette valeur ne borne que la taille des
+    # clusters (quelles villes voyagent ensemble), jamais le rayon réellement envoyé à
+    # Kijiji : voir `_run_kijiji_scan()`, qui utilise `AnchorCluster.max_member_distance_km()`
+    # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
+    KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
+
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
         self.stop_event = stop_event
@@ -59,7 +90,8 @@ class GuitarHunterBot:
 
         initial_scan_config = {
             "max_ads": 5, "frequency": 60, "location": "montreal", "distance": 10,
-            "min_price": 0, "max_price": 150, "search_query": "electric guitar"
+            "min_price": 0, "max_price": 150, "search_query": "electric guitar",
+            "kijiji_enabled": False,
         }
 
         self.config_manager = ConfigManager(self.repo, initial_scan_config)
@@ -132,6 +164,7 @@ class GuitarHunterBot:
             'botStatus': self._current_status,
             'analysisConfig': {
                 'gatekeeperModel': GEMINI_MODELS["default_gatekeeper"],
+                'mainModel': GEMINI_MODELS["default_analyst"],
                 'expertModel': GEMINI_MODELS["default_expert"],  # Clé legacy (lue par le frontend)
                 'mainAnalysisPrompt': DEFAULT_MAIN_PROMPT,
                 'gatekeeperVerbosityInstruction': DEFAULT_GATEKEEPER_INSTRUCTION,
@@ -156,6 +189,86 @@ class GuitarHunterBot:
             return float(num_str) if num_str else 0.0
         except Exception:
             return 0.0
+
+    @staticmethod
+    def _is_number(value):
+        """`bool` est une sous-classe d'`int` en Python mais n'est pas une coordonnée
+        valide — même piège que celui déjà documenté pour
+        `scraping.kijiji.locations.nearest_configured_city` (calculate_distance() capture
+        une exception sur une entrée non numérique et retourne 0, qui gagnerait alors
+        silencieusement comme "distance minimale")."""
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+    @staticmethod
+    def _title_tokens(title):
+        """Normalise un titre en un set de tokens (minuscules, sans accents) pour un
+        calcul de similarité de Jaccard bon marché — pas de dépendance NLP."""
+        if not title:
+            return set()
+        normalized = unicodedata.normalize('NFD', title.lower()).encode('ascii', 'ignore').decode('utf-8')
+        return set(re.findall(r'[a-z0-9]+', normalized))
+
+    def _find_cross_platform_duplicate(self, listing_data, source):
+        """Cherche dans l'index léger (`deals_index`) une annonce déjà analysée venant
+        d'une AUTRE source, avec le même prix, un titre suffisamment similaire et une
+        localisation compatible. Retourne l'ID du doublon trouvé, ou None. Placé avant
+        l'appel IA dans `handle_deal_found()` pour éviter de payer le pipeline Gemini
+        deux fois sur la même annonce postée sur Facebook et Kijiji.
+
+        **Localisation par distance GPS plutôt que par nom de ville exact (2026-07-27,
+        signalé par l'utilisateur — faux négatif confirmé sur un vrai doublon)** :
+        `location` (nom) côté Kijiji est structurellement moins précis que côté Facebook
+        (grande sous-région Kijiji type "Longueuil / South Shore" vs ville précise, voir
+        ARCHITECTURE.md § kijiji/), y compris après correction GPS
+        (`nearest_configured_city()`) — rien ne garantit que la ville configurée la plus
+        proche corresponde à celle que Facebook affiche pour la même annonce. `latitude`/
+        `longitude`, quand disponibles des deux côtés, sont nettement plus fiables (le
+        `location.coordinates` Kijiji est précis même quand `location.name` ne l'est pas)
+        — comparées par distance Haversine (`CROSS_PLATFORM_MAX_DISTANCE_KM=5`) plutôt que
+        par égalité de texte. Coordonnées absentes d'un côté (arrive côté Facebook, moins
+        systématiquement extraites) : repli sur l'ancienne comparaison par nom de ville
+        normalisé, pour ne pas perdre tout filtre géographique (garde-fou contre un faux
+        positif sur un titre générique + prix identique par coïncidence, entre deux villes
+        différentes)."""
+        if self.offline_mode:
+            return None
+
+        new_price = self._normalize_price(listing_data.get('price'))
+        new_tokens = self._title_tokens(listing_data.get('title'))
+        if new_price <= 0 or not new_tokens:
+            return None
+
+        new_lat, new_lng = listing_data.get('latitude'), listing_data.get('longitude')
+        has_new_coords = self._is_number(new_lat) and self._is_number(new_lng)
+        new_location = ListingParser.normalize_city_name(listing_data.get('location'))
+
+        is_kijiji = (source == "Kijiji")
+        for deal_id, entry in self.repo.get_deals_index_snapshot().items():
+            if deal_id.startswith('kijiji_') == is_kijiji:
+                continue  # même source : pas un doublon cross-plateforme (déjà géré par ID exact)
+
+            if self._normalize_price(entry.get('p')) != new_price:
+                continue
+
+            candidate_tokens = self._title_tokens(entry.get('title'))
+            if not candidate_tokens:
+                continue
+            similarity = len(new_tokens & candidate_tokens) / len(new_tokens | candidate_tokens)
+            if similarity < self.CROSS_PLATFORM_TITLE_SIMILARITY_THRESHOLD:
+                continue
+
+            entry_lat, entry_lng = entry.get('la'), entry.get('lo')
+            has_entry_coords = self._is_number(entry_lat) and self._is_number(entry_lng)
+            if has_new_coords and has_entry_coords:
+                distance = calculate_distance(new_lat, new_lng, entry_lat, entry_lng)
+                if distance <= self.CROSS_PLATFORM_MAX_DISTANCE_KM:
+                    return deal_id
+                continue  # coordonnées fiables des deux côtés mais trop éloignées : pas un doublon
+
+            if new_location and ListingParser.normalize_city_name(entry.get('l')) == new_location:
+                return deal_id
+
+        return None
 
     def should_skip_deal(self, deal_id, price):
         if deal_id in self.session_processed_ids: return True
@@ -188,13 +301,8 @@ class GuitarHunterBot:
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
-    def _create_price_rejection_analysis(self, price, max_price):
-        # Verdict BAD_DEAL (existant, catégorie "Trop Cher") plutôt que REJECTED : l'annonce
-        # reste potentiellement valide, seulement hors budget — pas un rejet de fond.
-        return {"verdict": "BAD_DEAL", "reasoning": f"Prix ({price}$) supérieur au plafond configuré ({max_price}$).", "model_used": "pre-filter"}
-
-    def handle_deal_found(self, listing_data, is_manual_scan=False):
-        self.logger.info(f"Traitement de la nouvelle annonce : {listing_data['title']}")
+    def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
+        self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
 
         # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
         # extraits. On ne stocke rien pour ne pas figer une fiche vide comme "déjà traitée" —
@@ -202,52 +310,69 @@ class GuitarHunterBot:
         has_images = bool(listing_data.get('imageUrls') or listing_data.get('imageUrl'))
         has_price = self._normalize_price(listing_data.get('price')) > 0
         if not has_images and not has_price:
-            self.logger.warning(f"⏩ Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
-            return
+            self.logger.warning(f"⏩ [{source}] Scraping incomplet (0 image, prix 0$) pour '{listing_data.get('title')}' — ignorée, sera retentée à la prochaine session.")
+            return "scrape_failed"
 
-        # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
-        # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
-        # On coupe AVANT session_processed_ids.add() pour permettre une re-détection si
-        # le vendeur corrige son titre plus tard (ex: retrait du mot "VENDU").
-        SOLD_MARKERS = ['vendu', 'sold', 'deal closed', 'plus disponible', 'no longer available']
-        title_lower = (listing_data.get('title') or '').lower()
-        desc_lower = (listing_data.get('description') or '')[:200].lower()  # 200 premiers chars suffisent
-        found_sold_marker = next((m for m in SOLD_MARKERS if m in title_lower or m in desc_lower), None)
-        if found_sold_marker and not is_manual_scan:
-            self.logger.info(f"⏩ Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
-            return
-
-        self.session_processed_ids.add(listing_data['id'])
+        # Doublon cross-plateforme (même annonce postée sur Facebook ET Kijiji) : détecté
+        # avant tout appel IA via l'index léger (prix + ville + similarité de titre). Ignoré
+        # pour les scans manuels (`is_manual_scan`), où l'utilisateur demande explicitement
+        # une analyse de cette URL précise.
+        if not is_manual_scan:
+            cross_dup_id = self._find_cross_platform_duplicate(listing_data, source)
+            if cross_dup_id:
+                self.logger.info(f"⏩ [{source}] Doublon cross-plateforme détecté (déjà analysée sous '{cross_dup_id}'). Ignorée, aucun token IA consommé.")
+                return "duplicate_cross_platform"
 
         is_update = False
         original_price = None
+        existing_deal = None
         
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
-            if existing_deal:
-                if existing_deal.get('status') == 'rejected':
-                    self.logger.info("Annonce déjà rejetée. Ignorée.")
-                    return
-                    
-                old_p = self._normalize_price(existing_deal.get('price'))
-                new_p = self._normalize_price(listing_data['price'])
-                
-                if old_p > 0 and old_p == new_p:
-                    self.logger.info("Annonce déjà existante avec le même prix nettoyé. Ignorée.")
-                    return
-                    
-                # Prix différent !
-                original_price = existing_deal.get('price')
-                self.logger.info(f"Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
-                is_update = True
-                
-                # Enrichissement des données avec les infos de baisse de prix
-                try:
-                    if old_p > new_p > 0:
-                        listing_data['original_price'] = original_price
-                        listing_data['price_drop_amount'] = old_p - new_p
-                except Exception as e:
-                    self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
+
+        # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
+        # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
+        found_sold_marker = (
+            find_sold_marker(listing_data.get('title'))
+            or find_sold_marker((listing_data.get('description') or '')[:200])  # 200 premiers chars suffisent
+        )
+        
+        if found_sold_marker and not is_manual_scan:
+            if existing_deal and existing_deal.get('status') != 'sold':
+                self.logger.info(f"   📉 [{source}] Annonce {listing_data['id']} existante marquée VENDUE suite à la détection du marqueur '{found_sold_marker}'.")
+                if not self.offline_mode:
+                    self.repo.mark_deal_as_sold(listing_data['id'], f"Marqueur de vente détecté ('{found_sold_marker}')")
+                return "marked_sold"
+            else:
+                self.logger.info(f"⏩ [{source}] Annonce ignorée : marqueur de vente détecté ('{found_sold_marker}') dans '{listing_data.get('title')}'. Aucun token IA consommé.")
+                return "sold_marker"
+
+        self.session_processed_ids.add(listing_data['id'])
+
+        if existing_deal:
+            is_update = True
+            if existing_deal.get('status') == 'rejected':
+                self.logger.info(f"[{source}] Annonce déjà rejetée. Ignorée.")
+                return "already_rejected"
+
+            old_p = self._normalize_price(existing_deal.get('price'))
+            new_p = self._normalize_price(listing_data['price'])
+
+            if old_p > 0 and old_p == new_p:
+                self.logger.info(f"[{source}] Annonce déjà existante avec le même prix nettoyé. Ignorée.")
+                return "duplicate_unchanged"
+
+            # Prix différent !
+            original_price = existing_deal.get('price')
+            self.logger.info(f"[{source}] Annonce existante mais prix différent (Ancien: {original_price}$, Nouveau: {listing_data['price']}$). Mise à jour et Réanalyse.")
+
+            # Enrichissement des données avec les infos de baisse de prix
+            try:
+                if old_p > new_p > 0:
+                    listing_data['original_price'] = original_price
+                    listing_data['price_drop_amount'] = old_p - new_p
+            except Exception as e:
+                self.logger.warning(f"Erreur lors du calcul de la baisse de prix: {e}")
 
         current_config = self.config_manager.current_config_snapshot
         
@@ -260,22 +385,27 @@ class GuitarHunterBot:
             found_keyword = self._check_exclusion(listing_data, current_config)
             price_too_high = max_price > 0 and listing_price > max_price
         else:
-            self.logger.info(f"Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
+            self.logger.info(f"[{source}] Scan manuel : contournement des filtres de prix et de mots-clés pour '{listing_data.get('title')}'.")
 
-        if found_keyword or price_too_high:
-            if found_keyword:
-                self.logger.info(f"Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
-                rejection_analysis = self._create_rejection_analysis(found_keyword)
-            else:
-                self.logger.info(f"Annonce hors budget (BAD_DEAL) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
-                rejection_analysis = self._create_price_rejection_analysis(listing_data.get('price'), max_price)
+        if price_too_high:
+            # Hors budget = hors du périmètre de recherche, pas une "mauvaise annonce" —
+            # ignorée sans être stockée ni analysée (aucune écriture Firestore), contrairement
+            # à un rejet par mot-clé. Comportement uniforme Facebook/Kijiji : le filtre de prix
+            # côté recherche (URL Facebook/Kijiji) est censé éviter ce cas en amont, ceci n'est
+            # qu'un filet de sécurité pour ce qu'il laisse passer.
+            self.logger.info(f"[{source}] Annonce ignorée (hors budget) : prix ({listing_price}$) supérieur au plafond configuré ({max_price}$).")
+            return "out_of_budget"
+
+        if found_keyword:
+            self.logger.info(f"[{source}] Annonce rejetée par pré-filtrage. Mot-clé : '{found_keyword}'")
+            rejection_analysis = self._create_rejection_analysis(found_keyword)
             if not self.offline_mode:
                 if is_update:
                     # On met à jour l'analyse ET l'objet entier qui contient désormais le nouveau prix et original_price
                     self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, rejection_analysis)
                 else:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
-            return
+            return "rejected_prefilter"
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
         deal_id = listing_data.get('id')
@@ -290,15 +420,18 @@ class GuitarHunterBot:
             # Upload des images dans Firebase Storage avant la sauvegarde
             image_urls = listing_data.get('imageUrls') or ([listing_data.get('imageUrl')] if listing_data.get('imageUrl') else [])
             if image_urls:
-                stable_urls = self.repo.upload_images_to_storage(image_urls, listing_data['id'])
+                stable_urls, gs_uris = self.repo.upload_images_to_storage(image_urls, listing_data['id'])
                 if stable_urls:
                     listing_data['storageImageUrls'] = stable_urls
+                    listing_data['storageImageGsUris'] = gs_uris
             
             if is_update:
                 # Appel de la nouvelle méthode pour écraser le prix Firestore et ajouter l'historique
                 self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, analysis)
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
+
+        return "processed"
 
     def _is_stop_requested(self):
         """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
@@ -325,104 +458,524 @@ class GuitarHunterBot:
             # get_cities() retourne directement les villes isScannable du catalogue partagé
             cities_to_scan = self.repo.get_cities()
 
-            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c['name'] for c in cities_to_scan])}")
+            self.logger.info(f"Villes scanables ({len(cities_to_scan)}): {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
 
             if not cities_to_scan:
                 self.logger.warning("Aucune ville scannable configurée. Scan ignoré.")
             else:
-                all_allowed_cities_norm = [ListingParser.normalize_city_name(c['name']) for c in cities_to_scan]
-                
-                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c['name'] for c in cities_to_scan])}")
-                for city_data in cities_to_scan:
-                    if self._is_stop_requested():
-                        self.logger.info("🛑 Interruption de la boucle des villes.")
-                        break
-
-                    city_name = city_data.get('name')
-                    city_id = city_data.get('id')
-                    city_lat = city_data.get('latitude')
-                    city_lon = city_data.get('longitude')
-                    city_norm_name = ListingParser.normalize_city_name(city_name)
-                    
-                    if not all([city_name, city_id, city_lat is not None, city_lon is not None]):
-                        self.logger.warning(f"Données incomplètes pour la ville {city_name or 'inconnue'}. Scan de cette ville ignoré.")
-                        continue
-
-                    city_specific_config = scan_config.copy()
-                    city_specific_config['location'] = city_norm_name
-                    self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
-
-                    if self._browser_semaphore:
-                        self._browser_semaphore.acquire()
-                    try:
-                        temp_scraper = FacebookScraper({}, {}, logger=self.logger)
-                        temp_scraper.city_mapping = {city_norm_name: city_id}
-                        temp_scraper.allowed_cities = all_allowed_cities_norm
-
-                        try:
-                            found_deals = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
-
-                            # --- FILTRAGE PAR RAYON ---
-                            radius_km = scan_config.get('distance', 0)
-                            if radius_km == 0:
-                                # Mode nom strict : ne conserver que les annonces dont la localisation correspond à la ville
-                                norm_city = ListingParser.normalize_city_name(city_name)
-                                strict_filtered = []
-                                for deal in found_deals:
-                                    norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
-                                    if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
-                                        strict_filtered.append(deal)
-                                    else:
-                                        self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' ≠ '{city_name}'.")
-                                self.logger.info(f"[STRICT] {len(strict_filtered)}/{len(found_deals)} annonces conservées (correspondance exacte ville).")
-                                found_deals = strict_filtered
-                            elif radius_km > 0:
-                                deals_in_radius = []
-                                for deal in found_deals:
-                                    deal_lat = deal.get('latitude')
-                                    deal_lon = deal.get('longitude')
-                                    if deal_lat is not None and deal_lon is not None:
-                                        distance = calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
-                                        if distance <= radius_km:
-                                            deals_in_radius.append(deal)
-                                        else:
-                                            self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km).")
-                                    else:
-                                        deals_in_radius.append(deal)
-
-                                self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
-                                found_deals = deals_in_radius
-
-                            # --- TRAITEMENT DES ANNONCES FILTRÉES ---
-                            for deal in found_deals:
-                                if self._is_stop_requested(): break
-                                self.handle_deal_found(deal)
-
-                        finally:
-                            temp_scraper.close_session()
-                    finally:
-                        if self._browser_semaphore:
-                            self._browser_semaphore.release()
-                    
-                    time.sleep(2)
+                self.logger.info(f"Scan de {len(cities_to_scan)} villes : {', '.join([c.get('name', 'Inconnue') for c in cities_to_scan])}")
+                self._run_sources_in_parallel(scan_config, cities_to_scan)
             self.logger.info("Scan planifié terminé.")
         finally:
             if not self.offline_mode:
                 self.set_status('idle', task_name='scanning')
 
-    def scan_specific_url(self, url):
-        if not self.offline_mode:
-            self.set_status('scanning_url', task_name='scanning_url')
+    def _run_sources_in_parallel(self, scan_config, cities_to_scan):
+        """Lance Facebook (si `scanConfig.facebook_enabled`, activé par défaut — absent
+        pour tout compte existant avant ce réglage) et Kijiji (si `scanConfig.kijiji_enabled`)
+        chacun dans son propre thread plutôt qu'en séquence — le cycle complet dure
+        max(FB, Kijiji) au lieu de FB + Kijiji. Les deux sources sont désactivables
+        indépendamment (ex: isoler un scan Kijiji seul en désactivant Facebook, pour
+        déboguer sans le bruit de l'autre source dans les logs partagés). Sûr à
+        paralléliser : les deux sources n'écrivent jamais le même document Firestore (IDs
+        Kijiji préfixés `kijiji_`, voir _run_kijiji_scan), `session_processed_ids` est déjà
+        isolé par thread (`threading.local()`, voir sa docstring), et `_browser_semaphore`
+        (déjà thread-safe) continue de plafonner le nombre réel de navigateurs Playwright
+        simultanés — 2 threads ne veut pas dire 2 navigateurs ouverts en même temps si la
+        limite est à 1.
+        """
+        def _run_and_log(name, target):
+            try:
+                target(scan_config, cities_to_scan)
+            except Exception as e:
+                self.logger.error(f"❌ Erreur non gérée dans le thread de scan {name}: {e}", exc_info=True)
+
+        threads = []
+        if scan_config.get('facebook_enabled', True):
+            threads.append(threading.Thread(
+                target=_run_and_log, args=("Facebook", self._run_facebook_scan),
+                name=f"scan-facebook-{self._user_id[:8]}", daemon=True,
+            ))
+        if scan_config.get('kijiji_enabled'):
+            threads.append(threading.Thread(
+                target=_run_and_log, args=("Kijiji", self._run_kijiji_scan),
+                name=f"scan-kijiji-{self._user_id[:8]}", daemon=True,
+            ))
+
+        if not threads:
+            self.logger.warning("⚠️ Aucune source de scan activée (Facebook et Kijiji désactivés) — cycle ignoré.")
+            return
+
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    def _run_facebook_scan(self, scan_config, cities_to_scan):
+        all_allowed_cities_norm = [ListingParser.normalize_city_name(c.get('name', '')) for c in cities_to_scan if c.get('name')]
+
+        # Comptabilisation des échecs sur tout le cycle (pas seulement les deals trouvés) —
+        # sert à distinguer "peu d'annonces sur Facebook" d'"annonces perdues côté scraper".
+        cycle_stats = {
+            "rejected_out_of_list": 0, "anti_bot_blocked_cities": [], "matched_other_city": 0,
+            "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0, "already_rejected": 0,
+            "duplicate_unchanged": 0, "duplicate_cross_platform": 0, "rejected_prefilter": 0,
+            "out_of_budget": 0, "processed": 0, "total_cards_seen": 0,
+            "dropped_no_location": 0, "dropped_no_price": 0,
+        }
+
+        # Points d'ancrage (2026-08-25) : remplace une recherche Facebook par ville
+        # configurée (22 requêtes/cycle) par une recherche par cluster géographique — voir
+        # `FACEBOOK_ANCHOR_RADIUS_KM` et `backend/scraping/geo_clustering.py`. Le filtrage
+        # par ville ci-dessous (mode strict ou par rayon) reste inchangé : il continue de
+        # s'appuyer sur la liste COMPLÈTE des 22 villes (`all_allowed_cities_norm`), pas sur
+        # le cluster — une annonce localisée dans une ville membre non-ancre est donc traitée
+        # exactement comme aujourd'hui quand Facebook la retourne via la recherche de l'ancre.
+        clusters = compute_anchor_clusters(cities_to_scan, self.FACEBOOK_ANCHOR_RADIUS_KM)
+
+        # Ordre de scan mélangé (2026-08-24, diagnostic blocages anti-bot) — copie locale
+        # indépendante : `cities_to_scan` est le MÊME objet passé à `_run_kijiji_scan()`,
+        # exécuté en parallèle dans un autre thread (voir `_run_sources_in_parallel()`), donc
+        # jamais mélangé en place (ça ferait courir les deux threads sur une liste mutée sous
+        # leurs pieds). Scanner toujours dans le même ordre est en soi un signal robotique,
+        # indépendamment du contenu des requêtes. Mélange désormais les CLUSTERS (indépendant
+        # de `cities_to_scan` lui-même, aucun risque de mutation partagée).
+        shuffled_clusters = list(clusters)
+        random.shuffle(shuffled_clusters)
+
+        for cluster in shuffled_clusters:
+            if self._is_stop_requested():
+                self.logger.info("🛑 Interruption de la boucle des villes (Facebook).")
+                break
+
+            city_data = cluster.anchor
+            city_name = city_data.get('name')
+            city_id = city_data.get('id')
+            city_lat = city_data.get('latitude')
+            city_lon = city_data.get('longitude')
+            city_norm_name = ListingParser.normalize_city_name(city_name)
+
+            if not all([city_name, city_id, city_lat is not None, city_lon is not None]):
+                self.logger.warning(f"Données incomplètes pour la ville {city_name or 'inconnue'}. Scan de cette ville ignoré.")
+                continue
+
+            city_specific_config = scan_config.copy()
+            city_specific_config['location'] = city_norm_name
+            if len(cluster.members) > 1:
+                covered_names = ', '.join(m.get('name', '?') for m in cluster.members if m is not city_data)
+                self.logger.info(f"--- Scan de l'ancrage : {city_name} ({city_id}) — couvre aussi : {covered_names} ---")
+            else:
+                self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
+
+            if self._browser_semaphore:
+                self._browser_semaphore.acquire()
+            try:
+                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
+                temp_scraper.city_mapping = {city_norm_name: city_id}
+                temp_scraper.allowed_cities = all_allowed_cities_norm
+
+                try:
+                    scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    found_deals = scan_result["deals"]
+                    cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
+                    cycle_stats["total_cards_seen"] += scan_result["total_cards_seen"]
+                    cycle_stats["dropped_no_location"] += scan_result["dropped_no_location"]
+                    cycle_stats["dropped_no_price"] += scan_result["dropped_no_price"]
+                    if scan_result["anti_bot_blocked"]:
+                        cycle_stats["anti_bot_blocked_cities"].append(city_name)
+
+                    # --- INSTRUMENTATION : fiabiliser le rayon d'ancrage (2026-08-25) ---
+                    # Distance réelle entre le point recherché et CHAQUE annonce retournée par
+                    # Facebook, avant tout filtrage — preuve directe (pas une hypothèse testée
+                    # après coup) de l'étendue du rayon implicite que Facebook applique autour
+                    # de la ville recherchée. Le max observé dans le temps sur ces logs est une
+                    # borne fiable à suivre pour recalibrer `FACEBOOK_ANCHOR_RADIUS_KM` si besoin
+                    # (voir docs/management/JOURNAL.md, 2026-08-24).
+                    deal_distances = [
+                        calculate_distance(city_lat, city_lon, d['latitude'], d['longitude'])
+                        for d in found_deals
+                        if d.get('latitude') is not None and d.get('longitude') is not None
+                    ]
+                    if deal_distances:
+                        max_distance = max(deal_distances)
+                        self.logger.info(f"📏 Rayon observé pour '{city_name}' : {max_distance:.1f}km (max sur {len(deal_distances)} annonce(s) géolocalisée(s)).")
+                        if max_distance > self.FACEBOOK_ANCHOR_RADIUS_KM:
+                            self.logger.warning(f"⚠️ Annonce trouvée à {max_distance:.1f}km de '{city_name}', au-delà du rayon d'ancrage actuel ({self.FACEBOOK_ANCHOR_RADIUS_KM}km) — le rayon empirique est peut-être sous-estimé.")
+
+                    # --- FILTRAGE PAR RAYON ---
+                    radius_km = scan_config.get('distance', 0)
+                    if radius_km == 0:
+                        # Mode nom strict, à 3 voies :
+                        # 1) localisation = ville recherchée -> traitée normalement.
+                        # 2) localisation = une AUTRE ville de la liste autorisée -> traitée quand
+                        #    même maintenant (au lieu d'être jetée après avoir payé le coût de la
+                        #    fiche détail) : ça alimente session_processed_ids et évite un refetch
+                        #    complet si Facebook la ressert lors du tour de cette autre ville.
+                        # 3) localisation hors de la liste des villes -> rejetée (inchangé).
+                        norm_city = ListingParser.normalize_city_name(city_name)
+                        own_city_deals, other_city_deals, out_of_scope_count = [], [], 0
+                        for deal in found_deals:
+                            norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
+                            if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
+                                own_city_deals.append(deal)
+                            elif norm_deal_loc and any(
+                                norm_deal_loc == other or other in norm_deal_loc or norm_deal_loc.startswith(other)
+                                for other in all_allowed_cities_norm if other != norm_city
+                            ):
+                                other_city_deals.append(deal)
+                            else:
+                                out_of_scope_count += 1
+                                self.logger.info(f"[STRICT] '{deal.get('title', 'N/A')}' rejeté — localisation '{deal.get('location', '')}' hors liste des villes autorisées.")
+                        if other_city_deals:
+                            self.logger.info(f"[STRICT] {len(other_city_deals)} annonce(s) d'une autre ville autorisée trouvée(s) pendant le scan de '{city_name}' — traitées maintenant.")
+                        self.logger.info(f"[STRICT] {len(own_city_deals)}/{len(found_deals)} annonces pour '{city_name}', {len(other_city_deals)} pour une autre ville de la liste, {out_of_scope_count} hors liste.")
+                        cycle_stats["matched_other_city"] += len(other_city_deals)
+                        found_deals = own_city_deals + other_city_deals
+                    elif radius_km > 0:
+                        # Distance mesurée par rapport à la ville membre du cluster la plus
+                        # proche (pas seulement l'ancre recherchée) : une annonce trouvée près
+                        # d'une ville membre non-ancre (ex: Saint-Bruno, couverte par l'ancre
+                        # Longueuil) doit être jugée selon SA propre distance à Saint-Bruno, pas
+                        # selon sa distance à Longueuil — sinon la consolidation en clusters
+                        # rétrécirait artificiellement la zone couverte par rapport au
+                        # comportement d'avant (une recherche dédiée par ville).
+                        members_with_coords = [
+                            m for m in cluster.members
+                            if m.get('latitude') is not None and m.get('longitude') is not None
+                        ]
+                        deals_in_radius = []
+                        for deal in found_deals:
+                            deal_lat = deal.get('latitude')
+                            deal_lon = deal.get('longitude')
+                            if deal_lat is not None and deal_lon is not None:
+                                distance = min(
+                                    calculate_distance(m['latitude'], m['longitude'], deal_lat, deal_lon)
+                                    for m in members_with_coords
+                                ) if members_with_coords else calculate_distance(city_lat, city_lon, deal_lat, deal_lon)
+                                if distance <= radius_km:
+                                    deals_in_radius.append(deal)
+                                else:
+                                    self.logger.info(f"Annonce '{deal.get('title', 'N/A')}' rejetée (distance: {distance:.1f}km > {radius_km}km de la ville membre la plus proche du cluster).")
+                            else:
+                                deals_in_radius.append(deal)
+
+                        self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
+                        found_deals = deals_in_radius
+
+                    # --- TRAITEMENT DES ANNONCES FILTRÉES ---
+                    for deal in found_deals:
+                        if self._is_stop_requested(): break
+                        outcome = self.handle_deal_found(deal, source="Facebook") or "unknown"
+                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+
+                finally:
+                    temp_scraper.close_session()
+            finally:
+                if self._browser_semaphore:
+                    self._browser_semaphore.release()
+
+            time.sleep(2)
+
+        blocked = cycle_stats["anti_bot_blocked_cities"]
+        self.logger.info(
+            "📊 Résumé du cycle Facebook : "
+            f"{cycle_stats['total_cards_seen']} carte(s) vue(s) au total, "
+            f"{cycle_stats['processed']} traitée(s) (analyse IA), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
+            f"{cycle_stats['out_of_budget']} ignorée(s) (hors budget), "
+            f"{cycle_stats['matched_other_city']} récupérée(s) via une autre ville de la liste, "
+            f"{cycle_stats['rejected_out_of_list']} hors liste de villes, "
+            f"{cycle_stats['dropped_no_location']} abandonnée(s) (localisation illisible sur la carte), "
+            f"{cycle_stats['dropped_no_price']} abandonnée(s) (prix illisible sur la carte), "
+            f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
+            f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
+            f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
+            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
+            f"{cycle_stats['duplicate_cross_platform']} doublon(s) cross-plateforme, "
+            f"{len(blocked)} ville(s) bloquée(s) par anti-bot" + (f" ({', '.join(blocked)})" if blocked else "") + "."
+        )
+
+    def _build_city_display_names(self, cities):
+        """`{clé de ville: libellé d'affichage}` pour étiqueter une annonce Kijiji.
+
+        Kijiji ne fournit pas de nom de ville fiable : `nearest_configured_city()` rattache
+        l'annonce à une ville configurée par GPS, mais ne renvoie que sa CLÉ normalisée
+        ("montreal"). L'écrire telle quelle produisait une seconde graphie à côté de celle de
+        Facebook ("Montréal, QC") — la même ville comptée deux fois dans les statistiques.
+
+        Le catalogue de villes ne stocke pas la région : elle est reprise d'une graphie déjà
+        présente dans l'index léger pour cette même ville (typiquement écrite par Facebook), via
+        `format_city_label()`. Une ville jamais vue côté Facebook garde son nom seul — la clé
+        canonique la regroupera quand même avec ses futures graphies (voir `backend/cities.py`).
+        """
+        display_names = {
+            normalize_city_key(c['name']): c['name']
+            for c in cities if c.get('name')
+        }
+        try:
+            known_labels = {}
+            for entry in self.repo.get_deals_index_snapshot().values():
+                raw = (entry or {}).get('l')
+                if raw:
+                    known_labels.setdefault(normalize_city_key(raw), []).append(raw)
+        except Exception as e:
+            self.logger.warning(f"[Kijiji] Libellés de villes existants illisibles ({e}) — noms seuls utilisés.")
+            return display_names
+
+        return {
+            key: format_city_label(name, pick_best_label(known_labels.get(key, [])))
+            for key, name in display_names.items()
+        }
+
+    def _run_kijiji_scan(self, scan_config, cities_to_scan):
+        """Scanne Kijiji.ca en plus de Facebook Marketplace, par point d'ancrage (2026-08-25,
+        voir `backend/scraping/geo_clustering.py`) sur le même catalogue de villes
+        (`cities_to_scan`) et les mêmes filtres partagés (`max_ads`, `search_query`,
+        `distance`) que le scan Facebook — pas de config Kijiji séparée dans cette
+        itération. Source activable/désactivable via `scanConfig.kijiji_enabled`
+        (ConfigPanel), module autonome (`backend/scraping/kijiji/`), non fusionné avec
+        `FacebookScraper`.
+
+        Rayon de recherche Kijiji (`radius_km` de `scan_city()`), priorité décroissante :
+        `city_data['kijijiRadiusKm']` (réglage par ville, Firestore) — la ville n'est alors
+        JAMAIS regroupée dans un cluster, toujours scannée seule avec ce rayon exact > pour
+        une ville regroupée par défaut, le plus grand entre `scan_config['distance']`
+        (réglage global explicite, partagé avec Facebook) et le rayon minimal requis pour
+        couvrir tous les membres de son cluster > défaut à deux paliers appliqué par
+        `scan_city()` elle-même (`None` transmis) si aucun des deux ne s'applique (cluster
+        d'une seule ville, pas de réglage global). Un seul rayon fixe pour toutes les
+        villes serait soit trop petit pour une grande ville, soit trop large (faux
+        positifs) pour une petite — voir `KijijiScraper.DEFAULT_RADIUS_KM_RESOLVED`/
+        `DEFAULT_RADIUS_KM_HUB_FALLBACK`. Le filtre géographique d'appartenance
+        (`nearest_configured_city`, plus bas) continue de s'appuyer sur les coordonnées de
+        TOUTES les villes configurées, pas seulement les ancres — une annonce Kijiji
+        retournée pour le cluster reste rattachée à sa ville membre la plus proche, jamais
+        à l'ancre par défaut.
+        """
+        self.logger.info("--- Scan Kijiji (source additionnelle) ---")
+
+        # Coordonnées des villes configurées, pour nearest_configured_city() — corrige
+        # 'location' (souvent une région Kijiji élargie, pas la ville précise, voir
+        # ARCHITECTURE.md) en la rattachant à la ville configurée la plus proche par GPS.
+        city_coordinates = {
+            ListingParser.normalize_city_name(c['name']): {"lat": c['latitude'], "lng": c['longitude']}
+            for c in cities_to_scan
+            if c.get('latitude') is not None and c.get('longitude') is not None
+        }
+        # Clé normalisée -> NOM D'AFFICHAGE de la ville (tel que saisi dans le catalogue, donc
+        # accentué). `nearest_configured_city()` ne renvoie que la clé : l'écrire telle quelle
+        # dans `location` produisait "montreal" là où Facebook stocke "Montréal, QC" — la même
+        # ville comptée deux fois dans les statistiques par ville (signalé par l'utilisateur).
+        # OPTION A : Kijiji doit produire EXACTEMENT le même format que Facebook ("Montréal, QC"),
+        # sinon les deux producteurs continuent de diverger et la base se refragmente au prochain
+        # scan. Le catalogue de villes ne porte pas la région : on la récupère depuis une graphie
+        # déjà stockée pour cette ville (l'index léger suffit, aucune lecture de guitar_deals).
+        city_display_names = self._build_city_display_names(cities_to_scan)
+        radius_km = scan_config.get('distance', 0)
+        max_radius_km = radius_km if radius_km > 0 else None
+        min_price = scan_config.get('min_price', 0)
+        max_price = scan_config.get('max_price', 0)
+
+        # Points d'ancrage (2026-08-25), même principe que côté Facebook — voir
+        # `backend/scraping/geo_clustering.py` et `KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM`.
+        # Une ville avec `kijijiRadiusKm` (réglage Firestore explicite par ville) signale
+        # une intention précise de l'utilisateur POUR CETTE VILLE : jamais absorbée dans
+        # un cluster, toujours scannée seule avec son propre rayon, exactement comme
+        # avant. Seules les villes "par défaut" sont regroupées.
+        cities_with_override = [c for c in cities_to_scan if (c.get('kijijiRadiusKm') or 0) > 0]
+        cities_for_clustering = [c for c in cities_to_scan if c not in cities_with_override]
+        clusters = compute_anchor_clusters(cities_for_clustering, self.KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM)
+
+        # Chaque cible = une seule recherche Kijiji. Pour un cluster, le rayon envoyé est
+        # le PLUS GRAND entre le réglage global explicite (`scanConfig.distance`, à
+        # respecter tel quel) et `max_member_distance_km()` (le strict nécessaire pour
+        # couvrir tous les membres de CE cluster précis) — jamais une constante fixe
+        # arbitraire : Kijiji respecte réellement ce paramètre, l'élargir sans besoin
+        # récupérerait des annonces hors de toute ville configurée pour rien.
+        scan_targets = []
+        for cluster in clusters:
+            if not cluster.anchor.get('name'):
+                continue
+            cluster_min_radius = cluster.max_member_distance_km()
+            candidates = [v for v in (radius_km, cluster_min_radius) if v and v > 0]
+            scan_targets.append({
+                "city_data": cluster.anchor,
+                "radius_km": max(candidates) if candidates else None,
+                "cluster_members": cluster.members,
+            })
+        for c in cities_with_override:
+            scan_targets.append({
+                "city_data": c,
+                "radius_km": c.get('kijijiRadiusKm'),
+                "cluster_members": [c],
+            })
+
+        # Comptabilisation du cycle Kijiji, symétrique à celle du scan Facebook — les deux
+        # threads tournent en parallèle et écrivent dans le même logger, donc chaque entrée
+        # (et le résumé final) doit porter son origine pour rester lisible dans le LogViewer.
+        cycle_stats = {
+            "rejected_out_of_radius": 0, "scrape_failed": 0, "sold_marker": 0, "marked_sold": 0,
+            "already_rejected": 0, "duplicate_unchanged": 0, "duplicate_cross_platform": 0,
+            "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
+        }
+
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
-            temp_scraper = FacebookScraper({}, {}, logger=self.logger)
+            temp_scraper = KijijiScraper(logger=self.logger)
             try:
+                for target in scan_targets:
+                    if self._is_stop_requested():
+                        self.logger.info("🛑 Interruption du scan Kijiji.")
+                        break
+
+                    city_data = target["city_data"]
+                    city_name = city_data.get('name')
+                    if not city_name:
+                        continue
+                    city_lat = city_data.get('latitude')
+                    city_lon = city_data.get('longitude')
+                    # Rayon déjà résolu au moment de la construction de `scan_targets`
+                    # (voir sa construction plus haut et la docstring de cette méthode).
+                    # Le sélecteur de rayon du site Kijiji n'autorise pas 0km, contrairement
+                    # à `distance=0` côté Facebook ("correspondance exacte de ville", un
+                    # concept qui n'existe pas pour Kijiji) — jamais 0 envoyé ici.
+                    kijiji_search_radius_km = target["radius_km"]
+
+                    if len(target["cluster_members"]) > 1:
+                        covered_names = ', '.join(m.get('name', '?') for m in target["cluster_members"] if m is not city_data)
+                        self.logger.info(f"--- Scan Kijiji : ancrage {city_name} (rayon {kijiji_search_radius_km}km) — couvre aussi : {covered_names} ---")
+                    else:
+                        self.logger.info(f"--- Scan Kijiji : {city_name} ---")
+                    try:
+                        # ID préfixé avant même le check de dédup (pas seulement après coup
+                        # sur `found_deals`) : `should_skip_deal` compare contre
+                        # `session_processed_ids`/Firestore, qui utilisent tous deux l'ID
+                        # préfixé — sinon aucune annonce déjà connue n'y matcherait jamais,
+                        # et chaque cycle revisiterait inutilement sa fiche détail.
+                        found_deals = temp_scraper.scan_city(
+                            city_name,
+                            category_id=KIJIJI_GUITARS_CATEGORY_ID,
+                            query=scan_config.get('search_query', 'electric guitar'),
+                            max_ads=scan_config.get('max_ads', 5),
+                            should_skip_callback=lambda kijiji_id, price: self.should_skip_deal(f"kijiji_{kijiji_id}", price),
+                            stop_event=self.stop_event or self.scan_stop_event,
+                            min_price=min_price, max_price=max_price,
+                            lat=city_lat, lng=city_lon, radius_km=kijiji_search_radius_km,
+                        )
+                    except Exception as e:
+                        self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
+                        continue
+
+                    for deal in found_deals:
+                        if self._is_stop_requested():
+                            break
+                        # Préfixé pour ne jamais collisionner avec un ID Facebook (les deux
+                        # sites utilisent de simples entiers, dans des espaces différents).
+                        deal['id'] = f"kijiji_{deal['id']}"
+
+                        nearest = nearest_configured_city(
+                            deal.get('latitude'), deal.get('longitude'), city_coordinates, max_radius_km=max_radius_km
+                        )
+                        if nearest:
+                            deal['location'] = city_display_names.get(nearest['city'], nearest['city'])
+                        elif max_radius_km is not None:
+                            self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
+                            cycle_stats["rejected_out_of_radius"] += 1
+                            continue
+
+                        outcome = self.handle_deal_found(deal, source="Kijiji") or "unknown"
+                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+
+                    time.sleep(2)
+            finally:
+                temp_scraper.close_session()
+        finally:
+            if self._browser_semaphore:
+                self._browser_semaphore.release()
+
+        self.logger.info(
+            "📊 Résumé du cycle Kijiji : "
+            f"{cycle_stats['processed']} traitée(s) (analyse IA), "
+            f"{cycle_stats['rejected_prefilter']} rejetée(s) pré-filtre (mot-clé), "
+            f"{cycle_stats['out_of_budget']} ignorée(s) (hors budget), "
+            f"{cycle_stats['rejected_out_of_radius']} hors rayon de toute ville configurée, "
+            f"{cycle_stats['scrape_failed']} échec(s) de scraping (0 image/prix), "
+            f"{cycle_stats['sold_marker']} ignorée(s) (marqueur vente, pas en base), "
+            f"{cycle_stats['marked_sold']} annonce(s) existante(s) marquée(s) vendue(s), "
+            f"{cycle_stats['duplicate_unchanged'] + cycle_stats['already_rejected']} ignorée(s) (déjà connues), "
+            f"{cycle_stats['duplicate_cross_platform']} doublon(s) cross-plateforme."
+        )
+
+    def scan_specific_url(self, url):
+        """Scan manuel d'une URL précise ("Scanner une URL spécifique") — dispatche vers
+        `KijijiScraper` ou `FacebookScraper` selon le domaine de `url` (2026-07-27 : avant
+        ce correctif, `FacebookScraper` était utilisé sans condition, y compris pour une
+        URL kijiji.ca — échec silencieux, "❓ Impossible de récupérer les informations..."
+        générique, notification mal étiquetée "URL Facebook" — signalé par l'utilisateur).
+        """
+        if not self.offline_mode:
+            self.set_status('scanning_url', task_name='scanning_url')
+        if self._browser_semaphore:
+            # Timeout défensif (2026-08-29) : un `acquire()` bloquant sans limite peut
+            # rester bloqué indéfiniment si un autre thread de scan (cycle Facebook/Kijiji
+            # planifié) reste accroché sans jamais relâcher son permis (ex: navigateur figé
+            # en anti-bot, `close_session()` sans timeout) — sans ce garde-fou, la commande
+            # ne loggue jamais rien (le premier log de `scan_specific_url()` côté scraper
+            # n'est atteint qu'après l'acquisition) et le statut reste bloqué sur
+            # `scanning_url`, symptôme signalé par l'utilisateur ("rien ne revient, rien
+            # dans les logs").
+            acquired = self._browser_semaphore.acquire(timeout=300)
+            if not acquired:
+                self.logger.error(
+                    "❌ Scan URL abandonné : impossible d'obtenir un navigateur disponible "
+                    "après 5 min (tous les créneaux Playwright sont occupés)."
+                )
+                if not self.offline_mode:
+                    self.set_status('idle', task_name='scanning_url')
+                return
+        try:
+            is_kijiji = "kijiji.ca" in url.lower()
+            source = "Kijiji" if is_kijiji else "Facebook"
+            temp_scraper = KijijiScraper(logger=self.logger) if is_kijiji else FacebookScraper({}, {}, logger=self.logger)
+            # Coordonnées des villes configurées, pour nearest_configured_city() — même
+            # correction que _run_kijiji_scan() (voir sa docstring : `location` Kijiji est
+            # souvent une grande sous-région, pas la ville précise), jusqu'ici absente du
+            # scan manuel (2026-07-27, corrigé — signalé par l'utilisateur).
+            city_coordinates = {}
+            city_display_names = {}
+            if is_kijiji and not self.offline_mode:
+                configured_cities = self.repo.get_cities()
+                city_coordinates = {
+                    ListingParser.normalize_city_name(c['name']): {"lat": c['latitude'], "lng": c['longitude']}
+                    for c in configured_cities
+                    if c.get('latitude') is not None and c.get('longitude') is not None
+                }
+                # Voir _run_kijiji_scan() : on stocke le libellé d'affichage, pas la clé normalisée.
+                city_display_names = self._build_city_display_names(configured_cities)
+            try:
+                scan_result = {}
                 def handle_manual_deal(listing_data):
-                    self.handle_deal_found(listing_data, is_manual_scan=True)
+                    if is_kijiji:
+                        # Préfixe requis avant handle_deal_found() (voir _run_kijiji_scan) :
+                        # Facebook et Kijiji utilisent tous deux de simples entiers comme
+                        # ID, dans des espaces différents — sans préfixe, une collision
+                        # entre les deux sources écraserait la mauvaise annonce.
+                        listing_data['id'] = f"kijiji_{listing_data['id']}"
+                        nearest = nearest_configured_city(
+                            listing_data.get('latitude'), listing_data.get('longitude'), city_coordinates
+                        )
+                        if nearest:
+                            listing_data['location'] = city_display_names.get(nearest['city'], nearest['city'])
+                    scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)
+                    scan_result["listing_data"] = listing_data
                 temp_scraper.scan_specific_url(url, handle_manual_deal)
                 try:
-                    NotificationService.notify_scan_url_finished(url, user_email=self._user_email, logger=self.logger)
+                    NotificationService.notify_scan_url_finished(
+                        url, user_email=self._user_email, logger=self.logger,
+                        outcome=scan_result.get("outcome"), listing_data=scan_result.get("listing_data"),
+                        source=source,
+                    )
                 except Exception as e:
                     self.logger.warning(f"Erreur envoi notification scan manuel URL: {e}")
             finally:
@@ -449,36 +1002,52 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
-                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
                 try:
                     docs = self.repo.get_active_listings()
                     listings = [{'id': d.id, 'url': d.to_dict().get('link')} for d in docs]
-                    self.logger.info(f"Vérification de la disponibilité de {len(listings)} annonces actives.")
+                    # Kijiji (préfixe `kijiji_`, voir _run_kijiji_scan) doit être vérifié avec
+                    # KijijiScraper, pas FacebookScraper : une URL Kijiji ne contient jamais
+                    # "/marketplace/item/", donc FacebookScraper.check_listing_availability()
+                    # la classerait à tort en "redirection détectée" = vendue.
+                    fb_listings = [item for item in listings if item['url'] and not item['id'].startswith('kijiji_')]
+                    kijiji_listings = [item for item in listings if item['url'] and item['id'].startswith('kijiji_')]
+                    self.logger.info(
+                        f"Vérification de la disponibilité de {len(fb_listings) + len(kijiji_listings)} annonces actives "
+                        f"({len(fb_listings)} Facebook, {len(kijiji_listings)} Kijiji)."
+                    )
                     deleted_count = 0
-                    for item in listings:
-                        if self._is_stop_requested():
-                            self.logger.info("🛑 Nettoyage interrompu.")
-                            break
-
-                        if not item['url']: continue
-                        if not temp_scraper.check_listing_availability(item['url']):
-                            self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
-                            self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
-                            deleted_count += 1
-                        time.sleep(0.5)
+                    deleted_count += self._check_listings_availability(FacebookScraper({}, {}, logger=self.logger), fb_listings)
+                    deleted_count += self._check_listings_availability(KijijiScraper(logger=self.logger), kijiji_listings)
                     self.logger.info(f"Nettoyage terminé. {deleted_count} annonces supprimées.")
                 except Exception as e:
                     self.logger.error(f"Erreur durant le nettoyage : {e}", exc_info=True)
-                finally:
-                    try:
-                        temp_scraper.close_session()
-                    except Exception as e:
-                        self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
             finally:
                 if self._browser_semaphore:
                     self._browser_semaphore.release()
                 self.is_cleaning = False
                 if not self.offline_mode: self.set_status('idle', task_name='cleaning')
+
+    def _check_listings_availability(self, scraper, listings):
+        """Vérifie chaque annonce de `listings` via `scraper.check_listing_availability()`,
+        marque vendue si indisponible. Ferme toujours `scraper` avant de retourner. Retourne
+        le nombre d'annonces marquées vendues."""
+        deleted_count = 0
+        try:
+            for item in listings:
+                if self._is_stop_requested():
+                    self.logger.info("🛑 Nettoyage interrompu.")
+                    break
+                if not scraper.check_listing_availability(item['url']):
+                    self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
+                    self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
+                    deleted_count += 1
+                time.sleep(0.5)
+        finally:
+            try:
+                scraper.close_session()
+            except Exception as e:
+                self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
+        return deleted_count
 
     def process_retry_queue(self):
         """Traite les annonces en attente de réanalyse."""
@@ -581,8 +1150,27 @@ class GuitarHunterBot:
             
         return None
 
-    def add_city_auto(self, city_name):
+    def add_city_auto(self, city_payload):
+        """`city_payload` : soit une simple chaîne (comportement historique, avant le sélecteur
+        de suggestions du frontend — recherche Facebook/Nominatim en aveugle, sans indice de
+        région), soit un dict `{name, latitude, longitude, region_hint}` produit par la sélection
+        explicite de l'utilisateur (ex: via Nominatim/Photon côté frontend) :
+        - `latitude`/`longitude` : coordonnées déjà confirmées visuellement par l'utilisateur —
+          priorité ABSOLUE sur toute coordonnée devinée (Facebook ou Nominatim), voir plus bas.
+        - `region_hint` : texte de région/pays (ex: "Québec, Canada") transmis à `CityFinder`
+          pour choisir la bonne suggestion Facebook parmi toutes celles proposées, plutôt que de
+          cliquer la première aveuglément (voir `city_finder.py`, correctif 2026-08-26 suite au
+          city_id de "Saint-Lambert" qui s'est révélé être un homonyme hors Québec).
+        """
         if self.offline_mode: return
+        if isinstance(city_payload, dict):
+            city_name = city_payload.get('name')
+            confirmed_lat = city_payload.get('latitude')
+            confirmed_lon = city_payload.get('longitude')
+            region_hint = city_payload.get('region_hint')
+        else:
+            city_name = city_payload
+            confirmed_lat = confirmed_lon = region_hint = None
         self.logger.info(f"Tentative d'ajout de la ville: {city_name}")
 
         # Dédoublonnage sur le catalogue partagé (nom)
@@ -603,15 +1191,14 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"Ville '{city_name}' dans le catalogue mais sans coordonnées. Lancement CityFinder pour enrichissement...")
 
-        city_id = None
-        city_coords = None
-
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
-                city_id, city_coords = CityFinder.find_city_id_and_coords(temp_scraper, city_name)
+                city_id, city_coords, matched_label, matched_confidently = CityFinder.find_city_id_and_coords(
+                    temp_scraper, city_name, region_hint=region_hint
+                )
             finally:
                 temp_scraper.close_session()
         finally:
@@ -625,23 +1212,40 @@ class GuitarHunterBot:
             target_id = city_id_str if city_id_str in catalog else (existing_id_by_name or city_id_str)
 
             # --- GESTION DES COORDONNÉES ---
-            # Priorité 1 : Coordonnées extraites directement de l'URL Facebook (très fiable car lié au city_id)
-            # Priorité 2 : Coordonnées via Nominatim
-            
-            final_coords = city_coords # Coordonnées venant de CityFinder (FB URL)
-            
-            if not final_coords:
-                self.logger.info(f"Pas de coords FB pour '{city_name}', tentative Nominatim...")
-                final_coords = self._geocode_nominatim(city_name)
-            else:
+            # Priorité 1 : coordonnées déjà confirmées par l'utilisateur (sélection explicite
+            #              d'une suggestion Nominatim/Photon côté frontend) — jamais remplacées
+            #              par une devinette, c'est la source la plus fiable possible.
+            # Priorité 2 : coordonnées extraites de l'URL Facebook (souvent absentes en pratique).
+            # Priorité 3 : Nominatim en aveugle (repli historique, seulement si aucune des deux
+            #              autres sources n'est disponible — ex: ancien payload en simple chaîne).
+            if confirmed_lat is not None and confirmed_lon is not None:
+                final_coords = {'lat': confirmed_lat, 'lon': confirmed_lon}
+                self.logger.info(f"Utilisation des coordonnées déjà confirmées par l'utilisateur pour '{city_name}': {final_coords}")
+            elif city_coords:
+                final_coords = city_coords
                 self.logger.info(f"Utilisation des coords Facebook pour '{city_name}': {final_coords}")
+            else:
+                self.logger.info(f"Pas de coords confirmées ni FB pour '{city_name}', tentative Nominatim (repli)...")
+                final_coords = self._geocode_nominatim(city_name)
 
             if not final_coords:
-                self.logger.warning(f"Nominatim n'a pas trouvé de coords pour '{city_name}'. Ville ajoutée sans coordonnées.")
+                self.logger.warning(f"Aucune coordonnée trouvée pour '{city_name}'. Ville ajoutée sans coordonnées.")
+
+            # `needsReview` : la suggestion Facebook cliquée ne correspondait pas à l'indice de
+            # région fourni — le city_id lui-même est peut-être un homonyme (voir docstring plus
+            # haut). Jamais bloquant (le city_id reste indispensable au scraper), juste un signal
+            # à vérifier manuellement dans l'app.
+            needs_review = bool(region_hint) and not matched_confidently
 
             city_data = {'name': city_name, 'id': city_id_str}
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
+            if needs_review:
+                city_data['needsReview'] = True
+                self.logger.warning(
+                    f"'{city_name}' marquée needsReview : suggestion Facebook cliquée ('{matched_label}') "
+                    f"ne correspond pas à l'indice de région fourni ('{region_hint}')."
+                )
 
             if in_catalog:
                 self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")
@@ -694,7 +1298,7 @@ class GuitarHunterBot:
             "price": deal_data.get('price'),
             "description": deal_data.get('description', ''),
             "location": deal_data.get('location', 'Inconnue'),
-            "imageUrls": deal_data.get('imageUrls', []),
+            "imageUrls": deal_data.get('storageImageUrls') or deal_data.get('imageUrls', []),
             "imageUrl": deal_data.get('imageUrl'),
             "link": deal_data.get('link'),
             "id": deal_id,

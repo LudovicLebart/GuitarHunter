@@ -1,9 +1,10 @@
 import {
   doc, setDoc, deleteField, onSnapshot, getDoc, getDocs,
-  collection, updateDoc, addDoc, deleteDoc, getFirestore,
-  query, orderBy, limit, where, documentId
+  collection, updateDoc, addDoc, deleteDoc, getFirestore, writeBatch,
+  query, orderBy, limit, where, documentId, serverTimestamp, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { computeInterestScore } from '../constants';
 
 const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
 
@@ -271,6 +272,404 @@ export const toggleDealFavorite = async (dealId, currentStatus, chunkId, userId)
   }
 };
 
+export const toggleDealPurchased = async (dealId, currentStatus, chunkId, userId, purchasePrice = null) => {
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    const newStatus = !currentStatus;
+    await updateDoc(doc(dealsCollectionRef, dealId), newStatus
+      ? { isPurchased: true, purchasedAt: serverTimestamp(), purchasePrice: purchasePrice ?? deleteField() }
+      : { isPurchased: false, purchasedAt: deleteField(), purchasePrice: deleteField() }
+    );
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        [`deals.${dealId}.pu`]: newStatus
+      });
+    }
+  } catch (error) {
+    console.error(`Error toggling purchased for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du statut d'achat.");
+  }
+};
+
+/**
+ * Correction manuelle de la classification d'une annonce (2026-08-16).
+ *
+ * Écrite dans un champ DÉDIÉ `manualClassification`, jamais dans `aiAnalysis.classification` :
+ * une ré-analyse écrase intégralement `aiAnalysis`, la correction serait donc perdue au premier
+ * "Ré-analyser" (même famille de piège que le bug `ArrayUnion` du 2026-08-12, qui détruisait
+ * silencieusement `aiAnalysis`). Le champ dédié prime à l'affichage et au filtrage.
+ *
+ * L'index léger reçoit la valeur corrigée dans `c` (pour que filtres/compteurs/stats en tiennent
+ * compte sans charger les documents complets) plus un marqueur `mc` qui signale l'origine manuelle.
+ * `classificationPath` vaut null pour ANNULER la correction et revenir au verdict de l'IA.
+ */
+export const setDealClassification = async (dealId, chunkId, userId, classificationPath, aiClassification = null) => {
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), {
+      manualClassification: classificationPath || deleteField()
+    });
+    if (chunkId) {
+      const indexDocRef = doc(userDocRef, 'deals_index', chunkId);
+      await updateDoc(indexDocRef, {
+        // En annulation, l'index retombe sur la classification de l'IA (pas sur du vide).
+        [`deals.${dealId}.c`]: classificationPath || aiClassification || deleteField(),
+        [`deals.${dealId}.mc`]: classificationPath ? true : deleteField()
+      });
+    }
+  } catch (error) {
+    console.error(`Error setting classification for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la correction de la catégorie.");
+  }
+};
+
+// Champs de `aiAnalysis` reflétés dans l'index léger (voir `backend/repository.py::_update_deal_index`
+// et le mapping inverse dans `useDealsManager.js`) — seuls ceux-ci ont une clé courte à patcher ;
+// `production_year`/`country_of_origin`/`neck_scale_length` ne vivent que dans le document complet.
+const ANALYSIS_INDEX_KEYS = {
+  verdict: 'v', deal_score: 'ds', authenticity_score: 'as', condition_score: 'cs',
+  liquidity_score: 'ls', restoration_interest_score: 'rs', brand: 'b', model_name: 'mn',
+  color: 'co', finish_application: 'fa', finish_texture: 'ft',
+};
+
+/**
+ * Applique directement une correction validée (verdict/scores/specs) sur `aiAnalysis`, sans
+ * repasser par Gemini — utilisée par "Appliquer" sur une proposition de requalification du chat
+ * (voir `useDealChat.js::applyRequalificationProposal`). Contrairement à `setDealClassification`,
+ * écrit DIRECTEMENT dans `aiAnalysis.<champ>` (pas un champ séparé) : les valeurs sont déjà
+ * validées/bornées côté client (`geminiChatService.js::validateDealRequalificationProposal`) avant
+ * même l'affichage du bouton, aucun site de lecture n'a donc besoin de connaître une "valeur
+ * effective" distincte.
+ *
+ * Écrit AUSSI dans `manualAnalysisOverrides.<champ>` (même valeurs) — lu et ré-appliqué par le
+ * backend à chaque future (ré-)analyse (`repository.py::_get_manual_analysis_overrides`), sans quoi
+ * la correction serait perdue au prochain scan ou "Ré-analyser" (qui réécrit `aiAnalysis` en entier).
+ *
+ * `currentAnalysis` (l'`aiAnalysis` actuel de l'annonce, déjà chargé côté appelant) sert uniquement
+ * à recalculer `interestScore` (moyenne des 5 scores) avec les valeurs corrigées — décision codée
+ * une seule fois ici et dans `computeInterestScore` (constants.js), jamais dupliquée.
+ */
+export const applyManualAnalysisOverrides = async (dealId, chunkId, userId, fields, currentAnalysis) => {
+  if (!fields || !Object.keys(fields).length) return;
+  try {
+    const { dealsCollectionRef, userDocRef } = getRefs(userId);
+    const dealUpdate = {};
+    for (const [key, value] of Object.entries(fields)) {
+      dealUpdate[`aiAnalysis.${key}`] = value;
+      dealUpdate[`manualAnalysisOverrides.${key}`] = value;
+    }
+    await updateDoc(doc(dealsCollectionRef, dealId), dealUpdate);
+
+    if (chunkId) {
+      const indexUpdate = {};
+      for (const [key, value] of Object.entries(fields)) {
+        const indexKey = ANALYSIS_INDEX_KEYS[key];
+        if (indexKey) indexUpdate[`deals.${dealId}.${indexKey}`] = value;
+      }
+      const interestScore = computeInterestScore({ ...currentAnalysis, ...fields });
+      if (interestScore != null) indexUpdate[`deals.${dealId}.is`] = interestScore;
+      if (Object.keys(indexUpdate).length) {
+        await updateDoc(doc(userDocRef, 'deals_index', chunkId), indexUpdate);
+      }
+    }
+  } catch (error) {
+    console.error(`Error applying manual analysis overrides for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'application de la correction.");
+  }
+};
+
+/**
+ * Ajoute une photo (déjà uploadée vers Firebase Storage, voir storageService.js) à la galerie de
+ * l'annonce — utilisée par le bouton "Ajouter à la galerie" du chat Gemini (2026-08-21, voir
+ * useDealChat.js::addPhotoToGallery). `storageImageUrls` est un VRAI champ tableau, contrairement
+ * à `aiAnalysis` (objet) sur lequel un `ArrayUnion` avait silencieusement corrompu les annonces
+ * vendues le 2026-08-12 — `arrayUnion` est l'usage correct ici.
+ */
+export const addImageToDealGallery = async (dealId, url, userId) => {
+  try {
+    const { dealsCollectionRef } = getRefs(userId);
+    await updateDoc(doc(dealsCollectionRef, dealId), {
+      storageImageUrls: arrayUnion(url)
+    });
+  } catch (error) {
+    console.error(`Error adding gallery image for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de la photo à la galerie.");
+  }
+};
+
+// --- Chat IA (2026-07-31, Firebase AI Logic) ---
+// Historique persisté par annonce : guitar_deals/{dealId}/chat/{msgId}, écrit directement
+// depuis le frontend (le chat n'implique aucun aller-retour backend Python — voir
+// docs/reference/ARCHITECTURE.md § Chat Gemini).
+
+const getDealChatCollectionRef = (dealId, userId) => {
+  const { dealsCollectionRef } = getRefs(userId);
+  return collection(doc(dealsCollectionRef, dealId), 'chat');
+};
+
+export const onDealChatUpdate = (dealId, onUpdate, onError, userId) => {
+  const chatQuery = query(getDealChatCollectionRef(dealId, userId), orderBy('createdAt', 'asc'));
+  return onSnapshot(chatQuery, (snapshot) => {
+    onUpdate(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, (error) => {
+    console.error(`Error listening to chat for deal ${dealId}:`, error);
+    onError?.(error);
+  });
+};
+
+// `parts` = payload complet envoyé/reçu de l'API Gemini (peut inclure le contexte injecté +
+// les pièces image gs://, invisibles à l'utilisateur) ; `displayText` = ce qui est réellement
+// affiché dans la bulle de chat (le texte tapé par l'utilisateur, ou la réponse du modèle).
+// `attachedImagePartIndices` (optionnel, 2026-08-22, tableau — remplace l'ancien champ singulier
+// `attachedImagePartIndex` conservé pour lecture rétrocompatible des messages déjà en base) =
+// index dans `parts` des photos jointes par l'utilisateur depuis le chat (distinctes des photos de
+// l'annonce déjà présentes dans `parts` sur le premier message) — référence les entrées existantes
+// plutôt que de dupliquer leur base64, pour un affichage sans équivoque des miniatures dans la bulle.
+// `restorationProposals` (optionnel, 2026-08-22, Lot B) : propositions d'ajout d'étape faites par
+// l'IA via function calling sur ce tour — jamais les parts function-call/function-response brutes
+// (jamais rejouées dans l'historique Gemini, voir useDealChat.js), juste la forme validée/normalisée
+// affichée en carte sous la bulle. Retourne l'id du document créé (aucun appelant ne le capture
+// aujourd'hui — `message.id` du listener Firestore suffit pour `proposedByMessageId`/le marquage
+// Appliquer/Ignorer, une fois le message déjà visible côté client — gardé pour un futur usage).
+export const addDealChatMessage = async (dealId, role, parts, displayText, userId, attachedImagePartIndices, restorationProposals, photoRecall, isError, requalificationProposal) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    const payload = { role, parts, displayText, createdAt: new Date() };
+    if (attachedImagePartIndices?.length) payload.attachedImagePartIndices = attachedImagePartIndices;
+    if (restorationProposals?.length) payload.restorationProposals = restorationProposals;
+    // `photoRecall` (2026-08-23, Plan 1 tokens, Lot D) : posé sur le message modèle quand ce tour a
+    // nécessité un rappel de photo(s) élidée(s) — voir useDealChat.js::sendMessage. Purement
+    // informatif (bascule d'affichage), aucune logique n'en dépend.
+    if (photoRecall?.refs?.length) payload.photoRecall = photoRecall;
+    // `isError` (2026-08-24) : marque structurellement un placeholder d'échec (plutôt que de
+    // détecter le texte "⚠️ Erreur..." côté UI, fragile) — pilote l'affichage du bouton
+    // "Réessayer" dans DealChatPanel.jsx::ChatBubble.
+    if (isError) payload.isError = true;
+    // `requalificationProposal` (2026-08-27, Lot 2) : au plus une par tour, voir
+    // markChatMessageRequalificationProposalStatus pour l'état Appliquer/Ignorer associé.
+    if (requalificationProposal) payload.requalificationProposal = requalificationProposal;
+    const docRef = await addDoc(chatCollectionRef, payload);
+    return docRef.id;
+  } catch (error) {
+    console.error(`Error saving chat message for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la sauvegarde du message.");
+  }
+};
+
+// Remplace en place le contenu d'un message de chat déjà persisté (2026-08-24, bouton
+// "Réessayer") — utilisé pour transformer un placeholder d'erreur en vraie réponse (ou en un
+// nouvel échec) SANS ajouter de document supplémentaire : `useDealChat.js::sanitizeHistory`
+// exige une alternance stricte user/model, deux tours 'model' consécutifs casseraient tout envoi
+// suivant sur cette conversation. `restorationProposals`/`photoRecall` sont explicitement remis à
+// `null` quand absents (pas juste omis) pour effacer une éventuelle valeur laissée par une
+// tentative précédente sur ce même document.
+export const replaceDealChatMessage = async (dealId, messageId, { parts, displayText, restorationProposals, photoRecall, isError, requalificationProposal }, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), {
+      parts, displayText,
+      restorationProposals: restorationProposals?.length ? restorationProposals : null,
+      photoRecall: photoRecall?.refs?.length ? photoRecall : null,
+      isError: !!isError,
+      requalificationProposal: requalificationProposal || null,
+    });
+  } catch (error) {
+    console.error(`Error replacing chat message ${messageId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du message.");
+  }
+};
+
+// Marque une photo jointe d'un message de chat comme "déjà ajoutée à la galerie" (2026-08-21,
+// étendu 2026-08-22 pour plusieurs photos par message) — persisté sur le message lui-même plutôt
+// qu'en état local, pour rester vrai après un reload ou depuis un autre client. `addedToGalleryUrls`
+// est une map `{ "<partIndex>": url }` (clé Firestore forcément string) : chaque photo du message a
+// son propre bouton "Ajouter à la galerie", indépendant des autres.
+export const markChatMessageAddedToGallery = async (dealId, messageId, partIndex, url, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), { [`addedToGalleryUrls.${partIndex}`]: url });
+  } catch (error) {
+    console.error(`Error marking chat message ${messageId} as added to gallery:`, error);
+    throw new Error("Erreur lors de la mise à jour du message.");
+  }
+};
+
+// Persiste l'état Appliquer/Ignorer d'une proposition d'étape de restauration (2026-08-22, Lot B)
+// SUR LE MESSAGE, pas seulement en état React local — sinon un reload réactiverait un bouton déjà
+// cliqué et permettrait de dupliquer l'étape. Même schéma dot-notation que `addedToGalleryUrls`.
+// `itemId` (optionnel) référence l'étape créée dans restorationPlan quand status === 'applied'.
+export const markChatMessageRestorationProposalStatus = async (dealId, messageId, proposalIndex, status, userId, itemId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    const value = itemId ? { status, itemId } : { status };
+    await updateDoc(doc(chatCollectionRef, messageId), { [`restorationProposalStates.${proposalIndex}`]: value });
+  } catch (error) {
+    console.error(`Error marking restoration proposal ${proposalIndex} on message ${messageId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de la proposition.");
+  }
+};
+
+// Persiste l'état Appliquer/Ignorer d'une proposition de requalification (2026-08-27, Lot 2) SUR LE
+// MESSAGE — même principe que markChatMessageRestorationProposalStatus, mais un champ singulier
+// (`requalificationProposalState`, pas indexé) : au plus une proposition de requalification par
+// tour (voir useDealChat.js::buildRequalificationProposalFromCalls). "Appliquer" ne référence aucun
+// document créé (contrairement à `itemId` côté restauration) — la correction part par la commande
+// ANALYZE_DEAL existante, jamais une écriture directe sur l'annonce.
+export const markChatMessageRequalificationProposalStatus = async (dealId, messageId, status, userId) => {
+  try {
+    const chatCollectionRef = getDealChatCollectionRef(dealId, userId);
+    await updateDoc(doc(chatCollectionRef, messageId), { requalificationProposalState: { status } });
+  } catch (error) {
+    console.error(`Error marking requalification proposal on message ${messageId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de la proposition.");
+  }
+};
+
+// --- Plan de restauration (2026-08-22) ---
+// Sous-collection dédiée guitar_deals/{dealId}/restorationPlan/{itemId}, jamais un champ sur le
+// deal ni dans aiAnalysis : repository.py écrase le deal entier (.set sans merge) et tout
+// aiAnalysis (.update) sur plusieurs chemins backend — une sous-collection n'est concernée par
+// aucun des deux, donc rien ne peut écraser silencieusement le plan de restauration.
+
+const getRestorationPlanCollectionRef = (dealId, userId) => {
+  const { dealsCollectionRef } = getRefs(userId);
+  return collection(doc(dealsCollectionRef, dealId), 'restorationPlan');
+};
+
+export const onRestorationPlanUpdate = (dealId, onUpdate, onError, userId) => {
+  const planQuery = query(getRestorationPlanCollectionRef(dealId, userId), orderBy('createdAt', 'asc'));
+  return onSnapshot(planQuery, (snapshot) => {
+    onUpdate(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+  }, (error) => {
+    console.error(`Error listening to restoration plan for deal ${dealId}:`, error);
+    onError?.(error);
+  });
+};
+
+// `createdAt: new Date()` (pas serverTimestamp()) — même choix que le chat (voir
+// addDealChatMessage) : un serverTimestamp() non résolu localement lit `null` le temps de la
+// confirmation serveur, ce qui ferait sauter l'item ajouté dans le tri `orderBy('createdAt')`.
+// `source`/`proposedByMessageId` (optionnels, 2026-08-22, Lot B) : une étape appliquée depuis une
+// proposition IA appelle cette même fonction avec `source: 'ai'` — un seul chemin d'écriture pour
+// l'ajout manuel (panneau) et l'ajout proposé (chat), jamais deux logiques parallèles à maintenir.
+// `order` (optionnel, calculé par l'appelant depuis la liste déjà en mémoire — voir
+// useRestorationPlan.js::addItem et useDealChat.js::applyRestorationProposal) : sans lui, un
+// ajout laissait l'item sans `order`, ce qui redéclenchait le rattrapage silencieux
+// (backfillRestorationOrder) sur TOUT le plan à chaque ajout — effaçant de fait un ordre de
+// glisser-déposer déjà mis en place par l'utilisateur (bug trouvé en revue, corrigé ici).
+export const addRestorationItem = async (dealId, userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order }) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const payload = { label, category, status: 'pending', source, createdAt: new Date() };
+    if (estimatedCost != null) payload.estimatedCost = estimatedCost;
+    if (notes) payload.notes = notes;
+    if (proposedByMessageId) payload.proposedByMessageId = proposedByMessageId;
+    if (order != null) payload.order = order;
+    // Retourne l'id du document créé — nécessaire pour rattacher `itemId` au marquage
+    // Appliquer/Ignorer de la proposition d'origine (voir useDealChat.js::applyRestorationProposal).
+    const docRef = await addDoc(planCollectionRef, payload);
+    return docRef.id;
+  } catch (error) {
+    console.error(`Error adding restoration item for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de l'étape de restauration.");
+  }
+};
+
+// Mise à jour champ par champ uniquement (jamais l'objet entier depuis un formulaire) : une
+// édition de note et une future proposition IA appliquée en parallèle ne doivent jamais pouvoir
+// s'écraser l'une l'autre. `completedAt` posé automatiquement au passage à 'done' plutôt que de
+// dépendre de `updatedAt`, qu'une note éditée ensuite écraserait — et effacé symétriquement dès
+// que le statut change vers autre chose que 'done' (rouvrir une étape ne doit pas laisser une
+// date de complétion périmée).
+export const updateRestorationItem = async (dealId, userId, itemId, patch) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const payload = { ...patch, updatedAt: serverTimestamp() };
+    if (patch.estimatedCost === null) payload.estimatedCost = deleteField();
+    if (patch.actualCost === null) payload.actualCost = deleteField();
+    if (patch.notes === null) payload.notes = deleteField();
+    if (patch.status === 'done') {
+      payload.completedAt = serverTimestamp();
+    } else if (patch.status) {
+      payload.completedAt = deleteField();
+    }
+    await updateDoc(doc(planCollectionRef, itemId), payload);
+  } catch (error) {
+    console.error(`Error updating restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la mise à jour de l'étape de restauration.");
+  }
+};
+
+export const deleteRestorationItem = async (dealId, userId, itemId) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await deleteDoc(doc(planCollectionRef, itemId));
+  } catch (error) {
+    console.error(`Error deleting restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la suppression de l'étape de restauration.");
+  }
+};
+
+// Réordonnancement (glisser-déposer manuel, ou proposition IA appliquée depuis le chat, 2026-08-23) —
+// `orderedItemIds` = ids dans le nouvel ordre voulu, un seul batch pour tous les items du plan.
+export const reorderRestorationItems = async (dealId, userId, orderedItemIds) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const batch = writeBatch(db);
+    orderedItemIds.forEach((itemId, index) => {
+      batch.update(doc(planCollectionRef, itemId), { order: index, updatedAt: serverTimestamp() });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error(`Error reordering restoration items for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de la réorganisation des étapes.");
+  }
+};
+
+// Assigne un `order` (2026-08-22, réorganisation par glisser-déposer) à TOUS les items d'un coup,
+// selon l'ordre `orderedItems` fourni (déjà trié par `createdAt`, l'ordre de la requête Firestore)
+// — jamais de migration explicite : le premier client qui charge un plan sans `order` (ancien, ou
+// tout juste créé) le rattrape ainsi pour tout le monde en un seul batch, pour ne jamais mélanger
+// des items ordonnés et non-ordonnés dans la même liste. Silencieux (fire-and-forget côté appelant).
+export const backfillRestorationOrder = async (dealId, userId, orderedItems) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    const batch = writeBatch(db);
+    orderedItems.forEach((item, index) => {
+      batch.update(doc(planCollectionRef, item.id), { order: index });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error(`Error backfilling restoration order for deal ${dealId}:`, error);
+  }
+};
+
+// Photos par étape (2026-08-22) — tableau réel, `arrayUnion`/`arrayRemove` comme `storageImageUrls`
+// sur le deal (jamais un `ArrayUnion` posé sur un objet, voir l'incident du 2026-08-12 documenté
+// ailleurs). Une URL peut venir d'un upload direct (`storageService.js::uploadRestorationPhotoToDealStorage`)
+// ou d'une photo déjà existante dans la galerie de l'annonce (`deal.storageImageUrls`) — même champ,
+// même fonction d'écriture dans les deux cas.
+export const addRestorationItemPhoto = async (dealId, userId, itemId, url) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await updateDoc(doc(planCollectionRef, itemId), { photoUrls: arrayUnion(url) });
+  } catch (error) {
+    console.error(`Error adding photo to restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors de l'ajout de la photo à l'étape.");
+  }
+};
+
+export const removeRestorationItemPhoto = async (dealId, userId, itemId, url) => {
+  try {
+    const planCollectionRef = getRestorationPlanCollectionRef(dealId, userId);
+    await updateDoc(doc(planCollectionRef, itemId), { photoUrls: arrayRemove(url) });
+  } catch (error) {
+    console.error(`Error removing photo from restoration item ${itemId} for deal ${dealId}:`, error);
+    throw new Error("Erreur lors du retrait de la photo de l'étape.");
+  }
+};
+
 // --- Cities ---
 
 /**
@@ -327,7 +726,10 @@ export const onCitiesUpdate = (onUpdate, onError, userId) => {
   return () => { unsubCatalog(); unsubPrefs(); };
 };
 
-export const requestAddCity = (cityName, userId) => addCommand('ADD_CITY', cityName, userId);
+// `cityPayload` : chaîne simple (repli, ajout à l'aveugle) ou `{name, latitude, longitude,
+// regionHint}` depuis une suggestion choisie explicitement par l'utilisateur — voir
+// `useCitySuggestions.js` et `backend/bot.py::add_city_auto()`.
+export const requestAddCity = (cityPayload, userId) => addCommand('ADD_CITY', cityPayload, userId);
 
 /**
  * Supprime la préférence user pour cette ville (la retire de la liste active).
@@ -355,6 +757,22 @@ export const toggleCityScannable = async (docId, currentStatus, userId) => {
   } catch (error) {
     console.error(`Error toggling scannable for city ${docId}:`, error);
     throw new Error("Erreur lors de la mise à jour de la ville.");
+  }
+};
+
+/**
+ * Définit le rayon de recherche Kijiji (km) pour cette ville, pour cet utilisateur —
+ * prime sur le défaut à deux paliers appliqué côté backend (voir bot.py::_run_kijiji_scan).
+ * radiusKm null/0 efface le réglage (repli sur le défaut).
+ * docId = Facebook city ID
+ */
+export const setCityKijijiRadius = async (docId, radiusKm, userId) => {
+  try {
+    const { userCitiesPrefsRef } = getRefs(userId);
+    await setDoc(doc(userCitiesPrefsRef, docId), { kijijiRadiusKm: radiusKm || null }, { merge: true });
+  } catch (error) {
+    console.error(`Error setting Kijiji radius for city ${docId}:`, error);
+    throw new Error("Erreur lors de la mise à jour du rayon Kijiji.");
   }
 };
 
