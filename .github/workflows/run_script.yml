@@ -111,12 +111,21 @@ jobs:
             # photos Kijiji réellement en WebP malgré leur extension .jpg, envoyées à l'API
             # Anthropic avec un media_type image/jpeg codé en dur, corrigé via
             # `_guess_image_media_type()` — 40/40 propre après relance). Les 10 candidats sont
-            # désormais comparables sur les 40 items (voir JOURNAL.md 2026-09-10). Fichiers de
-            # résultats utilisés comme entrées de ces relances retirés du dépôt une fois
-            # chacune confirmée (même discipline que run_once.py ACTIVE=False) : la commande
-            # ci-dessous est repassée à l'invocation standard, à adapter avant tout nouveau
-            # lancement de ce workflow.
-            python3 -u -m backend.benchmark.run_benchmark
+            # désormais comparables sur les 40 items (voir JOURNAL.md 2026-09-10).
+            #
+            # Run #30 (2026-09-11) : test ciblé du vrai Bras B (§5 point 5,
+            # `portier_perception_test.py`) — accord du Portier (Tier 1) entre Bras A (photos
+            # réelles) et Bras B (perception Qwen substituée à `_prepare_visual_parts()`, cascade
+            # de prod réelle sinon inchangée) sur les 13 items de la strate `rejet_t1`, à 2
+            # paliers de longueur de consigne. Question posée par l'utilisateur avant ce run :
+            # pourquoi tester toute la cascade si Tier 1 est ce qui compte — réponse : la cascade
+            # s'arrête déjà net dès que T1 rejette (`analyzer.py:356`), donc tester via
+            # `analyze_deal()` ne coûte pas plus cher qu'un test T1 isolé, tout en restant fidèle
+            # à la prod (pas de drapeau ajouté à `analyzer.py`, pas de logique dupliquée hors
+            # cascade réelle). Comparaison au verdict Bras A rejoué DANS ce script (pas au label
+            # de strate lui-même, qui reflète un rejet passé possiblement non reproductible
+            # aujourd'hui).
+            python3 -u -m backend.benchmark.portier_perception_test
 
       - name: Récupération du rapport généré
         env:
