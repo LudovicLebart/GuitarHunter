@@ -64,6 +64,21 @@ réel :
 d'être engagé, malgré son risque nul, par respect du protocole (aucune modification
 `analyzer.py` sans plan validé).
 
+**CLOS avec un résultat négatif sur les deux points (2026-09-12, `backend/scripts/analyze_cache_and_volume.py`, run GitHub Actions #34, détail complet JOURNAL.md/TODO.md).**
+- **0.a réfuté comme cause principale** : sur la fenêtre de facturation du run #421 (1-7 sept,
+  1312 documents recomptés), seulement 4,8% portent un marqueur confirmé de ré-analyse par
+  baisse de prix (`original_price`/`price_drop_amount`). Même en doublant/triplant pour les
+  ré-analyses manuelles non marquées, ça n'explique pas un facteur 2,4x. Le volume mystère
+  (95→229 annonces/jour) reste probablement une vraie hausse d'activité, pas du gaspillage —
+  aucune action corrective identifiée.
+- **0.b confirmé cassé en pratique malgré le correctif** : le correctif (`sort_keys=True` +
+  réordonnancement T3, codé 2026-09-07) a bien été déployé, mais sur 932 appels réels
+  (`journalctl -u guitare-hunter`) le cache reste à **0% de hits sur Tier 1 (592 appels) et
+  Tier 3 (62 appels)** — les deux tiers qui pèsent le plus. Tier 2 (278 appels) plafonne à
+  12,2%. **Le gain de 30-40% espéré par Opus ne s'est pas matérialisé** ; la cause du 0%
+  persistant sur T1/T3 n'est pas identifiée et n'a pas été creusée plus loin (hors périmètre de
+  cette mesure).
+
 ---
 
 ## Chantier A — Migration Firestore → solution auto-hébergée ("rapatriement BD")
@@ -72,12 +87,18 @@ d'être engagé, malgré son risque nul, par respect du protocole (aucune modifi
 avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre, cause encore
 non confirmée). Coût secondaire face à Gemini API (~80-85% de la facture) mais réel.
 
-**État** : plan sommaire déjà rédigé, aucune implémentation. Voir
-[`FIRESTORE_MIGRATION_PLAN.md`](FIRESTORE_MIGRATION_PLAN.md) et `TODO.md` section
-"🗄️ Migration Firestore". Bloqué sur l'accessibilité réseau du serveur existant (IP fixe/port
-forwarding ou tunnel) — condition préalable à toute la faisabilité (le serveur hébergerait
-bot + Postgres + API/WS + frontend, à la place de Firestore + GitHub Pages). Firebase Auth et
-Storage resteraient inchangés dans tous les scénarios.
+**État (mis à jour 2026-09-12) : très avancé, mais mené sur une branche séparée
+(`claude/firestore-postgres-migration`), hors périmètre de cette branche/session.** 6 tranches
+migrées (bus de commandes, `guitar_deals`, `deal_chat`, `restoration_plan_items`,
+`cities`/`user_city_prefs`, `shared_deals`) avec API REST/WebSocket, frontend câblé dessus
+(`apiService.js`), dry-run validé à **0 écart sur 2414/2414 annonces réelles**. Seul blocage
+restant : une règle sudoers manquante empêche la création du service systemd
+`guitarhunter-api` sur le serveur (action manuelle d'une ligne, texte exact dans le `TODO.md`
+de cette branche) — pas un blocage de code. Phase A.4 (reste du dry-run) et Phase B (bascule
+réelle) pas encore entamées. **Décision explicite de l'utilisateur (2026-09-12) : ce chantier
+continue sur sa propre branche, à son propre rythme — ne pas s'en mêler depuis cette branche
+de benchmark.** Voir aussi [`FIRESTORE_MIGRATION_PLAN.md`](FIRESTORE_MIGRATION_PLAN.md) et
+`TODO.md` section "🗄️ Migration Firestore" (plan sommaire d'origine, avant cette avancée).
 
 **Indépendance** : ce chantier ne touche ni à l'IA (Gemini/Claude/Qwen) ni aux photos — un
 chantier d'infrastructure pur, à ne pas mélanger avec les chantiers B/C/D/F ci-dessous.
@@ -248,6 +269,9 @@ classer ce chantier comme définitivement secondaire.
 
 **À reléguer** derrière les chantiers à impact plus sûr tant que la base utilisateurs reste
 aussi concentrée.
+
+**Décision utilisateur (2026-09-12) : à faire de toute manière**, indépendamment du gain
+plafonné calculé ci-dessus — pas encore planifié dans le détail.
 
 ---
 
@@ -472,6 +496,30 @@ construire le routage, plan A comme plan B.
 **Non fait à ce stade** : aucun code écrit pour ce chantier — reste au stade d'idée à évaluer,
 comme B l'était avant sa correction Opus.
 
+**Reprécisé par l'utilisateur (2026-09-12), exemple concret d'usage** : une recherche active
+définit un ou plusieurs critères (ex : "guitares parlor", "guitares [tel autre type de corps]"),
+et seules les annonces qui correspondent — plus les pépites, toujours, garde-fou non
+négociable ci-dessus — vont jusqu'à T2/T3. "Le reste, je ne veux pas le savoir" : le Tier 1
+continue de tourner sur 100% des annonces (coût marginal, déjà payé aujourd'hui), mais tout ce
+qui ne correspond ni à la recherche active ni au seuil de pépite s'arrête net à T1, sans
+promotion T2/T3 — c'est précisément là qu'est le gain de coût (T2/T3 sont les tiers chers,
+appelés aujourd'hui sur 30% des annonces indépendamment de toute recherche active).
+
+**Dépendance Plan A/Plan B reconsidérée à la lumière de la clôture du Chantier B (2026-09-12)** :
+Chantier B ne s'est jamais refermé sur un résultat "concluant" au sens où ce document
+l'attendait pour activer le Plan A — sa conclusion finale est "non mesurable avec la
+méthodologie actuelle" (ni concluant, ni infirmé), après un Bras A/Bras B dont l'écart mesuré
+s'est avéré indiscernable du bruit naturel du système. **Le Plan B (enrichissement direct du
+contrat JSON du Tier 1 actuel, indépendant de B) est donc la voie la plus praticable
+aujourd'hui** — le Plan A resterait à réévaluer si le Chantier B produisait un jour un résultat
+positif net, ce qui n'est pas le cas en l'état.
+
+**Priorité révisée (2026-09-12)** : avec le Chantier 0 clos négativement (run #34) et le
+Chantier A désormais mené sur sa propre branche hors du périmètre de cette session, **ce
+chantier (G) est le seul restant avec un potentiel de gain de coût réel et actionnable
+directement depuis cette branche.** Reste, avant tout code, la validation de précision de T1
+sur un échantillon annoté (risque principal ci-dessus, non levé).
+
 ---
 
 ## Synthèse : indépendance des chantiers
@@ -492,6 +540,14 @@ mais seulement après reconstruction du dataset/juge → C réduit à la dédup 
 → B pour ses raisons produit uniquement → A → E (parking, à revérifier après 0.a). **G (ajouté
 2026-09-09) se greffe sur B** : sa validation de précision (routage) peut être menée en parallèle
 de l'évaluation qualité déjà prévue pour B, plutôt que d'attendre la fin de B avant de commencer.
+
+**Ordre réel après clôture du bilan (2026-09-12)** : 0 clos négativement (run #34, aucune action
+supplémentaire) ; A très avancé mais transféré sur sa propre branche, hors périmètre de cette
+session ; B clos "non mesurable", motive désormais le Plan B (pas A) de G ; C jamais engagé,
+D/F exécutés (voir JOURNAL.md runs #25-33) mais répondent à une question de qualité, pas de
+coût (Opus : le choix de modèle T3 est une décision qualité, pas une économie) ; E "à faire de
+toute manière" par décision utilisateur, sans lien avec son gain plafonné calculé. **Seul G
+reste un chantier de coût réel, actionnable, non encore engagé** — priorité suivante.
 
 ---
 
