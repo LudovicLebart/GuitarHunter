@@ -134,10 +134,20 @@ jobs:
             # sur les 4 axes (identification/etat/valeur/hallucination) comme les autres candidats
             # — comparés aux scores déjà obtenus par `analyzer_prod` sur ces mêmes items (pas
             # rejoué, économie). Nouveau filtre `--stratum` sur run_benchmark.py pour limiter aux
-            # 27 items concernés (les 13 rejet_t1 déjà couverts par run #30).
-            python3 -u -m backend.benchmark.run_benchmark \
-              --models bras_b_perception_court,bras_b_perception_long \
-              --stratum tier2,tier3
+            # 27 items concernés (les 13 rejet_t1 déjà couverts par run #30). Résultat : -11,1 à
+            # -18,5 points d'identification vs `analyzer_prod` — mais analyse Opus indépendante
+            # (2026-09-12) a trouvé un vrai bug (sort_keys=True enterrait les champs
+            # d'identification derrière l'état dans le texte de perception, corrigé —
+            # `_serialize_perception()`) et une vérité terrain partiellement circulaire (dérivée
+            # de la sortie Gemini elle-même). L'utilisateur a par ailleurs confirmé, sur deux
+            # paires réelles d'annonces quasi-identiques, que `analyzer_prod` varie déjà de ~50
+            # points sur l'axe valeur SANS aucun changement de perception — voir JOURNAL.md
+            # 2026-09-12.
+            #
+            # Run #32 : `noise_floor_test.py` — mesure le bruit naturel de `analyzer_prod` en le
+            # rejouant 3x sur 10 items (parmi les 27 tier2/tier3), pour savoir si l'écart Bras A/
+            # Bras B mesuré ci-dessus dépasse la variance normale du système ou s'y confond.
+            python3 -u -m backend.benchmark.noise_floor_test
 
       - name: Récupération du rapport généré
         env:
