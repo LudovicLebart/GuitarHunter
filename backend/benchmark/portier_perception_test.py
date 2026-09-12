@@ -31,13 +31,13 @@ import os
 import time
 from datetime import datetime, timezone
 
-from backend.analyzer import DealAnalyzer
 from backend.benchmark.candidates import (
     QWEN_MODEL,
     TOKENROUTER_API_KEY,
     TOKENROUTER_BASE_URL,
     _call_openai_compatible,
     _get_analyzer,
+    _get_bras_b_analyzer,
 )
 from backend.benchmark.perception_contract import PERCEPTION_INSTRUCTION, parse_perception_json
 from backend.benchmark.run_benchmark import load_dataset
@@ -46,7 +46,8 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "results")
 
 # Consignes souples (§5) : n'imposent jamais de coupe dure, seulement une orientation de
 # verbosité — la longueur réellement produite (tokens de sortie Qwen) est mesurée après coup,
-# jamais supposée égale à la consigne.
+# jamais supposée égale à la consigne. Mêmes paliers que `candidates.py::_PERCEPTION_LENGTH_TIERS`
+# (candidats `bras_b_perception_court`/`_long`, couverture tier2/tier3) pour rester comparables.
 LENGTH_TIERS = {
     "court": (
         "\n\nConsigne de longueur : réponds de façon brève et concise pour chaque champ "
@@ -57,29 +58,6 @@ LENGTH_TIERS = {
         "(plusieurs phrases si utile), ne néglige aucun détail observable."
     ),
 }
-
-
-class _PerceptionSubstitutedAnalyzer(DealAnalyzer):
-    """Bras B (§5) : cascade de production réelle (`analyze_deal()`), mais `_prepare_visual_parts()`
-    substitué par un rapport de perception textuel au lieu des vraies photos — seul point de
-    substitution du plan (§1), zéro autre changement à `analyzer.py`."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._perception_text = None
-
-    def _prepare_visual_parts(self, listing_data):
-        return [self._perception_text] if self._perception_text else []
-
-
-_bras_b_analyzer = None
-
-
-def _get_bras_b_analyzer():
-    global _bras_b_analyzer
-    if _bras_b_analyzer is None:
-        _bras_b_analyzer = _PerceptionSubstitutedAnalyzer()
-    return _bras_b_analyzer
 
 
 def _get_perception_text(item, tier_suffix):

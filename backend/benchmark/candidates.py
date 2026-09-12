@@ -506,6 +506,91 @@ def call_analyzer_prod(item: dict) -> dict:
     return _candidate_result(_prod_result_to_text(result), usage=None, latency_s=latency_s)
 
 
+# Bras B réel du protocole (§5 point 5, JOURNAL.md 2026-09-11) : DealAnalyzer.analyze_deal()
+# tourne tel quel (même cascade, même prompts que analyzer_prod), mais _prepare_visual_parts()
+# (point de substitution prévu par §1, aucun autre changement à analyzer.py) renvoie la
+# description de perception (Qwen) au lieu des vraies photos. Contrairement à
+# perception_qwen/perception_flash_lite (un oracle Tier-3-like sur texte libre, jamais la
+# cascade réelle ni le Portier), ce candidat teste si la cascade complète — Portier compris —
+# tient sous perception. D'abord écrit dans portier_perception_test.py (test ciblé sur la
+# strate rejet_t1, 13 items) ; la classe vit ici pour être réutilisée par ces deux candidats
+# (couverture des 27 items tier2/tier3 restants, jugés sur les 4 axes comme les autres
+# candidats plutôt que sur le seul accord du Portier).
+class _PerceptionSubstitutedAnalyzer(DealAnalyzer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._perception_text = None
+
+    def _prepare_visual_parts(self, listing_data):
+        return [self._perception_text] if self._perception_text else []
+
+
+_bras_b_analyzer_instance = None
+
+
+def _get_bras_b_analyzer():
+    global _bras_b_analyzer_instance
+    if _bras_b_analyzer_instance is None:
+        _bras_b_analyzer_instance = _PerceptionSubstitutedAnalyzer()
+    return _bras_b_analyzer_instance
+
+
+# Consignes souples (§5 : jamais de coupe dure) — mêmes 2 paliers que le test Portier, pour que
+# les deux mesures (accord Portier sur rejet_t1, scores 4-axes sur tier2/tier3) restent
+# comparables sur la même variable observée (longueur réellement produite par Qwen).
+_PERCEPTION_LENGTH_TIERS = {
+    "court": (
+        "\n\nConsigne de longueur : réponds de façon brève et concise pour chaque champ "
+        "(l'essentiel en quelques mots), sans détailler au-delà du nécessaire."
+    ),
+    "long": (
+        "\n\nConsigne de longueur : réponds de façon exhaustive et détaillée pour chaque champ "
+        "(plusieurs phrases si utile), ne néglige aucun détail observable."
+    ),
+}
+
+
+def _call_bras_b_perception(item: dict, tier_suffix: str) -> dict:
+    instruction = PERCEPTION_INSTRUCTION + tier_suffix
+    raw, p_usage, p_latency = _call_openai_compatible(
+        instruction, item.get("image_urls", []), QWEN_MODEL, TOKENROUTER_API_KEY,
+        base_url=TOKENROUTER_BASE_URL,
+    )
+    perception = parse_perception_json(raw)
+    perception_text = json.dumps(perception, ensure_ascii=False, sort_keys=True)
+
+    analyzer = _get_bras_b_analyzer()
+    analyzer._perception_text = perception_text
+    listing_data = {
+        "title": item.get("title", ""),
+        "price": item.get("price", ""),
+        "imageUrls": item.get("image_urls", []),
+    }
+    t0 = time.monotonic()
+    try:
+        result = analyzer.analyze_deal(listing_data, user_email=None)
+    finally:
+        analyzer._perception_text = None  # jamais réutilisé sur un appel suivant par erreur
+    latency_s = time.monotonic() - t0
+
+    return _candidate_result(
+        _prod_result_to_text(result),
+        usage=p_usage,
+        latency_s=p_latency + latency_s,
+        perception_report=perception_text,
+    )
+
+
+def call_bras_b_perception_court(item: dict) -> dict:
+    """Bras B, palier de longueur de perception 'court' (voir _PERCEPTION_LENGTH_TIERS)."""
+    return _call_bras_b_perception(item, _PERCEPTION_LENGTH_TIERS["court"])
+
+
+def call_bras_b_perception_long(item: dict) -> dict:
+    """Bras B, palier de longueur de perception 'long' (voir _PERCEPTION_LENGTH_TIERS)."""
+    return _call_bras_b_perception(item, _PERCEPTION_LENGTH_TIERS["long"])
+
+
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
 CANDIDATES = {
     "gemini": call_gemini,
@@ -518,4 +603,6 @@ CANDIDATES = {
     "perception_qwen": call_perception_reasoning_qwen,
     "perception_flash_lite": call_perception_reasoning_flash_lite,
     "analyzer_prod": call_analyzer_prod,
+    "bras_b_perception_court": call_bras_b_perception_court,
+    "bras_b_perception_long": call_bras_b_perception_long,
 }

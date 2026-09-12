@@ -229,9 +229,19 @@ def main():
         help="Chemin vers un fichier de résultats JSON précédent : ne rejoue que ce qui a "
              "échoué ou a été contaminé (voir docstring du module)",
     )
+    parser.add_argument(
+        "--stratum",
+        default=None,
+        help="Limiter aux items dont la strate (rejet_t1/tier2/tier3) est dans cette liste "
+             "séparée par des virgules, ex: --stratum tier2,tier3",
+    )
     args = parser.parse_args()
 
     dataset = load_dataset()
+    if args.stratum:
+        strata = {s.strip() for s in args.stratum.split(",") if s.strip()}
+        dataset = [item for item in dataset if item.get("stratum") in strata]
+        print(f"Filtré aux strates {strata} : {len(dataset)} items")
     if args.limit:
         dataset = dataset[: args.limit]
 

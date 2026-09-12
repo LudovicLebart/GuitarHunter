@@ -124,8 +124,20 @@ jobs:
             # à la prod (pas de drapeau ajouté à `analyzer.py`, pas de logique dupliquée hors
             # cascade réelle). Comparaison au verdict Bras A rejoué DANS ce script (pas au label
             # de strate lui-même, qui reflète un rejet passé possiblement non reproductible
-            # aujourd'hui).
-            python3 -u -m backend.benchmark.portier_perception_test
+            # aujourd'hui). Résultat : accord Portier 92,3% (court) / 84,6% (long) — pas 100%,
+            # pire au palier long (contre-intuitif). Un ukulélé rejeté par le vrai Portier est
+            # accepté par le Bras B aux deux paliers (voir JOURNAL.md 2026-09-11).
+            #
+            # Run #31 (2026-09-12) : extension aux 27 items tier2/tier3 restants — deux nouveaux
+            # candidats `bras_b_perception_court`/`_long` (candidates.py, réutilisent la classe
+            # `_PerceptionSubstitutedAnalyzer` déplacée depuis portier_perception_test.py), jugés
+            # sur les 4 axes (identification/etat/valeur/hallucination) comme les autres candidats
+            # — comparés aux scores déjà obtenus par `analyzer_prod` sur ces mêmes items (pas
+            # rejoué, économie). Nouveau filtre `--stratum` sur run_benchmark.py pour limiter aux
+            # 27 items concernés (les 13 rejet_t1 déjà couverts par run #30).
+            python3 -u -m backend.benchmark.run_benchmark \
+              --models bras_b_perception_court,bras_b_perception_long \
+              --stratum tier2,tier3
 
       - name: Récupération du rapport généré
         env:
