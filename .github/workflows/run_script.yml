@@ -147,7 +147,16 @@ jobs:
             # Run #32 : `noise_floor_test.py` — mesure le bruit naturel de `analyzer_prod` en le
             # rejouant 3x sur 10 items (parmi les 27 tier2/tier3), pour savoir si l'écart Bras A/
             # Bras B mesuré ci-dessus dépasse la variance normale du système ou s'y confond.
-            python3 -u -m backend.benchmark.noise_floor_test
+            # Résultat : Chantier B non mesurable en l'état (bruit >= écart mesuré) — voir
+            # JOURNAL.md 2026-09-12.
+            #
+            # Run #33 (2026-09-12) : `noise_floor_test.py` généralisé (--models) — même question
+            # de bruit, appliquée cette fois à la priorité Chantier F de l'utilisateur (remplacer
+            # Gemini Pro par Sonnet 5 au Tier 3) : le -17 points d'identification mesuré entre
+            # `gemini_pro` et `claude_sonnet` au comparatif à 10 candidats (run #27-29) n'avait
+            # jamais été testé en répétition. Rejoue les deux candidats 3x sur les 10 mêmes items
+            # tier2/tier3 et compare directement l'écart mesuré au bruit propre à chacun.
+            python3 -u -m backend.benchmark.noise_floor_test --models gemini_pro,claude_sonnet
 
       - name: Récupération du rapport généré
         env:
