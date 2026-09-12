@@ -120,15 +120,36 @@ def run():
     VRAI ID token via l'API REST Firebase (aucun compte de test créé, aucun mot de passe requis —
     le bot a déjà les credentials Admin SDK en place) ; (5) vrai serveur uvicorn + requêtes HTTP
     authentifiées sur /health, /users/me/config, /deals, /deals/{id}, /cities.
+
+    Run #446 : ModuleNotFoundError sur psycopg — fastapi/uvicorn/asyncpg/psycopg sont dans
+    requirements.txt de la branche de migration, jamais mergée, donc absents de celui de `dev`
+    (jamais installés par le `pip install -r requirements.txt` du déploiement). Installés ici à
+    la volée plutôt que de modifier requirements.txt sur dev pour un script one-shot.
     """
     import json
+    import subprocess
     import threading
     import time
 
-    import requests
-
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
+
+    # `requirements.txt` sur `dev` n'a pas encore ces 4 dépendances (ajoutées seulement sur la
+    # branche de migration, jamais mergée) — installées ici à la volée, même principe que le
+    # script de dry-run précédent (`pip install -q asyncpg`), plutôt que de modifier
+    # `requirements.txt` sur `dev` pour un script one-shot. Idempotent (pip ne réinstalle rien
+    # si déjà présent, confirmé par le run précédent : `ModuleNotFoundError: No module named
+    # 'psycopg'` — fastapi/uvicorn/asyncpg n'avaient pas non plus été installés).
+    pip = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "fastapi", "uvicorn[standard]", "asyncpg", "psycopg[binary,pool]"],
+        capture_output=True, text=True,
+    )
+    if pip.returncode != 0:
+        logger.error(f"pip install a échoué : {pip.stderr.strip()[:500]}")
+        return
+    logger.info("Dépendances backend/api/* installées (ou déjà présentes).")
+
+    import requests
 
     written = _extract_branch_files(logger)
     try:
