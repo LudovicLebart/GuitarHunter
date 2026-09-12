@@ -28,7 +28,7 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -125,6 +125,10 @@ def run():
     requirements.txt de la branche de migration, jamais mergée, donc absents de celui de `dev`
     (jamais installés par le `pip install -r requirements.txt` du déploiement). Installés ici à
     la volée plutôt que de modifier requirements.txt sur dev pour un script one-shot.
+
+    Run #447 (succès, voir JOURNAL.md) : vrai token Firebase obtenu pour l'utilisateur réel
+    (2414 annonces), 200 sur /health, /users/me/config, /deals (2414/2414), /deals/{id}, /cities
+    (28). Désarmé ci-dessous (ACTIVE = False).
     """
     import json
     import subprocess
