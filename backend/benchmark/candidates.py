@@ -35,7 +35,12 @@ import google.generativeai as genai
 from openai import OpenAI
 
 from backend.analyzer import DealAnalyzer
-from backend.benchmark.perception_contract import PERCEPTION_INSTRUCTION, build_reasoning_prompt, parse_perception_json
+from backend.benchmark.perception_contract import (
+    PERCEPTION_FIELDS,
+    PERCEPTION_INSTRUCTION,
+    build_reasoning_prompt,
+    parse_perception_json,
+)
 from config import GEMINI_API_KEY, GEMINI_MODELS
 
 logger = logging.getLogger(__name__)
@@ -378,13 +383,26 @@ def call_hybrid_qwen_gemini(item: dict) -> dict:
 # benchmark sur l'axe verrou).
 
 
+def _serialize_perception(perception: dict) -> str:
+    """Sérialise le rapport de perception en préservant l'ordre du contrat (`PERCEPTION_FIELDS` :
+    identification-relevant en tête — `visible_summary`/`logo_transcription` — puis état/couleur/
+    finition). Corrige un bug trouvé le 2026-09-12 (analyse Opus, Chantier B) : `sort_keys=True`
+    triait les champs alphabétiquement, ce qui reléguait `logo_transcription`/`visible_summary`
+    en positions 5 et 7 (derrière `condition_notes`) — un candidat qui prétend juste faire "plus
+    long" dilatait alors précisément le champ qui passait devant les champs d'identification dans
+    le texte final envoyé à la cascade (`_call_bras_b_perception`), sans que la longueur en soit
+    la vraie cause."""
+    return json.dumps({field: perception[field] for field in PERCEPTION_FIELDS}, ensure_ascii=False)
+
+
 def _perception_reasoning_candidate(question: str, image_urls: list, perception_call_fn) -> dict:
     """Squelette commun aux candidats perception+raisonnement : `perception_call_fn(image_urls)`
     fait l'appel de perception brut (renvoie un triplet (texte, usage, latence), même contrat que
     `_call_gemini`/`_call_openai_compatible`) ; cette fonction parse son JSON, construit le prompt
     du raisonneur (Gemini Tier 3, comme l'oracle du candidat `hybrid`) et combine l'usage/latence
-    des deux appels. Le rapport de perception (JSON sérialisé, clés triées pour une comparaison
-    stable) est retourné dans `perception_report` pour être jugé séparément (garde-fou §2)."""
+    des deux appels. Le rapport de perception (JSON sérialisé dans l'ordre du contrat, voir
+    `_serialize_perception`) est retourné dans `perception_report` pour être jugé séparément
+    (garde-fou §2)."""
     raw_perception, perception_usage, perception_latency = perception_call_fn(image_urls)
     perception = parse_perception_json(raw_perception)
     reasoning_prompt = build_reasoning_prompt(question, perception)
@@ -393,7 +411,7 @@ def _perception_reasoning_candidate(question: str, image_urls: list, perception_
         answer,
         _sum_usage([perception_usage, oracle_usage]),
         perception_latency + oracle_latency,
-        perception_report=json.dumps(perception, ensure_ascii=False, sort_keys=True),
+        perception_report=_serialize_perception(perception),
         calls=2,
     )
 
@@ -557,7 +575,7 @@ def _call_bras_b_perception(item: dict, tier_suffix: str) -> dict:
         base_url=TOKENROUTER_BASE_URL,
     )
     perception = parse_perception_json(raw)
-    perception_text = json.dumps(perception, ensure_ascii=False, sort_keys=True)
+    perception_text = _serialize_perception(perception)
 
     analyzer = _get_bras_b_analyzer()
     analyzer._perception_text = perception_text
