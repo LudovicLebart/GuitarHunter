@@ -16,6 +16,20 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Temps réel (remplace `onBotConfigUpdate`, Phase A.2) : même principe que `notify_deal_change`
+-- ci-dessous — un seul canal partagé, filtré par `user_id` côté serveur WS, pas un canal par uid.
+CREATE OR REPLACE FUNCTION notify_user_config_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('user_config_changes', json_build_object('user_id', NEW.uid)::text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS users_notify ON users;
+CREATE TRIGGER users_notify
+    AFTER INSERT OR UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION notify_user_config_change();
+
 CREATE TABLE IF NOT EXISTS guitar_deals (
     id                          TEXT PRIMARY KEY,
     user_id                     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,

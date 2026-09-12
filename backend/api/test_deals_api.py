@@ -186,6 +186,55 @@ class TestDealsAPI(unittest.TestCase):
         self.assertEqual(resp.status_code, 204)
         self.assertEqual(self.client.get("/deals/deal-1").status_code, 404)
 
+    def test_analysis_overrides_patches_column_and_reflects_in_manual_overrides(self):
+        """Remplace `applyManualAnalysisOverrides` (firestoreService.js) : corrige directement
+        `aiAnalysis.<champ>` SANS ré-analyse Gemini, tout en gardant une trace dans
+        `manual_analysis_overrides` (relue par le bot à chaque future analyse)."""
+        resp = self.client.patch("/deals/deal-1/analysis-overrides", json={"verdict": "GOOD_DEAL", "deal_score": 8})
+        self.assertEqual(resp.status_code, 200)
+
+        deal = self.client.get("/deals/deal-1").json()
+        self.assertEqual(deal["verdict"], "GOOD_DEAL")
+        self.assertEqual(deal["deal_score"], 8)
+        self.assertEqual(deal["manual_analysis_overrides"], {"verdict": "GOOD_DEAL", "deal_score": 8})
+
+    def test_analysis_overrides_ignores_keys_outside_whitelist(self):
+        """Une clé absente de `AI_ANALYSIS_COLUMNS` (ex: `title`) est ignorée plutôt que
+        d'écrire dans une colonne arbitraire — whitelist stricte, pas un payload de confiance."""
+        resp = self.client.patch(
+            "/deals/deal-1/analysis-overrides", json={"title": "Titre injecté", "verdict": "GOOD_DEAL"}
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        deal = self.client.get("/deals/deal-1").json()
+        self.assertEqual(deal["title"], "Parlor satinée")  # inchangé
+        self.assertEqual(deal["verdict"], "GOOD_DEAL")
+
+    def test_analysis_overrides_on_other_users_deal_returns_404(self):
+        resp = self.client.patch("/deals/deal-2/analysis-overrides", json={"verdict": "GOOD_DEAL"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_analysis_overrides_empty_or_whitelist_only_patch_still_checks_ownership(self):
+        """Un patch vide (ou entièrement hors whitelist, ex: seulement `title`) sur une annonce
+        d'un AUTRE utilisateur doit rester 404, pas répondre 200 à tort faute d'UPDATE exécuté."""
+        resp = self.client.patch("/deals/deal-2/analysis-overrides", json={"title": "Injection"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_add_gallery_image_deduplicates_like_array_union(self):
+        """Remplace `addImageToDealGallery` (arrayUnion Firestore) : la même URL ajoutée deux
+        fois ne doit apparaître qu'une seule fois dans `storage_image_urls`."""
+        first = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.example/a.jpg"})
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.example/a.jpg"})
+        self.assertEqual(second.status_code, 200)
+
+        deal = self.client.get("/deals/deal-1").json()
+        self.assertEqual(deal["storage_image_urls"], ["https://storage.example/a.jpg"])
+
+    def test_add_gallery_image_on_other_users_deal_returns_404(self):
+        resp = self.client.post("/deals/deal-2/gallery", json={"url": "https://storage.example/a.jpg"})
+        self.assertEqual(resp.status_code, 404)
+
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestDealsWebSocket(unittest.TestCase):

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo, users_repo
 
 
 @asynccontextmanager
@@ -34,6 +34,72 @@ app = FastAPI(title="Guitar Hunter API", lifespan=lifespan)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# --- Config utilisateur / botStatus (Phase A.2) --------------------------------------------
+# Remplace onBotConfigUpdate/updateUserConfig (firestoreService.js). L'utilisateur (ligne
+# `users`) est créé par le bot (`pg_repository.py::ensure_initial_structure`), jamais ici —
+# un GET avant le premier démarrage du bot renvoie 404, comme `onBotConfigUpdate` déclenchait
+# `onError({ message: "Dossier Python introuvable" })` côté Firestore.
+
+class UserConfigPatch(BaseModel):
+    """Corps libre (mêmes clés que `scanConfig`/`exclusionKeywords`/`analysisConfig`, décidées
+    côté frontend) — pas de schéma Pydantic strict, comme le blob JSONB `config` qui les reçoit."""
+    model_config = {"extra": "allow"}
+
+
+@app.get("/users/me/config")
+async def get_my_config(uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    config = await users_repo.get_user_config(pool, uid)
+    if config is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
+    return config
+
+
+@app.patch("/users/me/config")
+async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    try:
+        merged = await users_repo.update_user_config(pool, uid, body.model_dump(exclude_unset=True))
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
+    return merged
+
+
+@app.websocket("/ws/users/me/config")
+async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listener_added = False
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("user_config_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if listener_added:
+            await listen_conn.remove_listener("user_config_changes", _on_notify)
+        await listen_conn.close()
 
 
 class CommandCreate(BaseModel):
@@ -128,6 +194,35 @@ async def patch_classification(deal_id: str, body: ClassificationBody, uid: str 
     pool = get_pool()
     await deals_repo.set_classification(pool, uid, deal_id, body.classificationPath)
     return {"manualClassification": body.classificationPath}
+
+
+class GalleryImageBody(BaseModel):
+    url: str
+
+
+@app.post("/deals/{deal_id}/gallery")
+async def add_gallery_image(deal_id: str, body: GalleryImageBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    found = await deals_repo.add_gallery_image(pool, uid, deal_id, body.url)
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"status": "ok"}
+
+
+class AnalysisOverridesBody(BaseModel):
+    """Corps libre (sous-ensemble quelconque des colonnes `aiAnalysis` promues, voir
+    `deals_repo.py::apply_manual_analysis_overrides`) — pas de schéma Pydantic strict, la
+    whitelist réelle est appliquée côté repository."""
+    model_config = {"extra": "allow"}
+
+
+@app.patch("/deals/{deal_id}/analysis-overrides")
+async def patch_analysis_overrides(deal_id: str, body: AnalysisOverridesBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    found = await deals_repo.apply_manual_analysis_overrides(pool, uid, deal_id, body.model_dump(exclude_unset=True))
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"status": "ok"}
 
 
 @app.patch("/deals/{deal_id}/reject")

@@ -7,6 +7,8 @@ une seule écriture, jamais deux comme dans `firestoreService.js` actuel.
 """
 import asyncpg
 
+from backend.deal_mapping import AI_ANALYSIS_COLUMNS
+
 
 async def list_deals(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False):
     query = "SELECT * FROM guitar_deals WHERE user_id = $1"
@@ -67,6 +69,59 @@ async def set_classification(pool: asyncpg.Pool, user_id: str, deal_id: str, cla
         "UPDATE guitar_deals SET manual_classification = $3 WHERE id = $1 AND user_id = $2",
         deal_id, user_id, classification_path,
     )
+
+
+async def add_gallery_image(pool: asyncpg.Pool, user_id: str, deal_id: str, url: str) -> bool:
+    """Remplace `addImageToDealGallery` (firestoreService.js) — même sémantique `arrayUnion`
+    (dédoublonne, jamais deux fois la même URL), pas un simple `||` qui dupliquerait à chaque
+    appel répété. Renvoie False si l'annonce n'existe pas ou n'appartient pas à cet utilisateur."""
+    result = await pool.execute(
+        """
+        UPDATE guitar_deals
+        SET storage_image_urls = CASE
+            WHEN storage_image_urls IS NULL THEN jsonb_build_array($3::text)
+            WHEN storage_image_urls @> jsonb_build_array($3::text) THEN storage_image_urls
+            ELSE storage_image_urls || jsonb_build_array($3::text)
+        END
+        WHERE id = $1 AND user_id = $2
+        """,
+        deal_id, user_id, url,
+    )
+    return result.endswith("1")
+
+
+async def apply_manual_analysis_overrides(pool: asyncpg.Pool, user_id: str, deal_id: str, fields: dict) -> bool:
+    """Corrige directement une ou plusieurs colonnes `aiAnalysis` promues (voir
+    `AI_ANALYSIS_COLUMNS`, `deal_mapping.py`) SANS repasser par une ré-analyse Gemini — remplace
+    `applyManualAnalysisOverrides` (`firestoreService.js`). Whitelist stricte : toute clé absente
+    de `AI_ANALYSIS_COLUMNS` est ignorée plutôt que d'écrire dans une colonne arbitraire
+    (`title`/`price`/...) sur un payload malformé — ce endpoint n'a pas d'autre vocation.
+
+    Reflète AUSSI la correction dans `manual_analysis_overrides` (JSONB) — relu par le bot à
+    chaque future (ré-)analyse (voir `pg_repository.py::_get_manual_analysis_overrides`), sans
+    quoi elle serait perdue au prochain scan ou "Ré-analyser" (qui réécrit `aiAnalysis` en
+    entier). Pas d'équivalent de l'index léger (`deals_index`) à mettre à jour en plus : les
+    colonnes sont déjà indexées nativement, voir l'en-tête de ce fichier."""
+    allowed = {k: v for k, v in fields.items() if k in AI_ANALYSIS_COLUMNS}
+    if not allowed:
+        # Patch vide (ou entièrement hors whitelist) : toujours vérifier que l'annonce existe et
+        # appartient à cet utilisateur, sinon un payload vide sur un id étranger répondrait 200 à
+        # tort (même piège qu'un `restoration_repo.py::update_item` sans cette vérification).
+        row = await pool.fetchrow("SELECT 1 FROM guitar_deals WHERE id = $1 AND user_id = $2", deal_id, user_id)
+        return row is not None
+    values = list(allowed.values())
+    set_clause = ", ".join(f"{col} = ${i + 3}" for i, col in enumerate(allowed))
+    jsonb_index = len(values) + 3
+    result = await pool.execute(
+        f"""
+        UPDATE guitar_deals
+        SET {set_clause},
+            manual_analysis_overrides = COALESCE(manual_analysis_overrides, '{{}}'::jsonb) || ${jsonb_index}::jsonb
+        WHERE id = $1 AND user_id = $2
+        """,
+        deal_id, user_id, *values, dict(allowed),
+    )
+    return result.endswith("1")
 
 
 async def reject_deal(pool: asyncpg.Pool, user_id: str, deal_id: str):
