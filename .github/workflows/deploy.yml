@@ -192,7 +192,6 @@ jobs:
             [Unit]
             Description=Guitar Hunter API (Postgres, Chantier A, staging)
             After=network.target
-
             [Service]
             Type=simple
             User=$DEPLOY_USER
@@ -202,7 +201,6 @@ jobs:
             ExecStart=$DEPLOY_DIR/venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
             Restart=on-failure
             RestartSec=5
-
             [Install]
             WantedBy=multi-user.target
             EOF
