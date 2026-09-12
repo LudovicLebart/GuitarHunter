@@ -108,6 +108,17 @@ ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS description TEXT;
 -- dédiée ; devient un champ mappé normalement désormais.
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS sold_notes JSONB;
 
+-- `published_at_ts` : timestamp de publication de l'annonce (epoch secondes), parsé une fois au
+-- scraping depuis `published_at_raw` (voir `backend/scraping/parser.py::parse_french_date`) —
+-- jamais promu en colonne sur le document Firestore complet, seulement injecté dans l'index en
+-- chunks (`repository.py::_update_deal_index`, clé `pt`). Trouvé manquant en traçant les besoins
+-- réels du FRONTEND (Phase A.2, tri "date de publication" et statistiques de délai de vente dans
+-- StatsView.jsx/DealsExplorer.jsx) plutôt que ceux du bot — sans lui, ces deux fonctionnalités
+-- retomberaient silencieusement sur 0 (pas un crash, mais un tri/calcul faux). BIGINT (epoch
+-- secondes brut) plutôt que TIMESTAMPTZ : évite un aller-retour de conversion, la seule
+-- consommation frontend attendue est une comparaison numérique directe.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS published_at_ts BIGINT;
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle

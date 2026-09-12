@@ -108,13 +108,17 @@ class TestPostgresRepository(unittest.TestCase):
     def test_create_new_deal_then_get_deal_by_id(self):
         self.repo.create_new_deal(
             self.DEAL_ID,
-            {"title": "Parlor satinée", "price": 450, "description": "Belle guitare", "link": "https://x"},
+            {
+                "title": "Parlor satinée", "price": 450, "description": "Belle guitare",
+                "link": "https://x", "published_at_ts": 1757000000,
+            },
             {"verdict": "GOOD_DEAL", "deal_score": 8, "brand": "Gibson"},
         )
         deal = self.repo.get_deal_by_id(self.DEAL_ID)
         self.assertEqual(deal["title"], "Parlor satinée")
         self.assertEqual(deal["status"], "analyzed")
         self.assertEqual(deal["description"], "Belle guitare")
+        self.assertEqual(deal["published_at_ts"], 1757000000)
         self.assertIsNone(deal["imageUrl"])  # jamais écrit, toujours None
 
     def test_create_new_deal_rejected_verdict_sets_status(self):

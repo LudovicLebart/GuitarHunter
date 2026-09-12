@@ -17,7 +17,7 @@ _DEAL_SCALAR_FIELDS = {
     "title": "title", "price": "price", "original_price": "original_price",
     "price_drop_amount": "price_drop_amount", "link": "link", "location": "location",
     "latitude": "latitude", "longitude": "longitude", "published_at_raw": "published_at_raw",
-    "description": "description",
+    "description": "description", "published_at_ts": "published_at_ts",
 }
 
 # Champs camelCase écrits par le frontend (firestoreService.js) ou par repository.py::create_new_deal
@@ -81,7 +81,7 @@ DEAL_COLUMNS = [
     "manual_analysis_overrides", "link", "location", "latitude", "longitude",
     "published_at_raw", "image_urls", "storage_image_urls", "storage_image_gs_uris",
     "ai_analysis_raw", "sold_at", "timestamp", "purchase_price", "purchased_at", "description",
-    "sold_notes",
+    "sold_notes", "published_at_ts",
 ]
 
 # Colonnes promues depuis `aiAnalysis` (voir _AI_ANALYSIS_FIELDS) — exposées pour

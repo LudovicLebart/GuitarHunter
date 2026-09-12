@@ -132,6 +132,18 @@ const AI_ANALYSIS_KEYS = [
   'restoration_interest_score', 'model_used', 'tier3_trigger',
 ];
 
+// Duck-type d'un `firebase/firestore` Timestamp (`.seconds` + `.toDate()`) — Postgres renvoie soit
+// une chaîne ISO (colonnes TIMESTAMPTZ, via la sérialisation JSON par défaut de FastAPI), soit un
+// entier epoch-secondes (`published_at_ts`, voir schema.sql). Nécessaire car le reste du frontend
+// consomme déjà les deux formes indifféremment sur un même objet deal (`.seconds` pour trier,
+// `.toDate?.() ?? new Date(x)` pour afficher — voir `DealCard/utils.js::formatRelativeDate`).
+function toFirestoreLikeTimestamp(value) {
+  if (value == null) return null;
+  const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return { seconds: Math.floor(date.getTime() / 1000), toDate: () => date };
+}
+
 function dealFromRow(row) {
   if (!row) return null;
   const aiAnalysis = { ...(row.ai_analysis_raw || {}) };
@@ -157,10 +169,11 @@ function dealFromRow(row) {
     imageUrls: row.image_urls,
     storageImageUrls: row.storage_image_urls,
     storageImageGsUris: row.storage_image_gs_uris,
-    soldAt: row.sold_at,
-    timestamp: row.timestamp,
+    timestamp: toFirestoreLikeTimestamp(row.timestamp),
+    soldTimestamp: toFirestoreLikeTimestamp(row.sold_at),
+    publishTimestamp: toFirestoreLikeTimestamp(row.published_at_ts),
     purchasePrice: row.purchase_price,
-    purchasedAt: row.purchased_at,
+    purchasedAt: toFirestoreLikeTimestamp(row.purchased_at),
     description: row.description,
     soldNotes: row.sold_notes,
     initialVerdict: row.initial_verdict,

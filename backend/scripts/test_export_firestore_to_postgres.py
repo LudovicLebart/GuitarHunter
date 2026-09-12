@@ -30,6 +30,7 @@ class TestMapDeal(unittest.TestCase):
             "title": "Parlor satinée", "price": 450, "original_price": 500,
             "price_drop_amount": 50, "link": "https://x", "location": "Québec",
             "latitude": 46.8, "longitude": -71.2, "published_at_raw": "il y a 2h",
+            "published_at_ts": 1757000000,
             "isFavorite": True, "isPurchased": False, "manualClassification": "parlor",
             "purchasePrice": None, "initialVerdict": "GOOD_DEAL", "initialModelUsed": "gemini",
         }
@@ -40,6 +41,7 @@ class TestMapDeal(unittest.TestCase):
         self.assertFalse(row["is_purchased"])
         self.assertEqual(row["manual_classification"], "parlor")
         self.assertEqual(row["initial_verdict"], "GOOD_DEAL")
+        self.assertEqual(row["published_at_ts"], 1757000000)
         self.assertEqual(unmapped, [])
 
     def test_ai_analysis_promoted_and_kept_raw(self):

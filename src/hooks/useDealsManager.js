@@ -9,7 +9,7 @@ import {
   toggleDealFavorite,
   toggleDealPurchased,
   setDealClassification
-} from '../services/firestoreService';
+} from '../services/apiService';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
 // Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
 import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
@@ -67,47 +67,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [finishTextureFilter, setFinishTextureFilter] = useState('ALL');
   const [sortMode, setSortMode] = useState('date'); // 'date' | 'interest'
 
-  // Reconstruction des deals légers à partir de l'index
+  // `dealsIndexMap` porte désormais des annonces COMPLETES (voir apiService.js::onDealsIndexUpdate
+  // — Postgres n'a plus d'index en chunks séparé, colonnes indexées nativement) : plus besoin de
+  // reconstruire quoi que ce soit depuis des clés abrégées, seul `interestScore` (jamais persisté
+  // côté Postgres, dérivé des 5 scores) doit encore être calculé ici.
   const deals = useMemo(() => {
-    return Object.entries(dealsIndexMap).map(([id, entry]) => ({
-      id,
-      status: entry.s,
-      location: entry.l,
-      storageImageUrls: entry.i ? [entry.i] : [],
-      initialModelUsed: entry.imu,
-      aiAnalysis: {
-        verdict: entry.v,
-        classification: entry.c,
-        condition_score: entry.cs,
-        also_qualifies_pepite: entry.ap,
-        // Scores individuels (2026-08-06) : auparavant absents de l'index léger, "deal_score" était
-        // substitué par la moyenne des 5 scores ("is") — imprécis pour toute annonce non chargée en
-        // entier. Désormais indexés individuellement (voir repository.py::_update_deal_index), donc
-        // toujours corrects même sans charger le document complet.
-        deal_score: entry.ds,
-        authenticity_score: entry.as,
-        liquidity_score: entry.ls,
-        restoration_interest_score: entry.rs,
-        estimated_value: entry.ev,
-        model_used: entry.mu,
-        estimated_gross_margin: entry.egm,
-        brand: entry.b,
-        model_name: entry.mn,
-        color: entry.co,
-        finish_application: entry.fa,
-        finish_texture: entry.ft
-      },
-      // `mc` marque une classification corrigée à la main : `c` porte alors la valeur corrigée.
-      manualClassification: entry.mc ? entry.c : undefined,
-      isFavorite: entry.f,
-      isPurchased: entry.pu,
-      timestamp: entry.t ? { seconds: entry.t } : null,
-      publishTimestamp: entry.pt ? { seconds: entry.pt } : null,
-      soldTimestamp: entry.st ? { seconds: entry.st } : null,
-      price: entry.p,
-      title: entry.title,
-      chunkId: entry.h,
-      interestScore: entry.is
+    return Object.values(dealsIndexMap).map(entry => ({
+      ...entry,
+      interestScore: computeInterestScore(entry.aiAnalysis),
     }));
   }, [dealsIndexMap]);
 
@@ -184,24 +151,22 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const handleRejectDeal = useCallback(async (dealId) => {
     if (!user) return;
-    const chunkId = dealsIndexMap[dealId]?.h;
-    try { await rejectDeal(dealId, chunkId, user.uid); } catch (e) { setError(e.message); }
-  }, [user, dealsIndexMap, setError]);
+    try { await rejectDeal(dealId, undefined, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   const handleDeleteDeal = useCallback(async (dealId) => {
     if (!user) return;
     if (window.confirm("Voulez-vous vraiment supprimer définitivement cette annonce ?")) {
-      const chunkId = dealsIndexMap[dealId]?.h;
-      try { await deleteDeal(dealId, chunkId, user.uid); } catch (e) { setError(e.message); }
+      try { await deleteDeal(dealId, undefined, user.uid); } catch (e) { setError(e.message); }
     }
-  }, [user, dealsIndexMap, setError]);
+  }, [user, setError]);
 
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
-        next[dealId] = { ...next[dealId], s: 'analyzing', v: undefined };
+        next[dealId] = { ...next[dealId], status: 'analyzing', aiAnalysis: { ...next[dealId].aiAnalysis, verdict: undefined } };
       }
       return next;
     });
@@ -213,7 +178,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
-        next[dealId] = { ...next[dealId], s: 'analyzing_expert', v: undefined };
+        next[dealId] = { ...next[dealId], status: 'analyzing_expert', aiAnalysis: { ...next[dealId].aiAnalysis, verdict: undefined } };
       }
       return next;
     });
@@ -225,12 +190,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (!user) return;
     const entry = dealsIndexMap[dealId];
     try {
-      // En annulation, l'index doit retomber sur la classification d'origine de l'IA — or `c`
-      // porte la valeur corrigée quand `mc` est posé. On la relit donc sur le document complet
-      // (toujours chargé : la correction se fait depuis la modale d'analyse).
-      const aiClassification = loadedDeals[dealId]?.aiAnalysis?.classification
-        ?? (entry?.mc ? null : entry?.c);
-      await setDealClassification(dealId, entry?.h, user.uid, classificationPath, aiClassification);
+      // En annulation, retombe sur la classification de l'IA — `aiAnalysis.classification` n'est
+      // jamais écrasé par une correction manuelle (portée séparément par `manualClassification`),
+      // plus besoin du contournement `mc`/`c` de l'ancien index abrégé.
+      const aiClassification = (loadedDeals[dealId] ?? entry)?.aiAnalysis?.classification;
+      await setDealClassification(dealId, undefined, user.uid, classificationPath, aiClassification);
       // `loadedDeals` est un cache écrit une seule fois, et il PRIME sur l'index dans la fusion
       // ({ ...deal, ...full }) : sans invalidation, une 2e correction ou un retour à la catégorie
       // de l'IA continuait d'afficher la valeur précédente jusqu'au rechargement de la page.
@@ -273,15 +237,13 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
-    const chunkId = dealsIndexMap[dealId]?.h;
-    try { await toggleDealFavorite(dealId, currentStatus, chunkId, user.uid); } catch (e) { setError(e.message); }
-  }, [user, dealsIndexMap, setError]);
+    try { await toggleDealFavorite(dealId, currentStatus, undefined, user.uid); } catch (e) { setError(e.message); }
+  }, [user, setError]);
 
   const handleTogglePurchased = useCallback(async (dealId, currentStatus, purchasePrice) => {
     if (!user) return;
-    const chunkId = dealsIndexMap[dealId]?.h;
     try {
-      await toggleDealPurchased(dealId, currentStatus, chunkId, user.uid, purchasePrice);
+      await toggleDealPurchased(dealId, currentStatus, undefined, user.uid, purchasePrice);
       // Même raison que handleSetClassification : loadedDeals prime sur l'index dans la fusion
       // ({...deal, ...full}), donc sans patch explicite le badge resterait figé jusqu'au rechargement.
       setLoadedDeals(prev => {
@@ -296,7 +258,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         return next;
       });
     } catch (e) { setError(e.message); }
-  }, [user, dealsIndexMap, setError]);
+  }, [user, setError]);
 
   // Multi-sélection : coche/décoche un chemin de taxonomie (ex: "guitare.acoustique_acier.formes_standard.Parlor").
   // La sélection est maintenue en anti-chaîne (aucun chemin gardé n'est ancêtre/descendant d'un

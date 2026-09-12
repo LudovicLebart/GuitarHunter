@@ -7,8 +7,10 @@ import {
   triggerRelaunchAll,
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
-  migrateOldDataToNewUser
-} from '../services/firestoreService';
+} from '../services/apiService';
+// Migration ponctuelle Firestore -> Firestore (ancienne transition mono- vers multi-utilisateur),
+// sans équivalent Postgres — reste sur l'ancien fichier, voir apiService.js (en-tête).
+import { migrateOldDataToNewUser } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
