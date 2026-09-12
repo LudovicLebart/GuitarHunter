@@ -28,174 +28,209 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
+
+
+# Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
+# mergés sur dev/master, donc absents du checkout courant : extraits TEMPORAIREMENT via
+# `git show FETCH_HEAD:<path>` (jamais un checkout/merge, voir _extract_branch_files), exécutés,
+# puis supprimés dans le `finally` de run() — dev reste inchangé après coup (le prochain déploiement
+# repart de toute façon d'un `git reset --hard origin/<branche>` qui écraserait tout résidu).
+_MIGRATION_BRANCH = "claude/firestore-postgres-migration"
+_EXTRACT_PATHS = ["backend/api", "backend/deal_mapping.py"]
+
+
+def _extract_branch_files(logger):
+    import subprocess
+    subprocess.run(["git", "fetch", "origin", _MIGRATION_BRANCH], check=True)
+    listing = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "FETCH_HEAD", "--", *_EXTRACT_PATHS],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    written = []
+    for path in (p for p in listing.splitlines() if p.strip()):
+        content = subprocess.run(
+            ["git", "show", f"FETCH_HEAD:{path}"], check=True, capture_output=True, text=True
+        ).stdout
+        existed = os.path.exists(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        written.append((path, existed))
+    logger.info(f"{len(written)} fichiers extraits temporairement de '{_MIGRATION_BRANCH}'.")
+    return written
+
+
+def _cleanup_extracted(written, logger):
+    for path, existed in written:
+        if not existed:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    logger.info("Fichiers extraits temporairement nettoyés.")
+
+
+def _read_staging_dsn(logger):
+    """Le mot de passe du conteneur `guitarhunter_pg_staging` (provisionné le 2026-09-10, voir
+    JOURNAL.md) a été écrit dans ce fichier par le script de provisioning — déjà supprimé par son
+    propre protocole one-shot, donc son format exact de clés n'est plus visible depuis cette
+    session de dev. Plusieurs conventions plausibles essayées ici plutôt que d'en supposer une
+    seule ; les noms de CLÉS (jamais les valeurs) sont logués pour diagnostiquer sans rien
+    divulguer si aucune ne correspond."""
+    path = os.path.expanduser("~/.guitarhunter_staging_db.env")
+    if not os.path.exists(path):
+        logger.error(f"Fichier introuvable : {path}")
+        return None
+    values = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            values[k.strip()] = v.strip().strip('"').strip("'")
+    if "DATABASE_URL" in values:
+        logger.info("DSN staging : trouvé directement sous la clé DATABASE_URL.")
+        return values["DATABASE_URL"]
+    host = values.get("PGHOST", "127.0.0.1")
+    port = values.get("PGPORT", "5433")
+    user = values.get("PGUSER") or values.get("POSTGRES_USER") or "postgres"
+    dbname = values.get("PGDATABASE") or values.get("POSTGRES_DB") or "guitarhunter"
+    password = values.get("PGPASSWORD") or values.get("POSTGRES_PASSWORD")
+    if not password:
+        logger.error(f"Aucune clé de mot de passe reconnue. Clés présentes : {sorted(values.keys())}")
+        return None
+    logger.info(f"DSN staging reconstruit depuis des clés éclatées (user={user}, host={host}, port={port}, db={dbname}).")
+    return f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-10 (suite) : l'utilisateur a 5978 annonces Firestore — trop pour tenir dans la fenêtre
-    de 10 min du pipeline de déploiement en un seul essai (run #439, tué par mon propre timeout de
-    300s). Décidé avec l'utilisateur : valider avec les 2414 déjà migrées (run #440) plutôt que
-    d'augmenter le timeout CI partagé. Cette étape compare un ÉCHANTILLON de ces 2414 annonces déjà
-    en Postgres, champ par champ, contre le document Firestore correspondant — PAS
-    `compare_firestore_postgres.py` tel quel (il échantillonne dans les 5978, la plupart absentes
-    de Postgres pour l'instant, ce qui noierait le signal utile sous des "absences" attendues).
-    Réutilise `map_deal` du script d'export (même mapping, pas dupliqué) pour dériver la valeur
-    ATTENDUE depuis le document Firestore, comparée à la valeur RÉELLEMENT lue en base.
+    2026-09-12 : validation bout-en-bout de backend/api/* (Phase A.2, Chantier A) contre les
+    2414 annonces RÉELLEMENT migrées dans `guitarhunter_pg_staging` (dry-run du 2026-09-10,
+    conteneur toujours en place) — jamais testé avec un vrai token Firebase ni un vrai serveur
+    HTTP jusqu'ici (seulement TestClient + auth court-circuitée en local, voir backend/api/test_*.py).
+    Aucune mutation : uniquement des requêtes GET sur une base de STAGING, jamais la prod utilisateur.
 
-    Correctif 1 (après le run #441) : la connexion `asyncpg.connect()` ci-dessous n'enregistrait
-    PAS le codec JSON/JSONB (`backend.api.db._register_json_codecs`) — asyncpg renvoyait donc les
-    colonnes JSONB (`image_urls`/`storage_image_urls`/`storage_image_gs_uris`) comme des CHAÎNES
-    JSON brutes plutôt que des listes Python, faisant "échouer" la comparaison sur ces 3 colonnes
-    pour quasiment chaque annonce (110 faux positifs sur 40) — un bug de CE script de validation,
-    pas de l'export lui-même (`export_firestore_to_postgres.py` utilise bien `_register_json_codecs`
-    via `db.py`, confirmé en relisant son code). Toutes les 38 autres colonnes comparées, elles,
-    correspondaient déjà parfaitement au premier essai.
-
-    Correctif 2 (après le run #442) : le correctif 1 passait `init=_register_json_codecs` à
-    `asyncpg.connect()` — mais ce paramètre n'existe QUE sur `create_pool()` (voir
-    `db.py::init_pool()`), pas sur `connect()` (`TypeError` immédiate). Appelé manuellement sur la
-    connexion après coup à la place.
+    Étapes : (1) extraction temporaire de backend/api/* + deal_mapping.py depuis la branche de
+    migration ; (2) DSN de guitarhunter_pg_staging ; (3) identification de l'utilisateur réel
+    (le plus d'annonces) ; (4) `firebase_admin.auth.create_custom_token(uid)` -> échange contre un
+    VRAI ID token via l'API REST Firebase (aucun compte de test créé, aucun mot de passe requis —
+    le bot a déjà les credentials Admin SDK en place) ; (5) vrai serveur uvicorn + requêtes HTTP
+    authentifiées sur /health, /users/me/config, /deals, /deals/{id}, /cities.
     """
-    import random
-    import subprocess
-    import sys
-    from datetime import timedelta
-    from decimal import Decimal
-    from pathlib import Path
+    import json
+    import threading
+    import time
+
+    import requests
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _run(cmd, timeout=30):
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-
-    MIGRATION_BRANCH = "claude/firestore-postgres-migration"
-    FILES_TO_EXTRACT = ["backend/api/__init__.py", "backend/api/db.py", "backend/scripts/export_firestore_to_postgres.py"]
-    CREDS_PATH = Path.home() / ".guitarhunter_staging_db.env"
-    SAMPLE_SIZE = 40
-
-    logger.info("=== Validation d'un échantillon déjà migré (champ par champ) ===")
-
-    fetch = _run(["git", "fetch", "origin", MIGRATION_BRANCH])
-    if fetch.returncode != 0:
-        logger.error(f"git fetch impossible : {fetch.stderr.strip()}")
-        return
-
-    extracted = []
+    written = _extract_branch_files(logger)
     try:
-        for rel_path in FILES_TO_EXTRACT:
-            show = _run(["git", "show", f"FETCH_HEAD:{rel_path}"], timeout=15)
-            if show.returncode != 0:
-                logger.error(f"Impossible d'extraire '{rel_path}' : {show.stderr.strip()}")
-                return
-            dest = Path(rel_path)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(show.stdout)
-            extracted.append(dest)
-
-        if not CREDS_PATH.exists():
-            logger.error(f"{CREDS_PATH} introuvable.")
+        dsn = _read_staging_dsn(logger)
+        if not dsn:
+            logger.error("Abandon : impossible de déterminer le DSN de guitarhunter_pg_staging.")
             return
-        database_url = None
-        for line in CREDS_PATH.read_text().splitlines():
-            if line.startswith("DATABASE_URL="):
-                database_url = line[len("DATABASE_URL="):].strip()
-        if not database_url:
-            logger.error("DATABASE_URL absent du fichier de credentials.")
+        os.environ["DATABASE_URL"] = dsn  # lu par backend/api/db.py au moment de l'import, ci-dessous
+
+        import psycopg
+        try:
+            with psycopg.connect(dsn, connect_timeout=5) as conn:
+                row = conn.execute(
+                    "SELECT user_id, COUNT(*) AS n FROM guitar_deals GROUP BY user_id ORDER BY n DESC LIMIT 1"
+                ).fetchone()
+        except Exception as e:
+            logger.error(f"Connexion à guitarhunter_pg_staging échouée : {e}")
+            return
+        if not row:
+            logger.error("Aucune annonce trouvée dans guitarhunter_pg_staging — rien à valider.")
+            return
+        target_uid, deal_count = row
+        logger.info(f"Utilisateur cible : {target_uid[:6]}… ({deal_count} annonces réelles).")
+
+        from dotenv import load_dotenv
+        load_dotenv()
+        web_api_key = os.getenv("VITE_FIREBASE_API_KEY")
+        if not web_api_key:
+            logger.error("VITE_FIREBASE_API_KEY absent de .env — impossible d'échanger le custom token.")
             return
 
-        pip = _run([sys.executable, "-m", "pip", "install", "-q", "asyncpg"], timeout=60)
-        if pip.returncode != 0:
-            logger.error(f"Échec pip install asyncpg : {pip.stderr.strip()}")
-            return
+        import firebase_admin
+        from firebase_admin import auth as firebase_auth, credentials
+        firebase_key_path = os.getenv("FIREBASE_KEY_PATH", "backend/config/serviceAccountKey.json")
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(credentials.Certificate(firebase_key_path))
+        custom_token = firebase_auth.create_custom_token(target_uid)
 
-        sys.path.insert(0, str(Path.cwd()))
-        from backend.scripts.export_firestore_to_postgres import map_deal, DEAL_COLUMNS
-        from backend.api.db import _register_json_codecs
-        from config import FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET, USER_ID_TARGET, APP_ID_TARGET
-        from backend.database import DatabaseService
-        import asyncio
-        import asyncpg
-
-        db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
-        if db_service.offline_mode or not db_service.db:
-            logger.error("Firebase en mode hors-ligne.")
-            return
-        user_ref = (
-            db_service.db.collection("artifacts").document(APP_ID_TARGET)
-            .collection("users").document(USER_ID_TARGET)
+        exchange = requests.post(
+            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={web_api_key}",
+            json={"token": custom_token.decode("utf-8"), "returnSecureToken": True},
+            timeout=10,
         )
+        if not exchange.ok:
+            logger.error(f"Échange du custom token échoué ({exchange.status_code}) : {exchange.text[:300]}")
+            return
+        id_token = exchange.json()["idToken"]
+        logger.info("ID token Firebase RÉEL obtenu avec succès pour l'utilisateur cible.")
 
-        SKIP_COLUMNS = {"ai_analysis_raw", "user_id"}
-        TOLERANCE = timedelta(seconds=1)
+        import uvicorn
+        from backend.api.main import app
 
-        def _match(expected, actual):
-            if isinstance(expected, Decimal):
-                expected = float(expected)
-            if isinstance(actual, Decimal):
-                actual = float(actual)
-            if hasattr(expected, "isoformat") and hasattr(actual, "isoformat"):
-                return abs(expected - actual) <= TOLERANCE
-            return expected == actual
+        def _free_port():
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
 
-        async def _validate():
-            conn = await asyncpg.connect(database_url, timeout=10)
-            await _register_json_codecs(conn)  # connect() n'a pas de paramètre init= (contrairement à create_pool())
-            try:
-                rows = await conn.fetch("SELECT id FROM guitar_deals WHERE user_id = $1", USER_ID_TARGET)
-                migrated_ids = [r["id"] for r in rows]
-                sample_ids = random.sample(migrated_ids, min(SAMPLE_SIZE, len(migrated_ids)))
-                logger.info(f"{len(migrated_ids)} annonce(s) déjà migrée(s) — échantillon de {len(sample_ids)}.")
+        port = _free_port()
+        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, daemon=True)
+        thread.start()
+        deadline = time.time() + 10
+        while not server.started and time.time() < deadline:
+            time.sleep(0.1)
+        if not server.started:
+            logger.error("uvicorn n'a pas démarré à temps.")
+            return
 
-                mismatches = []
-                checked = 0
-                for deal_id in sample_ids:
-                    doc = user_ref.collection("guitar_deals").document(deal_id).get()
-                    if not doc.exists:
-                        mismatches.append((deal_id, "existence", "présent (Postgres)", "ABSENT de Firestore"))
-                        continue
-                    expected, _ = map_deal(deal_id, doc.to_dict() or {})
-                    pg_row = await conn.fetchrow("SELECT * FROM guitar_deals WHERE id = $1", deal_id)
-                    checked += 1
-                    for col in DEAL_COLUMNS:
-                        if col in SKIP_COLUMNS or col == "id":
-                            continue
-                        if not _match(expected.get(col), pg_row[col]):
-                            mismatches.append((deal_id, col, expected.get(col), pg_row[col]))
+        try:
+            base_url = f"http://127.0.0.1:{port}"
+            headers = {"Authorization": f"Bearer {id_token}"}
 
-                    chat_fs = len(list(doc.reference.collection("chat").stream()))
-                    chat_pg = await conn.fetchval("SELECT count(*) FROM deal_chat WHERE deal_id = $1", deal_id)
-                    if chat_fs != chat_pg:
-                        mismatches.append((deal_id, "chat_count", chat_fs, chat_pg))
-                    resto_fs = len(list(doc.reference.collection("restorationPlan").stream()))
-                    resto_pg = await conn.fetchval("SELECT count(*) FROM restoration_plan_items WHERE deal_id = $1", deal_id)
-                    if resto_fs != resto_pg:
-                        mismatches.append((deal_id, "restoration_count", resto_fs, resto_pg))
-                return checked, mismatches
-            finally:
-                await conn.close()
+            health = requests.get(f"{base_url}/health", timeout=5)
+            logger.info(f"GET /health -> {health.status_code} {health.text}")
 
-        checked, mismatches = asyncio.run(_validate())
-        logger.info(f"{checked} annonce(s) vérifiée(s) champ par champ + comptages chat/restauration.")
-        if mismatches:
-            logger.warning(f"{len(mismatches)} écart(s) trouvé(s) :")
-            for deal_id, field, expected, actual in mismatches:
-                exp_repr, act_repr = repr(expected)[:150], repr(actual)[:150]
-                logger.warning(f"  {deal_id} . {field} : Firestore={exp_repr}  Postgres={act_repr}")
-        else:
-            logger.info("Aucun écart détecté sur l'échantillon vérifié.")
+            config_resp = requests.get(f"{base_url}/users/me/config", headers=headers, timeout=5)
+            logger.info(f"GET /users/me/config -> {config_resp.status_code} (clés : {sorted(config_resp.json().keys()) if config_resp.ok else config_resp.text[:200]})")
+
+            deals_resp = requests.get(f"{base_url}/deals", headers=headers, timeout=15)
+            deals = deals_resp.json() if deals_resp.ok else []
+            logger.info(f"GET /deals -> {deals_resp.status_code}, {len(deals)} annonces reçues (attendu ~{deal_count}).")
+
+            if deals:
+                sample_id = deals[0]["id"]
+                sample_resp = requests.get(f"{base_url}/deals/{sample_id}", headers=headers, timeout=5)
+                logger.info(f"GET /deals/{sample_id} -> {sample_resp.status_code}")
+                if sample_resp.ok:
+                    # Échantillon RÉEL loggé pour rejouer apiService.js::dealFromRow localement
+                    # côté dev (Node) et vérifier que la reconstruction JS ne casse sur aucun cas
+                    # limite réel (valeurs nulles, types inattendus) — jamais testable autrement
+                    # depuis un environnement sans credentials Firebase.
+                    logger.info(f"ÉCHANTILLON RÉEL /deals/{sample_id} : {json.dumps(sample_resp.json())}")
+
+            cities_resp = requests.get(f"{base_url}/cities", headers=headers, timeout=5)
+            logger.info(f"GET /cities -> {cities_resp.status_code}, {len(cities_resp.json()) if cities_resp.ok else '?'} villes.")
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
     finally:
-        for path in extracted:
-            if path.exists():
-                path.unlink()
-        api_dir = Path("backend/api")
-        if api_dir.exists() and not any(api_dir.iterdir()):
-            api_dir.rmdir()
-        logger.info("Fichiers temporaires supprimés.")
-
-    logger.info("=== Fin de la validation ===")
+        _cleanup_extracted(written, logger)
 
 
 if __name__ == "__main__":
