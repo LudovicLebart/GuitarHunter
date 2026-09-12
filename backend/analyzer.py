@@ -311,6 +311,12 @@ class DealAnalyzer:
         model_chain = []
         gatekeeper_status = "MANUAL_RETRY"
         gatekeeper_reason = "Analyse experte demandée manuellement."
+        # Capturés pour audit de la précision T1 (Chantier G) : jusqu'ici jetés dès que le
+        # Portier acceptait l'annonce (seul le chemin de rejet, ligne ~344, les conservait) —
+        # aucune comparaison possible entre la sortie brute de T1 et le résultat final T2/T3
+        # sur les annonces acceptées, qui sont pourtant la grande majorité des cas.
+        gatekeeper_brand = None
+        gatekeeper_classification = None
 
         # ==========================================
         # PHASE 1 : TIER 1 - PORTIER (Flash-Lite)
@@ -332,7 +338,9 @@ class DealAnalyzer:
             else:
                 gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
                 gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
-                
+                gatekeeper_brand = result_t1.get('brand')
+                gatekeeper_classification = result_t1.get('classification')
+
                 if gatekeeper_status == 'UNKNOWN':
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
@@ -341,8 +349,12 @@ class DealAnalyzer:
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    gatekeeper_classification = result_t1.get('classification')
-                    return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "classification": gatekeeper_classification, "model_used": " -> ".join(model_chain)}
+                    return {
+                        "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
+                        "classification": gatekeeper_classification,
+                        "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
+                        "model_used": " -> ".join(model_chain),
+                    }
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
@@ -359,7 +371,11 @@ class DealAnalyzer:
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
-            return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}", "model_used": " -> ".join(model_chain) + " (Error)"}
+            return {
+                "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
+                "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
+                "model_used": " -> ".join(model_chain) + " (Error)",
+            }
 
         # Formatage des variables pour la logique conditionnelle
         deal_score = result_t2.get('deal_score', 0)
@@ -419,15 +435,21 @@ class DealAnalyzer:
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
+                result_t2["gatekeeperBrand"] = gatekeeper_brand
+                result_t2["gatekeeperClassification"] = gatekeeper_classification
                 return result_t2
-            
+
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
+            result_t3["gatekeeperBrand"] = gatekeeper_brand
+            result_t3["gatekeeperClassification"] = gatekeeper_classification
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
-            
+
         else:
             self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
+            result_t2["gatekeeperBrand"] = gatekeeper_brand
+            result_t2["gatekeeperClassification"] = gatekeeper_classification
             return result_t2

@@ -11,6 +11,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🎯 Audit de fiabilité du Portier T1 (préalable à un routage T1→T2/T3, 2026-09-12)
+
+- [x] **`gatekeeperBrand`/`gatekeeperClassification` persistés sur `aiAnalysis`** *(déployé 2026-09-12, voir `JOURNAL.md`)* : le Portier conserve désormais sa propre marque/type de corps deviné même quand il accepte l'annonce (avant : jeté sauf en cas de rejet). Purement additif, aucun appel/coût supplémentaire.
+- [ ] **Reste à faire une fois assez de volume accumulé** : script de lecture seule comparant `gatekeeperBrand`/`gatekeeperClassification` (T1) au résultat final stocké par T2/T3 dans `aiAnalysis` — taux d'accord réel sur données de production. Motivé par un chantier de routage T1→T2/T3 en cours d'évaluation sur la branche `claude/guitarhunter-benchmark-setup-h9q9gr` (pas encore mergée) : ne promouvoir vers T2/T3 que ce qui correspond à une recherche active ou une pépite, pour réduire le volume d'appels aux Tiers chers.
+
+---
+
 ## 🗄️ Migration Firestore → solution auto-hébergée (Plan sommaire — 2026-09-05)
 
 *Déclenché par l'analyse des factures GeminiDev (août/septembre 2026) : Firestore pèse ~16-20% de la facture (16,16$ sur 102,57$ en août), avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre). Plan sommaire (pas encore d'implémentation) : `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md`.*
