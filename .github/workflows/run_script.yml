@@ -156,7 +156,21 @@ jobs:
             # `gemini_pro` et `claude_sonnet` au comparatif à 10 candidats (run #27-29) n'avait
             # jamais été testé en répétition. Rejoue les deux candidats 3x sur les 10 mêmes items
             # tier2/tier3 et compare directement l'écart mesuré au bruit propre à chacun.
-            python3 -u -m backend.benchmark.noise_floor_test --models gemini_pro,claude_sonnet
+            #
+            # Run #34 (2026-09-12) : `analyze_cache_and_volume.py` — bilan coûts (hors Chantiers
+            # B/F ci-dessus, portant sur les Chantiers 0.a/0.b, COST_OPTIMIZATION_CHANTIERS.md).
+            # Partie A : parse `journalctl -u guitare-hunter` (lecture seule, aucun accès à ce
+            # service via `~/GuitareHunter-scripts`, donc pas de contamination par les runs de
+            # benchmark ci-dessus qui tournent sur la même clé Gemini) pour mesurer le vrai taux
+            # de hit du cache implicite Gemini par Tier, sur un échantillon plus large que les 78
+            # appels de la mesure du 2026-09-09 (Tier 1 à 0%, Tier 2 à 17,5%). Partie B : recompte
+            # la fenêtre de facturation du run #421 (1377 annonces, 1-7 sept 2026) en isolant les
+            # documents portant un marqueur de ré-analyse par baisse de prix
+            # (`original_price`/`price_drop_amount`, écrit uniquement sur ce chemin, jamais à la
+            # création) — `repository.py::update_deal_data_and_analysis` réécrit `timestamp` à
+            # chaque ré-analyse, donc le comptage original peut inclure des annonces déjà connues
+            # comme si elles étaient nouvelles.
+            python3 -u -m backend.scripts.analyze_cache_and_volume
 
       - name: Récupération du rapport généré
         env:
