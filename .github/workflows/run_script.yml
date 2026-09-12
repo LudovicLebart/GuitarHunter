@@ -170,7 +170,15 @@ jobs:
             # création) — `repository.py::update_deal_data_and_analysis` réécrit `timestamp` à
             # chaque ré-analyse, donc le comptage original peut inclure des annonces déjà connues
             # comme si elles étaient nouvelles.
-            python3 -u -m backend.scripts.analyze_cache_and_volume
+            #
+            # Run #35 (2026-09-12) : `audit_rejected_gems.py` — Chantier G (validation avant tout
+            # code de routage). Ré-analyse un échantillon d'annonces déjà rejetées par le Tier 1
+            # en production, avec le Tier 2 seul (même prompt exact que la cascade réelle), pour
+            # savoir combien auraient déclenché le Tier 3 (pépites potentiellement perdues par le
+            # rejet du Portier). CONSOMME de vrais appels Gemini (Tier 2, contrairement au run #34
+            # qui était lecture seule) — mais aucune écriture Firestore (les rejets restent tels
+            # quels, ce script ne fait que mesurer).
+            python3 -u -m backend.scripts.audit_rejected_gems --limit 30
 
       - name: Récupération du rapport généré
         env:
