@@ -28,7 +28,7 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -39,6 +39,12 @@ def run():
     par deploy.yml correspond à l'IP Tailscale 100.104.124.11 qu'il pense être le serveur.
     Logue hostname/whoami/IP Tailscale de la machine où CE script tourne réellement (donc la
     vraie cible SSH de deploy.yml) — jamais la valeur du secret SERVER_IP lui-même.
+
+    Résultat (run #453, voir JOURNAL.md) : hostname = Lenovo ThinkCentre M720q (pas un "Dell").
+    whoami et l'IP Tailscale sont ressortis ENTIÈREMENT masqués (***) dans les logs GitHub
+    Actions — la redaction automatique de GitHub ne masque que ce qui correspond exactement à
+    un secret configuré, donc cette machine EST bien celle référencée par SERVER_USER/SERVER_IP.
+    Désarmé ci-dessous (ACTIVE = False).
     """
     import subprocess
 
