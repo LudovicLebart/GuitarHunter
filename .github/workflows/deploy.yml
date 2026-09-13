@@ -145,8 +145,10 @@ jobs:
             # travail, sans toucher HEAD ni l'historique de dev). Untracked sur dev -> survivent au
             # `git reset --hard origin/dev` ci-dessus lors du PROCHAIN déploiement (qui ne touche
             # que les fichiers suivis), mais toujours resynchronisés explicitement pour rester à jour.
+            # export_firestore_to_postgres.py ajouté le 2026-09-13 (Phase A.4) : run_once.py a
+            # besoin de ce script sur disque pour le lancer en arrière-plan.
             git fetch origin claude/firestore-postgres-migration
-            git checkout FETCH_HEAD -- backend/api backend/deal_mapping.py
+            git checkout FETCH_HEAD -- backend/api backend/deal_mapping.py backend/scripts/export_firestore_to_postgres.py
             echo "✅ backend/api/* synchronisé depuis claude/firestore-postgres-migration."
 
             echo "--- Python Environment ---"
