@@ -28,44 +28,42 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : diagnostic Tailscale Funnel (lecture seule, aucune exposition) — avant
-    d'exposer publiquement guitarhunter-api (Phase A.3, Chantier A), on vérifie l'état actuel
-    de Funnel/Serve sur ce nœud pour savoir si l'activation peut se faire entièrement depuis
-    deploy.yml, ou si une action manuelle côté console admin Tailscale (HTTPS Certificates,
-    ACL) est requise en amont — comme ça a été le cas pour la règle sudoers.
-
-    Résultat (run #462, voir JOURNAL.md) : "tailscale funnel status" et "tailscale serve
-    status" renvoient tous les deux "No serve config" (exit 0) — ni erreur explicite, ni
-    confirmation que la fonctionnalité HTTPS Certificates/Funnel est activée au niveau du
-    tailnet. INCONCLUSIF : ce statut est celui d'un nœud où rien n'est configuré, que Funnel
-    soit disponible ou non. Seule une tentative d'activation réelle (`tailscale funnel ... on`)
-    lèvera l'ambiguïté — désarmé ci-dessous en attendant la décision de l'utilisateur.
+    2026-09-13 : activation réelle de Tailscale Funnel sur le port 8000 (guitarhunter-api).
+    Le diagnostic précédent (funnel status / serve status = "No serve config") était
+    inconclusif — impossible de savoir si HTTPS Certificates est activé au niveau du tailnet
+    sans tenter une activation réelle. `tailscale funnel --bg 8000` : le flag `--bg` évite de
+    bloquer en foreground (le timeout de 15s du subprocess suffit sinon à tuer la commande
+    avant confirmation). Idempotent : rejouer la commande sur un funnel déjà actif ne fait
+    rien de plus. Effet, si succès : le port 8000 (127.0.0.1, guitarhunter-api, staging)
+    devient accessible publiquement via une URL HTTPS générée par Tailscale — une conséquence
+    réelle et volontaire de ce run, pas un simple diagnostic en lecture seule comme les
+    précédents. Désarmé seulement après confirmation du résultat par l'utilisateur.
     """
     import subprocess
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _run(cmd):
+    def _run(cmd, timeout=15):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             out = (r.stdout or "").strip()
             err = (r.stderr or "").strip()
-            combined = out if out else err
+            combined = "\n".join(p for p in (out, err) if p)
             return f"[exit={r.returncode}] {combined}" if combined else f"[exit={r.returncode}] (vide)"
         except Exception as e:
             return f"(échec: {e})"
 
-    logger.info(f"tailscale version : {_run(['tailscale', 'version'])}")
-    logger.info(f"tailscale status --self : {_run(['tailscale', 'status', '--self'])}")
-    logger.info(f"tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
-    logger.info(f"tailscale serve status : {_run(['tailscale', 'serve', 'status'])}")
+    logger.info(f"AVANT — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
+    logger.info(f"Activation — sudo tailscale funnel --bg 8000 : {_run(['sudo', 'tailscale', 'funnel', '--bg', '8000'])}")
+    logger.info(f"APRÈS — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
+    logger.info(f"APRÈS — tailscale serve status : {_run(['tailscale', 'serve', 'status'])}")
 
 
 if __name__ == "__main__":
