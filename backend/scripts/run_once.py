@@ -28,23 +28,20 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-12 : diagnostic réseau pur (lecture seule, aucune écriture) — l'utilisateur n'a pas
-    accès aux secrets GitHub (SERVER_IP) et voulait confirmer si la machine réellement ciblée
-    par deploy.yml correspond à l'IP Tailscale 100.104.124.11 qu'il pense être le serveur.
-    Logue hostname/whoami/IP Tailscale de la machine où CE script tourne réellement (donc la
-    vraie cible SSH de deploy.yml) — jamais la valeur du secret SERVER_IP lui-même.
-
-    Résultat (run #453, voir JOURNAL.md) : hostname = Lenovo ThinkCentre M720q (pas un "Dell").
-    whoami et l'IP Tailscale sont ressortis ENTIÈREMENT masqués (***) dans les logs GitHub
-    Actions — la redaction automatique de GitHub ne masque que ce qui correspond exactement à
-    un secret configuré, donc cette machine EST bien celle référencée par SERVER_USER/SERVER_IP.
-    Désarmé ci-dessous (ACTIVE = False).
+    2026-09-13 : diagnostic Tailscale Funnel (lecture seule, aucune exposition) — avant
+    d'exposer publiquement guitarhunter-api (Phase A.3, Chantier A), on vérifie l'état actuel
+    de Funnel/Serve sur ce nœud pour savoir si l'activation peut se faire entièrement depuis
+    deploy.yml, ou si une action manuelle côté console admin Tailscale (HTTPS Certificates,
+    ACL) est requise en amont — comme ça a été le cas pour la règle sudoers. Aucune commande
+    ici n'active Funnel ni ne modifie la configuration : `funnel status`/`serve status`
+    n'affichent que l'état déjà en place, `tailscale version` et `status --self` ne modifient
+    rien. Désarmé ci-dessous après lecture des résultats.
     """
     import subprocess
 
@@ -54,16 +51,17 @@ def run():
     def _run(cmd):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            return (r.stdout or r.stderr).strip()
+            out = (r.stdout or "").strip()
+            err = (r.stderr or "").strip()
+            combined = out if out else err
+            return f"[exit={r.returncode}] {combined}" if combined else f"[exit={r.returncode}] (vide)"
         except Exception as e:
             return f"(échec: {e})"
 
-    logger.info(f"hostname : {_run(['hostname'])}")
-    logger.info(f"whoami : {_run(['whoami'])}")
-    logger.info(f"pwd : {_run(['pwd'])}")
-    logger.info(f"IP Tailscale (tailscale ip -4) : {_run(['tailscale', 'ip', '-4'])}")
+    logger.info(f"tailscale version : {_run(['tailscale', 'version'])}")
     logger.info(f"tailscale status --self : {_run(['tailscale', 'status', '--self'])}")
-    logger.info(f"Toutes les IP locales (hostname -I) : {_run(['hostname', '-I'])}")
+    logger.info(f"tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
+    logger.info(f"tailscale serve status : {_run(['tailscale', 'serve', 'status'])}")
 
 
 if __name__ == "__main__":
