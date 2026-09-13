@@ -34,14 +34,20 @@ import requests
 import google.generativeai as genai
 from openai import OpenAI
 
-from backend.analyzer import DealAnalyzer
+from backend.analyzer import (
+    DealAnalyzer,
+    DEFAULT_FEW_SHOT_EXAMPLES,
+    DEFAULT_GATEKEEPER_INSTRUCTION,
+    DEFAULT_MAIN_PROMPT,
+    DEFAULT_TAXONOMY,
+)
 from backend.benchmark.perception_contract import (
     PERCEPTION_FIELDS,
     PERCEPTION_INSTRUCTION,
     build_reasoning_prompt,
     parse_perception_json,
 )
-from config import GEMINI_API_KEY, GEMINI_MODELS
+from config import DEFAULT_REJECTION_VERDICTS, GEMINI_API_KEY, GEMINI_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -609,6 +615,74 @@ def call_bras_b_perception_long(item: dict) -> dict:
     return _call_bras_b_perception(item, _PERCEPTION_LENGTH_TIERS["long"])
 
 
+def _build_t1_prompt(item: dict) -> str:
+    """Construit EXACTEMENT le même prompt que le vrai Portier de production
+    (`analyzer.py::_run_analysis_cascade`, phase 1) : `_construct_base_user_prompt()`
+    (taxonomie + few-shot + détails annonce) + `gatekeeper_verbosity_instruction`.
+
+    Sert à tester si un modèle moins cher peut remplacer `gemini-3.5-flash-lite` au rôle
+    de Portier — question distincte du comparatif Tier 2/3 existant (`gemini`/`gpt4o_mini`/
+    `qwen`), qui teste l'identification/évaluation complète, pas le rôle de gate (accept/
+    reject + marque + classification grossière, schéma JSON à 4 champs).
+    """
+    analyzer = _get_analyzer()
+    listing_data = {"title": item.get("title"), "price": item.get("price")}
+    base_prompt = analyzer._construct_base_user_prompt(
+        listing_data, DEFAULT_MAIN_PROMPT, DEFAULT_TAXONOMY, DEFAULT_FEW_SHOT_EXAMPLES
+    )
+    gatekeeper_instruction = DEFAULT_GATEKEEPER_INSTRUCTION
+    if isinstance(gatekeeper_instruction, list):
+        gatekeeper_instruction = "\n".join(gatekeeper_instruction)
+    return f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
+
+
+def is_t1_rejected(status) -> bool:
+    """Même logique EXACTE que `analyzer.py::_run_analysis_cascade` (ligne ~354) pour décider
+    si un verdict Portier compte comme un rejet — réutilisée par le script de scoring pour ne
+    pas dupliquer une définition qui pourrait diverger silencieusement de la prod."""
+    status = str(status or "").upper()
+    legacy_rejection = ["REJECTED", "REJECTED (SERVICE)"]
+    return status in DEFAULT_REJECTION_VERDICTS or status in legacy_rejection or status.startswith("REJECTED")
+
+
+def call_t1_gemini_flash_lite(item: dict) -> dict:
+    """Baseline fidèle : le vrai modèle et le vrai prompt du Portier de production,
+    appelés via `_call_gemini_json` (même méthode que `analyzer.py`, y compris
+    `response_mime_type=application/json`) — pas `_call_gemini` (texte libre) utilisé par
+    les autres candidats Gemini de ce fichier, pour rester fidèle à la prod sur ce point."""
+    analyzer = _get_analyzer()
+    prompt = _build_t1_prompt(item)
+    images = [
+        img for url in item.get("image_urls", [])
+        if (img := analyzer._download_and_optimize_image(url))
+    ]
+    t0 = time.monotonic()
+    result, err = analyzer._call_gemini_json(GEMINI_MODELS["default_gatekeeper"], [prompt] + images)
+    latency_s = time.monotonic() - t0
+    answer = json.dumps(result, ensure_ascii=False) if result else f"ERREUR: {err}"
+    return _candidate_result(answer, usage=None, latency_s=latency_s)
+
+
+def call_t1_qwen(item: dict) -> dict:
+    """Même prompt Portier exact, testé sur Qwen3.8-flash (déjà intégré au harnais,
+    tarif nettement inférieur à Flash-Lite : ~0,14$/0,42$ vs 0,30$/2,50$ par M)."""
+    prompt = _build_t1_prompt(item)
+    answer, usage, latency_s = _call_openai_compatible(
+        prompt, item.get("image_urls", []), QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL
+    )
+    return _candidate_result(answer, usage, latency_s)
+
+
+def call_t1_gpt5_mini(item: dict) -> dict:
+    """Même prompt Portier exact, testé sur GPT-5-mini (déjà intégré au harnais,
+    tarif légèrement inférieur à Flash-Lite : 0,25$/2,00$ vs 0,30$/2,50$ par M)."""
+    prompt = _build_t1_prompt(item)
+    answer, usage, latency_s = _call_openai_compatible(
+        prompt, item.get("image_urls", []), GPT_MODEL, OPENAI_API_KEY
+    )
+    return _candidate_result(answer, usage, latency_s)
+
+
 # Registre des candidats disponibles pour le runner (clé utilisée en CLI --models).
 CANDIDATES = {
     "gemini": call_gemini,
@@ -623,4 +697,7 @@ CANDIDATES = {
     "analyzer_prod": call_analyzer_prod,
     "bras_b_perception_court": call_bras_b_perception_court,
     "bras_b_perception_long": call_bras_b_perception_long,
+    "t1_gemini_flash_lite": call_t1_gemini_flash_lite,
+    "t1_qwen": call_t1_qwen,
+    "t1_gpt5_mini": call_t1_gpt5_mini,
 }
