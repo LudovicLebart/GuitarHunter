@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+import threading
 import time
 import requests
 import logging
@@ -59,6 +60,13 @@ class DealAnalyzer:
         # analysée (200 nœuds parcourus à chaque fois) alors qu'il ne change qu'avec la config.
         self._taxonomy_index = None
         self._taxonomy_index_source = None
+        # Chantier H : `bot.py::_dispatch_analysis_batch` appelle désormais cette même instance
+        # depuis plusieurs threads worker en parallèle (avant, un seul thread par utilisateur
+        # appelait `analyze_deal` séquentiellement) — `self.models`/`self._taxonomy_index` sont de
+        # simples caches "vérifier-puis-écrire" jamais protégés jusqu'ici. Un seul verrou pour les
+        # deux : leur construction est rapide et purement locale (aucun appel réseau tenu sous le
+        # verrou), donc pas de risque de contention significative ni de deadlock croisé.
+        self._cache_lock = threading.Lock()
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module si non fourni (scripts autonomes/tests).
         self.logger = logger or logging.getLogger(__name__)
@@ -79,21 +87,22 @@ class DealAnalyzer:
         # l'instant) — sans ça, la première instance mise en cache déciderait pour tous les
         # appels suivants au même modèle, schéma ou pas.
         cache_key = (model_name, hash(str(system_instruction)), hash(str(response_schema)))
-        if cache_key not in self.models:
-            try:
-                generation_config = {"response_mime_type": "application/json", "temperature": 0.1}
-                if response_schema is not None:
-                    generation_config["response_schema"] = response_schema
-                self.models[cache_key] = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=system_instruction,
-                    generation_config=generation_config
-                )
-                self.logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
-            except Exception as e:
-                self.logger.error(f"⚠️ Erreur init {model_name} : {e}")
-                return None
-        return self.models[cache_key]
+        with self._cache_lock:
+            if cache_key not in self.models:
+                try:
+                    generation_config = {"response_mime_type": "application/json", "temperature": 0.1}
+                    if response_schema is not None:
+                        generation_config["response_schema"] = response_schema
+                    self.models[cache_key] = genai.GenerativeModel(
+                        model_name=model_name,
+                        system_instruction=system_instruction,
+                        generation_config=generation_config
+                    )
+                    self.logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
+                except Exception as e:
+                    self.logger.error(f"⚠️ Erreur init {model_name} : {e}")
+                    return None
+            return self.models[cache_key]
 
     def _download_and_optimize_image(self, url, max_size=2048):
         try:
@@ -226,7 +235,16 @@ class DealAnalyzer:
                 img.save(buf, format="JPEG")
                 b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-            response = client.chat.completions.create(model=model_name, messages=[{"role": "user", "content": content}])
+            # `response_format=json_object` (mode JSON large des API compatibles OpenAI) : pas
+            # aussi strict que le `response_schema` désormais posé côté Gemini (pas de contrainte
+            # de champs), mais évite au moins la même classe d'échec (texte libre autour du JSON)
+            # sans risquer un paramètre trop spécifique qu'un modèle/fournisseur rejetterait — le
+            # prompt du Portier exige déjà explicitement une sortie JSON (voir prompts.json).
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": content}],
+                response_format={"type": "json_object"},
+            )
             cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
             result = json.loads(cleaned_text)
             if isinstance(result, list):
@@ -325,12 +343,15 @@ class DealAnalyzer:
         Comparaison par identité : `ConfigManager` réutilise le même objet de configuration entre
         deux analyses, donc l'index n'est reconstruit qu'après une vraie modification de la config
         (et une comparaison par identité qui échouerait à tort ne coûterait qu'une reconstruction,
-        jamais un résultat faux).
+        jamais un résultat faux). Verrouillé (`_cache_lock`, partagé avec `_get_model`) depuis que
+        plusieurs workers peuvent appeler cette méthode en parallèle (Chantier H) : sans ça, deux
+        threads pourraient interfoliocer lecture/écriture de `_taxonomy_index`/`_taxonomy_index_source`.
         """
-        if self._taxonomy_index is None or self._taxonomy_index_source is not taxonomy:
-            self._taxonomy_index = build_taxonomy_index(taxonomy)
-            self._taxonomy_index_source = taxonomy
-        return self._taxonomy_index
+        with self._cache_lock:
+            if self._taxonomy_index is None or self._taxonomy_index_source is not taxonomy:
+                self._taxonomy_index = build_taxonomy_index(taxonomy)
+                self._taxonomy_index_source = taxonomy
+            return self._taxonomy_index
 
     def _canonicalize_classification(self, result, taxonomy):
         """Remplace `classification` par son chemin canonique complet, ou la retire si invalide.
@@ -362,6 +383,19 @@ class DealAnalyzer:
             result['classification'] = None
             result['classification_rejected'] = raw
 
+        return result
+
+    def _attach_gatekeeper_metadata(self, result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation):
+        """Attache marque/classification/verdict bruts du Portier + l'observation Qwen
+        (Chantier H) à `result`, en place, et le retourne. Factorise les 5 points de sortie de
+        `_run_analysis_cascade` qui répétaient ces mêmes affectations une à une — exactement le
+        genre de duplication qui a déjà causé un vrai bug par le passé (gatekeeperBrand/
+        Classification n'étaient conservés QUE sur le chemin de rejet avant un correctif dédié,
+        voir JOURNAL.md) : un seul endroit à maintenir si un champ change encore."""
+        result["gatekeeperBrand"] = gatekeeper_brand
+        result["gatekeeperClassification"] = gatekeeper_classification
+        result["gatekeeperVerdict"] = gatekeeper_status
+        result.update(qwen_observation)
         return result
 
     def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
@@ -422,11 +456,24 @@ class DealAnalyzer:
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
 
+            # L'observation Qwen (~22s, run #38) et l'appel Gemini réel (~5s) sont totalement
+            # indépendants (Qwen n'influence jamais la décision) — lancés en parallèle plutôt
+            # qu'en série pour ne pas cumuler leurs latences (27s) sur chaque annonce.
+            qwen_result_holder = [{}]
+
+            def _observe_qwen():
+                qwen_result_holder[0] = self._run_t1_qwen_observation(full_prompt_t1, images)
+
+            qwen_thread = threading.Thread(target=_observe_qwen, daemon=True)
+            qwen_thread.start()
+
             result_t1, err_t1 = self._call_gemini_json(
                 gatekeeper_model_name, [full_prompt_t1] + images, user_email,
                 response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
             )
-            qwen_observation = self._run_t1_qwen_observation(full_prompt_t1, images)
+
+            qwen_thread.join()
+            qwen_observation = qwen_result_holder[0]
 
             if err_t1 or not result_t1:
                 # Fail-open vers l'Analyste
@@ -446,14 +493,14 @@ class DealAnalyzer:
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    return {
-                        "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
-                        "classification": gatekeeper_classification,
-                        "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
-                        "gatekeeperVerdict": gatekeeper_status,
-                        "model_used": " -> ".join(model_chain),
-                        **qwen_observation,
-                    }
+                    return self._attach_gatekeeper_metadata(
+                        {
+                            "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
+                            "classification": gatekeeper_classification,
+                            "model_used": " -> ".join(model_chain),
+                        },
+                        gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
+                    )
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
@@ -470,13 +517,13 @@ class DealAnalyzer:
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
-            return {
-                "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
-                "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
-                "gatekeeperVerdict": gatekeeper_status,
-                "model_used": " -> ".join(model_chain) + " (Error)",
-                **qwen_observation,
-            }
+            return self._attach_gatekeeper_metadata(
+                {
+                    "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
+                    "model_used": " -> ".join(model_chain) + " (Error)",
+                },
+                gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
+            )
 
         # Formatage des variables pour la logique conditionnelle
         deal_score = result_t2.get('deal_score', 0)
@@ -536,27 +583,22 @@ class DealAnalyzer:
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
-                result_t2["gatekeeperBrand"] = gatekeeper_brand
-                result_t2["gatekeeperClassification"] = gatekeeper_classification
-                result_t2["gatekeeperVerdict"] = gatekeeper_status
-                result_t2.update(qwen_observation)
-                return result_t2
+                return self._attach_gatekeeper_metadata(
+                    result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
+                )
 
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
-            result_t3["gatekeeperBrand"] = gatekeeper_brand
-            result_t3["gatekeeperClassification"] = gatekeeper_classification
-            result_t3["gatekeeperVerdict"] = gatekeeper_status
-            result_t3.update(qwen_observation)
+            self._attach_gatekeeper_metadata(
+                result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
+            )
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
 
         else:
             self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
-            result_t2["gatekeeperBrand"] = gatekeeper_brand
-            result_t2["gatekeeperClassification"] = gatekeeper_classification
-            result_t2["gatekeeperVerdict"] = gatekeeper_status
-            result_t2.update(qwen_observation)
-            return result_t2
+            return self._attach_gatekeeper_metadata(
+                result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
+            )

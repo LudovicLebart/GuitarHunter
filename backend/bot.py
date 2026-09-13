@@ -310,6 +310,27 @@ class GuitarHunterBot:
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
+    # Outcomes que `handle_deal_found` renvoie AVANT sa propre ligne `session_processed_ids.add(...)`
+    # (scraping incomplet, doublon cross-plateforme, marqueur de vente) — ces annonces doivent
+    # pouvoir être retentées plus tard dans le MÊME cycle de scan (ex: la même annonce ressort en
+    # scannant une autre ville du cluster), donc ne doivent jamais être marquées "déjà vues" pour
+    # la suite du cycle. "stopped"/"error" ajoutés par prudence : depuis ce thread, impossible de
+    # savoir si l'arrêt/l'échec est survenu avant ou après cette ligne à l'intérieur du worker —
+    # mieux vaut permettre une retentative que perdre silencieusement une annonce pour tout le cycle.
+    _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
+        "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
+        "stopped", "error",
+    })
+
+    def _handle_deal_found_unless_stopped(self, deal, source):
+        """Vérifie l'arrêt au moment où CE worker démarre réellement la tâche (pas seulement à
+        la soumission, des dizaines de secondes plus tôt pour les tâches en file) — une tâche pas
+        encore commencée s'arrête donc net dès qu'un stop est demandé, au lieu de lancer une
+        analyse complète (Gemini + observation Qwen, ~5-25s) qui serait de toute façon jetée."""
+        if self._is_stop_requested():
+            return "stopped"
+        return self.handle_deal_found(deal, source=source)
+
     def _dispatch_analysis_batch(self, deals, source, cycle_stats):
         """Analyse `deals` (déjà filtrés/enrichis, prêts pour handle_deal_found) en parallèle
         via un pool de workers borné (Chantier H, ANALYSIS_WORKERS) — remplace la boucle
@@ -323,20 +344,18 @@ class GuitarHunterBot:
         thread par utilisateur") : les workers de CE pool tournent dans des threads distincts du
         thread appelant (celui qui scrapera la ville suivante juste après) et n'écrivent donc PAS
         dans le même set — l'ajout fait à l'intérieur de `handle_deal_found` se perdrait pour la
-        suite du cycle. On l'alimente donc explicitement ICI, dans le thread appelant, avant même
-        de distribuer aux workers.
+        suite du cycle. On l'alimente donc explicitement ICI, dans le thread appelant, mais
+        SEULEMENT une fois l'issue réelle connue (voir `_NEVER_MARK_PROCESSED_OUTCOMES`) — un
+        pré-marquage aveugle de tout le lot AVANT analyse casserait le mécanisme de retentative
+        déjà en place dans `handle_deal_found` pour ces cas précis.
         """
-        for deal in deals:
-            self.session_processed_ids.add(deal['id'])
-
         if not deals:
             return
 
         with ThreadPoolExecutor(max_workers=self.ANALYSIS_WORKERS) as executor:
             future_to_deal = {
-                executor.submit(self.handle_deal_found, deal, source=source): deal
+                executor.submit(self._handle_deal_found_unless_stopped, deal, source): deal
                 for deal in deals
-                if not self._is_stop_requested()
             }
             for future in as_completed(future_to_deal):
                 deal = future_to_deal[future]
@@ -346,6 +365,8 @@ class GuitarHunterBot:
                     self.logger.error(f"❌ [{source}] Erreur lors de l'analyse de '{deal.get('title', '?')}' : {e}", exc_info=True)
                     outcome = "error"
                 cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                if outcome not in self._NEVER_MARK_PROCESSED_OUTCOMES:
+                    self.session_processed_ids.add(deal['id'])
 
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
