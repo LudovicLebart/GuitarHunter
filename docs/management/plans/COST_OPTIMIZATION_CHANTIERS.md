@@ -588,30 +588,35 @@ selon une recherche active) et reste bloqué sur la validation de précision de 
 distinctions visuelles fines. H porte sur le FOURNISSEUR qui exécute T1 (Gemini vs Qwen) —
 indépendant l'un de l'autre, les deux peuvent avancer en parallèle.
 
-**Ce qu'il reste à faire, pas encore codé** :
-1. **Migration du modèle T1** : router l'appel T1 (`analyzer.py::_run_analysis_cascade`, Phase
-   1/Portier) vers Qwen3.8-flash en production — aujourd'hui `call_t1_qwen` n'existe que comme
-   candidat isolé du harnais de benchmark (`backend/benchmark/candidates.py`), pas intégré à
-   `analyzer.py`/`config.py`.
-2. **Parallélisation de la boucle de scan** (`bot.py:666-668`/`:870-887`) : remplacer le
-   `for deal in found_deals: handle_deal_found(deal, ...)` séquentiel par un pool de workers
-   borné (`ThreadPoolExecutor`, nombre de workers à calibrer selon les limites de débit
-   TokenRouter/Gemini).
-3. **Piège à régler avant la parallélisation** : `session_processed_ids` est thread-local
-   (`threading.local()`, voir CLAUDE.md, conçu pour le modèle "un thread par utilisateur") —
-   un pool de workers À L'INTÉRIEUR d'un cycle de scan d'un même utilisateur casserait la
-   dédup intra-cycle si chaque worker repart avec un set vide. Résoudre la dédup dans le
-   thread principal (avant distribution aux workers), pas dans chaque worker.
-4. **Fallback / robustesse** : prévoir un repli vers Gemini Flash-Lite si l'appel Qwen/
-   TokenRouter échoue (moins de recul en production sur ce fournisseur que sur Gemini),
-   plutôt que de perdre l'annonce.
-5. **Validation en conditions réelles** : déployer d'abord en observation (même pattern que
-   `gatekeeperBrand`/`gatekeeperClassification`/`gatekeeperVerdict`, déjà en place sur `dev`)
-   avant de couper Gemini, ou décider d'un remplacement direct — à trancher dans le plan
-   d'implémentation détaillé.
+**Codé et déployé sur `dev` en OBSERVATION (2026-09-13, commit `6d8974a`) — PAS encore une
+bascule réelle de T1.** Le Portier de production reste entièrement piloté par Gemini
+Flash-Lite ; ce qui suit tourne EN PLUS, sans influencer la décision accept/reject :
+1. **~~Migration du modèle T1~~ → Observation Qwen en parallèle** : `analyzer.py::
+   _run_t1_qwen_observation`/`_call_openai_compatible_json` (nouveau) rejouent le Portier avec
+   EXACTEMENT le même prompt sur Qwen3.8-flash (TokenRouter) et stockent le verdict sous des
+   clés `qwenGatekeeper*` distinctes, jamais utilisées pour la décision réelle — même pattern
+   que `gatekeeperBrand`/`gatekeeperClassification`/`gatekeeperVerdict` déjà en place. La vraie
+   bascule (T1 piloté par Qwen) reste à faire, une fois assez de volume d'observation accumulé.
+2. **Parallélisation de la boucle de scan** (`bot.py::_dispatch_analysis_batch`, nouveau) :
+   fait — `ThreadPoolExecutor(max_workers=ANALYSIS_WORKERS=5)` remplace les 2 boucles
+   séquentielles (Facebook/Kijiji), nécessaire pour que l'observation Qwen (~22s) n'ajoute pas
+   sa latence à la cadence de scan globale.
+3. **Piège `session_processed_ids` réglé** : le pré-marquage se fait désormais UNIQUEMENT après
+   coup, dans le thread appelant, et seulement pour les issues qui l'auraient réellement
+   déclenché dans `handle_deal_found` (`_NEVER_MARK_PROCESSED_OUTCOMES` exclut explicitement
+   `scrape_failed`/`duplicate_cross_platform`/`marked_sold`/`sold_marker`/`stopped`/`error`,
+   pour préserver le mécanisme de retentative intra-cycle déjà en place) — un premier
+   pré-marquage aveugle de tout le lot avait cassé ce mécanisme, corrigé après une revue de code.
+4. **Fallback / robustesse** : sans objet dans l'architecture actuelle (observation pure, best-
+   effort strict — toute erreur Qwen/TokenRouter est absorbée dans `qwenGatekeeperError` sans
+   jamais affecter l'analyse Gemini réelle). Redeviendra pertinent si/quand une vraie bascule de
+   T1 vers Qwen est engagée.
+5. **Validation en conditions réelles** : fait — c'est exactement l'objectif de cette passe.
 
-**Non fait à ce stade** : aucun code de migration écrit — reste au stade de décision de
-principe validée par l'utilisateur, plan d'implémentation détaillé à faire.
+**Reste à faire avant toute vraie bascule (pas encore engagée)** : laisser accumuler quelques
+jours de données réelles (`qwenGatekeeperVerdict` vs `gatekeeperVerdict`), écrire un script de
+comparaison sur ce volume, puis décider entre un remplacement direct ou un déploiement encore
+progressif (ex: % du trafic) — aucune de ces décisions n'est prise à ce stade.
 
 ---
 

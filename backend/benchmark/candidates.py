@@ -40,6 +40,7 @@ from backend.analyzer import (
     DEFAULT_GATEKEEPER_INSTRUCTION,
     DEFAULT_MAIN_PROMPT,
     DEFAULT_TAXONOMY,
+    T1_GATEKEEPER_RESPONSE_SCHEMA,
 )
 from backend.benchmark.perception_contract import (
     PERCEPTION_FIELDS,
@@ -648,8 +649,9 @@ def is_t1_rejected(status) -> bool:
 def call_t1_gemini_flash_lite(item: dict) -> dict:
     """Baseline fidèle : le vrai modèle et le vrai prompt du Portier de production,
     appelés via `_call_gemini_json` (même méthode que `analyzer.py`, y compris
-    `response_mime_type=application/json`) — pas `_call_gemini` (texte libre) utilisé par
-    les autres candidats Gemini de ce fichier, pour rester fidèle à la prod sur ce point."""
+    `response_mime_type=application/json` ET `response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA`
+    depuis le Chantier H) — pas `_call_gemini` (texte libre) utilisé par les autres candidats
+    Gemini de ce fichier, pour rester fidèle à la prod sur ce point."""
     analyzer = _get_analyzer()
     prompt = _build_t1_prompt(item)
     images = [
@@ -657,7 +659,9 @@ def call_t1_gemini_flash_lite(item: dict) -> dict:
         if (img := analyzer._download_and_optimize_image(url))
     ]
     t0 = time.monotonic()
-    result, err = analyzer._call_gemini_json(GEMINI_MODELS["default_gatekeeper"], [prompt] + images)
+    result, err = analyzer._call_gemini_json(
+        GEMINI_MODELS["default_gatekeeper"], [prompt] + images, response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA
+    )
     latency_s = time.monotonic() - t0
     answer = json.dumps(result, ensure_ascii=False) if result else f"ERREUR: {err}"
     return _candidate_result(answer, usage=None, latency_s=latency_s)

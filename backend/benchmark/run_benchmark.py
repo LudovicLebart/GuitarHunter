@@ -138,7 +138,10 @@ def run_candidate(model_key, call_fn, dataset, previous=None):
             perception_report = prev.get("perception_report")
             usage = prev.get("usage")
             latency_s = prev.get("latency_s")
-            need_rejudge = _is_credit_contaminated(prev.get("justification"))
+            # "scores" (dict par axe) a remplacé l'ancien champ singulier "score" (int) —
+            # un fichier de résultats sauvegardé avant ce changement n'a pas "scores" du tout ;
+            # le traiter comme nécessitant un rejugement plutôt que planter sur un KeyError.
+            need_rejudge = _is_credit_contaminated(prev.get("justification")) or "scores" not in prev
             need_re_perception_judge = _is_credit_contaminated((prev.get("perception_verdict") or {}).get("justification"))
 
         if not need_full_rerun and not need_rejudge and not need_re_perception_judge:
