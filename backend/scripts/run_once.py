@@ -28,27 +28,20 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : 4 tentatives d'activation de Tailscale Funnel sur le port 8000
-    (guitarhunter-api), toutes échouées :
-      1. Avec sudo — règle sudoers ne couvrait pas `tailscale` (run #467).
-      2. Sans sudo (après `tailscale set --operator=ludovic`), timeout muet à 15s (run #471).
-      3. Même chose, timeout à 45s — toujours aucun message (run #473).
-      4. stdin fermé (hypothèse confirmation y/n bloquante) — toujours timeout muet à 20s
-         (run #475). Hypothèse infirmée : ce n'est pas un problème de TTY/stdin.
-
-    4 tentatives automatisées sans le moindre message d'erreur ou de sortie (même partielle)
-    suggèrent un blocage réseau réel côté ACME/contrôleur Tailscale (émission du certificat
-    HTTPS), pas un problème de permissions. Diagnostic à la limite de ce qu'un script
-    non-interactif peut établir — la suite se fait mieux en direct par l'utilisateur (TTY
-    réel sur le serveur, `tailscale funnel --bg 8000` à la main, observation en temps réel
-    de ce qui se passe/bloque) plutôt qu'en aveugle via des tentatives GitHub Actions
-    successives. Désarmé ci-dessous.
+    2026-09-13 : cinquième tentative d'activation de Tailscale Funnel sur le port 8000
+    (guitarhunter-api). Les 4 tentatives précédentes échouaient toutes en silence (aucune
+    erreur, aucun message) malgré sudoers corrigé puis opérateur configuré — cause réelle
+    identifiée : la fonctionnalité Funnel elle-même n'était pas activée au niveau du compte
+    Tailscale (console admin), pas un problème de permissions locales sur le serveur.
+    L'utilisateur vient de l'activer. Retente la même commande qu'au run #475 (stdin fermé,
+    timeout 20s) pour confirmer. Désarmé seulement après confirmation du résultat par
+    l'utilisateur (effet persistant réel si succès).
     """
     import subprocess
 
