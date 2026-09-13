@@ -34,24 +34,29 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : troisième tentative d'activation de Tailscale Funnel sur le port 8000
-    (guitarhunter-api). Première tentative (avec sudo) : échec, règle sudoers ne couvrait
-    pas `tailscale` (run #467). Deuxième tentative (sans sudo, après `tailscale set
-    --operator=ludovic` exécuté manuellement) : plus d'erreur sudo, mais la commande a
-    expiré après 15s sans message d'erreur (run #471) — possible que l'émission du
-    certificat HTTPS (ACME via Tailscale) prenne plus de temps que prévu. Cette tentative
-    utilise un timeout de 45s pour distinguer "juste lent" de "vraiment bloqué". Désarmé
-    seulement après confirmation du résultat par l'utilisateur (effet persistant réel si
-    succès).
+    2026-09-13 : quatrième tentative d'activation de Tailscale Funnel sur le port 8000
+    (guitarhunter-api). Historique : (1) avec sudo, échec, règle sudoers ne couvrait pas
+    `tailscale` (run #467) ; (2) sans sudo après `tailscale set --operator=ludovic`,
+    expire à 15s sans erreur (run #471) ; (3) même chose avec 45s de marge, toujours aucun
+    message (run #473) — un vrai blocage réseau/ACME aurait fini par échouer avec un
+    message, pas rester muet. Hypothèse retenue : la commande attend une confirmation
+    interactive (y/n, première utilisation de Funnel sur ce nœud) sur stdin, qui ne reçoit
+    jamais d'EOF dans ce contexte non-interactif — même famille de symptôme que le `sudo`
+    bloqué plus tôt par absence de TTY. `stdin=subprocess.DEVNULL` force un EOF immédiat.
+    Désarmé seulement après confirmation du résultat par l'utilisateur (effet persistant
+    réel si succès).
     """
     import subprocess
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _run(cmd, timeout=15):
+    def _run(cmd, timeout=15, stdin_devnull=False):
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            kwargs = {"capture_output": True, "text": True, "timeout": timeout}
+            if stdin_devnull:
+                kwargs["stdin"] = subprocess.DEVNULL
+            r = subprocess.run(cmd, **kwargs)
             out = (r.stdout or "").strip()
             err = (r.stderr or "").strip()
             combined = "\n".join(p for p in (out, err) if p)
@@ -60,7 +65,10 @@ def run():
             return f"(échec: {e})"
 
     logger.info(f"AVANT — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
-    logger.info(f"Activation (sans sudo, timeout 45s) — tailscale funnel --bg 8000 : {_run(['tailscale', 'funnel', '--bg', '8000'], timeout=45)}")
+    logger.info(
+        "Activation (stdin fermé, timeout 20s) — tailscale funnel --bg 8000 : "
+        + _run(['tailscale', 'funnel', '--bg', '8000'], timeout=20, stdin_devnull=True)
+    )
     logger.info(f"APRÈS — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
     logger.info(f"APRÈS — tailscale serve status : {_run(['tailscale', 'serve', 'status'])}")
 
