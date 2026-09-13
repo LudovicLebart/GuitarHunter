@@ -364,6 +364,7 @@ class DealAnalyzer:
                         "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
                         "classification": gatekeeper_classification,
                         "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
+                        "gatekeeperVerdict": gatekeeper_status,
                         "model_used": " -> ".join(model_chain),
                     }
         else:
@@ -385,6 +386,7 @@ class DealAnalyzer:
             return {
                 "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
                 "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
+                "gatekeeperVerdict": gatekeeper_status,
                 "model_used": " -> ".join(model_chain) + " (Error)",
             }
 
@@ -448,6 +450,7 @@ class DealAnalyzer:
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
                 result_t2["gatekeeperBrand"] = gatekeeper_brand
                 result_t2["gatekeeperClassification"] = gatekeeper_classification
+                result_t2["gatekeeperVerdict"] = gatekeeper_status
                 return result_t2
 
             # L'Expert Pro écrase le T2
@@ -455,6 +458,7 @@ class DealAnalyzer:
             result_t3["tier3_trigger"] = trigger_reason
             result_t3["gatekeeperBrand"] = gatekeeper_brand
             result_t3["gatekeeperClassification"] = gatekeeper_classification
+            result_t3["gatekeeperVerdict"] = gatekeeper_status
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
 
@@ -463,4 +467,5 @@ class DealAnalyzer:
             result_t2["model_used"] = " -> ".join(model_chain)
             result_t2["gatekeeperBrand"] = gatekeeper_brand
             result_t2["gatekeeperClassification"] = gatekeeper_classification
+            result_t2["gatekeeperVerdict"] = gatekeeper_status
             return result_t2
