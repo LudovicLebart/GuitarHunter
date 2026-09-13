@@ -36,20 +36,60 @@ from backend.taxonomy import build_index as build_taxonomy_index, canonicalize a
 
 logger = logging.getLogger(__name__)
 
+# Les 9 verdicts que `gatekeeper_verbosity_instruction` (prompts.json) autorise explicitement
+# pour le champ `status` du Portier — seule liste fermée du contrat T1 (contrairement à
+# `classification`, un chemin de taxonomie à ~142 feuilles, bien trop large pour un enum, validé
+# après coup par `_canonicalize_classification`). Partagée par le schéma Gemini (enum natif du
+# SDK) et le schéma OpenAI-compatible (Qwen) ci-dessous, pour que les deux appels T1 (le décideur
+# réel et l'observation Chantier H) soient contraints à exactement le même vocabulaire.
+T1_VALID_STATUSES = (
+    "PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION",
+    "FAIR", "BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE",
+)
+
 # Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : contrat JSON du Portier,
 # tel qu'exigé par `gatekeeper_verbosity_instruction` (prompts.json) — { status, reasoning,
-# brand, classification }. `classification` n'est PAS requis : le prompt demande la valeur
-# littérale "NULL" (une chaîne, pas un JSON null) quand le modèle est incertain, donc un champ
-# manquant ou "NULL" sont tous deux des réponses valides plutôt qu'une erreur de schéma.
+# brand, classification }. `classification` n'est PAS contraint par un enum (voir
+# `T1_VALID_STATUSES` ci-dessus) et n'est pas requis : le prompt demande la valeur littérale
+# "NULL" (une chaîne, pas un JSON null) quand le modèle est incertain, donc un champ manquant ou
+# "NULL" sont tous deux des réponses valides plutôt qu'une erreur de schéma.
+# `enum` sur `status` (2026-09-13, suite à un `qwenGatekeeperVerdict` observé hors taxonomie —
+# "ACCEPTED" — au run #42) : le SDK `google.generativeai` supporte nativement `enum` sur un champ
+# `string` d'un `response_schema`, un ajout gratuit (même mécanisme déjà en place, aucun coût ni
+# risque de compatibilité) qui ferme la même faille côté Gemini, le vrai décideur.
 T1_GATEKEEPER_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "status": {"type": "string"},
+        "status": {"type": "string", "enum": list(T1_VALID_STATUSES)},
         "reasoning": {"type": "string"},
         "brand": {"type": "string"},
         "classification": {"type": "string"},
     },
     "required": ["status", "reasoning", "brand"],
+}
+
+# Chantier H — même contrat que ci-dessus, au format "json_schema" structuré des API compatibles
+# OpenAI (Qwen via TokenRouter). `strict: True` + `additionalProperties: False` + les 4 champs
+# tous `required` (contrainte du mode strict — pas de champ optionnel) : `classification`
+# manquante doit donc être la chaîne littérale "NULL", déjà le comportement demandé par le prompt
+# quand le Portier est incertain (voir plus haut) — pas un assouplissement du contrat.
+T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "t1_gatekeeper_verdict",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": list(T1_VALID_STATUSES)},
+                "reasoning": {"type": "string"},
+                "brand": {"type": "string"},
+                "classification": {"type": "string"},
+            },
+            "required": ["status", "reasoning", "brand", "classification"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 # Chantier G (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : verdicts T1 qui doivent
@@ -226,13 +266,20 @@ class DealAnalyzer:
                     self._notify_model_unavailable(model_name, str(e), user_email)
                 return None, str(e)
 
-    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url):
+    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None):
         """Appelle un modèle compatible OpenAI (Qwen via TokenRouter, etc.) et parse le JSON,
         avec la même tolérance que `_call_gemini_json` (accolades ```json). Réutilise les
         images DÉJÀ téléchargées (objets PIL) — pas de second téléchargement des mêmes URLs.
         Ne lève jamais : renvoie toujours (dict|None, erreur|None), pour être appelée en
         best-effort par un chemin d'observation (Chantier H) sans jamais faire échouer
-        l'analyse Gemini réelle."""
+        l'analyse Gemini réelle.
+
+        `response_format` : mode JSON large (`{"type": "json_object"}`, par défaut si omis) ou
+        schéma structuré strict (`{"type": "json_schema", ...}`, voir
+        `T1_GATEKEEPER_OPENAI_JSON_SCHEMA`) — au choix de l'appelant. Si le fournisseur/modèle
+        rejette un format non supporté, l'exception est capturée normalement ci-dessous (pas de
+        second appel de repli ici : doublerait le coût de chaque observation pour un cas qui doit
+        rester l'exception, pas la norme)."""
         if not api_key:
             return None, "Clé API manquante."
         try:
@@ -243,15 +290,10 @@ class DealAnalyzer:
                 img.save(buf, format="JPEG")
                 b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-            # `response_format=json_object` (mode JSON large des API compatibles OpenAI) : pas
-            # aussi strict que le `response_schema` désormais posé côté Gemini (pas de contrainte
-            # de champs), mais évite au moins la même classe d'échec (texte libre autour du JSON)
-            # sans risquer un paramètre trop spécifique qu'un modèle/fournisseur rejetterait — le
-            # prompt du Portier exige déjà explicitement une sortie JSON (voir prompts.json).
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": content}],
-                response_format={"type": "json_object"},
+                response_format=response_format or {"type": "json_object"},
             )
             cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
             result = json.loads(cleaned_text)
@@ -278,7 +320,8 @@ class DealAnalyzer:
             return {}
         t0 = time.monotonic()
         result, err = self._call_openai_compatible_json(
-            full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL
+            full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
+            response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
         )
         latency_s = round(time.monotonic() - t0, 1)
         if err or not result:

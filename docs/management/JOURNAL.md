@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-13] [PRO] Chantier H : schéma JSON strict (enum) sur le `status` du Portier — Gemini ET Qwen.
+- **Contexte** : le run #42 (comparaison Gemini/Qwen, 38 annonces) a montré Qwen renvoyer 7 fois `"ACCEPTED"` comme `qwenGatekeeperVerdict` — une valeur hors taxonomie (les 9 verdicts valides : `PEPITE`/`FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION`/`FAIR`/`BAD_DEAL`/`REJECTED_ITEM`/`REJECTED_SERVICE`). Demande utilisateur : forcer Qwen à respecter scrupuleusement le contrat de sortie.
+- **Codé** : nouvelle constante partagée `T1_VALID_STATUSES`. `T1_GATEKEEPER_RESPONSE_SCHEMA` (Gemini) : ajout d'un `enum` sur `status` (gratuit, déjà supporté par le SDK `google.generativeai`). Nouveau `T1_GATEKEEPER_OPENAI_JSON_SCHEMA` (format `json_schema` strict) pour Qwen via `_call_openai_compatible_json` (accepte désormais un `response_format` optionnel, repli sur le mode JSON libre historique si omis).
+- **Pas de second appel de repli** si TokenRouter/Qwen rejette ce format — doublerait le coût de chaque observation.
+- **Appliqué aussi à Gemini** (question de l'utilisateur : "est-ce que ça vaut la peine ?") : oui, coût nul et Gemini est le vrai décideur — un statut hors taxonomie ne casse rien aujourd'hui mais pollue silencieusement l'affichage et la comparaison pépite-tier.
+- **Testé en local** (stub OpenAI + Gemini) : enum correct sur les deux schémas, non-régression du mode JSON libre par défaut, un seul appel Qwen consommé en cas de rejet du format.
+
 [2026-09-13] [PRO] Chantier G : UI de recherche active + repromotion des annonces mises de côté.
 - **Demande utilisateur** : (1) une vraie UI pour configurer `activeSearchFamilies` (jusqu'ici seulement via script Firestore direct) ; (2) surtout — si le filtre change (élargi ou vidé), pouvoir repasser sur les annonces déjà vues par le Portier mais laissées de côté (`NOT_PROMOTED`), sans qu'elles soient jamais traitées comme "rejected".
 - **Vérifié avant de coder** : `repository.py` ne met `status: "rejected"` que si `verdict == "REJECTED"` exactement — `NOT_PROMOTED` tombe déjà dans `status: "analyzed"`. Le risque décrit n'existait donc pas au sens strict, mais rien ne repassait automatiquement ces annonces par T2/T3 (un prix inchangé les fait ignorer par le scan comme n'importe quelle annonce déjà vue).
