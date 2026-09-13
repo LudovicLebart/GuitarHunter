@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-13] [FLASH] Chantier A, Phase A.3 — Tailscale Funnel toujours bloqué après opérateur configuré, diagnostic en aveugle épuisé.
+- **Contexte** : suite du blocage sudo précédent — l'utilisateur a exécuté manuellement `sudo tailscale set --operator=ludovic` sur le serveur, censé permettre à `tailscale funnel` de fonctionner sans sudo.
+- **3 tentatives automatisées supplémentaires, toutes échouées en silence** (aucun message d'erreur, aucune sortie) :
+  1. `tailscale funnel --bg 8000` (sans sudo, timeout 15s) : timeout muet (run #471).
+  2. Même commande, timeout étendu à 45s (hypothèse "l'émission du certificat HTTPS prend du temps") : toujours rien, timeout muet (run #473).
+  3. `stdin` explicitement fermé (`subprocess.DEVNULL`, hypothèse "confirmation y/n bloquante sans TTY", même famille que le sudo bloqué plus tôt) : toujours un timeout muet à 20s (run #475). **Hypothèse infirmée.**
+- **Conclusion** : 4 tentatives automatisées au total (avec la première, sudo) sans le moindre message exploitable — ni succès, ni erreur. Ça sent un blocage réseau réel (ACME/contrôleur Tailscale lors de l'émission du certificat), pas un problème de permissions Unix. Diagnostic à la limite de ce qu'un script non-interactif via GitHub Actions peut établir.
+- **Décision** : basculer en diagnostic direct — demandé à l'utilisateur de lancer `tailscale funnel --bg 8000` lui-même en SSH, avec un vrai terminal, pour observer en temps réel ce qui se passe (message d'erreur visible immédiatement, ou confirmation du blocage silencieux même en interactif).
+
 [2026-09-13] [PRO] Chantier A, Phase A.3 — CORS ajouté, tentative d'activation Tailscale Funnel bloquée par sudo.
 - **CORS** : `CORSMiddleware` ajouté à `backend/api/main.py`, scopé explicitement à `https://ludoviclebart.github.io` et `http://localhost:5173` (jamais `*`), `allow_credentials=False` (auth par en-tête `Authorization`, pas de cookies). Sans ça, le frontend n'aurait pas pu lire les réponses de l'API une fois exposée publiquement (blocage navigateur par défaut). Déployé et vérifié (`guitarhunter-api` redémarré avec succès).
 - **Audit sécurité/auth avant exposition** (demandé explicitement) : seuls `GET /health` et `GET /shared-deals/{deal_id}` (public par design, miroir du comportement Firestore) sont sans authentification. Tout le reste (HTTP + WebSocket) exige un token Firebase valide + vérification de propriété (`_require_deal_owner`). Points notés pour réflexion future (TODO.md) : écriture `shared-deals` non restreinte au propriétaire, absence de rate limiting.
