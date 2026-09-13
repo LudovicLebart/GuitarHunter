@@ -34,14 +34,15 @@ ACTIVE = True
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : deuxième tentative d'activation de Tailscale Funnel sur le port 8000
-    (guitarhunter-api). La première tentative (`sudo tailscale funnel --bg 8000`) avait
-    échoué : la règle sudoers NOPASSWD ne couvrait pas `tailscale` (run #467, voir
-    JOURNAL.md). L'utilisateur a exécuté manuellement `sudo tailscale set --operator=ludovic`
-    sur le serveur (accès root déjà existant) — ça autorise l'utilisateur `ludovic` à
-    exécuter toutes les sous-commandes `tailscale` (dont `funnel`) SANS sudo. Cette tentative
-    appelle donc `tailscale funnel --bg 8000` directement, sans `sudo`. Désarmé seulement
-    après confirmation du résultat par l'utilisateur (effet persistant réel si succès).
+    2026-09-13 : troisième tentative d'activation de Tailscale Funnel sur le port 8000
+    (guitarhunter-api). Première tentative (avec sudo) : échec, règle sudoers ne couvrait
+    pas `tailscale` (run #467). Deuxième tentative (sans sudo, après `tailscale set
+    --operator=ludovic` exécuté manuellement) : plus d'erreur sudo, mais la commande a
+    expiré après 15s sans message d'erreur (run #471) — possible que l'émission du
+    certificat HTTPS (ACME via Tailscale) prenne plus de temps que prévu. Cette tentative
+    utilise un timeout de 45s pour distinguer "juste lent" de "vraiment bloqué". Désarmé
+    seulement après confirmation du résultat par l'utilisateur (effet persistant réel si
+    succès).
     """
     import subprocess
 
@@ -59,7 +60,7 @@ def run():
             return f"(échec: {e})"
 
     logger.info(f"AVANT — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
-    logger.info(f"Activation (sans sudo) — tailscale funnel --bg 8000 : {_run(['tailscale', 'funnel', '--bg', '8000'])}")
+    logger.info(f"Activation (sans sudo, timeout 45s) — tailscale funnel --bg 8000 : {_run(['tailscale', 'funnel', '--bg', '8000'], timeout=45)}")
     logger.info(f"APRÈS — tailscale funnel status : {_run(['tailscale', 'funnel', 'status'])}")
     logger.info(f"APRÈS — tailscale serve status : {_run(['tailscale', 'serve', 'status'])}")
 
