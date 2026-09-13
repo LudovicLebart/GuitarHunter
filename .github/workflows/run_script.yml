@@ -203,7 +203,19 @@ jobs:
             # ré-analyse en boucle sur les annonces à prix 0$ (trouvé par la consultation
             # Opus, Chantier 0.a). Lecture seule, indépendant du run #38 (ci-dessus,
             # candidat T1 fidèle) qui peut encore tourner en parallèle.
-            python3 -u -m backend.scripts.audit_price_zero_loop
+            #
+            # Run #40 (2026-09-13) : DEUX scripts, demandés "en parallèle" par l'utilisateur —
+            # (A) `set_active_search_families.py` ÉCRIT dans Firestore de production (seule
+            # exception à "lecture seule" de ce run) : active `analysisConfig.activeSearchFamilies`
+            # = ["guitare.acoustique_acier.formes_standard.Parlor"] pour tous les utilisateurs, afin
+            # de tester le routage T1->T2/T3 du Chantier G en conditions réelles. Réversible
+            # (`--clear` remet la liste à vide). (B) `backfill_qwen_observation.py` accélère
+            # l'accumulation de données de comparaison Qwen vs Gemini (Chantier H) en rejouant
+            # SEULEMENT l'observation Qwen (pas Gemini, déjà connu) sur les annonces qui ont un
+            # `gatekeeperVerdict` mais pas encore de `qwenGatekeeperVerdict` — coût limité à l'appel
+            # Qwen (~0,0011$/annonce), aucun second appel Gemini.
+            python3 -u -m backend.scripts.set_active_search_families
+            python3 -u -m backend.scripts.backfill_qwen_observation --limit 200
 
       - name: Récupération du rapport généré
         env:
