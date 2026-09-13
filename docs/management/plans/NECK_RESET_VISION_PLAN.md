@@ -1,0 +1,242 @@
+# Plan de Réflexion : Détection Visuelle de l'État de l'Action / Besoin de Neck Reset
+
+**Statut :** Réflexion R&D — aucune implémentation commencée. Ce document capture le raisonnement et le plan de match issus d'une session de brainstorming (2026-08-14), à valider/amender avant tout début de code.
+
+**Objectif :** À partir des photos d'une annonce (Facebook/Kijiji), estimer un score de probabilité de "travaux structurels nécessaires" (action trop haute, besoin de neck reset), sans dépendre d'un CNN boîte noire qui risquerait d'apprendre la qualité de la photo plutôt que la géométrie réelle de la guitare.
+
+**Lien avec Guitar Hunter :** Projet satellite, pensé pour s'intégrer plus tard dans le pipeline existant (en aval du filtrage texte/marque/prix déjà fait par les Tiers 1/2/3, §"Pipeline IA (3-Tiers)" de `CLAUDE.md`) — pas encore câblé, pas de dépendance actuelle avec `backend/analyzer.py`.
+
+---
+
+## 1. Principe directeur
+
+Interdiction de principe d'un CNN "boîte noire" (type ResNet) entraîné à classer "bonne/mauvaise action" directement sur les photos scrapées. Risque identifié : sur des photos de qualité "poubelle" (angles aléatoires, compression JPEG, mauvais éclairage), un tel modèle a de fortes chances d'apprendre à corréler mauvaise photo ↔ mauvaise guitare (les vendeurs peu soigneux prennent souvent les deux) plutôt que d'apprendre la géométrie réelle.
+
+**Approche retenue :** décomposer le problème en métriques géométriques interprétables, calculées après normalisation de l'image, plutôt qu'une classification opaque de bout en bout. **Contrainte de licence associée** (ajoutée après revue externe, §2ter) : les briques du pipeline doivent rester réellement open source/gratuites pour un usage produit — Ultralytics/YOLOv8 (AGPL) est écarté par défaut à ce titre, pas seulement pour des raisons techniques.
+
+## 2. Architecture R&D envisagée (révisée après revue externe — voir §2ter — et après audit Opus — voir §3quinquies)
+
+**Phase 0 — Filtre d'utilisabilité (ajouté après audit Opus, 2026-08-19)**
+- **Déclencheur** : en inspectant manuellement 4 photos de l'échantillon Étape 0 (§3quater), 2 n'étaient même pas des guitares (un ampli, un étui vide) — jamais quantifié à l'échelle malgré un outil déjà existant et jamais dépouillé (voir §3quinquies). Ce filtre formalise et automatise ce qui aurait dû être mesuré à la main dès le départ.
+- **✅ Dépouillement fait (2026-08-19, voir §3sexies pour le détail complet)** : 47 des 50 annonces examinées (1 photo/annonce) → **51% exploitables, 19% partiellement, 30% non exploitables** — nettement mieux que l'estimation pessimiste de Fable (§2ter, "possiblement &lt;10%"). Répond enfin au vrai critère de faisabilité posé dès le début.
+- **Trois vérifications, dans l'ordre, avant tout calcul géométrique de Phase 1/2 :**
+  1. *Présence réelle d'une guitare* : réutilise le modèle de localisation déjà retenu en §3bis (Florence-2/OWLv2) — aucune dépendance nouvelle. Si aucune région "guitare" n'est détectée avec une confiance suffisante, la photo est rejetée sans traitement ultérieur.
+  2. *Photo non générée par IA* (nouveau, cf. §3sexies) : au moins une annonce de l'échantillon utilisait une image de synthèse (filigrane "Contenu généré par l'IA") à la place d'une vraie photo — plus insidieux qu'une photo floue, puisqu'elle peut être nette et bien cadrée sans représenter la géométrie réelle de l'instrument. Détection à documenter comme point ouvert (§6) : filigrane explicite facile, mais pas garanti sur toutes les générations.
+  3. *Taille suffisante des zones nécessaires* : une fois la guitare localisée, calcule la résolution effective (mm/px) à partir de la boîte englobante et de la longueur réelle connue (~1020mm), puis vérifie que le manche/la 12e frette dépassent le seuil établi empiriquement (~12-15px/case de frette pour la mire de Phase 1 ; seuil pour la classification grossière d'action à calibrer sur le Dataset B, §6).
+- **Limite structurelle à couvrir, pas seulement une histoire de pixels (relevée par l'audit Opus, §3quinquies)** : la hauteur d'action est une grandeur *hors du plan* de la touche — sur une photo prise de face, elle se projette vers une valeur quasi nulle **indépendamment de la résolution disponible**. Le filtre doit donc aussi estimer grossièrement l'angle de prise de vue (ex: déformation du contour du corps détecté en Phase 1) et abstenir les vues trop frontales — sinon "non mesurable" reste sous-déclenché exactement sur les photos où la mesure serait la plus trompeuse (résultat proche de zéro avec une confiance artificiellement haute).
+- **Sortie** : alimente directement le "non mesurable" de Phase 3 — ce filtre *est* le mécanisme concret qui produit cette option, pas un ajout séparé.
+
+**Phase 1 — Localisation et repérage géométrique**
+- **Repérage principal, sans modèle entraîné** : le motif des frettes sert de mire de calibration naturelle — l'espacement suit la loi fixe du tempérament égal (`d·2^(-n/12)`). Détection de segments (LSD/M-LSD/DeepLSD) + ajustement RANSAC de ce motif identifie chaque frette d'un coup, donne l'échelle métrique locale, et un résidu de fit qui sert de critère d'abstention automatique. Zéro label, zéro licence à gérer, entièrement inspectable.
+- **Repli si le motif de frettes n'est pas exploitable** (guitare trop petite/floue/angle défavorable) : détection de keypoints via un modèle entraîné — MMPose/RTMPose, DeepLabCut ou SLEAP (Apache/LGPL/BSD), pas YOLOv8-Pose (AGPL).
+- **Homographie globale abandonnée comme étape obligatoire.** Les 6 keypoints initialement prévus sont quasi colinéaires (estimation dégénérée dans l'axe qu'on veut justement mesurer) et une guitare n'est pas un plan unique (cordes flottantes au-dessus de la touche, sillet en relief) — une rectification globale réintroduirait une dépendance à l'angle de prise de vue, l'exact confondeur que Phase 2 doit éviter. Remplacée par des mesures en unités locales (Phase 2), sauf pour le diagnostic d'angle de manche qui reste un cas à part (voir §5).
+
+**Phase 2 — Extraction par mesures locales (remplace les ROI couleur/fréquence initiales)**
+- *Hauteur d'action* (remplace Fretboard Shadowing) : ratio `(distance corde↔sommet de frette à la 12e frette) / (diamètre de la corde de Mi grave)` — la corde sert d'étalon métrique local, invariant à la perspective locale, sans dépendre d'une ombre ni d'un éclairage particulier. Extraction par filtres de crêtes adaptés aux structures fines (`scikit-image` `frangi`/`sato`/`meijering`) + squelettisation + fit robuste (Theil-Sen/RANSAC) — plus fiable que Hough Line Transform sur du JPEG compressé. **Sortie reformulée en classification grossière (basse/normale/haute/non mesurable), pas en mm continus** — la résolution réelle des photos (§3quater) ne permet pas de résoudre des écarts de l'ordre du mm de façon fiable. **Incohérence corrigée après audit (§3quinquies) : le "±12% d'incertitude" de l'étalon n'est pas atteignable à la résolution mesurée** — un Mi grave acoustique (~1,35mm) fait lui-même ~1 pixel à ~1,36 mm/px ; la mire de calibration locale fait la taille de ce qu'elle mesure. Argument supplémentaire en faveur de la classification grossière plutôt qu'une contradiction à résoudre séparément. **Limite non liée à la résolution, à couvrir par le filtre d'utilisabilité (Phase 0)** : l'action est une grandeur hors du plan de la touche, quasi invisible sur une photo prise de face — l'affirmation "exploitable sur une part significative des annonces" (§5) reste une hypothèse non vérifiée.
+- *Hauteur de sillet restante* (remplace Saddle Profiler) : même étalon (diamètres de corde), mesuré en hauteur exposée au-dessus du chevalet via un masque de segmentation (SAM 2.1) — géométrie, pas couleur, donc robuste aux sillets synthétiques noirs/Micarta qui cassaient le ratio de couleur initial.
+- *Bombement / déformation* (remplace Bellying Scanner) : densité de bords haute fréquence abandonnée — corrélée à la compression JPEG et au grain du bois plus qu'à une vraie déformation, en contradiction avec le principe directeur §1. Deux remplaçants, chacun avec ses limites : (a) angle chevalet/table, nécessite une vue de profil (rare, §5) ; (b) détection de décollement de chevalet (ligne d'ombre à la jonction chevalet/table), signal binaire plus robuste et tolérant à plus d'angles. Le bombement pur reste probablement hors de portée sans contrôle de l'éclairage — objectif dégradé assumé plutôt que gonflé artificiellement.
+- *Angle du manche* (nouveau, distinct de la hauteur d'action) : reproduction numérique de la méthode du luthier — fit Theil-Sen sur les sommets de frettes détectés, extrapolé jusqu'au chevalet. Nécessite une vue de profil ou 3/4 serré, rare dans les annonces — traité comme **signal bonus**, pas comme métrique principale (voir §5, découplage action/angle).
+
+**Phase 3 — Intégration pipeline**
+- Filtrage en entonnoir : inférence lourde uniquement sur les annonces déjà retenues par le texte (marque/modèle/prix), pas sur tout le flux scrapé.
+- Stockage des vecteurs extraits uniquement (pas des images redressées) dans une base locale (PostgreSQL/SQLite).
+- **Score de sortie révisé** : plus un score 0-100 toujours confiant, ni une estimation continue en mm. Sortie = **classification grossière** (basse/normale/haute) + option explicite **"non mesurable"**, éventuellement assortie d'un intervalle de confiance calibré (MAPIE — conformal prediction, licence BSD) si un raffinement continu s'avère utile plus tard. Décision actée après mesure de la résolution réelle disponible (§3quater) — comble aussi l'angle mort d'abstention relevé en revue externe.
+
+**Stack envisagée :** prototypage en Python pur (OpenCV/scikit-image + modèles ci-dessus) en priorité ; portage LibTorch/C++ (dans l'esprit du portage MoneyBot, jugé non réutilisable tel quel — hors sujet RL vs vision, cf. historique de session) différé après validation de l'approche, et seulement si le débit d'inférence devient un vrai problème (peu probable vu le filtrage en amont).
+
+## 2ter. Revue externe (Fable, 2026-08-19)
+
+Une revue critique du plan a été demandée à un second modèle (Fable) pour challenger les choix techniques et proposer des alternatives open source/gratuites plus fiables. Conclusions principales, intégrées ci-dessus :
+- Failles identifiées : homographie mal posée (points colinéaires, guitare non plane), Shadow Gap non calibrable sans contrôle de l'éclairage, Saddle Profiler non invariant à la couleur du sillet, Bellying Scanner probablement corrélé à la compression JPEG plutôt qu'à une vraie déformation, absence de référence d'échelle et de mécanisme d'abstention, licence AGPL d'Ultralytics incompatible avec l'objectif open source.
+- Pas de verdict de faisabilité binaire rendu : l'architecture stratégique (métriques interprétables, deux datasets séparés, go/no-go) est jugée saine, mais la viabilité concrète dépend d'une donnée non encore mesurée — le taux réel de photos d'annonces exploitables (estimation à vue de nez, non mesurée : possiblement &lt;10%). D'où l'**Étape 0** ajoutée au plan de match (§4).
+
+## 3. Le vrai enjeu identifié : le dataset, pas l'architecture
+
+Deux besoins de données bien distincts, de difficulté très différente :
+
+- **Dataset A — "où sont les pièces sur la photo"** (keypoints Phase 1) : n'importe quelle photo de guitare sert, pas besoin de défaut. **Déjà disponible gratuitement** : 700+ annonces acoustique/classique déjà scrapées et stockées dans Firebase Storage (upload systématique lors de `handle_deal_found()`, cf. `CLAUDE.md`) — meilleure source que du scraping générique, puisque c'est exactement la distribution réelle (mêmes plateformes, mêmes angles amateurs, même qualité JPEG) sur laquelle le modèle tournera en production. Reste à faire : script d'export (parcourir `guitar_deals`, filtrer acoustique/classique, récupérer les URLs Storage) + labellisation des keypoints — **automatisée en priorité (§3bis)**, le clic manuel (CVAT/labelme) devenant un simple repli en cas d'échec de validation. Complément possible si le volume/la diversité s'avère insuffisant : Roboflow Universe, bootstrap synthétique (rendus 3D + domain randomization). Réserve mineure : ces 700 annonces reflètent les critères de recherche déjà configurés (villes/marques/prix) — léger biais de sélection, probablement sans impact réel sur la diversité angle/forme/éclairage utile à Phase 1.
+
+### 3bis. Labellisation automatisée des keypoints (Dataset A)
+
+Rejet du clic manuel comme méthode par défaut (700+ images, aucune patience/temps disponible côté utilisateur) au profit d'un pipeline automatisé, gardé inspectable à chaque étage (cohérent avec le principe directeur §1 — pas de boîte noire) :
+
+1. **Localisation grossière** : Florence-2 (MIT, Microsoft) ou OWLv2 (Apache-2.0) plutôt que Grounding DINO/Gemini Flash — open source, gratuits, tournent en local. Astuce de robustesse : prompter sur des concepts fréquents ("guitar headstock", "guitar bridge") plutôt que sur le vocabulaire ambigu de lutherie ("nut", "saddle"), puis descendre au point précis par position relative dans le crop.
+2. **Segmentation précise** : SAM 2.1 (Apache-2.0, plus précis et plus léger que SAM 1 ; HQ-SAM si les contours fins du sillet comptent particulièrement) affine chaque zone en contour pixel-précis à partir de la boîte grossière — plus fiable qu'une coordonnée brute renvoyée par un VLM généraliste, qui n'est pas conçu pour la précision géométrique fine. Limite connue : les cordes/chevilles occluent partiellement le sillet de chevalet, SAM peut les inclure/exclure de façon incohérente d'une image à l'autre — à surveiller en validation (point 3).
+3. **Validation par cohérence géométrique, pas par inspection visuelle** : les points extraits sont testés en ajustant le motif de fréquence des frettes (Phase 1) dessus — tout label dont le résidu dépasse un seuil est rejeté automatiquement. Erreur chiffrée en pixels, tri objectif "labels fiables / à corriger", remplace la simple "comparaison visuelle rapide" prévue initialement (une erreur de quelques pixels est invisible à l'œil sur une vignette mais fatale pour la mesure).
+4. **Réduction du nombre de points à détecter par la géométrie connue** : la position des frettes suit une formule fixe (tempérament égal). Détecter fiablement seulement le sillet de tête + le sillet de chevalet permet de **calculer** la position théorique de la 12e frette plutôt que de la faire reconnaître visuellement — moins de points appris, moins d'erreurs cumulées.
+5. **Repli si besoin** : chercher un modèle déjà entraîné sur des guitares (Roboflow Universe/HuggingFace) avant de fine-tuner depuis un backbone générique ; si la validation (point 3) échoue malgré tout, correction manuelle assistée (points auto-labellisés pré-remplis dans un outil comme Label Studio, l'humain corrige au lieu de labelliser à vide) plutôt que clic à froid.
+
+- **Dataset B — "le signal visuel prédit la vraie mesure"** (calibration Phase 2) : le vrai goulot d'étranglement. Nécessite des paires (photo, mesure réelle mesurée à la main). Un label binaire "besoin de neck reset" est rare et coûteux (diagnostic d'expert) ; reformulé en métrique continue bon marché (hauteur de corde à la 12e frette, hauteur de sillet restante) mesurable par n'importe qui avec une jauge/règle sur n'importe quelle guitare, bonne ou mauvaise.
+
+**Absence de magasins d'instruments usagés à Montréal** identifiée comme contrainte réelle — pivote la stratégie de collecte vers les luthiers/écoles de lutherie plutôt que le commerce de détail.
+
+**Idée validée en session :** exploiter les guitares à manche vissé (ex. Art & Lutherie) de l'utilisateur — le "neck reset" s'y fait par changement de cale à la jonction (réversible), permettant de mesurer et photographier plusieurs configurations d'angle réel du manche dans une seule session, sur une guitare confirmée nécessiter une correction. Résout la limite du manche collé (où l'angle ne peut pas être modifié sans opération irréversible).
+
+**Protocole de session affiné (après revue externe) — deux confusions distinctes, deux garde-fous distincts :**
+- *Confusion "conditions de prise de vue"* (un signal qui ne reflèterait qu'une lumière/un angle particulier plutôt que l'action réelle) : couverte par la randomisation déjà prévue — plusieurs photos par réglage de cale, avec éclairage/distance/angle/focale volontairement variés autant que possible.
+- *Confusion "apparence de cette guitare précise"* (un signal qui accrocherait sur le grain du bois ou la forme du chevalet de cette guitare-là plutôt que sur la géométrie) : **non résolue par la randomisation des conditions de prise de vue**, puisque bois/chevalet/cordes restent identiques sur toutes les photos d'une même guitare, quelles que soient les conditions. Seul un test **leave-one-guitare-out** (calibrer sur une guitare, vérifier que ça tient sur l'autre, jamais utilisée pour calibrer) peut la détecter — critère formalisé au jalon go/no-go (§4). Avec seulement 2 guitares ce n'est pas une validation statistique robuste, mais un garde-fou réel : si le signal s'effondre d'une guitare à l'autre, c'est un signe fort qu'il était illusoire.
+
+**Sources gratuites complémentaires identifiées (revue externe), à coût nul :**
+- **BlenderProc** (pipeline de rendu gratuit) + modèle 3D de guitare (Sketchfab/BlenderKit CC) : angle de manche et action paramétrables, génère des paires (image, mesure exacte connue) par milliers avec domain randomization — complète (pas ne remplace pas) les mesures réelles, qui restent indispensables pour valider le transfert simulation→réel.
+- Forums de lutherie (Acoustic Guitar Forum, Unofficial Martin Guitar Forum) et vidéos YouTube de neck resets (frames avant/après avec mesures annoncées par le luthier) — paires photo/mesure hétérogènes mais gratuites et issues de vraies guitares défectueuses.
+
+### 3ter. Élargissement au périmètre électrique (discussion 2026-08-19)
+
+**Idée soulevée par l'utilisateur :** élargir le périmètre aux guitares électriques — beaucoup plus de volume (3000+ annonces vs 700+), et beaucoup de manches vissés (Fender-style notamment) accessibles pour reproduire l'expérience à la cale sur de nombreux instruments différents, attaquant directement le critère leave-one-guitare-out (§3) à moindre coût.
+
+**Nuance essentielle établie en discussion :** la ligne de partage pertinente n'est **pas** acoustique vs électrique, mais **manche vissé (bolt-on) vs manche collé/set-neck** :
+- *Manche vissé* (Fender-style, la plupart des Squier/Ibanez, Art & Lutherie côté acoustique) : la cale est un réglage routinier et réversible — pas un "neck reset" au sens structurel.
+- *Manche collé/set-neck* : dovetail acoustique traditionnel, **mais aussi** Gibson Les Paul/SG, PRS set-neck, semi-hollow/hollow body (ES-335 et proches) — un vrai neck reset structurel s'y applique, comparable à celui d'une acoustique.
+
+**Décision retenue :**
+- **Dataset A** (keypoints) : élargi à toutes les guitares, électriques comprises — pur gain de volume/diversité, aucune dépendance au type de jonction (Phase 1 ne juge pas l'état de la guitare).
+- **Dataset B** (calibration) : élargi de la même façon — la hauteur d'action mesurée reste une grandeur géométrique universelle, et les manches vissés électriques (beaucoup plus nombreux/accessibles que les 2 guitares actuelles) permettent de reproduire l'expérience à la cale sur de nombreux instruments pour renforcer le test leave-one-guitare-out.
+- **Diagnostic produit** ("neck reset" spécifiquement) : reste conditionné au type de jonction, pas au type d'instrument. Nécessite un **classificateur modèle → type de jonction** (bolt-on/set-neck) en aval du score géométrique, alimenté à partir de `brand`/`model_name` déjà extraits par le pipeline IA existant (`aiAnalysis`) — nouveau point ouvert (§6). Sur manche vissé (électrique ou acoustique), une action haute signale un réglage à faible coût ; sur manche collé (électrique ou acoustique), elle peut signaler un vrai neck reset coûteux.
+- Le filtre de collecte actuel (`ACOUSTIC_MARKERS` dans `backend/scripts/export_neck_reset_sample.py`, limité à acoustique/classique) n'a pas encore été élargi — l'Étape 0 en cours porte sur le périmètre initial ; l'élargissement électrique est une évolution documentée mais pas encore implémentée dans le script.
+
+### 3quater. Résolution réelle des images collectées (2026-08-19, chiffres corrigés après audit — §3quinquies)
+
+L'Étape 0 initialement prévue (compter à la main sur 50 annonces combien ont une vue exploitable) a été remplacée par une vérification plus rigoureuse et quantitative : plutôt que "y a-t-il des gros plans", la vraie question est "la résolution d'une vue d'ensemble suffit-elle à distinguer les écarts d'action qu'on veut mesurer". Vérifiée empiriquement, pas supposée.
+
+**Méthode et résultats :**
+- Export réel (`backend/scripts/export_neck_reset_sample.py`, exécuté via `.github/workflows/run_script.yml` sur la branche dédiée `ops/run-script`) : **894 annonces acoustique/classique éligibles** (7 utilisateurs), échantillon de 50 — 47/50 photos à ~720×960px, 3/50 en vignette 261×261px.
+- Inspection visuelle de 4 photos réelles de l'échantillon : la guitare occupe ~70-90% de la hauteur du cadre (meilleur que l'hypothèse initiale prudente), mais **2 des 4 photos regardées n'étaient même pas la guitare** (ampli, étui vide) — le nombre de photos par annonce surestime le nombre de vues réellement utiles.
+- **Calcul de résolution effective** à ~1,36 mm/px (guitare ~1020mm réels sur ~750px, fourchette 1,18-1,52 selon la fraction du cadre occupée). L'espacement de frettes à la 12e case (~18mm réels) → ~13px, **suffisant pour la mire de calibration** (Phase 1, §2, tient — la longueur du segment de frette, ~33px, compense la finesse du trait lui-même, ~1,5px). L'écart corde-frette qu'on veut mesurer pour l'action, corrigé après audit : **valeurs de lutherie usuelles ≈ 2-2,4mm (normale) à 3,5-4,5mm (haute)**, soit une grandeur absolue de **~1,5px à ~2,9px** selon le cas — pas un "écart entre classes" de 0,7-1,1px comme initialement calculé (hypothèse de départ trop pessimiste sur l'écart réel). Le bon cadrage : deux grandeurs absolues de l'ordre de 1-3px, distinguables en classification grossière avec une détection sub-pixel soignée (~0,2-0,3px de précision atteignable), mais hors de portée pour une estimation continue en mm.
+- **Cause racine tracée dans le code, pas supposée** : `backend/repository.py::upload_images_to_storage()` confirmé pass-through pur (aucun resize/recompression côté Guitar Hunter). Le plafond vient de Facebook lui-même — `backend/scraping/parser.py` lit `img.get_attribute("src")` du carrousel DOM, sans vérifier `srcset`. Une URL réelle capturée par l'utilisateur confirme un paramètre CDN explicite `stp=dst-jpg_s960x960_tt6` (plafond de 960px assumé côté Facebook, pas un hasard). Indice indirect en faveur de cette lecture : le scraper fait déjà tourner Playwright jusqu'à un viewport 2560×1440 (`backend/scraping/core.py`) sans que ça change la résolution obtenue — le levier "plus grand viewport" semble déjà épuisé.
+- **Modification directe de l'URL testée et fermée, pas "tout contournement"** : remplacer la taille demandée dans l'URL (`s960x960` → `s2048x2048`, ou retirer le paramètre) → **HTTP 403 "URL signature mismatch"** à chaque fois (testé en direct, message de diagnostic spécifique, pas un 403 générique/rate-limit). Le token `oh=` signe l'URL entière, `stp` inclus — cette manipulation précise est fermée. **Non testé, et donc non fermé : l'attribut `srcset` du même `<img>`** (le parser ne le lit jamais, cf. `backend/scraping/parser.py` ligne ~161) pourrait exposer une variante mieux résolue, elle-même correctement signée — reste un point ouvert (§6), pas une conclusion.
+- **Kijiji comparé, pas écarté définitivement** : script dédié `backend/scripts/compare_image_resolution_by_source.py` (857 annonces Facebook éligibles vs 37 Kijiji, 15 mesurées de chaque) → Facebook 668×960px/93 Ko en moyenne, Kijiji 640×798px/41 Ko en moyenne (~2x plus compressé en bits/pixel). Mais la comparaison n'est pas symétrique : la taille Kijiji est pilotée par un paramètre `rule=` dans l'URL (`backend/scraping/kijiji/parser.py`, CDN `media.kijiji.ca`) qui **n'est pas signé** (pas d'équivalent du token `oh=` Facebook) — jamais testé s'il est modifiable. Ce qui est mesuré, c'est ce que *nos deux scrapers demandent*, pas la limite réelle de chaque plateforme. "Kijiji n'est pas une meilleure alternative" reste probable mais prématuré tant que ce paramètre n'est pas testé (§6).
+- **Aucun mode zoom/plein écran accessible** confirmé par l'utilisateur sur l'interface Facebook normale (desktop et mobile) pour obtenir une variante mieux résolue.
+
+**Conclusion actée, sous réserve explicite (voir §3quinquies pour l'audit complet) :** ~960px est la limite pratique réelle de ce qu'un accès anonyme permet de récupérer sur Facebook via l'extraction actuelle (`src` seul, sans `srcset`), Kijiji ne faisant probablement pas mieux avec son paramètre `rule=` non testé. Le pipeline se conçoit **autour** de cette contrainte : la hauteur d'action passe d'une estimation continue en mm à une **classification grossière** (basse/normale/haute/non mesurable, §2 Phase 2/3) — décision qui reste valide même si `srcset`/`rule=` s'avéraient exploitables (elle serait alors trop prudente, pas fausse), cohérente avec le principe directeur §1. **Ce n'est pas une conclusion "tranchée" au sens strict** : deux leviers gratuits (~10 min chacun) restent non testés, et le vrai critère de faisabilité initial (taux de photos exploitables, §2ter) n'a toujours pas été mesuré à l'échelle — voir §3quinquies et §6.
+
+### 3quinquies. Audit critique de §3quater (Opus, 2026-08-19)
+
+Un second modèle (Opus) a été chargé de vérifier — pas de proposer des alternatives, ça avait déjà été fait par Fable (§2ter) — la validité technique de §3quater et sa cohérence avec le reste du plan. Verdict global : **la décision produit (classification grossière) reste bonne, mais le document affichait plus de certitude qu'il n'en avait produit.** Corrections intégrées ci-dessus (§2 Phase 0/2, §3quater) ; défaut le plus grave, à part :
+
+- **Le vrai critère de faisabilité avait disparu sans être mesuré.** §2ter posait que la viabilité dépendait du taux réel de photos exploitables (possiblement &lt;10%) — jamais chiffré. Le plan avait déclaré l'Étape 0 "close" en la remplaçant par le calcul de résolution (§3quater), qui répond à une question différente. Pire : §3quater notait lui-même "2 des 4 photos regardées n'étaient même pas la guitare" sans suite. L'outil pour trancher existe déjà (`export_neck_reset_sample.py`, boutons exploitable/pas exploitable dans le HTML généré) — jamais dépouillé. Rouvert en §4/§6, opérationnalisé en Phase 0 (§2).
+- Les 4 autres points (calcul mm/px, cause racine du plafond, test HTTP 403, comparaison Kijiji) ont chacun été confirmés dans leur mesure mais nuancés dans leur généralisation — corrections intégrées directement dans §2 et §3quater plutôt que dupliquées ici.
+
+### 3sexies. Taux réel de photos exploitables — enfin mesuré (2026-08-19)
+
+Réponse directe au point rouvert par l'audit Opus (§3quinquies) et au vrai critère posé par Fable (§2ter). Méthode : inspection visuelle d'1 photo (la première du carrousel) pour 47 des 50 annonces de l'échantillon Étape 0 (3 titres non extraits par le script d'analyse, sans lien avec la qualité photo) — pas un dépouillement exhaustif de toutes les photos de chaque annonce, donc une estimation plutôt basse (une 2e/3e photo aurait pu sauver certains cas classés "partiel" ou "non exploitable").
+
+**Résultat :**
+- **Exploitable** (vue nette manche+corps, ou gros plan net sur la zone 12e frette) : **24/47 (51%)**.
+- **Partiellement exploitable** (cadrage incomplet — tête ou chevalet coupé, angle serré) : **9/47 (19%)**.
+- **Non exploitable** : **14/47 (30%)**, décomposé ainsi :
+  - 4 photos qui ne montrent pas de guitare du tout (2 amplis, 2 étuis vides) — confirme et quantifie le déclencheur de la Phase 0 (§2).
+  - 2 images publicitaires/catalogue génériques (pas l'annonce spécifique).
+  - 3 vignettes basse résolution (261×261px — le mode de défaillance "pas de photo HD stockée" déjà identifié).
+  - 1 vue de dos uniquement (pas la face, donc rien de mesurable).
+  - **1 photo générée par IA** (filigrane "Contenu généré par l'IA" visible) — découverte nouvelle et non anticipée : un vendeur a posté une image de synthèse à la place d'une vraie photo. Plus insidieux qu'une photo floue, puisqu'elle peut être nette et bien cadrée sans représenter la géométrie réelle de l'instrument — ajouté au filtre d'utilisabilité (Phase 0, §2) et aux points ouverts (§6).
+
+**Conclusion :** le taux réel (51%, jusqu'à 70% si on compte les cas partiels) est nettement meilleur que l'estimation pessimiste de Fable ("possiblement &lt;10%", §2ter). **Le critère de faisabilité initial est rempli** — le projet n'est pas bloqué par le manque de photos exploitables, contrairement au risque identifié en revue externe.
+
+### 3septies. Collecte Dataset A à l'échelle (2026-08-19)
+
+Export réel du corpus complet via `backend/scripts/export_dataset_a.py` (exécuté en production via `ops/run-script`, lecture seule Firestore) — élargi au périmètre électrique/basse (§3ter), contrairement à `export_neck_reset_sample.py` qui restait limité acoustique/classique pour l'Étape 0.
+
+Filtre : `storageImageUrls` non vide, classification sous un des 5 nœuds `guitare.*` (electrique, acoustique_acier, electro_acoustique, classique_nylon, basse), items rejetés exclus (`status == 'rejected'` ou `aiAnalysis.verdict` dans REJECTED_ITEM/REJECTED_SERVICE/REJECTED). **BAD_DEAL conservé** délibérément — ce n'est pas un rejet (CLAUDE.md, "BAD_DEAL ≠ REJECTED") : la guitare est réelle et photographiée, juste jugée trop chère par l'IA.
+
+**Bug trouvé et corrigé avant validation des chiffres :** le premier run filtrait par sous-chaîne (`"electrique" in classification`), ce qui incluait à tort 10 annonces classées `etui_housse.Etui_Rigide.Guitare Electrique` (un étui, pas une guitare) — contamination de la même nature que celle repérée à la main dans l'échantillon Étape 0 (§3sexies). Corrigé en exigeant un préfixe complet `guitare.*`.
+
+**Résultat (chiffres corrigés) :**
+- **1066 annonces retenues → 5974 photos** au total (`storageImageUrls`), toutes guitares confondues.
+- Exclues : 2423 rejetées, 143 sans photo stockée, 1004 hors périmètre guitare (ampli/étui/autre).
+- Répartition dominée par `acoustique_acier.formes_standard.Dreadnought*` (324), `classique_nylon.types.Classique Standard` (173), puis plusieurs familles électriques solid-body (Stratocaster 69, Super Strat 50, Single Cut 39, etc.) — confirme l'utilité de l'élargissement électrique (§3ter) en volume.
+- Manifeste (`dataset_a_manifest.jsonl`) livré en artefact CI, pas encore versionné ni consommé par un pipeline — sert d'entrée à la labellisation automatisée des keypoints (§3bis), pas encore lancée.
+
+Ce chiffre (1066) est le corpus Dataset A **brut** (toute photo présente), pas le corpus **exploitable** — le taux mesuré en §3sexies (51%/70%) reste une estimation sur un échantillon de 47 annonces acoustique/classique uniquement, pas encore vérifiée sur le corpus électrique élargi ni appliquée photo-par-photo à ces 5974 images (c'est justement le rôle prévu de la Phase 0, §2).
+
+## 4. Plan de match
+
+0. **Principe :** deux datasets distincts (A = keypoints, B = calibration), ne pas les confondre dans la collecte.
+
+1. **✅ Étape 0 — complète (2026-08-19)** : la question résolution (mm/px) a été mesurée et tranche la forme de la sortie (§3quater — classification grossière plutôt que mm continus) ; le taux réel de photos exploitables a été compté (§3sexies — 51% exploitables, 70% en comptant les cas partiels, nettement au-dessus du seuil critique redouté par Fable). Le critère de faisabilité initial (§2ter) est rempli.
+
+2. **Exploiter les 2 guitares de l'utilisateur immédiatement (Dataset B, coût nul, priorité)**
+   - Guitare à manche vissé : mesurer l'état actuel (action 12e frette, hauteur de sillet) → photographier (protocole complet, §5, plusieurs conditions par réglage) → dévisser, tester 2-3 épaisseurs de cale → mesurer + photographier à chaque configuration.
+   - Guitare à manche collé (si applicable) : même protocole photo/mesure sur l'état actuel ; variation de l'action via cales sous le sillet de chevalet possible (réversible), pas de variation d'angle du manche (irréversible sur ce type de jonction).
+
+3. **Combler la généralisation** : mesurer/photographier d'autres guitares accessibles (propres guitares restantes, entourage) pour le test leave-one-guitare-out (§3) — pas juste "utile", mais un critère formel du jalon go/no-go (étape 6).
+
+4. **Approcher un luthier ou une école de lutherie montréalaise** pour documenter de vrais neck resets en cours (avant/après, mesure réelle) en échange d'un accès aux résultats — source de cas positifs confirmés en volume, alternative identifiée à l'absence de magasins d'occasion locaux. Sources gratuites complémentaires en parallèle : forums de lutherie, vidéos YouTube de neck resets (§3).
+
+5. **Construire Dataset A en parallèle** (faible priorité tant que B n'est pas validé) : **✅ export à l'échelle fait (§3septies, 2026-08-19)** — 1066 annonces / 5974 photos, tout le périmètre guitare (§3ter). Reste à faire : pipeline de labellisation automatisée des keypoints (§3bis, Florence-2 + SAM 2.1 + validation géométrique) — pas encore lancé. Clic manuel en repli uniquement si la validation échoue.
+
+6. **Jalon go/no-go** : (a) ✅ taux de photos exploitables (§3sexies, 51-70%) et résolution (§3quater) jugés suffisants — la mesure d'action visant une classification grossière plutôt qu'une valeur continue ; (b) qualité des keypoints auto-labellisés validée par résidu géométrique chiffré (§3bis point 3), pas par inspection visuelle ; (c) les métriques de Phase 2 (§2) calculées à la main/en script simple sur les données des étapes 2-4 corrèlent avec les vraies mesures **en validation croisée leave-one-guitare-out** (§3) — une corrélation qui ne tient que sur la guitare ayant servi à calibrer ne compte pas. Si (b) ou (c) ne tient pas, ne pas investir dans l'industrialisation.
+
+7. **Industrialisation** (seulement après validation de l'étape 6) : entraînement du/des modèle(s) de repli, assemblage du pipeline complet avec sortie calibrée (MAPIE + abstention), portage C++/LibTorch si besoin de performance avéré.
+
+## 5. Protocole photo retenu (par guitare/configuration mesurée)
+
+1. Vue d'ensemble manche + corps dans le même cadre (sillet de tête → chevalet).
+2. Gros plan sur le sillet de chevalet.
+3. Gros plan sur la zone juste derrière le chevalet (table).
+4. Gros plan sur la 12e frette avec cordes visibles.
+5. (Optionnel, haute valeur si réalisable) Photo "en visée" depuis la tête le long du manche.
+
+Chaque vue déclinée sur plusieurs conditions (angle, distance, éclairage, focale si possible) autant que réalisable par réglage de cale — couvre la confusion "conditions de prise de vue" (§3), mais **pas** la confusion "apparence de cette guitare précise", qui nécessite une deuxième guitare (§3, §4 point 3).
+
+**Rareté de la vue de profil dans les vraies annonces (constat utilisateur, confirmé par la revue externe) :** l'essentiel des photos de vendeurs ne montre pas de vue de profil/en visée — la vue 5 ci-dessus reste l'exception, pas la norme. Conséquence directe sur l'ambition du pipeline (§2, Phase 2) : la **hauteur d'action** (mesure locale en diamètres de corde, tolérante à l'angle) reste exploitable sur une part significative des annonces ; l'**angle du manche par visée** et le **bombement via angle chevalet/table** restent de vraies vues de profil et ne seront mesurables que sur une minorité d'annonces bien photographiées — traités comme signaux bonus, pas comme piliers du score. Le protocole de collecte (vues 1-5 ci-dessus) reste néanmoins complet pour le Dataset B, où c'est l'utilisateur qui contrôle la prise de vue.
+
+**Nuance ajoutée après audit (§3quinquies) :** l'affirmation "la hauteur d'action reste exploitable sur une part significative des annonces" n'est pas juste une question d'angle profil/face au sens large — l'action est une grandeur hors du plan de la touche qui se projette vers zéro sur une vue *bien frontale* (tolérante à un léger 3/4, pas à un vrai face-à-face). Cette hypothèse n'a pas encore été vérifiée sur des photos réelles ; c'est le rôle du filtre d'utilisabilité (Phase 0, §2) de la couvrir explicitement plutôt que de la présumer.
+
+## 6. Points ouverts / non tranchés
+
+- Modalités précises du contact luthier/école de lutherie (message à rédiger).
+- Volume cible du Dataset B avant de juger le jalon go/no-go (§4 étape 6) concluant.
+- Seuil de résidu géométrique acceptable pour valider un keypoint auto-labellisé (§3bis point 3) — à calibrer empiriquement.
+- ~~Reformulation éventuelle du score de sortie (continu vs seuils)~~ **Tranché (§3quater) : classification grossière (basse/normale/haute/non mesurable)**, la résolution réelle des photos ne permettant pas une estimation continue en mm fiable — reste valide même si les deux points ci-dessous s'avéraient exploitables.
+- ~~Taux réel de photos exploitables~~ **Mesuré (§3sexies, 2026-08-19) : 51% exploitables, 70% avec les cas partiels** — largement au-dessus du seuil critique, critère de faisabilité rempli.
+- **Nouveau (§3sexies) : détection des photos générées par IA** — au moins 1 cas dans l'échantillon (filigrane visible). Approche non conçue : le filigrane n'est pas garanti sur toutes les générations ; pistes à explorer plus tard (détecteurs spécialisés, ou simplement accepter le risque résiduel et compter sur le filtre de résolution/géométrie pour indirectement filtrer les cas les plus aberrants).
+- **Nouveau (audit §3quinquies) : `srcset` de l'`<img>` Facebook jamais vérifié** — le parser ne lit que `src` (`backend/scraping/parser.py`). Test rapide (~10 min) à faire avant de considérer la question de la résolution Facebook définitivement close.
+- **Nouveau (audit §3quinquies) : paramètre `rule=` du CDN Kijiji (`media.kijiji.ca`) jamais testé** — contrairement à Facebook, ce paramètre n'est pas signé cryptographiquement ; la conclusion "Kijiji ne fait pas mieux" (§3quater) reste probable mais non vérifiée tant qu'il n'est pas testé.
+- Classificateur modèle → type de jonction (bolt-on/set-neck), nécessaire pour élargir le diagnostic "neck reset" au périmètre électrique (§3ter) — pas encore conçu ni implémenté.
+- Seuils précis de la classification grossière basse/normale/haute (en pixels ou en ratio corde/frette) — à calibrer sur le Dataset B une fois collecté (§4 étapes 2-3), la résolution disponible étant désormais connue (§3quater).
+- ~~Élargissement du filtre de collecte aux guitares électriques~~ **Fait (§3septies, 2026-08-19)** : `export_dataset_a.py` couvre les 5 nœuds `guitare.*`, 1066 annonces/5974 photos exportées.
+- Le taux d'exploitabilité (51%/70%, §3sexies) n'a été mesuré que sur un échantillon acoustique/classique de 47 annonces — pas encore vérifié sur le corpus électrique élargi (§3septies) ni appliqué photo-par-photo aux 5974 images du manifeste.
+- `dataset_a_manifest.jsonl` (§3septies) n'est pour l'instant qu'un artefact CI éphémère (14 jours de rétention) — pas encore stocké durablement ni consommé par le pipeline de labellisation (§3bis).
+- Estimation grossière de l'angle de prise de vue (frontal vs 3/4) pour le filtre d'utilisabilité (Phase 0, §2) — approche non conçue, hypothèse "profil/3-4 nécessaire pour l'action" pas encore vérifiée sur photos réelles.
+
+## 7. Ressource de calcul pour l'inférence vision (2026-08-19)
+
+**Proposition utilisateur :** réutiliser le Dell Precision T5810 déjà en place pour MoneyBot (32 Go RAM, GPU dédié — `moneybot/config/cluster_machines.json` : RTX 2070 SE, 8192 Mo VRAM total, 6500 Mo budgetés) comme machine d'exécution pour Florence-2/OWLv2/SAM 2.1 (Phase 0/1, §2), plutôt que d'exécuter ces modèles dans l'environnement CI/sandbox (pas de GPU, pas persistant).
+
+**Étape 1 — connectivité Tailscale : ✅ testée et confirmée.** Nouveau workflow de test (`.github/workflows/run_script_dell.yml`, déclenché comme `run_script.yml` sur `ops/run-script`) : le client OAuth Tailscale `tag:ci` de **GuitarHunter** (secrets `TS_OAUTH_CLIENT_ID`/`TS_OAUTH_SECRET`, déjà utilisés par `deploy.yml`/`run_script.yml`) rejoint le **même tailnet** que le Dell (`tail16b52e.ts.net`) — confirmé par `tailscale status` listant `dell-5810 (100.94.33.54)` et par 4/4 pings réussis (relayés via DERP, 64-178ms, pas de connexion directe établie mais sans incidence pour un usage batch/SSH). Le job CI est marqué "failure" à tort : `tailscale ping` renvoie un code de sortie non-nul quand seule une connexion DERP (relayée) est obtenue, ce que ce test ne cherchait pas à éviter — la joignabilité réseau elle-même n'est pas en cause.
+
+**Étape 2 — accès SSH : ✅ fait (2026-08-19), option (b) retenue.** Décision utilisateur : clé dédiée plutôt que réutilisation de la clé MoneyBot. Paire ed25519 générée (`guitarhunter-ci-dell`, hors dépôt, jamais committée), clé publique ajoutée manuellement par l'utilisateur aux `authorized_keys` du Dell (utilisateur `ludovic`), clé privée stockée dans le secret **GuitarHunter** `DELL_SSH_PRIVATE_KEY` (scopé à ce dépôt uniquement, indépendant des secrets MoneyBot — révocable séparément).
+
+**Étape 3 — test SSH + GPU : ✅ confirmé (2026-08-19).** `run_script_dell.yml` requalifié en exécuteur SSH (`appleboy/ssh-action`, host `100.94.33.54` en dur — IP Tailscale non secrète, réseau déjà fermé —, `username: ludovic`, clé via le secret dédié). Résultat réel (`nvidia-smi` sur le Dell) :
+```
+GPU 0: NVIDIA GeForce RTX 2060 ... (nom tronqué par nvidia-smi, probablement "SUPER")
+Driver 580.126.09, CUDA 13.0
+8192 MiB VRAM total, 19 MiB utilisés (quasi disponible)
+Python 3.12.3 présent nativement sur l'hôte
+```
+**Correction du modèle GPU par rapport à la doc MoneyBot** : `cluster_machines.json` indique "RTX 2070 SE" (et une autre section de la doc MoneyBot mentionne même "RTX 4070" pour la même machine, §7 note initiale) — `nvidia-smi`, une mesure directe sur la machine plutôt qu'une doc, dit **RTX 2060 SUPER** (confirmé aussi par `torch.cuda.get_device_name()` à l'étape 4 ci-dessous). La capacité VRAM (8192 Mo) concorde en revanche avec la doc. Retenir le chiffre VRAM (confirmé par plusieurs sources indépendantes) plutôt que le nom de modèle exact (divergent selon la source) pour dimensionner les futurs tests d'inférence.
+
+**Étape 4 — validation d'inférence réelle : ✅ confirmée (2026-08-19), avec un changement de modèle en cours de route.**
+
+Premier essai avec **Florence-2-base** (choix initial du plan, §2ter) : **échec au chargement**, pas un problème de VRAM — `AttributeError: 'Florence2LanguageConfig' object has no attribute 'forced_bos_token_id'`. Cause : Florence-2 charge son code de modélisation via `trust_remote_code=True` directement depuis le Hub (jamais fusionné dans `transformers`), et ce code custom (figé depuis sa sortie mi-2024) n'a pas suivi une refonte interne récente de `PretrainedConfig` dans la version de `transformers` installée (`torch 2.13.0+cu130` — packages très récents sur cette machine). Un risque de fragilité générique des modèles à `trust_remote_code`, pas spécifique à ce projet.
+
+Basculé sur **OWLv2-base** (`google/owlv2-base-patch16-ensemble`, Apache-2.0, alternative déjà listée §2ter) : classe officielle `Owlv2ForObjectDetection` maintenue dans `transformers`, pas ce risque. **Résultat réel** (détection ouverte "a photo of a guitar", seuil de score 0.1, sur les 8 photos échantillonnées §7) :
+
+| Famille | Résolution | Boîtes détectées | Meilleur score |
+|---|---|---|---|
+| Acoustique (Slope Shoulder) | 720×960 | 3 | 0.73 |
+| Acoustique (Dreadnought) | 720×960 | 2 | 0.72 |
+| Classique | 960×720 | 56 | 0.57 |
+| Classique | 261×261 (vignette basse résolution) | 1 | 0.89 |
+| Électrique (S-Style) | 720×960 | 1 | 0.75 |
+| Électrique (Double Cut) | 721×960 | 5 | 0.64 |
+| Basse (Soapbar) | 720×960 | 1 | 0.71 |
+| Basse (Precision) | 720×960 | 4 | 0.67 |
+
+**8/8 images avec au moins une détection "guitar"**, scores 0.57-0.89 (tous largement au-dessus d'un seuil de décision raisonnable, ex. 0.3-0.5). **VRAM pic mesurée : 808 Mo / 7785 Mo disponibles (10,4%)** — très large marge sous les 8 Go, y compris pour un modèle plus lourd (OWLv2-large) ou un traitement par lots.
+
+**Deux nuances à ne pas sur-interpréter :**
+- Le cas "56 boîtes" (photo classique, 960×720) est probablement du bruit de détections chevauchantes à seuil bas (0.1), pas 56 guitares réelles — un usage en production nécessiterait une déduplication (NMS) et un seuil plus strict ; sans incidence sur l'usage Phase 0 visé ici (juste détecter *si* une guitare est présente, pas la localiser précisément).
+- La vignette 261×261 (mode de défaillance "pas de photo HD stockée", déjà identifié §3sexies) est quand même détectée avec un score élevé (0.89) — encourageant pour la robustesse du filtre de présence, mais un seul cas, pas une preuve générale que la basse résolution n'affecte jamais la détection.
+
+**Conclusion de l'étape 4 :** la capacité de calcul du Dell (8 Go VRAM) n'est **pas un facteur limitant** pour la détection de présence "guitare" (Phase 0) — la marge est large (~90% de VRAM encore disponible sur un seul modèle chargé). Reste à faire avant d'industrialiser : appliquer ceci à l'échelle du Dataset A complet (1066 annonces/5974 photos, §3septies), pas seulement 8 photos choisies à la main.

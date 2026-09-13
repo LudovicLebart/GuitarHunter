@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart, AlertTriangle } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
@@ -8,6 +8,7 @@ import ConfigPanel from './ConfigPanel';
 import MapView from './MapView';
 import HelpOverlay from './HelpOverlay';
 import AdminDashboard from './AdminDashboard';
+import SearchSuggestions, { createSuggestionKeyHandler } from './SearchSuggestions';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
 // Contexts & hooks
@@ -39,8 +40,9 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
         { id: 'ALL', label: 'Toutes les annonces' },
         { id: 'FAVORITES', label: 'Favoris' },
         { divider: true },
-        // Verdicts positifs
-        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION']
+        // Verdicts positifs/neutres (COLLECTION et FAIR sont neutres — ni opportunité ni bruit —
+        // mais regroupés ici comme COLLECTION l'était déjà, plutôt que dans le groupe "bruit" ci-dessous)
+        ...['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', 'COLLECTION', 'FAIR']
             .filter(id => ALL_FILTERS_CONFIG[id])
             .map(id => ({
                 id,
@@ -54,6 +56,7 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
         { divider: true },
         // Statuts spéciaux
         { id: 'SOLD', label: 'Annonces Vendues' },
+        { id: 'PURCHASED', label: 'Annonces Achetées' },
         { id: 'REJECTED', label: 'Annonces Rejetées' },
         { id: 'ERROR', label: 'Erreurs d\'analyse' },
     ];
@@ -70,6 +73,9 @@ const VerdictDropdown = ({ currentVerdict, onSelect, counts }) => {
                     <span className="text-slate-400 font-normal mr-1.5 hidden sm:inline shrink-0">Statut :</span>
                     <span className="truncate block">{currentLabel}</span>
                 </div>
+                <span className="shrink-0 text-[11px] font-mono text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded-md">
+                    {counts[currentVerdict] || 0}
+                </span>
                 <ChevronDown size={14} className={`text-slate-500 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -152,12 +158,20 @@ const Dashboard = ({ onClose }) => {
     const [openSections, setOpenSections] = useState({ radar: true, market: true, archive: false });
     const [showHelp, setShowHelp] = useState(false);
     const [showAdmin, setShowAdmin] = useState(false);
+    // Autocomplétion de catégories : ouverte tant que le champ a le focus, index -1 = aucune ligne
+    // pré-sélectionnée (Entrée ne fait alors rien de spécial, la recherche texte reste active).
+    const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+    const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
     // ── Real data & actions ──────────────────────────────────
     const {
         loading,
         deals,
         filteredDeals,
+        totalFilteredDeals = [],
+        loadedDeals,
+        hasMore,
+        loadMore,
         filterProps,
         dealActions,
         selectedDeal,
@@ -171,7 +185,34 @@ const Dashboard = ({ onClose }) => {
         setError,
         handleManualRefresh,
         handleManualCleanup,
+        isNewUser,
     } = useBotConfigContext();
+
+    const loadMoreRef = useRef(null);
+
+    // Infinite Scroll trigger
+    useEffect(() => {
+        if (!hasMore || !loadMore) return;
+        
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                loadMore();
+            }
+        }, {
+            rootMargin: '300px' // Charge 300px avant le bas pour un scroll fluide
+        });
+
+        const current = loadMoreRef.current;
+        if (current) {
+            observer.observe(current);
+        }
+
+        return () => {
+            if (current) {
+                observer.unobserve(current);
+            }
+        };
+    }, [hasMore, loadMore]);
 
     // Effet pour ouvrir une annonce depuis l'URL au chargement
     useEffect(() => {
@@ -193,41 +234,69 @@ const Dashboard = ({ onClose }) => {
         }
     }, [deals, selectedDeal, dealActions, setViewMode]);
 
+    // Effet pour forcer l'affichage de l'aide pour un nouvel utilisateur
+    useEffect(() => {
+        if (isNewUser) {
+            setShowHelp(true);
+        }
+    }, [isNewUser]);
 
     // ── Adapt filterProps to local filter state ───────────────
     // filterProps from useDealsManager exposes: filterType/setFilterType,
-    //   level1Filter/setLevel1Filter, ..., searchQuery, setSearchQuery
+    //   selectedTypePaths/toggleTypePath (multi-sélection de catégories), searchQuery, setSearchQuery
     const {
         filterType = 'ALL',
         setFilterType,
-        level1Filter = 'ALL',
-        setLevel1Filter,
-        level2Filter = 'ALL',
-        setLevel2Filter,
-        level3Filter = 'ALL',
-        setLevel3Filter,
-        level4Filter = 'ALL',
-        setLevel4Filter,
+        selectedTypePaths = [],
+        toggleTypePath,
+        setSelectedTypePaths,
         conditionFilter = 'ALL',
         setConditionFilter,
         priceFilter = 'ALL',
         setPriceFilter,
+        finishApplicationFilter = 'ALL',
+        setFinishApplicationFilter,
+        finishTextureFilter = 'ALL',
+        setFinishTextureFilter,
         sortMode = 'date',
         setSortMode,
         searchQuery = '',
         setSearchQuery,
+        searchSuggestions = [],
     } = filterProps || {};
+
+    // ── Autocomplétion de catégories ──────────────────────────
+    const visibleSuggestions = suggestionsOpen ? searchSuggestions : [];
+
+    // Option A retenue : la suggestion coche la catégorie dans selectedTypePaths (vrai filtre
+    // persisté, cohérent avec le FilterDrawer) plutôt que d'injecter du texte dans searchQuery.
+    // La saisie est vidée dans la foulée — la catégorie est désormais portée par le filtre, la
+    // laisser dans le champ la ferait cumuler avec le filtre et masquerait presque tout.
+    const handleSelectSuggestion = (suggestion) => {
+        toggleTypePath?.(suggestion.path);
+        setSearchQuery?.('');
+        setSuggestionsOpen(false);
+        setActiveSuggestion(-1);
+    };
+
+    const handleSearchKeyDown = createSuggestionKeyHandler({
+        suggestions: visibleSuggestions,
+        activeIndex: activeSuggestion,
+        setActiveIndex: setActiveSuggestion,
+        onSelect: handleSelectSuggestion,
+        onClose: () => { setSuggestionsOpen(false); setActiveSuggestion(-1); },
+    });
 
     // Map filterProps keys to the format MockupFilterDrawer expects
     // MockupFilterDrawer uses lowercase 'all', useDealsManager uses uppercase 'ALL'
     const filters = {
         verdict: filterType,
-        level1: level1Filter === 'ALL' ? 'all' : level1Filter,
-        level2: level2Filter === 'ALL' ? 'all' : level2Filter,
-        level3: level3Filter === 'ALL' ? 'all' : level3Filter,
-        level4: level4Filter === 'ALL' ? 'all' : level4Filter,
         condition: conditionFilter === 'ALL' ? 'all' : conditionFilter,
         price: priceFilter === 'ALL' ? 'all' : priceFilter,
+        // Finition : valeurs = liste fermée choisie par l'IA (ex: "Peinture opaque"), pas de
+        // mapping all/ALL nécessaire — 'ALL' sert déjà de sentinelle des deux côtés.
+        finishApplication: finishApplicationFilter,
+        finishTexture: finishTextureFilter,
         sort: sortMode,
     };
 
@@ -236,12 +305,10 @@ const Dashboard = ({ onClose }) => {
         const normalized = value === 'all' ? 'ALL' : value;
         switch (key) {
             case 'verdict': setFilterType?.(normalized); break;
-            case 'level1': setLevel1Filter?.(normalized); break;
-            case 'level2': setLevel2Filter?.(normalized); break;
-            case 'level3': setLevel3Filter?.(normalized); break;
-            case 'level4': setLevel4Filter?.(normalized); break;
             case 'condition': setConditionFilter?.(normalized); break;
             case 'price': setPriceFilter?.(normalized); break;
+            case 'finishApplication': setFinishApplicationFilter?.(value); break;
+            case 'finishTexture': setFinishTextureFilter?.(value); break;
             case 'sort': setSortMode?.(value); break; // 'date' | 'interest', pas de mapping 'all'
             default: break;
         }
@@ -249,12 +316,11 @@ const Dashboard = ({ onClose }) => {
 
     const handleReset = () => {
         setFilterType?.('ALL');
-        setLevel1Filter?.('ALL');
-        setLevel2Filter?.('ALL');
-        setLevel3Filter?.('ALL');
-        setLevel4Filter?.('ALL');
+        setSelectedTypePaths?.([]);
         setConditionFilter?.('ALL');
         setPriceFilter?.('ALL');
+        setFinishApplicationFilter?.('ALL');
+        setFinishTextureFilter?.('ALL');
         setSearchQuery?.('');
     };
 
@@ -279,12 +345,11 @@ const Dashboard = ({ onClose }) => {
 
     const activeFilterCount = [
         filterType !== 'ALL' ? 1 : 0,
-        level1Filter !== 'ALL' ? 1 : 0,
-        level2Filter !== 'ALL' ? 1 : 0,
-        level3Filter !== 'ALL' ? 1 : 0,
-        level4Filter !== 'ALL' ? 1 : 0,
+        selectedTypePaths.length,
         conditionFilter !== 'ALL' ? 1 : 0,
         priceFilter !== 'ALL' ? 1 : 0,
+        finishApplicationFilter !== 'ALL' ? 1 : 0,
+        finishTextureFilter !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
 
     const toggle = (s) => setOpenSections(prev => ({ ...prev, [s]: !prev[s] }));
@@ -298,7 +363,11 @@ const Dashboard = ({ onClose }) => {
             onForceExpert={(userComment) => dealActions?.handleForceExpertAnalysis(d.id, userComment)}
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
+            onTogglePurchased={(purchasePrice) => dealActions?.handleTogglePurchased(d.id, d.isPurchased, purchasePrice)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
+            onSetClassification={dealActions?.handleSetClassification}
+            onGalleryImageAdded={dealActions?.handleGalleryImageAdded}
+            onAnalysisOverridesApplied={dealActions?.handleAnalysisOverridesApplied}
         />
     );
 
@@ -349,6 +418,9 @@ const Dashboard = ({ onClose }) => {
                 onFilterChange={handleFilterChange}
                 onReset={handleReset}
                 counts={counts || {}}
+                selectedTypePaths={selectedTypePaths}
+                onToggleType={toggleTypePath}
+                onClearTypes={() => setSelectedTypePaths?.([])}
             />
 
             {/* Real ConfigPanel — opens via gear icon */}
@@ -364,8 +436,19 @@ const Dashboard = ({ onClose }) => {
                         <input
                             type="text"
                             value={searchQuery}
-                            onChange={e => setSearchQuery?.(e.target.value)}
-                            placeholder="Rechercher par modèle, lieu..."
+                            onChange={e => {
+                                setSearchQuery?.(e.target.value);
+                                setSuggestionsOpen(true);
+                                setActiveSuggestion(-1);
+                            }}
+                            onFocus={() => setSuggestionsOpen(true)}
+                            onBlur={() => { setSuggestionsOpen(false); setActiveSuggestion(-1); }}
+                            onKeyDown={handleSearchKeyDown}
+                            role="combobox"
+                            aria-expanded={visibleSuggestions.length > 0}
+                            aria-controls="search-suggestions"
+                            autoComplete="off"
+                            placeholder="Rechercher par modèle, catégorie, couleur..."
                             className="w-full h-10 bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-10 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all"
                         />
                         {searchQuery && (
@@ -376,6 +459,13 @@ const Dashboard = ({ onClose }) => {
                                 <X size={14} />
                             </button>
                         )}
+
+                        <SearchSuggestions
+                            suggestions={visibleSuggestions}
+                            activeIndex={activeSuggestion}
+                            onSelect={handleSelectSuggestion}
+                            onHoverIndex={setActiveSuggestion}
+                        />
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:justify-between md:justify-start gap-2 shrink-0">
@@ -410,7 +500,7 @@ const Dashboard = ({ onClose }) => {
                             {/* Results Count & Clear Filters */}
                             <div className="flex items-center justify-center gap-2 shrink-0">
                                 <span className="text-xs text-slate-500 font-mono hidden xl:block">
-                                    {filteredDeals.length} annonce{filteredDeals.length !== 1 ? 's' : ''}
+                                    {totalFilteredDeals.length} annonce{totalFilteredDeals.length !== 1 ? 's' : ''}
                                 </span>
                                 {(activeFilterCount > 0 || searchQuery) && (
                                     <button onClick={handleReset} className="flex items-center justify-center h-10 w-10 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-colors border border-rose-500/20" title="Effacer tous les filtres">
@@ -429,10 +519,10 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={filteredDeals} />
+                    <StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} />
                 ) : viewMode === 'MAP' ? (
                     <MapViewOverlay
-                        deals={filteredDeals}
+                        deals={totalFilteredDeals}
                         renderDealCard={renderDealCard}
                         selectedDeal={selectedDeal}
                         onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
@@ -474,7 +564,13 @@ const Dashboard = ({ onClose }) => {
                             </div>
                         )}
 
-                        {filteredDeals.length === 0 && !loading && (
+                        {hasMore && (
+                            <div ref={loadMoreRef} className="flex justify-center items-center py-12 mb-4 shrink-0">
+                                <RefreshCw className="text-blue-500 animate-spin" size={28} />
+                            </div>
+                        )}
+
+                        {totalFilteredDeals.length === 0 && !loading && (
                             <div className="py-20 flex flex-col items-center justify-center bg-slate-900 rounded-2xl border border-dashed border-slate-800">
                                 <Search size={40} className="text-slate-800 mb-4" />
                                 <h3 className="text-base font-black text-slate-500 uppercase tracking-tight">Aucun résultat</h3>

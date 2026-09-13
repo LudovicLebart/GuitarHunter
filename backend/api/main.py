@@ -1,0 +1,716 @@
+"""Service API (FastAPI) — première tranche du Chantier A (bus de commandes uniquement).
+
+Construit en isolation sur la branche `claude/firestore-postgres-migration`, sans toucher au
+chemin Firestore existant (FIRESTORE_MIGRATION_PLAN.md §5.1). Rien n'est branché à la prod :
+ni le frontend (`firestoreService.js`) ni le bot (`main.py`) n'appellent ce service pour
+l'instant — bascule décidée séparément une fois toutes les tranches validées à parité.
+
+Lancement local : uvicorn backend.api.main:app --reload
+"""
+import asyncio
+import json
+from contextlib import asynccontextmanager
+from typing import Any, Optional
+
+import asyncpg
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from pydantic import BaseModel
+
+from backend.api.auth import get_current_uid, verify_token
+from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo, users_repo
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_pool()
+    yield
+    await close_pool()
+
+
+app = FastAPI(title="Guitar Hunter API", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+# --- Config utilisateur / botStatus (Phase A.2) --------------------------------------------
+# Remplace onBotConfigUpdate/updateUserConfig (firestoreService.js). L'utilisateur (ligne
+# `users`) est créé par le bot (`pg_repository.py::ensure_initial_structure`), jamais ici —
+# un GET avant le premier démarrage du bot renvoie 404, comme `onBotConfigUpdate` déclenchait
+# `onError({ message: "Dossier Python introuvable" })` côté Firestore.
+
+class UserConfigPatch(BaseModel):
+    """Corps libre (mêmes clés que `scanConfig`/`exclusionKeywords`/`analysisConfig`, décidées
+    côté frontend) — pas de schéma Pydantic strict, comme le blob JSONB `config` qui les reçoit."""
+    model_config = {"extra": "allow"}
+
+
+@app.get("/users/me/config")
+async def get_my_config(uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    config = await users_repo.get_user_config(pool, uid)
+    if config is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
+    return config
+
+
+@app.patch("/users/me/config")
+async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    try:
+        merged = await users_repo.update_user_config(pool, uid, body.model_dump(exclude_unset=True))
+    except LookupError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
+    return merged
+
+
+@app.websocket("/ws/users/me/config")
+async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listener_added = False
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("user_config_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if listener_added:
+            await listen_conn.remove_listener("user_config_changes", _on_notify)
+        await listen_conn.close()
+
+
+class CommandCreate(BaseModel):
+    type: str
+    payload: Optional[Any] = None
+
+
+class CommandOut(BaseModel):
+    id: int
+    type: str
+    payload: Optional[Any] = None
+    status: str
+
+
+@app.post("/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)
+async def create_command(body: CommandCreate, uid: str = Depends(get_current_uid)):
+    """Équivalent HTTP de `firestoreService.js::addCommand()` — même contrat (type, payload)."""
+    pool = get_pool()
+    command_id = await commands_repo.create_command(pool, uid, body.type, body.payload)
+    return CommandOut(id=command_id, type=body.type, payload=body.payload, status="pending")
+
+
+@app.get("/commands/{command_id}", response_model=CommandOut)
+async def get_command(command_id: int, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    row = await commands_repo.get_command(pool, uid, command_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable.")
+    return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"])
+
+
+# --- Deals (tranche 2) --------------------------------------------------------------------
+# Remplace onDealsIndexUpdate/fetchDealsByIds/rejectDeal/deleteDeal/toggleDealFavorite/
+# toggleDealPurchased/setDealClassification (firestoreService.js). Chat et plan de
+# restauration : tranches suivantes, pas dans ce périmètre.
+
+@app.get("/deals")
+async def list_deals(status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    rows = await deals_repo.list_deals(pool, uid, status=status_filter, favorite_only=favorite)
+    return [dict(r) for r in rows]
+
+
+class DealIdsBody(BaseModel):
+    ids: list[str]
+
+
+@app.post("/deals/by-ids")
+async def get_deals_by_ids(body: DealIdsBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    rows = await deals_repo.get_deals_by_ids(pool, uid, body.ids)
+    return [dict(r) for r in rows]
+
+
+@app.get("/deals/{deal_id}")
+async def get_deal(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    row = await deals_repo.get_deal(pool, uid, deal_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return dict(row)
+
+
+@app.patch("/deals/{deal_id}/favorite")
+async def patch_favorite(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    new_value = await deals_repo.toggle_favorite(pool, uid, deal_id)
+    if new_value is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"isFavorite": new_value}
+
+
+class PurchasedBody(BaseModel):
+    purchasePrice: Optional[float] = None
+
+
+@app.patch("/deals/{deal_id}/purchased")
+async def patch_purchased(deal_id: str, body: PurchasedBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    new_value = await deals_repo.toggle_purchased(pool, uid, deal_id, body.purchasePrice)
+    if new_value is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"isPurchased": new_value}
+
+
+class ClassificationBody(BaseModel):
+    classificationPath: Optional[str] = None
+
+
+@app.patch("/deals/{deal_id}/classification")
+async def patch_classification(deal_id: str, body: ClassificationBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await deals_repo.set_classification(pool, uid, deal_id, body.classificationPath)
+    return {"manualClassification": body.classificationPath}
+
+
+class GalleryImageBody(BaseModel):
+    url: str
+
+
+@app.post("/deals/{deal_id}/gallery")
+async def add_gallery_image(deal_id: str, body: GalleryImageBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    found = await deals_repo.add_gallery_image(pool, uid, deal_id, body.url)
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"status": "ok"}
+
+
+class AnalysisOverridesBody(BaseModel):
+    """Corps libre (sous-ensemble quelconque des colonnes `aiAnalysis` promues, voir
+    `deals_repo.py::apply_manual_analysis_overrides`) — pas de schéma Pydantic strict, la
+    whitelist réelle est appliquée côté repository."""
+    model_config = {"extra": "allow"}
+
+
+@app.patch("/deals/{deal_id}/analysis-overrides")
+async def patch_analysis_overrides(deal_id: str, body: AnalysisOverridesBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    found = await deals_repo.apply_manual_analysis_overrides(pool, uid, deal_id, body.model_dump(exclude_unset=True))
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {"status": "ok"}
+
+
+@app.patch("/deals/{deal_id}/reject")
+async def patch_reject(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await deals_repo.reject_deal(pool, uid, deal_id)
+    return {"status": "rejected"}
+
+
+@app.delete("/deals/{deal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_deal(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    deleted = await deals_repo.delete_deal(pool, uid, deal_id)
+    if not deleted:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+
+
+# --- Temps réel (remplace onDealsIndexUpdate) ----------------------------------------------
+# Le navigateur ne peut pas poser d'en-tête Authorization sur une connexion WebSocket native
+# -> le token Firebase est passé en paramètre de requête (?token=...), vérifié avant accept().
+
+@app.websocket("/ws/deals")
+async def ws_deals(websocket: WebSocket, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)  # policy violation
+        return
+
+    await websocket.accept()
+
+    # Connexion dédiée à ce socket (pas le pool applicatif) : LISTEN doit tenir sur UNE
+    # connexion vivante en continu, incompatible avec un pool qui recycle ses connexions.
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    # `listener_added` + le try englobant dès ici (pas seulement autour de la boucle de
+    # réception) : si add_listener() ou send_json() lève (ex: client déconnecté juste après
+    # accept()) avant d'atteindre le try/finally plus bas, listen_conn ne serait jamais fermée
+    # — fuite de connexion Postgres réelle trouvée en revue de code, hors du pool borné
+    # (max_size=10), qui finit par épuiser les connexions disponibles côté serveur.
+    listener_added = False
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return  # canal partagé entre tous les utilisateurs, filtré ici (voir schema.sql)
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("deal_changes", _on_notify)
+        listener_added = True
+        # Accusé de réception explicite : entre l'établissement de la connexion WS (accept())
+        # et l'enregistrement effectif du LISTEN ci-dessus, une notification Postgres émise
+        # entre-temps ne serait jamais délivrée (Postgres ne rejoue pas les NOTIFY manqués).
+        # Le client attend ce message avant de déclencher une action censée produire un push,
+        # au lieu de deviner un délai arbitraire.
+        await websocket.send_json({"type": "ready"})
+        try:
+            while True:
+                await websocket.receive_text()  # ne sert qu'à détecter la déconnexion du client
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if listener_added:
+            await listen_conn.remove_listener("deal_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Chat (tranche 3) ----------------------------------------------------------------------
+# Remplace onDealChatUpdate/addDealChatMessage/replaceDealChatMessage/markChatMessage*
+# (firestoreService.js). `deal_chat` n'a pas de user_id propre (FK vers guitar_deals) :
+# chaque route vérifie la propriété du deal parent avant d'exposer/modifier son chat.
+
+async def _require_deal_owner(pool, deal_id: str, uid: str) -> None:
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner is None or owner != uid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+
+
+@app.get("/deals/{deal_id}/chat")
+async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    rows = await chat_repo.list_messages(pool, deal_id)
+    return [dict(r) for r in rows]
+
+
+class ChatMessageCreate(BaseModel):
+    role: str
+    parts: Any
+    displayText: Optional[str] = None
+    attachedImagePartIndices: Optional[list[int]] = None
+    restorationProposals: Optional[list[dict]] = None
+    photoRecall: Optional[dict] = None
+    isError: bool = False
+    requalificationProposal: Optional[dict] = None
+
+
+@app.post("/deals/{deal_id}/chat", status_code=status.HTTP_201_CREATED)
+async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    message_id = await chat_repo.add_message(
+        pool, deal_id, body.role, body.parts, body.displayText,
+        body.attachedImagePartIndices, body.restorationProposals,
+        body.photoRecall, body.isError, body.requalificationProposal,
+    )
+    return {"id": message_id}
+
+
+class ChatMessageReplace(BaseModel):
+    parts: Any
+    displayText: Optional[str] = None
+    restorationProposals: Optional[list[dict]] = None
+    photoRecall: Optional[dict] = None
+    isError: bool = False
+    requalificationProposal: Optional[dict] = None
+
+
+async def _require_chat_message_found(found: bool) -> None:
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Message introuvable pour cette annonce.")
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}")
+async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await chat_repo.replace_message(
+        pool, deal_id, message_id, body.parts, body.displayText,
+        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
+    )
+    await _require_chat_message_found(found)
+    return {"status": "ok"}
+
+
+class GalleryMarkBody(BaseModel):
+    partIndex: int
+    url: str
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/gallery")
+async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)
+    await _require_chat_message_found(found)
+    return {"status": "ok"}
+
+
+class RestorationProposalStatusBody(BaseModel):
+    proposalIndex: int
+    status: str
+    itemId: Optional[str] = None
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/restoration-proposal")
+async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId)
+    await _require_chat_message_found(found)
+    return {"status": "ok"}
+
+
+class RequalificationStatusBody(BaseModel):
+    status: str
+
+
+@app.patch("/deals/{deal_id}/chat/{message_id}/requalification-proposal")
+async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status)
+    await _require_chat_message_found(found)
+    return {"status": "ok"}
+
+
+@app.websocket("/ws/deals/{deal_id}/chat")
+async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    # Vérifié via une connexion à part (avant accept()) : le pool applicatif normal convient
+    # ici, contrairement à listen_conn qui doit rester dédiée à LISTEN pour toute la durée du socket.
+    pool = get_pool()
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner != uid:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("deal_id") != deal_id:
+                return  # canal partagé entre toutes les annonces, filtré ici
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("chat_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if listener_added:
+            await listen_conn.remove_listener("chat_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Plan de restauration (tranche 4) --------------------------------------------------------
+# Remplace onRestorationPlanUpdate/addRestorationItem/updateRestorationItem/deleteRestorationItem/
+# reorderRestorationItems/backfillRestorationOrder/addRestorationItemPhoto/removeRestorationItemPhoto
+# (firestoreService.js). Même absence de user_id propre que deal_chat -> même vérification via
+# _require_deal_owner (chat_repo.get_deal_owner, générique sur guitar_deals).
+
+@app.get("/deals/{deal_id}/restoration-plan")
+async def list_restoration_plan(deal_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    rows = await restoration_repo.list_items(pool, deal_id)
+    return [dict(r) for r in rows]
+
+
+class RestorationItemCreate(BaseModel):
+    label: str
+    category: Optional[str] = None
+    estimatedCost: Optional[float] = None
+    notes: Optional[str] = None
+    source: str = "user"
+    proposedByMessageId: Optional[int] = None
+    order: Optional[int] = None
+
+
+@app.post("/deals/{deal_id}/restoration-plan", status_code=status.HTTP_201_CREATED)
+async def create_restoration_item(deal_id: str, body: RestorationItemCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    item_id = await restoration_repo.add_item(
+        pool, deal_id, body.label, body.category, body.estimatedCost, body.notes,
+        body.source, body.proposedByMessageId, body.order,
+    )
+    return {"id": item_id}
+
+
+class RestorationReorderBody(BaseModel):
+    orderedItemIds: list[int]
+
+
+# Enregistrée AVANT les routes /{item_id} ci-dessous : Starlette matche les routes dans leur
+# ordre de déclaration, et "order" collerait sinon sur le pattern {item_id} (échouant la
+# validation int -> 422) plutôt que sur cette route dédiée.
+@app.patch("/deals/{deal_id}/restoration-plan/order")
+async def reorder_restoration_items(deal_id: str, body: RestorationReorderBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    await restoration_repo.reorder_items(pool, deal_id, body.orderedItemIds)
+    return {"status": "ok"}
+
+
+class RestorationItemPatch(BaseModel):
+    label: Optional[str] = None
+    category: Optional[str] = None
+    status: Optional[str] = None
+    estimatedCost: Optional[float] = None
+    actualCost: Optional[float] = None
+    notes: Optional[str] = None
+
+
+async def _require_restoration_item_found(found: bool) -> None:
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Étape introuvable pour cette annonce.")
+
+
+@app.patch("/deals/{deal_id}/restoration-plan/{item_id}")
+async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationItemPatch, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await restoration_repo.update_item(pool, deal_id, item_id, body.model_dump(exclude_unset=True))
+    await _require_restoration_item_found(found)
+    return {"status": "ok"}
+
+
+@app.delete("/deals/{deal_id}/restoration-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_restoration_item(deal_id: str, item_id: int, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await restoration_repo.delete_item(pool, deal_id, item_id)
+    await _require_restoration_item_found(found)
+
+
+class RestorationPhotoBody(BaseModel):
+    url: str
+
+
+@app.post("/deals/{deal_id}/restoration-plan/{item_id}/photos")
+async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await restoration_repo.add_photo(pool, deal_id, item_id, body.url)
+    await _require_restoration_item_found(found)
+    return {"status": "ok"}
+
+
+@app.delete("/deals/{deal_id}/restoration-plan/{item_id}/photos")
+async def remove_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_deal_owner(pool, deal_id, uid)
+    found = await restoration_repo.remove_photo(pool, deal_id, item_id, body.url)
+    await _require_restoration_item_found(found)
+    return {"status": "ok"}
+
+
+@app.websocket("/ws/deals/{deal_id}/restoration-plan")
+async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    pool = get_pool()
+    owner = await chat_repo.get_deal_owner(pool, deal_id)
+    if owner != uid:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("deal_id") != deal_id:
+                return  # canal partagé entre toutes les annonces, filtré ici
+            loop.create_task(websocket.send_json(data))
+
+        await listen_conn.add_listener("restoration_plan_changes", _on_notify)
+        listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if listener_added:
+            await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
+        await listen_conn.close()
+
+
+# --- Villes (tranche 5) -----------------------------------------------------------------------
+# Remplace onCitiesUpdate/deleteCity/toggleCityScannable/setCityKijijiRadius (firestoreService.js).
+# L'ajout d'une ville passe déjà par la commande ADD_CITY (tranche 1, table `commands`) — le
+# catalogue partagé lui-même reste écrit par bot.py côté Firestore jusqu'à la bascule, rien à
+# construire ici pour ce chemin (voir cities_repo.py).
+
+@app.get("/cities")
+async def list_cities(uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    rows = await cities_repo.list_cities_for_user(pool, uid)
+    return [dict(r) for r in rows]
+
+
+async def _require_city_exists(pool, city_id: str) -> None:
+    if not await cities_repo.city_exists(pool, city_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Ville introuvable dans le catalogue.")
+
+
+@app.delete("/cities/{city_id}/pref", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_city_pref(city_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    await cities_repo.delete_city_pref(pool, uid, city_id)
+
+
+@app.patch("/cities/{city_id}/scannable")
+async def toggle_city_scannable(city_id: str, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    new_value = await cities_repo.toggle_scannable(pool, uid, city_id)
+    return {"isScannable": new_value}
+
+
+class KijijiRadiusBody(BaseModel):
+    radiusKm: Optional[float] = None
+
+
+@app.patch("/cities/{city_id}/kijiji-radius")
+async def set_city_kijiji_radius(city_id: str, body: KijijiRadiusBody, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await _require_city_exists(pool, city_id)
+    await cities_repo.set_kijiji_radius(pool, uid, city_id, body.radiusKm)
+    return {"kijijiRadiusKm": body.radiusKm}
+
+
+@app.websocket("/ws/cities")
+async def ws_cities(websocket: WebSocket, token: str = Query(...)):
+    try:
+        uid = verify_token(token)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    listen_conn = await asyncpg.connect(DATABASE_URL)
+    # Deux flags distincts (voir ws_deals pour le raisonnement) : chaque add_listener() peut
+    # échouer indépendamment, remove_listener() ne doit être tenté que sur celui qui a réussi.
+    pref_listener_added = False
+    catalog_listener_added = False
+    try:
+        loop = asyncio.get_running_loop()
+
+        def _on_pref_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            if data.get("user_id") != uid:
+                return  # canal partagé entre tous les utilisateurs, filtré ici
+            loop.create_task(websocket.send_json({"type": "city_pref_changed", "cityId": data["city_id"]}))
+
+        def _on_catalog_notify(connection, pid, channel, payload):
+            data = json.loads(payload)
+            # Catalogue partagé : diffusé à tous les clients connectés, pas de filtrage par uid.
+            loop.create_task(websocket.send_json({"type": "catalog_changed", "cityId": data["city_id"]}))
+
+        await listen_conn.add_listener("city_prefs_changes", _on_pref_notify)
+        pref_listener_added = True
+        await listen_conn.add_listener("cities_catalog_changes", _on_catalog_notify)
+        catalog_listener_added = True
+        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+    finally:
+        if pref_listener_added:
+            await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
+        if catalog_listener_added:
+            await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
+        await listen_conn.close()
+
+
+# --- Annonces partagées (tranche 6, dernière) -----------------------------------------------
+# Remplace createSharedDeal/getSharedDeal (firestoreService.js). Pas de temps réel : SharedDealPage
+# fait un getDoc ponctuel, jamais un onSnapshot — rien à répliquer côté WebSocket ici.
+# Écriture réservée à un utilisateur authentifié QUELCONQUE (pas au propriétaire du deal — vérifié
+# dans firestore.rules : `allow write: if request.auth != null`), lecture publique sans auth.
+
+class SharedDealCreate(BaseModel):
+    title: Optional[str] = None
+    price: Optional[float] = None
+    location: Optional[str] = None
+    link: Optional[str] = None
+    description: Optional[str] = None
+    storageImageUrls: list[str] = []
+    imageUrls: list[str] = []
+    verdict: Optional[str] = None
+    scores: dict = {}
+    analysis: Optional[str] = None
+    tier3_summary: Optional[str] = None
+    sharedAt: Optional[str] = None
+
+
+@app.put("/shared-deals/{deal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def upsert_shared_deal(deal_id: str, body: SharedDealCreate, uid: str = Depends(get_current_uid)):
+    pool = get_pool()
+    await shared_repo.upsert_shared_deal(pool, deal_id, body.model_dump())
+
+
+@app.get("/shared-deals/{deal_id}")
+async def get_shared_deal(deal_id: str):
+    pool = get_pool()
+    row = await shared_repo.get_shared_deal(pool, deal_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce partagée introuvable.")
+    return row["snapshot"]

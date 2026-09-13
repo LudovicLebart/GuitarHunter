@@ -156,9 +156,9 @@ def migrate(dry_run=False):
             logger.info(f"   [DRY-RUN] Uploaderait {len(image_urls)} image(s) pour {deal_id}.")
             uploaded += 1
         else:
-            stable_urls = repo.upload_images_to_storage(image_urls, deal_id)
+            stable_urls, gs_uris = repo.upload_images_to_storage(image_urls, deal_id)
             if stable_urls:
-                doc.reference.update({'storageImageUrls': stable_urls})
+                doc.reference.update({'storageImageUrls': stable_urls, 'storageImageGsUris': gs_uris})
                 logger.info(f"   ✅ {len(stable_urls)} image(s) uploadée(s) et sauvegardées.")
                 uploaded += 1
             else:

@@ -13,6 +13,7 @@ from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION,
     DEFAULT_ANALYST_INSTRUCTION,
     DEFAULT_EXPERT_CONTEXT,
+    DEFAULT_SOLD_BACKFILL_INSTRUCTION,
     DEFAULT_TAXONOMY,
     DEFAULT_FEW_SHOT_EXAMPLES,
     DEFAULT_REJECTION_VERDICTS,
@@ -24,6 +25,7 @@ from config import (
     DEFAULT_PRO_CONFIDENCE_THRESHOLD,
 )
 from backend.scraping.parser import ListingParser
+from backend.taxonomy import build_index as build_taxonomy_index, canonicalize as canonicalize_classification
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,10 @@ class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
         self.models = {}
         self._model_error_last_notified = {}
+        # Index de taxonomie mémorisé : `canonicalize()` le reconstruisait pour CHAQUE annonce
+        # analysée (200 nœuds parcourus à chaque fois) alors qu'il ne change qu'avec la config.
+        self._taxonomy_index = None
+        self._taxonomy_index_source = None
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module si non fourni (scripts autonomes/tests).
         self.logger = logger or logging.getLogger(__name__)
@@ -88,7 +94,10 @@ class DealAnalyzer:
             examples_lines = few_shot_examples if isinstance(few_shot_examples, list) else str(few_shot_examples).split('\n')
             examples_str = "\n".join(examples_lines) + "\n\n"
 
-        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False)
+        # sort_keys=True : garantit un préfixe identique octet pour octet entre threads/
+        # redémarrages (le cache implicite Gemini est un match de préfixe exact) — sans ça,
+        # l'ordre des clés d'un dict Python n'est pas garanti stable d'un process à l'autre.
+        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False, sort_keys=True)
 
         return (
             f"{main_prompt_str}\n\n"
@@ -121,35 +130,163 @@ class DealAnalyzer:
         except Exception as e:
             self.logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
 
-    def _call_gemini_json(self, model_name, content_parts, user_email=None):
+    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
         model = self._get_model(model_name)
         if not model:
             return None, f"Modèle {model_name} non disponible."
-        try:
-            response = model.generate_content(content_parts)
-            result = json.loads(self._clean_json_response(response.text))
-            if isinstance(result, list):
-                # Gemini répond parfois avec un tableau JSON au lieu d'un objet
-                # (ex: [{...}]) — on normalise en dict pour que tous les appelants
-                # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
-                result = result[0] if result and isinstance(result[0], dict) else {}
-            return result, None
-        except Exception as e:
-            self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
-            if self._is_model_unavailable_error(e):
-                self._notify_model_unavailable(model_name, str(e), user_email)
-            return None, str(e)
+            
+        current_parts = list(content_parts)
+        for attempt in range(max_retries + 1):
+            try:
+                response = model.generate_content(current_parts)
+                usage = getattr(response, "usage_metadata", None)
+                if usage:
+                    image_count = sum(1 for p in current_parts if isinstance(p, Image.Image))
+                    self.logger.info(
+                        f"[tokens] model={model_name} images={image_count} "
+                        f"in={getattr(usage, 'prompt_token_count', 0)} "
+                        f"out={getattr(usage, 'candidates_token_count', 0)} "
+                        f"cached={getattr(usage, 'cached_content_token_count', 0)} "
+                        f"total={getattr(usage, 'total_token_count', 0)}"
+                    )
+                cleaned_text = self._clean_json_response(response.text)
+                result = json.loads(cleaned_text)
+                if isinstance(result, list):
+                    # Gemini répond parfois avec un tableau JSON au lieu d'un objet
+                    # (ex: [{...}]) — on normalise en dict pour que tous les appelants
+                    # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
+                    result = result[0] if result and isinstance(result[0], dict) else {}
+                return result, None
+            except json.decoder.JSONDecodeError as e:
+                self.logger.warning(f"⚠️ JSON invalide généré par {model_name} (tentative {attempt+1}/{max_retries+1}) : {e}")
+                if attempt == max_retries:
+                    self.logger.error(f"❌ Impossible de parser le JSON après {max_retries+1} tentatives. Réponse brute: {getattr(response, 'text', 'Aucun texte')[:500]}...")
+                    return None, f"Erreur de format JSON: {e}"
+                
+                # Ajout d'une directive forte pour la tentative suivante
+                retry_warning = "CRITICAL: The previous JSON output was invalid. Ensure ALL strings are properly escaped (e.g. use \\\" for quotes inside strings) and NO trailing commas exist. Output ONLY valid JSON."
+                if isinstance(current_parts[0], str):
+                    current_parts[0] = current_parts[0] + "\n\n" + retry_warning
+                else:
+                    current_parts.insert(0, retry_warning)
+            except Exception as e:
+                self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+                if self._is_model_unavailable_error(e):
+                    self._notify_model_unavailable(model_name, str(e), user_email)
+                return None, str(e)
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Cascade 3-Tiers, puis canonicalisation de la classification renvoyée par l'IA.
+
+        La canonicalisation est faite ICI, sur le résultat final, plutôt que dans chacun des 5
+        points de sortie de la cascade : un seul endroit à maintenir, impossible d'en oublier un.
+        """
+        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
+        taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
+        return self._canonicalize_classification(result, taxonomy)
+
+    def analyze_deal_light(self, listing_data, firestore_config=None, user_email=None):
+        """Backfill léger : reconstitue UNIQUEMENT les champs structurés (scores/classification/
+        marge/verdict) d'une annonce déjà VENDUE dont `aiAnalysis` a été perdu (bug `ArrayUnion`
+        de `mark_deal_as_sold()`, corrigé le 2026-08-12 — voir JOURNAL.md), sans repasser par le
+        Portier T1 (inutile : l'annonce est déjà vendue, pas besoin de la re-filtrer) ni risquer de
+        déclencher l'Expert Pro T3 (coûteux, inutile pour de l'historique déjà écoulé). Un seul
+        appel au modèle Analyste T2, avec une instruction dédiée (`sold_backfill_instruction`)
+        demandant un JSON réduit sans champ de texte libre (pas de `analysis`/`reasoning`/
+        `summary`/`visual_inspection`) — économise à la fois des appels entiers (T1, risque T3) et
+        des tokens de sortie par appel, par rapport à `analyze_deal()`. Utilisé par
+        `backend/scripts/backfill_sold_scores.py`.
+
+        `model_used` est tagué `"backfill_leger -> {modèle}"` (2 maillons) plutôt qu'un simple nom
+        de modèle : `StatsView.jsx::modelChainTokens` compte les maillons pour détecter qu'une
+        annonce a atteint le Tier 2 (`length >= 2`) — un maillon unique ferait sous-compter ces
+        annonces dans le Funnel alors qu'elles ont bien été scorées.
+        """
+        if not GEMINI_API_KEY:
+            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
+
+        config = (firestore_config or {}).get('analysisConfig', {})
+        analyst_model_name = config.get('mainModel', 'gemini-3.7-flash')
+        taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
+        few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
+
+        image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
+        images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+
+        base_prompt = self._construct_base_user_prompt(
+            listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples
+        )
+        backfill_instruction = config.get('soldBackfillInstruction', DEFAULT_SOLD_BACKFILL_INSTRUCTION)
+        if isinstance(backfill_instruction, list):
+            backfill_instruction = "\n".join(backfill_instruction)
+        full_prompt = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE BACKFILL (VENTE HISTORIQUE) ---\n{backfill_instruction}"
+
+        self.logger.info(f"   🩹 Backfill léger ({analyst_model_name}) : {listing_data.get('title', 'Inconnu')}")
+        result, err = self._call_gemini_json(analyst_model_name, [full_prompt] + images, user_email)
+        if err or not result:
+            return {"verdict": "ERROR", "reasoning": f"Erreur backfill léger : {err}", "model_used": f"backfill_leger -> {analyst_model_name} (Error)"}
+
+        result["model_used"] = f"backfill_leger -> {analyst_model_name}"
+        return self._canonicalize_classification(result, taxonomy)
+
+    def _get_taxonomy_index(self, taxonomy):
+        """Index de taxonomie mémorisé, reconstruit uniquement si la taxonomie a changé.
+
+        Comparaison par identité : `ConfigManager` réutilise le même objet de configuration entre
+        deux analyses, donc l'index n'est reconstruit qu'après une vraie modification de la config
+        (et une comparaison par identité qui échouerait à tort ne coûterait qu'une reconstruction,
+        jamais un résultat faux).
+        """
+        if self._taxonomy_index is None or self._taxonomy_index_source is not taxonomy:
+            self._taxonomy_index = build_taxonomy_index(taxonomy)
+            self._taxonomy_index_source = taxonomy
+        return self._taxonomy_index
+
+    def _canonicalize_classification(self, result, taxonomy):
+        """Remplace `classification` par son chemin canonique complet, ou la retire si invalide.
+
+        Le prompt EXIGE désormais un chemin complet, mais le prompt ne garantit rien (aucun
+        `response_schema` côté SDK) : cette validation serveur est le vrai garde-fou. Une valeur
+        ambiguë ou inconnue est écartée plutôt que stockée telle quelle — une annonce non classée
+        est corrigeable à la main dans l'app, une annonce rangée dans la mauvaise catégorie passe
+        inaperçue (c'est ainsi que des étuis se retrouvaient comptés comme des guitares).
+        """
+        if not isinstance(result, dict):
+            return result
+
+        raw = result.get('classification')
+        if not raw:
+            return result
+
+        canonical, reason = canonicalize_classification(raw, taxonomy, self._get_taxonomy_index(taxonomy))
+        if canonical:
+            if canonical != raw:
+                self.logger.info(f"   🧭 Classification normalisée : '{raw}' -> '{canonical}' ({reason})")
+            result['classification'] = canonical
+        else:
+            self.logger.warning(
+                f"   ⚠️ Classification rejetée ('{raw}', {reason}) : absente de la taxonomie ou "
+                f"ambiguë (nom porté par plusieurs branches). L'annonce restera non classée — "
+                f"corrigeable manuellement depuis la fiche."
+            )
+            result['classification'] = None
+            result['classification_rejected'] = raw
+
+        return result
+
+    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
         config = firestore_config.get('analysisConfig', {})
-        gatekeeper_model_name = config.get('gatekeeperModel', 'gemini-2.5-flash-lite')
-        analyst_model_name = config.get('mainModel', 'gemini-3.5-flash')
+        # Défauts alignés sur GEMINI_MODELS (config.py) — gemini-2.5-* est retiré par Google en
+        # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
+        # n'a jamais persisté sa config (voir CLAUDE.md § Points d'Attention Critiques).
+        gatekeeper_model_name = config.get('gatekeeperModel', 'gemini-3.5-flash-lite')
+        analyst_model_name = config.get('mainModel', 'gemini-3.7-flash')
         # Rétrocompatibilité : 'proModel' est la nouvelle clé, 'expertModel' est l'ancienne (encore écrite par le frontend)
-        expert_pro_model_name = config.get('proModel') or config.get('expertModel', 'gemini-2.5-pro')
+        expert_pro_model_name = config.get('proModel') or config.get('expertModel', 'gemini-3.1-pro-preview')
 
         taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
@@ -270,7 +407,12 @@ class DealAnalyzer:
                 reasoning=result_t2.get('summary', 'Analyse rapide T2 terminée.')
             )
             
-            full_prompt_t3 = f"{context_t3}\n\n{base_prompt}"
+            # base_prompt avant context_t3 (et non l'inverse) : aligne T3 sur le pattern déjà
+            # correct de T1/T2 (bloc statique taxonomie/prompt de base en tête, addendum
+            # spécifique au Tier après) pour laisser le cache implicite Gemini matcher le
+            # préfixe statique commun — l'ordre précédent plaçait le contexte T2 (dynamique,
+            # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
+            full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
             
             result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email)
             

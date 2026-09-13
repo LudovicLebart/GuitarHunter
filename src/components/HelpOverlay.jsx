@@ -46,6 +46,17 @@ const HelpOverlay = ({ onClose }) => {
                                 <h3 className="text-lg font-bold text-white uppercase tracking-tight">Guide de Prise en Main</h3>
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Step 0: Configuration Initiale */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-lg bg-rose-600/20 text-rose-400 flex items-center justify-center text-[10px] font-black border border-rose-500/20">0</div>
+                                        <h4 className="text-xs font-black text-white uppercase">Configuration Initiale</h4>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                                        Lors de votre première connexion, allez dans les <strong>Paramètres</strong> (icône engrenage) pour configurer vos villes, votre budget et la fréquence. <strong>Le bot ne démarrera pas tant que vous n'aurez pas validé ces réglages.</strong>
+                                    </p>
+                                </div>
+                                
                                 {/* Step 1: Zones */}
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-2">

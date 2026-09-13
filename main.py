@@ -1,5 +1,8 @@
 import os
 import sys
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+import sys
 import time
 import logging
 import threading
@@ -13,6 +16,7 @@ from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
 from backend.admin_stats import run_admin_stats_job
+from backend.log_retention import run_log_retention_job
 import firebase_admin.auth as fb_auth
 
 # --- Sémaphore global : limite le nombre de navigateurs Playwright simultanés ---
@@ -64,7 +68,10 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
         'CLEANUP': lambda _: bot.cleanup_sold_listings(),
         'REANALYZE_ALL': lambda _: bot.reanalyze_all_listings(),
         'SCAN_URL': lambda url: bot.scan_specific_url(url),
-        'ADD_CITY': lambda city_name: bot.add_city_auto(city_name),
+        # payload : chaîne simple (repli historique) ou dict {name, latitude, longitude,
+        # region_hint} depuis la sélection explicite d'une suggestion côté frontend — voir
+        # bot.py::add_city_auto().
+        'ADD_CITY': lambda payload: bot.add_city_auto(payload),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),
@@ -86,12 +93,12 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
 
                 if sync_result:
                     for command in sync_result.commands:
-                        logger.info(f"Commande reçue : {command.type} (ID: {command.command_id})")
+                        bot.logger.info(f"Commande reçue : {command.type} (ID: {command.command_id})")
 
                         with in_flight_lock:
                             already_running = command.command_id in in_flight_command_ids
                         if already_running:
-                            logger.warning(f"Commande {command.type} (ID: {command.command_id}) déjà en cours. Ignorée.")
+                            bot.logger.warning(f"Commande {command.type} (ID: {command.command_id}) déjà en cours. Ignorée.")
                             continue
 
                         handler = command_handlers.get(command.type)
@@ -103,14 +110,14 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                                     h(p)
                                     if cid: bot.repo.mark_command_completed(cid)
                                 except Exception as e:
-                                    logger.error(f"Erreur exécution asynchrone commande {ctype}: {e}", exc_info=True)
+                                    bot.logger.error(f"Erreur exécution asynchrone commande {ctype}: {e}", exc_info=True)
                                     if cid: bot.repo.mark_command_failed(cid, str(e))
                                 finally:
                                     with in_flight_lock:
                                         in_flight_command_ids.discard(cid)
 
                             if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY']:
-                                logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
+                                bot.logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
                                 threading.Thread(
                                     target=execute_command_async,
                                     args=(handler, command.payload, command.command_id, command.type),
@@ -122,10 +129,10 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                                     handler(command.payload)
                                     if command.command_id: bot.repo.mark_command_completed(command.command_id)
                                 except Exception as e:
-                                    logger.error(f"Erreur exécution synchrone commande {command.type}: {e}", exc_info=True)
+                                    bot.logger.error(f"Erreur exécution synchrone commande {command.type}: {e}", exc_info=True)
                                     if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
                         else:
-                            logger.warning(f"Type de commande inconnu : {command.type}")
+                            bot.logger.warning(f"Type de commande inconnu : {command.type}")
                             if command.command_id:
                                 bot.repo.mark_command_failed(command.command_id, f"Type de commande inconnu : {command.type}")
 
@@ -168,14 +175,14 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                     logger.info("✅ Bot de retour en état idle.")
 
                     for command in wake_commands:
-                        logger.info(f"Traitement de la commande post-pause : {command.type} (ID: {command.command_id})")
+                        bot.logger.info(f"Traitement de la commande post-pause : {command.type} (ID: {command.command_id})")
                         handler = command_handlers.get(command.type)
                         if handler:
                             try:
                                 handler(command.payload)
                                 if command.command_id: bot.repo.mark_command_completed(command.command_id)
                             except Exception as e:
-                                logger.error(f"Erreur exécution commande post-pause {command.type}: {e}", exc_info=True)
+                                bot.logger.error(f"Erreur exécution commande post-pause {command.type}: {e}", exc_info=True)
                                 if command.command_id: bot.repo.mark_command_failed(command.command_id, str(e))
 
             except Exception as e:
@@ -290,6 +297,10 @@ def main():
     # pour le Dashboard Administrateur. Tourne au premier passage du watchdog qui
     # suit l'heure planifiée, peu importe quel(s) thread(s) utilisateur(s) actif(s).
     schedule.every().day.at("03:00").do(run_admin_stats_job, db_service).tag('admin_stats')
+
+    # Job global (singleton) : rétention de l'archive de logs locale (backend/logging_config.py,
+    # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Firestore/db_service.
+    schedule.every().day.at("03:15").do(run_log_retention_job).tag('log_retention')
 
     try:
         # Boucle de surveillance (watchdog) + Découverte dynamique

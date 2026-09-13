@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   onBotConfigUpdate,
   updateUserConfig,
@@ -7,8 +7,10 @@ import {
   triggerRelaunchAll,
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
-  migrateOldDataToNewUser
-} from '../services/firestoreService';
+} from '../services/apiService';
+// Migration ponctuelle Firestore -> Firestore (ancienne transition mono- vers multi-utilisateur),
+// sans équivalent Postgres — reste sur l'ancien fichier, voir apiService.js (en-tête).
+import { migrateOldDataToNewUser } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
@@ -39,6 +41,7 @@ export const useBotConfig = (user) => {
   const [error, setError] = useState(null);
 
   // --- NOUVELLE GESTION DE LA CONFIGURATION ---
+  const [isNewUser, setIsNewUser] = useState(false);
   const [scanConfig, setScanConfig] = useState({
     max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
@@ -46,9 +49,9 @@ export const useBotConfig = (user) => {
 
   // Mise à jour des modèles par défaut pour correspondre au backend
   const [analysisConfig, setAnalysisConfig] = useState({
-    gatekeeperModel: 'gemini-2.5-flash-lite',
-    mainModel: 'gemini-3.5-flash',
-    expertModel: 'gemini-2.5-pro',
+    gatekeeperModel: 'gemini-3.5-flash-lite',
+    mainModel: 'gemini-3.7-flash',
+    expertModel: 'gemini-3.1-pro-preview',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
     expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -60,6 +63,11 @@ export const useBotConfig = (user) => {
 
   // Nouvel état pour la limite de logs
   const [logLimit, setLogLimit] = useState(100);
+
+  // Filtres/tri de la vue Deals, persistés par utilisateur (Firestore). `null` = pas encore
+  // reçu du serveur (distinct de "reçu mais vide"), pour ne pas écraser un futur chargement.
+  const [uiFilters, setUiFilters] = useState(null);
+  const uiFiltersSaveTimeout = useRef(null);
 
   // UI feedback states derived from botStatus
   const [botStatus, setBotStatus] = useState('idle');
@@ -92,7 +100,12 @@ export const useBotConfig = (user) => {
       console.log("🔄 useBotConfig: Received update from Firestore", data);
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
 
-      if (data.scanConfig) setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      if (!data.scanConfig) {
+        setIsNewUser(true);
+      } else {
+        setIsNewUser(false);
+        setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+      }
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
 
       if (data.availableModels && Array.isArray(data.availableModels)) {
@@ -112,6 +125,9 @@ export const useBotConfig = (user) => {
 
       if (data.logLimit) setLogLimit(data.logLimit);
       if (data.botStatus) setBotStatus(data.botStatus);
+      // Reçu une seule fois utile : Firestore renvoie {} (falsy sur les clés vides) tant que
+      // rien n'a jamais été sauvegardé — on initialise alors à {} pour signaler "chargé, vide".
+      setUiFilters(prev => prev ?? (data.uiFilters || {}));
 
       if (data.scanError) {
         setError(data.scanError);
@@ -126,6 +142,18 @@ export const useBotConfig = (user) => {
     const unsubscribe = onBotConfigUpdate(handleUpdate, handleError, uid);
     return () => unsubscribe();
   }, [user, error]);
+
+  // Sauvegarde des filtres/tri avec debounce (évite un write Firestore à chaque clic de filtre).
+  const saveUiFilters = useCallback((newFilters) => {
+    if (!user) return;
+    setUiFilters(newFilters); // reflète localement tout de suite, sans attendre l'aller-retour serveur
+    clearTimeout(uiFiltersSaveTimeout.current);
+    uiFiltersSaveTimeout.current = setTimeout(() => {
+      updateUserConfig({ uiFilters: newFilters }, user.uid).catch(e => {
+        console.error("Erreur lors de la sauvegarde des filtres:", e);
+      });
+    }, 800);
+  }, [user]);
 
   const saveConfig = useCallback(async (newVal) => {
     if (!user) return;
@@ -165,9 +193,9 @@ export const useBotConfig = (user) => {
     if (!user) return;
     if (window.confirm("Voulez-vous vraiment réinitialiser les paramètres du bot aux valeurs par défaut ?")) {
       const defaultAnalysis = {
-        gatekeeperModel: 'gemini-2.5-flash-lite',
-        mainModel: 'gemini-3.5-flash',
-        expertModel: 'gemini-2.5-pro',
+        gatekeeperModel: 'gemini-3.5-flash-lite',
+        mainModel: 'gemini-3.7-flash',
+        expertModel: 'gemini-3.1-pro-preview',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
         expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
@@ -204,7 +232,9 @@ export const useBotConfig = (user) => {
     analysisConfig, setAnalysisConfig,
     availableModels,
     logLimit, setLogLimit,
+    uiFilters, saveUiFilters,
     botStatus, // Exposé pour affichage dynamique du statut
+    isNewUser, // Exposé pour détecter un premier démarrage
     isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused,
     saveConfig,
     handleManualRefresh, handleManualCleanup,

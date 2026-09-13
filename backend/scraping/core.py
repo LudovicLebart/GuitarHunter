@@ -19,6 +19,7 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
+from backend.sold_markers import find_sold_marker
 
 class FacebookScraper:
     def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None, logger: logging.Logger = None):
@@ -197,7 +198,8 @@ class FacebookScraper:
             if close_btn.count() > 0 and close_btn.is_visible(timeout=2000):
                 close_btn.click()
                 time.sleep(1)
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Popup de login introuvable ou erreur: {e}")
 
     def _is_valid_detail_page(self, page: Page, expected_fb_id: str) -> bool:
         """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
@@ -228,7 +230,8 @@ class FacebookScraper:
 
             l_txt = page.locator('div[role="main"] span', has_text="·").first.inner_text()
             location = l_txt.split('·')[0].strip()
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Erreur extraction champs scan_url: {e}")
         return title, price, location
 
     def _reload_page(self, page: Page):
@@ -237,7 +240,8 @@ class FacebookScraper:
         page.reload(timeout=self.config.timeout_navigation)
         self._close_login_popup(page)
         try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
-        except: pass
+        except Exception as e:
+            self.logger.debug(f"Timeout attente div[role='main']: {e}")
         time.sleep(2)
 
     def _parse_details_with_reload_retry(self, page: Page, title: str, location: str, fb_id: str) -> Dict[str, Any]:
@@ -272,7 +276,8 @@ class FacebookScraper:
         # Prix
         try:
             self.logger.info(f"   💰 Application des prix : {min_price}$ - {max_price}$")
-            
+            filled_any = False
+
             if min_price > 0:
                 min_input = page.locator("input[aria-label='Prix minimum'], input[aria-label='Minimum price'], input[placeholder='Min'], input[placeholder='Min.']").first
                 if min_input.is_visible(timeout=3000):
@@ -285,27 +290,32 @@ class FacebookScraper:
                         page.keyboard.type(digit)
                         time.sleep(0.1)
                     time.sleep(0.5)
+                    filled_any = True
 
-            max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max'], input[placeholder='Max.']").first
-            
-            if max_input.is_visible(timeout=3000):
-                max_input.click()
-                time.sleep(0.5)
-                page.keyboard.press("Control+A")
-                page.keyboard.press("Backspace")
-                time.sleep(0.2)
-                
-                for digit in str(max_price):
-                    page.keyboard.type(digit)
-                    time.sleep(0.1)
-                
-                time.sleep(0.5)
+            if max_price > 0:
+                max_input = page.locator("input[aria-label='Prix maximum'], input[aria-label='Maximum price'], input[placeholder='Max'], input[placeholder='Max.']").first
+
+                if max_input.is_visible(timeout=3000):
+                    max_input.click()
+                    time.sleep(0.5)
+                    page.keyboard.press("Control+A")
+                    page.keyboard.press("Backspace")
+                    time.sleep(0.2)
+
+                    for digit in str(max_price):
+                        page.keyboard.type(digit)
+                        time.sleep(0.1)
+
+                    time.sleep(0.5)
+                    filled_any = True
+                else:
+                    self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
+
+            if filled_any:
                 page.keyboard.press("Enter")
                 self.logger.info("   ✅ Prix appliqués. Attente du rechargement...")
-                page.wait_for_load_state("networkidle", timeout=10000)
+                page.wait_for_load_state("domcontentloaded", timeout=10000)
                 time.sleep(3)
-            else:
-                self.logger.warning("   ⚠️ Champ 'Prix maximum' introuvable.")
         except Exception as e:
             self.logger.warning(f"Erreur filtre prix: {e}")
 
@@ -326,9 +336,22 @@ class FacebookScraper:
         self.logger.debug(f"Ville rejetée: '{city_name}' (normalisé: '{norm_name}')")
         return False
 
+    def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0,
+                      dropped_no_location=0, dropped_no_price=0):
+        """Forme standard retournée par scan_marketplace() à chaque point de sortie,
+        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés)."""
+        return {
+            "deals": deals or [],
+            "anti_bot_blocked": anti_bot_blocked,
+            "rejected_out_of_list": rejected_out_of_list,
+            "total_cards_seen": total_cards_seen,
+            "dropped_no_location": dropped_no_location,
+            "dropped_no_price": dropped_no_price,
+        }
+
     def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None):
         self._ensure_session()
-        
+
         # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
         if hasattr(self, 'allowed_cities') and isinstance(self.allowed_cities, list):
              self.allowed_cities = set(self.allowed_cities)
@@ -340,27 +363,51 @@ class FacebookScraper:
         max_ads = scan_config['max_ads']
 
         self.logger.info(f"\n🌍 Scan Facebook: '{search_query}' @ {location}...")
-        
+
         if stop_event and stop_event.is_set():
             self.logger.info("🛑 Scan annulé avant de démarrer (STOP_BOT).")
-            return []
-            
+            return self._scan_result()
+
         norm_loc = ListingParser.normalize_city_name(location)
         city_id = self.city_mapping.get(norm_loc)
         if not city_id:
             if location.isdigit(): city_id = location
             else:
                 self.logger.error(f"❌ Ville '{location}' inconnue.")
-                return []
+                return self._scan_result()
+
+        # --- Forcer la géolocalisation pour éviter les annonces "Ship to you" basées sur l'IP ---
+        coords = self.city_coordinates.get(norm_loc)
+        if coords:
+            try:
+                self.context.set_geolocation({"latitude": coords['lat'], "longitude": coords['lng']})
+                self.logger.info(f"   📍 Géolocalisation forcée sur {norm_loc} ({coords['lat']}, {coords['lng']})")
+            except Exception as e:
+                self.logger.debug(f"   ⚠️ Impossible de forcer la géolocalisation: {e}")
 
         page = self.context.new_page()
         found_deals = [] # Liste pour stocker les annonces trouvées
+        rejected_out_of_list = 0
+        listings_count = 0
+        dropped_no_location = 0
+        dropped_no_price = 0
 
         try:
             q = urllib.parse.quote(search_query)
-            url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&query={q}&exact=false"
-            if max_price > 0:
-                 url = f"https://www.facebook.com/marketplace/{city_id}/search/?minPrice={min_price}&maxPrice={max_price}&query={q}&exact=false"
+            # sortBy=creation_time_descend : sans ce paramètre, Facebook trie par "Pertinence"
+            # (pas par date), donc une annonce fraîchement publiée peut ne jamais apparaître dans
+            # les max_ads premiers résultats scrapés, quel que soit le nombre de cycles écoulés.
+            # Kijiji n'a pas ce problème (tri par date par défaut, voir locations.py::build_search_url).
+            #
+            # Prix volontairement absent de cette URL initiale (2026-08-25, retour utilisateur
+            # après test manuel) : l'ORDRE d'application des filtres compte pour Facebook — le
+            # prix doit être la toute DERNIÈRE action, sans ambiguïté. Le baker dans l'URL de
+            # départ en même temps que `sortBy` (comme avant) puis le retaper via `_apply_filters()`
+            # créait une double application concurrente ; des résultats hors-sujet ("n'importe quoi")
+            # ont été observés quand le tri se retrouvait être la dernière action effective plutôt
+            # que le prix. `_apply_filters()` (appelé après cette navigation) reste donc la SEULE
+            # source de vérité pour le prix, appliquée en tout dernier avant le défilement.
+            url = f"https://www.facebook.com/marketplace/{city_id}/search/?query={q}&exact=false&sortBy=creation_time_descend"
 
             self.logger.info(f"   ➡️ Navigation: {url}")
             page.goto(url, timeout=self.config.timeout_navigation)
@@ -368,31 +415,41 @@ class FacebookScraper:
             # --- ANTIBOT: Check for Captcha / Login redirect ---
             if "/login" in page.url or "captcha" in page.url.lower():
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
-                return []
+                return self._scan_result(anti_bot_blocked=True)
 
             try: page.evaluate("document.body.style.zoom = '0.5'")
-            except: pass
+            except Exception as e: self.logger.debug(f"Zoom échoué: {e}")
             
             try: page.get_by_role("button", name="Allow all cookies").click(timeout=3000)
-            except: pass
+            except Exception as e: self.logger.debug(f"Bouton cookies 'Allow all' non cliqué: {e}")
             try: page.get_by_role("button", name="Decline optional cookies").click(timeout=3000)
-            except: pass
+            except Exception as e: self.logger.debug(f"Bouton cookies 'Decline' non cliqué: {e}")
             self._close_login_popup(page)
             self._apply_filters(page, min_price, max_price)
+
+            # Instrumentation (2026-08-25, diagnostic annonce introuvable) : `_apply_filters()`
+            # rejoue le filtre prix via l'UI APRÈS que l'URL de départ ait déjà fixé
+            # `sortBy=creation_time_descend` — Facebook reconstruit sa propre query string à
+            # cette étape, rien ne garantissait jusqu'ici que ce paramètre (ou le city_id)
+            # survivait. Un retour silencieux au tri par défaut ("Pertinence") reproduirait
+            # exactement le bug corrigé le 2026-08-23 (voir JOURNAL.md).
+            if "sortBy=creation_time_descend" not in page.url:
+                self.logger.warning(f"   ⚠️ 'sortBy=creation_time_descend' absent de l'URL après application des filtres — tri probablement retombé sur 'Pertinence'. URL actuelle: {page.url}")
 
             self.logger.info("   📜 Défilement dynamique...")
             previous_count = 0
             stagnant_iterations = 0
+            target_ads_to_load = max_ads * 3 + 30  # Marge de sécurité pour survivre au filtrage (ville/prix)
             for i in range(self.config.max_scroll_iterations):
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
-                    return []
+                    return self._scan_result()
                 page.mouse.wheel(0, 1000)
                 time.sleep(2)
 
                 current_count = len(page.locator("a[href*='/marketplace/item/']").all())
-                if current_count >= max_ads:
-                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ max_ads={max_ads}), arrêt du défilement.")
+                if current_count >= target_ads_to_load:
+                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
                     break
                 if current_count <= previous_count:
                     stagnant_iterations += 1
@@ -404,17 +461,19 @@ class FacebookScraper:
                 previous_count = current_count
 
             listings = page.locator("a[href*='/marketplace/item/']").all()
-            self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
-            
+            listings_count = len(listings)
+            self.logger.info(f"   👀 {listings_count} éléments trouvés.")
+
             count = 0
             seen = set()
-            
+
             for link in listings:
                 if count >= max_ads: break
-                
+
                 if stop_event and stop_event.is_set():
                     self.logger.info("🛑 Scan annulé pendant le traitement des annonces (STOP_BOT).")
-                    return found_deals
+                    return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
+                                              dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
                 
                 href = link.get_attribute("href")
                 if not href: continue
@@ -428,17 +487,24 @@ class FacebookScraper:
                 if not fb_id: continue
 
                 card_info = ListingParser.parse_listing_card(link, location, logger=self.logger)
-                
+
                 # --- NEW, STRICT FILTERING LOGIC ---
                 spec_loc = card_info['location']
-                
-                # Si la localisation n'a pas pu être extraite, on ignore l'annonce par sécurité
+
+                # Instrumentation (2026-08-25, diagnostic annonce introuvable) : ces deux
+                # abandons étaient auparavant en `debug` (invisible, niveau INFO forcé en
+                # production) et non comptabilisés — une carte silencieusement perdue ici
+                # ne laissait AUCUNE trace permettant de la distinguer d'une carte qui
+                # n'existait simplement pas. `warning` + `fb_id`/titre pour pouvoir grep une
+                # annonce précise dans les logs. Voir JOURNAL.md pour le contexte complet.
                 if not spec_loc:
-                    self.logger.debug(f"   ⏩ Ignoré (localisation introuvable sur la carte)")
+                    self.logger.warning(f"   ⏩ Abandonné (localisation introuvable sur la carte) — id={fb_id} titre='{card_info['title']}'")
+                    dropped_no_location += 1
                     continue
 
                 if not self.is_city_allowed(spec_loc):
-                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc}")
+                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc} — id={fb_id}")
+                    rejected_out_of_list += 1
                     continue
                 # --- END OF NEW LOGIC ---
 
@@ -452,49 +518,56 @@ class FacebookScraper:
                     continue
                 # --- END OPTIMIZATION ---
 
-                if price > 0 or "Gratuit" in title or "Free" in title:
-                    self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
-                    
-                    details_page = self.context.new_page()
-                    try:
-                        details_page.goto(clean_link, timeout=self.config.timeout_navigation)
-                        self._close_login_popup(details_page)
-                        try: details_page.wait_for_selector("div[role='main']", timeout=10000)
-                        except: pass
-                        time.sleep(2)
-                        self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+                if price <= 0 and "Gratuit" not in title and "Free" not in title:
+                    self.logger.warning(f"   ⏩ Abandonné (prix introuvable sur la carte, ni 'Gratuit'/'Free') — id={fb_id} titre='{title}' dans {spec_loc}")
+                    dropped_no_price += 1
+                    continue
 
-                        if self._is_valid_detail_page(details_page, fb_id):
-                            details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
-                        else:
-                            self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
-                            details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
-                    finally:
-                        details_page.close()
+                self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
 
-                    coords = details['coordinates']
-                    final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
-                    
-                    listing_data = {
-                        "title": title, "price": price, "description": details['description'],
-                        "imageUrl": final_img, "imageUrls": details['imageUrls'],
-                        "link": clean_link, "location": spec_loc,
-                        "id": fb_id, "published_at_raw": details.get('published_at_raw')
-                    }
-                    if coords:
-                        self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
-                        listing_data["latitude"] = coords["lat"]
-                        listing_data["longitude"] = coords["lng"]
+                details_page = self.context.new_page()
+                try:
+                    details_page.goto(clean_link, timeout=self.config.timeout_navigation)
+                    self._close_login_popup(details_page)
+                    try: details_page.wait_for_selector("div[role='main']", timeout=10000)
+                    except Exception as e:
+                        self.logger.debug(f"Timeout fiche détail div[role='main']: {e}")
+                    time.sleep(2)
+                    self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {details_page.url}")
+
+                    if self._is_valid_detail_page(details_page, fb_id):
+                        details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
                     else:
-                        self.logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
-                    
-                    found_deals.append(listing_data) # Ajout à la liste
-                    count += 1
+                        self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
+                        details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
+                finally:
+                    details_page.close()
+
+                coords = details['coordinates']
+                final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
+
+                listing_data = {
+                    "title": title, "price": price, "description": details['description'],
+                    "imageUrl": final_img, "imageUrls": details['imageUrls'],
+                    "link": clean_link, "location": spec_loc,
+                    "id": fb_id, "published_at_raw": details.get('published_at_raw'),
+                    "published_at_ts": details.get('published_at_ts')
+                }
+                if coords:
+                    self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
+                    listing_data["latitude"] = coords["lat"]
+                    listing_data["longitude"] = coords["lng"]
+                else:
+                    self.logger.info("   ⚠️ Pas de coordonnées GPS trouvées.")
+
+                found_deals.append(listing_data) # Ajout à la liste
+                count += 1
         except Exception as e:
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
-        return found_deals # Retourne la liste des annonces
+        return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
+                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()
@@ -520,7 +593,8 @@ class FacebookScraper:
 
             self._close_login_popup(page)
             try: page.wait_for_selector("div[role='main']", timeout=self.config.timeout_selector)
-            except: pass
+            except Exception as e:
+                self.logger.debug(f"Timeout fiche détail scan_url div[role='main']: {e}")
             time.sleep(2)
             self.logger.debug(f"   🔎 [DIAG] URL fiche détail chargée: {page.url}")
 
@@ -559,7 +633,8 @@ class FacebookScraper:
                 "imageUrls": details['imageUrls'],
                 "link": clean_link, "location": location,
                 "searchDistance": 0, "id": fb_id,
-                "published_at_raw": details.get('published_at_raw')
+                "published_at_raw": details.get('published_at_raw'),
+                "published_at_ts": details.get('published_at_ts')
             }
             if details['coordinates']:
                 listing_data["latitude"] = details['coordinates']["lat"]
@@ -594,6 +669,17 @@ class FacebookScraper:
             # Facebook redirige vers /marketplace/ (accueil) quand l'item est totalement supprimé
             if "/marketplace/item/" not in page.url:
                 self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
+                return False
+
+            # 3. Vérification du titre (og:title) pour un marqueur de vente ajouté par le vendeur
+            # sans suppression de l'annonce (ex: "VENDU - Fender Strat 62"). Recherche par
+            # sous-chaîne (pas de regex ancrée comme pour les badges ci-dessous) : le marqueur peut
+            # être noyé n'importe où dans un titre plus long. `og:title` reste présent même quand
+            # Facebook gate le prix/les photos pour une session non authentifiée (voir CLAUDE.md).
+            og_title = page.locator('meta[property="og:title"]').get_attribute('content')
+            title_sold_marker = find_sold_marker(og_title)
+            if title_sold_marker:
+                self.logger.info(f"   🚫 Marqueur de vente trouvé dans le titre ('{title_sold_marker}'): '{og_title}'")
                 return False
 
             import json
