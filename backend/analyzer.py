@@ -52,6 +52,14 @@ T1_GATEKEEPER_RESPONSE_SCHEMA = {
     "required": ["status", "reasoning", "brand"],
 }
 
+# Chantier G (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : verdicts T1 qui doivent
+# TOUJOURS être promus vers T2/T3, indépendamment d'une recherche active — garde-fou non
+# négociable pour ne jamais cacher silencieusement une pépite potentielle derrière un filtre.
+# FAIR ("correct mais sans opportunité claire") et BAD_DEAL ("surévalué") sont volontairement
+# exclus : ni l'un ni l'autre n'indique une pépite, contrairement aux 5 verdicts ci-dessous
+# (voir gatekeeper_verbosity_instruction, prompts.json).
+T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
+
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
         self.models = {}
@@ -512,6 +520,42 @@ class DealAnalyzer:
                         },
                         gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
                     )
+
+                # ==========================================
+                # CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
+                # ==========================================
+                # Le mode par défaut ("tout analyser, filtrer après") reste inchangé tant
+                # qu'aucune recherche active n'est configurée (`activeSearchFamilies` vide/absent).
+                # Quand une recherche est active, seule une correspondance sur la FAMILLE de forme
+                # (`gatekeeper_classification`, déjà produite par le Portier — aucun nouvel appel
+                # ni champ de prompt) promeut vers T2/T3 ; le scraping et le Portier lui-même
+                # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
+                # Garde-fou non négociable : un verdict pépite-tier (T1_PEPITE_TIER_VERDICTS)
+                # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
+                active_search_families = config.get('activeSearchFamilies') or []
+                if active_search_families and gatekeeper_status not in T1_PEPITE_TIER_VERDICTS:
+                    matches_active_search = gatekeeper_classification and any(
+                        gatekeeper_classification == family or gatekeeper_classification.startswith(f"{family}.")
+                        for family in active_search_families
+                    )
+                    if not matches_active_search:
+                        self.logger.info(
+                            f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
+                            f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
+                        )
+                        return self._attach_gatekeeper_metadata(
+                            {
+                                "verdict": "NOT_PROMOTED",
+                                "reasoning": (
+                                    f"Ne correspond à aucune recherche active "
+                                    f"({', '.join(active_search_families)}) et n'est pas jugée "
+                                    f"pépite potentielle par le Portier."
+                                ),
+                                "classification": gatekeeper_classification,
+                                "model_used": " -> ".join(model_chain),
+                            },
+                            gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
+                        )
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 

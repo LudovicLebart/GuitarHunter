@@ -520,8 +520,41 @@ la mal classer dans une liste que l'utilisateur voit quand même. Recommandation
 précision de T1 sur un petit échantillon annoté (type de corps + couleur/finition) avant de
 construire le routage, plan A comme plan B.
 
-**Non fait à ce stade** : aucun code écrit pour ce chantier — reste au stade d'idée à évaluer,
-comme B l'était avant sa correction Opus.
+**Décision utilisateur (2026-09-13) : Plan B, variante "promotion large", codé et déployé.**
+Reconsidération du risque ci-dessus : la validation de précision de T1 protège contre un risque
+de **qualité** (rater silencieusement l'annonce cherchée), pas contre l'existence du **gain de
+coût** — un filtre, même imprécis, réduit mécaniquement le volume promu vers T2/T3 dès qu'il
+promeut moins de 100% des annonces. Avec le garde-fou pépite déjà non négociable, et en filtrant
+uniquement sur la FAMILLE de forme (grossière, jugée plus fiable par Opus que couleur/finition —
+justement ce que "promotion large" désigne), le risque de faux négatif est nettement plus faible
+qu'un filtre fin. **Donnée déjà disponible sans validation dédiée** : `gatekeeperClassification`
+est capturé sur 100% des analyses en production depuis le 2026-09-12 (voir plus haut) — aucun
+nouveau champ de prompt ni appel supplémentaire nécessaire pour ce routage.
+
+**Codé (`backend/analyzer.py::_run_analysis_cascade`)** : après la Phase 1 (Portier), avant la
+Phase 2 (Analyste) — nouveau bloc "Chantier G : routage par recherche active". Lit
+`config.get('activeSearchFamilies')` (liste de préfixes de taxonomie, ex: `["Acoustic.Parlor"]`) :
+- Absent/vide → comportement inchangé (tout promouvoir, comme aujourd'hui).
+- Présent → promeut seulement si `gatekeeperClassification` correspond exactement ou par préfixe
+  à un des critères actifs, **OU** si `gatekeeper_status` est un verdict pépite-tier
+  (`T1_PEPITE_TIER_VERDICTS` = PEPITE/FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION — garde-fou,
+  toujours prioritaire sur le filtre). Sinon, nouveau statut `"NOT_PROMOTED"` (distinct d'un
+  rejet réel) et retour anticipé, sans appel T2/T3.
+- `force_expert=True` bypasse tout (Portier ET filtre), comme avant pour un rejeu manuel.
+- Classification absente (`None`) sous recherche active → traité par prudence comme non
+  correspondant (non promu, sauf pépite) plutôt que de promouvoir par défaut.
+
+**Testé localement (stubs, aucun accès réseau réel)** : 8 cas couverts — comportement inchangé
+sans recherche active, correspondance exacte et par préfixe (famille plus précise que le
+critère), non-correspondance sans pépite (T2 jamais appelé, le vrai gain mesuré), les 5 verdicts
+pépite-tier passent toujours le garde-fou même hors-filtre, `BAD_DEAL` continue de suivre son
+propre chemin de rejet pré-existant (inchangé), classification absente traitée par prudence,
+`force_expert` bypasse tout.
+
+**Reste à faire** : l'UI de saisie de la recherche active (`activeSearchFamilies`) — différée,
+"on va en parler" (décision utilisateur 2026-09-13). En attendant, configurable uniquement via
+Firestore directement (console ou script) — le champ vide par défaut préserve le comportement
+actuel pour tous les utilisateurs tant que rien n'est configuré.
 
 **Reprécisé par l'utilisateur (2026-09-12), exemple concret d'usage** : une recherche active
 définit un ou plusieurs critères (ex : "guitares parlor", "guitares [tel autre type de corps]"),
