@@ -189,7 +189,16 @@ jobs:
             # cascade $9,10 était connu, pas la part de chaque Tier) ; (B) taux de
             # storageImageUrls rempli comparé entre annonces rejetées et acceptées, pour savoir
             # si l'absence de photo stockée sur les rejets (run #35, n=11) est systématique.
-            python3 -u -m backend.scripts.analyze_tier_cost_and_photo_storage
+            #
+            # Run #38 (2026-09-13) : `portier_model_test.py` — Chantier F/G, candidat T1
+            # fidèle jamais construit jusqu'ici. Teste si Qwen3.8-flash/GPT-5-mini (déjà
+            # intégrés au harnais, moins chers que gemini-3.5-flash-lite) peuvent remplacer
+            # le Portier au VRAI rôle de gate (accept/reject + marque + classification),
+            # avec EXACTEMENT le même prompt que la prod — contrairement au comparatif à 10
+            # candidats existant qui teste le rôle T2/T3 (identification complète), jamais
+            # le rôle T1. Accord accept/reject sur les 40 items du Banc d'Essai (13 rejet_t1
+            # + 27 tier2/tier3) + précision marque/classification jugée par judge.py.
+            python3 -u -m backend.benchmark.portier_model_test
 
       - name: Récupération du rapport généré
         env:
