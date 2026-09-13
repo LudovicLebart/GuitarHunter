@@ -28,7 +28,7 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -38,10 +38,14 @@ def run():
     d'exposer publiquement guitarhunter-api (Phase A.3, Chantier A), on vérifie l'état actuel
     de Funnel/Serve sur ce nœud pour savoir si l'activation peut se faire entièrement depuis
     deploy.yml, ou si une action manuelle côté console admin Tailscale (HTTPS Certificates,
-    ACL) est requise en amont — comme ça a été le cas pour la règle sudoers. Aucune commande
-    ici n'active Funnel ni ne modifie la configuration : `funnel status`/`serve status`
-    n'affichent que l'état déjà en place, `tailscale version` et `status --self` ne modifient
-    rien. Désarmé ci-dessous après lecture des résultats.
+    ACL) est requise en amont — comme ça a été le cas pour la règle sudoers.
+
+    Résultat (run #462, voir JOURNAL.md) : "tailscale funnel status" et "tailscale serve
+    status" renvoient tous les deux "No serve config" (exit 0) — ni erreur explicite, ni
+    confirmation que la fonctionnalité HTTPS Certificates/Funnel est activée au niveau du
+    tailnet. INCONCLUSIF : ce statut est celui d'un nœud où rien n'est configuré, que Funnel
+    soit disponible ou non. Seule une tentative d'activation réelle (`tailscale funnel ... on`)
+    lèvera l'ambiguïté — désarmé ci-dessous en attendant la décision de l'utilisateur.
     """
     import subprocess
 
