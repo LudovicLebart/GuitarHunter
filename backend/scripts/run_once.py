@@ -28,20 +28,24 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : cinquième tentative d'activation de Tailscale Funnel sur le port 8000
-    (guitarhunter-api). Les 4 tentatives précédentes échouaient toutes en silence (aucune
-    erreur, aucun message) malgré sudoers corrigé puis opérateur configuré — cause réelle
-    identifiée : la fonctionnalité Funnel elle-même n'était pas activée au niveau du compte
-    Tailscale (console admin), pas un problème de permissions locales sur le serveur.
-    L'utilisateur vient de l'activer. Retente la même commande qu'au run #475 (stdin fermé,
-    timeout 20s) pour confirmer. Désarmé seulement après confirmation du résultat par
-    l'utilisateur (effet persistant réel si succès).
+    2026-09-13 : activation de Tailscale Funnel sur le port 8000 (guitarhunter-api).
+    4 tentatives échouaient en silence (sudoers, puis opérateur configuré, puis timeouts
+    variés) — cause réelle : Funnel n'était pas activé au niveau du compte Tailscale
+    (console admin), pas un problème de permissions locales sur le serveur.
+
+    Résultat (run #478, voir JOURNAL.md) : SUCCÈS après activation par l'utilisateur dans
+    la console admin. `tailscale funnel --bg 8000` renvoie immédiatement (exit=0) :
+    "Available on the internet: https://serveur.tail16b52e.ts.net/ |-- proxy
+    http://127.0.0.1:8000". Validé depuis l'extérieur du tailnet : GET /health → 200
+    {"status":"ok"} ; GET /deals sans token → 422 (rejeté, aucune donnée exposée). Désarmé
+    ci-dessous — l'activation Funnel elle-même est persistante côté Tailscale, indépendante
+    de ce script.
     """
     import subprocess
 
