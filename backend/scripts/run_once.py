@@ -28,26 +28,22 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : Phase A.4 — lance l'export Firestore→Postgres COMPLET (sans --user, donc
-    tous les utilisateurs) contre guitarhunter_pg_staging. Le dry-run précédent (2026-09-10)
-    n'avait migré que 2414/5978 annonces de l'utilisateur principal (coupé par le
-    command_timeout SSH de 10 min), et n'avait jamais touché les 6 autres utilisateurs.
-    `export_firestore_to_postgres.py` est idempotent (voir son en-tête) — un simple
-    ré-lancement sans --user couvre tout, sans script séparé pour "juste le manquant".
+    2026-09-13 : Phase A.4 — lancement de l'export Firestore→Postgres COMPLET (sans --user)
+    contre guitarhunter_pg_staging, en arrière-plan (subprocess détaché de la session SSH,
+    `start_new_session=True`) car le volume total dépasse très probablement le budget de
+    10 minutes du job de déploiement.
 
-    Lancé en ARRIÈRE-PLAN (subprocess détaché de la session SSH, `start_new_session=True`)
-    car le volume total dépasse très probablement le budget de 10 minutes du job de
-    déploiement (décision actée le 2026-09-10 de ne pas augmenter ce timeout global, qui
-    affecterait tous les déploiements futurs). Ce script NE ATTEND PAS la fin de l'export —
-    il logue juste le PID et le chemin du fichier de log, puis retourne immédiatement. La
-    progression/complétion sera vérifiée par un futur run_once.py de LECTURE SEULE (tail du
-    log + `SELECT COUNT(*) ... GROUP BY user_id` sur guitar_deals), pas ici.
+    Résultat (run #482, voir JOURNAL.md) : lancement confirmé — "Export complet lancé en
+    arrière-plan — PID=1558912, log=~/export_full_a4.log". Le job de déploiement a rendu la
+    main immédiatement (pas de timeout), le process continue de tourner indépendamment sur
+    le serveur. Désarmé ci-dessous — la progression/complétion sera vérifiée séparément
+    (tail du log + comptages Postgres), pas via ce script.
     """
     import subprocess
 
