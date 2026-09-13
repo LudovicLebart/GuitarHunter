@@ -28,19 +28,21 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : deuxième tentative de lancement de l'export Firestore→Postgres COMPLET
-    (sans --user) contre guitarhunter_pg_staging, en arrière-plan. Première tentative
-    (run #482) : le process se terminait immédiatement en erreur
-    ("No such file or directory" sur export_firestore_to_postgres.py) car ce script
-    n'était jamais synchronisé sur `dev` par deploy.yml — corrigé (ajouté à la même ligne
-    de checkout que backend/api/*). Aucune donnée perdue au passage (comptages Postgres
-    inchangés à 2414 annonces). Ce lancement réutilise exactement le même code.
+    2026-09-13 : lancement de l'export Firestore→Postgres COMPLET (sans --user) contre
+    guitarhunter_pg_staging, en arrière-plan. Première tentative (run #482) : échec
+    immédiat ("No such file or directory") car export_firestore_to_postgres.py n'était
+    jamais synchronisé sur `dev` — corrigé dans deploy.yml (ajouté à la même ligne de
+    checkout que backend/api/*). Aucune donnée perdue au passage.
+
+    Résultat (run #491, voir JOURNAL.md) : SUCCÈS — "Export complet lancé en arrière-plan
+    — PID=1793707, log=~/export_full_a4.log". Désarmé ci-dessous — la progression/
+    complétion sera vérifiée séparément (tail du log + comptages Postgres), pas ici.
     """
     import subprocess
 
