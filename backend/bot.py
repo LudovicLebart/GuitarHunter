@@ -5,6 +5,7 @@ import threading
 import random
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from firebase_admin import firestore
 import firebase_admin.auth as fb_auth
 
@@ -50,6 +51,14 @@ class GuitarHunterBot:
     # Kijiji : voir `_run_kijiji_scan()`, qui utilise `AnchorCluster.max_member_distance_km()`
     # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
     KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
+
+    # Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : nombre de workers
+    # du pool qui analyse les annonces d'un même lot en parallèle (voir _dispatch_analysis_batch)
+    # — motivé par l'ajout d'un appel d'observation Qwen (Portier) nettement plus lent que
+    # Gemini (~22s contre ~5s, run #38) ; sans parallélisation, cet appel ralentirait
+    # directement la cadence de scan. Valeur prudente, à recalibrer selon les limites de débit
+    # réelles de TokenRouter/Gemini si des erreurs de rate-limit apparaissent en production.
+    ANALYSIS_WORKERS = 5
 
     def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
@@ -300,6 +309,43 @@ class GuitarHunterBot:
 
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
+
+    def _dispatch_analysis_batch(self, deals, source, cycle_stats):
+        """Analyse `deals` (déjà filtrés/enrichis, prêts pour handle_deal_found) en parallèle
+        via un pool de workers borné (Chantier H, ANALYSIS_WORKERS) — remplace la boucle
+        séquentielle historique. Le scraping (Playwright) est déjà entièrement terminé avant cet
+        appel (`deals` est une simple liste de dicts), donc aucune instance de scraper n'est
+        partagée entre les workers : chaque appel `handle_deal_found` ne fait que des requêtes
+        HTTP (Gemini/TokenRouter, téléchargement d'image) et des écritures Firestore, toutes deux
+        thread-safe côté clients utilisés ici.
+
+        `session_processed_ids` est thread-local (voir sa docstring, conçu pour le modèle "un
+        thread par utilisateur") : les workers de CE pool tournent dans des threads distincts du
+        thread appelant (celui qui scrapera la ville suivante juste après) et n'écrivent donc PAS
+        dans le même set — l'ajout fait à l'intérieur de `handle_deal_found` se perdrait pour la
+        suite du cycle. On l'alimente donc explicitement ICI, dans le thread appelant, avant même
+        de distribuer aux workers.
+        """
+        for deal in deals:
+            self.session_processed_ids.add(deal['id'])
+
+        if not deals:
+            return
+
+        with ThreadPoolExecutor(max_workers=self.ANALYSIS_WORKERS) as executor:
+            future_to_deal = {
+                executor.submit(self.handle_deal_found, deal, source=source): deal
+                for deal in deals
+                if not self._is_stop_requested()
+            }
+            for future in as_completed(future_to_deal):
+                deal = future_to_deal[future]
+                try:
+                    outcome = future.result() or "unknown"
+                except Exception as e:
+                    self.logger.error(f"❌ [{source}] Erreur lors de l'analyse de '{deal.get('title', '?')}' : {e}", exc_info=True)
+                    outcome = "error"
+                cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
 
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
@@ -662,11 +708,8 @@ class GuitarHunterBot:
                         self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
                         found_deals = deals_in_radius
 
-                    # --- TRAITEMENT DES ANNONCES FILTRÉES ---
-                    for deal in found_deals:
-                        if self._is_stop_requested(): break
-                        outcome = self.handle_deal_found(deal, source="Facebook") or "unknown"
-                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                    # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
+                    self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
 
                 finally:
                     temp_scraper.close_session()
@@ -867,6 +910,10 @@ class GuitarHunterBot:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
                         continue
 
+                    # Pré-traitement séquentiel (préfixe d'ID, résolution de ville, filtre de
+                    # rayon) — bon marché, aucun appel réseau — puis analyse parallélisée des
+                    # annonces retenues (voir _dispatch_analysis_batch).
+                    ready_deals = []
                     for deal in found_deals:
                         if self._is_stop_requested():
                             break
@@ -883,9 +930,9 @@ class GuitarHunterBot:
                             self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
                             cycle_stats["rejected_out_of_radius"] += 1
                             continue
+                        ready_deals.append(deal)
 
-                        outcome = self.handle_deal_found(deal, source="Kijiji") or "unknown"
-                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                    self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
 
                     time.sleep(2)
             finally:

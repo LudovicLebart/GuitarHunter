@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import time
@@ -6,6 +7,7 @@ import logging
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
+from openai import OpenAI
 from backend.notifications import NotificationService
 from config import (
     GEMINI_API_KEY,
@@ -23,11 +25,31 @@ from config import (
     DEFAULT_PRO_RESTO_SCORE_THRESHOLD,
     DEFAULT_PRO_AUTH_SCORE_THRESHOLD,
     DEFAULT_PRO_CONFIDENCE_THRESHOLD,
+    TOKENROUTER_API_KEY,
+    TOKENROUTER_BASE_URL,
+    T1_OBSERVATION_QWEN_MODEL,
+    T1_OBSERVATION_ENABLED,
 )
 from backend.scraping.parser import ListingParser
 from backend.taxonomy import build_index as build_taxonomy_index, canonicalize as canonicalize_classification
 
 logger = logging.getLogger(__name__)
+
+# Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : contrat JSON du Portier,
+# tel qu'exigé par `gatekeeper_verbosity_instruction` (prompts.json) — { status, reasoning,
+# brand, classification }. `classification` n'est PAS requis : le prompt demande la valeur
+# littérale "NULL" (une chaîne, pas un JSON null) quand le modèle est incertain, donc un champ
+# manquant ou "NULL" sont tous deux des réponses valides plutôt qu'une erreur de schéma.
+T1_GATEKEEPER_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string"},
+        "reasoning": {"type": "string"},
+        "brand": {"type": "string"},
+        "classification": {"type": "string"},
+    },
+    "required": ["status", "reasoning", "brand"],
+}
 
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
@@ -51,14 +73,21 @@ class DealAnalyzer:
         except Exception as e:
             self.logger.critical(f"CRITICAL: Impossible de lister les modèles Gemini : {e}", exc_info=True)
 
-    def _get_model(self, model_name, system_instruction=None):
-        cache_key = (model_name, hash(str(system_instruction)))
+    def _get_model(self, model_name, system_instruction=None, response_schema=None):
+        # `response_schema` fait partie de la clé de cache : un même modèle peut être appelé
+        # avec ou sans schéma structuré selon l'appelant (ex: T1 avec schéma, T2/T3 sans pour
+        # l'instant) — sans ça, la première instance mise en cache déciderait pour tous les
+        # appels suivants au même modèle, schéma ou pas.
+        cache_key = (model_name, hash(str(system_instruction)), hash(str(response_schema)))
         if cache_key not in self.models:
             try:
+                generation_config = {"response_mime_type": "application/json", "temperature": 0.1}
+                if response_schema is not None:
+                    generation_config["response_schema"] = response_schema
                 self.models[cache_key] = genai.GenerativeModel(
                     model_name=model_name,
                     system_instruction=system_instruction,
-                    generation_config={"response_mime_type": "application/json", "temperature": 0.1}
+                    generation_config=generation_config
                 )
                 self.logger.info(f"🤖 Modèle Gemini initialisé : {model_name}")
             except Exception as e:
@@ -109,7 +138,11 @@ class DealAnalyzer:
         # sort_keys=True : garantit un préfixe identique octet pour octet entre threads/
         # redémarrages (le cache implicite Gemini est un match de préfixe exact) — sans ça,
         # l'ordre des clés d'un dict Python n'est pas garanti stable d'un process à l'autre.
-        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False, sort_keys=True)
+        # separators=(',', ':') (indentation compacte, sans espaces) au lieu de indent=2 :
+        # réduit le nombre de tokens de ce bloc statique, partagé par les 3 Tiers de la
+        # cascade (Chantier H, gain "gratuit" identifié par Opus 2026-09-13) — la lisibilité
+        # humaine n'a pas d'importance ici, seul un LLM lit ce texte.
+        taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
         return (
             f"{main_prompt_str}\n\n"
@@ -142,9 +175,9 @@ class DealAnalyzer:
         except Exception as e:
             self.logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
 
-    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1):
+    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1, response_schema=None):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
-        model = self._get_model(model_name)
+        model = self._get_model(model_name, response_schema=response_schema)
         if not model:
             return None, f"Modèle {model_name} non disponible."
             
@@ -187,6 +220,62 @@ class DealAnalyzer:
                 if self._is_model_unavailable_error(e):
                     self._notify_model_unavailable(model_name, str(e), user_email)
                 return None, str(e)
+
+    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url):
+        """Appelle un modèle compatible OpenAI (Qwen via TokenRouter, etc.) et parse le JSON,
+        avec la même tolérance que `_call_gemini_json` (accolades ```json). Réutilise les
+        images DÉJÀ téléchargées par `_prepare_visual_parts` (objets PIL) — pas de second
+        téléchargement des mêmes URLs. Ne lève jamais : renvoie toujours (dict|None, erreur|None),
+        pour être appelée en best-effort par un chemin d'observation (Chantier H) sans jamais
+        faire échouer l'analyse Gemini réelle."""
+        if not api_key:
+            return None, "Clé API manquante."
+        try:
+            client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
+            content = [{"type": "text", "text": prompt}]
+            for img in images:
+                buf = BytesIO()
+                img.save(buf, format="JPEG")
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+            response = client.chat.completions.create(model=model_name, messages=[{"role": "user", "content": content}])
+            cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
+            result = json.loads(cleaned_text)
+            if isinstance(result, list):
+                result = result[0] if result and isinstance(result[0], dict) else {}
+            return result, None
+        except Exception as e:
+            return None, str(e)
+
+    def _run_t1_qwen_observation(self, full_prompt_t1, images):
+        """Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) — OBSERVATION,
+        pas encore une bascule : rejoue le Portier avec EXACTEMENT le même prompt sur
+        Qwen3.8-flash (TokenRouter, déjà validé comme candidat T1 fidèle au run #38) et renvoie
+        son verdict sous des clés `qwenGatekeeper*` distinctes, à côté de celui de Gemini —
+        n'influence JAMAIS `gatekeeper_status` ni la décision accept/reject réelle, qui reste
+        entièrement pilotée par Gemini. But : accumuler des données de comparaison en conditions
+        réelles avant toute décision de bascule.
+
+        Best-effort strict : toute erreur (clé absente, TokenRouter indisponible, JSON invalide)
+        est absorbée ici et ne doit jamais faire échouer l'analyse Gemini réelle qui l'entoure —
+        coupe-circuit `T1_OBSERVATION_ENABLED` pour désactiver sans redéploiement si besoin.
+        """
+        if not T1_OBSERVATION_ENABLED or not TOKENROUTER_API_KEY:
+            return {}
+        t0 = time.monotonic()
+        result, err = self._call_openai_compatible_json(
+            full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL
+        )
+        latency_s = round(time.monotonic() - t0, 1)
+        if err or not result:
+            self.logger.warning(f"   🔬 [Observation T1/Qwen] échec (ignoré, n'affecte pas l'analyse) : {err}")
+            return {"qwenGatekeeperError": err, "qwenGatekeeperLatencyS": latency_s}
+        return {
+            "qwenGatekeeperVerdict": (result.get('status') or result.get('verdict') or None),
+            "qwenGatekeeperBrand": result.get('brand'),
+            "qwenGatekeeperClassification": result.get('classification'),
+            "qwenGatekeeperLatencyS": latency_s,
+        }
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         """Cascade 3-Tiers, puis canonicalisation de la classification renvoyée par l'IA.
@@ -328,6 +417,10 @@ class DealAnalyzer:
         # sur les annonces acceptées, qui sont pourtant la grande majorité des cas.
         gatekeeper_brand = None
         gatekeeper_classification = None
+        # Chantier H — observation Qwen (jamais utilisée pour la décision accept/reject réelle,
+        # voir _run_t1_qwen_observation). Fusionnée dans les 5 dicts de retour ci-dessous via
+        # **qwen_observation, comme gatekeeperBrand/gatekeeperClassification/gatekeeperVerdict.
+        qwen_observation = {}
 
         # ==========================================
         # PHASE 1 : TIER 1 - PORTIER (Flash-Lite)
@@ -339,9 +432,13 @@ class DealAnalyzer:
             if isinstance(gatekeeper_instruction, list):
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
-            
-            result_t1, err_t1 = self._call_gemini_json(gatekeeper_model_name, [full_prompt_t1] + images, user_email)
-            
+
+            result_t1, err_t1 = self._call_gemini_json(
+                gatekeeper_model_name, [full_prompt_t1] + images, user_email,
+                response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
+            )
+            qwen_observation = self._run_t1_qwen_observation(full_prompt_t1, images)
+
             if err_t1 or not result_t1:
                 # Fail-open vers l'Analyste
                 gatekeeper_status = "ERROR_GATEKEEPER"
@@ -366,6 +463,7 @@ class DealAnalyzer:
                         "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
                         "gatekeeperVerdict": gatekeeper_status,
                         "model_used": " -> ".join(model_chain),
+                        **qwen_observation,
                     }
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
@@ -388,6 +486,7 @@ class DealAnalyzer:
                 "gatekeeperBrand": gatekeeper_brand, "gatekeeperClassification": gatekeeper_classification,
                 "gatekeeperVerdict": gatekeeper_status,
                 "model_used": " -> ".join(model_chain) + " (Error)",
+                **qwen_observation,
             }
 
         # Formatage des variables pour la logique conditionnelle
@@ -451,6 +550,7 @@ class DealAnalyzer:
                 result_t2["gatekeeperBrand"] = gatekeeper_brand
                 result_t2["gatekeeperClassification"] = gatekeeper_classification
                 result_t2["gatekeeperVerdict"] = gatekeeper_status
+                result_t2.update(qwen_observation)
                 return result_t2
 
             # L'Expert Pro écrase le T2
@@ -459,6 +559,7 @@ class DealAnalyzer:
             result_t3["gatekeeperBrand"] = gatekeeper_brand
             result_t3["gatekeeperClassification"] = gatekeeper_classification
             result_t3["gatekeeperVerdict"] = gatekeeper_status
+            result_t3.update(qwen_observation)
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
 
@@ -468,4 +569,5 @@ class DealAnalyzer:
             result_t2["gatekeeperBrand"] = gatekeeper_brand
             result_t2["gatekeeperClassification"] = gatekeeper_classification
             result_t2["gatekeeperVerdict"] = gatekeeper_status
+            result_t2.update(qwen_observation)
             return result_t2
