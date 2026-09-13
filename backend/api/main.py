@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
@@ -29,6 +30,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Guitar Hunter API", lifespan=lifespan)
+
+# Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
+# du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
+# cookies) — allow_credentials=False, pas besoin d'assouplir vers "*".
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://ludoviclebart.github.io",
+        "http://localhost:5173",
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
