@@ -45,7 +45,7 @@ const TREND_COLOR = '#a78bfa';
 // verdict IA légitime sur une vraie guitare jugée trop chère après une vraie analyse Tier 2 (voir
 // CLAUDE.md — "BAD_DEAL ≠ REJECTED") ; toute annonce visible ici a déjà un score réel de toute
 // façon, donc un BAD_DEAL ne peut pas être une fiche vide.
-const NOISE_VERDICTS = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'REJECTED', 'INCOMPLETE_DATA'];
+const NOISE_VERDICTS = ['REJECTED_ITEM', 'REJECTED_SERVICE', 'REJECTED', 'INCOMPLETE_DATA', 'NOT_PROMOTED'];
 
 const verdictGroup = (verdict) => {
     if (!verdict) return null;
