@@ -14,7 +14,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ## 🎯 Audit de fiabilité du Portier T1 (préalable à un routage T1→T2/T3, 2026-09-12)
 
 - [x] **`gatekeeperBrand`/`gatekeeperClassification` persistés sur `aiAnalysis`** *(déployé 2026-09-12, voir `JOURNAL.md`)* : le Portier conserve désormais sa propre marque/type de corps deviné même quand il accepte l'annonce (avant : jeté sauf en cas de rejet). Purement additif, aucun appel/coût supplémentaire.
-- [ ] **Reste à faire une fois assez de volume accumulé** : script de lecture seule comparant `gatekeeperBrand`/`gatekeeperClassification` (T1) au résultat final stocké par T2/T3 dans `aiAnalysis` — taux d'accord réel sur données de production. Motivé par un chantier de routage T1→T2/T3 en cours d'évaluation sur la branche `claude/guitarhunter-benchmark-setup-h9q9gr` (pas encore mergée) : ne promouvoir vers T2/T3 que ce qui correspond à une recherche active ou une pépite, pour réduire le volume d'appels aux Tiers chers.
+- [x] **Routage T1→T2/T3 par recherche active (Chantier G, "promotion large")** *(déployé 2026-09-13, voir `JOURNAL.md`)* : `analyzer.py::_run_analysis_cascade` lit `analysisConfig.activeSearchFamilies` (vide par défaut = comportement inchangé, "tout analyser") ; si non vide, ne promeut vers T2/T3 que ce qui matche une famille (garde-fou pépite non négociable, toujours promu). UI dans `ConfigPanel.jsx` + commande `REEVALUATE_NOT_PROMOTED` pour repromouvoir vers T2/T3 les annonces `NOT_PROMOTED` dont la classification déjà connue correspond à un filtre modifié depuis, sans rappeler le Portier.
+- [ ] **Reste à faire une fois assez de volume accumulé** : script de lecture seule comparant `gatekeeperBrand`/`gatekeeperClassification` (T1) au résultat final stocké par T2/T3 dans `aiAnalysis` — taux d'accord réel sur données de production.
 
 ---
 

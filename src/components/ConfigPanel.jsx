@@ -358,7 +358,12 @@ const ExclusionKeywordsSection = () => {
 };
 
 const AiConfigSection = () => {
-  const { analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll, availableModels } = useBotConfigContext();
+  const {
+    analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults,
+    handleRelaunchAll, isReanalyzingAll,
+    handleReevaluateNotPromoted, isReevaluatingNotPromoted,
+    availableModels,
+  } = useBotConfigContext();
 
   const handleAnalysisConfigChange = (field, value) => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
@@ -419,6 +424,37 @@ const AiConfigSection = () => {
           <label className="text-[11px] font-black text-rose-500 uppercase tracking-widest block mb-1">Coupe-Circuits (Reject)</label>
           <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">Si le Portier renvoie l'un de ces statuts, l'analyse s'arrête immédiatement.</p>
           <PromptListEditor items={analysisConfig.rejectionVerdicts} onChange={(val) => handleAnalysisConfigChange('rejectionVerdicts', val)} onSave={(val) => saveConfig({ 'analysisConfig.rejectionVerdicts': val })} placeholder="Ajouter un verdict (ex: BAD_DEAL)" />
+        </div>
+
+        <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80 border-l-4 border-l-amber-500/50">
+          <label className="text-[11px] font-black text-amber-500 uppercase tracking-widest block mb-1">Recherche Active (Chantier G)</label>
+          <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">
+            Le Portier tourne toujours sur 100% des annonces. Si une famille de taxonomie est listée
+            ici (ex : <code className="text-amber-400/80">guitare.acoustique_acier.formes_standard.Parlor</code>),
+            seules les annonces classées dans cette famille (ou jugées pépite par le Portier — garde-fou non négociable)
+            sont promues vers l'Analyste/Expert. Liste vide = comportement par défaut ("tout analyser").
+          </p>
+          <PromptListEditor
+            items={analysisConfig.activeSearchFamilies}
+            onChange={(val) => handleAnalysisConfigChange('activeSearchFamilies', val)}
+            onSave={(val) => saveConfig({ 'analysisConfig.activeSearchFamilies': val })}
+            placeholder="Ex: guitare.acoustique_acier.formes_standard.Parlor"
+          />
+          <div className="mt-4 pt-4 border-t border-slate-800/80">
+            <button
+              onClick={handleReevaluateNotPromoted}
+              disabled={isReevaluatingNotPromoted}
+              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all ${isReevaluatingNotPromoted ? 'bg-amber-500/20 text-amber-400 cursor-not-allowed' : 'bg-amber-600/90 text-white hover:bg-amber-500'}`}
+            >
+              <RefreshCw size={14} className={isReevaluatingNotPromoted ? "animate-spin" : ""} />
+              {isReevaluatingNotPromoted ? 'Ré-évaluation en cours...' : 'Ré-évaluer les annonces mises de côté'}
+            </button>
+            <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">
+              Si la recherche active ci-dessus vient de changer, cette action repromeut vers l'Analyste/Expert
+              les annonces déjà vues par le Portier mais laissées de côté (statut "non promue") dont la
+              classification correspond désormais au nouveau filtre — sans rappeler le Portier.
+            </p>
+          </div>
         </div>
       </div>
     </div>

@@ -73,6 +73,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
         # bot.py::add_city_auto().
         'ADD_CITY': lambda payload: bot.add_city_auto(payload),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
+        'REEVALUATE_NOT_PROMOTED': lambda _: bot.reevaluate_not_promoted(),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),
         'STOP_SCAN': lambda _: _trigger_stop_scan(scan_stop_event),
@@ -116,7 +117,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                                     with in_flight_lock:
                                         in_flight_command_ids.discard(cid)
 
-                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY']:
+                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY', 'REEVALUATE_NOT_PROMOTED']:
                                 bot.logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
                                 threading.Thread(
                                     target=execute_command_async,

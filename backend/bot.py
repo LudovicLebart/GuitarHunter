@@ -1162,6 +1162,74 @@ class GuitarHunterBot:
         finally:
             self.set_status('idle', task_name='retry_queue')
 
+    def reevaluate_not_promoted(self, payload=None):
+        """Chantier G : quand `activeSearchFamilies` change (élargi ou vidé), repromeut vers
+        T2/T3 les annonces mises de côté (`aiAnalysis.verdict == 'NOT_PROMOTED'`) dont la
+        classification déjà connue du Portier correspond désormais au filtre actif — sans
+        rappeler le Portier (`force_expert=True`, comme `analyze_single_deal`), puisque sa
+        classification reste valide (aucune nouvelle photo, aucun nouveau texte)."""
+        if self.offline_mode: return
+
+        current_config = self.config_manager.current_config_snapshot
+        active_families = (current_config.get('analysisConfig') or {}).get('activeSearchFamilies') or []
+
+        self.set_status('reevaluating_not_promoted', task_name='reevaluate_not_promoted')
+        try:
+            docs = list(self.repo.get_not_promoted_listings())
+            promoted_count = 0
+            for doc in docs:
+                if self._is_stop_requested():
+                    self.logger.info("🛑 Ré-évaluation des annonces mises de côté interrompue.")
+                    break
+
+                data = doc.to_dict()
+                ai = data.get('aiAnalysis') or {}
+                classification = ai.get('gatekeeperClassification')
+                matches_active_search = not active_families or (classification and any(
+                    classification == family or classification.startswith(f"{family}.")
+                    for family in active_families
+                ))
+                if not matches_active_search:
+                    continue
+
+                self.logger.info(f"   🔎 Repromotion vers T2/T3 : '{data.get('title')}' (classification '{classification}' correspond au filtre actif).")
+                listing_data = {
+                    "title": data.get('title'), "price": data.get('price'),
+                    "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
+                    # Priorité aux URLs Firebase Storage (permanentes) — les URLs Facebook
+                    # brutes de imageUrls expirent, contrairement à celles déjà uploadées lors
+                    # du premier passage (voir CLAUDE.md, points d'attention critiques).
+                    "imageUrls": data.get('storageImageUrls') or data.get('imageUrls', []),
+                    "imageUrl": data.get('imageUrl'), "link": data.get('link'), "id": doc.id,
+                    **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
+                }
+
+                try:
+                    analysis = self.analyzer.analyze_deal(
+                        listing_data, firestore_config=current_config,
+                        force_expert=True, user_email=self._user_email,
+                    )
+                    # force_expert=True saute le Portier et efface gatekeeperBrand/Classification/
+                    # Verdict (mis à None/"MANUAL_RETRY" par _attach_gatekeeper_metadata) — on
+                    # restaure ici les valeurs déjà connues, seule source de vérité pour cette
+                    # classification (aucun nouvel appel Portier ne les regénère).
+                    for key in (
+                        'gatekeeperBrand', 'gatekeeperClassification', 'gatekeeperVerdict',
+                        'qwenGatekeeperVerdict', 'qwenGatekeeperBrand', 'qwenGatekeeperClassification',
+                        'qwenGatekeeperLatencyS', 'qwenGatekeeperError',
+                    ):
+                        if key in ai:
+                            analysis[key] = ai[key]
+                    self.repo.update_deal_analysis(doc.id, analysis)
+                    promoted_count += 1
+                except Exception as e:
+                    self.logger.error(f"Erreur lors de la repromotion de {doc.id}: {e}")
+                    self.repo.update_deal_status(doc.id, 'analysis_failed', str(e))
+
+            self.logger.info(f"Ré-évaluation terminée : {promoted_count}/{len(docs)} annonce(s) repromue(s) vers T2/T3.")
+        finally:
+            self.set_status('idle', task_name='reevaluate_not_promoted')
+
     def reanalyze_all_listings(self):
         """Marque toutes les annonces actives pour réanalyse."""
         if self.offline_mode: return
