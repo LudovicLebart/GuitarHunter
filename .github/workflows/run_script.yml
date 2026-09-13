@@ -213,7 +213,17 @@ jobs:
             # l'accumulation de données de comparaison Qwen vs Gemini (Chantier H) en rejouant
             # SEULEMENT l'observation Qwen (pas Gemini, déjà connu) sur les annonces qui ont un
             # `gatekeeperVerdict` mais pas encore de `qwenGatekeeperVerdict` — coût limité à l'appel
-            # Qwen (~0,0011$/annonce), aucun second appel Gemini.
+            # Qwen (~0,0011$/annonce), aucun second appel Gemini. (Run #41, parallélisé à 10
+            # workers : 15 annonces éligibles seulement, 10/15 échouées — rate limit TokenRouter
+            # réel de 5 req/min jamais vérifié avant de paralléliser à 10.)
+            #
+            # Run #42 (2026-09-13) : `backfill_qwen_observation.py` relancé après correction —
+            # sélection élargie (n'importe quelle annonce avec `gatekeeperVerdict`, pas seulement
+            # celles sans `qwenGatekeeperVerdict`) pour atteindre un échantillon de comparaison de
+            # 200 (demande explicite de l'utilisateur : "lance un test sur 200 annonces
+            # directement"), retry avec backoff sur 429, `--workers` abaissé à 3 (défaut du
+            # script). `set_active_search_families.py` relancé aussi (idempotent, sans effet
+            # puisque déjà appliqué au run #41).
             python3 -u -m backend.scripts.set_active_search_families
             python3 -u -m backend.scripts.backfill_qwen_observation --limit 200
 
