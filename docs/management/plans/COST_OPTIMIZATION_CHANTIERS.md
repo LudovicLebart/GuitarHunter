@@ -470,6 +470,33 @@ structurée sur chaque annonce (acceptée ou non), une nouvelle recherche ciblé
 interroger les annonces déjà en base (`guitar_deals`) avant d'attendre un nouveau scan — zéro
 nouvel appel Gemini pour l'historique déjà vu par T1.
 
+**Précision de portée demandée par l'utilisateur (2026-09-13) : la recherche visée va jusqu'au
+modèle précis, pas seulement la famille de forme.** Exemples donnés explicitement : une
+Jazzmaster (un modèle précis, qui se trouve être aussi un nom de feuille de la taxonomie sous
+`Offset`), ou une **Yamaha FG335** (un numéro de catalogue précis, qui n'a même pas
+d'équivalent dans la taxonomie actuelle — celle-ci encode des familles de forme comme
+`Dreadnought`/`Parlor`/`Jumbo`, jamais des références constructeur). **L'utilisateur reconnaît
+explicitement que le Tier 1 ne peut pas absorber la responsabilité d'une identification aussi
+précise** — le Portier est un filtre grossier à haut volume (voir la discussion sur la
+profondeur de taxonomie utile à T1, plus bas dans ce document et dans `JOURNAL.md`
+2026-09-13) : il peut fiabiliser une famille de forme (`Offset`, `Extreme_Shape`...) et une
+couleur/finition, pas confirmer qu'une annonce précise est spécifiquement une Yamaha FG335
+plutôt qu'une autre dreadnought Yamaha voisine dans le catalogue.
+
+**Conséquence architecturale, non résolue** : le principe ci-dessus ("T1 classe, on ne
+promeut vers T2/T3 que ce qui correspond") ne peut pas fonctionner tel quel pour une recherche
+à ce niveau de précision — un faux négatif de T1 sur la famille/couleur cacherait
+silencieusement l'annonce recherchée, encore plus qu'un filtre à gros grain. Deux pistes non
+tranchées, à documenter séparément avant tout code sur ce point précis :
+- **Promotion large + confirmation fine en aval** : T1 filtre seulement sur un critère qu'il
+  peut fiabiliser (famille/couleur, voire juste "c'est une acoustique steel-string Yamaha"),
+  et c'est T2/T3 (qui lisent déjà tête de manche/étiquette/numéro de série en détail selon le
+  prompt actuel) qui confirment ou infirment le modèle précis une fois promu — au prix d'un
+  filtre plus large donc moins économe que prévu pour ce type de recherche précise.
+- **Accepter une limite de portée** : documenter que la recherche par modèle précis reste
+  moins fiable que la recherche par famille, et laisser le mode "tout analyser puis filtrer
+  dans l'UI" (jamais supprimé, voir garde-fou ci-dessus) comme repli pour ce cas d'usage.
+
 **Deux plans d'implémentation, pas encore tranchés** :
 - **Plan A (préféré, dépend du Chantier B)** : si un candidat de perception externe du Chantier B
   est concluant, sa description textuelle (déjà tenue de couvrir forme et couleurs par le
