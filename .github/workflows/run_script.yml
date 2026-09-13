@@ -182,7 +182,14 @@ jobs:
             # Run #36 (2026-09-13) : `inspect_no_photo_deals.py` — le run #35 a trouvé que 10/11
             # annonces rejetées échantillonnées n'avaient aucune photo récupérable. L'utilisateur
             # trouve ça étrange et veut vérifier une annonce réelle par lui-même (lien source).
-            python3 -u -m backend.scripts.inspect_no_photo_deals
+            #
+            # Run #37 (2026-09-13) : `analyze_tier_cost_and_photo_storage.py` — deux diagnostics
+            # combinés demandés par l'utilisateur "en parallèle" : (A) répartition du coût en $
+            # par Tier sur la même fenêtre/méthode que le run #421 (jusqu'ici seul le total
+            # cascade $9,10 était connu, pas la part de chaque Tier) ; (B) taux de
+            # storageImageUrls rempli comparé entre annonces rejetées et acceptées, pour savoir
+            # si l'absence de photo stockée sur les rejets (run #35, n=11) est systématique.
+            python3 -u -m backend.scripts.analyze_tier_cost_and_photo_storage
 
       - name: Récupération du rapport généré
         env:
