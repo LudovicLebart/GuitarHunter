@@ -549,6 +549,72 @@ sur un échantillon annoté (risque principal ci-dessus, non levé).
 
 ---
 
+## Chantier H — Migration Tier 1 vers Qwen3.8-flash + parallélisation de la boucle de scan (nouveau, 2026-09-13, PRIORITÉ)
+
+**Origine** : suite à la consultation Opus sur l'optimisation du Portier (JOURNAL.md
+2026-09-13) et au run #38 (candidat T1 fidèle, `backend/benchmark/portier_model_test.py`) —
+`t1_qwen` (Qwen3.8-flash via TokenRouter, même prompt EXACT que la prod) obtient un accord
+accept/reject et une identification proches ou légèrement meilleurs que le Flash-Lite de
+production actuel (72,5%/77,1% contre 67,5%/77,1%), au prix d'une latence par appel 4,7x plus
+élevée (22,4s contre 4,8s).
+
+**Décision utilisateur (2026-09-13)** :
+- Pas besoin de répéter le test pour départager du bruit — l'écart est jugé suffisamment
+  proche pour trancher (contrairement à d'autres écarts de cette session, ex. Chantier B, où
+  le bruit dominait le signal).
+- **La latence n'est pas un obstacle** : le scraping (Playwright) est entièrement terminé
+  avant la boucle d'analyse (`bot.py:666-668`/`:870-887`, vérifié dans le code — `found_deals`
+  est une liste déjà scrapée avant tout appel `handle_deal_found`), donc rien n'empêche de
+  paralléliser cette boucle avec un pool de workers borné pour absorber la latence
+  supplémentaire de Qwen.
+- Gain financier vérifié avant d'engager le chantier (voir ci-dessous) — jugé suffisant pour
+  être prioritaire, du même ordre de grandeur que le Chantier A (Firestore).
+
+**Gain financier vérifié (JOURNAL.md 2026-09-13)** : tarif réel TokenRouter pour
+`qwen/qwen3.8-flash` (endpoint non documenté `api.tokenrouter.com/api/pricing`, formule de
+conversion `model_ratio`/`completion_ratio` validée à l'aveugle contre les tarifs Gemini T1/T2
+déjà connus et réconciliés à la vraie facture — match exact) : **0,1177$/M input, 0,3971$/M
+output**, contre 0,30$/2,50$ pour Gemini Flash-Lite. **-66,5% de coût par appel T1.** Appliqué
+au coût T1 réel mesuré (4,4028$/semaine, run #37) : économie ≈ 2,93$/semaine = **-33,6% de la
+facture Gemini totale**, soit ~12,67$/mois, ~152$/an au volume actuellement mesuré
+(proportionnel si le volume réel est plus élevé, ex. si le facteur 2,4x du Chantier 0.a
+s'explique un jour). Mis bout à bout avec le Chantier A (~20% déjà mesuré sur l'autre
+branche) : ~43% de réduction combinée estimée de la facture totale — pas tout à fait une
+division par 2, mais du même ordre de grandeur (estimation : la part exacte de Gemini dans la
+facture totale actuelle n'est pas connue avec précision depuis cette session).
+
+**Distinct du Chantier G ci-dessus** : G porte sur la LOGIQUE de routage T1→T2/T3 (filtrer
+selon une recherche active) et reste bloqué sur la validation de précision de T1 sur des
+distinctions visuelles fines. H porte sur le FOURNISSEUR qui exécute T1 (Gemini vs Qwen) —
+indépendant l'un de l'autre, les deux peuvent avancer en parallèle.
+
+**Ce qu'il reste à faire, pas encore codé** :
+1. **Migration du modèle T1** : router l'appel T1 (`analyzer.py::_run_analysis_cascade`, Phase
+   1/Portier) vers Qwen3.8-flash en production — aujourd'hui `call_t1_qwen` n'existe que comme
+   candidat isolé du harnais de benchmark (`backend/benchmark/candidates.py`), pas intégré à
+   `analyzer.py`/`config.py`.
+2. **Parallélisation de la boucle de scan** (`bot.py:666-668`/`:870-887`) : remplacer le
+   `for deal in found_deals: handle_deal_found(deal, ...)` séquentiel par un pool de workers
+   borné (`ThreadPoolExecutor`, nombre de workers à calibrer selon les limites de débit
+   TokenRouter/Gemini).
+3. **Piège à régler avant la parallélisation** : `session_processed_ids` est thread-local
+   (`threading.local()`, voir CLAUDE.md, conçu pour le modèle "un thread par utilisateur") —
+   un pool de workers À L'INTÉRIEUR d'un cycle de scan d'un même utilisateur casserait la
+   dédup intra-cycle si chaque worker repart avec un set vide. Résoudre la dédup dans le
+   thread principal (avant distribution aux workers), pas dans chaque worker.
+4. **Fallback / robustesse** : prévoir un repli vers Gemini Flash-Lite si l'appel Qwen/
+   TokenRouter échoue (moins de recul en production sur ce fournisseur que sur Gemini),
+   plutôt que de perdre l'annonce.
+5. **Validation en conditions réelles** : déployer d'abord en observation (même pattern que
+   `gatekeeperBrand`/`gatekeeperClassification`/`gatekeeperVerdict`, déjà en place sur `dev`)
+   avant de couper Gemini, ou décider d'un remplacement direct — à trancher dans le plan
+   d'implémentation détaillé.
+
+**Non fait à ce stade** : aucun code de migration écrit — reste au stade de décision de
+principe validée par l'utilisateur, plan d'implémentation détaillé à faire.
+
+---
+
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
@@ -561,6 +627,7 @@ sur un échantillon annoté (risque principal ci-dessus, non levé).
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
 | F — Vers un pipeline sans Gemini (3 Tiers) | `backend/benchmark/` (candidats T1/T2 à écrire, T3 déjà codé) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire pour T3 (voir correction Opus) ; candidats T1/T2 fidèles au contrat JSON de prod pas encore écrits |
 | G — Recherche ciblée (routage T1→T2/T3) | `analyzer.py` (contrat T1), `bot.py`/`firestoreService.js` (critères de recherche), `guitar_deals` (nouveaux champs classification) | Plan A dépend de B (résultat perception) ; Plan B indépendant | Précision de T1 sur couleur/finition non validée — échantillon à valider avant tout routage |
+| H — Migration T1 vers Qwen + parallélisation scan | `analyzer.py`/`config.py` (modèle T1), `bot.py` (boucle de scan) | Rien des autres (indépendant de G) | Plan d'implémentation détaillé pas encore fait (routage modèle, pool de workers, fix `session_processed_ids`, fallback) |
 
 **Ordre recommandé par Opus (2026-09-07, antérieur à G)** : 0 (gratuit, risque nul) → D+F ensemble
 mais seulement après reconstruction du dataset/juge → C réduit à la dédup du plan de restauration
@@ -573,8 +640,15 @@ supplémentaire) ; A très avancé mais transféré sur sa propre branche, hors 
 session ; B clos "non mesurable", motive désormais le Plan B (pas A) de G ; C jamais engagé,
 D/F exécutés (voir JOURNAL.md runs #25-33) mais répondent à une question de qualité, pas de
 coût (Opus : le choix de modèle T3 est une décision qualité, pas une économie) ; E "à faire de
-toute manière" par décision utilisateur, sans lien avec son gain plafonné calculé. **Seul G
-reste un chantier de coût réel, actionnable, non encore engagé** — priorité suivante.
+toute manière" par décision utilisateur, sans lien avec son gain plafonné calculé.
+
+**Mise à jour (2026-09-13) : H devient la priorité, G reste en second.** Suite à la
+consultation Opus sur le Portier et au run #38 (candidat T1 fidèle), l'utilisateur valide la
+migration T1→Qwen + parallélisation (Chantier H, ~33,6% de la facture Gemini, gain vérifié) —
+un chantier de coût réel, actionnable, avec un gain chiffré et confirmé, contrairement à G qui
+reste bloqué sur une validation de précision non encore faite. G n'est pas abandonné (reste le
+seul chantier qui adresse le routage T1→T2/T3 par recherche active), mais H passe devant dans
+l'ordre d'exécution.
 
 ---
 
