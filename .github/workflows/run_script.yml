@@ -224,8 +224,14 @@ jobs:
             # directement"), retry avec backoff sur 429, `--workers` abaissé à 3 (défaut du
             # script). `set_active_search_families.py` relancé aussi (idempotent, sans effet
             # puisque déjà appliqué au run #41).
-            python3 -u -m backend.scripts.set_active_search_families
-            python3 -u -m backend.scripts.backfill_qwen_observation --limit 200
+            #
+            # Run #43 (2026-09-13) : `qwen_comparison_status.py` — LECTURE SEULE (aucune écriture
+            # Firestore, aucun appel IA), demandé par l'utilisateur ("Comment s'en tire Qwen pour
+            # le moment ?") après le déploiement du schéma JSON strict (enum sur `status`) suite
+            # au run #42. Agrège toutes les paires gatekeeperVerdict/qwenGatekeeperVerdict déjà
+            # stockées : accord accept/reject, accord exact, et taux de verdicts Qwen hors
+            # taxonomie (pour vérifier si le fix élimine bien "ACCEPTED" sur les nouvelles annonces).
+            python3 -u -m backend.scripts.qwen_comparison_status
 
       - name: Récupération du rapport généré
         env:
