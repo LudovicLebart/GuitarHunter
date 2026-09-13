@@ -78,6 +78,24 @@ GEMINI_MODELS = {
     "default_expert": "gemini-3.1-pro-preview"
 }
 
+# --- CHANTIER H (2026-09-13) : OBSERVATION QWEN AU RÔLE DE PORTIER (TIER 1) ---
+# Le Portier de production reste Gemini Flash-Lite (GEMINI_MODELS["default_gatekeeper"])
+# — ceci n'est PAS encore une bascule. `analyzer.py::_run_analysis_cascade` appelle EN PLUS,
+# avec le même prompt EXACT, Qwen3.8-flash via TokenRouter (déjà validé comme candidat T1
+# fidèle, run #38 — voir docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md Chantier H) et
+# stocke son verdict à côté de celui de Gemini (`qwenGatekeeper*`), sans influencer la
+# décision accept/reject réelle. Objectif : accumuler des données de comparaison en conditions
+# réelles avant toute décision de bascule. `TOKENROUTER_API_KEY` est déjà présent dans le
+# `.env` de production (secret GitHub `DOT_ENV`, partagé avec le harnais de benchmark) mais
+# n'était jusqu'ici jamais lu par le bot lui-même.
+TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
+TOKENROUTER_BASE_URL = "https://api.tokenrouter.com/v1"
+T1_OBSERVATION_QWEN_MODEL = os.getenv("T1_OBSERVATION_QWEN_MODEL", "qwen/qwen3.8-flash")
+# Coupe-circuit explicite : si l'observation cause un problème en production (latence,
+# erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
+# redéploiement de code.
+T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "true").lower() in ("1", "true", "yes")
+
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
 DEFAULT_PRO_DEAL_SCORE_THRESHOLD = 8
