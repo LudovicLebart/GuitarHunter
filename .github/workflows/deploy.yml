@@ -1,1 +1,212 @@
-IyB2MS4wLjEgLSBHaXRIdWIgU2VjcmV0cyBBdXRvbWF0aW9uCm5hbWU6IERlcGxveSBHdWl0YXJlIEh1bnRlcgpvbjoKICBwdXNoOgogICAgYnJhbmNoZXM6IFsgbWFzdGVyLCBkZXYgXQogICMgMjAyNi0wOC0yNiA6IGZpbGV0IGRlIHNlY291cnMgbWFudWVsIOKAlCB1biBwdXNoIHZlcnMgZGV2IGEgbWlzIMOgIGpvdXIgbGEgcsOpZsOpcmVuY2UgR2l0IHNhbnMKICAjIGphbWFpcyBkw6ljbGVuY2hlciBjZSB3b3JrZmxvdyAod2ViaG9vayBgcHVzaGAgbm9uIMOpbWlzLCBjYXVzZSBleGFjdGUgbm9uIGlkZW50aWZpw6llKSwgbGFpc3NhbnQKICAjIGxlIHNlcnZldXIgZGUgcHJvZCBzdXIgbCdhbmNpZW4gY29kZSBzYW5zIGF2ZXJ0aXNzZW1lbnQuIFBlcm1ldCBkZSByZWTDqWNsZW5jaGVyIGxlIGTDqXBsb2llbWVudAogICMgZGVwdWlzIGwnb25nbGV0IEFjdGlvbnMgb3UgbCdBUEkgc2FucyBkw6lwZW5kcmUgZCd1biBub3V2ZWF1IHB1c2guCiAgd29ya2Zsb3dfZGlzcGF0Y2g6Cgpqb2JzOgogIGRlcGxveS1mcm9udGVuZDoKICAgIHJ1bnMtb246IHVidW50dS1sYXRlc3QKICAgIHBlcm1pc3Npb25zOgogICAgICBjb250ZW50czogd3JpdGUKICAgIHN0ZXBzOgogICAgICAtIG5hbWU6IENoZWNrb3V0IGNvZGUKICAgICAgICB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHY0CgogICAgICAtIG5hbWU6IFNldHVwIE5vZGUKICAgICAgICB1c2VzOiBhY3Rpb25zL3NldHVwLW5vZGVAdjQKICAgICAgICB3aXRoOgogICAgICAgICAgbm9kZS12ZXJzaW9uOiAnMjAnCgogICAgICAtIG5hbWU6IEluc3RhbGwgZGVwZW5kZW5jaWVzCiAgICAgICAgcnVuOiBucG0gY2kKCiAgICAgIC0gbmFtZTogQ3JlYXRlIC5lbnYgZmlsZQogICAgICAgIGVudjoKICAgICAgICAgIERPVF9FTlY6ICR7eyBzZWNyZXRzLkRPVF9FTlYgfX0KICAgICAgICBydW46IHwKICAgICAgICAgIGlmIFsgLXogIiRET1RfRU5WIiBdOyB0aGVuCiAgICAgICAgICAgIGVjaG8gIuKdjCBTZWNyZXQgRE9UX0VOViBtYW5xdWFudCDigJQgbGUgYnVpbGQgRmlyZWJhc2UgKFZJVEVfRklSRUJBU0VfKikgw6ljaG91ZXJhLiIKICAgICAgICAgICAgZXhpdCAxCiAgICAgICAgICBmaQogICAgICAgICAgcHJpbnRmICclcycgIiRET1RfRU5WIiA+IC5lbnYKCiAgICAgIC0gbmFtZTogQnVpbGQKICAgICAgICBydW46IG5wbSBydW4gYnVpbGQKCiAgICAgIC0gbmFtZTogRMOpcGxveWVyIGxlcyByw6hnbGVzIEZpcmViYXNlIFN0b3JhZ2UKICAgICAgICAjIDIwMjYtMDgtMjEgOiBqdXNxdSdpY2kgdW4gYGZpcmViYXNlIGRlcGxveSAtLW9ubHkgc3RvcmFnZWAgbWFudWVsLCByw6lndWxpw6hyZW1lbnQgb3VibGnDqQogICAgICAgICMgKHN0b3JhZ2UucnVsZXMgbW9kaWZpw6kgZGFucyBjZSBtw6ptZSBjb21taXQgc2FucyBkw6lwbG9pZW1lbnQgYXNzb2Npw6kpLiBOb2RlL25wbSBkw6lqw6AgcHLDqnRzCiAgICAgICAgIyBjaS1kZXNzdXMgKG5wbSBydW4gYnVpbGQpIOKAlCBwYXMgYmVzb2luIGR1IERlbGwgbmkgZHUgc2VydmV1ciBTU0ggKHF1aSBuJ2EgcGFzIE5vZGUpLgogICAgICAgICMgYGNvbnRpbnVlLW9uLWVycm9yYCA6IG5lIGRvaXQgamFtYWlzIGJsb3F1ZXIgbGEgcHVibGljYXRpb24gZHUgc2l0ZSBzaSBsYSBjbMOpIG1hbnF1ZSBvdSBzaQogICAgICAgICMgbGUgY29tcHRlIGRlIHNlcnZpY2UgbidhIHBhcyBlbmNvcmUgbGUgcsO0bGUgSUFNIG7DqWNlc3NhaXJlIChsZSBTREsgQWRtaW4sIHNldWwgdXNhZ2UKICAgICAgICAjIGV4aXN0YW50IGRlIGNldHRlIGNsw6ksIGNvbnRvdXJuZSBsZXMgcsOoZ2xlcyBldCBuJ2EgamFtYWlzIGV1IGJlc29pbiBkZSBjZSByw7RsZSkg4oCUIGwnw6ljaGVjCiAgICAgICAgIyByZXN0ZSB2aXNpYmxlIGRhbnMgbGVzIGxvZ3MgQWN0aW9ucyBzYW5zIGNhc3NlciBsZSBkw6lwbG9pZW1lbnQuCiAgICAgICAgZW52OgogICAgICAgICAgRklSRUJBU0VfU0VSVklDRV9BQ0NPVU5UX0tFWTogJHt7IHNlY3JldHMuRklSRUJBU0VfU0VSVklDRV9BQ0NPVU5UX0tFWSB9fQogICAgICAgIGNvbnRpbnVlLW9uLWVycm9yOiB0cnVlCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBpZiBbIC16ICIkRklSRUJBU0VfU0VSVklDRV9BQ0NPVU5UX0tFWSIgXTsgdGhlbgogICAgICAgICAgICBlY2hvICLimqDvuI8gU2VjcmV0IEZJUkVCQVNFX1NFUlZJQ0VfQUNDT1VOVF9LRVkgbWFucXVhbnQg4oCUIGTDqXBsb2llbWVudCBkZXMgcsOoZ2xlcyBTdG9yYWdlIGlnbm9yw6kuIgogICAgICAgICAgICBleGl0IDAKICAgICAgICAgIGZpCiAgICAgICAgICBwcmludGYgJyVzJyAiJEZJUkVCQVNFX1NFUlZJQ0VfQUNDT1VOVF9LRVkiID4gL3RtcC9maXJlYmFzZS1zYS5qc29uCiAgICAgICAgICBleHBvcnQgR09PR0xFX0FQUExJQ0FUSU9OX0NSRURFTlRJQUxTPS90bXAvZmlyZWJhc2Utc2EuanNvbgogICAgICAgICAgbnB4IGZpcmViYXNlLXRvb2xzQGxhdGVzdCBkZXBsb3kgLS1vbmx5IHN0b3JhZ2UgLS1mb3JjZQogICAgICAgICAgcm0gLWYgL3RtcC9maXJlYmFzZS1zYS5qc29uCgogICAgICAtIG5hbWU6IERlcGxveSB0byBHaXRIdWIgUGFnZXMKICAgICAgICB1c2VzOiBwZWFjZWlyaXMvYWN0aW9ucy1naC1wYWdlc0B2NAogICAgICAgIHdpdGg6CiAgICAgICAgICBnaXRodWJfdG9rZW46ICR7eyBzZWNyZXRzLkdJVEhVQl9UT0tFTiB9fQogICAgICAgICAgcHVibGlzaF9kaXI6IC4vZGlzdAogICAgICAgICAgZm9yY2Vfb3JwaGFuOiB0cnVlCgogIGRlcGxveToKICAgIHJ1bnMtb246IHVidW50dS1sYXRlc3QKICAgIHN0ZXBzOgogICAgICAtIG5hbWU6IENoZWNrb3V0IGNvZGUKICAgICAgICB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHY0CgogICAgICAtIG5hbWU6IENvbm5lY3QgdG8gVGFpbHNjYWxlCiAgICAgICAgdXNlczogdGFpbHNjYWxlL2dpdGh1Yi1hY3Rpb25AdjIKICAgICAgICB3aXRoOgogICAgICAgICAgb2F1dGgtY2xpZW50LWlkOiAke3sgc2VjcmV0cy5UU19PQVVUSF9DTElFTlRfSUQgfX0KICAgICAgICAgIG9hdXRoLXNlY3JldDogJHt7IHNlY3JldHMuVFNfT0FVVEhfU0VDUkVUIH19CiAgICAgICAgICB0YWdzOiB0YWc6Y2kKCiAgICAgIC0gbmFtZTogRGVwbG95IHZpYSBTU0gKICAgICAgICB1c2VzOiBhcHBsZWJveS9zc2gtYWN0aW9uQHYxLjAuMwogICAgICAgIGVudjoKICAgICAgICAgIERPVF9FTlY6ICR7eyBzZWNyZXRzLkRPVF9FTlYgfX0KICAgICAgICAgIEZJUkVCQVNFX1NFUlZJQ0VfQUNDT1VOVF9LRVk6ICR7eyBzZWNyZXRzLkZJUkVCQVNFX1NFUlZJQ0VfQUNDT1VOVF9LRVkgfX0KICAgICAgICB3aXRoOgogICAgICAgICAgaG9zdDogJHt7IHNlY3JldHMuU0VSVkVSX0lQIH19CiAgICAgICAgICB1c2VybmFtZTogJHt7IHNlY3JldHMuU0VSVkVSX1VTRVIgfX0KICAgICAgICAgIGtleTogJHt7IHNlY3JldHMuU1NIX1BSSVZBVEVfS0VZIH19CiAgICAgICAgICB0aW1lb3V0OiA2MHMKICAgICAgICAgIGNvbW1hbmRfdGltZW91dDogMTBtCiAgICAgICAgICBlbnZzOiBET1RfRU5WLEZJUkVCQVNFX1NFUlZJQ0VfQUNDT1VOVF9LRVkKICAgICAgICAgIHNjcmlwdDogfAogICAgICAgICAgICBta2RpciAtcCB+L0d1aXRhcmVIdW50ZXIKICAgICAgICAgICAgY2Qgfi9HdWl0YXJlSHVudGVyCgogICAgICAgICAgICAjIENyw6lhdGlvbi9NaXNlIMOgIGpvdXIgZHUgZmljaGllciAuZW52IMOgIHBhcnRpciBkdSBzZWNyZXQgR2l0SHViCiAgICAgICAgICAgICMgKHRyYW5zbWlzIGVuIHZhcmlhYmxlIGQnZW52IHZpYSBgZW52czpgIGNpLWRlc3N1cywgcGFzIGludGVycG9sw6kKICAgICAgICAgICAgIyBsaXR0w6lyYWxlbWVudCBkYW5zIGNlIHNjcmlwdCDigJQgaW1tdW5pc8OpIGF1eCBndWlsbGVtZXRzL3BhcmVudGjDqHNlcwogICAgICAgICAgICAjIGRhbnMgbGEgdmFsZXVyIGR1IHNlY3JldCkKICAgICAgICAgICAgZWNobyAiLS0tIENvbmZpZ3VyYXRpb24gLmVudiAtLS0iCiAgICAgICAgICAgIGlmIFsgLXogIiRET1RfRU5WIiBdOyB0aGVuCiAgICAgICAgICAgICAgZWNobyAi4pqg77iPIFNlY3JldCBET1RfRU5WIG1hbnF1YW50IGRhbnMgR2l0SHViLiIKICAgICAgICAgICAgZWxzZQogICAgICAgICAgICAgIHByaW50ZiAnJXMnICIkRE9UX0VOViIgPiAuZW52CiAgICAgICAgICAgICAgZWNobyAi4pyFIEZpY2hpZXIgLmVudiBtaXMgw6Agam91ci4iCiAgICAgICAgICAgIGZpCgogICAgICAgICAgICAjIENyw6lhdGlvbi9NaXNlIMOgIGpvdXIgZGUgbGEgY2zDqSBGaXJlYmFzZQogICAgICAgICAgICBlY2hvICItLS0gQ29uZmlndXJhdGlvbiBGaXJlYmFzZSAtLS0iCiAgICAgICAgICAgIG1rZGlyIC1wIGJhY2tlbmQvY29uZmlnCiAgICAgICAgICAgIGlmIFsgLXogIiRGSVJFQkFTRV9TRVJWSUNFX0FDQ09VTlRfS0VZIiBdOyB0aGVuCiAgICAgICAgICAgICAgZWNobyAi4pqg77iPIFNlY3JldCBGSVJFQkFTRV9TRVJWSUNFX0FDQ09VTlRfS0VZIG1hbnF1YW50LiIKICAgICAgICAgICAgZWxzZQogICAgICAgICAgICAgIHByaW50ZiAnJXMnICIkRklSRUJBU0VfU0VSVklDRV9BQ0NPVU5UX0tFWSIgPiBiYWNrZW5kL2NvbmZpZy9zZXJ2aWNlQWNjb3VudEtleS5qc29uCiAgICAgICAgICAgICAgZWNobyAi4pyFIENsw6kgRmlyZWJhc2UgbWlzZSDDoCBqb3VyLiIKICAgICAgICAgICAgZmkKCiAgICAgICAgICAgICMgSW5zdGFsbGF0aW9uIGRlcyBkw6lwZW5kYW5jZXMgc3lzdMOobWUgcG91ciBsJ2FmZmljaGFnZSB2aXJ0dWVsCiAgICAgICAgICAgIGVjaG8gIi0tLSBTeXN0ZW0gU2V0dXAgLS0tIgogICAgICAgICAgICBzdWRvIGFwdC1nZXQgdXBkYXRlCiAgICAgICAgICAgIHN1ZG8gYXB0LWdldCBpbnN0YWxsIC15IHh2ZmIKCiAgICAgICAgICAgIG1rZGlyIC1wIH4vR3VpdGFyZUh1bnRlcgogICAgICAgICAgICBjZCB+L0d1aXRhcmVIdW50ZXIKICAgICAgICAgICAgCiAgICAgICAgICAgIGVjaG8gIi0tLSBHaXQgVXBkYXRlIC0tLSIKICAgICAgICAgICAgIyBTaSBsZSBkb3NzaWVyIG4nZXN0IHBhcyB1biBkw6lww7R0IGdpdCwgb24gbGUgY2xvbmUsIHNpbm9uIG9uIGZvcmNlIGxhIG1pc2Ugw6Agam91cgogICAgICAgICAgICBpZiBbICEgLWQgIi5naXQiIF07IHRoZW4KICAgICAgICAgICAgICBlY2hvICJSZXBvc2l0b3J5IG5vdCBmb3VuZCwgY2xvbmluZy4uLiIKICAgICAgICAgICAgICBnaXQgY2xvbmUgaHR0cHM6Ly9naXRodWIuY29tLyR7eyBnaXRodWIucmVwb3NpdG9yeSB9fS5naXQgLgogICAgICAgICAgICBlbHNlCiAgICAgICAgICAgICAgZWNobyAiVXBkYXRpbmcgYnJhbmNoOiAke3sgZ2l0aHViLnJlZl9uYW1lIH19IgogICAgICAgICAgICAgIGdpdCBmZXRjaCBvcmlnaW4gJHt7IGdpdGh1Yi5yZWZfbmFtZSB9fQogICAgICAgICAgICAgIGdpdCByZXNldCAtLWhhcmQgb3JpZ2luLyR7eyBnaXRodWIucmVmX25hbWUgfX0KICAgICAgICAgICAgZmkKCiAgICAgICAgICAgIGVjaG8gIi0tLSBDaGFudGllciBBIDogc3luY2hyb25pc2F0aW9uIGJhY2tlbmQvYXBpLyogKFBoYXNlIEEuMywgc3RhZ2luZykgLS0tIgogICAgICAgICAgICAjIGJhY2tlbmQvYXBpLyogZXQgZGVhbF9tYXBwaW5nLnB5IG5lIHNvbnQgcGFzIG1lcmfDqXMgc3VyIGRldi9tYXN0ZXIgKENoYW50aWVyIEEKICAgICAgICAgICAgIyB0b3Vqb3VycyBlbiBjb25zdHJ1Y3Rpb24gaXNvbMOpZSwgdm9pciBGSVJFU1RPUkVfTUlHUkFUSU9OX1BMQU4ubWQgwqc1LjMpIOKAlCBjb3Bpw6lzIGljaQogICAgICAgICAgICAjIGRlcHVpcyBsYSBicmFuY2hlIGRlIG1pZ3JhdGlvbiDDoCBDSEFRVUUgZMOpcGxvaWVtZW50IHZpYSBgZ2l0IGNoZWNrb3V0IDxyZWY+IC0tIDxwYXRocz5gCiAgICAgICAgICAgICMgKGphbWFpcyB1biBjaGVja291dCBkZSBicmFuY2hlIG5pIHVuIG1lcmdlIDogbmUgdG91Y2hlIHF1ZSBjZXMgY2hlbWlucyBkYW5zIGwnYXJicmUgZGUKICAgICAgICAgICAgIyB0cmF2YWlsLCBzYW5zIHRvdWNoZXIgSEVBRCBuaSBsJ2hpc3RvcmlxdWUgZGUgZGV2KS4gVW50cmFja2VkIHN1ciBkZXYgLT4gc3Vydml2ZW50IGF1CiAgICAgICAgICAgICMgYGdpdCByZXNldCAtLWhhcmQgb3JpZ2luL2RldmAgY2ktZGVzc3VzIGxvcnMgZHUgUFJPQ0hBSU4gZMOpcGxvaWVtZW50IChxdWkgbmUgdG91Y2hlCiAgICAgICAgICAgICMgcXVlIGxlcyBmaWNoaWVycyBzdWl2aXMpLCBtYWlzIHRvdWpvdXJzIHJlc3luY2hyb25pc8OpcyBleHBsaWNpdGVtZW50IHBvdXIgcmVzdGVyIMOgIGpvdXIuCiAgICAgICAgICAgIGdpdCBmZXRjaCBvcmlnaW4gY2xhdWRlL2ZpcmVzdG9yZS1wb3N0Z3Jlcy1taWdyYXRpb24KICAgICAgICAgICAgZ2l0IGNoZWNrb3V0IEZFVENIX0hFQUQgLS0gYmFja2VuZC9hcGkgYmFja2VuZC9kZWFsX21hcHBpbmcucHkKICAgICAgICAgICAgZWNobyAi4pyFIGJhY2tlbmQvYXBpLyogc3luY2hyb25pc8OpIGRlcHVpcyBjbGF1ZGUvZmlyZXN0b3JlLXBvc3RncmVzLW1pZ3JhdGlvbi4iCgogICAgICAgICAgICBlY2hvICItLS0gUHl0aG9uIEVudmlyb25tZW50IC0tLSIKICAgICAgICAgICAgcHl0aG9uMyAtbSB2ZW52IHZlbnYgfHwgZWNobyAiVmVudiBhbHJlYWR5IGV4aXN0cyBvciBmYWlsZWQgdG8gY3JlYXRlIgogICAgICAgICAgICBzb3VyY2UgdmVudi9iaW4vYWN0aXZhdGUKICAgICAgICAgICAgZWNobyAiSW5zdGFsbGluZyByZXF1aXJlbWVudHMuLi4iCiAgICAgICAgICAgIHBpcCBpbnN0YWxsIC1yIHJlcXVpcmVtZW50cy50eHQKICAgICAgICAgICAgZWNobyAiSW5zdGFsbGluZyBQbGF5d3JpZ2h0IGJyb3dzZXJzLi4uIgogICAgICAgICAgICBweXRob24zIC1tIHBsYXl3cmlnaHQgaW5zdGFsbCBjaHJvbWl1bQoKICAgICAgICAgICAgZWNobyAiLS0tIFNjcmlwdCBkZSBtYWludGVuYW5jZSBwb25jdHVlbCAtLS0iCiAgICAgICAgICAgICMgVm9pciBiYWNrZW5kL3NjcmlwdHMvcnVuX29uY2UucHkgOiBuby1vcCBwYXIgZMOpZmF1dCAoQUNUSVZFPUZhbHNlKSwgc2VydCDDoCBleMOpY3V0ZXIKICAgICAgICAgICAgIyB1bmUgYWN0aW9uIHBvbmN0dWVsbGUgZW4gcHJvZHVjdGlvbiAoY3JlZGVudGlhbHMgRmlyZWJhc2UgZMOpasOgIGVuIHBsYWNlIGNpLWRlc3N1cykKICAgICAgICAgICAgIyBkZXB1aXMgdW4gZW52aXJvbm5lbWVudCBkZSBkZXYgcXVpIG4neSBhIGx1aS1tw6ptZSBwYXMgYWNjw6hzLiBOb24gYmxvcXVhbnQgOiB1biDDqWNoZWMKICAgICAgICAgICAgIyBpY2kgbidlbXDDqmNoZSBwYXMgbGUgcmVkw6ltYXJyYWdlIGR1IHNlcnZpY2UuCiAgICAgICAgICAgIHB5dGhvbjMgYmFja2VuZC9zY3JpcHRzL3J1bl9vbmNlLnB5IHx8IGVjaG8gIuKaoO+4jyBydW5fb25jZS5weSBhIMOpY2hvdcOpIOKAlCB2b2lyIGxvZ3MgY2ktZGVzc3VzLiBMZSBkw6lwbG9pZW1lbnQgY29udGludWUuIgoKICAgICAgICAgICAgZWNobyAiLS0tIFNlcnZpY2UgUmVzdGFydCAtLS0iCiAgICAgICAgICAgIGVjaG8gIlJlc3RhcnRpbmcgc2VydmljZTogZ3VpdGFyZS1odW50ZXIiCiAgICAgICAgICAgICMgT24gdXRpbGlzZSBzdWRvIC1uIHBvdXIgcydhc3N1cmVyIHF1J29uIG5lIHJlc3RlIHBhcyBibG9xdcOpIHN1ciB1biBwcm9tcHQgZGUgbW90IGRlIHBhc3NlCiAgICAgICAgICAgIGlmIHN1ZG8gLW4gc3lzdGVtY3RsIHJlc3RhcnQgZ3VpdGFyZS1odW50ZXI7IHRoZW4KICAgICAgICAgICAgICBlY2hvICLinIUgU2VydmljZSBndWl0YXJlLWh1bnRlciByZXN0YXJ0w6kgYXZlYyBzdWNjw6hzIgogICAgICAgICAgICBlbHNlCiAgICAgICAgICAgICAgZWNobyAi4p2MIMOJQ0hFQyBkdSByZWTDqW1hcnJhZ2UgZHUgc2VydmljZS4iCiAgICAgICAgICAgICAgZWNobyAiVsOpcmlmaWV6IDogMS4gU2kgbGUgc2VydmljZSBleGlzdGUgKHN5c3RlbWN0bCBzdGF0dXMgZ3VpdGFyZS1odW50ZXIpIgogICAgICAgICAgICAgIGVjaG8gIlbDqXJpZmlleiA6IDIuIFNpIGwndXRpbGlzYXRldXIgYSBsZXMgZHJvaXRzIHN1ZG8gU0FOUyBtb3QgZGUgcGFzc2UgcG91ciBjZXR0ZSBjb21tYW5kZS4iCiAgICAgICAgICAgIGZpCgogICAgICAgICAgICBlY2hvICItLS0gU2VydmljZSBBUEkgKENoYW50aWVyIEEsIFBoYXNlIEEuMywgc3RhZ2luZykgLS0tIgogICAgICAgICAgICAjIFNlcnZpY2UgcGVyc2lzdGFudCBwb3VyIGJhY2tlbmQvYXBpLyogKEZhc3RBUEkvdXZpY29ybiksIHBvaW50w6kgc3VyCiAgICAgICAgICAgICMgZ3VpdGFyaHVudGVyX3BnX3N0YWdpbmcgKH4vLmd1aXRhcmh1bnRlcl9zdGFnaW5nX2RiLmVudiwgdm9pciBKT1VSTkFMLm1kIDIwMjYtMDktMTApCiAgICAgICAgICAgICMg4oCUIFBBUyB1bmUgYmFzZSBkZSBwcm9kdWN0aW9uIChxdWkgbidleGlzdGUgcGFzIGVuY29yZSwgbGEgYmFzY3VsZSByw6llbGxlIGVzdCBsYQogICAgICAgICAgICAjIFBoYXNlIEIpLiDDiWNvdXRlIHN1ciAxMjcuMC4wLjEgdW5pcXVlbWVudCA6IGF1Y3VuZSBleHBvc2l0aW9uIHB1YmxpcXVlIGljaSwgYydlc3QgdW4KICAgICAgICAgICAgIyBjaG9peCBzw6lwYXLDqSBldCBkw6lsaWLDqXLDqSAoVGFpbHNjYWxlIEZ1bm5lbCksIHBhcyBmYWl0IHBhciBjZSBkw6lwbG9pZW1lbnQuCiAgICAgICAgICAgIGlmICEgc3VkbyAtbiAtbCAyPi9kZXYvbnVsbCB8IGdyZXAgLXEgZ3VpdGFyaHVudGVyLWFwaTsgdGhlbgogICAgICAgICAgICAgIGVjaG8gIuKaoO+4jyBQYXMgZGUgcsOoZ2xlIHN1ZG9lcnMgTk9QQVNTV0QgY291dnJhbnQgZ3VpdGFyaHVudGVyLWFwaSDigJQgc2VydmljZSBub24gY29uZmlndXLDqS4iCiAgICAgICAgICAgICAgZWNobyAiICAgUG91ciBsJ2FjdGl2ZXIsIGFqb3V0ZXIgYXUgc3Vkb2VycyAodmlzdWRvKSB1bmUgcsOoZ2xlIGNvdXZyYW50IDoiCiAgICAgICAgICAgICAgZWNobyAiICAgL3Vzci9iaW4vdGVlIC9ldGMvc3lzdGVtZC9zeXN0ZW0vZ3VpdGFyaHVudGVyLWFwaS5zZXJ2aWNlLCAvYmluL3N5c3RlbWN0bCBkYWVtb24tcmVsb2FkLCAvYmluL3N5c3RlbWN0bCBlbmFibGUgLS1ub3cgZ3VpdGFyaHVudGVyLWFwaSwgL2Jpbi9zeXN0ZW1jdGwgcmVzdGFydCBndWl0YXJodW50ZXItYXBpIgogICAgICAgICAgICBlbHNlCiAgICAgICAgICAgICAgREVQTE9ZX1VTRVI9JCh3aG9hbWkpCiAgICAgICAgICAgICAgREVQTE9ZX0RJUj0kKHB3ZCkKICAgICAgICAgICAgICBzdWRvIHRlZSAvZXRjL3N5c3RlbWQvc3lzdGVtL2d1aXRhcmh1bnRlci1hcGkuc2VydmljZSA+IC9kZXYvbnVsbCA8PEVPRgogICAgICAgICAgICBbVW5pdF0KICAgICAgICAgICAgRGVzY3JpcHRpb249R3VpdGFyIEh1bnRlciBBUEkgKFBvc3RncmVzLCBDaGFudGllciBBLCBzdGFnaW5nKQogICAgICAgICAgICBBZnRlcj1uZXR3b3JrLnRhcmdldAogICAgICAgICAgICBbU2VydmljZV0KICAgICAgICAgICAgVHlwZT1zaW1wbGUKICAgICAgICAgICAgVXNlcj0kREVQTE9ZX1VTRVIKICAgICAgICAgICAgV29ya2luZ0RpcmVjdG9yeT0kREVQTE9ZX0RJUgogICAgICAgICAgICBFbnZpcm9ubWVudEZpbGU9JERFUExPWV9ESVIvLmVudgogICAgICAgICAgICBFbnZpcm9ubWVudEZpbGU9JEhPTUUvLmd1aXRhcmh1bnRlcl9zdGFnaW5nX2RiLmVudgogICAgICAgICAgICBFeGVjU3RhcnQ9JERFUExPWV9ESVIvdmVudi9iaW4vdXZpY29ybiBiYWNrZW5kLmFwaS5tYWluOmFwcCAtLWhvc3QgMTI3LjAuMC4xIC0tcG9ydCA4MDAwCiAgICAgICAgICAgIFJlc3RhcnQ9b24tZmFpbHVyZQogICAgICAgICAgICBSZXN0YXJ0U2VjPTUKICAgICAgICAgICAgW0luc3RhbGxdCiAgICAgICAgICAgIFdhbnRlZEJ5PW11bHRpLXVzZXIudGFyZ2V0CiAgICAgICAgICAgIEVPRgogICAgICAgICAgICAgIGlmIHN1ZG8gLW4gc3lzdGVtY3RsIGRhZW1vbi1yZWxvYWQgJiYgc3VkbyAtbiBzeXN0ZW1jdGwgZW5hYmxlIC0tbm93IGd1aXRhcmh1bnRlci1hcGkgJiYgc3VkbyAtbiBzeXN0ZW1jdGwgcmVzdGFydCBndWl0YXJodW50ZXItYXBpOyB0aGVuCiAgICAgICAgICAgICAgICBlY2hvICLinIUgU2VydmljZSBndWl0YXJodW50ZXItYXBpIGTDqW1hcnLDqS9yZWTDqW1hcnLDqSBhdmVjIHN1Y2PDqHMgKDEyNy4wLjAuMTo4MDAwKS4iCiAgICAgICAgICAgICAgZWxzZQogICAgICAgICAgICAgICAgZWNobyAi4p2MIMOJQ0hFQyBkZSBsYSBjb25maWd1cmF0aW9uIGR1IHNlcnZpY2UgZ3VpdGFyaHVudGVyLWFwaS4iCiAgICAgICAgICAgICAgZmkKICAgICAgICAgICAgZmkK
+# v1.0.1 - GitHub Secrets Automation
+name: Deploy Guitare Hunter
+on:
+  push:
+    branches: [ master, dev ]
+  # 2026-08-26 : filet de secours manuel — un push vers dev a mis à jour la référence Git sans
+  # jamais déclencher ce workflow (webhook `push` non émis, cause exacte non identifiée), laissant
+  # le serveur de prod sur l'ancien code sans avertissement. Permet de redéclencher le déploiement
+  # depuis l'onglet Actions ou l'API sans dépendre d'un nouveau push.
+  workflow_dispatch:
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create .env file
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
+        run: |
+          if [ -z "$DOT_ENV" ]; then
+            echo "❌ Secret DOT_ENV manquant — le build Firebase (VITE_FIREBASE_*) échouera."
+            exit 1
+          fi
+          printf '%s' "$DOT_ENV" > .env
+
+      - name: Build
+        run: npm run build
+
+      - name: Déployer les règles Firebase Storage
+        # 2026-08-21 : jusqu'ici un `firebase deploy --only storage` manuel, régulièrement oublié
+        # (storage.rules modifié dans ce même commit sans déploiement associé). Node/npm déjà prêts
+        # ci-dessus (npm run build) — pas besoin du Dell ni du serveur SSH (qui n'a pas Node).
+        # `continue-on-error` : ne doit jamais bloquer la publication du site si la clé manque ou si
+        # le compte de service n'a pas encore le rôle IAM nécessaire (le SDK Admin, seul usage
+        # existant de cette clé, contourne les règles et n'a jamais eu besoin de ce rôle) — l'échec
+        # reste visible dans les logs Actions sans casser le déploiement.
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        continue-on-error: true
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — déploiement des règles Storage ignoré."
+            exit 0
+          fi
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > /tmp/firebase-sa.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-sa.json
+          npx firebase-tools@latest deploy --only storage --force
+          rm -f /tmp/firebase-sa.json
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true
+
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOT_ENV: ${{ secrets.DOT_ENV }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          timeout: 60s
+          command_timeout: 10m
+          envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
+          script: |
+            mkdir -p ~/GuitareHunter
+            cd ~/GuitareHunter
+
+            # Création/Mise à jour du fichier .env à partir du secret GitHub
+            # (transmis en variable d'env via `envs:` ci-dessus, pas interpolé
+            # littéralement dans ce script — immunisé aux guillemets/parenthèses
+            # dans la valeur du secret)
+            echo "--- Configuration .env ---"
+            if [ -z "$DOT_ENV" ]; then
+              echo "⚠️ Secret DOT_ENV manquant dans GitHub."
+            else
+              printf '%s' "$DOT_ENV" > .env
+              echo "✅ Fichier .env mis à jour."
+            fi
+
+            # Création/Mise à jour de la clé Firebase
+            echo "--- Configuration Firebase ---"
+            mkdir -p backend/config
+            if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+              echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant."
+            else
+              printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
+              echo "✅ Clé Firebase mise à jour."
+            fi
+
+            # Installation des dépendances système pour l'affichage virtuel
+            echo "--- System Setup ---"
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+
+            mkdir -p ~/GuitareHunter
+            cd ~/GuitareHunter
+            
+            echo "--- Git Update ---"
+            # Si le dossier n'est pas un dépôt git, on le clone, sinon on force la mise à jour
+            if [ ! -d ".git" ]; then
+              echo "Repository not found, cloning..."
+              git clone https://github.com/${{ github.repository }}.git .
+            else
+              echo "Updating branch: ${{ github.ref_name }}"
+              git fetch origin ${{ github.ref_name }}
+              git reset --hard origin/${{ github.ref_name }}
+            fi
+
+            echo "--- Chantier A : synchronisation backend/api/* (Phase A.3, staging) ---"
+            # backend/api/* et deal_mapping.py ne sont pas mergés sur dev/master (Chantier A
+            # toujours en construction isolée, voir FIRESTORE_MIGRATION_PLAN.md §5.3) — copiés ici
+            # depuis la branche de migration à CHAQUE déploiement via `git checkout <ref> -- <paths>`
+            # (jamais un checkout de branche ni un merge : ne touche que ces chemins dans l'arbre de
+            # travail, sans toucher HEAD ni l'historique de dev). Untracked sur dev -> survivent au
+            # `git reset --hard origin/dev` ci-dessus lors du PROCHAIN déploiement (qui ne touche
+            # que les fichiers suivis), mais toujours resynchronisés explicitement pour rester à jour.
+            git fetch origin claude/firestore-postgres-migration
+            git checkout FETCH_HEAD -- backend/api backend/deal_mapping.py
+            echo "✅ backend/api/* synchronisé depuis claude/firestore-postgres-migration."
+
+            echo "--- Python Environment ---"
+            python3 -m venv venv || echo "Venv already exists or failed to create"
+            source venv/bin/activate
+            echo "Installing requirements..."
+            pip install -r requirements.txt
+            echo "Installing Playwright browsers..."
+            python3 -m playwright install chromium
+
+            echo "--- Script de maintenance ponctuel ---"
+            # Voir backend/scripts/run_once.py : no-op par défaut (ACTIVE=False), sert à exécuter
+            # une action ponctuelle en production (credentials Firebase déjà en place ci-dessus)
+            # depuis un environnement de dev qui n'y a lui-même pas accès. Non bloquant : un échec
+            # ici n'empêche pas le redémarrage du service.
+            python3 backend/scripts/run_once.py || echo "⚠️ run_once.py a échoué — voir logs ci-dessus. Le déploiement continue."
+
+            echo "--- Service Restart ---"
+            echo "Restarting service: guitare-hunter"
+            # On utilise sudo -n pour s'assurer qu'on ne reste pas bloqué sur un prompt de mot de passe
+            if sudo -n systemctl restart guitare-hunter; then
+              echo "✅ Service guitare-hunter restarté avec succès"
+            else
+              echo "❌ ÉCHEC du redémarrage du service."
+              echo "Vérifiez : 1. Si le service existe (systemctl status guitare-hunter)"
+              echo "Vérifiez : 2. Si l'utilisateur a les droits sudo SANS mot de passe pour cette commande."
+            fi
+
+            echo "--- Service API (Chantier A, Phase A.3, staging) ---"
+            # Service persistant pour backend/api/* (FastAPI/uvicorn), pointé sur
+            # guitarhunter_pg_staging (~/.guitarhunter_staging_db.env, voir JOURNAL.md 2026-09-10)
+            # — PAS une base de production (qui n'existe pas encore, la bascule réelle est la
+            # Phase B). Écoute sur 127.0.0.1 uniquement : aucune exposition publique ici, c'est un
+            # choix séparé et délibéré (Tailscale Funnel), pas fait par ce déploiement.
+            if ! sudo -n -l 2>/dev/null | grep -q guitarhunter-api; then
+              echo "⚠️ Pas de règle sudoers NOPASSWD couvrant guitarhunter-api — service non configuré."
+              echo "   Pour l'activer, ajouter au sudoers (visudo) une règle couvrant :"
+              echo "   /usr/bin/tee /etc/systemd/system/guitarhunter-api.service, /bin/systemctl daemon-reload, /bin/systemctl enable --now guitarhunter-api, /bin/systemctl restart guitarhunter-api"
+            else
+              DEPLOY_USER=$(whoami)
+              DEPLOY_DIR=$(pwd)
+              sudo tee /etc/systemd/system/guitarhunter-api.service > /dev/null <<EOF
+            [Unit]
+            Description=Guitar Hunter API (Postgres, Chantier A, staging)
+            After=network.target
+            [Service]
+            Type=simple
+            User=$DEPLOY_USER
+            WorkingDirectory=$DEPLOY_DIR
+            EnvironmentFile=$DEPLOY_DIR/.env
+            EnvironmentFile=$HOME/.guitarhunter_staging_db.env
+            ExecStart=$DEPLOY_DIR/venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
+            Restart=on-failure
+            RestartSec=5
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+              if sudo -n systemctl daemon-reload && sudo -n systemctl enable --now guitarhunter-api && sudo -n systemctl restart guitarhunter-api; then
+                echo "✅ Service guitarhunter-api démarré/redémarré avec succès (127.0.0.1:8000)."
+              else
+                echo "❌ ÉCHEC de la configuration du service guitarhunter-api."
+              fi
+            fi
