@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-13] [PRO] Chantier A, Phase A.4 — export Firestore→Postgres complet lancé en arrière-plan (tous utilisateurs).
+- **Contexte** : le dry-run du 2026-09-10 n'avait migré que 2414/5978 annonces de l'utilisateur principal (coupé par le `command_timeout` SSH de 10 min), et n'avait jamais couvert les 6 autres utilisateurs. `export_firestore_to_postgres.py` étant idempotent, un simple ré-lancement sans `--user` couvre tout — pas de script séparé nécessaire.
+- **Lancé en arrière-plan** (`subprocess.Popen(..., start_new_session=True)`, détaché de la session SSH) pour contourner le budget de 10 min du job de déploiement, sans l'augmenter globalement (décision déjà actée le 2026-09-10).
+- **Premier essai (run #482) : échec silencieux au démarrage** — `export_firestore_to_postgres.py` n'était synchronisé nulle part sur `dev` (seuls `backend/api/*` et `deal_mapping.py` l'étaient dans `deploy.yml`) : `No such file or directory`. **Aucune perte** : comptages Postgres inchangés (2414 annonces, 127 messages, 4 étapes de restauration).
+- **Corrigé** : `export_firestore_to_postgres.py` ajouté à la même ligne de synchronisation que `backend/api/*` dans `deploy.yml`.
+- **Deuxième essai (run #491) : lancement confirmé** — "Export complet lancé en arrière-plan — PID=1793707, log=~/export_full_a4.log". Le process tourne désormais indépendamment du déploiement. Progression à vérifier séparément (tail du log + comptages Postgres), pas via `run_once.py` bloquant.
+
 [2026-09-13] [PRO] Chantier A, Phase A.3 — Tailscale Funnel activé avec succès, guitarhunter-api public. **Cause racine des 4 échecs précédents identifiée.**
 - **Cause réelle du blocage** : ni la règle sudoers, ni l'opérateur Tailscale n'étaient le vrai problème — la fonctionnalité **Funnel n'était tout simplement pas activée au niveau du compte Tailscale** (console admin). C'est pour ça que les 4 tentatives précédentes échouaient toutes en silence (aucun message, ni succès ni erreur) : la commande attendait une autorisation qui ne viendrait jamais tant que ce n'était pas activé côté compte — pas un problème de permissions locales, de TTY ou de timing réseau (les hypothèses testées une à une). L'utilisateur a activé Funnel dans la console admin, résolvant tout d'un coup.
 - **Résultat (run GitHub Actions #478)** : `tailscale funnel --bg 8000` réussit immédiatement (exit=0) :
