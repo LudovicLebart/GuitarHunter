@@ -198,7 +198,12 @@ jobs:
             # candidats existant qui teste le rôle T2/T3 (identification complète), jamais
             # le rôle T1. Accord accept/reject sur les 40 items du Banc d'Essai (13 rejet_t1
             # + 27 tier2/tier3) + précision marque/classification jugée par judge.py.
-            python3 -u -m backend.benchmark.portier_model_test
+            #
+            # Run #39 (2026-09-13) : `audit_price_zero_loop.py` — vérifie le bug de
+            # ré-analyse en boucle sur les annonces à prix 0$ (trouvé par la consultation
+            # Opus, Chantier 0.a). Lecture seule, indépendant du run #38 (ci-dessus,
+            # candidat T1 fidèle) qui peut encore tourner en parallèle.
+            python3 -u -m backend.scripts.audit_price_zero_loop
 
       - name: Récupération du rapport généré
         env:
