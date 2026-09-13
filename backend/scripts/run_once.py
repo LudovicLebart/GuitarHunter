@@ -28,7 +28,7 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
@@ -37,13 +37,19 @@ def run():
     2026-09-13 : activation réelle de Tailscale Funnel sur le port 8000 (guitarhunter-api).
     Le diagnostic précédent (funnel status / serve status = "No serve config") était
     inconclusif — impossible de savoir si HTTPS Certificates est activé au niveau du tailnet
-    sans tenter une activation réelle. `tailscale funnel --bg 8000` : le flag `--bg` évite de
-    bloquer en foreground (le timeout de 15s du subprocess suffit sinon à tuer la commande
-    avant confirmation). Idempotent : rejouer la commande sur un funnel déjà actif ne fait
-    rien de plus. Effet, si succès : le port 8000 (127.0.0.1, guitarhunter-api, staging)
-    devient accessible publiquement via une URL HTTPS générée par Tailscale — une conséquence
-    réelle et volontaire de ce run, pas un simple diagnostic en lecture seule comme les
-    précédents. Désarmé seulement après confirmation du résultat par l'utilisateur.
+    sans tenter une activation réelle.
+
+    Résultat (run #467, voir JOURNAL.md) : ÉCHEC — `sudo tailscale funnel --bg 8000` renvoie
+    exit=1 "sudo: a terminal is required to read the password ; either use the -S option to
+    read from standard input or configure an askpass helper". La règle sudoers NOPASSWD
+    existante ne couvre que les commandes guitarhunter-api (tee/daemon-reload/enable/restart),
+    pas `tailscale`. Aucune exposition n'a eu lieu (funnel status/serve status inchangés après
+    la tentative). Solution recommandée pour la suite : plutôt qu'une nouvelle règle sudoers
+    scopée à `tailscale funnel`/`serve`, faire exécuter UNE FOIS manuellement (accès root déjà
+    existant, comme pour le sudoers) `sudo tailscale set --operator=<user_déploiement>` — ça
+    autorise cet utilisateur à exécuter toutes les sous-commandes `tailscale` (dont `funnel`)
+    SANS sudo, de façon permanente, sans avoir à lister chaque sous-commande future dans
+    sudoers. Désarmé ci-dessous en attendant cette action manuelle.
     """
     import subprocess
 
