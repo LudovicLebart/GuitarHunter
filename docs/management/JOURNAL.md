@@ -1,5 +1,18 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-13] [PRO] Chantier A, Phase A.3 — Tailscale Funnel activé avec succès, guitarhunter-api public. **Cause racine des 4 échecs précédents identifiée.**
+- **Cause réelle du blocage** : ni la règle sudoers, ni l'opérateur Tailscale n'étaient le vrai problème — la fonctionnalité **Funnel n'était tout simplement pas activée au niveau du compte Tailscale** (console admin). C'est pour ça que les 4 tentatives précédentes échouaient toutes en silence (aucun message, ni succès ni erreur) : la commande attendait une autorisation qui ne viendrait jamais tant que ce n'était pas activé côté compte — pas un problème de permissions locales, de TTY ou de timing réseau (les hypothèses testées une à une). L'utilisateur a activé Funnel dans la console admin, résolvant tout d'un coup.
+- **Résultat (run GitHub Actions #478)** : `tailscale funnel --bg 8000` réussit immédiatement (exit=0) :
+  ```
+  Available on the internet:
+  https://serveur.tail16b52e.ts.net/
+  |-- proxy http://127.0.0.1:8000
+  Funnel started and running in the background.
+  ```
+- **Validation depuis l'extérieur du tailnet** (test réel, pas juste `funnel status`) : `GET https://serveur.tail16b52e.ts.net/health` → `200 {"status":"ok"}` ; `GET /deals` sans token → `422` (rejeté par la validation FastAPI du header `Authorization` manquant, avant même la logique métier — aucune donnée exposée). CORS et authentification fonctionnent comme prévu en conditions publiques réelles.
+- **État final** : `guitarhunter-api` (staging, `guitarhunter_pg_staging`) est maintenant accessible publiquement à `https://serveur.tail16b52e.ts.net`, protégé par Firebase Auth sur toutes les routes sauf `/health` et `/shared-deals/{id}` (public par design). Phase A.3 est désormais complètement close.
+- **Leçon methodologique** : face à des échecs 100% silencieux (aucune sortie, ni stdout ni stderr) après plusieurs hypothèses techniques raisonnables infirmées une à une (permissions, TTY/stdin, timing), la cause peut être en dehors de la machine elle-même (ici : une fonctionnalité de plateforme non activée au niveau compte) — un point qu'un diagnostic purement local (SSH, logs serveur) ne peut pas révéler.
+
 [2026-09-13] [FLASH] Chantier A, Phase A.3 — Tailscale Funnel toujours bloqué après opérateur configuré, diagnostic en aveugle épuisé.
 - **Contexte** : suite du blocage sudo précédent — l'utilisateur a exécuté manuellement `sudo tailscale set --operator=ludovic` sur le serveur, censé permettre à `tailscale funnel` de fonctionner sans sudo.
 - **3 tentatives automatisées supplémentaires, toutes échouées en silence** (aucun message d'erreur, aucune sortie) :
