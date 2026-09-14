@@ -231,7 +231,13 @@ jobs:
             # au run #42. Agrège toutes les paires gatekeeperVerdict/qwenGatekeeperVerdict déjà
             # stockées : accord accept/reject, accord exact, et taux de verdicts Qwen hors
             # taxonomie (pour vérifier si le fix élimine bien "ACCEPTED" sur les nouvelles annonces).
-            python3 -u -m backend.scripts.qwen_comparison_status
+            #
+            # Run #44 (2026-09-14) : `inspect_candidate_missed_gems.py` — LECTURE SEULE, demandé
+            # par l'utilisateur pour inspecter à l'œil les 2 "pépites potentiellement ratées"
+            # identifiées au run #43 (Gemini a rejeté l'annonce — BAD_DEAL/REJECTED_ITEM, cascade
+            # arrêtée net — alors que Qwen, en observation, penchait vers un verdict pépite-tier).
+            # Affiche titre/prix/lien/raisonnement Gemini/observation Qwen pour ces 2 annonces.
+            python3 -u -m backend.scripts.inspect_candidate_missed_gems
 
       - name: Récupération du rapport généré
         env:
