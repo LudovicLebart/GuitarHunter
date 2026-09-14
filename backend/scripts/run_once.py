@@ -28,26 +28,38 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-13 : lancement de l'export Firestore→Postgres COMPLET (sans --user) contre
-    guitarhunter_pg_staging, en arrière-plan. Première tentative (run #482) : échec
-    immédiat ("No such file or directory") car export_firestore_to_postgres.py n'était
-    jamais synchronisé sur `dev` — corrigé dans deploy.yml (ajouté à la même ligne de
-    checkout que backend/api/*). Aucune donnée perdue au passage.
-
-    Résultat (run #491, voir JOURNAL.md) : SUCCÈS — "Export complet lancé en arrière-plan
-    — PID=1793707, log=~/export_full_a4.log". Désarmé ci-dessous — la progression/
-    complétion sera vérifiée séparément (tail du log + comptages Postgres), pas ici.
+    2026-09-14 : diagnostic en LECTURE SEULE de la progression de l'export complet
+    Firestore→Postgres (Phase A.4) lancé en arrière-plan au run #491 (PID=1793707,
+    log=~/export_full_a4.log). Plus de 24h se sont écoulées depuis le lancement — le
+    process devrait être terminé (ou avoir planté). Ne relance rien, n'écrit rien.
     """
     import subprocess
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
+
+    def _run(cmd, timeout=15):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            out = (r.stdout or "").strip()
+            err = (r.stderr or "").strip()
+            combined = "\n".join(p for p in (out, err) if p)
+            return f"[exit={r.returncode}] {combined}" if combined else f"[exit={r.returncode}] (vide)"
+        except Exception as e:
+            return f"(échec: {e})"
+
+    pid = "1793707"
+    logger.info(f"Process encore actif ? ps -p {pid} : {_run(['ps', '-p', pid, '-o', 'pid,etime,cmd'])}")
+
+    log_path = os.path.expanduser("~/export_full_a4.log")
+    logger.info(f"--- Dernières lignes de {log_path} ---")
+    logger.info(_run(['tail', '-n', '60', log_path]))
 
     env_path = os.path.expanduser("~/.guitarhunter_staging_db.env")
     dsn = None
@@ -63,30 +75,38 @@ def run():
         return
 
     if not dsn:
-        logger.error(f"DATABASE_URL introuvable dans {env_path} — abandon.")
+        logger.error(f"DATABASE_URL introuvable dans {env_path} — abandon des comptages Postgres.")
         return
 
-    script_path = os.path.join(os.getcwd(), "backend", "scripts", "export_firestore_to_postgres.py")
-    if not os.path.exists(script_path):
-        logger.error(f"Script introuvable : {script_path} — vérifier la synchronisation deploy.yml.")
-        return
+    import asyncio
+    import asyncpg
 
-    log_path = os.path.expanduser("~/export_full_a4.log")
+    async def _counts():
+        conn = await asyncpg.connect(dsn, timeout=10)
+        try:
+            per_user = await conn.fetch(
+                "SELECT user_id, COUNT(*) AS n FROM guitar_deals GROUP BY user_id ORDER BY n DESC"
+            )
+            total_deals = await conn.fetchval("SELECT COUNT(*) FROM guitar_deals")
+            total_chat = await conn.fetchval("SELECT COUNT(*) FROM deal_chat")
+            total_resto = await conn.fetchval("SELECT COUNT(*) FROM restoration_plan_items")
+            total_cities = await conn.fetchval("SELECT COUNT(*) FROM cities")
+            total_shared = await conn.fetchval("SELECT COUNT(*) FROM shared_deals")
+            logger.info("--- Comptages Postgres (guitarhunter_pg_staging) ---")
+            logger.info(f"Total guitar_deals : {total_deals}")
+            for row in per_user:
+                logger.info(f"  user_id={row['user_id'][:12]}... : {row['n']} annonces")
+            logger.info(f"Total deal_chat : {total_chat}")
+            logger.info(f"Total restoration_plan_items : {total_resto}")
+            logger.info(f"Total cities : {total_cities}")
+            logger.info(f"Total shared_deals : {total_shared}")
+        finally:
+            await conn.close()
+
     try:
-        logfile = open(log_path, "w", encoding="utf-8")
-        proc = subprocess.Popen(
-            ["venv/bin/python", "backend/scripts/export_firestore_to_postgres.py", "--database-url", dsn],
-            stdout=logfile, stderr=subprocess.STDOUT,
-            cwd=os.getcwd(), start_new_session=True,
-        )
+        asyncio.run(_counts())
     except Exception as e:
-        logger.error(f"Échec du lancement : {e}")
-        return
-
-    logger.info(f"Export complet lancé en arrière-plan — PID={proc.pid}, log={log_path}")
-    logger.info("Ce script ne bloque PAS jusqu'à la fin (l'export peut prendre plusieurs "
-                "minutes, au-delà du command_timeout SSH) — vérifier la progression via un "
-                "futur run_once.py de diagnostic (tail du log + comptages Postgres).")
+        logger.error(f"Échec de la connexion/requête Postgres : {e}")
 
 
 if __name__ == "__main__":
