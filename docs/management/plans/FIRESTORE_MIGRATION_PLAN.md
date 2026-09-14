@@ -149,6 +149,6 @@ Deux phases distinctes — la Phase A construit tout ce qui manque encore (en is
 **Reste à faire avant toute mise en production** — hors de ce chantier de construction, jamais entamé sans décision explicite de l'utilisateur (§5.3) :
 1. Décider et documenter le protocole de bascule réelle (ordre des étapes, fenêtre de maintenance ou non, plan de rollback).
 2. Terminer la couverture du dry-run : 2414/5978 annonces migrées et validées par échantillon pour l'utilisateur cible (voir ci-dessus) — reste la fin de cet utilisateur (bloqué par le `command_timeout` CI de `deploy.yml`, décision d'augmenter ou non reportée) et les autres utilisateurs.
-3. Basculer le bot (`backend/bot.py` et modules associés) vers un accès SQL direct — actuellement hors périmètre : le bot continue d'écrire sur Firestore, y compris pour les tables déjà migrées côté API (ex: `cities` reste écrit par `add_city_auto()` côté Firestore, voir tranche 5).
+3. **Basculer le bot (`backend/bot.py` et modules associés) vers un accès SQL direct** — **FAIT** (2026-09-14) : le bot utilise désormais `PostgresRepository`, `PostgresHandler` (logs) et `pg_pool` (main.py). L'accès principal de `main.py` à Firestore est désactivé (restent les utilitaires annexes et Firebase Auth).
 4. Basculer le frontend (`src/services/firestoreService.js` → nouvelle API HTTP/WebSocket).
 5. Déployer le service réseau (Tailscale Funnel, décidé le 2026-09-09, non encore mis en place).

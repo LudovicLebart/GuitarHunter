@@ -5,7 +5,6 @@ import threading
 import random
 import logging
 import requests
-from firebase_admin import firestore
 import firebase_admin.auth as fb_auth
 
 from config import (
@@ -22,7 +21,7 @@ from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
-from backend.repository import FirestoreRepository
+from backend.pg_repository import PostgresRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
 
@@ -51,7 +50,7 @@ class GuitarHunterBot:
     # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
     KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
 
-    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
+    def __init__(self, pg_pool, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
@@ -75,7 +74,7 @@ class GuitarHunterBot:
         self._current_status = 'idle'
         self._active_tasks = set()
 
-        # Email de destination pour les notifications (résolu après init Firebase)
+        # Email de destination pour les notifications (résolu après init Firebase Auth)
         self._user_email = ''  # Valeur par défaut : notifications email silencieusement désactivées
 
         if self.offline_mode:
@@ -84,7 +83,7 @@ class GuitarHunterBot:
             self.scraper = FacebookScraper({}, {}, logger=self.logger)
             return
 
-        self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
+        self.repo = PostgresRepository(pg_pool, self._user_id, bucket=storage_bucket, logger=self.logger)
         self.set_status('idle')
         self.analyzer = DealAnalyzer(logger=self.logger)
 
@@ -99,15 +98,15 @@ class GuitarHunterBot:
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
-        # Récupération de l'email Firebase Auth pour les notifications
+        # Récupération de l'email Firebase Auth pour les notifications (Firebase Auth reste inchangé)
         self._user_email = self._resolve_user_email()
 
         self.logger.info("--- Configuration du Bot Terminée ---")
         self.logger.info(f"APP ID: {self._app_id}")
         self.logger.info(f"USER ID: {self._user_id}")
-        self.logger.info(f"EMAIL: {self._user_email or 'Non disponible'}") 
+        self.logger.info(f"EMAIL: {self._user_email or 'Non disponible'}")
 
-        self._init_firestore_structure(initial_scan_config)
+        self._init_db_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
 
     def _resolve_user_email(self) -> str:
@@ -157,7 +156,7 @@ class GuitarHunterBot:
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la mise à jour du statut {calculated_status}: {e}")
 
-    def _init_firestore_structure(self, initial_scan_config):
+    def _init_db_structure(self, initial_scan_config):
         initial_config = {
             'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS,
             'scanConfig': initial_scan_config,
@@ -173,12 +172,12 @@ class GuitarHunterBot:
             },
             'availableModels': GEMINI_MODELS["available"]
         }
-        self.logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
+        self.logger.info("Initialisation de la structure Postgres pour l'utilisateur...")
         self.repo.ensure_initial_structure(initial_config)
 
     def sync_and_apply_config(self, initial=False):
         if self.offline_mode: return
-        sync_result = self.config_manager.sync_with_firestore(initial=initial)
+        sync_result = self.config_manager.sync_with_db(initial=initial)
         return sync_result
 
     @staticmethod

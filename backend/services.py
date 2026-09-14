@@ -36,13 +36,13 @@ class SyncResult:
     full_config: Dict[str, Any] = field(default_factory=dict)
 
 class ConfigManager:
-    """Gère la configuration du bot et la synchronisation avec Firestore."""
+    """Gère la configuration du bot et la synchronisation avec la base de données."""
     def __init__(self, repo, initial_scan_config):
         self.repo = repo
         self.scan_config = initial_scan_config.copy()
-        self.current_config_snapshot = {} 
+        self.current_config_snapshot = {}
 
-    def sync_with_firestore(self, initial=False):
+    def sync_with_db(self, initial=False):
         """Synchronise la configuration et détecte les commandes."""
         config_data = self.repo.get_user_config()
         if not config_data:

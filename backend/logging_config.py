@@ -5,112 +5,88 @@ import threading
 import logging
 import datetime
 from logging.handlers import TimedRotatingFileHandler
-from firebase_admin import firestore
 
-# Filet de sécurité local, indépendant du TTL Firestore (3 jours) et de la
-# connectivité réseau — un fichier par utilisateur, rotation quotidienne (UTC).
+# Filet de sécurité local, indépendant du backend DB et de la connectivité réseau
+# — un fichier par utilisateur, rotation quotidienne (UTC).
 # La rétention (compression >30j, suppression >1 an) est gérée séparément par
 # backend/log_retention.py (job planifié, main.py). Non suivi par git (.gitignore).
 LOG_DIR = os.path.join(os.getcwd(), 'logs')
 
-class FirestoreHandler(logging.Handler):
-    def __init__(self, db_client, app_id, user_id):
-        super().__init__()
-        # On garde le logger interne mais on ajoute des prints de secours
-        self.internal_logger = logging.getLogger('FirestoreHandlerInternal')
-        self.internal_logger.propagate = False
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(logging.Formatter('%(asctime)s - [FirestoreHandler] - %(levelname)s - %(message)s'))
-        self.internal_logger.addHandler(console_handler)
-        self.internal_logger.setLevel(logging.INFO)
 
-        if not db_client:
-            self.db = None
-            print("DEBUG: FirestoreHandler - DB Client is None!", flush=True)
-            return
-        self.db = db_client
-        self.logs_ref = self.db.collection('artifacts').document(app_id) \
-            .collection('users').document(user_id).collection('logs')
-        
+class PostgresHandler(logging.Handler):
+    """Remplace FirestoreHandler — écrit dans la table `logs` (schema.sql).
+
+    Pool psycopg SYNCHRONE (`backend/pg_db.py`) : même driver que PostgresRepository,
+    conforme à l'architecture thread-par-utilisateur du bot (pas d'asyncio ici).
+    Bufferise les entrées et les flush toutes les 3s dans un thread daemon, même
+    comportement que l'ancien FirestoreHandler pour ne pas bloquer les threads du bot.
+    """
+
+    def __init__(self, pool, user_id: str):
+        super().__init__()
+        self.pool = pool
+        self.user_id = user_id
+
         self.buffer = []
         self.buffer_lock = threading.Lock()
         self.flush_interval = 3.0
         self.stop_event = threading.Event()
         self.flush_thread = threading.Thread(target=self._flush_loop, daemon=True)
         self.flush_thread.start()
-        print("DEBUG: FirestoreHandler initialized and thread started.", flush=True)
 
     def emit(self, record):
-        if not self.db:
-            return
         try:
-            log_entry = self.format(record)
-            
-            # Calcul de la date d'expiration (TTL) : 3 jours par défaut
-            expire_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=3)
-            
-            data = {
-                'message': log_entry,
-                'level': record.levelname,
-                'timestamp': firestore.SERVER_TIMESTAMP,
-                'createdAt': time.time(),
-                'expireAt': expire_at  # Champ pour le TTL Firestore
+            entry = {
+                "message": self.format(record),
+                "level": record.levelname,
             }
             with self.buffer_lock:
-                self.buffer.append(data)
-            # print(f"DEBUG: Log buffered: {record.levelname}", flush=True) # Trop verbeux, décommenter si nécessaire
+                self.buffer.append(entry)
         except Exception as e:
-            print(f"ERROR: FirestoreHandler emit failed: {e}", flush=True)
+            print(f"ERROR: PostgresHandler emit failed: {e}", flush=True)
             self.handleError(record)
 
     def _flush_loop(self):
-        print("DEBUG: Flush loop started.", flush=True)
         while not self.stop_event.is_set():
             try:
                 time.sleep(self.flush_interval)
                 self.flush()
             except Exception as e:
-                print(f"CRITICAL: Exception in flush loop: {e}", flush=True)
-                self.internal_logger.critical(f"Unhandled exception in flush loop: {e}", exc_info=True)
+                print(f"CRITICAL: Exception in PostgresHandler flush loop: {e}", flush=True)
 
     def flush(self):
-        if not self.db: return
-        
         with self.buffer_lock:
             if not self.buffer:
                 return
-            logs_to_send = self.buffer[:]
+            to_send = self.buffer[:]
             self.buffer = []
-        
-        if logs_to_send:
-            print(f"DEBUG: Flushing {len(logs_to_send)} logs to Firestore...", flush=True)
-            batch_size = 450 
-            for i in range(0, len(logs_to_send), batch_size):
-                batch = self.db.batch()
-                chunk = logs_to_send[i:i + batch_size]
-                for log_data in chunk:
-                    doc_ref = self.logs_ref.document()
-                    batch.set(doc_ref, log_data)
-                
-                try:
-                    batch.commit()
-                    print("DEBUG: Batch commit successful.", flush=True)
-                except Exception as e:
-                    print(f"ERROR: Batch commit failed: {e}", flush=True)
-                    self.internal_logger.error(f"Failed to flush logs to Firestore: {e}")
+
+        try:
+            with self.pool.connection() as conn:
+                conn.executemany(
+                    "INSERT INTO logs (user_id, message, level) VALUES (%s, %s, %s)",
+                    [(self.user_id, e["message"], e["level"]) for e in to_send],
+                )
+        except Exception as e:
+            print(f"ERROR: PostgresHandler flush failed: {e}", flush=True)
 
     def close(self):
-        print("DEBUG: Closing FirestoreHandler...", flush=True)
         self.stop_event.set()
         if self.flush_thread.is_alive():
             self.flush_thread.join(timeout=1.0)
         self.flush()
         super().close()
 
-def setup_logging(db_client, app_id, user_id, is_offline):
-    """Configure le logging pour un utilisateur spécifique sans polluer le root logger."""
-    print(f"DEBUG: Initialisation du logging pour {user_id[:8]}...", flush=True)
-    
+
+def setup_logging(pg_pool, user_id: str, is_offline: bool):
+    """Configure le logging pour un utilisateur spécifique sans polluer le root logger.
+
+    Remplace l'ancienne signature `setup_logging(db_client, app_id, user_id, is_offline)` :
+    plus de `db_client`/`app_id` Firestore — le pool Postgres suffit.
+
+    Retourne le PostgresHandler (ou None si offline/pool absent) pour pouvoir le fermer
+    proprement depuis main.py (même API que l'ancien FirestoreHandler).
+    """
     # 1. Configuration minimale du root logger (console) si pas déjà faite
     root_logger = logging.getLogger()
     if not root_logger.handlers:
@@ -118,20 +94,18 @@ def setup_logging(db_client, app_id, user_id, is_offline):
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         root_logger.addHandler(console_handler)
-    
+
     # 2. Configuration du logger spécifique au bot
     logger_name = f"bot.{user_id[:8]}"
     bot_logger = logging.getLogger(logger_name)
     bot_logger.setLevel(logging.INFO)
-    bot_logger.propagate = True # Permet de voir aussi dans la console via le root
-    
-    # Nettoyage des anciens handlers pour cet utilisateur (important pour le watchdog)
-    if bot_logger.handlers:
-        for handler in bot_logger.handlers[:]:
-            bot_logger.removeHandler(handler)
+    bot_logger.propagate = True  # Permet de voir aussi dans la console via le root
 
-    # 3. Filet de sécurité local (disque du serveur) — ajouté même en mode offline,
-    # justement pour les cas où Firestore n'est pas joignable.
+    # Nettoyage des anciens handlers pour cet utilisateur (important pour le watchdog)
+    for handler in bot_logger.handlers[:]:
+        bot_logger.removeHandler(handler)
+
+    # 3. Filet de sécurité local (disque du serveur) — ajouté même en mode offline
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         file_handler = TimedRotatingFileHandler(
@@ -140,19 +114,17 @@ def setup_logging(db_client, app_id, user_id, is_offline):
         )
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         bot_logger.addHandler(file_handler)
-        print(f"DEBUG: FileHandler local ajouté à {logger_name} ({LOG_DIR})", flush=True)
     except Exception as e:
-        print(f"ERROR: Echec de l'initialisation du FileHandler local pour {user_id[:8]}: {e}", flush=True)
+        print(f"ERROR: Echec FileHandler local pour {user_id[:8]}: {e}", flush=True)
 
-    firestore_handler = None
-    if not is_offline:
+    # 4. Handler Postgres (remplace FirestoreHandler)
+    pg_handler = None
+    if not is_offline and pg_pool is not None:
         try:
-            firestore_handler = FirestoreHandler(db_client, app_id, user_id)
-            firestore_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
-            bot_logger.addHandler(firestore_handler)
-            print(f"DEBUG: Firestore logger ajouté à {logger_name}", flush=True)
+            pg_handler = PostgresHandler(pg_pool, user_id)
+            pg_handler.setFormatter(logging.Formatter('%(name)s - %(levelname)s - %(message)s'))
+            bot_logger.addHandler(pg_handler)
         except Exception as e:
-            print(f"ERROR: Echec de l'initialisation du FirestoreHandler pour {user_id[:8]}: {e}", flush=True)
-    
-    return firestore_handler
+            print(f"ERROR: Echec PostgresHandler pour {user_id[:8]}: {e}", flush=True)
 
+    return pg_handler
