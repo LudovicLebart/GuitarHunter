@@ -37,7 +37,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
       1. **`PUT /shared-deals/{deal_id}`** : authentifié mais pas restreint au propriétaire de l'annonce — n'importe quel utilisateur Firebase de l'app peut créer/écraser un partage pour n'importe quel `deal_id` (comportement identique à l'existant côté Firestore, pas une régression, mais à re-questionner maintenant que l'exposition change d'échelle).
       2. **Aucun rate limiting** — un service exposé publiquement (même en staging) peut être sollicité sans limite ; pas bloquant pour un test ponctuel, à évaluer si l'exposition devient durable.
   - [x] **Phase A.3 entièrement close (2026-09-13)** — `guitarhunter-api` opérationnel et public via Tailscale Funnel.
-  - [ ] **Reste pour clore la Phase A** : Phase A.4 (couverture complète du dry-run — annonces restantes + autres utilisateurs), puis la Phase B (fenêtre de bascule réelle).
+  - [x] **Phase A.4 — export complet confirmé (2026-09-14)** : `guitarhunter_pg_staging` couvre désormais les 4 utilisateurs actifs (6533 annonces, 244 messages de chat, 4 étapes de restauration, 50 villes, 25 annonces partagées). Voir `JOURNAL.md`.
+  - [ ] **Reste pour clore la Phase A** : validation optionnelle via `compare_firestore_postgres.py` (script déjà écrit, jamais exécuté à cette échelle), puis la Phase B (fenêtre de bascule réelle).
   - [ ] **Phase B (fenêtre de bascule réelle)** : jamais entamée sans validation explicite — voir plan §5.3.
 - *Firebase Auth et Firebase Storage restent inchangés dans tous les scénarios (coût négligeable).*
 
