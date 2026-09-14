@@ -237,7 +237,16 @@ jobs:
             # identifiées au run #43 (Gemini a rejeté l'annonce — BAD_DEAL/REJECTED_ITEM, cascade
             # arrêtée net — alors que Qwen, en observation, penchait vers un verdict pépite-tier).
             # Affiche titre/prix/lien/raisonnement Gemini/observation Qwen pour ces 2 annonces.
-            python3 -u -m backend.scripts.inspect_candidate_missed_gems
+            #
+            # Run #45 (2026-09-14) : `audit_rejected_gems.py --limit 300` — CONSOMME de vrais
+            # appels Gemini Tier 2 (~0,008$/annonce réellement ré-analysée, <2,50$ même à 300),
+            # aucune écriture Firestore. Corrigé (voir JOURNAL.md) : interroge désormais la bonne
+            # population (aiAnalysis.gatekeeperVerdict, vrais rejets IA du Portier — pas les
+            # rejets mot-clé de l'ancienne requête status=='rejected', qui expliquaient le 91% de
+            # photos manquantes du run #35). Priorise les candidats déjà signalés par Qwen
+            # (Chantier H), croise les deux signaux dans le rapport. Demande explicite de
+            # l'utilisateur ("1 et 2 combiné").
+            python3 -u -m backend.scripts.audit_rejected_gems --limit 300
 
       - name: Récupération du rapport généré
         env:
