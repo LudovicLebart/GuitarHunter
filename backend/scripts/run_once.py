@@ -28,16 +28,25 @@ import logging
 # repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-14 : diagnostic en LECTURE SEULE de la progression de l'export complet
-    Firestore→Postgres (Phase A.4) lancé en arrière-plan au run #491 (PID=1793707,
-    log=~/export_full_a4.log). Plus de 24h se sont écoulées depuis le lancement — le
-    process devrait être terminé (ou avoir planté). Ne relance rien, n'écrit rien.
+    2026-09-14 : diagnostic de la progression de l'export complet Firestore→Postgres
+    (Phase A.4) lancé au run #491 (PID=1793707).
+
+    Résultat (run #494, voir JOURNAL.md) : SUCCÈS. Process terminé (plus dans `ps`).
+    Comptages Postgres finaux : 6533 guitar_deals (6167 + 347 + 17 + 2 sur 4 utilisateurs
+    actifs), 244 deal_chat, 4 restoration_plan_items, 50 cities, 25 shared_deals. Le
+    fichier de log lui-même était partiellement corrompu (bannières de démarrage
+    dupliquées) — probablement une relance concurrente du même script par un autre
+    déploiement déclenché pendant que `run_once.py` était armé (une autre session
+    travaillait sur `dev` en parallèle). Idempotent donc sans perte, mais leçon retenue :
+    un futur script d'action doit se protéger contre un double lancement concurrent
+    (verrou fichier ou vérification `ps` avant de lancer) si `dev` reste actif pendant
+    l'armement. Désarmé ci-dessous.
     """
     import subprocess
 
