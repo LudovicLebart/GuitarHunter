@@ -1,9 +1,17 @@
+import os
 import sys
 import time
 import threading
 import logging
 import datetime
+from logging.handlers import TimedRotatingFileHandler
 from firebase_admin import firestore
+
+# Filet de sécurité local, indépendant du TTL Firestore (3 jours) et de la
+# connectivité réseau — un fichier par utilisateur, rotation quotidienne (UTC).
+# La rétention (compression >30j, suppression >1 an) est gérée séparément par
+# backend/log_retention.py (job planifié, main.py). Non suivi par git (.gitignore).
+LOG_DIR = os.path.join(os.getcwd(), 'logs')
 
 class FirestoreHandler(logging.Handler):
     def __init__(self, db_client, app_id, user_id):
@@ -121,6 +129,20 @@ def setup_logging(db_client, app_id, user_id, is_offline):
     if bot_logger.handlers:
         for handler in bot_logger.handlers[:]:
             bot_logger.removeHandler(handler)
+
+    # 3. Filet de sécurité local (disque du serveur) — ajouté même en mode offline,
+    # justement pour les cas où Firestore n'est pas joignable.
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        file_handler = TimedRotatingFileHandler(
+            os.path.join(LOG_DIR, f"bot_{user_id[:8]}.log"),
+            when='midnight', backupCount=0, encoding='utf-8', utc=True,
+        )
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        bot_logger.addHandler(file_handler)
+        print(f"DEBUG: FileHandler local ajouté à {logger_name} ({LOG_DIR})", flush=True)
+    except Exception as e:
+        print(f"ERROR: Echec de l'initialisation du FileHandler local pour {user_id[:8]}: {e}", flush=True)
 
     firestore_handler = None
     if not is_offline:

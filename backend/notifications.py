@@ -298,3 +298,56 @@ class NotificationService:
             logger=log
         )
         _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
+
+    # Messages adaptés au code de statut retourné par bot.py::handle_deal_found()
+    _SCAN_URL_OUTCOME_MESSAGES = {
+        "processed": "✅ Nouvelle annonce ajoutée et analysée : {title}",
+        "duplicate_unchanged": "ℹ️ Annonce déjà connue, prix inchangé : {title}",
+        "already_rejected": "⏩ Annonce déjà rejetée précédemment : {title}",
+        "marked_sold": "📉 Annonce existante marquée vendue : {title}",
+        "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé exclu) : {title}",
+        "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
+        "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
+    }
+
+    @staticmethod
+    def notify_scan_url_finished(url: str, user_email: Optional[str] = None, logger: logging.Logger = None,
+                                  outcome: Optional[str] = None, listing_data: Optional[dict] = None,
+                                  source: str = "Facebook") -> None:
+        """
+        Notifie l'utilisateur (ntfy + email) du résultat réel du scan manuel de l'URL demandée
+        (nouveau/doublon/rejeté/vendu/échec), avec un lien direct vers l'annonce dans Guitar Hunter
+        si elle a pu être identifiée. `source` ("Facebook"/"Kijiji", voir bot.py::scan_specific_url)
+        étiquette correctement l'URL dans le message — auparavant toujours "URL Facebook",
+        y compris pour un scan Kijiji.
+        """
+        log = logger or _module_logger
+        listing_data = listing_data or {}
+        title = listing_data.get('title') or "l'annonce"
+        deal_id = listing_data.get('id')
+        deal_link = f"https://ludoviclebart.github.io/GuitarHunter/?dealId={deal_id}" if deal_id else None
+
+        template = NotificationService._SCAN_URL_OUTCOME_MESSAGES.get(
+            outcome, "❓ Impossible de récupérer les informations de cette annonce (URL invalide ou bloquée)."
+        )
+        result_line = template.format(title=title)
+
+        subject = f"[GuitarHunter] 🔎 Scan manuel terminé"
+        body = (
+            f"🔎 SCAN MANUEL TERMINÉ\n"
+            f"{'=' * 50}\n"
+            f"URL {source} : {url}\n"
+            f"Résultat : {result_line}\n"
+            + (f"\nVoir dans Guitar Hunter : {deal_link}\n" if deal_link else "")
+            + f"\n—\nGuitar Hunter Bot"
+        )
+        _ntfy.send(
+            f"🔎 Scan manuel terminé",
+            result_line,
+            priority='default',
+            tags=['mag'],
+            click_url=deal_link or url,
+            logger=log
+        )
+        _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
+

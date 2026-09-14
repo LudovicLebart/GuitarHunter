@@ -1,0 +1,7 @@
+# docs/management/JOURNAL.md a historiquement des fins de ligne CRLF, mais les outils
+# d'édition (Edit/Write) de cet environnement ne produisent que du LF — sans cette
+# règle, chaque édition via ces outils convertit silencieusement des lignes non
+# concernées par le changement réel, gonflant le diff (constaté en code review,
+# 2026-07-27). On fixe LF comme convention going-forward pour ce fichier plutôt que de
+# se battre contre le comportement des outils.
+docs/management/JOURNAL.md text eol=lf

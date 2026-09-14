@@ -4,6 +4,7 @@ import time
 import logging
 from typing import Optional, Dict, Any
 from playwright.sync_api import Page, Locator
+from backend.cities import normalize_city_key
 
 _module_logger = logging.getLogger(__name__)
 logger = _module_logger
@@ -29,24 +30,14 @@ class ListingParser:
 
     @staticmethod
     def normalize_city_name(name: str) -> str:
-        if not name: return ""
-        # 1. Garder la partie avant la virgule et mettre en minuscule
-        name = name.split(',')[0].strip().lower()
-        
-        # 2. Remplacer les tirets et points par des espaces pour uniformiser
-        name = name.replace('-', ' ').replace('.', ' ')
-        
-        # 3. Gérer les abréviations courantes (St -> Saint, Ste -> Sainte)
-        words = name.split()
-        fixed_words = []
-        for w in words:
-            if w == 'st': fixed_words.append('saint')
-            elif w == 'ste': fixed_words.append('sainte')
-            else: fixed_words.append(w)
-        name = " ".join(fixed_words)
+        """Clé canonique d'une ville — délègue à `backend/cities.py` (2026-08-16).
 
-        # 4. Normalisation Unicode (accents)
-        return unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode("utf-8")
+        La logique a été déplacée dans un module sans dépendance : ce fichier importe Playwright,
+        ce qui interdisait de normaliser un nom de ville depuis un script léger ou l'audit. Le
+        comportement est identique ; cette méthode reste le point d'entrée historique, largement
+        appelé (dédup cross-plateforme, résolution des lieux Kijiji, filtrage par ville).
+        """
+        return normalize_city_key(name)
 
     @staticmethod
     def extract_price_from_text(text: str) -> int:
@@ -232,6 +223,7 @@ class ListingParser:
 
         # --- NOUVEAU : Extraction de la date de publication ---
         published_at_raw = None
+        published_at_ts = None
         try:
             # On cherche la balise abbr qui contient l'âge de l'annonce
             # Le sélecteur cible l'élément tel que fourni par l'utilisateur
@@ -240,12 +232,63 @@ class ListingParser:
                 published_at_raw = date_element.get_attribute('aria-label')
                 if published_at_raw:
                     log.info(f"   📅 Date extraite : {published_at_raw}")
+                    published_at_ts = ListingParser.parse_french_date(published_at_raw)
         except Exception as e:
             log.debug(f"Erreur extraction date de publication: {e}")
+
+        if not published_at_ts:
+            import time
+            published_at_ts = int(time.time())
+            log.info("   📅 Date de publication introuvable, utilisation de la date de scraping en fallback.")
 
         return {
             "description": description[:3000], 
             "imageUrls": image_urls, 
             "coordinates": coordinates,
-            "published_at_raw": published_at_raw
+            "published_at_raw": published_at_raw,
+
+            "published_at_ts": published_at_ts
         }
+
+    @staticmethod
+    def parse_french_date(raw_str):
+        if not raw_str: return None
+        import re
+        from datetime import datetime, timedelta, timezone
+        raw_str = raw_str.lower().strip()
+        now = datetime.now(timezone.utc)
+        
+        if "à l'instant" in raw_str: return int(now.timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*min", raw_str)
+        if m: return int((now - timedelta(minutes=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*heure", raw_str)
+        if m: return int((now - timedelta(hours=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*jour", raw_str)
+        if m: return int((now - timedelta(days=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*semaine", raw_str)
+        if m: return int((now - timedelta(weeks=int(m.group(1)))).timestamp())
+        
+        m = re.search(r"il y a (\d+)\s*mois", raw_str)
+        if m: return int((now - timedelta(days=int(m.group(1)) * 30)).timestamp())
+        
+        months = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+        month_pattern = "|".join(months)
+        m = re.search(rf"(\d+)\s+({month_pattern})(?:\s+(\d{{4}}))?", raw_str)
+        if m:
+            day = int(m.group(1))
+            month_str = m.group(2)
+            year = int(m.group(3)) if m.group(3) else now.year
+            try:
+                month_idx = months.index(month_str) + 1
+                dt = datetime(year, month_idx, day, tzinfo=timezone.utc)
+                if dt > now and not m.group(3):
+                    dt = dt.replace(year=year-1)
+                return int(dt.timestamp())
+            except ValueError:
+                pass
+                
+        return None

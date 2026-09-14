@@ -1,0 +1,770 @@
+{
+  "100 mile house": {
+    "id": 1700307,
+    "slug": "100-mile-house"
+  },
+  "abbotsford": {
+    "id": 1700140,
+    "slug": "abbotsford"
+  },
+  "annapolis valley": {
+    "id": 1700256,
+    "slug": "annapolis-valley"
+  },
+  "baie comeau": {
+    "id": 1700251,
+    "slug": "baie-comeau"
+  },
+  "banff / canmore": {
+    "id": 1700234,
+    "slug": "banff-canmore"
+  },
+  "barrie": {
+    "id": 1700006,
+    "slug": "barrie"
+  },
+  "bathurst": {
+    "id": 1700260,
+    "slug": "bathurst"
+  },
+  "bedford": {
+    "id": 1700107,
+    "slug": "bedford"
+  },
+  "belleville": {
+    "id": 1700130,
+    "slug": "belleville"
+  },
+  "brandon": {
+    "id": 1700086,
+    "slug": "brandon"
+  },
+  "brantford": {
+    "id": 1700206,
+    "slug": "brantford"
+  },
+  "bridgewater": {
+    "id": 1700257,
+    "slug": "bridgewater"
+  },
+  "brockville": {
+    "id": 1700247,
+    "slug": "brockville"
+  },
+  "burnaby/new westminster": {
+    "id": 1700286,
+    "slug": "burnaby-new-westminster"
+  },
+  "burns lake": {
+    "id": 1700314,
+    "slug": "burns-lake"
+  },
+  "calgary": {
+    "id": 1700199,
+    "slug": "calgary"
+  },
+  "cambridge": {
+    "id": 1700210,
+    "slug": "cambridge"
+  },
+  "campbell river": {
+    "id": 1700316,
+    "slug": "campbell-river"
+  },
+  "cap breton": {
+    "id": 1700011,
+    "slug": "cape-breton"
+  },
+  "cape breton": {
+    "id": 1700011,
+    "slug": "cape-breton"
+  },
+  "centre ville et ouest de la ville": {
+    "id": 1700292,
+    "slug": "vancouver-downtown-west-end"
+  },
+  "charlottetown": {
+    "id": 1700119,
+    "slug": "charlottetown-pei"
+  },
+  "chatham kent": {
+    "id": 1700239,
+    "slug": "chatham-kent"
+  },
+  "chibougamau / nord du quebec": {
+    "id": 1700284,
+    "slug": "chibougamau-nord-du-quebec"
+  },
+  "chibougamau / northern quebec": {
+    "id": 1700284,
+    "slug": "chibougamau-nord-du-quebec"
+  },
+  "chilliwack": {
+    "id": 1700141,
+    "slug": "chilliwack"
+  },
+  "city of halifax": {
+    "id": 1700321,
+    "slug": "city-of-halifax"
+  },
+  "city of montreal": {
+    "id": 1700281,
+    "slug": "ville-de-montreal"
+  },
+  "city of toronto": {
+    "id": 1700273,
+    "slug": "city-of-toronto"
+  },
+  "cole harbour": {
+    "id": 1700108,
+    "slug": "cole-harbour"
+  },
+  "comox / courtenay / cumberland": {
+    "id": 1700315,
+    "slug": "comox-courtenay-cumberland"
+  },
+  "comte de strathcona": {
+    "id": 1700204,
+    "slug": "strathcona-county"
+  },
+  "corner brook": {
+    "id": 1700254,
+    "slug": "corner-brook"
+  },
+  "cornwall": {
+    "id": 1700133,
+    "slug": "cornwall-on"
+  },
+  "cowichan valley / duncan": {
+    "id": 1700300,
+    "slug": "cowichan-valley-duncan"
+  },
+  "cranbrook": {
+    "id": 1700224,
+    "slug": "cranbrook"
+  },
+  "dartmouth": {
+    "id": 1700109,
+    "slug": "dartmouth"
+  },
+  "dawson creek": {
+    "id": 1700304,
+    "slug": "dawson-creek"
+  },
+  "delta/surrey/langley": {
+    "id": 1700285,
+    "slug": "delta-surrey-langley"
+  },
+  "district de la riviere powell": {
+    "id": 1700294,
+    "slug": "powell-river-district"
+  },
+  "downtown west end": {
+    "id": 1700292,
+    "slug": "vancouver-downtown-west-end"
+  },
+  "drummondville": {
+    "id": 1700122,
+    "slug": "drummondville"
+  },
+  "edmonton": {
+    "id": 1700203,
+    "slug": "edmonton"
+  },
+  "edmundston": {
+    "id": 1700261,
+    "slug": "edmundston"
+  },
+  "flin flon": {
+    "id": 1700236,
+    "slug": "flin-flon"
+  },
+  "fort mcmurray": {
+    "id": 1700232,
+    "slug": "fort-mcmurray"
+  },
+  "fort saint john": {
+    "id": 1700303,
+    "slug": "fort-st-john"
+  },
+  "fredericton": {
+    "id": 1700018,
+    "slug": "fredericton"
+  },
+  "gander": {
+    "id": 1700255,
+    "slug": "gander"
+  },
+  "gaspe": {
+    "id": 1700066,
+    "slug": "gaspesie"
+  },
+  "gaspesie": {
+    "id": 1700066,
+    "slug": "gaspesie"
+  },
+  "gatineau": {
+    "id": 1700186,
+    "slug": "gatineau"
+  },
+  "goose bay": {
+    "id": 1700045,
+    "slug": "goose-bay"
+  },
+  "granby": {
+    "id": 1700253,
+    "slug": "granby"
+  },
+  "grand bend": {
+    "id": 1700190,
+    "slug": "grand-bend"
+  },
+  "grande prairie": {
+    "id": 1700233,
+    "slug": "grande-prairie"
+  },
+  "guelph": {
+    "id": 1700242,
+    "slug": "guelph"
+  },
+  "hamilton": {
+    "id": 80014,
+    "slug": "hamilton"
+  },
+  "hope / kent": {
+    "id": 1700320,
+    "slug": "hope-kent"
+  },
+  "houston": {
+    "id": 1700313,
+    "slug": "houston-bc"
+  },
+  "hudson bay": {
+    "id": 1700322,
+    "slug": "hudson-bay"
+  },
+  "iqaluit": {
+    "id": 1700106,
+    "slug": "iqaluit"
+  },
+  "kamloops": {
+    "id": 1700227,
+    "slug": "kamloops"
+  },
+  "kapuskasing": {
+    "id": 1700237,
+    "slug": "kapuskasing"
+  },
+  "kawartha lakes": {
+    "id": 1700219,
+    "slug": "kawartha-lakes"
+  },
+  "kenora": {
+    "id": 1700249,
+    "slug": "kenora"
+  },
+  "kingston": {
+    "id": 1700183,
+    "slug": "kingston-on"
+  },
+  "kitchener / waterloo": {
+    "id": 1700212,
+    "slug": "kitchener-waterloo"
+  },
+  "kitimat": {
+    "id": 1700310,
+    "slug": "kitimat"
+  },
+  "la ronge": {
+    "id": 1700265,
+    "slug": "la-ronge"
+  },
+  "labrador city": {
+    "id": 1700046,
+    "slug": "labrador-city"
+  },
+  "lac saint jean": {
+    "id": 1700180,
+    "slug": "lac-saint-jean"
+  },
+  "lanaudiere": {
+    "id": 1700283,
+    "slug": "lanaudiere"
+  },
+  "laurentides": {
+    "id": 1700282,
+    "slug": "laurentides"
+  },
+  "laval / north shore": {
+    "id": 1700278,
+    "slug": "laval-rive-nord"
+  },
+  "laval/rive nord": {
+    "id": 1700278,
+    "slug": "laval-rive-nord"
+  },
+  "leamington": {
+    "id": 1700240,
+    "slug": "leamington"
+  },
+  "lethbridge": {
+    "id": 1700230,
+    "slug": "lethbridge"
+  },
+  "levis": {
+    "id": 1700063,
+    "slug": "levis"
+  },
+  "lloydminster": {
+    "id": 1700095,
+    "slug": "lloydminster-ab"
+  },
+  "london": {
+    "id": 1700214,
+    "slug": "london"
+  },
+  "longueuil / south shore": {
+    "id": 1700279,
+    "slug": "longueuil-rive-sud"
+  },
+  "longueuil/rive sud": {
+    "id": 1700279,
+    "slug": "longueuil-rive-sud"
+  },
+  "markham / york region": {
+    "id": 1700274,
+    "slug": "markham-york-region"
+  },
+  "meadow lake": {
+    "id": 1700264,
+    "slug": "meadow-lake"
+  },
+  "medicine hat": {
+    "id": 1700231,
+    "slug": "medicine-hat"
+  },
+  "miramichi": {
+    "id": 1700262,
+    "slug": "miramichi"
+  },
+  "mission": {
+    "id": 1700319,
+    "slug": "mission"
+  },
+  "mississauga / peel region": {
+    "id": 1700276,
+    "slug": "mississauga-peel-region"
+  },
+  "moncton": {
+    "id": 1700001,
+    "slug": "moncton"
+  },
+  "moose jaw": {
+    "id": 1700195,
+    "slug": "moose-jaw"
+  },
+  "morden": {
+    "id": 1700323,
+    "slug": "morden"
+  },
+  "muskoka": {
+    "id": 1700078,
+    "slug": "muskoka"
+  },
+  "nanaimo": {
+    "id": 1700263,
+    "slug": "nanaimo"
+  },
+  "napanee": {
+    "id": 1700182,
+    "slug": "napanee"
+  },
+  "nelson": {
+    "id": 1700226,
+    "slug": "nelson"
+  },
+  "new glasgow": {
+    "id": 1700258,
+    "slug": "new-glasgow-ns"
+  },
+  "nipawin": {
+    "id": 1700266,
+    "slug": "nipawin"
+  },
+  "norfolk county": {
+    "id": 1700248,
+    "slug": "norfolk-county"
+  },
+  "north bay": {
+    "id": 1700243,
+    "slug": "north-bay"
+  },
+  "north shore": {
+    "id": 1700289,
+    "slug": "north-shore"
+  },
+  "oakville / halton region": {
+    "id": 1700277,
+    "slug": "oakville-halton-region"
+  },
+  "oshawa / durham region": {
+    "id": 1700275,
+    "slug": "oshawa-durham-region"
+  },
+  "ottawa": {
+    "id": 1700185,
+    "slug": "ottawa"
+  },
+  "ouest de lile": {
+    "id": 1700280,
+    "slug": "ouest-de-lile-qc"
+  },
+  "owen sound": {
+    "id": 1700187,
+    "slug": "owen-sound"
+  },
+  "parksville / qualicum beach": {
+    "id": 1700317,
+    "slug": "parksville-qualicum-beach"
+  },
+  "pembroke": {
+    "id": 1700075,
+    "slug": "pembroke"
+  },
+  "penticton": {
+    "id": 1700246,
+    "slug": "penticton"
+  },
+  "petawawa": {
+    "id": 1700076,
+    "slug": "petawawa"
+  },
+  "peterborough": {
+    "id": 1700218,
+    "slug": "peterborough"
+  },
+  "port alberni": {
+    "id": 1700318,
+    "slug": "port-alberni"
+  },
+  "port hardy / port mcneill": {
+    "id": 1700301,
+    "slug": "port-hardy-port-mcneill"
+  },
+  "portage la prairie": {
+    "id": 1700087,
+    "slug": "portage-la-prairie"
+  },
+  "powell river district": {
+    "id": 1700294,
+    "slug": "powell-river-district"
+  },
+  "prince albert": {
+    "id": 1700088,
+    "slug": "prince-albert"
+  },
+  "prince george": {
+    "id": 1700143,
+    "slug": "prince-george"
+  },
+  "prince rupert": {
+    "id": 1700308,
+    "slug": "prince-rupert"
+  },
+  "quebec city": {
+    "id": 1700124,
+    "slug": "ville-de-quebec"
+  },
+  "quesnel": {
+    "id": 1700306,
+    "slug": "quesnel"
+  },
+  "red deer": {
+    "id": 1700136,
+    "slug": "red-deer"
+  },
+  "regina": {
+    "id": 1700196,
+    "slug": "regina"
+  },
+  "region de markham/york": {
+    "id": 1700274,
+    "slug": "markham-york-region"
+  },
+  "region de mississauga/peel": {
+    "id": 1700276,
+    "slug": "mississauga-peel-region"
+  },
+  "region de windsor": {
+    "id": 1700220,
+    "slug": "windsor-area-on"
+  },
+  "region des lacs kawartha": {
+    "id": 1700219,
+    "slug": "kawartha-lakes"
+  },
+  "region doakville/halton": {
+    "id": 1700277,
+    "slug": "oakville-halton-region"
+  },
+  "region doshawa/durham": {
+    "id": 1700275,
+    "slug": "oshawa-durham-region"
+  },
+  "renfrew": {
+    "id": 1700077,
+    "slug": "renfrew"
+  },
+  "revelstoke": {
+    "id": 1700302,
+    "slug": "revelstoke"
+  },
+  "richmond": {
+    "id": 1700288,
+    "slug": "richmond-bc"
+  },
+  "rimouski / bas saint laurent": {
+    "id": 1700250,
+    "slug": "rimouski-bas-st-laurent"
+  },
+  "rive nord": {
+    "id": 1700289,
+    "slug": "north-shore"
+  },
+  "rouyn noranda": {
+    "id": 1700060,
+    "slug": "rouyn-noranda"
+  },
+  "saguenay": {
+    "id": 1700179,
+    "slug": "saguenay"
+  },
+  "saint albert": {
+    "id": 1700205,
+    "slug": "st-albert"
+  },
+  "saint catharines": {
+    "id": 80016,
+    "slug": "st-catharines"
+  },
+  "saint georges de beauce": {
+    "id": 1700065,
+    "slug": "st-georges-de-beauce"
+  },
+  "saint hyacinthe": {
+    "id": 1700151,
+    "slug": "saint-hyacinthe"
+  },
+  "saint jean": {
+    "id": 80017,
+    "slug": "saint-john"
+  },
+  "saint jean de terre neuve": {
+    "id": 1700113,
+    "slug": "st-johns"
+  },
+  "saint jean sur richelieu": {
+    "id": 1700252,
+    "slug": "saint-jean-sur-richelieu"
+  },
+  "saint john": {
+    "id": 80017,
+    "slug": "saint-john"
+  },
+  "saint john's": {
+    "id": 1700113,
+    "slug": "st-johns"
+  },
+  "sarnia": {
+    "id": 1700191,
+    "slug": "sarnia"
+  },
+  "saskatoon": {
+    "id": 1700197,
+    "slug": "saskatoon"
+  },
+  "sault sainte marie": {
+    "id": 1700244,
+    "slug": "sault-ste-marie"
+  },
+  "sept iles": {
+    "id": 1700071,
+    "slug": "sept-iles"
+  },
+  "shawinigan": {
+    "id": 1700148,
+    "slug": "shawinigan"
+  },
+  "sherbrooke": {
+    "id": 1700156,
+    "slug": "sherbrooke-qc"
+  },
+  "smithers": {
+    "id": 1700311,
+    "slug": "smithers"
+  },
+  "stratford": {
+    "id": 1700213,
+    "slug": "stratford-on"
+  },
+  "strathcona county": {
+    "id": 1700204,
+    "slug": "strathcona-county"
+  },
+  "sudbury": {
+    "id": 1700245,
+    "slug": "sudbury"
+  },
+  "summerside": {
+    "id": 1700120,
+    "slug": "summerside-pei"
+  },
+  "sunshine coast": {
+    "id": 1700293,
+    "slug": "sunshine-coast"
+  },
+  "swift current": {
+    "id": 1700093,
+    "slug": "swift-current"
+  },
+  "terrace": {
+    "id": 1700309,
+    "slug": "terrace"
+  },
+  "thetford mines": {
+    "id": 1700064,
+    "slug": "thetford-mines"
+  },
+  "thompson": {
+    "id": 1700235,
+    "slug": "thompson"
+  },
+  "thunder bay": {
+    "id": 1700126,
+    "slug": "thunder-bay"
+  },
+  "timmins": {
+    "id": 1700238,
+    "slug": "timmins"
+  },
+  "trenton": {
+    "id": 1700132,
+    "slug": "trenton-on"
+  },
+  "tricities/pitt/maple": {
+    "id": 1700290,
+    "slug": "tricities-pitt-maple"
+  },
+  "trois rivieres": {
+    "id": 1700150,
+    "slug": "trois-rivieres"
+  },
+  "truro": {
+    "id": 1700047,
+    "slug": "truro"
+  },
+  "ubc": {
+    "id": 1700291,
+    "slug": "ubc-university-british-columbia"
+  },
+  "val d'or": {
+    "id": 1700061,
+    "slug": "val-dor"
+  },
+  "vallee dannapolis": {
+    "id": 1700256,
+    "slug": "annapolis-valley"
+  },
+  "vallee de cowichan/duncan": {
+    "id": 1700300,
+    "slug": "cowichan-valley-duncan"
+  },
+  "vancouver": {
+    "id": 1700287,
+    "slug": "vancouver"
+  },
+  "vanderhoof": {
+    "id": 1700312,
+    "slug": "vanderhoof"
+  },
+  "vernon": {
+    "id": 1700229,
+    "slug": "vernon"
+  },
+  "victoria": {
+    "id": 1700173,
+    "slug": "victoria-bc"
+  },
+  "victoriaville": {
+    "id": 1700123,
+    "slug": "victoriaville"
+  },
+  "ville de montreal": {
+    "id": 1700281,
+    "slug": "ville-de-montreal"
+  },
+  "ville de quebec": {
+    "id": 1700124,
+    "slug": "ville-de-quebec"
+  },
+  "ville de regina": {
+    "id": 1700196,
+    "slug": "regina"
+  },
+  "ville de toronto": {
+    "id": 1700273,
+    "slug": "city-of-toronto"
+  },
+  "ville de vancouver": {
+    "id": 1700287,
+    "slug": "vancouver"
+  },
+  "ville dedmonton": {
+    "id": 1700203,
+    "slug": "edmonton"
+  },
+  "ville dhalifax": {
+    "id": 1700321,
+    "slug": "city-of-halifax"
+  },
+  "west island": {
+    "id": 1700280,
+    "slug": "ouest-de-lile-qc"
+  },
+  "whistler": {
+    "id": 1700100,
+    "slug": "whistler"
+  },
+  "whitehorse": {
+    "id": 1700102,
+    "slug": "whitehorse"
+  },
+  "williams lake": {
+    "id": 1700305,
+    "slug": "williams-lake"
+  },
+  "windsor region": {
+    "id": 1700220,
+    "slug": "windsor-area-on"
+  },
+  "winkler": {
+    "id": 1700324,
+    "slug": "winkler"
+  },
+  "winnipeg": {
+    "id": 1700192,
+    "slug": "winnipeg"
+  },
+  "woodstock": {
+    "id": 1700241,
+    "slug": "woodstock-on"
+  },
+  "yarmouth": {
+    "id": 1700259,
+    "slug": "yarmouth"
+  },
+  "yellowknife": {
+    "id": 1700104,
+    "slug": "yellowknife"
+  }
+}

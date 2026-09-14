@@ -1,0 +1,61 @@
+[
+  {
+    "id": "deal_1029589606791704",
+    "question": "Quel est l'état général de cette guitare électrique 7 cordes et sa valeur estimée par rapport à son prix de vente affiché (200$) ?",
+    "ground_truth": "Guitare électrique 7 cordes de la marque Guerrilla (luthier québécois), extended range solid body. Authenticité confirmée (10/10), bon état général (7/10). Vendue à 200$ alors que sa valeur réelle est estimée à au moins 1000$ — très bonne affaire, restaurabilité modérée (8/10).",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029589606791704/0_1e3909ee.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1029589606791704/1_94613267.jpg"
+    ]
+  },
+  {
+    "id": "deal_1549978726564575",
+    "question": "Quel est l'état de cette guitare acoustique Simon & Patrick et quelles réparations sont nécessaires avant revente ?",
+    "ground_truth": "Simon & Patrick vendue à 100$ avec étui. Authenticité confirmée (9/10), état moyen (4/10) : nécessite des réparations suite au retrait d'un micro (pickup) installé précédemment sur la table. Bon potentiel de revente après réparation (profit estimé ~250$), restaurabilité élevée (9/10).",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/0_97ce63bc.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/1_b8add067.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1549978726564575/2_6349e3a8.jpg"
+    ]
+  },
+  {
+    "id": "deal_2311998946003438",
+    "question": "Identifie le type de cette guitare et évalue son authenticité ainsi que son état général.",
+    "ground_truth": "Archtop hollow-body de type Jazz Box, probablement une Harmony vintage, modifiée avec un micro P90 non d'origine — ce qui limite son authenticité (5/10). Vendue à 75$, état moyen (4/10) mais fort potentiel de restauration (9/10) : bon projet pour un bricoleur capable de refaire l'électronique.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/0_be1cf956.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/1_366c397f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/2_ee9c8998.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/3_7a115147.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2311998946003438/4_7b4ccd40.jpg"
+    ]
+  },
+  {
+    "id": "deal_2517287152079113",
+    "question": "De quel modèle de guitare acoustique s'agit-il, et quel est son état / son authenticité ?",
+    "ground_truth": "Mansfield F-360, copie japonaise (MIJ, années 70) d'une Martin D-35, dreadnought standard — une copie assumée, cohérente avec elle-même (authenticité 10/10 pour ce qu'elle prétend être). État moyen (5/10) nécessitant nettoyage et réglage. Vendue à 100$, potentiel de revente ~350$ après remise en état.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/0_feaac3ef.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/1_bfae8404.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/2_75cd5d2e.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/2517287152079113/3_6b7b8f5a.jpg"
+    ]
+  },
+  {
+    "id": "deal_1389347789972368",
+    "question": "Décris l'état de cette guitare classique Kamouraska de 1979, notamment ses défauts structurels visibles.",
+    "ground_truth": "Kamouraska Concert I de 1979, guitare classique en bois massif. Authenticité confirmée (10/10). État dégradé (3/10) avec des fissures visibles à réparer. Vendue à 50$, bon projet de restauration (9/10) avec potentiel de revente ~250$ après réparation des fissures.",
+    "image_urls": [
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/0_609ee5da.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/1_3aaafd36.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/2_0dbba3cd.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/3_332e16d9.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/4_ab63ec29.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/5_251fbe6f.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/6_45b7c2a0.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/7_7bca72cb.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/8_9bdbc8b6.jpg",
+      "https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/deals/1389347789972368/9_0a5670bb.jpg"
+    ]
+  }
+]

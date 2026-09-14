@@ -7,8 +7,8 @@ const DealsContext = createContext(null);
 
 export const DealsProvider = ({ children }) => {
   const { user } = useAuth();
-  const { setError } = useBotConfigContext();
-  const dealsManagerData = useDealsManager(user, setError);
+  const { setError, uiFilters, saveUiFilters } = useBotConfigContext();
+  const dealsManagerData = useDealsManager(user, setError, uiFilters, saveUiFilters);
 
   return (
     <DealsContext.Provider value={dealsManagerData}>

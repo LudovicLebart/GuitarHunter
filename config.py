@@ -39,26 +39,42 @@ FIREBASE_STORAGE_BUCKET = os.getenv("VITE_FIREBASE_STORAGE_BUCKET", "guitarehunt
 IMAGE_RETENTION_REJECTED_DAYS = int(os.getenv("IMAGE_RETENTION_REJECTED_DAYS", 30))
 
 # --- PROXIES ---
-# Liste des serveurs proxy à utiliser pour la rotation d'IP dans le scraper.
-# Format : "http://user:password@host:port" ou "http://host:port"
-PROXIES = [
-    # "http://proxy1.com:8000",
-    # "http://proxy2.com:8000",
-]
+# Liste des serveurs proxy à utiliser pour la rotation d'IP dans le scraper (backend/scraping/core.py,
+# un choix aléatoire par session — voir FacebookScraper.start_session()).
+# Format de chaque entrée : "http://user:password@host:port" ou "http://host:port".
+# Lu depuis `.env` (variable PROXIES, entrées séparées par des virgules) — jamais codé en dur ici,
+# contrairement à la liste d'exemples commentés d'avant le 2026-08-24 : une vraie URL de proxy
+# embarque souvent des identifiants (user:password), qui n'ont pas leur place dans un fichier
+# committé. Même mécanisme que tous les autres secrets du projet (GEMINI_API_KEY, FIREBASE_*, SMTP).
+_proxies_raw = os.getenv("PROXIES", "")
+PROXIES = [p.strip() for p in _proxies_raw.split(",") if p.strip()]
+
+# --- KIJIJI ---
+# ID de catégorie Kijiji, global et stable pour tout le site (voir backend/scraping/kijiji/).
+# Pas de mapping au-delà de "Guitars" pour l'instant.
+KIJIJI_GUITARS_CATEGORY_ID = 613
 
 # --- CONFIGURATION DES MODÈLES GEMINI ---
 # Note : gemini-3.1-pro-preview est un modèle Preview (préavis de dépréciation
 # de 2 semaines par email Google, non interceptable par l'API - voir notify_model_error).
+# Migration 2026-07-31 : gemini-2.5-* (flash-lite, pro) est retiré par Google en octobre 2026 —
+# remplacés par gemini-3.5-flash-lite (Portier) et gemini-3.6-flash (Analyste, capacité égale à
+# 3.5-flash mais moins cher/plus rapide — voir JOURNAL.md pour le détail des benchmarks).
+# Migration 2026-09-06 : Analyste gemini-3.6-flash -> gemini-3.7-flash (Intelligence Index 56 vs
+# 52, plus rapide, même tarif standard $1.50/$7.50 par 1M tokens). Bénéficie jusqu'au 31/12/2026
+# d'un tarif de lancement à $0.75/$3.75 (moitié prix) — repasse au tarif standard le 01/01/2027,
+# alerte email programmée pour reconsidérer le choix de modèle avant cette date.
 GEMINI_MODELS = {
     "available": [
-        "gemini-2.5-flash-lite",
-        "gemini-2.5-pro",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash",
         "gemini-3.1-pro-preview"
     ],
-    "default_gatekeeper": "gemini-2.5-flash-lite",
-    "default_analyst": "gemini-3.5-flash",
+    "default_gatekeeper": "gemini-3.5-flash-lite",
+    "default_analyst": "gemini-3.7-flash",
     "default_expert": "gemini-3.1-pro-preview"
 }
 
@@ -95,6 +111,7 @@ DEFAULT_MAIN_PROMPT = prompts_data.get('main_analysis_prompt', [])
 DEFAULT_GATEKEEPER_INSTRUCTION = prompts_data.get('gatekeeper_verbosity_instruction', "")
 DEFAULT_ANALYST_INSTRUCTION = prompts_data.get('analyst_verbosity_instruction', "")
 DEFAULT_EXPERT_CONTEXT = prompts_data.get('expert_pro_context_instruction', "")
+DEFAULT_SOLD_BACKFILL_INSTRUCTION = prompts_data.get('sold_backfill_instruction', "")
 DEFAULT_TAXONOMY = prompts_data.get('taxonomy_master', {})
 DEFAULT_FEW_SHOT_EXAMPLES = prompts_data.get('few_shot_examples', [])
 DEFAULT_REJECTION_VERDICTS = prompts_data.get('rejection_verdicts', ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA"])

@@ -3,6 +3,11 @@ name: Deploy Guitare Hunter
 on:
   push:
     branches: [ master, dev ]
+  # 2026-08-26 : filet de secours manuel — un push vers dev a mis à jour la référence Git sans
+  # jamais déclencher ce workflow (webhook `push` non émis, cause exacte non identifiée), laissant
+  # le serveur de prod sur l'ancien code sans avertissement. Permet de redéclencher le déploiement
+  # depuis l'onglet Actions ou l'API sans dépendre d'un nouveau push.
+  workflow_dispatch:
 
 jobs:
   deploy-frontend:
@@ -33,6 +38,27 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Déployer les règles Firebase Storage
+        # 2026-08-21 : jusqu'ici un `firebase deploy --only storage` manuel, régulièrement oublié
+        # (storage.rules modifié dans ce même commit sans déploiement associé). Node/npm déjà prêts
+        # ci-dessus (npm run build) — pas besoin du Dell ni du serveur SSH (qui n'a pas Node).
+        # `continue-on-error` : ne doit jamais bloquer la publication du site si la clé manque ou si
+        # le compte de service n'a pas encore le rôle IAM nécessaire (le SDK Admin, seul usage
+        # existant de cette clé, contourne les règles et n'a jamais eu besoin de ce rôle) — l'échec
+        # reste visible dans les logs Actions sans casser le déploiement.
+        env:
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+        continue-on-error: true
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+            echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — déploiement des règles Storage ignoré."
+            exit 0
+          fi
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > /tmp/firebase-sa.json
+          export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-sa.json
+          npx firebase-tools@latest deploy --only storage --force
+          rm -f /tmp/firebase-sa.json
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
@@ -118,6 +144,13 @@ jobs:
             pip install -r requirements.txt
             echo "Installing Playwright browsers..."
             python3 -m playwright install chromium
+
+            echo "--- Script de maintenance ponctuel ---"
+            # Voir backend/scripts/run_once.py : no-op par défaut (ACTIVE=False), sert à exécuter
+            # une action ponctuelle en production (credentials Firebase déjà en place ci-dessus)
+            # depuis un environnement de dev qui n'y a lui-même pas accès. Non bloquant : un échec
+            # ici n'empêche pas le redémarrage du service.
+            python3 backend/scripts/run_once.py || echo "⚠️ run_once.py a échoué — voir logs ci-dessus. Le déploiement continue."
 
             echo "--- Service Restart ---"
             echo "Restarting service: guitare-hunter"

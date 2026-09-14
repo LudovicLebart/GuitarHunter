@@ -122,9 +122,9 @@ def refresh(dry_run=False, since_date_str=None):
                 failed_count += 1
                 continue
             
-            stable_urls = repo.upload_images_to_storage(image_urls, deal_id)
+            stable_urls, gs_uris = repo.upload_images_to_storage(image_urls, deal_id)
             if stable_urls:
-                doc.reference.update({'storageImageUrls': stable_urls})
+                doc.reference.update({'storageImageUrls': stable_urls, 'storageImageGsUris': gs_uris})
                 logger.info(f"   ✅ {len(stable_urls)} nouvelle(s) image(s) sauvegardée(s).")
                 refreshed_count += 1
             else:

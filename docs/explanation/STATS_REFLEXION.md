@@ -12,22 +12,25 @@ Ce graphique permet de visualiser l'efficacité du filtrage.
 ## 2. Indicateurs Financiers (Predictions vs Réalité)
 Basé sur les champs `net_guitar_cost` et `estimated_gross_margin`.
 - **Marge Potentielle Totale :** Somme des marges estimées sur les deals `active` avec un `deal_score > 7`.
-- **ROI Moyen Estimé :** Ratio Marge / Coût par catégorie de guitare.
-- **Corrélation Prix/Score :** Identifier les "Sweet Spots" (ex: "Où se trouvent les guitares entre 500$ et 1000$ avec un score > 8 ?").
+- ✅ **Marge Moyenne par Catégorie (implémenté 2026-08-06)** : `StatsView.jsx::categoryData` — proxy de "ROI par catégorie" basé sur `estimated_gross_margin` (pas de vrai ratio marge/coût, `net_guitar_cost` n'étant pas indexé). Catégorie résolue via une taxonomie simplifiée (exact + leaf uniquement, sans la recherche floue de `useDealsManager.js`).
+- ✅ **Corrélation Prix/Score, "Sweet Spot" (implémenté 2026-08-06)** : `StatsView.jsx::priceScoreData` — score IA moyen (et marge moyenne) par tranche de prix (0-250$, 250-500$, 500-1000$, 1000-2000$, 2000$+).
 
 ## 3. Analyse Qualitative (Les 5 Scores)
 Exploiter le JSON de l'Analyste pour une vue d'ensemble du marché :
-- **Radar Chart "Profil de Marché" :** Moyenne des 5 scores sur l'ensemble du flux (Authenticité, État, Liquidité, Deal, Restauration).
+- ✅ **Radar Chart "Profil de Marché" (fiabilisé 2026-08-06)** : Moyenne des 5 scores sur l'ensemble du flux (Authenticité, État, Liquidité, Deal, Restauration). Les 5 scores sont désormais tous indexés individuellement (`deals_index`, voir `ARCHITECTURE.md`/`DATA_FLOW.md`) — auparavant, seule leur moyenne l'était et `deal_score` y était silencieusement substitué, biaisant le Radar pour toute annonce non ouverte en entier par l'utilisateur.
 - **Segmentation "Projets vs Flipping" :**
     - Volume de `LUTHIER_PROJ` (Restoration score élevé).
     - Volume de `PEPITE/FAST_FLIP` (Liquidity & Deal score élevés).
 
 ## 4. Performance & Vitesse (Rotation)
 - **Time-to-Sold :** Temps écoulé entre l'entrée en base et le passage au statut `sold`.
-- **Véracité IA :** % d'annonces `sold` qui avaient un `deal_score > 7` (Validation de la pertinence de l'IA).
+- ✅ **Véracité IA (implémenté 2026-08-06)** : `StatsView.jsx::aiAccuracyData` — % d'annonces `sold` avec un score IA élevé (≥7/10) comparé au % dans l'ensemble du marché. Nuance : `sold` fusionne "vraiment vendue" et "supprimée par le vendeur" (`_perform_cleanup()`, voir `ARCHITECTURE.md`) — pas une mesure pure de succès de vente, mais le meilleur proxy disponible sans donnée de transaction réelle.
+- ✅ **Vitesse de vente réelle vs Liquidité prédite → Explorateur de Corrélations (implémenté 2026-08-06, refondu 2026-08-17)** : `src/components/DealsExplorer.jsx` — nuage de points générique (un point = une annonce, sans moyenne ni regroupement) avec Axe X/Axe Y choisis librement parmi 8 métriques (les 5 scores IA, prix, marge estimée, délai de vente réel `soldTimestamp - publishTimestamp`), coloration optionnelle (Verdict/Source/Catégorie, groupes fixes) et filtre Ville, coefficient de corrélation de Pearson + régression recalculés pour la paire choisie. Répond directement à la question "l'IA prédit-elle correctement quelles annonces se vendront vite ?" — et, plus généralement, à toute question de corrélation entre deux métriques du marché. ⚠️ **La toute première version (par tranches Faible 0-4/Moyenne 5-7/Élevée 8-10, moyenne du score par tranche) produisait une droite quasi garantie par construction** — les tranches étant définies par ce même score, leur moyenne interne ne pouvait qu'augmenter avec l'ordre des tranches, peu importe la vraie relation avec la vitesse de vente (repéré par l'utilisateur : "les résultats prédits par l'IA forment une droite, c'est très suspect"). Une tentative intermédiaire (tranches par tertile de vitesse RÉELLE plutôt que de score, pour rester non-circulaire tout en gardant un format à 2 courbes) a ensuite été elle-même abandonnée : l'utilisateur a fait remarquer qu'un regroupement quel qu'il soit n'apportait rien face à la question posée en clair ("pour chaque vitesse de vente, quelle corrélation avec le score IA ?") — le nuage de points sur valeurs individuelles est la réponse directe, sans artefact de binning possible. Voir `JOURNAL.md` (2026-08-17) pour l'historique complet des trois versions.
+
+- 🔭 **Piste à l'étude (2026-08-17), non engagée : score de liquidité enrichi multi-facteurs.** Constat en testant l'Explorateur : la corrélation score IA × délai de vente réel reste faible (r ≈ -0,27 sur 46 ventes) — le score seul n'explique qu'une petite partie de la vitesse de vente réelle. Proposition utilisateur : croiser plusieurs facteurs (couleur, style, catégorie de taxonomie, tranche de prix — explicitement **pas** la ville, jugée non reproductible géographiquement d'une région à l'autre) pour identifier ce qui prédit vraiment une vente rapide, dans l'objectif d'enrichir `deal_score` avec ce signal. **Réserve exprimée avant tout engagement** : 46 ventes tracées est déjà un échantillon mince pour 2 variables ; le fragmenter en sous-groupes couleur × style × catégorie × prix produirait des cellules de 1-2 annonces chacune — du bruit statistique, pas un signal exploitable. **Approche en 2 phases recommandée** : (1) tester chaque facteur candidat individuellement contre le délai de vente via l'Explorateur (déjà outillé pour ça : axe Y = délai de vente réel, couleur = un facteur à la fois) et ne retenir que ceux montrant un vrai lien sur les données actuelles ; (2) seulement si un signal réel émerge, chantier séparé de réinjection dans le pipeline IA backend (`analyzer.py`/`deal_score`) — un changement d'architecture plus lourd qu'un ajout de graphique, à traiter à part. Voir `TODO.md` § Statistiques & Dashboard pour le suivi.
 
 ## 5. Géographie des Opportunités
-- **Heatmap :** Répartition des "Pépites" par ville/secteur scrapé pour optimiser le rayon de recherche.
+- ✅ **Implémenté 2026-08-06** : `StatsView.jsx::geoOpportunityData` — volume + marge moyenne des verdicts d'opportunité (`RADAR_GROUP`) par ville (`deal.location`), top 8. Barres plutôt qu'une heatmap cartographique (pas de nouvelle dépendance de cartographie pour un premier passage).
 
 ---
 
@@ -52,6 +55,11 @@ Axe absent de la réflexion initiale ci-dessus, ajouté suite à un cas concret 
 - **Erreurs Portier corrigées** : parmi les annonces initialement arrêtées au Portier seul, combien ont été réanalysées avec succès jusqu'à l'Analyste ou plus. Implémenté dans `StatsView.jsx` via `initialVerdict`/`initialModelUsed` (`ARCHITECTURE.md`).
 - Complète l'échantillonnage manuel ponctuel déjà existant (`analyze_funnel_by_user.py --sample-size`, `GEMINI_PROMPT_CACHING_PLAN.md §8.2`) par un taux mesuré en continu, sans script à lancer.
 - Limite actuelle : ne capture que les réanalyses **déclenchées manuellement** par l'utilisateur — ne détecte pas les faux positifs jamais revus.
+
+## 8. Comparaison Multi-Plateforme (Implémenté 2026-08-06)
+
+Axe apparu avec l'intégration de Kijiji (voir `ARCHITECTURE.md` § `bot.py::_run_kijiji_scan`) — permet de juger objectivement si une source apporte une vraie valeur ajoutée plutôt que du simple volume :
+- **`StatsView.jsx::sourceComparisonData`** : volume, prix moyen, marge moyenne et taux d'opportunités (verdicts `RADAR_GROUP`), par source. Source dérivée du préfixe `kijiji_` de l'ID (même convention que le backend), pas du champ `link` (absent de l'index léger).
 
 ---
 

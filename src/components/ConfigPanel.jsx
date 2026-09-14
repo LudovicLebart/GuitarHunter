@@ -3,6 +3,8 @@ import { Search, Sparkles, RotateCcw, BrainCircuit, Trash2, Plus, RefreshCw, X, 
 import { createPortal } from 'react-dom';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useCitiesContext } from '../context/CitiesContext';
+import { useCitySuggestions } from '../hooks/useCitySuggestions';
+import { createSuggestionKeyHandler } from './SearchSuggestions';
 
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
@@ -117,7 +119,41 @@ const FacebookSearchSection = () => {
       </div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Fréquence Scan (min)</label><input type="number" value={scanConfig.frequency} onChange={(e) => setScanConfig({ ...scanConfig, frequency: Number(e.target.value) })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
       <div><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 block">Mots-clés de recherche</label><input type="text" value={scanConfig.search_query} onChange={(e) => setScanConfig({ ...scanConfig, search_query: e.target.value })} onBlur={() => saveConfig({ scanConfig })} className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 focus:ring-2 focus:ring-blue-500/30 outline-none" /></div>
-      
+
+      <label className="flex items-center justify-between gap-3 p-3 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer">
+        <span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Source Facebook</span>
+          <span className="text-[10px] text-slate-500 mt-1 block leading-relaxed">Désactiver pour isoler un scan sur Kijiji seul (debug) — activé par défaut.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={scanConfig.facebook_enabled !== false}
+          onChange={(e) => {
+            const next = { ...scanConfig, facebook_enabled: e.target.checked };
+            setScanConfig(next);
+            saveConfig({ scanConfig: next });
+          }}
+          className="w-5 h-5 shrink-0 accent-blue-500 cursor-pointer"
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-3 p-3 bg-slate-900/50 border border-slate-800 rounded-xl cursor-pointer">
+        <span>
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Source Kijiji (bêta)</span>
+          <span className="text-[10px] text-slate-500 mt-1 block leading-relaxed">Scanne aussi Kijiji.ca, avec les mêmes villes et filtres que Facebook Marketplace ci-dessus.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={!!scanConfig.kijiji_enabled}
+          onChange={(e) => {
+            const next = { ...scanConfig, kijiji_enabled: e.target.checked };
+            setScanConfig(next);
+            saveConfig({ scanConfig: next });
+          }}
+          className="w-5 h-5 shrink-0 accent-blue-500 cursor-pointer"
+        />
+      </label>
+
       <div className="pt-2">
         <button 
           onClick={handleManualRefresh}
@@ -132,7 +168,7 @@ const FacebookSearchSection = () => {
       <div className="pt-4 border-t border-slate-800/50">
         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Scan d'URL Direct</label>
         <div className="flex gap-2">
-          <input type="text" placeholder="URL Facebook Marketplace..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
+          <input type="text" placeholder="URL Facebook Marketplace ou Kijiji..." value={specificUrl} onChange={(e) => setSpecificUrl(e.target.value)} className="flex-grow p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30" />
           <button onClick={() => handleScanSpecificUrl(specificUrl, setSpecificUrl)} disabled={!specificUrl || isScanningUrl} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-500 transition-all flex items-center justify-center">
             {isScanningUrl ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
           </button>
@@ -142,16 +178,90 @@ const FacebookSearchSection = () => {
   );
 };
 
+const CityKijijiRadiusInput = ({ city, onSave }) => {
+  const [value, setValue] = useState(city.kijijiRadiusKm ?? '');
+  useEffect(() => { setValue(city.kijijiRadiusKm ?? ''); }, [city.kijijiRadiusKm]);
+  return (
+    <input
+      type="number"
+      min="1"
+      placeholder="auto"
+      title="Rayon de recherche Kijiji (km) pour cette ville — vide = défaut automatique selon la taille de la ville"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onSave(city.docId, value ? Number(value) : null)}
+      className="w-10 bg-transparent text-blue-300 text-[10px] text-center border-b border-blue-500/30 focus:border-blue-400 outline-none placeholder:text-blue-500/40"
+    />
+  );
+};
+
 const CityManagementSection = () => {
-  const { cities, handleToggleScannable, handleAddCity, isAddingCity } = useCitiesContext();
+  const { cities, handleToggleScannable, handleSetCityKijijiRadius, handleAddCity, isAddingCity } = useCitiesContext();
   const [searchTerm, setSearchTerm] = useState('');
+  // Candidat Photon choisi (clic ou Entrée) : remplit le champ mais n'ajoute rien tant que
+  // l'utilisateur n'a pas explicitement cliqué sur "+" — voir handleSaveCity. Effacé dès que
+  // l'utilisateur retape du texte (le champ ne représente alors plus ce candidat précis).
+  const [pickedCandidate, setPickedCandidate] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
-  const suggestions = useMemo(() => searchTerm ? cities.filter(c => !c.isScannable && c.name.toLowerCase().includes(searchTerm.toLowerCase()) && c.id) : [], [searchTerm, cities]);
-  const addCityToWhitelist = (city) => { handleToggleScannable(city.docId, false); setSearchTerm(''); };
+  // Le catalogue partagé (villes déjà ajoutées par N'IMPORTE QUEL utilisateur de l'app, pas
+  // seulement celui-ci) n'est plus proposé en suggestion de réactivation ici : une correspondance
+  // texte pure ("Sa" → "La saline", ville d'un tout autre utilisateur à l'autre bout du monde) est
+  // structurellement non pertinente pour cet utilisateur, contrairement à Photon qui est biaisé par
+  // sa position réelle (voir useCitySuggestions.js). La dédup réelle (éviter un doublon si le nom
+  // correspond exactement à une ville déjà au catalogue) reste gérée automatiquement à l'exécution
+  // dans add_city_auto() — elle n'a jamais dépendu de cette liste.
+  const showPhotonSuggestions = searchTerm.trim().length >= 2 && !pickedCandidate;
+  const { suggestions: photonSuggestions, loading: photonLoading } = useCitySuggestions(
+    showPhotonSuggestions ? searchTerm : '',
+    scannableCities
+  );
+  const handleSearchTermChange = (value) => {
+    setSearchTerm(value);
+    setPickedCandidate(null);
+    setActiveIndex(-1);
+  };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
+  // Sélectionner un candidat (clic ou Entrée) ne fait que remplir le champ — l'ajout réel
+  // n'est déclenché que par le bouton "+" (handleSaveCity), jamais par la sélection elle-même.
+  const pickCandidate = (candidate) => {
+    setSearchTerm(candidate.displayLabel);
+    setPickedCandidate(candidate);
+    setActiveIndex(-1);
+  };
+  const handlePhotonKeyDownBase = createSuggestionKeyHandler({
+    suggestions: photonSuggestions,
+    activeIndex,
+    setActiveIndex,
+    onSelect: pickCandidate,
+    onClose: () => setActiveIndex(-1),
+  });
+  // ↓/↑ après une sélection (candidat déjà rempli dans le champ, liste fermée) rouvre la liste
+  // au lieu de rester sans effet — l'utilisateur doit pouvoir continuer à parcourir les
+  // suggestions sans retaper de texte.
+  const handlePhotonKeyDown = (e) => {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && pickedCandidate) {
+      setPickedCandidate(null);
+      return;
+    }
+    handlePhotonKeyDownBase(e);
+  };
+  // Le menu est rendu dans le flux normal (pas en position absolue/fixe superposée) : à la fois le
+  // z-index (contexte d'empilement local à `CollapsibleSection`) et un portail en position fixe
+  // (coordonnées fiables mais viewport mobile perturbé par le clavier virtuel, cf. captures
+  // utilisateur) se sont révélés peu fiables. En flux normal, le menu pousse simplement le contenu
+  // suivant vers le bas — jamais caché, quel que soit l'appareil.
+  const dropdownOpen = showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0);
   const handleSaveCity = async () => {
+    if (isAddingCity) return;
+    if (pickedCandidate) {
+      await handleAddCity({ name: pickedCandidate.name, latitude: pickedCandidate.latitude, longitude: pickedCandidate.longitude, regionHint: pickedCandidate.regionHint });
+      setSearchTerm('');
+      setPickedCandidate(null);
+      return;
+    }
     const cityToAdd = searchTerm.trim();
-    if (!cityToAdd || isAddingCity) return;
+    if (!cityToAdd) return;
     await handleAddCity(cityToAdd);
     setSearchTerm('');
   };
@@ -159,10 +269,13 @@ const CityManagementSection = () => {
     <div className="pt-2 space-y-4">
       <div className="space-y-2">
         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Villes Actives</label>
+        <p className="text-[9px] text-slate-600">Le champ "km" (Kijiji) est optionnel — laissé vide, un rayon automatique s'applique selon la taille de la ville.</p>
         <div className="flex flex-wrap gap-2">
           {scannableCities.map(city => (
             <div key={city.docId} className="flex items-center gap-2 bg-blue-500/10 px-3 py-1.5 rounded-full text-xs border border-blue-500/30 group">
               <span className="font-bold text-blue-400">{city.name}</span>
+              <CityKijijiRadiusInput city={city} onSave={handleSetCityKijijiRadius} />
+              <span className="text-[9px] text-blue-500/50">km</span>
               <button onClick={() => removeCityFromWhitelist(city)} className="text-blue-500/50 hover:text-rose-500 transition-colors">
                 <X size={14} />
               </button>
@@ -181,20 +294,36 @@ const CityManagementSection = () => {
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Ajouter une zone</label>
           <span className="text-[9px] text-slate-600 font-bold uppercase tracking-tight">Taper le nom et cliquer sur + pour ajouter</span>
         </div>
-        <div className="flex gap-2">
-          <div className="relative flex-grow">
+        <div className="flex items-start gap-2">
+          <div className="flex-grow">
             <input
               type="text"
               placeholder="Rechercher une ville..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => handleSearchTermChange(e.target.value)}
+              onKeyDown={handlePhotonKeyDown}
               className="w-full p-3 bg-slate-900/50 border border-slate-800 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/30"
             />
-            {suggestions.length > 0 && (
-              <div className="absolute z-10 w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-48 overflow-y-auto overflow-x-hidden scrollbar-dark">
-                {suggestions.map(suggestion => (
-                  <div key={suggestion.docId} onClick={() => addCityToWhitelist(suggestion)} className="p-3 text-xs text-slate-300 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors border-b border-slate-700/50 last:border-0">
-                    {suggestion.name}
+            {dropdownOpen && (
+              <div className="mt-2 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto overflow-x-hidden scrollbar-dark">
+                {photonLoading && (
+                  <div className="p-3 text-[11px] text-slate-500 italic flex items-center gap-2">
+                    <RefreshCw size={12} className="animate-spin" /> Recherche...
+                  </div>
+                )}
+                {!photonLoading && photonSuggestions.map((candidate, idx) => (
+                  <div
+                    key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
+                    // onMouseDown (pas onClick) : le blur du champ, qui referme la liste,
+                    // se déclencherait avant le click et emporterait la sélection avec lui.
+                    onMouseDown={(e) => { e.preventDefault(); pickCandidate(candidate); }}
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    className={`p-3 text-xs text-slate-300 cursor-pointer transition-colors border-b border-slate-700/50 last:border-0 ${idx === activeIndex ? 'bg-slate-700 text-white' : 'hover:bg-slate-700 hover:text-white'}`}
+                  >
+                    <span className="font-bold">{candidate.name}</span>
+                    {candidate.displayLabel !== candidate.name && (
+                      <span className="text-slate-500"> — {candidate.displayLabel.replace(`${candidate.name}, `, '')}</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -235,11 +364,12 @@ const AiConfigSection = () => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
   };
 
-  // Fallback si la liste n'est pas encore chargée
+  // Fallback si la liste n'est pas encore chargée (aligné sur GEMINI_MODELS["available"], config.py)
   const models = availableModels.length > 0 ? availableModels : [
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-pro",
+    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview"
   ];
@@ -312,6 +442,8 @@ const LogsConfigSection = () => {
             value={logLimit}
             onChange={(e) => setLogLimit(Number(e.target.value))}
             onBlur={() => saveConfig({ logLimit: Number(logLimit) })}
+            onMouseUp={(e) => saveConfig({ logLimit: Number(e.target.value) })}
+            onKeyUp={(e) => saveConfig({ logLimit: Number(e.target.value) })}
             className="flex-grow h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
           <span className="min-w-[40px] text-right font-mono text-xs text-blue-400 font-bold">{logLimit}</span>
@@ -341,7 +473,7 @@ const ConfigPanel = ({ showConfig, onClose }) => {
         </div>
       </div>
       <div className="flex-grow overflow-y-auto scrollbar-dark p-6 space-y-4">
-        <CollapsibleSection title="Scraping & Facebook"><FacebookSearchSection /></CollapsibleSection>
+        <CollapsibleSection title="Scraping"><FacebookSearchSection /></CollapsibleSection>
         <CollapsibleSection title="Géo-Localisation"><CityManagementSection /></CollapsibleSection>
         <CollapsibleSection title="Nettoyage & Mots-clés"><ExclusionKeywordsSection /></CollapsibleSection>
         <CollapsibleSection title="Intelligence Artificielle V2"><AiConfigSection /></CollapsibleSection>
