@@ -23,99 +23,69 @@ import sys
 import os
 import logging
 
-# Comme rebuild_index.py : nécessaire pour que `from backend.scripts... import ...` résolve,
-# `python3 backend/scripts/run_once.py` n'ajoutant que le dossier du script (pas la racine du
-# repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-14 : diagnostic de la progression de l'export complet Firestore→Postgres
-    (Phase A.4) lancé au run #491 (PID=1793707).
-
-    Résultat (run #494, voir JOURNAL.md) : SUCCÈS. Process terminé (plus dans `ps`).
-    Comptages Postgres finaux : 6533 guitar_deals (6167 + 347 + 17 + 2 sur 4 utilisateurs
-    actifs), 244 deal_chat, 4 restoration_plan_items, 50 cities, 25 shared_deals. Le
-    fichier de log lui-même était partiellement corrompu (bannières de démarrage
-    dupliquées) — probablement une relance concurrente du même script par un autre
-    déploiement déclenché pendant que `run_once.py` était armé (une autre session
-    travaillait sur `dev` en parallèle). Idempotent donc sans perte, mais leçon retenue :
-    un futur script d'action doit se protéger contre un double lancement concurrent
-    (verrou fichier ou vérification `ps` avant de lancer) si `dev` reste actif pendant
-    l'armement. Désarmé ci-dessous.
+    2026-09-15 : diagnostic Chantier G — l'utilisateur rapporte que le filtre
+    `activeSearchFamilies` (configuré cette nuit pour ne promouvoir que
+    "Guitare > Electrique > Semi Hollow 1&2 Caisse" vers T2/T3) n'a apparemment filtré
+    aucune annonce (tous types de guitares promus). Lecture en lecture seule (aucune
+    écriture) : valeur brute de `analysisConfig.activeSearchFamilies` en Firestore pour
+    l'utilisateur principal + comptage, sur les logs Firestore des dernières 18h, des
+    lignes "Verdict Portier" (total décisions T1) vs "Hors recherche active" (annonces
+    effectivement non promues par Chantier G).
     """
-    import subprocess
+    import datetime
+    import firebase_admin
+    from firebase_admin import credentials, firestore
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
     logger = logging.getLogger("run_once")
 
-    def _run(cmd, timeout=15):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            out = (r.stdout or "").strip()
-            err = (r.stderr or "").strip()
-            combined = "\n".join(p for p in (out, err) if p)
-            return f"[exit={r.returncode}] {combined}" if combined else f"[exit={r.returncode}] (vide)"
-        except Exception as e:
-            return f"(échec: {e})"
+    from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
 
-    pid = "1793707"
-    logger.info(f"Process encore actif ? ps -p {pid} : {_run(['ps', '-p', pid, '-o', 'pid,etime,cmd'])}")
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(FIREBASE_KEY_PATH)
+        firebase_admin.initialize_app(cred)
+    db = firestore.client()
 
-    log_path = os.path.expanduser("~/export_full_a4.log")
-    logger.info(f"--- Dernières lignes de {log_path} ---")
-    logger.info(_run(['tail', '-n', '60', log_path]))
+    user_id = USER_ID_TARGET
+    logger.info(f"Utilisateur cible : {user_id[:12]}...")
 
-    env_path = os.path.expanduser("~/.guitarhunter_staging_db.env")
-    dsn = None
-    try:
-        with open(env_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("DATABASE_URL="):
-                    dsn = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-    except FileNotFoundError:
-        logger.error(f"Fichier introuvable : {env_path}")
-        return
+    user_doc = db.collection('artifacts').document(APP_ID_TARGET) \
+        .collection('users').document(user_id).get()
+    analysis_config = (user_doc.to_dict() or {}).get('analysisConfig', {})
+    active_search_families = analysis_config.get('activeSearchFamilies')
+    logger.info(f"analysisConfig.activeSearchFamilies (valeur brute Firestore) = {active_search_families!r}")
 
-    if not dsn:
-        logger.error(f"DATABASE_URL introuvable dans {env_path} — abandon des comptages Postgres.")
-        return
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=18)
+    logs_ref = db.collection('artifacts').document(APP_ID_TARGET) \
+        .collection('users').document(user_id).collection('logs') \
+        .where('timestamp', '>=', since).order_by('timestamp')
 
-    import asyncio
-    import asyncpg
+    total_verdicts = 0
+    total_not_promoted = 0
+    sample_not_promoted = []
 
-    async def _counts():
-        conn = await asyncpg.connect(dsn, timeout=10)
-        try:
-            per_user = await conn.fetch(
-                "SELECT user_id, COUNT(*) AS n FROM guitar_deals GROUP BY user_id ORDER BY n DESC"
-            )
-            total_deals = await conn.fetchval("SELECT COUNT(*) FROM guitar_deals")
-            total_chat = await conn.fetchval("SELECT COUNT(*) FROM deal_chat")
-            total_resto = await conn.fetchval("SELECT COUNT(*) FROM restoration_plan_items")
-            total_cities = await conn.fetchval("SELECT COUNT(*) FROM cities")
-            total_shared = await conn.fetchval("SELECT COUNT(*) FROM shared_deals")
-            logger.info("--- Comptages Postgres (guitarhunter_pg_staging) ---")
-            logger.info(f"Total guitar_deals : {total_deals}")
-            for row in per_user:
-                logger.info(f"  user_id={row['user_id'][:12]}... : {row['n']} annonces")
-            logger.info(f"Total deal_chat : {total_chat}")
-            logger.info(f"Total restoration_plan_items : {total_resto}")
-            logger.info(f"Total cities : {total_cities}")
-            logger.info(f"Total shared_deals : {total_shared}")
-        finally:
-            await conn.close()
+    for doc in logs_ref.stream():
+        msg = (doc.to_dict() or {}).get('message', '')
+        if 'Verdict Portier' in msg:
+            total_verdicts += 1
+        if 'Hors recherche active' in msg:
+            total_not_promoted += 1
+            if len(sample_not_promoted) < 5:
+                sample_not_promoted.append(msg)
 
-    try:
-        asyncio.run(_counts())
-    except Exception as e:
-        logger.error(f"Échec de la connexion/requête Postgres : {e}")
+    logger.info(f"--- Fenêtre analysée : depuis {since.isoformat()} ---")
+    logger.info(f"Total 'Verdict Portier' (décisions T1) : {total_verdicts}")
+    logger.info(f"Total 'Hors recherche active' (non promues par Chantier G) : {total_not_promoted}")
+    for s in sample_not_promoted:
+        logger.info(f"  ex: {s}")
 
 
 if __name__ == "__main__":
