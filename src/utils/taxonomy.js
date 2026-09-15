@@ -243,17 +243,3 @@ export const formatClassificationLabel = (classification) => {
   }
   return leaf;
 };
-
-/**
- * Réduit une liste de chemins sélectionnés à ceux qui ne sont l'ancêtre d'aucun autre chemin de
- * la même liste. Cocher un nœud parent est une conséquence naturelle du dépliage de l'arbre
- * (TaxonomyTreePicker) — sans cet élagage, un ancêtre coché en plus de son descendant élargit
- * silencieusement le filtre à toute sa branche (Chantier G, bug constaté le 2026-09-15 : 'guitare'
- * et 'guitare.electrique' cochés en plus de 'guitare.electrique.semi_hollow_1_2_caisse' faisaient
- * matcher TOUTE guitare électrique via le préfixe côté backend). Seul le(s) chemin(s) le(s) plus
- * spécifique(s) de chaque branche est conservé.
- */
-export const pruneToDeepestPaths = (paths) => {
-  const list = paths || [];
-  return list.filter(p => !list.some(other => other !== p && other.startsWith(`${p}.`)));
-};

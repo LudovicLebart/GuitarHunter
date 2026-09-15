@@ -3,7 +3,6 @@ import { X, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 import TaxonomyTreePicker from './TaxonomyTreePicker';
 import { useBotConfigContext } from '../context/BotConfigContext';
-import { pruneToDeepestPaths } from '../utils/taxonomy';
 
 const CONDITION_OPTIONS = [
     { value: 'all', label: 'Toutes' },
@@ -91,18 +90,25 @@ const ActiveSearchSection = () => {
 
     const handleTogglePath = (path) => {
         const current = analysisConfig.activeSearchFamilies || [];
-        const nextRaw = current.includes(path) ? current.filter(p => p !== path) : [...current, path];
-        // Ne garde que les chemins les plus spécifiques : cocher "Semi Hollow" en ayant déjà
-        // "Guitare" (ou l'inverse, en dépliant l'arbre) ne doit jamais élargir le filtre à toute
-        // la branche — voir pruneToDeepestPaths (bug Chantier G du 2026-09-15).
-        const next = pruneToDeepestPaths(nextRaw);
+        let next;
+        if (current.includes(path)) {
+            // Décoche : simple retrait, aucun élagage nécessaire.
+            next = current.filter(p => p !== path);
+        } else {
+            // Coche : ce chemin remplace tout ancêtre OU descendant déjà sélectionné dans la même
+            // branche — le dernier choix de l'utilisateur l'emporte (demande initiale). Sans ça,
+            // cocher "Guitare" alors que "Guitare > Électrique > Semi Hollow" est déjà coché était
+            // silencieusement annulé par l'élagage "garder le plus profond" (bug Chantier G du
+            // 2026-09-15) : le parent restait grisé, impossible à sélectionner.
+            const filtered = current.filter(p => !(p.startsWith(`${path}.`) || path.startsWith(`${p}.`)));
+            next = [...filtered, path];
+        }
         setAnalysisConfig(prev => ({ ...prev, activeSearchFamilies: next }));
         saveConfig({ 'analysisConfig.activeSearchFamilies': next });
     };
 
     return (
-        <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 border-l-4 border-l-amber-500/50 mb-4">
-            <label className="text-[11px] font-black text-amber-500 uppercase tracking-widest block mb-1">Recherche Active</label>
+        <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-800/80 border-l-4 border-l-amber-500/50">
             <p className="text-[10px] text-slate-500 mb-4 leading-relaxed">
                 Le Portier tourne toujours sur 100% des annonces. Si une ou plusieurs familles sont cochées
                 ci-dessous, seules les annonces classées dans ces familles (ou jugées pépite par le Portier —
@@ -135,7 +141,9 @@ const ActiveSearchSection = () => {
 };
 
 const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {}, selectedTypePaths = [], onToggleType, onClearTypes }) => {
+    const { analysisConfig } = useBotConfigContext();
     const { condition, price, finishApplication = 'ALL', finishTexture = 'ALL', sort = 'date' } = filters;
+    const hasActiveSearch = (analysisConfig.activeSearchFamilies || []).length > 0;
 
     const activeCount = [
         selectedTypePaths.length,
@@ -176,7 +184,10 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
                 {/* Scrollable body */}
                 <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6 scrollbar-dark">
 
-                    <ActiveSearchSection />
+                    {/* ── Recherche Active ── */}
+                    <FilterGroup label="Recherche Active" defaultOpen={hasActiveSearch}>
+                        <ActiveSearchSection />
+                    </FilterGroup>
 
                     {/* ── Tri ── */}
                     <FilterGroup label="Trier par" defaultOpen={true}>
