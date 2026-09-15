@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-15] [PRO] Chantier G : vrai sélecteur d'arbre de taxonomie (au lieu de saisie libre) + remise à zéro d'`activeSearchFamilies`.
+- **Demande utilisateur** : (1) pouvoir choisir dans la taxonomie plutôt que taper des chemins dot-notation à la main ; (2) remettre `activeSearchFamilies` à vide par défaut (réglé sur "Parlor" en production via le script initial du 2026-09-13).
+- **Codé** : extrait l'arbre de taxonomie de `FilterDrawer.jsx` (tiroir de filtres) vers un composant partagé `TaxonomyTreePicker.jsx` — même logique EXACTE (checkboxes, expand/collapse indépendant de la sélection, sélection en anti-chaîne), rendue réutilisable. `FilterDrawer.jsx` refactorisé pour l'utiliser (comportement inchangé). `ConfigPanel.jsx` (section "Recherche Active") branché sur ce même composant : cocher/décocher sauvegarde immédiatement `analysisConfig.activeSearchFamilies` (même pattern que les autres toggles du panneau).
+- **Généré dynamiquement depuis `taxonomy_master`** (`prompts.json`) — toute nouvelle branche apparaît automatiquement dans les deux surfaces sans changement de code.
+- **`set_active_search_families.py --clear`** relancé via `ops/run-script` pour remettre tous les utilisateurs à `[]` — comportement par défaut "tout analyser" restauré, à reconfigurer manuellement depuis l'UI.
+- **Validé** : `npm run build` propre ; pas de test interactif en navigateur (pas de credentials Firebase dans le bac à sable de développement).
+
 [2026-09-13] [PRO] Chantier H : schéma JSON strict (enum) sur le `status` du Portier — Gemini ET Qwen.
 - **Contexte** : le run #42 (comparaison Gemini/Qwen, 38 annonces) a montré Qwen renvoyer 7 fois `"ACCEPTED"` comme `qwenGatekeeperVerdict` — une valeur hors taxonomie (les 9 verdicts valides : `PEPITE`/`FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION`/`FAIR`/`BAD_DEAL`/`REJECTED_ITEM`/`REJECTED_SERVICE`). Demande utilisateur : forcer Qwen à respecter scrupuleusement le contrat de sortie.
 - **Codé** : nouvelle constante partagée `T1_VALID_STATUSES`. `T1_GATEKEEPER_RESPONSE_SCHEMA` (Gemini) : ajout d'un `enum` sur `status` (gratuit, déjà supporté par le SDK `google.generativeai`). Nouveau `T1_GATEKEEPER_OPENAI_JSON_SCHEMA` (format `json_schema` strict) pour Qwen via `_call_openai_compatible_json` (accepte désormais un `response_format` optionnel, repli sur le mode JSON libre historique si omis).

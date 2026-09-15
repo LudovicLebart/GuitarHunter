@@ -1,42 +1,7 @@
 import React from 'react';
-import { X, ChevronDown, ChevronUp, ChevronRight, Check } from 'lucide-react';
+import { X, ChevronDown, ChevronUp } from 'lucide-react';
 
-import promptsData from '../../prompts.json';
-// Libellé partagé avec l'autocomplétion de la barre de recherche (useDealsManager::taxonomyNodes),
-// pour qu'une même catégorie s'affiche identiquement dans les deux surfaces.
-import { formatTaxonomyLabel as formatLabel } from '../constants';
-
-// ============================================================
-// TAXONOMY TREE FROM PROMPTS.JSON
-// dynamically format to: { key: { label: '...', children: {...} } }
-// IMPORTANT: keys must EXACTLY match the values in prompt.json arrays for filtering to work
-// ============================================================
-
-const buildTaxonomyTree = (node) => {
-    if (Array.isArray(node)) {
-        const res = {};
-        node.forEach(item => {
-            // Leaf node: key is the exact item string, no children
-            res[item] = { label: item, children: null };
-        });
-        return res;
-    }
-    if (typeof node === 'object' && node !== null) {
-        const res = {};
-        for (const [key, value] of Object.entries(node)) {
-            // Intermediate node: key is the exact string block
-            res[key] = {
-                label: formatLabel(key),
-                children: buildTaxonomyTree(value)
-            };
-        }
-        return res;
-    }
-    return node;
-};
-
-const TAXONOMY_TREE = buildTaxonomyTree(promptsData.taxonomy_master);
-
+import TaxonomyTreePicker from './TaxonomyTreePicker';
 
 const CONDITION_OPTIONS = [
     { value: 'all', label: 'Toutes' },
@@ -122,64 +87,10 @@ const InlineOption = ({ label, active, onClick, depth = 0 }) => {
 };
 
 // ============================================================
-// Taxonomy Option — multi-select checkbox, expand/collapse indépendant
-// de la sélection (plusieurs catégories peuvent être cochées à la fois,
-// même dans des branches différentes, ex: "Parlor" + "Baby / Mini")
-// ============================================================
-const TaxonomyOption = ({ label, checked, onToggleCheck, hasChildren, expanded, onToggleExpand, depth = 0, count }) => {
-    const paddingLeft = depth === 0 ? 'px-2' : depth === 1 ? 'pl-6 pr-2' : depth === 2 ? 'pl-10 pr-2' : 'pl-14 pr-2';
-    const textSize = depth === 0 ? 'text-sm' : depth === 1 ? 'text-[13px]' : depth === 2 ? 'text-xs' : 'text-[11px]';
-
-    return (
-        <div className={`flex items-center gap-2.5 rounded-lg transition-all w-full ${paddingLeft} ${checked ? 'bg-blue-600/10 border border-blue-500/20' : 'hover:bg-slate-800 border border-transparent'
-            }`}>
-            <button
-                onClick={onToggleCheck}
-                aria-pressed={checked}
-                className={`shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${checked ? 'border-blue-500 bg-blue-500' : 'border-slate-600'
-                    }`}
-            >
-                {checked && <Check size={11} strokeWidth={3} className="text-white" />}
-            </button>
-
-            <button
-                onClick={onToggleExpand || onToggleCheck}
-                className="flex-1 flex items-center gap-2 min-w-0 text-left py-2.5 sm:py-2"
-            >
-                <span className={`flex-1 leading-tight truncate ${textSize} ${checked ? 'text-white font-semibold' : depth === 0 ? 'text-slate-300' : 'text-slate-400'
-                    }`}>
-                    {label}
-                </span>
-
-                {count > 0 && (
-                    <span className={`shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded-md ${checked ? 'bg-blue-500/20 text-blue-200' : 'bg-slate-800 text-slate-500'}`}>
-                        {count}
-                    </span>
-                )}
-
-                {hasChildren && (
-                    <ChevronRight size={14} className={`shrink-0 transition-transform ${expanded ? 'rotate-90' : ''} ${checked ? 'text-blue-400' : 'text-slate-600'}`} />
-                )}
-            </button>
-        </div>
-    );
-};
-
-
-// ============================================================
 // Main Drawer — Taxonomie en Multi-Sélection
 // ============================================================
 const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {}, selectedTypePaths = [], onToggleType, onClearTypes }) => {
     const { condition, price, finishApplication = 'ALL', finishTexture = 'ALL', sort = 'date' } = filters;
-
-    // État d'expansion (navigation) — indépendant de la sélection : un noeud peut être
-    // déplié pour naviguer sans être coché, et coché sans être déplié.
-    const [expandedPaths, setExpandedPaths] = React.useState(() => new Set());
-    const toggleExpand = (path) => setExpandedPaths(prev => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path); else next.add(path);
-        return next;
-    });
 
     const activeCount = [
         selectedTypePaths.length,
@@ -188,61 +99,6 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
         finishApplication !== 'ALL' ? 1 : 0,
         finishTexture !== 'ALL' ? 1 : 0,
     ].reduce((a, b) => a + b, 0);
-
-    // Recursive render function for the taxonomy tree
-    const renderTaxonomyTree = (node = TAXONOMY_TREE, parentPath = "") => {
-        return (
-            <div className="flex flex-col gap-0.5">
-                {parentPath === "" && (
-                    <TaxonomyOption
-                        label="Tous les types"
-                        checked={selectedTypePaths.length === 0}
-                        onToggleCheck={() => onClearTypes?.()}
-                        depth={0}
-                        count={counts.all}
-                    />
-                )}
-
-                {Object.entries(node).map(([key, cfg]) => {
-                    const currentPath = parentPath ? `${parentPath}.${key}` : key;
-                    const depth = parentPath.split('.').filter(Boolean).length;
-
-                    const isChecked = selectedTypePaths.includes(currentPath);
-                    const hasChildren = cfg.children && Object.keys(cfg.children).length > 0;
-                    // Une catégorie se déplie automatiquement si elle est cochée, OU si un de ses
-                    // descendants l'est (sélection en anti-chaîne : cocher "Parlor" ne coche plus
-                    // ses parents, donc c'est la présence d'un descendant coché qui doit ouvrir la
-                    // branche pour qu'il reste visible).
-                    const isExpanded = expandedPaths.has(currentPath) || isChecked
-                        || selectedTypePaths.some(p => p.startsWith(`${currentPath}.`));
-                    const showChildren = isExpanded && hasChildren;
-
-                    return (
-                        <React.Fragment key={key}>
-                            <TaxonomyOption
-                                label={cfg.label}
-                                checked={isChecked}
-                                onToggleCheck={() => onToggleType?.(currentPath)}
-                                hasChildren={hasChildren}
-                                expanded={isExpanded}
-                                onToggleExpand={hasChildren ? () => toggleExpand(currentPath) : undefined}
-                                depth={depth}
-                                count={counts[currentPath] || 0}
-                            />
-
-                            {showChildren && (
-                                <div className={`mt-1 flex flex-col gap-0.5 mb-2 relative border-l-2 border-slate-700/50 ${
-                                    depth === 0 ? 'ml-[11px]' : depth === 1 ? 'ml-7' : 'ml-10'
-                                }`}>
-                                    {renderTaxonomyTree(cfg.children, currentPath)}
-                                </div>
-                            )}
-                        </React.Fragment>
-                    );
-                })}
-            </div>
-        );
-    };
 
     return (
         <>
@@ -292,7 +148,14 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
 
                     {/* ── Taxonomy Tree (Inline Accordion) ── */}
                     <FilterGroup label="Type d'instrument" defaultOpen={true}>
-                        {renderTaxonomyTree()}
+                        <TaxonomyTreePicker
+                            selectedPaths={selectedTypePaths}
+                            onTogglePath={onToggleType}
+                            showClearAllOption
+                            onClearPaths={onClearTypes}
+                            clearAllLabel="Tous les types"
+                            counts={counts}
+                        />
                     </FilterGroup>
 
                     {/* ── Condition ── */}
