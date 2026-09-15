@@ -8,6 +8,7 @@ import { createSuggestionKeyHandler } from './SearchSuggestions';
 
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
+import TaxonomyTreePicker from './TaxonomyTreePicker';
 
 // --- COMPOSANT ÉDITEUR DE LISTE ---
 const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle instruction..." }) => {
@@ -429,17 +430,22 @@ const AiConfigSection = () => {
         <div className="bg-slate-900/80 p-5 rounded-3xl border border-slate-800/80 border-l-4 border-l-amber-500/50">
           <label className="text-[11px] font-black text-amber-500 uppercase tracking-widest block mb-1">Recherche Active (Chantier G)</label>
           <p className="text-[10px] text-slate-500 mb-5 leading-relaxed">
-            Le Portier tourne toujours sur 100% des annonces. Si une famille de taxonomie est listée
-            ici (ex : <code className="text-amber-400/80">guitare.acoustique_acier.formes_standard.Parlor</code>),
-            seules les annonces classées dans cette famille (ou jugées pépite par le Portier — garde-fou non négociable)
-            sont promues vers l'Analyste/Expert. Liste vide = comportement par défaut ("tout analyser").
+            Le Portier tourne toujours sur 100% des annonces. Si une ou plusieurs familles sont cochées
+            ci-dessous, seules les annonces classées dans ces familles (ou jugées pépite par le Portier —
+            garde-fou non négociable) sont promues vers l'Analyste/Expert. Rien de coché = comportement
+            par défaut ("tout analyser").
           </p>
-          <PromptListEditor
-            items={analysisConfig.activeSearchFamilies}
-            onChange={(val) => handleAnalysisConfigChange('activeSearchFamilies', val)}
-            onSave={(val) => saveConfig({ 'analysisConfig.activeSearchFamilies': val })}
-            placeholder="Ex: guitare.acoustique_acier.formes_standard.Parlor"
-          />
+          <div className="max-h-72 overflow-y-auto scrollbar-dark rounded-xl bg-slate-900/50 p-2 border border-slate-800">
+            <TaxonomyTreePicker
+              selectedPaths={analysisConfig.activeSearchFamilies}
+              onTogglePath={(path) => {
+                const current = analysisConfig.activeSearchFamilies || [];
+                const next = current.includes(path) ? current.filter(p => p !== path) : [...current, path];
+                handleAnalysisConfigChange('activeSearchFamilies', next);
+                saveConfig({ 'analysisConfig.activeSearchFamilies': next });
+              }}
+            />
+          </div>
           <div className="mt-4 pt-4 border-t border-slate-800/80">
             <button
               onClick={handleReevaluateNotPromoted}
