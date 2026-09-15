@@ -246,7 +246,14 @@ jobs:
             # photos manquantes du run #35). Priorise les candidats déjà signalés par Qwen
             # (Chantier H), croise les deux signaux dans le rapport. Demande explicite de
             # l'utilisateur ("1 et 2 combiné").
-            python3 -u -m backend.scripts.audit_rejected_gems --limit 300
+            #
+            # Run #46 (2026-09-15) : `set_active_search_families.py --clear` — ÉCRIT dans
+            # Firestore de production. Remet `analysisConfig.activeSearchFamilies` à [] pour tous
+            # les utilisateurs : le filtre "Parlor" du script initial (run #41, avant que l'UI
+            # existe) est retiré. Demande utilisateur suite à l'ajout du sélecteur d'arbre de
+            # taxonomie dans ConfigPanel — comportement par défaut "tout analyser" restauré, à
+            # reconfigurer manuellement depuis l'UI si besoin.
+            python3 -u -m backend.scripts.set_active_search_families --clear
 
       - name: Récupération du rapport généré
         env:
