@@ -25,52 +25,23 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-15 : correctif Chantier G — nettoie `analysisConfig.activeSearchFamilies` en
-    Firestore pour l'utilisateur principal, déjà corrompu par des ancêtres cochés en plus de
-    leurs descendants ('guitare', 'guitare.electrique' en plus de
-    'guitare.electrique.semi_hollow_1_2_caisse', etc. — voir run #497 / JOURNAL.md). Le code
-    frontend (FilterDrawer.jsx) empêche désormais ce cas à la source via pruneToDeepestPaths,
-    mais la valeur déjà en base doit être nettoyée une fois manuellement — idempotent (ne garde
-    que les chemins les plus spécifiques, sans effet si déjà propre).
+    2026-09-15 : correctif Chantier G (run #503) — CONFIRMÉ. Nettoyage Firestore de
+    `analysisConfig.activeSearchFamilies` effectué avec succès (constaté déjà propre au
+    dernier passage : ['guitare.electrique.semi_hollow_1_2_caisse',
+    'guitare.electrique.hollow_body_full_caisse', 'guitare.acoustique_acier.formes_standard.Parlor',
+    'guitare.acoustique_acier.formes_standard.Orchestra', 'guitare.acoustique_acier.specialites.Travel']
+    — les anciens ancêtres 'guitare'/'guitare.electrique'/'guitare.acoustique_acier'/
+    'guitare.acoustique_acier.formes_standard' ont bien été retirés). Frontend (FilterDrawer.jsx
+    + pruneToDeepestPaths dans src/utils/taxonomy.js) déployé avec succès (build + GitHub Pages
+    OK). Désarmé ci-dessous — rien à rejouer.
     """
-    import firebase_admin
-    from firebase_admin import credentials, firestore
-
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
-    logger = logging.getLogger("run_once")
-
-    from config import APP_ID_TARGET, USER_ID_TARGET, FIREBASE_KEY_PATH
-
-    if not firebase_admin._apps:
-        cred = credentials.Certificate(FIREBASE_KEY_PATH)
-        firebase_admin.initialize_app(cred)
-    db = firestore.client()
-
-    def prune_to_deepest(paths):
-        return [p for p in paths if not any(other != p and other.startswith(f"{p}.") for other in paths)]
-
-    user_id = USER_ID_TARGET
-    user_ref = db.collection('artifacts').document(APP_ID_TARGET).collection('users').document(user_id)
-    doc = user_ref.get()
-    analysis_config = (doc.to_dict() or {}).get('analysisConfig', {})
-    current = analysis_config.get('activeSearchFamilies') or []
-    cleaned = prune_to_deepest(current)
-
-    logger.info(f"Utilisateur cible : {user_id[:12]}...")
-    logger.info(f"Avant  : {current!r}")
-    logger.info(f"Après  : {cleaned!r}")
-
-    if sorted(cleaned) != sorted(current):
-        user_ref.update({'analysisConfig.activeSearchFamilies': cleaned})
-        logger.info("Firestore mis à jour.")
-    else:
-        logger.info("Déjà propre — rien à changer.")
+    pass
 
 
 if __name__ == "__main__":
