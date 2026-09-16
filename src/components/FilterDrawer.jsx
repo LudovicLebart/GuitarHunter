@@ -141,9 +141,7 @@ const ActiveSearchSection = () => {
 };
 
 const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts = {}, selectedTypePaths = [], onToggleType, onClearTypes }) => {
-    const { analysisConfig } = useBotConfigContext();
     const { condition, price, finishApplication = 'ALL', finishTexture = 'ALL', sort = 'date' } = filters;
-    const hasActiveSearch = (analysisConfig.activeSearchFamilies || []).length > 0;
 
     const activeCount = [
         selectedTypePaths.length,
@@ -185,7 +183,7 @@ const FilterDrawer = ({ open, onClose, filters, onFilterChange, onReset, counts 
                 <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6 scrollbar-dark">
 
                     {/* ── Recherche Active ── */}
-                    <FilterGroup label="Recherche Active" defaultOpen={hasActiveSearch}>
+                    <FilterGroup label="Recherche Active">
                         <ActiveSearchSection />
                     </FilterGroup>
 

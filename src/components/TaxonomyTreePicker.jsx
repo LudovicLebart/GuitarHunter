@@ -105,10 +105,15 @@ const TaxonomyTreePicker = ({
     clearAllLabel = 'Tous les types',
     counts = {},
 }) => {
-    const [expandedPaths, setExpandedPaths] = React.useState(() => new Set());
-    const toggleExpand = (path) => setExpandedPaths(prev => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path); else next.add(path);
+    // Overrides explicites (clic sur le chevron) — priment sur la règle auto (coché/descendant
+    // coché) tant qu'ils existent, dans les deux sens. Sans ça, un Set "déjà déplié" ne peut
+    // qu'ajouter : tant qu'un descendant reste coché, `expanded = auto || dansLeSet` reste vrai
+    // quoi qu'on fasse, et cliquer le chevron pour replier n'a aucun effet ; une fois le
+    // descendant décoché, l'entrée oubliée dans le Set garde la branche ouverte indéfiniment.
+    const [expandOverrides, setExpandOverrides] = React.useState(() => new Map());
+    const toggleExpand = (path, currentlyExpanded) => setExpandOverrides(prev => {
+        const next = new Map(prev);
+        next.set(path, !currentlyExpanded);
         return next;
     });
 
@@ -134,9 +139,10 @@ const TaxonomyTreePicker = ({
                     // Une catégorie se déplie automatiquement si elle est cochée, OU si un de ses
                     // descendants l'est (sélection en anti-chaîne : cocher "Parlor" ne coche plus
                     // ses parents, donc c'est la présence d'un descendant coché qui doit ouvrir la
-                    // branche pour qu'il reste visible).
-                    const isExpanded = expandedPaths.has(currentPath) || isChecked
-                        || selectedPaths.some(p => p.startsWith(`${currentPath}.`));
+                    // branche pour qu'il reste visible) — sauf override explicite (clic manuel sur
+                    // le chevron), qui l'emporte tant qu'il n'a pas été re-cliqué.
+                    const autoExpanded = isChecked || selectedPaths.some(p => p.startsWith(`${currentPath}.`));
+                    const isExpanded = expandOverrides.has(currentPath) ? expandOverrides.get(currentPath) : autoExpanded;
                     const showChildren = isExpanded && hasChildren;
 
                     return (
@@ -147,7 +153,7 @@ const TaxonomyTreePicker = ({
                                 onToggleCheck={() => onTogglePath?.(currentPath)}
                                 hasChildren={hasChildren}
                                 expanded={isExpanded}
-                                onToggleExpand={hasChildren ? () => toggleExpand(currentPath) : undefined}
+                                onToggleExpand={hasChildren ? () => toggleExpand(currentPath, isExpanded) : undefined}
                                 depth={depth}
                                 count={counts[currentPath] || 0}
                             />
