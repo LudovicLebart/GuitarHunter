@@ -5,11 +5,17 @@ Contexte : demande utilisateur de vérifier, depuis les données réelles côté
 filtre `analysisConfig.activeSearchFamilies` laisse effectivement passer vers T2/T3 par rapport à
 ce qu'il écarte (verdict `NOT_PROMOTED`, voir `backend/analyzer.py::_run_analysis_cascade`).
 
-Le message de log `self.logger.info("🔎 Hors recherche active...")` (visible dans le LogViewer)
-ne contient PAS la classification de l'annonce écartée — juste la liste de familles actives et le
-verdict du Portier. Pour savoir CE QUI est réellement filtré (et CE QUI passe), ce script lit
-directement les documents `guitar_deals` (champ `aiAnalysis.gatekeeperClassification`), plus fiable
-et plus précis qu'un grep de texte de log.
+Deux sources, lues l'une et l'autre :
+1. **Le vrai fichier de log serveur** (`logging_config.py::LOG_DIR`, `logs/bot_{uid[:8]}.log`,
+   relatif au `cwd` du processus bot — identique à celui de ce script quand il tourne via
+   `run_once.py` sur le même serveur/répertoire, voir `.github/workflows/deploy.yml` job `deploy`).
+   Correction utilisateur (2026-09-18) : c'est la source de vérité actuelle, pas Firestore — la
+   rotation quotidienne UTC (`backupCount=0`) ne garde que la journée en cours, donc pas d'historique
+   au-delà d'aujourd'hui. Contient les lignes `🔎 Hors recherche active (...)` mais PAS la
+   classification exacte de l'annonce écartée (le message ne l'inclut pas).
+2. **Les documents `guitar_deals`** (`aiAnalysis.gatekeeperClassification`) pour savoir précisément
+   QUELLES classifications sont écartées vs promues — complémentaire au fichier de log, qui donne le
+   volume/la fréquence mais pas le détail par catégorie.
 
 Usage (exécuté via backend/scripts/run_once.py, seul contexte où les credentials Firebase sont en
 place en production — voir CLAUDE.md) :
@@ -18,6 +24,7 @@ place en production — voir CLAUDE.md) :
 """
 import sys
 import os
+import glob
 import argparse
 from collections import Counter
 
@@ -29,6 +36,40 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from config import FIREBASE_KEY_PATH, APP_ID_TARGET
 
 RECENT_SAMPLE_SIZE = 60
+LOG_DIR = os.path.join(os.getcwd(), 'logs')  # même calcul que backend/logging_config.py::LOG_DIR
+NOT_PROMOTED_MARKER = "Hors recherche active"
+TIER2_MARKER = "Étape 2 : Analyste"
+TAIL_EXCERPT_LINES = 20
+
+
+def read_server_log_files(uid_prefix=None):
+    """Lit directement le(s) fichier(s) de log serveur (source de vérité — voir docstring)."""
+    pattern = os.path.join(LOG_DIR, f"bot_{uid_prefix}*.log" if uid_prefix else "bot_*.log")
+    log_files = sorted(glob.glob(pattern))
+
+    print(f"\n{'#' * 90}")
+    print(f"FICHIERS DE LOG SERVEUR ({LOG_DIR})")
+    if not log_files:
+        print(f"  Aucun fichier trouvé pour le motif '{pattern}'.")
+        print(f"  (rotation quotidienne UTC, backupCount=0 — seule la journée en cours est conservée)")
+        return
+
+    for path in log_files:
+        with open(path, encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+
+        not_promoted_lines = [l for l in lines if NOT_PROMOTED_MARKER in l]
+        tier2_lines = [l for l in lines if TIER2_MARKER in l]
+
+        print(f"\n  {os.path.basename(path)} — {len(lines)} lignes")
+        print(f"    '{NOT_PROMOTED_MARKER}' (écartées par le filtre) : {len(not_promoted_lines)}")
+        print(f"    '{TIER2_MARKER}' (promues vers T2/T3)            : {len(tier2_lines)}")
+
+        relevant = [l for l in lines if NOT_PROMOTED_MARKER in l or TIER2_MARKER in l]
+        if relevant:
+            print(f"    Dernières lignes pertinentes (max {TAIL_EXCERPT_LINES}) :")
+            for line in relevant[-TAIL_EXCERPT_LINES:]:
+                print(f"      {line.rstrip()}")
 
 
 def setup_firebase():
@@ -108,6 +149,8 @@ def main():
     parser = argparse.ArgumentParser(description="Vérifie l'efficacité réelle du filtre Recherche Active (lecture seule)")
     parser.add_argument("--user-id", help="Limiter à un seul UID (défaut : tous les utilisateurs)")
     args = parser.parse_args()
+
+    read_server_log_files(uid_prefix=args.user_id[:8] if args.user_id else None)
 
     db = setup_firebase()
 
