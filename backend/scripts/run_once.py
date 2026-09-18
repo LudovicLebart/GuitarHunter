@@ -25,23 +25,28 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-15 : correctif Chantier G (run #503) — CONFIRMÉ. Nettoyage Firestore de
-    `analysisConfig.activeSearchFamilies` effectué avec succès (constaté déjà propre au
-    dernier passage : ['guitare.electrique.semi_hollow_1_2_caisse',
-    'guitare.electrique.hollow_body_full_caisse', 'guitare.acoustique_acier.formes_standard.Parlor',
-    'guitare.acoustique_acier.formes_standard.Orchestra', 'guitare.acoustique_acier.specialites.Travel']
-    — les anciens ancêtres 'guitare'/'guitare.electrique'/'guitare.acoustique_acier'/
-    'guitare.acoustique_acier.formes_standard' ont bien été retirés). Frontend (FilterDrawer.jsx
-    + pruneToDeepestPaths dans src/utils/taxonomy.js) déployé avec succès (build + GitHub Pages
-    OK). Désarmé ci-dessous — rien à rejouer.
+    2026-09-18 : Chantier G — diagnostic lecture seule de l'efficacité du filtre
+    "Recherche Active" (voir backend/scripts/check_active_search_filter_logs.py), demandé
+    explicitement par l'utilisateur. Lit le fichier de log serveur réel (logs/bot_{uid}.log,
+    source de vérité — pas Firestore, correction utilisateur du même jour) et les documents
+    guitar_deals pour comparer ce qui est écarté (NOT_PROMOTED) à ce qui est promu vers T2/T3.
+    Résultat à lire dans les logs de l'étape "Script de maintenance ponctuel" (GitHub Actions).
+    Désarmer IMMÉDIATEMENT après lecture du résultat.
     """
-    pass
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "backend/scripts/check_active_search_filter_logs.py"],
+        capture_output=True, text=True, timeout=120,
+    )
+    print(result.stdout)
+    if result.stderr:
+        print("[run_once] stderr:", result.stderr)
 
 
 if __name__ == "__main__":
