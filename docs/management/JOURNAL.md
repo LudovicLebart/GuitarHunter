@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-18] [PRO] Réconciliation `dev` ↔ `master` : merge de `master` dans `dev`, conflits résolus.
+- **Constat utilisateur** : les deux branches avaient fortement divergé (66 commits propres à `dev` depuis le 2026-09-08, dont tout le Chantier G/H ; `master` n'avait reçu que le merge de la branche `yolo-pipeline`, 2026-09-09/11) — jamais resynchronisées dans l'autre sens depuis leur dernier point commun (fix Saint-Lambert, 2026-09-08). Cause racine du conflit déjà résolu une fois côté `master` (commit "merge: resolve JOURNAL.md conflict") sans jamais être reporté sur `dev`.
+- **`git merge origin/master` dans `dev`** (jamais l'inverse — la convention du projet est un fast-forward direct `dev` → `master`, voir skill `git-push-dev-master`, pour ne jamais faire porter à `master` un commit de merge absent de `dev`) :
+  - `docs/management/JOURNAL.md` : conflit résolu en insérant l'entrée `yolo-pipeline` (2026-09-10/11) à sa position chronologique correcte au milieu des entrées Chantier G/H déjà présentes sur `dev`, plutôt qu'un simple "garder les deux blocs" en tête de fichier.
+  - `docs/management/TODO.md` : conflit résolu en gardant la version la plus à jour des 3 items dupliqués (instrumentation tokens, caching implicite, ciblage photos — `master` portait une version obsolète, antérieure aux mesures du 2026-09-07/08 déjà sur `dev`) + conservé l'item unique propre à `master` (garde-fou anti-interprétation Chantier B, absent de `dev`).
+  - `docs/reference/ARCHITECTURE.md`, `requirements.txt` : auto-mergés sans conflit, vérifiés cohérents (nouvelle section 5 "Pipeline d'Auto-Annotation YOLO-OBB" proprement ajoutée ; dépendances ML du pipeline déjà isolées dans `backend/auto_annotation/requirements.txt`, pas dans le `requirements.txt` principal).
+- **Validé** : `npm run build` propre, `py_compile` sur tous les fichiers Python nouveaux/modifiés par le merge (`backend/auto_annotation/`, `backend/production_pipeline/`, `backend/benchmark/`).
+- **Reste à faire** : pousser `dev` puis fast-forward `dev` → `master` (`git push origin dev:master`) — bloqué par le classificateur auto-mode Claude Code ("Production Deploy"), nécessite une action manuelle de l'utilisateur ou une permission Bash dédiée.
+
 [2026-09-16] [PRO] Chantier G : fix branche d'arbre qui ne se replie plus (TaxonomyTreePicker), retrait de l'auto-ouverture du panneau.
 - **Contexte** : après le fix précédent (même jour, entrée ci-dessous), l'utilisateur signale une perte d'interactivité — précisée après clarification : une branche de l'arbre (ex: "Électrique"), une fois dépliée manuellement pour atteindre une feuille profonde, ne se referme plus après avoir décoché cette feuille.
 - **Second avis demandé explicitement par l'utilisateur** ("Confirme avec Opus car on tourne en rond") : agent indépendant (modèle Opus) chargé de vérifier le diagnostic sur le code réel avant de coder. A confirmé la cause ci-dessous et écarté deux pistes (factoriser l'anti-chaîne de sélection dans un helper partagé = sur-ingénierie hors scope ; déplacer l'anti-chaîne du clic vers une résolution différée = contredit "comportement identique à avant Chantier G", l'anti-chaîne au clic existe depuis le 2026-08-24, avant Chantier G).
@@ -89,6 +98,21 @@ Les 3 changements sont volontairement additifs et réversibles : la taxonomie co
 
 #### Raisonnement
 Ce changement ne fait qu'arrêter de jeter une donnée déjà calculée — le choix le moins cher et le moins risqué pour répondre à une question de fiabilité du Portier : accumuler passivement un vrai signal de production plutôt que de payer pour un rejeu artificiel sur un échantillon choisi à la main, qui aurait posé la même réserve de circularité déjà documentée pour d'autres chantiers de cette session (comparer un modèle bon marché à un autre appel Gemini n'est jamais une vérité terrain totalement indépendante, mais reste plus solide à grande échelle qu'un petit échantillon ponctuel).
+
+[2026-09-10/11] [SONNET] Session YOLO-Pipeline Phase 1 — corrections tests, téléchargement dataset, extraction échantillon, setup Label Studio → annotation en cours.
+- **Corrections tests (76/76 PASS)** :
+  - `heuristics.py` : `cv2.INTER_NONE` → `cv2.INTERSECT_NONE` (renommé OpenCV 5).
+  - `test_geometry.py` / `test_heuristics.py` : suppression dépendance `torch` dans `MockOBBBoxes` et `cls_tensor` → remplacés par numpy/listes Python pures.
+  - `test_extract_phase1.py` : isolation `test_reproducibility_with_same_seed` — `tmp_path_factory` pour éviter que `out1/` soit scanné comme catégorie lors du 2e run.
+- **Téléchargement dataset** : création de `backend/scripts/download_phase1_images.py` — lit `dataset_a_phase0.jsonl` (3 263 images usables), télécharge en parallèle (8 threads) vers `scratch/dataset_brut/{electrique,acoustique,basse}/`. Résultat : 3 258 téléchargées, 5 sautées, 0 erreur.
+- **Extraction Phase 1** : `extract_phase1.py` — chemins `__main__` mis à jour (`scratch/dataset_brut` → `scratch/dataset_phase1`), extraction stratifiée de 150 images (acoustique: 92, électrique: 55, basse: 3, seed=42).
+- **Label Studio** :
+  - Python 3.11.9 installé via winget — venv isolé `scratch/venv_labelstudio/` (conflit protobuf SDK Gemini sur venv principal résolu).
+  - `scratch/label_studio_template_obb.xml` : 6 classes OBB, `canRotate="true"`, raccourcis 1-6.
+  - `scratch/GUIDE_ANNOTATION_PHASE1.md` + `scratch/start_label_studio.ps1` (`DATA_UPLOAD_MAX_NUMBER_FILES=300`).
+  - Import des 150 images réussi. Annotation en cours.
+- **Règle d'annotation actée** : partie coupée par le bord → ne pas annoter cette classe sur cette image. Les autres classes visibles restent annotées.
+- **Statut** : annotation manuelle Phase 1 en cours → fine-tuning Phase 0 sur Dell-5810 ensuite.
 
 [2026-09-08] [PRO] Diagnostic de timing du cache Gemini + recherche doc officielle → deux hypothèses précédentes réfutées, conclusion révisée.
 - **Contexte** : suite à la mesure du fix caching (entrée du jour ci-dessous) montrant Tier 2 à 17,1% caché / Tier 1 et Tier 3 à 0%, hypothèse posée que le cache Tier 2 venait de retries JSON sur la même annonce plutôt que d'un vrai partage inter-annonces du bloc statique (taxonomie/few-shot).
