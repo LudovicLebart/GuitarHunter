@@ -25,28 +25,23 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
     2026-09-18 : Chantier G — diagnostic lecture seule de l'efficacité du filtre
-    "Recherche Active" (voir backend/scripts/check_active_search_filter_logs.py), demandé
-    explicitement par l'utilisateur. Lit le fichier de log serveur réel (logs/bot_{uid}.log,
-    source de vérité — pas Firestore, correction utilisateur du même jour) et les documents
-    guitar_deals pour comparer ce qui est écarté (NOT_PROMOTED) à ce qui est promu vers T2/T3.
-    Résultat à lire dans les logs de l'étape "Script de maintenance ponctuel" (GitHub Actions).
-    Désarmer IMMÉDIATEMENT après lecture du résultat.
+    "Recherche Active" (voir backend/scripts/check_active_search_filter_logs.py) — CONFIRMÉ,
+    résultat lu dans les logs GitHub Actions (runs #507/#508, dev + master). Fichier de log
+    serveur du jour vide (0 activité depuis minuit UTC) ; côté Firestore, 36 NOT_PROMOTED
+    historiques cohérents avec le filtre (Dreadnought/Stratocaster/Classique écartés), mais
+    l'échantillon "60 dernières annonces" mélange des analyses d'AVANT la configuration du
+    filtre (35/55 "promues" sans classification ou hors-filtre, ex: Dreadnought, amplis,
+    étuis) — pas concluant tel quel, à rejouer après une vraie fenêtre d'activité récente si
+    le sujet redevient prioritaire. Désarmé ci-dessous — rien à rejouer.
     """
-    import subprocess
-    result = subprocess.run(
-        [sys.executable, "backend/scripts/check_active_search_filter_logs.py"],
-        capture_output=True, text=True, timeout=120,
-    )
-    print(result.stdout)
-    if result.stderr:
-        print("[run_once] stderr:", result.stderr)
+    pass
 
 
 if __name__ == "__main__":
