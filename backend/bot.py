@@ -331,6 +331,15 @@ class GuitarHunterBot:
             return "stopped"
         return self.handle_deal_found(deal, source=source)
 
+    def _timed_handle_deal_found_unless_stopped(self, deal, source):
+        """Chronomètre l'exécution réelle (dans CE worker) de `_handle_deal_found_unless_stopped`
+        — sert uniquement à mesurer l'efficacité de la parallélisation (voir
+        `_dispatch_analysis_batch`), pas le temps d'attente en file avant d'être pris par un
+        worker libre."""
+        start = time.time()
+        outcome = self._handle_deal_found_unless_stopped(deal, source)
+        return outcome, time.time() - start
+
     def _dispatch_analysis_batch(self, deals, source, cycle_stats):
         """Analyse `deals` (déjà filtrés/enrichis, prêts pour handle_deal_found) en parallèle
         via un pool de workers borné (Chantier H, ANALYSIS_WORKERS) — remplace la boucle
@@ -348,25 +357,42 @@ class GuitarHunterBot:
         SEULEMENT une fois l'issue réelle connue (voir `_NEVER_MARK_PROCESSED_OUTCOMES`) — un
         pré-marquage aveugle de tout le lot AVANT analyse casserait le mécanisme de retentative
         déjà en place dans `handle_deal_found` pour ces cas précis.
+
+        Mesure l'efficacité réelle de la parallélisation (2026-09-19, voir TODO.md section
+        "Optimisation coûts Gemini") : compare le temps mur du lot au temps cumulé individuel de
+        chaque analyse (chronométré dans le worker qui l'exécute, hors attente en file) — le
+        ratio des deux est l'accélération réellement obtenue, à comparer à `ANALYSIS_WORKERS`.
         """
         if not deals:
             return
 
+        batch_start = time.time()
+        total_individual_time = 0.0
         with ThreadPoolExecutor(max_workers=self.ANALYSIS_WORKERS) as executor:
             future_to_deal = {
-                executor.submit(self._handle_deal_found_unless_stopped, deal, source): deal
+                executor.submit(self._timed_handle_deal_found_unless_stopped, deal, source): deal
                 for deal in deals
             }
             for future in as_completed(future_to_deal):
                 deal = future_to_deal[future]
                 try:
-                    outcome = future.result() or "unknown"
+                    outcome, elapsed = future.result()
+                    outcome = outcome or "unknown"
                 except Exception as e:
                     self.logger.error(f"❌ [{source}] Erreur lors de l'analyse de '{deal.get('title', '?')}' : {e}", exc_info=True)
-                    outcome = "error"
+                    outcome, elapsed = "error", 0.0
+                total_individual_time += elapsed
                 cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
                 if outcome not in self._NEVER_MARK_PROCESSED_OUTCOMES:
                     self.session_processed_ids.add(deal['id'])
+
+        wall_time = time.time() - batch_start
+        speedup = (total_individual_time / wall_time) if wall_time > 0 else 0.0
+        self.logger.info(
+            f"⏱️ [{source}] Lot de {len(deals)} annonce(s) traité en {wall_time:.1f}s "
+            f"(ANALYSIS_WORKERS={self.ANALYSIS_WORKERS}) — {total_individual_time:.1f}s cumulées "
+            f"individuellement, accélération ×{speedup:.1f}"
+        )
 
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
