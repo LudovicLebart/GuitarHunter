@@ -304,6 +304,8 @@ const addCommand = async (type, payload) => {
 export const triggerManualRefresh = (_userId) => addCommand('REFRESH', null);
 export const triggerManualCleanup = (_userId) => addCommand('CLEANUP', null);
 export const triggerRelaunchAll = (_userId) => addCommand('REANALYZE_ALL', null);
+// Rattrapage Chantier G (2026-09-19) : voir backend/bot.py::reevaluate_not_promoted.
+export const triggerReevaluateNotPromoted = (_userId) => addCommand('REEVALUATE_NOT_PROMOTED', null);
 export const triggerScanSpecificUrl = (url, _userId) => addCommand('SCAN_URL', url);
 export const resetBotConfigToDefaults = (defaults, userId) => updateUserConfig(defaults, userId);
 export const triggerStopBot = (_userId) => addCommand('STOP_BOT', null);
