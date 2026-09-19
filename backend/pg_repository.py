@@ -149,6 +149,18 @@ class PostgresRepository:
             ).fetchall()
         return [_Row(row["id"], _deal_row_to_bot_shape(row)) for row in rows]
 
+    def get_not_promoted_listings(self):
+        """Rattrapage Chantier G (2026-09-19) : annonces mises de côté par le routage
+        `activeSearchFamilies` (verdict NOT_PROMOTED, jamais envoyées vers T2/T3) — candidates à
+        une repromotion si la recherche active change. Mirroir de
+        `repository.py::get_not_promoted_listings`."""
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM guitar_deals WHERE user_id = %s AND verdict = 'NOT_PROMOTED'",
+                (self.user_id,),
+            ).fetchall()
+        return [_Row(row["id"], _deal_row_to_bot_shape(row)) for row in rows]
+
     def delete_listing(self, listing_id: str):
         with self.pool.connection() as conn:
             conn.execute(

@@ -62,6 +62,11 @@ _AI_ANALYSIS_FIELDS = {
     "condition_score": "condition_score", "liquidity_score": "liquidity_score",
     "restoration_interest_score": "restoration_interest_score",
     "model_used": "model_used", "tier3_trigger": "tier3_trigger",
+    # Rattrapage Chantier G (2026-09-19) : verdict/marque/classification BRUTS du Portier,
+    # toujours attachés par analyzer.py::_attach_gatekeeper_metadata en camelCase (contrairement
+    # aux autres champs aiAnalysis ci-dessus, écrits en snake_case) — voir schema.sql.
+    "gatekeeperBrand": "gatekeeper_brand", "gatekeeperClassification": "gatekeeper_classification",
+    "gatekeeperVerdict": "gatekeeper_verdict",
 }
 
 _SMALLINT_COLUMNS = {
@@ -81,7 +86,8 @@ DEAL_COLUMNS = [
     "manual_analysis_overrides", "link", "location", "latitude", "longitude",
     "published_at_raw", "image_urls", "storage_image_urls", "storage_image_gs_uris",
     "ai_analysis_raw", "sold_at", "timestamp", "purchase_price", "purchased_at", "description",
-    "sold_notes", "published_at_ts",
+    "sold_notes", "published_at_ts", "gatekeeper_brand", "gatekeeper_classification",
+    "gatekeeper_verdict",
 ]
 
 # Colonnes promues depuis `aiAnalysis` (voir _AI_ANALYSIS_FIELDS) — exposées pour

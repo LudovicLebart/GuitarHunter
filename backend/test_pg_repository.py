@@ -249,6 +249,19 @@ class TestPostgresRepository(unittest.TestCase):
         self.assertEqual(docs[0].id, self.DEAL_ID)
         self.assertEqual(docs[0].to_dict()["title"], "x")
 
+    def test_get_not_promoted_listings(self):
+        """Rattrapage Chantier G (2026-09-19) : voir bot.py::reevaluate_not_promoted."""
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {
+            "verdict": "NOT_PROMOTED", "gatekeeperClassification": "guitare.electrique",
+        })
+        other_id = self.DEAL_ID + "-other"
+        self.repo.create_new_deal(other_id, {"title": "y"}, {"verdict": "GOOD_DEAL"})
+
+        docs = self.repo.get_not_promoted_listings()
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0].id, self.DEAL_ID)
+        self.assertEqual(docs[0].to_dict()["gatekeeper_classification"], "guitare.electrique")
+
     def test_manual_analysis_overrides_reapplied_on_next_analysis(self):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
         with self.pool.connection() as conn:

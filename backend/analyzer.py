@@ -29,6 +29,12 @@ from backend.taxonomy import build_index as build_taxonomy_index, canonicalize a
 
 logger = logging.getLogger(__name__)
 
+# Rattrapage Chantier G (2026-09-19) : verdicts T1 jamais cachés par le routage
+# `activeSearchFamilies`, quelle que soit la correspondance de classification — garde-fou non
+# négociable, ne jamais masquer une pépite hors-filtre.
+T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
+
+
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
         self.models = {}
@@ -275,6 +281,18 @@ class DealAnalyzer:
 
         return result
 
+    def _attach_gatekeeper_metadata(self, result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status):
+        """Rattrapage Chantier G (2026-09-19) : attache marque/classification/verdict BRUTS du
+        Portier à `result`, en place, et le retourne — nécessaires pour retrouver, sans rappeler
+        le Portier, la classification d'une annonce `NOT_PROMOTED` quand le filtre
+        `activeSearchFamilies` change (voir `bot.py::reevaluate_not_promoted`). Version scopée du
+        `_attach_gatekeeper_metadata` de `dev`, sans l'observation Qwen (Chantier H, non porté ici
+        — module d'observation séparé, jamais utilisé pour la décision accept/reject réelle)."""
+        result["gatekeeperBrand"] = gatekeeper_brand
+        result["gatekeeperClassification"] = gatekeeper_classification
+        result["gatekeeperVerdict"] = gatekeeper_status
+        return result
+
     def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
@@ -311,6 +329,8 @@ class DealAnalyzer:
         model_chain = []
         gatekeeper_status = "MANUAL_RETRY"
         gatekeeper_reason = "Analyse experte demandée manuellement."
+        gatekeeper_brand = None
+        gatekeeper_classification = None
 
         # ==========================================
         # PHASE 1 : TIER 1 - PORTIER (Flash-Lite)
@@ -322,9 +342,9 @@ class DealAnalyzer:
             if isinstance(gatekeeper_instruction, list):
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
-            
+
             result_t1, err_t1 = self._call_gemini_json(gatekeeper_model_name, [full_prompt_t1] + images, user_email)
-            
+
             if err_t1 or not result_t1:
                 # Fail-open vers l'Analyste
                 gatekeeper_status = "ERROR_GATEKEEPER"
@@ -332,17 +352,61 @@ class DealAnalyzer:
             else:
                 gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
                 gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
-                
+                gatekeeper_brand = result_t1.get('brand')
+                gatekeeper_classification = result_t1.get('classification')
+
                 if gatekeeper_status == 'UNKNOWN':
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
-                
+
                 self.logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    gatekeeper_classification = result_t1.get('classification')
-                    return {"verdict": gatekeeper_status, "reasoning": gatekeeper_reason, "classification": gatekeeper_classification, "model_used": " -> ".join(model_chain)}
+                    return self._attach_gatekeeper_metadata(
+                        {
+                            "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
+                            "classification": gatekeeper_classification,
+                            "model_used": " -> ".join(model_chain),
+                        },
+                        gatekeeper_brand, gatekeeper_classification, gatekeeper_status,
+                    )
+
+                # ==========================================
+                # RATTRAPAGE CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
+                # ==========================================
+                # Le mode par défaut ("tout analyser, filtrer après") reste inchangé tant
+                # qu'aucune recherche active n'est configurée (`activeSearchFamilies` vide/absent).
+                # Quand une recherche est active, seule une correspondance sur la FAMILLE de forme
+                # (`gatekeeper_classification`, déjà produite par le Portier — aucun nouvel appel
+                # ni champ de prompt) promeut vers T2/T3 ; le scraping et le Portier lui-même
+                # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
+                # Garde-fou non négociable : un verdict pépite-tier (T1_PEPITE_TIER_VERDICTS)
+                # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
+                active_search_families = config.get('activeSearchFamilies') or []
+                if active_search_families and gatekeeper_status not in T1_PEPITE_TIER_VERDICTS:
+                    matches_active_search = gatekeeper_classification and any(
+                        gatekeeper_classification == family or gatekeeper_classification.startswith(f"{family}.")
+                        for family in active_search_families
+                    )
+                    if not matches_active_search:
+                        self.logger.info(
+                            f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
+                            f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
+                        )
+                        return self._attach_gatekeeper_metadata(
+                            {
+                                "verdict": "NOT_PROMOTED",
+                                "reasoning": (
+                                    f"Ne correspond à aucune recherche active "
+                                    f"({', '.join(active_search_families)}) et n'est pas jugée "
+                                    f"pépite potentielle par le Portier."
+                                ),
+                                "classification": gatekeeper_classification,
+                                "model_used": " -> ".join(model_chain),
+                            },
+                            gatekeeper_brand, gatekeeper_classification, gatekeeper_status,
+                        )
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
@@ -359,7 +423,13 @@ class DealAnalyzer:
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
-            return {"verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}", "model_used": " -> ".join(model_chain) + " (Error)"}
+            return self._attach_gatekeeper_metadata(
+                {
+                    "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
+                    "model_used": " -> ".join(model_chain) + " (Error)",
+                },
+                gatekeeper_brand, gatekeeper_classification, gatekeeper_status,
+            )
 
         # Formatage des variables pour la logique conditionnelle
         deal_score = result_t2.get('deal_score', 0)
@@ -419,15 +489,22 @@ class DealAnalyzer:
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
-                return result_t2
-            
+                return self._attach_gatekeeper_metadata(
+                    result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
+                )
+
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
+            self._attach_gatekeeper_metadata(
+                result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
+            )
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
             return result_t3
-            
+
         else:
             self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
-            return result_t2
+            return self._attach_gatekeeper_metadata(
+                result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
+            )

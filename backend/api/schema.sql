@@ -119,6 +119,18 @@ ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS sold_notes JSONB;
 -- consommation frontend attendue est une comparaison numérique directe.
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS published_at_ts BIGINT;
 
+-- `gatekeeper_brand`/`gatekeeper_classification`/`gatekeeper_verdict` : rattrapage Chantier G
+-- (routage par recherche active, `activeSearchFamilies`) — ajouté sur `dev` après le fork de
+-- cette branche (2026-09-09), jamais porté ici jusqu'au 2026-09-19. Verdict/marque/classification
+-- BRUTS du Portier (Tier 1), toujours attachés par `analyzer.py::_attach_gatekeeper_metadata`
+-- quel que soit le sort de l'annonce ensuite (contrairement à `verdict`/`brand`/`classification`,
+-- qui reflètent la DERNIÈRE étape ayant tourné) — nécessaires pour retrouver, sans rappeler le
+-- Portier, la classification d'une annonce `NOT_PROMOTED` quand le filtre change
+-- (`bot.py::reevaluate_not_promoted`).
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_brand TEXT;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_classification TEXT;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_verdict TEXT;
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle

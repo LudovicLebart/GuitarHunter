@@ -73,6 +73,7 @@ class MigrationReport:
                        "legacy_cities_created": 0}
         self.unmapped_deal_fields: dict[str, list[str]] = {}
         self.dangling_proposed_by: list[tuple[str, str]] = []  # (deal_id, firestore_message_id)
+        self.cross_tenant_skipped: list[tuple[str, str]] = []  # (deal_id, uid ignoré)
 
     def log_summary(self, logger):
         logger.info("=" * 70)
@@ -87,6 +88,11 @@ class MigrationReport:
         if self.dangling_proposed_by:
             logger.warning(f"{len(self.dangling_proposed_by)} proposedByMessageId orphelin(s) "
                             f"(message introuvable, laissé NULL) : {self.dangling_proposed_by}")
+        if self.cross_tenant_skipped:
+            logger.warning(f"{len(self.cross_tenant_skipped)} annonce(s) ignorée(s) — même id "
+                            f"déjà détenu par un AUTRE utilisateur en Postgres (chat/plan de "
+                            f"restauration non touchés non plus pour ces ids) : "
+                            f"{self.cross_tenant_skipped}")
         logger.info("=" * 70)
 
 
@@ -98,6 +104,32 @@ async def _upsert(conn, table: str, columns: list[str], row: dict, conflict_col:
         f"ON CONFLICT ({conflict_col}) DO UPDATE SET {set_clause}"
     )
     await conn.execute(query, *[row[c] for c in columns])
+
+
+async def _upsert_deal(conn, row: dict, report: MigrationReport) -> bool:
+    """`guitar_deals.id` (id de l'annonce réelle Facebook/Kijiji) est la clé primaire SEULE —
+    pas de composite avec `user_id`. Si deux utilisateurs ont scanné la même annonce (zones de
+    recherche qui se recoupent, cas réel mesuré entre les 2 comptes les plus actifs), un `_upsert`
+    générique réassignerait silencieusement la ligne (et tous ses champs) au dernier utilisateur
+    traité — perte de données + mélange de contenu entre comptes.
+
+    Même garde-fou que le chemin d'écriture en direct du bot (`pg_repository.py::create_new_deal`,
+    trouvé et corrigé en revue de code le 2026-09-11) : le `WHERE` sur le `DO UPDATE` fait échouer
+    silencieusement l'écriture (0 ligne affectée, jamais d'erreur) si l'id appartient déjà à un
+    AUTRE utilisateur — ce script en était resté à l'`_upsert` générique sans ce garde-fou."""
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in DEAL_COLUMNS if c != "id")
+    placeholders = ", ".join(f"${i + 1}" for i in range(len(DEAL_COLUMNS)))
+    query = (
+        f"INSERT INTO guitar_deals ({', '.join(DEAL_COLUMNS)}) VALUES ({placeholders}) "
+        f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
+        f"WHERE guitar_deals.user_id = EXCLUDED.user_id"
+    )
+    status = await conn.execute(query, *[row[c] for c in DEAL_COLUMNS])
+    affected = int(status.rsplit(" ", 1)[-1])
+    if affected == 0:
+        report.cross_tenant_skipped.append((row["id"], row["user_id"]))
+        return False
+    return True
 
 
 async def _migrate_cities_catalog(app_ref, pool, report: MigrationReport):
@@ -196,7 +228,15 @@ async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool,
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await _upsert(conn, "guitar_deals", DEAL_COLUMNS, row, "id")
+            owned = await _upsert_deal(conn, row, report)
+            if not owned:
+                logger.warning(
+                    f"[{uid[:8]}] id '{deal_id}' appartient déjà à un AUTRE utilisateur en "
+                    f"Postgres — annonce (et son chat/plan de restauration) ignorée pour ne pas "
+                    f"réassigner l'appartenance (même annonce réelle vue par 2 comptes, "
+                    f"limitation connue du schéma actuel : id sans composite user_id)."
+                )
+                return
             report.counts["deals"] += 1
 
             # Repartir de zéro pour chat/restorationPlan à chaque exécution : ces deux tables
