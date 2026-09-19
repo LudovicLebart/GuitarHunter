@@ -29,9 +29,13 @@ sys.path.insert(0, os.getcwd())
 
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "benchmark", "results")
 
-# Sous-ensemble de T1_VALID_STATUSES (backend/analyzer.py) qui correspond à un rejet du
-# Portier — dupliqué ici (pas d'import direct) pour que ce script reste lisible seul et ne
-# dépende pas d'un import lourd d'analyzer.py (google.generativeai) juste pour 3 constantes.
+# T1_VALID_STATUSES / sous-ensemble de rejet (backend/analyzer.py) — dupliqués ici (pas
+# d'import direct) pour que ce script reste lisible seul et ne dépende pas d'un import lourd
+# d'analyzer.py (google.generativeai) juste pour ces constantes.
+T1_VALID_STATUSES = frozenset({
+    "PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION",
+    "FAIR", "BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE",
+})
 T1_REJECTION_VERDICTS = frozenset({"BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE"})
 
 
@@ -49,6 +53,7 @@ def main():
     print(f"🔍 {len(user_ids)} utilisateur(s) trouvé(s).")
 
     both_present = []
+    n_excluded_error = 0
     for uid in user_ids:
         deals_ref = (
             db.collection("artifacts").document(APP_ID_TARGET)
@@ -59,11 +64,20 @@ def main():
             ai = deal.get("aiAnalysis") or {}
             gemini_verdict = ai.get("gatekeeperVerdict")
             qwen_verdict = ai.get("qwenGatekeeperVerdict")
-            if gemini_verdict and qwen_verdict:
-                both_present.append((doc.id, deal, gemini_verdict, qwen_verdict))
+            if not gemini_verdict or not qwen_verdict:
+                continue
+            # Exclut les cas où l'un des deux appels a lui-même échoué (ex: `ERROR_GATEKEEPER`,
+            # hors T1_VALID_STATUSES) — pas un vrai désaccord de jugement, juste un appel raté.
+            # Bug trouvé le 2026-09-19 : la 1ère version comptait ERROR_GATEKEEPER comme un
+            # "accept" par défaut, gonflant à tort le taux de désaccord coûteux (62 → 21 réels).
+            if gemini_verdict not in T1_VALID_STATUSES or qwen_verdict not in T1_VALID_STATUSES:
+                n_excluded_error += 1
+                continue
+            both_present.append((doc.id, deal, gemini_verdict, qwen_verdict))
 
     n = len(both_present)
-    print(f"📦 {n} annonce(s) avec les deux verdicts (Gemini + Qwen) disponibles depuis le 2026-09-13.\n")
+    print(f"📦 {n} annonce(s) avec les deux verdicts VALIDES (Gemini + Qwen) disponibles depuis le 2026-09-13 "
+          f"({n_excluded_error} exclue(s) pour cause de verdict hors taxonomie, ex: ERROR_GATEKEEPER — appel raté, pas un vrai désaccord).\n")
 
     if n == 0:
         print("Rien à comparer — l'observation Qwen n'a peut-être pas encore accumulé assez de données.")
