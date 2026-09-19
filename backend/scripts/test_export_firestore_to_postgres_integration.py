@@ -204,6 +204,46 @@ class TestMigrateDealAgainstRealPostgres(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_migrate_deal_skips_cross_tenant_conflict(self):
+        """Rattrapage 2026-09-19 (JOURNAL.md) : deux utilisateurs qui ont scanné la même annonce
+        réelle (même id Facebook/Kijiji) ne doivent JAMAIS s'écraser mutuellement en Postgres —
+        le premier utilisateur migré garde la ligne, le second est ignoré (et reporté)."""
+        other_uid = self.UID + "-other"
+
+        async def _run():
+            pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2, init=_register_json_codecs)
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", self.UID)
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", other_uid)
+
+                first_doc = _FakeDoc(self.DEAL_ID, {"title": "Version utilisateur A", "aiAnalysis": {"verdict": "GOOD_DEAL"}})
+                first_user_ref = _FakeDoc("user-ref-a", {}, children={"guitar_deals": [first_doc]})
+                report_a = MigrationReport()
+                await _migrate_deal(first_user_ref, self.UID, self.DEAL_ID, first_doc.to_dict(), pool, report_a)
+
+                second_doc = _FakeDoc(self.DEAL_ID, {"title": "Version utilisateur B", "aiAnalysis": {"verdict": "BAD_DEAL"}})
+                second_user_ref = _FakeDoc("user-ref-b", {}, children={"guitar_deals": [second_doc]})
+                report_b = MigrationReport()
+                await _migrate_deal(second_user_ref, other_uid, self.DEAL_ID, second_doc.to_dict(), pool, report_b)
+
+                self.assertEqual(report_b.cross_tenant_skipped, [(self.DEAL_ID, other_uid)])
+                self.assertEqual(report_b.counts["deals"], 0)
+
+                async with pool.acquire() as conn:
+                    deal_row = await conn.fetchrow("SELECT * FROM guitar_deals WHERE id = $1", self.DEAL_ID)
+                    self.assertEqual(deal_row["user_id"], self.UID)
+                    self.assertEqual(deal_row["title"], "Version utilisateur A")
+                    self.assertEqual(deal_row["verdict"], "GOOD_DEAL")
+
+                    await conn.execute("DELETE FROM guitar_deals WHERE id = $1", self.DEAL_ID)
+                    await conn.execute("DELETE FROM users WHERE uid IN ($1, $2)", self.UID, other_uid)
+            finally:
+                await pool.close()
+
+        asyncio.run(_run())
+
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestEnsureCityExists(unittest.TestCase):

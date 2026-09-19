@@ -55,7 +55,7 @@ from datetime import datetime, timezone
 
 from backend.deal_mapping import (
     CHAT_COLUMNS, DEAL_COLUMNS, RESTO_COLUMNS, _sanitize_json, _to_datetime,
-    map_chat_message, map_city, map_deal, map_restoration_item,
+    build_deal_upsert_sql, map_chat_message, map_city, map_deal, map_restoration_item,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -114,16 +114,11 @@ async def _upsert_deal(conn, row: dict, report: MigrationReport) -> bool:
     traité — perte de données + mélange de contenu entre comptes.
 
     Même garde-fou que le chemin d'écriture en direct du bot (`pg_repository.py::create_new_deal`,
-    trouvé et corrigé en revue de code le 2026-09-11) : le `WHERE` sur le `DO UPDATE` fait échouer
-    silencieusement l'écriture (0 ligne affectée, jamais d'erreur) si l'id appartient déjà à un
-    AUTRE utilisateur — ce script en était resté à l'`_upsert` générique sans ce garde-fou."""
-    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in DEAL_COLUMNS if c != "id")
-    placeholders = ", ".join(f"${i + 1}" for i in range(len(DEAL_COLUMNS)))
-    query = (
-        f"INSERT INTO guitar_deals ({', '.join(DEAL_COLUMNS)}) VALUES ({placeholders}) "
-        f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
-        f"WHERE guitar_deals.user_id = EXCLUDED.user_id"
-    )
+    trouvé et corrigé en revue de code le 2026-09-11) — requête SQL désormais partagée via
+    `deal_mapping.py::build_deal_upsert_sql` plutôt que dupliquée ici : le `WHERE` sur le
+    `DO UPDATE` fait échouer silencieusement l'écriture (0 ligne affectée, jamais d'erreur) si
+    l'id appartient déjà à un AUTRE utilisateur."""
+    query = build_deal_upsert_sql(lambda i: f"${i}")
     status = await conn.execute(query, *[row[c] for c in DEAL_COLUMNS])
     affected = int(status.rsplit(" ", 1)[-1])
     if affected == 0:

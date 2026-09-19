@@ -22,6 +22,7 @@ from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.pg_repository import PostgresRepository
+from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
 
@@ -1048,33 +1049,44 @@ class GuitarHunterBot:
                 self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
         return deleted_count
 
+    @staticmethod
+    def _build_listing_data_from_row(doc_id, data, prefer_storage_images=False):
+        """Reconstruit un `listing_data` (forme attendue par `analyzer.analyze_deal`) à partir
+        d'une ligne déjà en base — factorisé pour `process_retry_queue`/`reevaluate_not_promoted`,
+        qui ne diffèrent que par la priorité donnée aux URLs Storage (permanentes) vs Facebook
+        brutes (voir CLAUDE.md, points d'attention critiques)."""
+        image_urls = data.get('imageUrls', [])
+        if prefer_storage_images:
+            image_urls = data.get('storageImageUrls') or image_urls
+        return {
+            "title": data.get('title'), "price": data.get('price'),
+            "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
+            "imageUrls": image_urls, "imageUrl": data.get('imageUrl'),
+            "link": data.get('link'), "id": doc_id,
+            **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
+        }
+
     def process_retry_queue(self):
         """Traite les annonces en attente de réanalyse."""
         if self.offline_mode: return
-        
+
         docs = list(self.repo.get_retry_queue_listings())
         if not docs:
             return
 
         self.set_status('reanalyzing', task_name='retry_queue')
-        
+
         try:
             for doc in docs:
                 if self._is_stop_requested():
                     self.logger.info("🛑 File d'attente interrompue.")
                     break
-                    
+
                 data = doc.to_dict()
                 self.logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
-                
-                listing_data = {
-                    "title": data.get('title'), "price": data.get('price'),
-                    "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-                    "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
-                    "link": data.get('link'), "id": doc.id,
-                    **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-                }
-                
+
+                listing_data = self._build_listing_data_from_row(doc.id, data)
+
                 current_config = self.config_manager.current_config_snapshot
                 
                 found_keyword = self._check_exclusion(listing_data, current_config)
@@ -1094,10 +1106,12 @@ class GuitarHunterBot:
             self.set_status('idle', task_name='retry_queue')
 
     def reevaluate_not_promoted(self, payload=None):
-        """Rattrapage Chantier G (2026-09-19, mirroir de `repository.py::reevaluate_not_promoted`
-        côté Firestore) : quand `activeSearchFamilies` change (élargi ou vidé), repromeut vers
-        T2/T3 les annonces mises de côté (`verdict == 'NOT_PROMOTED'`) dont la classification déjà
-        connue du Portier correspond désormais au filtre actif — sans rappeler le Portier
+        """Rattrapage Chantier G (2026-09-19, mirroir de `dev`'s `repository.py::
+        reevaluate_not_promoted` côté Firestore — cette branche Postgres n'a pas de
+        `backend/repository.py::reevaluate_not_promoted` propre, la classe Firestore n'ayant
+        jamais reçu ce chantier) : quand `activeSearchFamilies` change (élargi ou vidé), repromeut
+        vers T2/T3 les annonces mises de côté (`verdict == 'NOT_PROMOTED'`) dont la classification
+        déjà connue du Portier correspond désormais au filtre actif — sans rappeler le Portier
         (`force_expert=True`, comme `analyze_single_deal`), puisque sa classification reste valide
         (aucune nouvelle photo, aucun nouveau texte)."""
         if self.offline_mode: return
@@ -1126,16 +1140,7 @@ class GuitarHunterBot:
                     continue
 
                 self.logger.info(f"   🔎 Repromotion vers T2/T3 : '{data.get('title')}' (classification '{classification}' correspond au filtre actif).")
-                listing_data = {
-                    "title": data.get('title'), "price": data.get('price'),
-                    "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-                    # Priorité aux URLs Firebase Storage (permanentes) — les URLs Facebook
-                    # brutes de imageUrls expirent, contrairement à celles déjà uploadées lors
-                    # du premier passage (voir CLAUDE.md, points d'attention critiques).
-                    "imageUrls": data.get('storageImageUrls') or data.get('imageUrls', []),
-                    "imageUrl": data.get('imageUrl'), "link": data.get('link'), "id": doc.id,
-                    **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-                }
+                listing_data = self._build_listing_data_from_row(doc.id, data, prefer_storage_images=True)
 
                 try:
                     analysis = self.analyzer.analyze_deal(
@@ -1143,16 +1148,14 @@ class GuitarHunterBot:
                         force_expert=True, user_email=self._user_email,
                     )
                     # force_expert=True saute le Portier et efface gatekeeperBrand/Classification/
-                    # Verdict (le Portier n'ayant pas tourné) — on restaure ici les valeurs déjà
-                    # connues, seule source de vérité pour cette classification (aucun nouvel
-                    # appel Portier ne les regénère).
-                    for key, col in (
-                        ('gatekeeperBrand', 'gatekeeper_brand'),
-                        ('gatekeeperClassification', 'gatekeeper_classification'),
-                        ('gatekeeperVerdict', 'gatekeeper_verdict'),
-                    ):
-                        if data.get(col) is not None:
-                            analysis[key] = data[col]
+                    # Verdict (le Portier n'ayant pas tourné, _attach_gatekeeper_metadata leur
+                    # affecte des valeurs vides/MANUAL_RETRY) — on restaure ICI INCONDITIONNELLEMENT
+                    # les valeurs déjà connues (seule source de vérité pour cette classification,
+                    # aucun nouvel appel Portier ne les regénère), y compris quand elles valent
+                    # légitimement None : ne pas le faire laisserait le placeholder MANUAL_RETRY
+                    # écraser un gatekeeper_verdict correct mais vide.
+                    for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
+                        analysis[key] = data.get(col)
                     self.repo.update_deal_analysis(doc.id, analysis)
                     promoted_count += 1
                 except Exception as e:

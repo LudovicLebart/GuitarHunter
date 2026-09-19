@@ -24,6 +24,7 @@ from backend.deal_mapping import (
     CITY_FIELD_TO_COLUMN,
     DEAL_COLUMNS,
     DEAL_FIELD_TO_COLUMN,
+    build_deal_upsert_sql,
     map_city,
     map_deal,
 )
@@ -200,13 +201,9 @@ class PostgresRepository:
         row, _unmapped = map_deal(deal_id, merged)
         row["user_id"] = self.user_id
 
-        placeholders = ", ".join(["%s"] * len(DEAL_COLUMNS))
-        set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in DEAL_COLUMNS if c != "id")
         with self.pool.connection() as conn:
             cursor = conn.execute(
-                f"INSERT INTO guitar_deals ({', '.join(DEAL_COLUMNS)}) VALUES ({placeholders}) "
-                f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
-                f"WHERE guitar_deals.user_id = EXCLUDED.user_id",
+                build_deal_upsert_sql(lambda _i: "%s"),
                 [_to_pg_param(row[c]) for c in DEAL_COLUMNS],
             )
             if cursor.rowcount == 0:

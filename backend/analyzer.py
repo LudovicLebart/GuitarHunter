@@ -294,9 +294,25 @@ class DealAnalyzer:
         return result
 
     def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Point d'entrée public : point de sortie UNIQUE pour l'attache des métadonnées Portier
+        (`_attach_gatekeeper_metadata`), quel que soit le chemin emprunté par `_run_analysis_cascade_body`
+        (rejet T1, hors-recherche-active, erreur T2, échec T3 avec repli T2, succès T2/T3) — un futur
+        point de sortie ajouté au corps de la cascade n'a qu'à retourner le même tuple `(result,
+        gatekeeper_brand, gatekeeper_classification, gatekeeper_status)`, l'attache elle-même ne
+        peut plus être oubliée à un site d'appel particulier (rattrapage Chantier G, 2026-09-19)."""
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
+        result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status = self._run_analysis_cascade_body(
+            listing_data, firestore_config, force_expert, user_comment, user_email,
+        )
+        return self._attach_gatekeeper_metadata(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status)
+
+    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Corps de la cascade 3-Tiers — chaque point de sortie retourne
+        `(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status)`, jamais un
+        dict déjà attaché (voir `_run_analysis_cascade`, seul appelant, qui fait l'attache une
+        fois pour tous les chemins)."""
         config = firestore_config.get('analysisConfig', {})
         # Défauts alignés sur GEMINI_MODELS (config.py) — gemini-2.5-* est retiré par Google en
         # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
@@ -363,7 +379,7 @@ class DealAnalyzer:
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    return self._attach_gatekeeper_metadata(
+                    return (
                         {
                             "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
                             "classification": gatekeeper_classification,
@@ -394,7 +410,7 @@ class DealAnalyzer:
                             f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
                             f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
                         )
-                        return self._attach_gatekeeper_metadata(
+                        return (
                             {
                                 "verdict": "NOT_PROMOTED",
                                 "reasoning": (
@@ -423,7 +439,7 @@ class DealAnalyzer:
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
-            return self._attach_gatekeeper_metadata(
+            return (
                 {
                     "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
                     "model_used": " -> ".join(model_chain) + " (Error)",
@@ -489,22 +505,15 @@ class DealAnalyzer:
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
-                return self._attach_gatekeeper_metadata(
-                    result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
-                )
+                return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status)
 
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
-            self._attach_gatekeeper_metadata(
-                result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
-            )
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
-            return result_t3
+            return (result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status)
 
         else:
             self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
-            return self._attach_gatekeeper_metadata(
-                result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status
-            )
+            return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status)

@@ -52,6 +52,16 @@ DEAL_FIELD_TO_COLUMN = {
 # Champs nichés dans `aiAnalysis` (analyzer.py, snake_case en interne) promus en colonnes propres
 # (voir schema.sql) — le dict `aiAnalysis` complet est de toute façon conservé tel quel dans
 # `ai_analysis_raw`, cette promotion ne fait que dupliquer certains champs pour l'indexation SQL.
+# Rattrapage Chantier G (2026-09-19) : verdict/marque/classification BRUTS du Portier, toujours
+# attachés par analyzer.py::_attach_gatekeeper_metadata en camelCase (contrairement aux autres
+# champs aiAnalysis ci-dessous, écrits en snake_case) — voir schema.sql. Source unique, réutilisée
+# par `bot.py::reevaluate_not_promoted` (boucle de restauration après un `force_expert=True` qui
+# efface ces champs) pour ne pas dupliquer cette correspondance à un second endroit.
+GATEKEEPER_FIELD_TO_COLUMN = {
+    "gatekeeperBrand": "gatekeeper_brand", "gatekeeperClassification": "gatekeeper_classification",
+    "gatekeeperVerdict": "gatekeeper_verdict",
+}
+
 _AI_ANALYSIS_FIELDS = {
     "verdict": "verdict", "classification": "classification",
     "classification_rejected": "classification_rejected", "brand": "brand",
@@ -62,11 +72,7 @@ _AI_ANALYSIS_FIELDS = {
     "condition_score": "condition_score", "liquidity_score": "liquidity_score",
     "restoration_interest_score": "restoration_interest_score",
     "model_used": "model_used", "tier3_trigger": "tier3_trigger",
-    # Rattrapage Chantier G (2026-09-19) : verdict/marque/classification BRUTS du Portier,
-    # toujours attachés par analyzer.py::_attach_gatekeeper_metadata en camelCase (contrairement
-    # aux autres champs aiAnalysis ci-dessus, écrits en snake_case) — voir schema.sql.
-    "gatekeeperBrand": "gatekeeper_brand", "gatekeeperClassification": "gatekeeper_classification",
-    "gatekeeperVerdict": "gatekeeper_verdict",
+    **GATEKEEPER_FIELD_TO_COLUMN,
 }
 
 _SMALLINT_COLUMNS = {
@@ -94,6 +100,30 @@ DEAL_COLUMNS = [
 # `backend/pg_repository.py::update_deal_analysis`, qui ne doit toucher QUE ces colonnes +
 # `ai_analysis_raw` (jamais les champs `deal_data`, absents d'une simple ré-analyse).
 AI_ANALYSIS_COLUMNS = list(_AI_ANALYSIS_FIELDS.values())
+
+# Rattrapage 2026-09-19 (JOURNAL.md) : `guitar_deals.id` est une clé primaire SEULE, sans
+# composite `user_id` — si deux utilisateurs scannent la même annonce réelle (même id Facebook/
+# Kijiji), un upsert non gardé réassignerait silencieusement la ligne entière au dernier
+# utilisateur traité. Source SQL UNIQUE du garde-fou d'appartenance, réutilisée par
+# `pg_repository.py::create_new_deal` (psycopg, placeholders `%s`) et
+# `export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`) — un futur
+# chemin d'écriture qui a besoin d'upserter `guitar_deals` doit passer par ici plutôt que de
+# ré-écrire un `ON CONFLICT (id) DO UPDATE` à la main.
+DEAL_OWNERSHIP_GUARD = "guitar_deals.user_id = EXCLUDED.user_id"
+
+
+def build_deal_upsert_sql(placeholder) -> str:
+    """`placeholder(index)` reçoit l'index 1-based de la colonne et renvoie le placeholder du
+    driver appelant (`lambda i: "%s"` pour psycopg, `lambda i: f"${i}"` pour asyncpg)."""
+    columns = DEAL_COLUMNS
+    placeholders = ", ".join(placeholder(i + 1) for i in range(len(columns)))
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c != "id")
+    return (
+        f"INSERT INTO guitar_deals ({', '.join(columns)}) VALUES ({placeholders}) "
+        f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
+        f"WHERE {DEAL_OWNERSHIP_GUARD}"
+    )
+
 
 CHAT_COLUMNS = [
     "deal_id", "role", "parts", "display_text", "attached_image_part_indices",
