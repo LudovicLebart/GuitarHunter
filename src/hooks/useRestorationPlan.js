@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     onRestorationPlanUpdate, addRestorationItem, updateRestorationItem, deleteRestorationItem,
     backfillRestorationOrder, reorderRestorationItems, addRestorationItemPhoto, removeRestorationItemPhoto,
-} from '../services/firestoreService';
+} from '../services/apiService';
 import { uploadRestorationPhotoToDealStorage } from '../services/storageService';
 
 // Statuts non terminaux comptés dans `remainingCost` — tout ce qui n'est ni `done` ni `skipped`.
