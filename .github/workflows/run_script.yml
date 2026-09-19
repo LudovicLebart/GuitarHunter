@@ -13,12 +13,13 @@
 # artefact GitHub Actions téléchargeable (bouton "Artifacts") ; si le script n'en produit pas,
 # cette étape est un no-op toléré, le résultat se lit directement dans les logs du job.
 #
-# Script actuellement exécuté : backend/scripts/audit_rejected_gems.py (Chantier H — ré-audit
-# des rejets T1 avec priorisation par le signal Qwen, voir TODO.md section "Optimisation coûts
-# Gemini"). Run précédent : #48 (2026-09-19) tué par le command_timeout à 10m après ~60/165
-# annonces (1 pépite potentielle trouvée, signalée par Qwen) — timeout remonté à 30m ici.
-# Pour lancer un autre script ponctuel, modifier la commande de l'étape "Exécution du script"
-# et le nom de fichier de l'étape "Récupération du rapport généré" ci-dessous.
+# Étape actuellement exécutée : lecture SEULE (grep) des logs de production
+# `~/GuitareHunter/logs/bot_*.log` pour les lignes `⏱️` (Chantier H — mesure de l'accélération
+# réelle de `_dispatch_analysis_batch`/ANALYSIS_WORKERS, instrumentation déployée 2026-09-19,
+# run #515). Ne touche à rien dans ~/GuitareHunter-scripts (pas de git/venv/pip nécessaires pour
+# une simple lecture de fichier) ni dans ~/GuitareHunter (lecture seule, `grep`, pas d'écriture).
+# Pour lancer un autre script ponctuel, remplacer la commande de l'étape "Exécution du script"
+# ci-dessous (et réactiver le rapport/artefact si le script en produit un).
 name: Run One-Off Script
 
 on:
@@ -36,76 +37,21 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Exécution du script sur le serveur (répertoire scratch, hors production)
+      - name: Exécution du script sur le serveur (lecture seule des logs de production)
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          DOT_ENV: ${{ secrets.DOT_ENV }}
-          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 30m
-          envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
+          command_timeout: 5m
           script: |
             set -e
-            mkdir -p ~/GuitareHunter-scripts
-            cd ~/GuitareHunter-scripts
-
-            echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
-            # `git init` (pas `git clone .`) : tolère un dossier non vide, notamment des fichiers
-            # résiduels (.env, backend/config/serviceAccountKey.json) laissés par un run précédent
-            # interrompu avant la fin — `git clone .` échoue dans ce cas (bug rencontré 2x).
-            if [ ! -d ".git" ]; then
-              echo "Initialisation du dépôt (dossier scratch, éventuels fichiers résiduels tolérés)..."
-              git init -q
-              git remote add origin https://github.com/${{ github.repository }}.git
-            fi
-            git fetch origin ${{ github.ref_name }}
-            git reset --hard origin/${{ github.ref_name }}
-
-            echo "--- Configuration .env ---"
-            if [ -z "$DOT_ENV" ]; then
-              echo "⚠️ Secret DOT_ENV manquant."
+            echo "--- Lignes ⏱️ (accélération _dispatch_analysis_batch) dans les logs de production ---"
+            if ls ~/GuitareHunter/logs/bot_*.log >/dev/null 2>&1; then
+              grep -h "⏱️" ~/GuitareHunter/logs/bot_*.log | tail -100 || echo "Aucune ligne ⏱️ trouvée pour l'instant (pas encore de lot traité depuis le redémarrage du bot)."
+              echo "--- Nombre total de lignes ⏱️ trouvées ---"
+              grep -h "⏱️" ~/GuitareHunter/logs/bot_*.log | wc -l
             else
-              printf '%s' "$DOT_ENV" > .env
-              echo "✅ Fichier .env écrit."
+              echo "⚠️ Aucun fichier de log trouvé dans ~/GuitareHunter/logs/ — vérifier le chemin de production."
             fi
-
-            echo "--- Configuration Firebase ---"
-            mkdir -p backend/config
-            if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
-              echo "❌ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — abandon."
-              exit 1
-            fi
-            printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
-            echo "✅ Clé Firebase écrite."
-
-            echo "--- Python Environment ---"
-            python3 -m venv venv || echo "Venv déjà présent."
-            source venv/bin/activate
-            pip install -r requirements.txt
-
-            echo "--- Exécution du script ---"
-            python3 -m backend.scripts.audit_rejected_gems --limit 300
-            cp "$(ls -t backend/benchmark/results/audit_rejected_gems_*.json | head -1)" audit_rejected_gems_latest.json
-
-      - name: Récupération du rapport généré
-        env:
-          FICHIER_A_RECUPERER: audit_rejected_gems_latest.json
-        run: |
-          mkdir -p ~/.ssh output
-          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
-            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/GuitareHunter-scripts/${FICHIER_A_RECUPERER}" \
-            output/ || echo "⚠️ Aucun rapport à récupérer (le script a peut-être échoué ou ne produit pas ce fichier)."
-
-      - name: Publication de l'artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: audit-rejected-gems-report
-          path: output/
-          if-no-files-found: warn
-          retention-days: 14
