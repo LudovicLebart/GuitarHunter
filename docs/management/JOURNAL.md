@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-19] [PRO] Chantier H : instrumentation de mesure de l'accélération réelle de `_dispatch_analysis_batch` (`ANALYSIS_WORKERS=5`), déployée en production (run #515) → objectif Qwen clarifié (au moins aussi bon que Flash-Lite, pas juste moins cher).
+- **Contexte** : `ANALYSIS_WORKERS=5` est en production depuis le 2026-09-13 sans jamais avoir été mesuré — seuls des compteurs de résultat (accepté/rejeté/erreur) existaient, aucune durée.
+- **`backend/bot.py`** : nouvelle méthode `_timed_handle_deal_found_unless_stopped` (chronomètre l'exécution réelle dans le worker, hors attente en file) ; `_dispatch_analysis_batch` accumule le temps individuel cumulé et le compare au temps mur du lot en fin de traitement, log `⏱️ [source] Lot de N annonce(s) traité en Xs (ANALYSIS_WORKERS=5) — Ys cumulées individuellement, accélération ×Z`. Additif, aucune décision ne dépend de ce log. Déployé via push direct sur `dev` (déclenche `deploy.yml`, redémarrage du bot confirmé réussi, run #515, 49s).
+- **Reste à faire** : laisser accumuler des cycles réels puis lire les logs pour voir si l'accélération observée approche 5 sur des lots suffisamment grands, et si des limites de débit TokenRouter/Gemini la dégradent.
+- **Objectif du chantier Qwen clarifié par l'utilisateur** : le critère de bascule T1 est que Qwen fasse *au moins aussi bien* que Flash-Lite (le Portier de production actuel) — le gain de coût seul (-66,5%/appel T1, -33,6% facture totale) ne suffit pas si la fiabilité de détection en pâtit.
+
 [2026-09-19] [PRO] Chantier H : `audit_rejected_gems.py` mergé sur `dev` et relancé sur l'échantillon complet → 0 pépite ratée sur 165 annonces, signal Qwen non confirmé (0/8).
 - **Contexte** : le script (jusqu'ici cantonné à la branche `claude/guitarhunter-benchmark-setup-h9q9gr`, jamais rapatrié) devait être mergé sur `dev` puis relancé pour confirmer/étendre le run #45 (n=22, 2026-09-14).
 - **Run #47 (échec immédiat)** : `analyzer._prepare_visual_parts()` — méthode utilisée par le script d'origine — n'existe plus sur `dev` (`analyzer.py` a divergé depuis la branche de benchmark). Corrigé en réutilisant le pattern réel de production (`analyze_deal_light()` : `image_urls[:8]` + `_download_and_optimize_image` par URL). Aucun coût engagé (crash avant le premier appel Gemini).
