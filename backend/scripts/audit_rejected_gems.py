@@ -32,10 +32,14 @@ Lecture seule côté Firestore (aucune écriture — les annonces rejetées rest
 CONSOMME de vrais appels Gemini (Tier 2 uniquement, le moins cher après T1) sur l'échantillon —
 ~0,008$/annonce réellement ré-analysée (mesuré 2026-09-14).
 
-Réutilise directement les méthodes privées de `DealAnalyzer` (`_prepare_visual_parts`,
+Réutilise directement les méthodes privées de `DealAnalyzer` (`_download_and_optimize_image`,
 `_construct_base_user_prompt`, `_call_gemini_json`) pour appeler EXACTEMENT le même prompt T2
-que la cascade de production, sans dupliquer sa construction — même pattern déjà utilisé pour
-`_PerceptionSubstitutedAnalyzer` (Chantier B, `backend/benchmark/candidates.py`).
+que la cascade de production, sans dupliquer sa construction — même pattern que
+`analyze_deal_light()` (`backend/analyzer.py`).
+
+**Correction 2026-09-19 (run #47)** : `_prepare_visual_parts` (méthode utilisée sur la branche de
+benchmark d'origine) n'existe plus sur `dev` — `analyzer.py` a divergé depuis. Remplacé par la
+construction inline utilisée par la production (`analyze_deal_light`), cap à 8 photos.
 
 Usage : python -m backend.scripts.audit_rejected_gems [--limit N]
 """
@@ -52,7 +56,7 @@ DEFAULT_LIMIT = 300
 
 
 def _rebuild_listing_data(deal_id, deal):
-    """Reconstruit un `listing_data` minimal utilisable par `_prepare_visual_parts` — préfère
+    """Reconstruit un `listing_data` minimal exploitable pour la ré-analyse T2 — préfère
     les URLs durables Firebase Storage (les URLs Facebook/Kijiji d'origine expirent)."""
     image_urls = deal.get("storageImageUrls") or deal.get("imageUrls") or []
     return {
@@ -141,7 +145,8 @@ def main():
         original_reason = ai.get("reasoning", "")
         was_qwen_flagged = _is_qwen_flagged(deal)
 
-        images = analyzer._prepare_visual_parts(listing_data)
+        image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
+        images = [img for url in image_urls if (img := analyzer._download_and_optimize_image(url))]
         if not images:
             print(f"⚠️  {deal_id} : aucune photo récupérable (URLs expirées/manquantes) — ignorée.")
             continue
