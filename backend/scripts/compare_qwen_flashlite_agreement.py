@@ -1,0 +1,127 @@
+"""
+Diagnostic en lecture seule, SANS appel Gemini (Chantier H, suite à `audit_rejected_gems.py`
+et sa discussion du 2026-09-19) : compare directement les métadonnées déjà stockées sur chaque
+annonce — `gatekeeperVerdict` (Flash-Lite, le Portier de production, décideur réel) vs
+`qwenGatekeeperVerdict` (observation Qwen, tourne en parallèle depuis le 2026-09-13, jamais lue
+pour la décision réelle) — sur TOUTES les annonces analysées depuis cette date, tous
+utilisateurs confondus.
+
+**Objectif recadré avec l'utilisateur (2026-09-19)** : ce n'est PAS un test de précision de
+Qwen. Un faux positif de Qwen (il signale une pépite qui n'en est pas) ne coûte qu'une
+ré-analyse T2 à ~0,008$ (négligeable) — voir `audit_rejected_gems.py`, déjà mesuré (8 faux
+positifs sur 8 désaccords, run #49). Le SEUL cas qui compterait vraiment si Qwen devenait un
+jour LE Portier de production : le RAPPEL — une annonce que Flash-Lite accepte aujourd'hui et
+que Qwen aurait rejetée serait une opportunité perdue DÉFINITIVEMENT (contrairement à un faux
+positif, jamais revue par la suite). C'est ce cas ("Gemini accepte, Qwen aurait rejeté") que ce
+script met en avant, pas l'inverse (déjà couvert par `audit_rejected_gems.py`).
+
+Aucune écriture Firestore, aucun appel Gemini/Qwen — lecture pure des champs déjà en base.
+Coût : zéro. Ne nécessite donc pas de repasser par le mécanisme `run_script.yml` en scratch (le
+job SSH suffit pour la connectivité Firestore), et peut être relancé aussi souvent que voulu.
+
+Usage : python -m backend.scripts.compare_qwen_flashlite_agreement
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.getcwd())
+
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "benchmark", "results")
+
+# Sous-ensemble de T1_VALID_STATUSES (backend/analyzer.py) qui correspond à un rejet du
+# Portier — dupliqué ici (pas d'import direct) pour que ce script reste lisible seul et ne
+# dépende pas d'un import lourd d'analyzer.py (google.generativeai) juste pour 3 constantes.
+T1_REJECTION_VERDICTS = frozenset({"BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE"})
+
+
+def _is_rejected(verdict):
+    return verdict in T1_REJECTION_VERDICTS
+
+
+def main():
+    from backend.scripts.export_neck_reset_sample import setup_firebase
+    from config import APP_ID_TARGET
+
+    db = setup_firebase()
+    users_ref = db.collection("artifacts").document(APP_ID_TARGET).collection("users")
+    user_ids = [doc.id for doc in users_ref.stream()]
+    print(f"🔍 {len(user_ids)} utilisateur(s) trouvé(s).")
+
+    both_present = []
+    for uid in user_ids:
+        deals_ref = (
+            db.collection("artifacts").document(APP_ID_TARGET)
+            .collection("users").document(uid).collection("guitar_deals")
+        )
+        for doc in deals_ref.stream():
+            deal = doc.to_dict()
+            ai = deal.get("aiAnalysis") or {}
+            gemini_verdict = ai.get("gatekeeperVerdict")
+            qwen_verdict = ai.get("qwenGatekeeperVerdict")
+            if gemini_verdict and qwen_verdict:
+                both_present.append((doc.id, deal, gemini_verdict, qwen_verdict))
+
+    n = len(both_present)
+    print(f"📦 {n} annonce(s) avec les deux verdicts (Gemini + Qwen) disponibles depuis le 2026-09-13.\n")
+
+    if n == 0:
+        print("Rien à comparer — l'observation Qwen n'a peut-être pas encore accumulé assez de données.")
+        return
+
+    agree_accept = agree_reject = 0
+    gemini_accept_qwen_reject = []  # LE cas qui compte (coût = rappel, opportunité perdue)
+    gemini_reject_qwen_accept = []  # déjà audité en réel avec de vrais appels T2 (run #49)
+
+    for deal_id, deal, gv, qv in both_present:
+        g_rej, q_rej = _is_rejected(gv), _is_rejected(qv)
+        if not g_rej and not q_rej:
+            agree_accept += 1
+        elif g_rej and q_rej:
+            agree_reject += 1
+        elif not g_rej and q_rej:
+            gemini_accept_qwen_reject.append((deal_id, deal, gv, qv))
+        else:
+            gemini_reject_qwen_accept.append((deal_id, deal, gv, qv))
+
+    print(f"{'=' * 60}\nRÉSUMÉ\n{'=' * 60}")
+    print(f"Total avec les deux verdicts : {n}")
+    print(f"  Accord ACCEPT/ACCEPT : {agree_accept} ({100 * agree_accept / n:.1f}%)")
+    print(f"  Accord REJECT/REJECT : {agree_reject} ({100 * agree_reject / n:.1f}%)")
+    print(f"  Gemini ACCEPTE, Qwen aurait REJETÉ (coûteux si bascule, rappel) : "
+          f"{len(gemini_accept_qwen_reject)} ({100 * len(gemini_accept_qwen_reject) / n:.1f}%)")
+    print(f"  Gemini REJETTE, Qwen aurait ACCEPTÉ (déjà audité en réel, run #49 : 0/8 confirmées) : "
+          f"{len(gemini_reject_qwen_accept)} ({100 * len(gemini_reject_qwen_accept) / n:.1f}%)")
+
+    if gemini_accept_qwen_reject:
+        print(f"\n{'=' * 60}\nDÉTAIL — Gemini accepte, Qwen aurait rejeté (n={len(gemini_accept_qwen_reject)})\n{'=' * 60}")
+        for deal_id, deal, gv, qv in gemini_accept_qwen_reject:
+            ai = deal.get("aiAnalysis") or {}
+            print(f"- {deal_id} : '{deal.get('title', '')[:60]}' — Gemini={gv} Qwen={qv} "
+                  f"deal_score={ai.get('deal_score')} resto={ai.get('restoration_interest_score')}")
+
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    out_path = os.path.join(RESULTS_DIR, "compare_qwen_flashlite_agreement.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "n_total": n,
+            "agree_accept": agree_accept,
+            "agree_reject": agree_reject,
+            "gemini_accept_qwen_reject": [
+                {
+                    "id": deal_id,
+                    "title": deal.get("title"),
+                    "gemini_verdict": gv,
+                    "qwen_verdict": qv,
+                    "deal_score": (deal.get("aiAnalysis") or {}).get("deal_score"),
+                    "restoration_interest_score": (deal.get("aiAnalysis") or {}).get("restoration_interest_score"),
+                }
+                for deal_id, deal, gv, qv in gemini_accept_qwen_reject
+            ],
+            "gemini_reject_qwen_accept_count": len(gemini_reject_qwen_accept),
+        }, f, ensure_ascii=False, indent=2)
+    print(f"\nRésultats détaillés sauvegardés dans : {out_path}")
+
+
+if __name__ == "__main__":
+    main()
