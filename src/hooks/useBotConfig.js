@@ -5,11 +5,15 @@ import {
   triggerManualRefresh,
   triggerManualCleanup,
   triggerRelaunchAll,
-  triggerReevaluateNotPromoted,
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
-  migrateOldDataToNewUser
-} from '../services/firestoreService';
+} from '../services/apiService';
+// Chantier G (activeSearchFamilies/repromotion) pas encore porté sur la branche Postgres
+// (backend/analyzer.py + backend/bot.py, ~450 lignes de divergence — voir TODO.md "Rattrapage
+// Chantier G/H Postgres") : reste sur Firestore, toujours source de vérité en prod jusqu'à la
+// bascule réelle. migrateOldDataToNewUser : migration ponctuelle Firestore -> Firestore, sans
+// équivalent Postgres (voir apiService.js, en-tête).
+import { triggerReevaluateNotPromoted, migrateOldDataToNewUser } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
