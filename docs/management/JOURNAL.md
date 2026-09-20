@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-20] [PRO] `backend/api/*` (REST/WS) adapté au catalogue partagé.
+- **Contexte** : dernier morceau resté sur l'ancien schéma après la bascule de `guitarhunter_pg_prod` — la couche FastAPI/asyncpg utilisée par le frontend référençait encore `guitar_deals.user_id` (colonne supprimée), aurait cassé à l'exécution.
+- **`deals_repo.py`** : visibilité désormais dérivée de `user_deal_matches` (`_is_visible` avant toute mutation) ; favori/rejet manuel déplacés vers `user_deal_state` (upsert `ON CONFLICT`, plus jamais écrits dans `guitar_deals`) ; achat (`toggle_purchased`) reste une écriture globale sur `guitar_deals`, avec verrou `WHERE NOT is_purchased OR purchased_by_user_id = $2` renvoyant un sentinel `"locked_by_other_user"` (→ 409 dans `main.py::patch_purchased`) pour empêcher un rachat concurrent.
+- **`chat_repo.py::get_deal_owner`** : bascule de `user_id` vers `purchased_by_user_id` — chat et plan de restauration restent réservés à l'acheteur, comme décidé le 2026-09-19.
+- **WS (`main.py::ws_deals`)** : le trigger `notify_deal_change` ne connaît plus l'utilisateur concerné (l'annonce est partagée) — `_on_notify` vérifie maintenant la visibilité via `user_deal_matches` à la réception de chaque notification avant de pousser au client.
+- **Bug trouvé en écrivant les tests** : déplacer favori/rejet hors de `guitar_deals` faisait taire le WS pour ces actions (le trigger existant n'est attaché qu'à `guitar_deals`) — corrigé par un nouveau trigger `user_deal_state_notify` réutilisant le même canal `deal_changes`.
+- **Tests** : 87 tests Postgres (dont `backend/api/test_deals_api.py`, `test_chat_api.py`, `test_restoration_api.py`, `test_users_api.py`, `test_cities_api.py`, `test_shared_deals_api.py`, `backend/test_pg_repository.py`, `backend/scripts/test_export_firestore_to_postgres_integration.py`) tous verts contre `guitarhunter_pg_staging`.
+- **État** : commité localement (`09b0a7f`) sur `claude/firestore-postgres-migration`, PAS poussé sur `dev`/`master`. Reste avant la Phase B.5 : câblage frontend (à refaire entièrement, voir incident du 2026-09-19), Tailscale Funnel pour la base de prod.
+
 [2026-09-20] [PRO] `guitarhunter_pg_prod` migrée vers le catalogue partagé, validée en conditions réelles.
 - **Contexte** : suite à la correction des 8 findings de revue de code sur l'architecture partagée, application de la même bascule à la vraie base de production (jusqu'ici toujours sur l'ancien schéma "par utilisateur" de la Phase B.2).
 - **Décision** : plutôt que d'appliquer la migration `DO $$` de `schema.sql` sur les données déjà en place (n'aurait capturé le match que pour le "gagnant" de chaque ancienne collision cross-tenant, pas pour tous les utilisateurs ayant réellement trouvé chaque annonce), `TRUNCATE` + réexport complet depuis Firestore avec le script corrigé — seule façon de reconstruire correctement `user_deal_matches` pour tout le monde.
