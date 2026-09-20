@@ -3,9 +3,12 @@
 Isolé du pipeline de production (analyzer.py) : sert à comparer les deux tiers
 Gemini actuels (Tier 2 Analyste et Tier 3 Expert Pro) à des concurrents externes
 (GPT-5-mini, Qwen3.8-flash via TokenRouter), à un candidat hybride expérimental
-(Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement) et à un
+(Qwen en extracteur vision + Gemini Tier 3 en oracle de raisonnement), à un
 candidat de compression expérimental (Tier 3 forcé en puces + réécriture par
-Gemini Flash-Lite) sur un même jeu de questions/photos.
+Gemini Flash-Lite), et depuis le Chantier I (2026-09-20) à Qwen3-VL-8B-Instruct
+hébergé localement sur le Dell T5810 via Ollama (`qwen_local`) — candidat de
+remplacement potentiel pour `qwen` (qwen3.8-flash cloud, le fournisseur T1 réel
+en prod depuis la bascule du même jour) — sur un même jeu de questions/photos.
 """
 import base64
 import logging
@@ -191,6 +194,31 @@ def call_qwen_tokenrouter(question: str, image_urls: list) -> str:
     )
 
 
+# Chantier I (2026-09-20) : Qwen3-VL-8B-Instruct hébergé localement sur le Dell T5810
+# (RTX 2060 Super, 8 Go VRAM) via Ollama, évalué comme candidat de remplacement pour
+# `qwen` ci-dessus (qwen3.8-flash cloud, via TokenRouter, le fournisseur T1 réel en
+# prod depuis la bascule du 2026-09-20) — même logique que la comparaison qui a servi
+# à valider la bascule Gemini -> Qwen : mesurer avant de décider, pas l'inverse.
+# Ollama expose une API compatible OpenAI (/v1/chat/completions) une fois le modèle
+# tiré (`ollama pull qwen3-vl:8b`, ~4,7 Go en Q4_K_M) — réutilise _call_openai_compatible
+# tel quel, aucune logique d'appel spécifique nécessaire.
+QWEN_LOCAL_BASE_URL = os.getenv("QWEN_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1")
+QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b")
+# Ollama n'exige aucune authentification réelle, mais le SDK OpenAI refuse une clé vide.
+QWEN_LOCAL_API_KEY = os.getenv("QWEN_LOCAL_API_KEY", "ollama")
+
+
+def call_qwen_local(question: str, image_urls: list) -> str:
+    """Qwen3-VL-8B-Instruct en local sur le Dell (Ollama, Tailscale) — à comparer à
+    `qwen` (qwen3.8-flash cloud, prod) sur le même jeu de questions/photos. Échoue
+    explicitement (capturé par `run_candidate`, score 0) si le Dell n'est pas joignable
+    ou si le modèle n'a pas été téléchargé au préalable — aucun repli silencieux."""
+    return _call_openai_compatible(
+        question, image_urls, QWEN_LOCAL_MODEL, QWEN_LOCAL_API_KEY,
+        base_url=QWEN_LOCAL_BASE_URL,
+    )
+
+
 # Un seul appel Qwen, deux sections distinctes dans le même prompt : la consigne
 # "pas d'interprétation" ne s'applique qu'à la section logo/marque — c'est précisément le
 # saut interprétatif ("marque budget OEM") qui a fait halluciner Qwen sur l'annonce
@@ -248,6 +276,7 @@ CANDIDATES = {
     "gemini_pro_compact": call_gemini_pro_compact,
     "gpt4o_mini": call_gpt4o_mini,
     "qwen": call_qwen_tokenrouter,
+    "qwen_local": call_qwen_local,
     "hybrid": call_hybrid_qwen_gemini,
     "claude_sonnet": call_claude_sonnet,
 }
