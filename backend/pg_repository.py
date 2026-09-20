@@ -110,21 +110,37 @@ class PostgresRepository:
     # ------------------------------------------------------------------ deals : lecture
 
     def get_deal_by_id(self, deal_id: str):
+        """2026-09-19 : `guitar_deals` est un catalogue PARTAGÉ (plus de `user_id` par ligne) —
+        lecture globale par id, quel que soit l'utilisateur dont le scan a d'abord découvert
+        l'annonce. C'est ce qui permet à `bot.py::handle_deal_found` de reconnaître une annonce
+        déjà analysée par un AUTRE utilisateur et de sauter l'appel IA (voir JOURNAL.md 2026-09-19)."""
         with self.pool.connection() as conn:
-            row = conn.execute(
-                "SELECT * FROM guitar_deals WHERE id = %s AND user_id = %s", (deal_id, self.user_id)
-            ).fetchone()
+            row = conn.execute("SELECT * FROM guitar_deals WHERE id = %s", (deal_id,)).fetchone()
         return _deal_row_to_bot_shape(row) if row else None
+
+    def record_deal_match(self, deal_id: str):
+        """Enregistre que LE SCAN DE CET UTILISATEUR a retrouvé cette annonce (déjà analysée ou
+        non) — remplace la notion d'appartenance qu'incarnait `guitar_deals.user_id` : la donnée
+        de l'annonce est désormais partagée, mais la visibilité dans le fil de chaque utilisateur
+        reste individuelle. Idempotent (`ON CONFLICT DO NOTHING`, jamais de mise à jour ensuite)."""
+        with self.pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES (%s, %s) "
+                "ON CONFLICT (user_id, deal_id) DO NOTHING",
+                (self.user_id, deal_id),
+            )
 
     def get_deals_index_snapshot(self):
         """Remplace l'index en chunks Firestore par une lecture directe — mêmes clés abrégées
         que côté Firestore (`title`/`p`/`la`/`lo`/`l`), seules consommées par
-        `bot.py::_find_cross_platform_duplicate`/`_build_kijiji_city_labels`, pour zéro
-        changement dans ces deux méthodes."""
+        `bot.py::_find_cross_platform_duplicate`/`_build_kijiji_city_labels`. Global (2026-09-19,
+        catalogue partagé) plutôt que filtré par `user_id` — un doublon cross-plateforme détecté
+        contre TOUT le catalogue, pas seulement les annonces déjà vues par cet utilisateur, évite
+        aussi une ré-analyse si un autre utilisateur a déjà vu la même annonce sur l'autre
+        plateforme."""
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT id, title, price, latitude, longitude, location FROM guitar_deals WHERE user_id = %s",
-                (self.user_id,),
+                "SELECT id, title, price, latitude, longitude, location FROM guitar_deals"
             ).fetchall()
         return {
             row["id"]: {
@@ -135,37 +151,60 @@ class PostgresRepository:
         }
 
     def get_active_listings(self):
+        """Scopé aux annonces MATCHÉES par cet utilisateur (`user_deal_matches`) — sert à
+        `mark_all_for_reanalysis` ("réanalyser tout"), volontairement limité au fil de
+        l'utilisateur qui déclenche l'action plutôt qu'au catalogue entier (partagé)."""
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT id, link FROM guitar_deals WHERE user_id = %s AND status = 'analyzed'",
+                """
+                SELECT gd.id, gd.link FROM guitar_deals gd
+                JOIN user_deal_matches udm ON udm.deal_id = gd.id
+                WHERE udm.user_id = %s AND gd.status = 'analyzed'
+                """,
                 (self.user_id,),
             ).fetchall()
         return [_Row(row["id"], {"link": row["link"]}) for row in rows]
 
     def get_retry_queue_listings(self):
+        """Global (2026-09-19, catalogue partagé) : `retry_analysis` est un fait sur l'annonce
+        elle-même, pas sur un utilisateur en particulier — traité par le premier thread bot dont
+        le job planifié tourne, bénéficie à tous les utilisateurs qui la voient."""
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM guitar_deals WHERE user_id = %s AND status = 'retry_analysis'",
-                (self.user_id,),
+                "SELECT * FROM guitar_deals WHERE status = 'retry_analysis'"
             ).fetchall()
         return [_Row(row["id"], _deal_row_to_bot_shape(row)) for row in rows]
 
     def get_not_promoted_listings(self):
         """Rattrapage Chantier G (2026-09-19) : annonces mises de côté par le routage
         `activeSearchFamilies` (verdict NOT_PROMOTED, jamais envoyées vers T2/T3) — candidates à
-        une repromotion si la recherche active change. Mirroir de
-        `repository.py::get_not_promoted_listings`."""
+        une repromotion si LA RECHERCHE DE CET UTILISATEUR change. Scopé via `user_deal_matches` :
+        une annonce NOT_PROMOTED n'est pertinente à réévaluer que pour les utilisateurs dont le
+        scan l'a effectivement rencontrée (`activeSearchFamilies` est une config par utilisateur)."""
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM guitar_deals WHERE user_id = %s AND verdict = 'NOT_PROMOTED'",
+                """
+                SELECT gd.* FROM guitar_deals gd
+                JOIN user_deal_matches udm ON udm.deal_id = gd.id
+                WHERE udm.user_id = %s AND gd.verdict = 'NOT_PROMOTED'
+                """,
                 (self.user_id,),
             ).fetchall()
         return [_Row(row["id"], _deal_row_to_bot_shape(row)) for row in rows]
 
     def delete_listing(self, listing_id: str):
+        """2026-09-19 : ne supprime PLUS l'annonce globale (catalogue partagé, d'autres
+        utilisateurs peuvent la voir) — retire seulement la visibilité/les préférences de CET
+        utilisateur (`user_deal_matches`/`user_deal_state`), équivalent d'un "retirer de mon
+        fil" plutôt qu'une suppression de fond."""
         with self.pool.connection() as conn:
             conn.execute(
-                "DELETE FROM guitar_deals WHERE id = %s AND user_id = %s", (listing_id, self.user_id)
+                "DELETE FROM user_deal_matches WHERE user_id = %s AND deal_id = %s",
+                (self.user_id, listing_id),
+            )
+            conn.execute(
+                "DELETE FROM user_deal_state WHERE user_id = %s AND deal_id = %s",
+                (self.user_id, listing_id),
             )
 
     # ------------------------------------------------------------------ deals : écriture
@@ -173,20 +212,21 @@ class PostgresRepository:
     def _get_manual_classification(self, deal_id: str):
         with self.pool.connection() as conn:
             row = conn.execute(
-                "SELECT manual_classification FROM guitar_deals WHERE id = %s AND user_id = %s",
-                (deal_id, self.user_id),
+                "SELECT manual_classification FROM guitar_deals WHERE id = %s", (deal_id,),
             ).fetchone()
         return row and row.get("manual_classification")
 
     def _get_manual_analysis_overrides(self, deal_id: str) -> dict:
         with self.pool.connection() as conn:
             row = conn.execute(
-                "SELECT manual_analysis_overrides FROM guitar_deals WHERE id = %s AND user_id = %s",
-                (deal_id, self.user_id),
+                "SELECT manual_analysis_overrides FROM guitar_deals WHERE id = %s", (deal_id,),
             ).fetchone()
         return (row and row.get("manual_analysis_overrides")) or {}
 
     def create_new_deal(self, deal_id: str, deal_data: dict, analysis_data: dict):
+        """Appelée uniquement quand `bot.py::handle_deal_found` n'a trouvé AUCUNE ligne existante
+        pour cet id (`get_deal_by_id` global) — un upsert simple suffit (2026-09-19, catalogue
+        partagé, plus de garde-fou d'appartenance à faire : `id` seul identifie la ligne)."""
         status = "analyzed"
         if analysis_data.get("verdict") == "REJECTED":
             status = "rejected"
@@ -199,25 +239,20 @@ class PostgresRepository:
             "initialModelUsed": analysis_data.get("model_used"),
         }
         row, _unmapped = map_deal(deal_id, merged)
-        row["user_id"] = self.user_id
 
         with self.pool.connection() as conn:
-            cursor = conn.execute(
+            conn.execute(
                 build_deal_upsert_sql(lambda _i: "%s"),
                 [_to_pg_param(row[c]) for c in DEAL_COLUMNS],
             )
-            if cursor.rowcount == 0:
-                self.logger.warning(
-                    f"create_new_deal: id '{deal_id}' existe déjà pour un AUTRE utilisateur — "
-                    f"écriture ignorée pour ne pas réassigner l'appartenance de l'annonce."
-                )
-                return
+        self.record_deal_match(deal_id)
         self.logger.info(f"Created new deal '{deal_data.get('title', deal_id)}' with status '{status}'.")
 
     def update_deal_analysis(self, deal_id: str, analysis_data: dict):
         """Ne touche QUE les colonnes promues depuis aiAnalysis + ai_analysis_raw + status/
         timestamp — jamais les colonnes issues de `deal_data` (titre, prix, ...), absentes d'une
-        simple ré-analyse, exactement comme le `.update()` partiel Firestore d'origine."""
+        simple ré-analyse, exactement comme le `.update()` partiel Firestore d'origine. Global
+        (catalogue partagé) : la ré-analyse profite à tous les utilisateurs qui voient ce deal_id."""
         manual_overrides = self._get_manual_analysis_overrides(deal_id)
         if manual_overrides:
             analysis_data = {**analysis_data, **manual_overrides}
@@ -231,16 +266,17 @@ class PostgresRepository:
         values = [_to_pg_param(row[c]) for c in columns] + [status, datetime.now(timezone.utc)]
         with self.pool.connection() as conn:
             conn.execute(
-                f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s AND user_id = %s",
-                [*values, deal_id, self.user_id],
+                f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s",
+                [*values, deal_id],
             )
+        self.record_deal_match(deal_id)
         self.logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
 
     def update_deal_data_and_analysis(self, deal_id: str, deal_data: dict, analysis_data: dict):
         """Équivalent du `.update()` Firestore qui fusionne `deal_data` au niveau racine du
         document : ne touche QUE les colonnes correspondant aux clés réellement présentes dans
         `deal_data` (+ toujours les colonnes aiAnalysis/status/timestamp) — jamais les autres,
-        contrairement à `create_new_deal` (INSERT complet)."""
+        contrairement à `create_new_deal` (INSERT complet). Global (catalogue partagé)."""
         manual_overrides = self._get_manual_analysis_overrides(deal_id)
         if manual_overrides:
             analysis_data = {**analysis_data, **manual_overrides}
@@ -255,17 +291,18 @@ class PostgresRepository:
         values = [_to_pg_param(row[c]) for c in columns] + [status, datetime.now(timezone.utc)]
         with self.pool.connection() as conn:
             conn.execute(
-                f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s AND user_id = %s",
-                [*values, deal_id, self.user_id],
+                f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s",
+                [*values, deal_id],
             )
+        self.record_deal_match(deal_id)
         self.logger.info(f"Updated full data and analysis for deal '{deal_id}'. Status: '{status}'.")
 
     def update_deal_status(self, deal_id: str, status: str, error_message: str | None = None):
         with self.pool.connection() as conn:
             if status == "sold":
                 conn.execute(
-                    "UPDATE guitar_deals SET status = %s, sold_at = now() WHERE id = %s AND user_id = %s",
-                    (status, deal_id, self.user_id),
+                    "UPDATE guitar_deals SET status = %s, sold_at = now() WHERE id = %s",
+                    (status, deal_id),
                 )
             elif error_message:
                 # `ai_analysis_raw || jsonb_build_object(...)` fusionne DANS l'objet plutôt que de
@@ -278,18 +315,20 @@ class PostgresRepository:
                     SET status = %s,
                         ai_analysis_raw = COALESCE(ai_analysis_raw, '{}'::jsonb)
                             || jsonb_build_object('error', %s::text, 'error_at', now())
-                    WHERE id = %s AND user_id = %s
+                    WHERE id = %s
                     """,
-                    (status, error_message, deal_id, self.user_id),
+                    (status, error_message, deal_id),
                 )
             else:
                 conn.execute(
-                    "UPDATE guitar_deals SET status = %s WHERE id = %s AND user_id = %s",
-                    (status, deal_id, self.user_id),
+                    "UPDATE guitar_deals SET status = %s WHERE id = %s",
+                    (status, deal_id),
                 )
         self.logger.info(f"Updated status for deal '{deal_id}' to '{status}'.")
 
     def mark_deal_as_sold(self, deal_id: str, reason: str | None = None):
+        """Global (catalogue partagé) : une annonce vendue dans la vraie vie l'est pour TOUS les
+        utilisateurs qui la voient, pas seulement celui dont le scan a détecté le marqueur."""
         with self.pool.connection() as conn:
             if reason:
                 conn.execute(
@@ -298,25 +337,76 @@ class PostgresRepository:
                     SET status = 'sold', sold_at = now(), "timestamp" = now(),
                         sold_notes = COALESCE(sold_notes, '[]'::jsonb)
                             || jsonb_build_array(jsonb_build_object('info', %s::text, 'timestamp', now()))
-                    WHERE id = %s AND user_id = %s
+                    WHERE id = %s
                     """,
-                    (reason, deal_id, self.user_id),
+                    (reason, deal_id),
                 )
             else:
                 conn.execute(
                     """UPDATE guitar_deals SET status = 'sold', sold_at = now(), "timestamp" = now()
-                       WHERE id = %s AND user_id = %s""",
-                    (deal_id, self.user_id),
+                       WHERE id = %s""",
+                    (deal_id,),
                 )
         self.logger.info(f"Deal '{deal_id}' marked as SOLD with soldAt timestamp.")
 
     def mark_all_for_reanalysis(self) -> int:
+        """Scopé au fil de CET utilisateur (`user_deal_matches`), volontairement — voir
+        `get_active_listings`."""
         with self.pool.connection() as conn:
             cur = conn.execute(
-                "UPDATE guitar_deals SET status = 'retry_analysis' WHERE user_id = %s AND status = 'analyzed'",
+                """
+                UPDATE guitar_deals SET status = 'retry_analysis'
+                WHERE status = 'analyzed' AND id IN (
+                    SELECT deal_id FROM user_deal_matches WHERE user_id = %s
+                )
+                """,
                 (self.user_id,),
             )
             return cur.rowcount
+
+    # ------------------------------------------------------------------ préférences par utilisateur
+
+    def toggle_favorite(self, deal_id: str, is_favorite: bool):
+        with self.pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES (%s, %s, %s) "
+                "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = EXCLUDED.is_favorite, updated_at = now()",
+                (self.user_id, deal_id, is_favorite),
+            )
+
+    def toggle_rejected(self, deal_id: str, is_rejected: bool):
+        """Rejet MANUEL par utilisateur ("pas intéressé") — n'affecte ni la visibilité de
+        l'annonce pour les autres utilisateurs, ni `guitar_deals.status` (réservé au rejet
+        AUTOMATIQUE par verdict IA, un fait sur l'annonce elle-même)."""
+        with self.pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO user_deal_state (user_id, deal_id, is_rejected) VALUES (%s, %s, %s) "
+                "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_rejected = EXCLUDED.is_rejected, updated_at = now()",
+                (self.user_id, deal_id, is_rejected),
+            )
+
+    def toggle_purchased(self, deal_id: str, is_purchased: bool, purchase_price=None):
+        """Achat GLOBAL (décision explicite de l'utilisateur, 2026-09-19) : une guitare achetée
+        dans la vraie vie l'est pour tout le monde — `purchased_by_user_id` fixe qui a le droit
+        au chat/plan de restauration de cette annonce (voir `chat_repo.py`/`restoration_repo.py`
+        côté API)."""
+        with self.pool.connection() as conn:
+            if is_purchased:
+                conn.execute(
+                    """UPDATE guitar_deals
+                       SET is_purchased = true, purchased_by_user_id = %s,
+                           purchase_price = %s, purchased_at = now()
+                       WHERE id = %s""",
+                    (self.user_id, purchase_price, deal_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE guitar_deals
+                       SET is_purchased = false, purchased_by_user_id = NULL,
+                           purchase_price = NULL, purchased_at = NULL
+                       WHERE id = %s AND purchased_by_user_id = %s""",
+                    (deal_id, self.user_id),
+                )
 
     # ------------------------------------------------------------------ villes
 
@@ -487,8 +577,8 @@ class PostgresRepository:
                 self.logger.info(f"🗑️ {deleted_count} image(s) supprimée(s) du Storage pour deal {deal_id}.")
             with self.pool.connection() as conn:
                 conn.execute(
-                    "UPDATE guitar_deals SET storage_image_urls = NULL WHERE id = %s AND user_id = %s",
-                    (deal_id, self.user_id),
+                    "UPDATE guitar_deals SET storage_image_urls = NULL WHERE id = %s",
+                    (deal_id,),
                 )
             return deleted_count
         except Exception as e:
@@ -510,11 +600,11 @@ class PostgresRepository:
                     rows = conn.execute(
                         """
                         SELECT id FROM guitar_deals
-                        WHERE user_id = %s AND verdict = ANY(%s) AND "timestamp" <= %s
+                        WHERE verdict = ANY(%s) AND "timestamp" <= %s
                               AND storage_image_urls IS NOT NULL
                         LIMIT %s
                         """,
-                        (self.user_id, rejection_verdicts, cutoff, BATCH_SIZE),
+                        (rejection_verdicts, cutoff, BATCH_SIZE),
                     ).fetchall()
                 if not rows:
                     break

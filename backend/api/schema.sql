@@ -30,9 +30,16 @@ CREATE TRIGGER users_notify
     AFTER INSERT OR UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION notify_user_config_change();
 
+-- 2026-09-19 : `guitar_deals` est un CATALOGUE PARTAGÉ, pas une table par utilisateur — une
+-- annonce réelle (id Facebook/Kijiji) n'a qu'une seule ligne, scrapée et analysée UNE FOIS,
+-- quel que soit le nombre d'utilisateurs dont la recherche la recoupe (décision explicite de
+-- l'utilisateur, suite au bug cross-tenant trouvé le même jour : `user_id` en clé unique était
+-- une erreur d'architecture, pas juste un bug d'upsert — voir JOURNAL.md). "Qui voit quoi" et
+-- "préférences personnelles" vivent dans `user_deal_matches`/`user_deal_state` ci-dessous ;
+-- "qui a acheté" reste sur cette table (fait global : une guitare vendue l'est pour tout le
+-- monde), voir `purchased_by_user_id`.
 CREATE TABLE IF NOT EXISTS guitar_deals (
     id                          TEXT PRIMARY KEY,
-    user_id                     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
     title                       TEXT,
     price                       NUMERIC,
     original_price              NUMERIC,
@@ -57,8 +64,8 @@ CREATE TABLE IF NOT EXISTS guitar_deals (
     tier3_trigger               TEXT,
     initial_verdict             TEXT,
     initial_model_used          TEXT,
-    is_favorite                 BOOLEAN NOT NULL DEFAULT false,
     is_purchased                BOOLEAN NOT NULL DEFAULT false,
+    purchased_by_user_id        TEXT REFERENCES users(uid) ON DELETE SET NULL,
     manual_classification       TEXT,
     manual_analysis_overrides   JSONB,
     link                        TEXT,
@@ -74,14 +81,82 @@ CREATE TABLE IF NOT EXISTS guitar_deals (
     "timestamp"                 TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- `user_deal_matches` : remplace le rôle que jouait `user_id` sur `guitar_deals` pour la
+-- VISIBILITÉ — quand le scan d'un utilisateur retrouve une annonce déjà analysée globalement
+-- (même id), on n'analyse rien de plus, on enregistre juste que ce scan l'a "matchée" pour lui,
+-- pour qu'elle apparaisse dans son fil. Pas de colonnes de préférence ici (voir
+-- `user_deal_state` pour favori/rejet) : une seule ligne veut juste dire "visible pour cet
+-- utilisateur", jamais mise à jour ensuite.
+CREATE TABLE IF NOT EXISTS user_deal_matches (
+    user_id     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    deal_id     TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
+    matched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, deal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_deal_matches_user ON user_deal_matches(user_id, matched_at DESC);
+
+-- `user_deal_state` : préférences PERSONNELLES sur une annonce partagée — favori et rejet manuel
+-- ("pas intéressé", décidé PAR UTILISATEUR : un rejet par A ne doit pas cacher l'annonce pour B,
+-- contrairement au rejet AUTOMATIQUE par verdict IA qui reste sur `guitar_deals.status`, un fait
+-- sur l'annonce elle-même). Absence de ligne == ni favori, ni rejeté (mêmes valeurs par défaut
+-- que les anciennes colonnes `guitar_deals.is_favorite`/manuellement rejeté).
+CREATE TABLE IF NOT EXISTS user_deal_state (
+    user_id      TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    deal_id      TEXT NOT NULL REFERENCES guitar_deals(id) ON DELETE CASCADE,
+    is_favorite  BOOLEAN NOT NULL DEFAULT false,
+    is_rejected  BOOLEAN NOT NULL DEFAULT false,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, deal_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_deal_state_favorite ON user_deal_state(user_id) WHERE is_favorite;
+CREATE INDEX IF NOT EXISTS idx_user_deal_state_rejected ON user_deal_state(user_id) WHERE is_rejected;
+
+-- `purchased_by_user_id` : absente d'une base déjà initialisée avant le 2026-09-19 (comme
+-- toute colonne ajoutée après la création initiale, voir l'avertissement plus bas) — ajoutée ici
+-- en ALTER explicite avant les index qui la référencent.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_by_user_id TEXT REFERENCES users(uid) ON DELETE SET NULL;
+
 -- Colonnes indexées natives : remplacent le sharding manuel de `deals_index` (20 chunks
--- Firestore) — un index SQL fait ce travail sans bricolage applicatif.
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_user_id    ON guitar_deals(user_id);
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_status      ON guitar_deals(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_verdict     ON guitar_deals(user_id, verdict);
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_timestamp   ON guitar_deals(user_id, "timestamp" DESC);
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_favorite    ON guitar_deals(user_id, is_favorite) WHERE is_favorite;
-CREATE INDEX IF NOT EXISTS idx_guitar_deals_classification ON guitar_deals(user_id, classification);
+-- Firestore) — un index SQL fait ce travail sans bricolage applicatif. Plus de `user_id` ici
+-- (catalogue partagé, voir commentaire au-dessus de `CREATE TABLE guitar_deals`) — les index
+-- filtrés PAR utilisateur vivent désormais sur `user_deal_matches`/`user_deal_state`.
+CREATE INDEX IF NOT EXISTS idx_guitar_deals_status      ON guitar_deals(status);
+CREATE INDEX IF NOT EXISTS idx_guitar_deals_verdict     ON guitar_deals(verdict);
+CREATE INDEX IF NOT EXISTS idx_guitar_deals_timestamp   ON guitar_deals("timestamp" DESC);
+CREATE INDEX IF NOT EXISTS idx_guitar_deals_classification ON guitar_deals(classification);
+CREATE INDEX IF NOT EXISTS idx_guitar_deals_purchased_by ON guitar_deals(purchased_by_user_id) WHERE purchased_by_user_id IS NOT NULL;
+
+-- Migration d'une base déjà initialisée avec l'ANCIEN schéma (`user_id` par ligne, un
+-- "propriétaire" unique par annonce) : `CREATE TABLE IF NOT EXISTS` ci-dessus est un no-op sur
+-- une table déjà créée, donc `user_id` (et l'ancien `is_favorite`) y sont encore présents tant
+-- que ce bloc n'a pas tourné. Backfill AVANT toute suppression de colonne — perdre `user_id` en
+-- premier perdrait aussi l'information "qui voyait déjà cette annonce" / "qui l'avait mise en
+-- favori" sans espoir de la reconstruire.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'guitar_deals' AND column_name = 'user_id'
+    ) THEN
+        INSERT INTO user_deal_matches (user_id, deal_id)
+        SELECT user_id, id FROM guitar_deals
+        ON CONFLICT (user_id, deal_id) DO NOTHING;
+
+        INSERT INTO user_deal_state (user_id, deal_id, is_favorite)
+        SELECT user_id, id, is_favorite FROM guitar_deals WHERE is_favorite
+        ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = true;
+
+        UPDATE guitar_deals SET purchased_by_user_id = user_id
+        WHERE is_purchased AND purchased_by_user_id IS NULL;
+
+        DROP INDEX IF EXISTS idx_guitar_deals_user_id;
+        DROP INDEX IF EXISTS idx_guitar_deals_favorite;
+        ALTER TABLE guitar_deals DROP COLUMN user_id;
+        ALTER TABLE guitar_deals DROP COLUMN IF EXISTS is_favorite;
+    END IF;
+END $$;
 
 -- `purchase_price`/`purchased_at` manquaient du tout premier jet de ce schéma alors que
 -- deals_repo.py::toggle_purchased les référence depuis la tranche 2 — bug latent jamais
@@ -235,9 +310,13 @@ CREATE TRIGGER restoration_plan_items_notify
 -- d'écriture applicatif. Canal unique `deal_changes` ; le filtrage par utilisateur se fait
 -- côté serveur WS (backend/api/main.py), pas par un canal dédié par uid (échelle du projet
 -- trop restreinte pour que ça vaille la complexité).
+-- 2026-09-19 : ne pousse plus `user_id` (catalogue partagé, `guitar_deals` n'en a plus) — un
+-- changement sur une annonce concerne potentiellement PLUSIEURS utilisateurs (tous ceux avec une
+-- ligne dans `user_deal_matches` pour cet id) ; c'est à la couche WS (backend/api/main.py) de
+-- déterminer qui est concerné en interrogeant cette table, pas au trigger de le décider.
 CREATE OR REPLACE FUNCTION notify_deal_change() RETURNS trigger AS $$
 BEGIN
-    PERFORM pg_notify('deal_changes', json_build_object('user_id', NEW.user_id, 'id', NEW.id)::text);
+    PERFORM pg_notify('deal_changes', json_build_object('id', NEW.id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

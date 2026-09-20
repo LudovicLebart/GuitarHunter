@@ -31,13 +31,12 @@ class TestMapDeal(unittest.TestCase):
             "price_drop_amount": 50, "link": "https://x", "location": "Québec",
             "latitude": 46.8, "longitude": -71.2, "published_at_raw": "il y a 2h",
             "published_at_ts": 1757000000,
-            "isFavorite": True, "isPurchased": False, "manualClassification": "parlor",
+            "isPurchased": False, "manualClassification": "parlor",
             "purchasePrice": None, "initialVerdict": "GOOD_DEAL", "initialModelUsed": "gemini",
         }
         row, unmapped = map_deal("deal-1", data)
         self.assertEqual(row["title"], "Parlor satinée")
         self.assertEqual(row["original_price"], 500)
-        self.assertTrue(row["is_favorite"])
         self.assertFalse(row["is_purchased"])
         self.assertEqual(row["manual_classification"], "parlor")
         self.assertEqual(row["initial_verdict"], "GOOD_DEAL")
@@ -85,13 +84,18 @@ class TestMapDeal(unittest.TestCase):
         row, _ = map_deal("deal-1", {"title": "x"})
         self.assertEqual(row["status"], "analyzed")
 
-    def test_missing_favorite_and_purchased_default_to_false_not_null(self):
-        """is_favorite/is_purchased sont NOT NULL côté Postgres — un document Firestore ancien
-        sans ces clés doit retomber sur False (bug réel trouvé par le test d'intégration contre
-        un vrai Postgres, un NotNullViolationError invisible depuis ce seul test pur)."""
+    def test_missing_purchased_defaults_to_false_not_null(self):
+        """is_purchased est NOT NULL côté Postgres — un document Firestore ancien sans cette clé
+        doit retomber sur False (bug réel trouvé par le test d'intégration contre un vrai
+        Postgres, un NotNullViolationError invisible depuis ce seul test pur)."""
         row, _ = map_deal("deal-1", {"title": "x"})
-        self.assertIs(row["is_favorite"], False)
         self.assertIs(row["is_purchased"], False)
+
+    def test_purchased_by_user_id_defaults_to_none(self):
+        """2026-09-19 : `purchased_by_user_id` n'a pas d'équivalent direct dans un document
+        Firestore per-user — reste à None ici, rempli par l'appelant (voir map_deal, docstring)."""
+        row, _ = map_deal("deal-1", {"title": "x"})
+        self.assertIsNone(row["purchased_by_user_id"])
 
     def test_timestamp_fields_pass_through_real_datetimes(self):
         ts = datetime(2026, 9, 1, 12, 0, 0)

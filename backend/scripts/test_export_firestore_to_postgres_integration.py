@@ -204,10 +204,11 @@ class TestMigrateDealAgainstRealPostgres(unittest.TestCase):
 
         asyncio.run(_run())
 
-    def test_migrate_deal_skips_cross_tenant_conflict(self):
-        """Rattrapage 2026-09-19 (JOURNAL.md) : deux utilisateurs qui ont scanné la même annonce
-        réelle (même id Facebook/Kijiji) ne doivent JAMAIS s'écraser mutuellement en Postgres —
-        le premier utilisateur migré garde la ligne, le second est ignoré (et reporté)."""
+    def test_migrate_deal_shared_between_two_users_registers_both_matches(self):
+        """2026-09-19 (JOURNAL.md) : `guitar_deals` est un catalogue PARTAGÉ — deux utilisateurs
+        qui ont scanné la même annonce réelle (même id Facebook/Kijiji) migrent vers UNE SEULE
+        ligne (dernier écrivain gagne sur les champs partagés, acceptable pour un export ponctuel),
+        mais chacun obtient sa propre entrée `user_deal_matches` (visibilité dans son propre fil)."""
         other_uid = self.UID + "-other"
 
         async def _run():
@@ -220,22 +221,22 @@ class TestMigrateDealAgainstRealPostgres(unittest.TestCase):
 
                 first_doc = _FakeDoc(self.DEAL_ID, {"title": "Version utilisateur A", "aiAnalysis": {"verdict": "GOOD_DEAL"}})
                 first_user_ref = _FakeDoc("user-ref-a", {}, children={"guitar_deals": [first_doc]})
-                report_a = MigrationReport()
-                await _migrate_deal(first_user_ref, self.UID, self.DEAL_ID, first_doc.to_dict(), pool, report_a)
+                await _migrate_deal(first_user_ref, self.UID, self.DEAL_ID, first_doc.to_dict(), pool, MigrationReport())
 
                 second_doc = _FakeDoc(self.DEAL_ID, {"title": "Version utilisateur B", "aiAnalysis": {"verdict": "BAD_DEAL"}})
                 second_user_ref = _FakeDoc("user-ref-b", {}, children={"guitar_deals": [second_doc]})
-                report_b = MigrationReport()
-                await _migrate_deal(second_user_ref, other_uid, self.DEAL_ID, second_doc.to_dict(), pool, report_b)
-
-                self.assertEqual(report_b.cross_tenant_skipped, [(self.DEAL_ID, other_uid)])
-                self.assertEqual(report_b.counts["deals"], 0)
+                await _migrate_deal(second_user_ref, other_uid, self.DEAL_ID, second_doc.to_dict(), pool, MigrationReport())
 
                 async with pool.acquire() as conn:
-                    deal_row = await conn.fetchrow("SELECT * FROM guitar_deals WHERE id = $1", self.DEAL_ID)
-                    self.assertEqual(deal_row["user_id"], self.UID)
-                    self.assertEqual(deal_row["title"], "Version utilisateur A")
-                    self.assertEqual(deal_row["verdict"], "GOOD_DEAL")
+                    deal_count = await conn.fetchval("SELECT count(*) FROM guitar_deals WHERE id = $1", self.DEAL_ID)
+                    self.assertEqual(deal_count, 1)  # une seule ligne, pas de doublon
+
+                    matched_uids = {
+                        r["user_id"] for r in await conn.fetch(
+                            "SELECT user_id FROM user_deal_matches WHERE deal_id = $1", self.DEAL_ID
+                        )
+                    }
+                    self.assertEqual(matched_uids, {self.UID, other_uid})
 
                     await conn.execute("DELETE FROM guitar_deals WHERE id = $1", self.DEAL_ID)
                     await conn.execute("DELETE FROM users WHERE uid IN ($1, $2)", self.UID, other_uid)

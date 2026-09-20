@@ -72,7 +72,10 @@ class TestPostgresRepository(unittest.TestCase):
 
     def tearDown(self):
         with self.pool.connection() as conn:
-            conn.execute("DELETE FROM guitar_deals WHERE user_id IN (%s, %s)", (self.UID, self.OTHER_UID))
+            # Catalogue partagé (2026-09-19) : plus de user_id sur guitar_deals, nettoyage par
+            # préfixe d'id (DEAL_ID = "pgrepo-deal-1", + variantes "-other"/"-2" utilisées par
+            # certains tests) — CASCADE supprime aussi les lignes user_deal_matches/user_deal_state.
+            conn.execute("DELETE FROM guitar_deals WHERE id LIKE 'pgrepo-deal%'")
             conn.execute("DELETE FROM user_city_prefs WHERE user_id = %s", (self.UID,))
             conn.execute("DELETE FROM cities WHERE id = %s", (self.CITY_ID,))
             conn.execute("DELETE FROM commands WHERE user_id = %s", (self.UID,))
@@ -125,23 +128,29 @@ class TestPostgresRepository(unittest.TestCase):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "REJECTED"})
         self.assertEqual(self.repo.get_deal_by_id(self.DEAL_ID)["status"], "rejected")
 
-    def test_create_new_deal_does_not_reassign_ownership_of_another_users_deal(self):
-        """`guitar_deals.id` est une clé globale (id de l'annonce marketplace, pas scopée par
-        utilisateur) : deux bots (deux users) peuvent tomber sur la même annonce publique. Le
-        second `create_new_deal` sur le même `deal_id` ne doit PAS réassigner la ligne à l'autre
-        utilisateur (bug de revue de code — `ON CONFLICT DO UPDATE` sans garde de propriétaire)."""
-        self.repo.create_new_deal(self.DEAL_ID, {"title": "Original owner's title"}, {"verdict": "GOOD_DEAL"})
-
-        self.other_repo.create_new_deal(self.DEAL_ID, {"title": "Intruder's title"}, {"verdict": "GOOD_DEAL"})
+    def test_create_new_deal_is_shared_and_visible_to_both_users(self):
+        """2026-09-19 : `guitar_deals` est un catalogue PARTAGÉ — deux bots (deux users) qui
+        tombent sur la même annonce réelle voient tous les deux la MÊME ligne (une seule analyse,
+        pas de duplication), et chacun a sa propre entrée `user_deal_matches` (visibilité dans
+        son propre fil), même si un seul des deux l'a réellement créée en premier."""
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "Titre original"}, {"verdict": "GOOD_DEAL"})
+        # bot.py::handle_deal_found appelle record_deal_match dès que get_deal_by_id trouve une
+        # ligne existante — même sans ré-analyse (voir JOURNAL.md 2026-09-19).
+        self.other_repo.record_deal_match(self.DEAL_ID)
 
         with self.pool.connection() as conn:
-            row = conn.execute(
-                "SELECT user_id, title FROM guitar_deals WHERE id = %s", (self.DEAL_ID,)
-            ).fetchone()
-        self.assertEqual(row["user_id"], self.UID)
-        self.assertEqual(row["title"], "Original owner's title")
-        # L'autre utilisateur ne voit tout simplement pas l'annonce d'un autre.
-        self.assertIsNone(self.other_repo.get_deal_by_id(self.DEAL_ID))
+            count = conn.execute("SELECT count(*) AS n FROM guitar_deals WHERE id = %s", (self.DEAL_ID,)).fetchone()
+        self.assertEqual(count["n"], 1)  # une seule ligne, pas de doublon par utilisateur
+        self.assertEqual(self.repo.get_deal_by_id(self.DEAL_ID)["title"], "Titre original")
+        self.assertEqual(self.other_repo.get_deal_by_id(self.DEAL_ID)["title"], "Titre original")
+
+        with self.pool.connection() as conn:
+            matched_uids = {
+                r["user_id"] for r in conn.execute(
+                    "SELECT user_id FROM user_deal_matches WHERE deal_id = %s", (self.DEAL_ID,)
+                ).fetchall()
+            }
+        self.assertEqual(matched_uids, {self.UID, self.OTHER_UID})
 
     def test_update_deal_analysis_touches_only_ai_columns(self):
         """Ne doit PAS altérer les colonnes issues de deal_data (title/price/...) — seulement
@@ -235,9 +244,31 @@ class TestPostgresRepository(unittest.TestCase):
         self.assertEqual(listings[0].to_dict()["link"], "https://x")
 
     def test_delete_listing(self):
+        """2026-09-19 : `delete_listing` retire la visibilité/les préférences de CET utilisateur
+        uniquement (`user_deal_matches`/`user_deal_state`) — l'annonce partagée elle-même reste
+        en base, potentiellement visible pour d'autres utilisateurs."""
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
+        self.other_repo.record_deal_match(self.DEAL_ID)
+        self.repo.toggle_favorite(self.DEAL_ID, True)
+
         self.repo.delete_listing(self.DEAL_ID)
-        self.assertIsNone(self.repo.get_deal_by_id(self.DEAL_ID))
+
+        # L'annonce globale survit (l'autre utilisateur la voit toujours).
+        self.assertIsNotNone(self.repo.get_deal_by_id(self.DEAL_ID))
+        with self.pool.connection() as conn:
+            match_still_there = conn.execute(
+                "SELECT 1 FROM user_deal_matches WHERE user_id = %s AND deal_id = %s",
+                (self.OTHER_UID, self.DEAL_ID),
+            ).fetchone()
+        self.assertIsNotNone(match_still_there)
+        # Mais plus dans le fil ni les préférences de celui qui a "supprimé".
+        with self.pool.connection() as conn:
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM user_deal_matches WHERE user_id = %s AND deal_id = %s", (self.UID, self.DEAL_ID),
+            ).fetchone())
+            self.assertIsNone(conn.execute(
+                "SELECT 1 FROM user_deal_state WHERE user_id = %s AND deal_id = %s", (self.UID, self.DEAL_ID),
+            ).fetchone())
 
     def test_retry_queue_and_mark_all_for_reanalysis(self):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
@@ -271,6 +302,49 @@ class TestPostgresRepository(unittest.TestCase):
             )
         self.repo.update_deal_analysis(self.DEAL_ID, {"verdict": "GOOD_DEAL", "brand": "IA"})
         self.assertEqual(self.repo.get_deal_by_id(self.DEAL_ID)["brand"], "Corrigé Manuellement")
+
+    def test_toggle_favorite_and_rejected_are_per_user(self):
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
+        self.other_repo.record_deal_match(self.DEAL_ID)
+
+        self.repo.toggle_favorite(self.DEAL_ID, True)
+        self.other_repo.toggle_rejected(self.DEAL_ID, True)
+
+        with self.pool.connection() as conn:
+            mine = conn.execute(
+                "SELECT is_favorite, is_rejected FROM user_deal_state WHERE user_id = %s AND deal_id = %s",
+                (self.UID, self.DEAL_ID),
+            ).fetchone()
+            other = conn.execute(
+                "SELECT is_favorite, is_rejected FROM user_deal_state WHERE user_id = %s AND deal_id = %s",
+                (self.OTHER_UID, self.DEAL_ID),
+            ).fetchone()
+        self.assertEqual(mine, {"is_favorite": True, "is_rejected": False})
+        self.assertEqual(other, {"is_favorite": False, "is_rejected": True})
+
+    def test_toggle_purchased_is_global(self):
+        """Achat GLOBAL (décidé le 2026-09-19) : une fois achetée par un utilisateur, l'annonce
+        est indisponible pour tous — `purchased_by_user_id` fixe qui a le droit au chat/plan de
+        restauration côté API."""
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
+
+        self.repo.toggle_purchased(self.DEAL_ID, True, purchase_price=350)
+
+        deal_from_other = self.other_repo.get_deal_by_id(self.DEAL_ID)
+        self.assertTrue(deal_from_other["is_purchased"])
+        self.assertEqual(deal_from_other["purchased_by_user_id"], self.UID)
+        self.assertEqual(float(deal_from_other["purchase_price"]), 350.0)
+
+        # L'autre utilisateur ne peut pas "désacheter" l'annonce de quelqu'un d'autre.
+        self.other_repo.toggle_purchased(self.DEAL_ID, False)
+        still_purchased = self.repo.get_deal_by_id(self.DEAL_ID)
+        self.assertTrue(still_purchased["is_purchased"])
+        self.assertEqual(still_purchased["purchased_by_user_id"], self.UID)
+
+        self.repo.toggle_purchased(self.DEAL_ID, False)
+        released = self.repo.get_deal_by_id(self.DEAL_ID)
+        self.assertFalse(released["is_purchased"])
+        self.assertIsNone(released["purchased_by_user_id"])
 
     # ---------------------------------------------------------------- villes
 

@@ -329,6 +329,13 @@ class GuitarHunterBot:
         
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
+            if existing_deal:
+                # 2026-09-19 (catalogue partagé) : cette annonce existe déjà — peut-être trouvée
+                # par un AUTRE utilisateur en premier. Le scan de CET utilisateur l'a quand même
+                # retrouvée (elle correspond à ses propres critères de recherche) : enregistrer sa
+                # visibilité même si aucune écriture d'analyse ne suit (ex: prix inchangé, déjà
+                # rejetée) — sinon elle n'apparaîtrait jamais dans son propre fil.
+                self.repo.record_deal_match(listing_data['id'])
 
         # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
         # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).

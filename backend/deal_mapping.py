@@ -23,7 +23,7 @@ _DEAL_SCALAR_FIELDS = {
 # Champs camelCase écrits par le frontend (firestoreService.js) ou par repository.py::create_new_deal
 # (initialVerdict/initialModelUsed), valeurs scalaires directes (pas de conversion de type).
 _DEAL_CAMEL_SCALAR_FIELDS = {
-    "isFavorite": "is_favorite", "isPurchased": "is_purchased",
+    "isPurchased": "is_purchased",
     "manualClassification": "manual_classification", "purchasePrice": "purchase_price",
     "initialVerdict": "initial_verdict", "initialModelUsed": "initial_model_used",
 }
@@ -83,12 +83,12 @@ _SMALLINT_COLUMNS = {
 # Ordre EXACT des colonnes de guitar_deals dans schema.sql (hors index/triggers) — source unique
 # pour générer les UPSERT/INSERT, plutôt que des paramètres positionnels écrits à la main.
 DEAL_COLUMNS = [
-    "id", "user_id", "title", "price", "original_price", "price_drop_amount", "status",
+    "id", "title", "price", "original_price", "price_drop_amount", "status",
     "verdict", "classification", "classification_rejected", "brand", "model_name",
     "production_year", "country_of_origin", "color", "finish_application", "finish_texture",
     "deal_score", "authenticity_score", "condition_score", "liquidity_score",
     "restoration_interest_score", "model_used", "tier3_trigger", "initial_verdict",
-    "initial_model_used", "is_favorite", "is_purchased", "manual_classification",
+    "initial_model_used", "is_purchased", "purchased_by_user_id", "manual_classification",
     "manual_analysis_overrides", "link", "location", "latitude", "longitude",
     "published_at_raw", "image_urls", "storage_image_urls", "storage_image_gs_uris",
     "ai_analysis_raw", "sold_at", "timestamp", "purchase_price", "purchased_at", "description",
@@ -101,17 +101,12 @@ DEAL_COLUMNS = [
 # `ai_analysis_raw` (jamais les champs `deal_data`, absents d'une simple ré-analyse).
 AI_ANALYSIS_COLUMNS = list(_AI_ANALYSIS_FIELDS.values())
 
-# Rattrapage 2026-09-19 (JOURNAL.md) : `guitar_deals.id` est une clé primaire SEULE, sans
-# composite `user_id` — si deux utilisateurs scannent la même annonce réelle (même id Facebook/
-# Kijiji), un upsert non gardé réassignerait silencieusement la ligne entière au dernier
-# utilisateur traité. Source SQL UNIQUE du garde-fou d'appartenance, réutilisée par
-# `pg_repository.py::create_new_deal` (psycopg, placeholders `%s`) et
-# `export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`) — un futur
-# chemin d'écriture qui a besoin d'upserter `guitar_deals` doit passer par ici plutôt que de
-# ré-écrire un `ON CONFLICT (id) DO UPDATE` à la main.
-DEAL_OWNERSHIP_GUARD = "guitar_deals.user_id = EXCLUDED.user_id"
-
-
+# 2026-09-19 : `guitar_deals` est désormais un catalogue PARTAGÉ (plus de `user_id` par ligne,
+# voir schema.sql) — un simple upsert par `id` suffit, plus besoin du garde-fou d'appartenance
+# cross-tenant qui était nécessaire tant que deux utilisateurs pouvaient se disputer la même
+# ligne (le bug corrigé le même jour disparaît par construction avec ce changement de schéma).
+# Source SQL UNIQUE réutilisée par `pg_repository.py::create_new_deal` (psycopg, placeholders
+# `%s`) et `export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`).
 def build_deal_upsert_sql(placeholder) -> str:
     """`placeholder(index)` reçoit l'index 1-based de la colonne et renvoie le placeholder du
     driver appelant (`lambda i: "%s"` pour psycopg, `lambda i: f"${i}"` pour asyncpg)."""
@@ -120,8 +115,7 @@ def build_deal_upsert_sql(placeholder) -> str:
     set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c != "id")
     return (
         f"INSERT INTO guitar_deals ({', '.join(columns)}) VALUES ({placeholders}) "
-        f"ON CONFLICT (id) DO UPDATE SET {set_clause} "
-        f"WHERE {DEAL_OWNERSHIP_GUARD}"
+        f"ON CONFLICT (id) DO UPDATE SET {set_clause}"
     )
 
 
@@ -163,10 +157,14 @@ def _smallint(value):
 
 
 def map_deal(deal_id: str, data: dict) -> tuple[dict, list[str]]:
-    """Document Firestore `guitar_deals/{id}` -> dict de colonnes `guitar_deals` (sans `user_id`,
-    rempli par l'appelant qui connaît l'utilisateur du contexte d'itération, pas du document).
+    """Document Firestore `guitar_deals/{id}` -> dict de colonnes `guitar_deals` (catalogue
+    PARTAGÉ depuis le 2026-09-19, voir schema.sql — plus de `user_id` par ligne). `purchased_by_user_id`
+    n'a pas d'équivalent direct dans un document Firestore per-user (`isPurchased` y est un booléen
+    local à CE document) : reste à `None` ici, rempli par l'appelant qui connaît l'utilisateur du
+    contexte d'itération quand `isPurchased` est vrai (voir `pg_repository.py::toggle_purchased`,
+    `export_firestore_to_postgres.py::_migrate_deal`).
     Retourne aussi la liste des clés de premier niveau non reconnues (voir `ai_analysis_raw`)."""
-    row = {"id": deal_id}
+    row = {"id": deal_id, "purchased_by_user_id": None}
 
     for fs_key, col in _DEAL_SCALAR_FIELDS.items():
         row[col] = data.get(fs_key)
@@ -180,11 +178,10 @@ def map_deal(deal_id: str, data: dict) -> tuple[dict, list[str]]:
     row["status"] = data.get("status") or "analyzed"
     row["timestamp"] = _to_datetime(data.get("timestamp")) or datetime.now()
     row["sold_at"] = _to_datetime(data.get("soldAt"))
-    # is_favorite/is_purchased sont NOT NULL DEFAULT false côté Postgres (colonnes indexées
-    # nativement, voir schema.sql) — un document Firestore sans ces clés (jamais touché depuis
-    # leur introduction, cas réel pour d'anciennes annonces) doit retomber sur False, pas NULL
-    # (même repli que repository.py::create_new_deal : `deal_data.get('isFavorite', False)`).
-    row["is_favorite"] = bool(row["is_favorite"])
+    # is_purchased est NOT NULL DEFAULT false côté Postgres (colonne indexée nativement, voir
+    # schema.sql) — un document Firestore sans cette clé (jamais touchée depuis son introduction,
+    # cas réel pour d'anciennes annonces) doit retomber sur False, pas NULL (même repli que
+    # repository.py::create_new_deal : `deal_data.get('isPurchased', False)`).
     row["is_purchased"] = bool(row["is_purchased"])
 
     ai = data.get("aiAnalysis") or {}

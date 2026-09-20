@@ -73,7 +73,7 @@ class MigrationReport:
                        "legacy_cities_created": 0}
         self.unmapped_deal_fields: dict[str, list[str]] = {}
         self.dangling_proposed_by: list[tuple[str, str]] = []  # (deal_id, firestore_message_id)
-        self.cross_tenant_skipped: list[tuple[str, str]] = []  # (deal_id, uid ignoré)
+        self.chat_history_skipped: list[tuple[str, str]] = []  # (deal_id, uid non-acheteur ignoré)
 
     def log_summary(self, logger):
         logger.info("=" * 70)
@@ -88,11 +88,10 @@ class MigrationReport:
         if self.dangling_proposed_by:
             logger.warning(f"{len(self.dangling_proposed_by)} proposedByMessageId orphelin(s) "
                             f"(message introuvable, laissé NULL) : {self.dangling_proposed_by}")
-        if self.cross_tenant_skipped:
-            logger.warning(f"{len(self.cross_tenant_skipped)} annonce(s) ignorée(s) — même id "
-                            f"déjà détenu par un AUTRE utilisateur en Postgres (chat/plan de "
-                            f"restauration non touchés non plus pour ces ids) : "
-                            f"{self.cross_tenant_skipped}")
+        if self.chat_history_skipped:
+            logger.warning(f"{len(self.chat_history_skipped)} historique(s) chat/plan de "
+                            f"restauration ignoré(s) — annonce partagée déjà migrée par un autre "
+                            f"utilisateur (non acheteur) : {self.chat_history_skipped}")
         logger.info("=" * 70)
 
 
@@ -104,27 +103,6 @@ async def _upsert(conn, table: str, columns: list[str], row: dict, conflict_col:
         f"ON CONFLICT ({conflict_col}) DO UPDATE SET {set_clause}"
     )
     await conn.execute(query, *[row[c] for c in columns])
-
-
-async def _upsert_deal(conn, row: dict, report: MigrationReport) -> bool:
-    """`guitar_deals.id` (id de l'annonce réelle Facebook/Kijiji) est la clé primaire SEULE —
-    pas de composite avec `user_id`. Si deux utilisateurs ont scanné la même annonce (zones de
-    recherche qui se recoupent, cas réel mesuré entre les 2 comptes les plus actifs), un `_upsert`
-    générique réassignerait silencieusement la ligne (et tous ses champs) au dernier utilisateur
-    traité — perte de données + mélange de contenu entre comptes.
-
-    Même garde-fou que le chemin d'écriture en direct du bot (`pg_repository.py::create_new_deal`,
-    trouvé et corrigé en revue de code le 2026-09-11) — requête SQL désormais partagée via
-    `deal_mapping.py::build_deal_upsert_sql` plutôt que dupliquée ici : le `WHERE` sur le
-    `DO UPDATE` fait échouer silencieusement l'écriture (0 ligne affectée, jamais d'erreur) si
-    l'id appartient déjà à un AUTRE utilisateur."""
-    query = build_deal_upsert_sql(lambda i: f"${i}")
-    status = await conn.execute(query, *[row[c] for c in DEAL_COLUMNS])
-    affected = int(status.rsplit(" ", 1)[-1])
-    if affected == 0:
-        report.cross_tenant_skipped.append((row["id"], row["user_id"]))
-        return False
-    return True
 
 
 async def _migrate_cities_catalog(app_ref, pool, report: MigrationReport):
@@ -205,8 +183,18 @@ async def _migrate_user(fs, app_id: str, uid: str, user_data: dict, pool, report
 
 
 async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool, report: MigrationReport):
+    """2026-09-19 : `guitar_deals` est désormais un catalogue PARTAGÉ (plus de `user_id` par
+    ligne) — chaque document Firestore `users/{uid}/guitar_deals/{id}` migré ici représente
+    "cet utilisateur a vu cette annonce", pas "cette annonce appartient à cet utilisateur". Un
+    même id vu par plusieurs utilisateurs (même annonce réelle, zones de recherche qui se
+    recoupent) n'écrit plus qu'UNE seule fois les champs partagés (dernier écrivain gagne — un
+    export ponctuel, pas une source de vérité durable) mais enregistre TOUJOURS la visibilité
+    (`user_deal_matches`) et les préférences (`user_deal_state.is_favorite`) de CHAQUE
+    utilisateur qui a vu l'annonce."""
     row, unmapped_keys = map_deal(deal_id, deal_data)
-    row["user_id"] = uid
+    is_purchased = row["is_purchased"]
+    if is_purchased:
+        row["purchased_by_user_id"] = uid
     if unmapped_keys:
         report.unmapped_deal_fields[deal_id] = unmapped_keys
 
@@ -223,22 +211,45 @@ async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool,
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            owned = await _upsert_deal(conn, row, report)
-            if not owned:
-                logger.warning(
-                    f"[{uid[:8]}] id '{deal_id}' appartient déjà à un AUTRE utilisateur en "
-                    f"Postgres — annonce (et son chat/plan de restauration) ignorée pour ne pas "
-                    f"réassigner l'appartenance (même annonce réelle vue par 2 comptes, "
-                    f"limitation connue du schéma actuel : id sans composite user_id)."
-                )
-                return
+            deal_existed_before = await conn.fetchval("SELECT 1 FROM guitar_deals WHERE id = $1", deal_id)
+            await conn.execute(build_deal_upsert_sql(lambda i: f"${i}"), *[row[c] for c in DEAL_COLUMNS])
             report.counts["deals"] += 1
 
-            # Repartir de zéro pour chat/restorationPlan à chaque exécution : ces deux tables
-            # n'ont pas de colonne portant l'id Firestore d'origine (clé Postgres = BIGSERIAL
-            # réassigné), donc pas de UPSERT possible par id — un DELETE+INSERT par deal_id est
-            # idempotent au niveau du deal entier, ce qui suffit pour ce script (copie complète,
-            # pas une synchronisation incrémentale).
+            await conn.execute(
+                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) "
+                "ON CONFLICT (user_id, deal_id) DO NOTHING",
+                uid, deal_id,
+            )
+            is_favorite = deal_data.get("isFavorite")
+            if is_favorite:
+                await conn.execute(
+                    "INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES ($1, $2, true) "
+                    "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = true",
+                    uid, deal_id,
+                )
+
+            # Chat/plan de restauration : un même deal_id partagé ne peut porter qu'UN SEUL
+            # historique en Postgres (pas de colonne user_id sur `deal_chat`/`restoration_plan_items`
+            # — voir schema.sql). Si ce deal_id existait déjà (vu par un autre utilisateur avant
+            # celui-ci dans cet export) ET que ce document-ci n'est pas celui de l'acheteur, ne
+            # pas écraser un historique déjà migré au hasard de l'ordre de traitement — l'acheteur
+            # a toujours priorité (son chat est le seul qui compte réellement), sinon le premier
+            # arrivé garde son historique.
+            if deal_existed_before and not is_purchased:
+                if chat_docs or resto_docs:
+                    report.chat_history_skipped.append((deal_id, uid))
+                    logger.warning(
+                        f"[{uid[:8]}] id '{deal_id}' : chat/plan de restauration de ce document "
+                        f"NON acheteur ignoré (un historique existe déjà pour cette annonce "
+                        f"partagée, cet utilisateur n'est pas l'acheteur enregistré)."
+                    )
+                return
+
+            # Repartir de zéro pour chat/restorationPlan : ces deux tables n'ont pas de colonne
+            # portant l'id Firestore d'origine (clé Postgres = BIGSERIAL réassigné), donc pas
+            # d'UPSERT possible par id — un DELETE+INSERT par deal_id est idempotent au niveau du
+            # deal entier, ce qui suffit pour ce script (copie complète, pas une synchronisation
+            # incrémentale).
             await conn.execute("DELETE FROM deal_chat WHERE deal_id = $1", deal_id)
             await conn.execute("DELETE FROM restoration_plan_items WHERE deal_id = $1", deal_id)
 
