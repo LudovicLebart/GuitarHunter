@@ -168,8 +168,19 @@ class DealAnalyzer:
             if not url or "via.placeholder.com" in url: return None
             response = requests.get(url, timeout=10)
             if response.status_code != 200: return None
-            
+
             img = Image.open(BytesIO(response.content))
+            # `Image.open()` ne lit que l'en-tête — le décodage réel des pixels (donc la détection
+            # d'un fichier tronqué) n'était forcé ici que si l'image dépassait max_size
+            # (`.thumbnail()`) ou était en mode RGBA/P (`.convert()`) : une image RGB de taille
+            # normale (le cas courant) sortait de cette fonction sans jamais avoir été décodée, et
+            # l'erreur "image file is truncated" ne se déclenchait que bien plus tard, chez
+            # n'importe quel appelant qui force enfin la lecture des pixels (ex: `img.save()` dans
+            # `_call_openai_compatible_json`) — remontant comme un échec générique de l'appel IA
+            # plutôt qu'un problème d'image (bug trouvé le 2026-09-20 suite à une fausse alerte
+            # "modèle Gemini indisponible" causée par une image Marketplace tronquée). `.load()`
+            # force ce décodage ICI, avec le même filet `except` que le reste de la fonction.
+            img.load()
             if img.size[0] > max_size or img.size[1] > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             return img.convert("RGB") if img.mode in ("RGBA", "P") else img
@@ -230,6 +241,26 @@ class DealAnalyzer:
             NotificationService.notify_model_error(model_name, error_text, user_email, logger=self.logger)
         except Exception as e:
             self.logger.error(f"⚠️ Échec de l'envoi de l'alerte modèle indisponible : {e}")
+
+    def _notify_gatekeeper_failure(self, provider_label, error_text, user_email):
+        """Alerte email (throttlée à 1x/24h par fournisseur) sur un échec du Portier T1 réel qui
+        n'est PAS identifié comme une dépréciation de modèle — corrige un bug trouvé le
+        2026-09-20 : le premier appelant de cette alerte (`_run_analysis_cascade`, échec du
+        décideur T1 primaire) déclenchait `_notify_model_unavailable` sur N'IMPORTE QUEL échec
+        (ex: une image tronquée téléchargée depuis Marketplace), affirmant à tort à l'utilisateur
+        qu'un modèle Gemini avait été retiré. Voir `_is_model_unavailable_error` pour la
+        distinction entre les deux cas."""
+        if not user_email:
+            return
+        now = time.time()
+        last_notified = self._model_error_last_notified.get(provider_label, 0)
+        if now - last_notified < 86400:  # 24h
+            return
+        self._model_error_last_notified[provider_label] = now
+        try:
+            NotificationService.notify_gatekeeper_failure(provider_label, error_text, user_email, logger=self.logger)
+        except Exception as e:
+            self.logger.error(f"⚠️ Échec de l'envoi de l'alerte Portier en échec : {e}")
 
     def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1, response_schema=None):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
@@ -581,7 +612,14 @@ class DealAnalyzer:
                 gatekeeper_status = "ERROR_GATEKEEPER"
                 gatekeeper_reason = err_t1 or "Le portier a planté silencieusement."
                 self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — fail-open vers l'Analyste (aucun filtrage T1 pour cette annonce) : {gatekeeper_reason}")
-                self._notify_model_unavailable(f"T1-{primary_provider}", gatekeeper_reason, user_email)
+                # Deux alertes distinctes (corrigé 2026-09-20) : ne prétendre "modèle retiré" que
+                # si l'erreur y ressemble vraiment (_is_model_unavailable_error) — sinon (image
+                # tronquée, panne réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne
+                # présume pas la cause. Les deux sont throttlées séparément (clé distincte).
+                if self._is_model_unavailable_error(gatekeeper_reason):
+                    self._notify_model_unavailable(f"T1-{primary_provider}", gatekeeper_reason, user_email)
+                else:
+                    self._notify_gatekeeper_failure(f"T1-{primary_provider}", gatekeeper_reason, user_email)
             else:
                 gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
                 gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
