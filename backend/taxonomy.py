@@ -172,3 +172,18 @@ def canonicalize(classification, taxonomy, index=None):
         return repaired, 'partial_path'
 
     return None, 'unknown'
+
+
+def matches_active_search_family(classification, active_families):
+    """Correspondance famille/branche pour le routage Chantier G — dupliquée jusqu'ici entre
+    `analyzer.py::_run_analysis_cascade` (routage initial) et `bot.py::reevaluate_not_promoted`
+    (repromotion après changement de filtre), avec le risque qu'un futur ajustement de la règle
+    appliqué à un seul des deux endroits désynchronise routage et repromotion (trouvé en revue de
+    code, 2026-09-20). `classification` correspond si elle est exactement une famille active, ou
+    une sous-branche de celle-ci (`family.` en préfixe)."""
+    if not classification:
+        return False
+    return any(
+        classification == family or classification.startswith(f"{family}.")
+        for family in active_families
+    )

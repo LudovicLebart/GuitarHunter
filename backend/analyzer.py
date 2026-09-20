@@ -33,7 +33,11 @@ from config import (
     T1_GATEKEEPER_PROVIDER,
 )
 from backend.scraping.parser import ListingParser
-from backend.taxonomy import build_index as build_taxonomy_index, canonicalize as canonicalize_classification
+from backend.taxonomy import (
+    build_index as build_taxonomy_index,
+    canonicalize as canonicalize_classification,
+    matches_active_search_family,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +104,12 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
 # exclus : ni l'un ni l'autre n'indique une pépite, contrairement aux 5 verdicts ci-dessous
 # (voir gatekeeper_verbosity_instruction, prompts.json).
 T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
+
+# Verdicts d'erreur du Portier (appel raté ou réponse malformée, voir plus bas dans
+# `_run_analysis_cascade`) — n'ont par définition aucune classification fiable, donc jamais
+# soumis au routage Chantier G (`activeSearchFamilies`) au risque d'être routés à tort vers
+# NOT_PROMOTED au lieu du fail-open habituel vers l'Analyste (trouvé en revue de code, 2026-09-20).
+T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
 
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
@@ -271,9 +281,11 @@ class DealAnalyzer:
         """Appelle un modèle compatible OpenAI (Qwen via TokenRouter, etc.) et parse le JSON,
         avec la même tolérance que `_call_gemini_json` (accolades ```json). Réutilise les
         images DÉJÀ téléchargées (objets PIL) — pas de second téléchargement des mêmes URLs.
-        Ne lève jamais : renvoie toujours (dict|None, erreur|None), pour être appelée en
-        best-effort par un chemin d'observation (Chantier H) sans jamais faire échouer
-        l'analyse Gemini réelle.
+        Ne lève jamais : renvoie toujours (dict|None, erreur|None). Utilisée à la fois pour la
+        décision T1 réelle quand Qwen est le fournisseur primaire (`T1_GATEKEEPER_PROVIDER`,
+        bascule du 2026-09-20) et pour l'observation miroir best-effort de l'autre fournisseur —
+        dans les deux cas l'appelant décide comment traiter une erreur (fail-open pour la
+        décision réelle, silencieusement ignorée pour l'observation).
 
         `response_format` : mode JSON large (`{"type": "json_object"}`, par défaut si omis) ou
         schéma structuré strict (`{"type": "json_schema", ...}`, voir
@@ -302,7 +314,33 @@ class DealAnalyzer:
                 result = result[0] if result and isinstance(result[0], dict) else {}
             return result, None
         except Exception as e:
+            # Log ajouté 2026-09-20 (revue de code) : cette méthode sert désormais aussi la
+            # décision T1 réelle (Qwen primaire) — un échec y était jusqu'ici totalement
+            # silencieux (contrairement à `_call_gemini_json`), masquant une éventuelle panne
+            # TokenRouter systémique jusqu'à ce qu'un humain remarque la facture Gemini anormale.
+            self.logger.error(f"❌ Erreur avec le modèle {model_name} (TokenRouter) : {e}")
             return None, str(e)
+
+    def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None):
+        """Point d'appel UNIQUE pour n'importe lequel des deux fournisseurs T1 (Qwen via
+        TokenRouter, ou Gemini Flash-Lite), avec exactement le même prompt et le schéma
+        structuré correspondant — réutilisé à la fois par le décideur réel
+        (`_run_analysis_cascade`) et l'observation miroir (`_run_t1_shadow_observation`), pour
+        qu'un futur changement de l'appel (timeout, retry, format) ne puisse plus être fait dans
+        un seul des deux endroits sans désynchroniser décision et observation (trouvé en revue
+        de code, 2026-09-20 — c'est exactement ce type de duplication qui avait déjà causé le
+        bug `qwenGatekeeper*`/`flashliteGatekeeper*` sur `bot.py::reevaluate_not_promoted`)."""
+        if provider == "qwen":
+            if not TOKENROUTER_API_KEY:
+                return None, "Clé API TokenRouter manquante."
+            return self._call_openai_compatible_json(
+                full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
+                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+            )
+        return self._call_gemini_json(
+            gatekeeper_model_name, [full_prompt_t1] + images, user_email,
+            response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
+        )
 
     def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
         """Chantier H — OBSERVATION EN MIROIR (généralisée le 2026-09-20, bascule du décideur
@@ -322,18 +360,7 @@ class DealAnalyzer:
             return {}
         prefix = "qwenGatekeeper" if shadow_provider == "qwen" else "flashliteGatekeeper"
         t0 = time.monotonic()
-        if shadow_provider == "qwen":
-            if not TOKENROUTER_API_KEY:
-                return {}
-            result, err = self._call_openai_compatible_json(
-                full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
-                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            )
-        else:
-            result, err = self._call_gemini_json(
-                gatekeeper_model_name, [full_prompt_t1] + images, user_email,
-                response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
-            )
+        result, err = self._call_t1_provider(shadow_provider, full_prompt_t1, images, gatekeeper_model_name, user_email)
         latency_s = round(time.monotonic() - t0, 1)
         if err or not result:
             self.logger.warning(f"   🔬 [Observation T1/{shadow_provider}] échec (ignoré, n'affecte pas l'analyse) : {err}")
@@ -538,24 +565,23 @@ class DealAnalyzer:
             shadow_thread = threading.Thread(target=_observe_shadow, daemon=True)
             shadow_thread.start()
 
-            if primary_provider == "qwen":
-                result_t1, err_t1 = self._call_openai_compatible_json(
-                    full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
-                    response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-                )
-            else:
-                result_t1, err_t1 = self._call_gemini_json(
-                    gatekeeper_model_name, [full_prompt_t1] + images, user_email,
-                    response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
-                )
+            result_t1, err_t1 = self._call_t1_provider(
+                primary_provider, full_prompt_t1, images, gatekeeper_model_name, user_email
+            )
 
             shadow_thread.join()
             qwen_observation = shadow_result_holder[0]
 
             if err_t1 or not result_t1:
-                # Fail-open vers l'Analyste
+                # Fail-open vers l'Analyste — mais avec une alerte explicite (ajoutée 2026-09-20,
+                # revue de code) : contrairement à un simple retry Gemini, un échec du DÉCIDEUR
+                # T1 RÉEL revient à ne plus filtrer AUCUNE annonce (100% promues en Tier 2) tant
+                # que ça persiste — avant ce correctif, rien ne le signalait à l'utilisateur
+                # (seule la facture Gemini anormale l'aurait révélé, après coup).
                 gatekeeper_status = "ERROR_GATEKEEPER"
                 gatekeeper_reason = err_t1 or "Le portier a planté silencieusement."
+                self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — fail-open vers l'Analyste (aucun filtrage T1 pour cette annonce) : {gatekeeper_reason}")
+                self._notify_model_unavailable(f"T1-{primary_provider}", gatekeeper_reason, user_email)
             else:
                 gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
                 gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
@@ -590,12 +616,19 @@ class DealAnalyzer:
                 # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
                 # Garde-fou non négociable : un verdict pépite-tier (T1_PEPITE_TIER_VERDICTS)
                 # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
+                # Second garde-fou (trouvé en revue de code, 2026-09-20) : un verdict d'erreur
+                # (`T1_ERROR_STATUSES` — Portier planté ou réponse malformée) n'a par définition
+                # aucune classification fiable ; sans ce garde-fou, il se retrouvait routé vers
+                # NOT_PROMOTED (classification vide ⇒ aucune correspondance) au lieu du fail-open
+                # habituel vers l'Analyste — une vraie erreur silencieusement traitée comme un
+                # simple hors-filtre.
                 active_search_families = config.get('activeSearchFamilies') or []
-                if active_search_families and gatekeeper_status not in T1_PEPITE_TIER_VERDICTS:
-                    matches_active_search = gatekeeper_classification and any(
-                        gatekeeper_classification == family or gatekeeper_classification.startswith(f"{family}.")
-                        for family in active_search_families
-                    )
+                if (
+                    active_search_families
+                    and gatekeeper_status not in T1_PEPITE_TIER_VERDICTS
+                    and gatekeeper_status not in T1_ERROR_STATUSES
+                ):
+                    matches_active_search = matches_active_search_family(gatekeeper_classification, active_search_families)
                     if not matches_active_search:
                         self.logger.info(
                             f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "

@@ -26,6 +26,7 @@ from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.repository import FirestoreRepository
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
+from backend.taxonomy import matches_active_search_family
 
 class GuitarHunterBot:
     # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
@@ -1211,10 +1212,7 @@ class GuitarHunterBot:
                 data = doc.to_dict()
                 ai = data.get('aiAnalysis') or {}
                 classification = ai.get('gatekeeperClassification')
-                matches_active_search = not active_families or (classification and any(
-                    classification == family or classification.startswith(f"{family}.")
-                    for family in active_families
-                ))
+                matches_active_search = not active_families or matches_active_search_family(classification, active_families)
                 if not matches_active_search:
                     continue
 
@@ -1239,12 +1237,16 @@ class GuitarHunterBot:
                     # Verdict (mis à None/"MANUAL_RETRY" par _attach_gatekeeper_metadata) — on
                     # restaure ici les valeurs déjà connues, seule source de vérité pour cette
                     # classification (aucun nouvel appel Portier ne les regénère).
-                    for key in (
-                        'gatekeeperBrand', 'gatekeeperClassification', 'gatekeeperVerdict',
-                        'qwenGatekeeperVerdict', 'qwenGatekeeperBrand', 'qwenGatekeeperClassification',
-                        'qwenGatekeeperLatencyS', 'qwenGatekeeperError',
-                    ):
-                        if key in ai:
+                    # Préfixes d'observation miroir génériques (corrigé 2026-09-20, revue de
+                    # code) : cette liste ne nommait avant que `qwenGatekeeper*`, qui ne
+                    # correspond plus à la clé réellement écrite pour toute annonce analysée
+                    # depuis la bascule (Qwen primaire ⇒ observation sous `flashliteGatekeeper*`,
+                    # voir `analyzer.py::_run_t1_shadow_observation`) — les données d'observation
+                    # de ces annonces étaient donc silencieusement perdues à la repromotion.
+                    shadow_prefixes = ('qwenGatekeeper', 'flashliteGatekeeper')
+                    for key in ai:
+                        if key in ('gatekeeperBrand', 'gatekeeperClassification', 'gatekeeperVerdict') \
+                                or key.startswith(shadow_prefixes):
                             analysis[key] = ai[key]
                     self.repo.update_deal_analysis(doc.id, analysis)
                     promoted_count += 1

@@ -1,10 +1,19 @@
 """
 Diagnostic en lecture seule, SANS appel Gemini (Chantier H, suite à `audit_rejected_gems.py`
 et sa discussion du 2026-09-19) : compare directement les métadonnées déjà stockées sur chaque
-annonce — `gatekeeperVerdict` (Flash-Lite, le Portier de production, décideur réel) vs
-`qwenGatekeeperVerdict` (observation Qwen, tourne en parallèle depuis le 2026-09-13, jamais lue
-pour la décision réelle) — sur TOUTES les annonces analysées depuis cette date, tous
-utilisateurs confondus.
+annonce — le verdict Gemini/Flash-Lite vs le verdict Qwen — sur TOUTES les annonces analysées
+depuis le 2026-09-13, tous utilisateurs confondus.
+
+Mise à jour 2026-09-20 (bascule `T1_GATEKEEPER_PROVIDER=qwen` en production) : `gatekeeperVerdict`
+(le champ "décideur réel") ne désigne plus un fournisseur fixe — avant la bascule c'était
+Flash-Lite, depuis c'est Qwen. Le fournisseur non-décideur écrit son verdict en miroir dans
+`qwenGatekeeperVerdict` OU `flashliteGatekeeperVerdict` selon lequel des deux n'était PAS
+décideur pour cette annonce (voir `analyzer.py::_run_t1_shadow_observation`). Ce script
+reconstruit donc la paire (verdict Gemini, verdict Qwen) par déduction : si
+`qwenGatekeeperVerdict` est présent, Gemini était décideur (`gatekeeperVerdict` = Gemini) ; si
+c'est `flashliteGatekeeperVerdict` qui est présent, Qwen était décideur (`gatekeeperVerdict` =
+Qwen) — plutôt que de supposer un sens fixe, ce qui romprait silencieusement la collecte de
+données pour toute annonce analysée après la bascule.
 
 **Objectif recadré avec l'utilisateur (2026-09-19)** : ce n'est PAS un test de précision de
 Qwen. Un faux positif de Qwen (il signale une pépite qui n'en est pas) ne coûte qu'une
@@ -62,8 +71,18 @@ def main():
         for doc in deals_ref.stream():
             deal = doc.to_dict()
             ai = deal.get("aiAnalysis") or {}
-            gemini_verdict = ai.get("gatekeeperVerdict")
-            qwen_verdict = ai.get("qwenGatekeeperVerdict")
+            real_verdict = ai.get("gatekeeperVerdict")
+            # `gatekeeperVerdict` (le décideur réel) désigne Gemini avant la bascule du
+            # 2026-09-20, Qwen depuis — déduit ici annonce par annonce via lequel des deux
+            # champs miroir est renseigné, plutôt que supposé fixe (voir docstring du module).
+            shadow_qwen = ai.get("qwenGatekeeperVerdict")
+            shadow_flashlite = ai.get("flashliteGatekeeperVerdict")
+            if shadow_qwen:
+                gemini_verdict, qwen_verdict = real_verdict, shadow_qwen
+            elif shadow_flashlite:
+                gemini_verdict, qwen_verdict = shadow_flashlite, real_verdict
+            else:
+                continue
             if not gemini_verdict or not qwen_verdict:
                 continue
             # Exclut les cas où l'un des deux appels a lui-même échoué (ex: `ERROR_GATEKEEPER`,
