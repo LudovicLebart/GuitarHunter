@@ -197,6 +197,9 @@ async def patch_purchased(deal_id: str, body: PurchasedBody, uid: str = Depends(
     new_value = await deals_repo.toggle_purchased(pool, uid, deal_id, body.purchasePrice)
     if new_value is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    if new_value == "locked_by_other_user":
+        # Achat GLOBAL (2026-09-19) : un autre utilisateur a déjà acheté cette annonce partagée.
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cette annonce a déjà été achetée par un autre utilisateur.")
     return {"isPurchased": new_value}
 
 
@@ -243,7 +246,9 @@ async def patch_analysis_overrides(deal_id: str, body: AnalysisOverridesBody, ui
 @app.patch("/deals/{deal_id}/reject")
 async def patch_reject(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await deals_repo.reject_deal(pool, uid, deal_id)
+    found = await deals_repo.reject_deal(pool, uid, deal_id)
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
     return {"status": "rejected"}
 
 
@@ -280,12 +285,22 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
     listener_added = False
     try:
         loop = asyncio.get_running_loop()
+        pool = get_pool()
+
+        async def _push_if_visible(data: dict):
+            # 2026-09-19 (catalogue partagé) : le trigger ne pousse plus `user_id` (une annonce
+            # peut concerner PLUSIEURS utilisateurs) — c'est ici, pas dans le trigger, que se
+            # décide qui est concerné : uniquement les utilisateurs dont le scan a matché ce
+            # deal_id (voir `deals_repo._is_visible`, même requête).
+            row = await pool.fetchrow(
+                "SELECT 1 FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2", uid, data.get("id"),
+            )
+            if row is not None:
+                await websocket.send_json(data)
 
         def _on_notify(connection, pid, channel, payload):
             data = json.loads(payload)
-            if data.get("user_id") != uid:
-                return  # canal partagé entre tous les utilisateurs, filtré ici (voir schema.sql)
-            loop.create_task(websocket.send_json(data))
+            loop.create_task(_push_if_visible(data))
 
         await listen_conn.add_listener("deal_changes", _on_notify)
         listener_added = True

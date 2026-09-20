@@ -22,9 +22,13 @@ import asyncpg
 
 async def get_deal_owner(pool: asyncpg.Pool, deal_id: str) -> str | None:
     """Utilisé pour vérifier la propriété d'une annonce avant d'exposer son chat (REST et WS) —
-    `deal_chat` n'a pas de `user_id` propre, seulement une FK vers `guitar_deals`."""
-    row = await pool.fetchrow("SELECT user_id FROM guitar_deals WHERE id = $1", deal_id)
-    return row["user_id"] if row else None
+    `deal_chat` n'a pas de `user_id` propre, seulement une FK vers `guitar_deals`. 2026-09-19 :
+    `guitar_deals` est un catalogue partagé, plus de `user_id` — le "propriétaire" du chat/plan
+    de restauration est désormais l'ACHETEUR (`purchased_by_user_id`), décision explicite de
+    l'utilisateur (chat/restauration toujours réservés à l'acheteur, même si l'annonce reste
+    visible pour d'autres avant achat)."""
+    row = await pool.fetchrow("SELECT purchased_by_user_id FROM guitar_deals WHERE id = $1", deal_id)
+    return row["purchased_by_user_id"] if row else None
 
 
 async def list_messages(pool: asyncpg.Pool, deal_id: str):

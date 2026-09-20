@@ -36,15 +36,20 @@ def _pg_reachable() -> bool:
         return False
 
 
-async def _seed_deal(deal_id, user_id, **overrides):
+async def _seed_deal(deal_id, user_id, *, visible_to=None, **overrides):
+    """2026-09-19 (catalogue partagé) : `guitar_deals` n'a plus de `user_id` — `user_id` reste le
+    paramètre positionnel historique (utilisateur "principal" du test) mais sert uniquement à
+    créer la ligne `users` et, sauf `visible_to` explicite, à enregistrer SA visibilité
+    (`user_deal_matches`). `visible_to=[]` sème une annonce globale sans visibilité pour
+    personne — pour simuler "une annonce que cet utilisateur ne voit pas"."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute(
             "INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", user_id
         )
         fields = {
-            "id": deal_id, "user_id": user_id, "title": "Guitare de test",
-            "status": "analyzed", "is_favorite": False, "is_purchased": False,
+            "id": deal_id, "title": "Guitare de test",
+            "status": "analyzed", "is_purchased": False,
         }
         fields.update(overrides)
         cols = ", ".join(fields.keys())
@@ -54,6 +59,15 @@ async def _seed_deal(deal_id, user_id, **overrides):
             f"ON CONFLICT (id) DO UPDATE SET {', '.join(f'{k} = EXCLUDED.{k}' for k in fields)}",
             *fields.values(),
         )
+        for uid in ([user_id] if visible_to is None else visible_to):
+            await conn.execute(
+                "INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", uid
+            )
+            await conn.execute(
+                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) "
+                "ON CONFLICT (user_id, deal_id) DO NOTHING",
+                uid, deal_id,
+            )
     finally:
         await conn.close()
 
@@ -122,7 +136,10 @@ class TestDealsAPI(unittest.TestCase):
         self.client = TestClient(app)
         self.client.__enter__()
         asyncio.run(_seed_deal("deal-1", self.UID, title="Parlor satinée"))
-        asyncio.run(_seed_deal("deal-2", self.OTHER_UID, title="Annonce d'un autre utilisateur"))
+        # visible_to=[OTHER_UID] : catalogue partagé, deal-2 existe globalement mais seul
+        # OTHER_UID l'a matchée — invisible pour self.UID (remplace "appartient à un autre
+        # utilisateur", plus de sens depuis que guitar_deals n'a plus de user_id).
+        asyncio.run(_seed_deal("deal-2", self.OTHER_UID, visible_to=[self.OTHER_UID], title="Annonce vue par un autre utilisateur"))
 
     def tearDown(self):
         self.client.__exit__(None, None, None)
@@ -169,6 +186,27 @@ class TestDealsAPI(unittest.TestCase):
         second = self.client.patch("/deals/deal-1/purchased", json={})
         self.assertFalse(second.json()["isPurchased"])
         self.assertIsNone(self.client.get("/deals/deal-1").json()["purchase_price"])  # effacé au retour à False
+
+    def test_toggle_purchased_by_another_user_returns_409(self):
+        """Achat GLOBAL (2026-09-19) : une fois achetée par un utilisateur, un AUTRE utilisateur
+        qui la voit aussi ne peut pas la "racheter"/désacheter — 409, distinct du 404 "pas
+        visible" déjà couvert ailleurs. Ne PAS ré-appeler `_seed_deal` entre les deux achats :
+        son `ON CONFLICT DO UPDATE` réinitialiserait `is_purchased` à False (valeur par défaut
+        du seed), effaçant l'état qu'on vient d'établir — piège trouvé en écrivant ce test."""
+        third_uid = self.UID + "-third"
+        asyncio.run(_seed_deal("deal-1", self.UID, visible_to=[self.UID, third_uid]))
+
+        first = self.client.patch("/deals/deal-1/purchased", json={})
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()["isPurchased"])  # self.UID achète deal-1 en premier
+
+        app.dependency_overrides[get_current_uid] = lambda: third_uid
+        try:
+            resp = self.client.patch("/deals/deal-1/purchased", json={})
+            self.assertEqual(resp.status_code, 409)
+        finally:
+            app.dependency_overrides[get_current_uid] = lambda: self.UID
+            asyncio.run(_cleanup(deal_ids=[], user_ids=[third_uid]))
 
     def test_set_and_clear_manual_classification(self):
         set_resp = self.client.patch("/deals/deal-1/classification", json={"classificationPath": "acoustique_acier.parlor"})
@@ -280,15 +318,18 @@ class TestDealsWebSocket(unittest.TestCase):
                     raw = ws_mine.recv(timeout=5)
                     message = json.loads(raw)
                     self.assertEqual(message["id"], "deal-ws-1")
-                    self.assertEqual(message["user_id"], self.UID)
+                    # 2026-09-19 (catalogue partagé) : le payload ne porte plus `user_id` (une
+                    # annonce peut concerner plusieurs utilisateurs) — le filtrage se fait
+                    # désormais par requête de visibilité (`user_deal_matches`) dans
+                    # `_push_if_visible`, pas par une clé du payload lui-même.
 
                     # ws_other est authentifié avec le même uid mocké ici (dependency_overrides
                     # est global à `app`, pas par connexion) — ce test valide donc le transport
                     # réel (push asynchrone livré), la vraie isolation par utilisateur étant
                     # déjà couverte au niveau du filtre lui-même par les tests HTTP de
                     # TestDealsAPI (ex: test_favorite_on_other_users_deal_returns_404) et par
-                    # relecture de main.py::ws_deals::_on_notify (retour anticipé si user_id ne
-                    # correspond pas, avant tout envoi).
+                    # relecture de main.py::ws_deals::_push_if_visible (aucun envoi si
+                    # user_deal_matches n'a pas de ligne pour ce (user_id, deal_id)).
                     second = ws_other.recv(timeout=5)
                     self.assertEqual(json.loads(second)["id"], "deal-ws-1")
 

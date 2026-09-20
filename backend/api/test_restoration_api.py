@@ -18,12 +18,15 @@ from backend.api.test_deals_api import _pg_reachable, _RealServer
 
 
 async def _seed_deal_and_user(deal_id, user_id):
+    """2026-09-19 (catalogue partagé) : le plan de restauration reste réservé à l'ACHETEUR
+    (`purchased_by_user_id`, voir chat_repo.py::get_deal_owner) — plus de `user_id` propre sur
+    `guitar_deals`."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
         await conn.execute(
-            "INSERT INTO guitar_deals (id, user_id, title) VALUES ($1, $2, 'x') "
-            "ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO guitar_deals (id, title, is_purchased, purchased_by_user_id) "
+            "VALUES ($1, 'x', true, $2) ON CONFLICT (id) DO NOTHING",
             deal_id, user_id,
         )
     finally:

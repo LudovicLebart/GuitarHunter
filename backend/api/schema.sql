@@ -113,6 +113,24 @@ CREATE TABLE IF NOT EXISTS user_deal_state (
 CREATE INDEX IF NOT EXISTS idx_user_deal_state_favorite ON user_deal_state(user_id) WHERE is_favorite;
 CREATE INDEX IF NOT EXISTS idx_user_deal_state_rejected ON user_deal_state(user_id) WHERE is_rejected;
 
+-- Correctif 2026-09-20 (revue de code) : le favori/rejet manuel ne touche plus `guitar_deals`
+-- (colonnes déplacées ici), donc ne déclenchait plus AUCUNE notification WS — le frontend ne
+-- voyait plus la bascule en temps réel sur un second onglet/appareil. Réutilise le même canal
+-- `deal_changes` que `notify_deal_change` (même payload `{"id": deal_id}`, le consommateur WS
+-- ne distingue pas la table d'origine, seulement la visibilité du deal_id pour l'utilisateur
+-- connecté — voir main.py::ws_deals::_push_if_visible).
+CREATE OR REPLACE FUNCTION notify_user_deal_state_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('deal_changes', json_build_object('id', COALESCE(NEW.deal_id, OLD.deal_id))::text);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS user_deal_state_notify ON user_deal_state;
+CREATE TRIGGER user_deal_state_notify
+    AFTER INSERT OR UPDATE ON user_deal_state
+    FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
+
 -- `purchased_by_user_id` : absente d'une base déjà initialisée avant le 2026-09-19 (comme
 -- toute colonne ajoutée après la création initiale, voir l'avertissement plus bas) — ajoutée ici
 -- en ALTER explicite avant les index qui la référencent.
