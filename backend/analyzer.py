@@ -30,6 +30,7 @@ from config import (
     TOKENROUTER_BASE_URL,
     T1_OBSERVATION_QWEN_MODEL,
     T1_OBSERVATION_ENABLED,
+    T1_GATEKEEPER_PROVIDER,
 )
 from backend.scraping.parser import ListingParser
 from backend.taxonomy import build_index as build_taxonomy_index, canonicalize as canonicalize_classification
@@ -303,35 +304,45 @@ class DealAnalyzer:
         except Exception as e:
             return None, str(e)
 
-    def _run_t1_qwen_observation(self, full_prompt_t1, images):
-        """Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) — OBSERVATION,
-        pas encore une bascule : rejoue le Portier avec EXACTEMENT le même prompt sur
-        Qwen3.8-flash (TokenRouter, déjà validé comme candidat T1 fidèle au run #38) et renvoie
-        son verdict sous des clés `qwenGatekeeper*` distinctes, à côté de celui de Gemini —
-        n'influence JAMAIS `gatekeeper_status` ni la décision accept/reject réelle, qui reste
-        entièrement pilotée par Gemini. But : accumuler des données de comparaison en conditions
-        réelles avant toute décision de bascule.
+    def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
+        """Chantier H — OBSERVATION EN MIROIR (généralisée le 2026-09-20, bascule du décideur
+        réel vers Qwen) : rejoue le Portier avec EXACTEMENT le même prompt sur le fournisseur T1
+        qui N'EST PAS le décideur réel (`T1_GATEKEEPER_PROVIDER`), pour continuer à accumuler de
+        la comparaison en conditions réelles après la bascule — n'influence JAMAIS
+        `gatekeeper_status` ni la décision accept/reject réelle. Avant le 2026-09-20, Gemini
+        décidait et Qwen observait (`qwenGatekeeper*`) ; depuis, c'est l'inverse par défaut
+        (`shadow_provider="gemini"`, clés `flashliteGatekeeper*`) — ou l'ancien sens en cas de
+        repli (`T1_GATEKEEPER_PROVIDER=gemini`).
 
-        Best-effort strict : toute erreur (clé absente, TokenRouter indisponible, JSON invalide)
-        est absorbée ici et ne doit jamais faire échouer l'analyse Gemini réelle qui l'entoure —
+        Best-effort strict : toute erreur (clé absente, fournisseur indisponible, JSON invalide)
+        est absorbée ici et ne doit jamais faire échouer l'analyse réelle qui l'entoure —
         coupe-circuit `T1_OBSERVATION_ENABLED` pour désactiver sans redéploiement si besoin.
         """
-        if not T1_OBSERVATION_ENABLED or not TOKENROUTER_API_KEY:
+        if not T1_OBSERVATION_ENABLED:
             return {}
+        prefix = "qwenGatekeeper" if shadow_provider == "qwen" else "flashliteGatekeeper"
         t0 = time.monotonic()
-        result, err = self._call_openai_compatible_json(
-            full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
-            response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-        )
+        if shadow_provider == "qwen":
+            if not TOKENROUTER_API_KEY:
+                return {}
+            result, err = self._call_openai_compatible_json(
+                full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
+                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+            )
+        else:
+            result, err = self._call_gemini_json(
+                gatekeeper_model_name, [full_prompt_t1] + images, user_email,
+                response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
+            )
         latency_s = round(time.monotonic() - t0, 1)
         if err or not result:
-            self.logger.warning(f"   🔬 [Observation T1/Qwen] échec (ignoré, n'affecte pas l'analyse) : {err}")
-            return {"qwenGatekeeperError": err, "qwenGatekeeperLatencyS": latency_s}
+            self.logger.warning(f"   🔬 [Observation T1/{shadow_provider}] échec (ignoré, n'affecte pas l'analyse) : {err}")
+            return {f"{prefix}Error": err, f"{prefix}LatencyS": latency_s}
         return {
-            "qwenGatekeeperVerdict": (result.get('status') or result.get('verdict') or None),
-            "qwenGatekeeperBrand": result.get('brand'),
-            "qwenGatekeeperClassification": result.get('classification'),
-            "qwenGatekeeperLatencyS": latency_s,
+            f"{prefix}Verdict": (result.get('status') or result.get('verdict') or None),
+            f"{prefix}Brand": result.get('brand'),
+            f"{prefix}Classification": result.get('classification'),
+            f"{prefix}LatencyS": latency_s,
         }
 
     def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
@@ -491,40 +502,55 @@ class DealAnalyzer:
         # sur les annonces acceptées, qui sont pourtant la grande majorité des cas.
         gatekeeper_brand = None
         gatekeeper_classification = None
-        # Chantier H — observation Qwen (jamais utilisée pour la décision accept/reject réelle,
-        # voir _run_t1_qwen_observation). Fusionnée dans les 5 dicts de retour ci-dessous via
+        # Chantier H — observation miroir (jamais utilisée pour la décision accept/reject réelle,
+        # voir _run_t1_shadow_observation). Fusionnée dans les 5 dicts de retour ci-dessous via
         # **qwen_observation, comme gatekeeperBrand/gatekeeperClassification/gatekeeperVerdict.
         qwen_observation = {}
 
         # ==========================================
-        # PHASE 1 : TIER 1 - PORTIER (Flash-Lite)
+        # PHASE 1 : TIER 1 - PORTIER (bascule 2026-09-20 : Qwen par défaut, voir config.py)
         # ==========================================
         if not force_expert:
-            self.logger.info(f"   🛡️ Étape 1 : Portier ({gatekeeper_model_name})")
-            model_chain.append(gatekeeper_model_name)
+            t1_real_model_name = T1_OBSERVATION_QWEN_MODEL if T1_GATEKEEPER_PROVIDER == "qwen" else gatekeeper_model_name
+            self.logger.info(f"   🛡️ Étape 1 : Portier ({t1_real_model_name})")
+            model_chain.append(t1_real_model_name)
             gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
             if isinstance(gatekeeper_instruction, list):
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
 
-            # L'observation Qwen (~22s, run #38) et l'appel Gemini réel (~5s) sont totalement
-            # indépendants (Qwen n'influence jamais la décision) — lancés en parallèle plutôt
-            # qu'en série pour ne pas cumuler leurs latences (27s) sur chaque annonce.
-            qwen_result_holder = [{}]
+            # Bascule 2026-09-20 (voir JOURNAL.md et config.py) : T1_GATEKEEPER_PROVIDER
+            # détermine qui décide réellement (accept/reject) — "qwen" par défaut depuis cette
+            # date, "gemini" en repli. L'autre fournisseur continue de tourner en miroir,
+            # best-effort, uniquement pour accumuler de la comparaison (jamais lu pour la
+            # décision) — lancé en parallèle pour ne pas cumuler les deux latences sur chaque
+            # annonce (~22s Qwen vs ~5s Gemini, peu importe lequel est réel).
+            primary_provider = T1_GATEKEEPER_PROVIDER
+            shadow_provider = "gemini" if primary_provider == "qwen" else "qwen"
 
-            def _observe_qwen():
-                qwen_result_holder[0] = self._run_t1_qwen_observation(full_prompt_t1, images)
+            shadow_result_holder = [{}]
 
-            qwen_thread = threading.Thread(target=_observe_qwen, daemon=True)
-            qwen_thread.start()
+            def _observe_shadow():
+                shadow_result_holder[0] = self._run_t1_shadow_observation(
+                    full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email
+                )
 
-            result_t1, err_t1 = self._call_gemini_json(
-                gatekeeper_model_name, [full_prompt_t1] + images, user_email,
-                response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
-            )
+            shadow_thread = threading.Thread(target=_observe_shadow, daemon=True)
+            shadow_thread.start()
 
-            qwen_thread.join()
-            qwen_observation = qwen_result_holder[0]
+            if primary_provider == "qwen":
+                result_t1, err_t1 = self._call_openai_compatible_json(
+                    full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
+                    response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+                )
+            else:
+                result_t1, err_t1 = self._call_gemini_json(
+                    gatekeeper_model_name, [full_prompt_t1] + images, user_email,
+                    response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
+                )
+
+            shadow_thread.join()
+            qwen_observation = shadow_result_holder[0]
 
             if err_t1 or not result_t1:
                 # Fail-open vers l'Analyste

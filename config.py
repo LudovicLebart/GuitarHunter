@@ -78,20 +78,26 @@ GEMINI_MODELS = {
     "default_expert": "gemini-3.1-pro-preview"
 }
 
-# --- CHANTIER H (2026-09-13) : OBSERVATION QWEN AU RÔLE DE PORTIER (TIER 1) ---
-# Le Portier de production reste Gemini Flash-Lite (GEMINI_MODELS["default_gatekeeper"])
-# — ceci n'est PAS encore une bascule. `analyzer.py::_run_analysis_cascade` appelle EN PLUS,
-# avec le même prompt EXACT, Qwen3.8-flash via TokenRouter (déjà validé comme candidat T1
-# fidèle, run #38 — voir docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md Chantier H) et
-# stocke son verdict à côté de celui de Gemini (`qwenGatekeeper*`), sans influencer la
-# décision accept/reject réelle. Objectif : accumuler des données de comparaison en conditions
-# réelles avant toute décision de bascule. `TOKENROUTER_API_KEY` est déjà présent dans le
-# `.env` de production (secret GitHub `DOT_ENV`, partagé avec le harnais de benchmark) mais
-# n'était jusqu'ici jamais lu par le bot lui-même.
+# --- CHANTIER H : BASCULE DU PORTIER (TIER 1) VERS QWEN (2026-09-20) ---
+# Historique : observation Qwen en parallèle depuis le 2026-09-13 (jamais décisionnelle), puis
+# analyse complète le 2026-09-20 — comparaison directe sur 166 annonces réelles
+# (`backend/scripts/compare_qwen_flashlite_agreement.py`) + lecture des verdicts T2/T3 déjà
+# écrits en base pour les 21 désaccords "coûteux" : 10/21 jamais promues en Tier 2
+# (`NOT_PROMOTED`, hors recherche active — aucune perte possible), 3/21 confirmées `BAD_DEAL`
+# par le Tier 2 lui-même (Qwen avait raison, pas Flash-Lite), 6/21 confirmées `FAIR` (marge
+# insuffisante pour un flip), 1/21 `LUTHIER_PROJ` marginal. Un seul cas réel de perte confirmée
+# sur 166 annonces (voir JOURNAL.md, 2026-09-20). Décision utilisateur : bascule.
+#
+# `T1_GATEKEEPER_PROVIDER` détermine qui décide RÉELLEMENT (accept/reject) : "qwen" (nouveau
+# défaut) ou "gemini" (repli instantané vers le comportement historique, sans redéploiement de
+# code — juste cette variable d'env). Quel que soit le décideur, l'AUTRE fournisseur continue
+# de tourner en miroir (best-effort, coupe-circuit `T1_OBSERVATION_ENABLED`) pour continuer à
+# accumuler de la comparaison — voir `analyzer.py::_run_t1_shadow_observation`.
 TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
 TOKENROUTER_BASE_URL = "https://api.tokenrouter.com/v1"
 T1_OBSERVATION_QWEN_MODEL = os.getenv("T1_OBSERVATION_QWEN_MODEL", "qwen/qwen3.8-flash")
-# Coupe-circuit explicite : si l'observation cause un problème en production (latence,
+T1_GATEKEEPER_PROVIDER = os.getenv("T1_GATEKEEPER_PROVIDER", "qwen").strip().lower()
+# Coupe-circuit explicite : si l'observation miroir cause un problème en production (latence,
 # erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
 # redéploiement de code.
 T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "true").lower() in ("1", "true", "yes")
