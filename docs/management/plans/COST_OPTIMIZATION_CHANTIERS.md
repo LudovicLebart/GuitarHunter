@@ -399,6 +399,45 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 
 ---
 
+## Chantier I — Qwen3-VL-8B-Instruct local (Dell T5810) vs `qwen3.8-flash` prod (2026-09-20)
+
+**Motivation** : chantier distinct du H, demandé explicitement par l'utilisateur pour évaluer un
+modèle Qwen ouvert hébergé **localement** — préférence affirmée pour le local plutôt que le
+cloud — comme candidat de remplacement du fournisseur T1 cloud actuel (`qwen/qwen3.8-flash`,
+TokenRouter). Même méthodologie que pour valider la bascule Gemini → Qwen (Chantier H) : mesurer
+avant de décider, pas l'inverse.
+
+**Modèle retenu** : `Qwen3-VL-8B-Instruct` — le modèle exact en prod (`qwen3.8-flash`, palier
+"flash" propriétaire d'Alibaba) n'est pas publié en poids ouverts, pas plus que le seul
+checkpoint ouvert de cette génération pensé pour du on-prem (`Qwen3.8-27B`, trop gros pour 8 Go
+de VRAM). `Qwen3-VL-8B-Instruct` est le meilleur substitut réaliste : même fournisseur, génération
+vision-langage la plus récente, poids ouverts, quantifié Q4_K_M ≈ 4,7 Go — tient sur la RTX 2060
+Super (8 Go VRAM) du Dell avec de la marge pour le contexte.
+
+**Codé (2026-09-20)** : nouveau candidat `qwen_local` dans `backend/benchmark/candidates.py`
+(réutilise `_call_openai_compatible`, endpoint Ollama compatible OpenAI du Dell via Tailscale —
+`http://100.94.33.54:11434/v1`, configurable par variables d'environnement), enregistré dans
+`CANDIDATES`. Volontairement absent de la liste `--models` par défaut de `run_benchmark.py` (le
+Dell n'est pas garanti joignable) — appel explicite : `python -m backend.benchmark.run_benchmark
+--models qwen,qwen_local`.
+
+**Reste à faire** (aucun accès réseau/Tailscale depuis l'environnement de développement cloud) :
+1. Installer Ollama sur le Dell (`curl -fsSL https://ollama.com/install.sh | sh`) si absent.
+2. Télécharger le modèle : `ollama pull qwen3-vl:8b`.
+3. Vérifier la joignabilité réseau (port 11434 via Tailscale) depuis la machine qui lancera le
+   benchmark.
+4. Lancer la comparaison `qwen` (cloud, prod) vs `qwen_local` (Dell) sur le dataset existant du
+   harnais de benchmark, et en tirer une première mesure de qualité avant toute décision de
+   spécialisation locale (Chantier H, volet distillation).
+
+**Réserves déjà actées (héritées de l'analyse Chantier H)**, non résolues par ce chantier seul :
+GPU du Dell partagé avec le cluster MoneyBot (contention possible), et l'accès actuel au Dell
+(`run_script_dell.yml`) est conçu pour des jobs CI ponctuels, pas pour un service Ollama
+permanent 24/7 — condition nécessaire pour servir le Portier en production, hors périmètre de
+ce chantier (qui ne vise qu'une comparaison hors-ligne).
+
+---
+
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
@@ -411,6 +450,7 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
 | F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire avant toute conclusion (voir correction Opus) |
 | H — Portier T1 : bascule Qwen + spécialisation locale | `analyzer.py` (bascule), infra Dell (spécialisation) | Rien pour la bascule (actée) ; corpus Firestore existant pour la spécialisation | Script de comparaison (bascule) ; disponibilité réseau Dell 24/7 + contention MoneyBot (spécialisation) |
+| I — Qwen3-VL-8B local vs `qwen3.8-flash` prod | `backend/benchmark/` uniquement (isolé de la prod) | Rien (candidat codé, indépendant) | Ollama + modèle téléchargés sur le Dell, joignabilité réseau (aucun run réel effectué) |
 
 **Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
 reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses
