@@ -114,6 +114,18 @@ def main():
             print(f"- {deal_id} : '{deal.get('title', '')[:60]}' — Gemini={gv} Qwen={qv} "
                   f"deal_score={ai.get('deal_score')} resto={ai.get('restoration_interest_score')}")
             print(f"    lien original : {deal.get('link') or '(absent)'}")
+            # Verdict/raisonnement réel du Tier 2/3 (demande utilisateur, 2026-09-20) : plutôt
+            # que de rouvrir chaque fiche dans l'app, autant lire l'analyse déjà écrite en base
+            # par la cascade réelle de production (verdict/reasoning, écrits par
+            # _run_analysis_cascade — voir backend/analyzer.py) — absente pour les FAIR
+            # (deal_score=None), jamais promues au Tier 2 sous la config de recherche active.
+            if ai.get("verdict") or ai.get("reasoning"):
+                print(f"    verdict T2/T3 réel : {ai.get('verdict')}")
+                reasoning = (ai.get("reasoning") or "").strip()
+                if reasoning:
+                    print(f"    raisonnement : {reasoning[:400]}")
+            else:
+                print(f"    (pas d'analyse Tier 2 en base — probablement NOT_PROMOTED)")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_path = os.path.join(RESULTS_DIR, "compare_qwen_flashlite_agreement.json")
@@ -131,6 +143,8 @@ def main():
                     "qwen_verdict": qv,
                     "deal_score": (deal.get("aiAnalysis") or {}).get("deal_score"),
                     "restoration_interest_score": (deal.get("aiAnalysis") or {}).get("restoration_interest_score"),
+                    "t2_verdict": (deal.get("aiAnalysis") or {}).get("verdict"),
+                    "t2_reasoning": (deal.get("aiAnalysis") or {}).get("reasoning"),
                 }
                 for deal_id, deal, gv, qv in gemini_accept_qwen_reject
             ],
