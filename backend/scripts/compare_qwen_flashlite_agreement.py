@@ -113,6 +113,7 @@ def main():
             ai = deal.get("aiAnalysis") or {}
             print(f"- {deal_id} : '{deal.get('title', '')[:60]}' — Gemini={gv} Qwen={qv} "
                   f"deal_score={ai.get('deal_score')} resto={ai.get('restoration_interest_score')}")
+            print(f"    lien original : {deal.get('link') or '(absent)'}")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_path = os.path.join(RESULTS_DIR, "compare_qwen_flashlite_agreement.json")
@@ -125,6 +126,7 @@ def main():
                 {
                     "id": deal_id,
                     "title": deal.get("title"),
+                    "link": deal.get("link"),
                     "gemini_verdict": gv,
                     "qwen_verdict": qv,
                     "deal_score": (deal.get("aiAnalysis") or {}).get("deal_score"),
