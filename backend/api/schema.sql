@@ -122,6 +122,21 @@ ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_by_user_id TEXT REFE
 -- Firestore) — un index SQL fait ce travail sans bricolage applicatif. Plus de `user_id` ici
 -- (catalogue partagé, voir commentaire au-dessus de `CREATE TABLE guitar_deals`) — les index
 -- filtrés PAR utilisateur vivent désormais sur `user_deal_matches`/`user_deal_state`.
+--
+-- ATTENTION piège réel (trouvé en revue de code, 2026-09-20) : ces 4 index reprennent le MÊME
+-- NOM que les anciens index à 2 colonnes `(user_id, ...)` qu'ils remplacent. Sur une base déjà
+-- initialisée, à ce stade du script `user_id` existe ENCORE (le bloc de backfill/DROP COLUMN
+-- plus bas n'a pas encore tourné) — le `CREATE INDEX IF NOT EXISTS` ci-dessous serait alors un
+-- no-op silencieux (nom déjà pris par l'ancien index 2-colonnes), et le `DROP COLUMN user_id`
+-- plus bas dropperait ensuite cet ancien index par cascade SANS que le nouveau (1 colonne)
+-- n'ait jamais été créé — la table se retrouverait sans AUCUN index sur ces 4 colonnes jusqu'au
+-- prochain redémarrage/ré-exécution de ce fichier. `DROP INDEX IF EXISTS` explicite ci-dessous
+-- avant chaque `CREATE INDEX` pour garantir un résultat correct dès la PREMIÈRE exécution,
+-- quel que soit l'état de la base (idempotent : sans effet sur une base déjà à jour).
+DROP INDEX IF EXISTS idx_guitar_deals_status;
+DROP INDEX IF EXISTS idx_guitar_deals_verdict;
+DROP INDEX IF EXISTS idx_guitar_deals_timestamp;
+DROP INDEX IF EXISTS idx_guitar_deals_classification;
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_status      ON guitar_deals(status);
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_verdict     ON guitar_deals(verdict);
 CREATE INDEX IF NOT EXISTS idx_guitar_deals_timestamp   ON guitar_deals("timestamp" DESC);

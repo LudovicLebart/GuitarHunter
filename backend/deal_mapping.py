@@ -107,15 +107,42 @@ AI_ANALYSIS_COLUMNS = list(_AI_ANALYSIS_FIELDS.values())
 # ligne (le bug corrigé le même jour disparaît par construction avec ce changement de schéma).
 # Source SQL UNIQUE réutilisée par `pg_repository.py::create_new_deal` (psycopg, placeholders
 # `%s`) et `export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`).
-def build_deal_upsert_sql(placeholder) -> str:
+# Colonnes d'achat (fait GLOBAL, décidé le 2026-09-19 : une guitare achetée l'est pour tous les
+# utilisateurs) — jamais écrasées par un upsert générique qui fusionne plusieurs sources
+# possibles pour la même annonce partagée (voir `preserve_purchase_columns` ci-dessous).
+PURCHASE_COLUMNS = frozenset({"is_purchased", "purchased_by_user_id", "purchase_price", "purchased_at"})
+
+
+def build_deal_upsert_sql(placeholder, preserve_purchase_columns: bool = False) -> str:
     """`placeholder(index)` reçoit l'index 1-based de la colonne et renvoie le placeholder du
-    driver appelant (`lambda i: "%s"` pour psycopg, `lambda i: f"${i}"` pour asyncpg)."""
+    driver appelant (`lambda i: "%s"` pour psycopg, `lambda i: f"${i}"` pour asyncpg).
+
+    `preserve_purchase_columns=True` (correctif 2026-09-20, revue de code) : exclut
+    `PURCHASE_COLUMNS` du `SET` du `DO UPDATE` — nécessaire pour `export_firestore_to_postgres.py`,
+    où plusieurs documents Firestore per-user peuvent migrer vers la MÊME ligne partagée ; sans
+    ça, le document d'un utilisateur qui n'a PAS acheté l'annonce écraserait silencieusement
+    `is_purchased`/`purchased_by_user_id` déjà correctement posés par le document de l'acheteur,
+    selon l'ordre de traitement (non déterministe, dépend de l'itération Firestore). Le bot
+    (`pg_repository.py::create_new_deal`) n'a pas ce problème — une seule source par appel — donc
+    reste sur `False` (comportement historique, achat écrasé normalement par une ré-analyse)."""
     columns = DEAL_COLUMNS
     placeholders = ", ".join(placeholder(i + 1) for i in range(len(columns)))
-    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c != "id")
+    excluded = {"id"} | (PURCHASE_COLUMNS if preserve_purchase_columns else set())
+    set_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c not in excluded)
     return (
         f"INSERT INTO guitar_deals ({', '.join(columns)}) VALUES ({placeholders}) "
         f"ON CONFLICT (id) DO UPDATE SET {set_clause}"
+    )
+
+
+def build_deal_match_upsert_sql(placeholder) -> str:
+    """Source SQL unique pour l'upsert `user_deal_matches` (correctif 2026-09-20, revue de code)
+    — réutilisée par `pg_repository.py::record_deal_match` (psycopg) et
+    `export_firestore_to_postgres.py::_migrate_deal` (asyncpg), qui écrivaient chacun leur propre
+    copie de ce même `INSERT ... ON CONFLICT DO NOTHING`."""
+    return (
+        f"INSERT INTO user_deal_matches (user_id, deal_id) VALUES ({placeholder(1)}, {placeholder(2)}) "
+        f"ON CONFLICT (user_id, deal_id) DO NOTHING"
     )
 
 

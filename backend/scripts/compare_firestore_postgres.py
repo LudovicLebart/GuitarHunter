@@ -37,8 +37,7 @@ logger = logging.getLogger("compare_firestore_postgres")
 # Colonnes exclues de la comparaison champ par champ :
 # - ai_analysis_raw : dict potentiellement enrichi de `_unmapped` par l'export, comparaison
 #   directe trop fragile (faux positifs) pour la valeur qu'elle apporterait ici.
-# - user_id : connu par construction (vient de l'itération, pas du document).
-_SKIP_COLUMNS = {"ai_analysis_raw", "user_id"}
+_SKIP_COLUMNS = {"ai_analysis_raw"}
 _TIMESTAMP_TOLERANCE = timedelta(seconds=1)  # précision nanoseconde Firestore vs microseconde Postgres
 
 
@@ -59,7 +58,12 @@ async def _compare_user_deals(fs, app_id, uid, conn, sample_size, report):
     user_ref = fs.collection("artifacts").document(app_id).collection("users").document(uid)
     deal_docs = list(user_ref.collection("guitar_deals").stream())
     fs_count = len(deal_docs)
-    pg_count = await conn.fetchval("SELECT count(*) FROM guitar_deals WHERE user_id = $1", uid)
+    # 2026-09-19 : guitar_deals est un catalogue PARTAGÉ (plus de user_id par ligne) — le
+    # comptage "par utilisateur" se fait désormais via user_deal_matches (visibilité), pas via
+    # une colonne sur guitar_deals elle-même.
+    pg_count = await conn.fetchval(
+        "SELECT count(*) FROM user_deal_matches WHERE user_id = $1", uid
+    )
     report.add_count("guitar_deals", uid, fs_count, pg_count)
 
     sample = random.sample(deal_docs, min(sample_size, len(deal_docs)))

@@ -271,21 +271,29 @@ class GuitarHunterBot:
         return None
 
     def should_skip_deal(self, deal_id, price):
+        """2026-09-19 (catalogue partagé) : `get_deal_by_id` est global — si CE scan retrouve une
+        annonce déjà connue (créée par un autre utilisateur ou par une session précédente), elle
+        correspond quand même aux critères de recherche de CET utilisateur. `record_deal_match`
+        doit être appelé ici (correctif 2026-09-20, revue de code) : sans ça, une annonce au prix
+        inchangé resterait invisible pour toujours dans le fil de cet utilisateur, puisque ce
+        chemin court-circuite `handle_deal_found` (seul autre endroit qui enregistre le match)."""
         if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
         existing_deal = self.repo.get_deal_by_id(deal_id)
         if not existing_deal: return False
         if existing_deal.get('status') == 'rejected':
             self.session_processed_ids.add(deal_id)
+            self.repo.record_deal_match(deal_id)
             return True
-            
+
         old_price = self._normalize_price(existing_deal.get('price', -1))
         new_price = self._normalize_price(price)
-        
+
         if old_price > 0 and old_price == new_price:
             self.session_processed_ids.add(deal_id)
+            self.repo.record_deal_match(deal_id)
             return True
-            
+
         return False
 
     def _check_exclusion(self, listing_data, config):
@@ -1384,6 +1392,10 @@ class GuitarHunterBot:
         if not deal_data:
             self.logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
             return
+        # update_deal_analysis n'enregistre plus le match lui-même (correctif 2026-09-20,
+        # voir sa docstring) — cette demande explicite de l'utilisateur est un vrai signal
+        # d'intérêt, à enregistrer ici.
+        self.repo.record_deal_match(deal_id)
 
         listing_data = {
             "title": deal_data.get('title'),

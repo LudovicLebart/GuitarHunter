@@ -236,6 +236,22 @@ class TestPostgresRepository(unittest.TestCase):
         entry = snapshot[self.DEAL_ID]
         self.assertEqual(entry, {"title": "Parlor", "p": 300, "la": 46.8, "lo": -71.2, "l": "Québec"})
 
+    def test_update_deal_analysis_does_not_grant_visibility_to_an_unrelated_user(self):
+        """Correctif 2026-09-20 (revue de code) : `update_deal_analysis` ne doit PAS enregistrer
+        de match — sinon un utilisateur dont le thread traite la file GLOBALE `retry_analysis`
+        (`process_retry_queue`) se verrait attribuer la visibilité d'annonces que son propre scan
+        n'a jamais trouvées."""
+        self.repo.create_new_deal(self.DEAL_ID, {"title": "x"}, {"verdict": "GOOD_DEAL"})
+        # other_repo n'a JAMAIS vu cette annonce (pas de record_deal_match/create_new_deal pour lui).
+        self.other_repo.update_deal_analysis(self.DEAL_ID, {"verdict": "BAD_DEAL"})
+
+        with self.pool.connection() as conn:
+            match = conn.execute(
+                "SELECT 1 FROM user_deal_matches WHERE user_id = %s AND deal_id = %s",
+                (self.OTHER_UID, self.DEAL_ID),
+            ).fetchone()
+        self.assertIsNone(match)
+
     def test_get_active_listings_returns_row_like_objects(self):
         self.repo.create_new_deal(self.DEAL_ID, {"title": "x", "link": "https://x"}, {"verdict": "GOOD_DEAL"})
         listings = self.repo.get_active_listings()

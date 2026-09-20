@@ -55,7 +55,8 @@ from datetime import datetime, timezone
 
 from backend.deal_mapping import (
     CHAT_COLUMNS, DEAL_COLUMNS, RESTO_COLUMNS, _sanitize_json, _to_datetime,
-    build_deal_upsert_sql, map_chat_message, map_city, map_deal, map_restoration_item,
+    build_deal_match_upsert_sql, build_deal_upsert_sql, map_chat_message, map_city, map_deal,
+    map_restoration_item,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
@@ -212,14 +213,28 @@ async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool,
     async with pool.acquire() as conn:
         async with conn.transaction():
             deal_existed_before = await conn.fetchval("SELECT 1 FROM guitar_deals WHERE id = $1", deal_id)
-            await conn.execute(build_deal_upsert_sql(lambda i: f"${i}"), *[row[c] for c in DEAL_COLUMNS])
+            # preserve_purchase_columns=True (correctif 2026-09-20, revue de code) : plusieurs
+            # documents Firestore per-user peuvent migrer vers cette même ligne partagée — sans
+            # ça, un document non-acheteur migré APRÈS l'acheteur écraserait silencieusement
+            # is_purchased/purchased_by_user_id (déjà corrects) avec ses propres valeurs (False/
+            # None), l'ordre d'itération Firestore n'étant pas garanti trier l'acheteur en premier.
+            await conn.execute(
+                build_deal_upsert_sql(lambda i: f"${i}", preserve_purchase_columns=True),
+                *[row[c] for c in DEAL_COLUMNS],
+            )
+            if is_purchased:
+                # Seul le document de l'acheteur a le droit d'écrire ces colonnes (voir
+                # preserve_purchase_columns ci-dessus, qui les exclut de l'upsert générique).
+                await conn.execute(
+                    """UPDATE guitar_deals
+                       SET is_purchased = true, purchased_by_user_id = $1,
+                           purchase_price = $2, purchased_at = $3
+                       WHERE id = $4""",
+                    uid, row["purchase_price"], row["purchased_at"], deal_id,
+                )
             report.counts["deals"] += 1
 
-            await conn.execute(
-                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) "
-                "ON CONFLICT (user_id, deal_id) DO NOTHING",
-                uid, deal_id,
-            )
+            await conn.execute(build_deal_match_upsert_sql(lambda i: f"${i}"), uid, deal_id)
             is_favorite = deal_data.get("isFavorite")
             if is_favorite:
                 await conn.execute(
@@ -230,19 +245,24 @@ async def _migrate_deal(user_ref, uid: str, deal_id: str, deal_data: dict, pool,
 
             # Chat/plan de restauration : un même deal_id partagé ne peut porter qu'UN SEUL
             # historique en Postgres (pas de colonne user_id sur `deal_chat`/`restoration_plan_items`
-            # — voir schema.sql). Si ce deal_id existait déjà (vu par un autre utilisateur avant
-            # celui-ci dans cet export) ET que ce document-ci n'est pas celui de l'acheteur, ne
-            # pas écraser un historique déjà migré au hasard de l'ordre de traitement — l'acheteur
-            # a toujours priorité (son chat est le seul qui compte réellement), sinon le premier
-            # arrivé garde son historique.
+            # — voir schema.sql).
+            # Correctif 2026-09-20 (revue de code) : le garde ci-dessous protège un historique déjà
+            # migré dans DEUX cas, pas seulement "document non-acheteur" — un document ACHETEUR
+            # mais SANS chat/plan de restauration propre (ex: achat marqué depuis un autre appareil,
+            # jamais discuté sur celui migré ici) ne doit pas non plus écraser un historique réel
+            # déjà écrit par un document précédent avec du contenu. Ne DELETE+réinsère que si CE
+            # document apporte réellement quelque chose ; l'acheteur ne prime que face à un AUTRE
+            # document qui, lui aussi, apporte du contenu.
+            this_doc_has_history = bool(chat_docs or resto_docs)
+            if not this_doc_has_history:
+                return  # rien à écrire, ne pas toucher un historique existant éventuel
             if deal_existed_before and not is_purchased:
-                if chat_docs or resto_docs:
-                    report.chat_history_skipped.append((deal_id, uid))
-                    logger.warning(
-                        f"[{uid[:8]}] id '{deal_id}' : chat/plan de restauration de ce document "
-                        f"NON acheteur ignoré (un historique existe déjà pour cette annonce "
-                        f"partagée, cet utilisateur n'est pas l'acheteur enregistré)."
-                    )
+                report.chat_history_skipped.append((deal_id, uid))
+                logger.warning(
+                    f"[{uid[:8]}] id '{deal_id}' : chat/plan de restauration de ce document "
+                    f"NON acheteur ignoré (un historique existe déjà pour cette annonce "
+                    f"partagée, cet utilisateur n'est pas l'acheteur enregistré)."
+                )
                 return
 
             # Repartir de zéro pour chat/restorationPlan : ces deux tables n'ont pas de colonne

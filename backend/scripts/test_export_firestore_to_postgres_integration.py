@@ -245,6 +245,84 @@ class TestMigrateDealAgainstRealPostgres(unittest.TestCase):
 
         asyncio.run(_run())
 
+    def test_migrate_deal_purchase_survives_a_later_non_buyer_document(self):
+        """Correctif 2026-09-20 (revue de code) : le document de l'ACHETEUR est migré en premier,
+        puis le document d'un utilisateur qui n'a PAS acheté est migré ensuite pour le même
+        deal_id — l'état d'achat ne doit PAS être effacé par le second document (ordre
+        d'itération Firestore non garanti trier l'acheteur en premier dans la vraie vie)."""
+        buyer_uid = self.UID + "-buyer"
+        other_uid = self.UID + "-other"
+
+        async def _run():
+            pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2, init=_register_json_codecs)
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", buyer_uid)
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", other_uid)
+
+                buyer_doc = _FakeDoc(self.DEAL_ID, {
+                    "title": "x", "isPurchased": True, "purchasePrice": 275,
+                    "aiAnalysis": {"verdict": "GOOD_DEAL"},
+                })
+                buyer_ref = _FakeDoc("user-ref-buyer", {}, children={"guitar_deals": [buyer_doc]})
+                await _migrate_deal(buyer_ref, buyer_uid, self.DEAL_ID, buyer_doc.to_dict(), pool, MigrationReport())
+
+                other_doc = _FakeDoc(self.DEAL_ID, {"title": "x", "aiAnalysis": {"verdict": "GOOD_DEAL"}})
+                other_ref = _FakeDoc("user-ref-other", {}, children={"guitar_deals": [other_doc]})
+                await _migrate_deal(other_ref, other_uid, self.DEAL_ID, other_doc.to_dict(), pool, MigrationReport())
+
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT is_purchased, purchased_by_user_id, purchase_price FROM guitar_deals WHERE id = $1",
+                        self.DEAL_ID,
+                    )
+                    self.assertTrue(row["is_purchased"])
+                    self.assertEqual(row["purchased_by_user_id"], buyer_uid)
+                    self.assertEqual(float(row["purchase_price"]), 275.0)
+
+                    await conn.execute("DELETE FROM guitar_deals WHERE id = $1", self.DEAL_ID)
+                    await conn.execute("DELETE FROM users WHERE uid IN ($1, $2)", buyer_uid, other_uid)
+            finally:
+                await pool.close()
+
+        asyncio.run(_run())
+
+    def test_migrate_deal_buyer_without_chat_does_not_wipe_existing_history(self):
+        """Correctif 2026-09-20 (revue de code) : un document ACHETEUR mais SANS chat/plan de
+        restauration propre (migré après un non-acheteur qui, lui, en a) ne doit pas écraser
+        l'historique réel déjà migré — la priorité acheteur ne s'applique qu'entre deux documents
+        qui apportent CHACUN du contenu, pas face à un document vide."""
+        buyer_uid = self.UID + "-buyer2"
+        other_uid = self.UID + "-other2"
+
+        async def _run():
+            pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=2, init=_register_json_codecs)
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", buyer_uid)
+                    await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT (uid) DO NOTHING", other_uid)
+
+                other_doc = _build_fake_deal_doc(self.DEAL_ID)  # a un vrai chat (2 messages)
+                other_ref = _FakeDoc("user-ref-other2", {}, children={"guitar_deals": [other_doc]})
+                await _migrate_deal(other_ref, other_uid, self.DEAL_ID, other_doc.to_dict(), pool, MigrationReport())
+
+                buyer_doc = _FakeDoc(self.DEAL_ID, {"title": "x", "isPurchased": True}, children={"chat": [], "restorationPlan": []})
+                buyer_ref = _FakeDoc("user-ref-buyer2", {}, children={"guitar_deals": [buyer_doc]})
+                await _migrate_deal(buyer_ref, buyer_uid, self.DEAL_ID, buyer_doc.to_dict(), pool, MigrationReport())
+
+                async with pool.acquire() as conn:
+                    chat_count = await conn.fetchval("SELECT count(*) FROM deal_chat WHERE deal_id = $1", self.DEAL_ID)
+                    self.assertEqual(chat_count, 2)  # l'historique du non-acheteur a survécu
+
+                    await conn.execute("DELETE FROM guitar_deals WHERE id = $1", self.DEAL_ID)
+                    await conn.execute("DELETE FROM users WHERE uid IN ($1, $2)", buyer_uid, other_uid)
+            finally:
+                await pool.close()
+
+        asyncio.run(_run())
+
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestEnsureCityExists(unittest.TestCase):

@@ -24,6 +24,7 @@ from backend.deal_mapping import (
     CITY_FIELD_TO_COLUMN,
     DEAL_COLUMNS,
     DEAL_FIELD_TO_COLUMN,
+    build_deal_match_upsert_sql,
     build_deal_upsert_sql,
     map_city,
     map_deal,
@@ -124,11 +125,7 @@ class PostgresRepository:
         de l'annonce est désormais partagée, mais la visibilité dans le fil de chaque utilisateur
         reste individuelle. Idempotent (`ON CONFLICT DO NOTHING`, jamais de mise à jour ensuite)."""
         with self.pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES (%s, %s) "
-                "ON CONFLICT (user_id, deal_id) DO NOTHING",
-                (self.user_id, deal_id),
-            )
+            conn.execute(build_deal_match_upsert_sql(lambda _i: "%s"), (self.user_id, deal_id))
 
     def get_deals_index_snapshot(self):
         """Remplace l'index en chunks Firestore par une lecture directe — mêmes clés abrégées
@@ -252,7 +249,15 @@ class PostgresRepository:
         """Ne touche QUE les colonnes promues depuis aiAnalysis + ai_analysis_raw + status/
         timestamp — jamais les colonnes issues de `deal_data` (titre, prix, ...), absentes d'une
         simple ré-analyse, exactement comme le `.update()` partiel Firestore d'origine. Global
-        (catalogue partagé) : la ré-analyse profite à tous les utilisateurs qui voient ce deal_id."""
+        (catalogue partagé) : la ré-analyse profite à tous les utilisateurs qui voient ce deal_id.
+
+        N'appelle PAS `record_deal_match` (correctif 2026-09-20, revue de code) : cette méthode
+        est aussi appelée depuis `bot.py::process_retry_queue`, qui traite désormais la file
+        GLOBALE `retry_analysis` (tous utilisateurs confondus) — y enregistrer un match aurait
+        fait apparaître dans le fil de CET utilisateur des annonces que son propre scan n'a
+        jamais trouvées, juste parce que son thread a traité la file en premier. Le match doit
+        être enregistré par l'appelant, au point où il sait réellement que CET utilisateur a
+        trouvé/redemandé cette annonce (voir `bot.py::handle_deal_found`/`analyze_single_deal`)."""
         manual_overrides = self._get_manual_analysis_overrides(deal_id)
         if manual_overrides:
             analysis_data = {**analysis_data, **manual_overrides}
@@ -269,14 +274,18 @@ class PostgresRepository:
                 f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s",
                 [*values, deal_id],
             )
-        self.record_deal_match(deal_id)
         self.logger.info(f"Updated analysis for deal '{deal_id}' with status '{status}'.")
 
     def update_deal_data_and_analysis(self, deal_id: str, deal_data: dict, analysis_data: dict):
         """Équivalent du `.update()` Firestore qui fusionne `deal_data` au niveau racine du
         document : ne touche QUE les colonnes correspondant aux clés réellement présentes dans
         `deal_data` (+ toujours les colonnes aiAnalysis/status/timestamp) — jamais les autres,
-        contrairement à `create_new_deal` (INSERT complet). Global (catalogue partagé)."""
+        contrairement à `create_new_deal` (INSERT complet). Global (catalogue partagé).
+
+        N'appelle PAS `record_deal_match` (correctif 2026-09-20) : son unique appelant
+        (`bot.py::handle_deal_found`, chemin `is_update`) a déjà enregistré le match dès que
+        `get_deal_by_id` a retrouvé l'annonce existante — l'appeler ici aussi serait redondant
+        (même round-trip idempotent à chaque mise à jour de prix)."""
         manual_overrides = self._get_manual_analysis_overrides(deal_id)
         if manual_overrides:
             analysis_data = {**analysis_data, **manual_overrides}
@@ -294,7 +303,6 @@ class PostgresRepository:
                 f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s",
                 [*values, deal_id],
             )
-        self.record_deal_match(deal_id)
         self.logger.info(f"Updated full data and analysis for deal '{deal_id}'. Status: '{status}'.")
 
     def update_deal_status(self, deal_id: str, status: str, error_message: str | None = None):
@@ -366,24 +374,25 @@ class PostgresRepository:
 
     # ------------------------------------------------------------------ préférences par utilisateur
 
-    def toggle_favorite(self, deal_id: str, is_favorite: bool):
+    def _upsert_user_deal_state(self, deal_id: str, column: str, value):
+        """Factorise `toggle_favorite`/`toggle_rejected` (correctif 2026-09-20, revue de code) —
+        même upsert `user_deal_state` à un seul champ près. `column` vient toujours d'une
+        constante interne (jamais d'une entrée utilisateur), pas d'injection SQL possible."""
         with self.pool.connection() as conn:
             conn.execute(
-                "INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES (%s, %s, %s) "
-                "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = EXCLUDED.is_favorite, updated_at = now()",
-                (self.user_id, deal_id, is_favorite),
+                f"INSERT INTO user_deal_state (user_id, deal_id, {column}) VALUES (%s, %s, %s) "
+                f"ON CONFLICT (user_id, deal_id) DO UPDATE SET {column} = EXCLUDED.{column}, updated_at = now()",
+                (self.user_id, deal_id, value),
             )
+
+    def toggle_favorite(self, deal_id: str, is_favorite: bool):
+        self._upsert_user_deal_state(deal_id, "is_favorite", is_favorite)
 
     def toggle_rejected(self, deal_id: str, is_rejected: bool):
         """Rejet MANUEL par utilisateur ("pas intéressé") — n'affecte ni la visibilité de
         l'annonce pour les autres utilisateurs, ni `guitar_deals.status` (réservé au rejet
         AUTOMATIQUE par verdict IA, un fait sur l'annonce elle-même)."""
-        with self.pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO user_deal_state (user_id, deal_id, is_rejected) VALUES (%s, %s, %s) "
-                "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_rejected = EXCLUDED.is_rejected, updated_at = now()",
-                (self.user_id, deal_id, is_rejected),
-            )
+        self._upsert_user_deal_state(deal_id, "is_rejected", is_rejected)
 
     def toggle_purchased(self, deal_id: str, is_purchased: bool, purchase_price=None):
         """Achat GLOBAL (décision explicite de l'utilisateur, 2026-09-19) : une guitare achetée
