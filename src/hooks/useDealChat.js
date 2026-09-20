@@ -3,7 +3,7 @@ import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
     markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides,
-} from '../services/apiService';
+} from '../services/firestoreService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
     buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
