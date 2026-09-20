@@ -380,6 +380,25 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 
 ---
 
+## Chantier H — Portier T1 : bascule Gemini → Qwen, puis spécialisation locale par distillation (2026-09-13, décision actée 2026-09-20)
+
+**Motivation** : `gemini-3.5-flash-lite` (Tier 1, tourne sur 100% des annonces) coûte significativement plus cher que `qwen/qwen3.8-flash` (TokenRouter) pour un rôle de filtre relativement simple (accept/reject). **Décision de l'utilisateur (2026-09-20) : la bascule est actée**, motivée par le coût seul (~60% moins cher), indépendamment de toute démarche de spécialisation.
+
+**État — observation passive (codé le 2026-09-13, JOURNAL.md)** : `analyzer.py::_run_t1_qwen_observation()` rejoue le Portier en parallèle sur Qwen (thread dédié, jamais bloquant) et logue `qwenGatekeeperVerdict`/`qwenGatekeeperBrand`/`qwenGatekeeperClassification`/`qwenGatekeeperLatencyS` à côté du verdict Gemini réel, sans jamais influencer la décision accept/reject en production. Schéma JSON strict (`T1_GATEKEEPER_OPENAI_JSON_SCHEMA`) ajouté le même jour suite à des verdicts Qwen hors taxonomie observés au run #42.
+
+**Reste à faire avant bascule technique effective** (inchangé depuis le 2026-09-13, toujours pas fait) : script de comparaison `qwenGatekeeperVerdict` vs `gatekeeperVerdict` sur données de production réelles (pas seulement le banc d'essai à 40 fiches) — voir `TODO.md` § Audit de fiabilité du Portier T1.
+
+**Piste complémentaire explorée (session 2026-09-20, analyse seule, aucun code)** : au-delà du simple remplacement zero-shot, spécialiser un Qwen par distillation (fine-tuning LoRA/QLoRA à partir des sorties Gemini/Qwen T1/T2/T3 déjà produites), avec deux volets distincts à ne pas confondre :
+
+- **Réutilisation du corpus existant** : les milliers d'annonces déjà en Firestore (`guitar_deals`) contiennent déjà l'essentiel d'un dataset de distillation — `bot.py::handle_deal_found()` stocke systématiquement la sortie du teacher, y compris les rejets T1 avec leur `reasoning` (CoT). Seuls les rejets par mot-clé et les hors-budget (jamais stockés) manquent de signal exploitable. `backend/scripts/export_dataset_a.py` (autre projet, neck-reset) exclut les rejetés par conception — un export dédié à la distillation devrait au contraire les inclure, et filtrer sur une fenêtre récente pour éviter de mélanger plusieurs générations de prompt/modèle (taxonomie changée le 2026-07-31, contrat JSON durci le 2026-09-13, modèles teacher eux-mêmes changés plusieurs fois).
+- **Hébergement de la spécialisation — cloud vs local** :
+  - *Cloud (Together AI/Fireworks AI)* : entraînement quasi gratuit à ce volume (~2-8$/run pour 1000-3000 exemples), mais l'hébergement d'un LoRA fine-tuné se fait généralement sur un déploiement GPU dédié facturé à l'heure (~8$/GPU-h chez les deux, pas de serverless pay-per-token pour un LoRA) — risque de coût très supérieur à la facture Gemini actuelle si le GPU dédié tourne en continu sans scale-to-zero vérifié.
+  - *Local (Dell T5810, RTX 2060 Super, 8 Go VRAM, déjà relié en Tailscale — voir `run_script_dell.yml`)* : **hébergement explicitement préféré par l'utilisateur**. Faisabilité technique confirmée — `Qwen2.5-VL-7B-Instruct` tient en inférence (Ollama, quantifié) et en fine-tuning QLoRA (Unsloth, ~6,5 Go rapportés pour une taille comparable) sur cette carte. Deux réserves non résolues avant tout engagement : (1) le GPU est une ressource déjà partagée avec le cluster MoneyBot, contention possible ; (2) l'accès actuel au Dell est conçu pour des jobs CI ponctuels (`run_script_dell.yml`), pas pour un service Ollama permanent 24/7 — condition nécessaire pour servir le Portier en production, jamais mise en place à ce jour.
+
+**Non fait à ce stade** : aucun script d'export dédié à la distillation écrit, aucun entraînement lancé, aucun plan d'implémentation dédié rédigé — reste au stade d'option documentée, distincte de la bascule zero-shot actée ci-dessus.
+
+---
+
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
@@ -391,10 +410,14 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 | D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) + dataset à refaire (voir F) |
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
 | F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire avant toute conclusion (voir correction Opus) |
+| H — Portier T1 : bascule Qwen + spécialisation locale | `analyzer.py` (bascule), infra Dell (spécialisation) | Rien pour la bascule (actée) ; corpus Firestore existant pour la spécialisation | Script de comparaison (bascule) ; disponibilité réseau Dell 24/7 + contention MoneyBot (spécialisation) |
 
 **Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
 reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses
 raisons produit uniquement → A → E (parking, à revérifier après 0.a).
+
+**H n'a pas été soumis à Opus** (ajouté après la consultation) : la bascule zero-shot est actée
+indépendamment de cet ordre ; la spécialisation locale reste une option à valider séparément.
 
 ---
 
