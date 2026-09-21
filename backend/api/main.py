@@ -210,7 +210,9 @@ class ClassificationBody(BaseModel):
 @app.patch("/deals/{deal_id}/classification")
 async def patch_classification(deal_id: str, body: ClassificationBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await deals_repo.set_classification(pool, uid, deal_id, body.classificationPath)
+    found = await deals_repo.set_classification(pool, uid, deal_id, body.classificationPath)
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
     return {"manualClassification": body.classificationPath}
 
 

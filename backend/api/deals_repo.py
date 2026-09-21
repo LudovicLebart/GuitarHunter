@@ -84,12 +84,14 @@ async def toggle_favorite(pool: asyncpg.Pool, user_id: str, deal_id: str):
     """Préférence PERSONNELLE (`user_deal_state`, pas `guitar_deals`) — un favori posé par un
     utilisateur n'affecte pas les autres. Bascule atomique via `ON CONFLICT DO UPDATE` (même
     principe que l'ancien `toggle_purchased` : `NOT COALESCE(...)` lu contre la ligne EXISTANTE,
-    pas contre `EXCLUDED`, pour éviter la course lire-puis-écrire en deux allers-retours)."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return None
+    pas contre `EXCLUDED`, pour éviter la course lire-puis-écrire en deux allers-retours). La
+    visibilité (`WHERE EXISTS`) est vérifiée dans la même requête plutôt qu'avec un `_is_visible`
+    séparé (revue de code : évite de doubler l'aller-retour réseau sur ce endpoint, qui n'a pas
+    besoin de distinguer 404 de 409 comme `toggle_purchased`)."""
     row = await pool.fetchrow(
         """
-        INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES ($1, $2, true)
+        INSERT INTO user_deal_state (user_id, deal_id, is_favorite)
+        SELECT $1, $2, true WHERE EXISTS (SELECT 1 FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2)
         ON CONFLICT (user_id, deal_id) DO UPDATE
             SET is_favorite = NOT COALESCE(user_deal_state.is_favorite, false), updated_at = now()
         RETURNING is_favorite
@@ -131,24 +133,26 @@ async def toggle_purchased(pool: asyncpg.Pool, user_id: str, deal_id: str, purch
 async def set_classification(pool: asyncpg.Pool, user_id: str, deal_id: str, classification_path: str | None) -> bool:
     """`classification_path=None` annule la correction manuelle (retombe sur `classification`,
     la valeur IA). Correction GLOBALE (2026-09-19) : elle profite à tous les utilisateurs qui
-    voient cette annonce partagée, pas seulement à celui qui l'a posée."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return False
-    await pool.execute(
-        "UPDATE guitar_deals SET manual_classification = $2 WHERE id = $1",
-        deal_id, classification_path,
+    voient cette annonce partagée, pas seulement à celui qui l'a posée. La visibilité est
+    vérifiée dans la clause WHERE de l'UPDATE (un seul aller-retour), pas via `_is_visible`
+    séparé."""
+    result = await pool.execute(
+        """
+        UPDATE guitar_deals SET manual_classification = $2
+        WHERE id = $1 AND EXISTS (SELECT 1 FROM user_deal_matches WHERE user_id = $3 AND deal_id = $1)
+        """,
+        deal_id, classification_path, user_id,
     )
-    return True
+    return result.endswith("1")
 
 
 async def add_gallery_image(pool: asyncpg.Pool, user_id: str, deal_id: str, url: str) -> bool:
     """Remplace `addImageToDealGallery` (firestoreService.js) — même sémantique `arrayUnion`
     (dédoublonne, jamais deux fois la même URL). Renvoie False si l'annonce n'existe pas ou
     n'est pas visible pour cet utilisateur (catalogue partagé : la galerie ajoutée est globale,
-    mais seul un utilisateur qui voit l'annonce peut y contribuer)."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return False
-    await pool.execute(
+    mais seul un utilisateur qui voit l'annonce peut y contribuer). Visibilité vérifiée dans la
+    clause WHERE de l'UPDATE (un seul aller-retour), pas via `_is_visible` séparé."""
+    result = await pool.execute(
         """
         UPDATE guitar_deals
         SET storage_image_urls = CASE
@@ -156,11 +160,11 @@ async def add_gallery_image(pool: asyncpg.Pool, user_id: str, deal_id: str, url:
             WHEN storage_image_urls @> jsonb_build_array($2::text) THEN storage_image_urls
             ELSE storage_image_urls || jsonb_build_array($2::text)
         END
-        WHERE id = $1
+        WHERE id = $1 AND EXISTS (SELECT 1 FROM user_deal_matches WHERE user_id = $3 AND deal_id = $1)
         """,
-        deal_id, url,
+        deal_id, url, user_id,
     )
-    return True
+    return result.endswith("1")
 
 
 async def apply_manual_analysis_overrides(pool: asyncpg.Pool, user_id: str, deal_id: str, fields: dict) -> bool:
@@ -171,53 +175,59 @@ async def apply_manual_analysis_overrides(pool: asyncpg.Pool, user_id: str, deal
     Correction GLOBALE (2026-09-19), comme `set_classification` ci-dessus.
 
     Reflète AUSSI la correction dans `manual_analysis_overrides` (JSONB) — relu par le bot à
-    chaque future (ré-)analyse (voir `pg_repository.py::_get_manual_analysis_overrides`)."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return False
+    chaque future (ré-)analyse (voir `pg_repository.py::_get_manual_analysis_overrides`).
+    Visibilité vérifiée dans la clause WHERE de l'UPDATE (un seul aller-retour) quand il y a
+    quelque chose à écrire ; `_is_visible` séparé seulement pour le cas "patch vide" ci-dessous,
+    qui n'a de toute façon aucun UPDATE sur lequel la greffer."""
     allowed = {k: v for k, v in fields.items() if k in AI_ANALYSIS_COLUMNS}
     if not allowed:
-        # Patch vide (ou entièrement hors whitelist) : la visibilité a déjà été vérifiée
-        # ci-dessus, rien de plus à faire — répondre "trouvé" (200) sans écrire.
-        return True
+        # Patch vide (ou entièrement hors whitelist) : toujours vérifier que l'annonce est
+        # visible pour cet utilisateur, sinon un payload vide sur un id étranger répondrait 200
+        # à tort.
+        return await _is_visible(pool, user_id, deal_id)
     values = list(allowed.values())
     set_clause = ", ".join(f"{col} = ${i + 2}" for i, col in enumerate(allowed))
     jsonb_index = len(values) + 2
-    await pool.execute(
+    visible_index = jsonb_index + 1
+    result = await pool.execute(
         f"""
         UPDATE guitar_deals
         SET {set_clause},
             manual_analysis_overrides = COALESCE(manual_analysis_overrides, '{{}}'::jsonb) || ${jsonb_index}::jsonb
-        WHERE id = $1
+        WHERE id = $1 AND EXISTS (SELECT 1 FROM user_deal_matches WHERE user_id = ${visible_index} AND deal_id = $1)
         """,
-        deal_id, *values, dict(allowed),
+        deal_id, *values, dict(allowed), user_id,
     )
-    return True
+    return result.endswith("1")
 
 
 async def reject_deal(pool: asyncpg.Pool, user_id: str, deal_id: str) -> bool:
     """Rejet MANUEL ("pas intéressé", bouton frontend) — préférence PERSONNELLE depuis le
     2026-09-19 (décision explicite de l'utilisateur) : n'affecte ni la visibilité de l'annonce
     pour les autres utilisateurs, ni `guitar_deals.status` (réservé au rejet AUTOMATIQUE par
-    verdict IA, un fait sur l'annonce elle-même — voir CLAUDE.md, `BAD_DEAL` != `REJECTED`)."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return False
-    await pool.execute(
-        "INSERT INTO user_deal_state (user_id, deal_id, is_rejected) VALUES ($1, $2, true) "
+    verdict IA, un fait sur l'annonce elle-même — voir CLAUDE.md, `BAD_DEAL` != `REJECTED`).
+    Visibilité vérifiée dans la même requête (`WHERE EXISTS`), pas via `_is_visible` séparé."""
+    result = await pool.execute(
+        "INSERT INTO user_deal_state (user_id, deal_id, is_rejected) "
+        "SELECT $1, $2, true WHERE EXISTS (SELECT 1 FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2) "
         "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_rejected = true, updated_at = now()",
         user_id, deal_id,
     )
-    return True
+    return result.endswith("1")
 
 
 async def delete_deal(pool: asyncpg.Pool, user_id: str, deal_id: str) -> bool:
     """2026-09-19 : ne supprime PLUS l'annonce globale (catalogue partagé, d'autres utilisateurs
     peuvent la voir) — retire seulement la visibilité/les préférences de CET utilisateur,
     équivalent d'un "retirer de mon fil" (voir `pg_repository.py::delete_listing`, même
-    sémantique côté bot)."""
-    if not await _is_visible(pool, user_id, deal_id):
-        return False
+    sémantique côté bot). Le premier DELETE sert lui-même de vérification de visibilité (son
+    rowcount dit si la ligne existait) — pas de `_is_visible` séparé en amont."""
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute("DELETE FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2", user_id, deal_id)
+            result = await conn.execute(
+                "DELETE FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2", user_id, deal_id
+            )
+            if not result.endswith("1"):
+                return False
             await conn.execute("DELETE FROM user_deal_state WHERE user_id = $1 AND deal_id = $2", user_id, deal_id)
     return True
