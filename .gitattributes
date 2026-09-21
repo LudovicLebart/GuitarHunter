@@ -5,3 +5,10 @@
 # 2026-07-27). On fixe LF comme convention going-forward pour ce fichier plutôt que de
 # se battre contre le comportement des outils.
 docs/management/JOURNAL.md text eol=lf
+
+# Sans cette règle, un checkout Windows (core.autocrlf=true, courant par défaut) convertit
+# LF -> CRLF à l'écriture sur disque — invisible pour la plupart des éditeurs, mais un script
+# transféré tel quel vers une machine Linux (scp) plante alors sur le \r final de chaque ligne
+# (ex: "set -euo pipefail" lu comme "set -euo pipefail\r", `$'\r': commande introuvable`).
+# Vécu le 2026-09-21 avec install_ollama_qwen_dell.sh transféré depuis Windows vers le Dell.
+*.sh text eol=lf
