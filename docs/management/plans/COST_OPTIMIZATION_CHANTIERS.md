@@ -436,6 +436,27 @@ GPU du Dell partagé avec le cluster MoneyBot (contention possible), et l'accès
 permanent 24/7 — condition nécessaire pour servir le Portier en production, hors périmètre de
 ce chantier (qui ne vise qu'une comparaison hors-ligne).
 
+**Mise à jour 2026-09-21 — installation confirmée, méthodologie de comparaison recadrée.**
+Ollama + `qwen3-vl:8b` installés et fonctionnels sur le Dell (test de fumée OK, VRAM 6982/8192
+Mio). L'utilisateur a ensuite recadré la comparaison utile : pas le harnais générique
+`backend/benchmark/` (questions de lutherie jugées par Claude, biais déjà documentés en
+Chantier F), mais un **rejeu réel** des annonces déjà analysées en prod (`gatekeeperVerdict`
+déjà stocké, Qwen cloud) sur `qwen_local`, en ne rappelant QUE le modèle local — même angle que
+`compare_qwen_flashlite_agreement.py` (Chantier H, branche `claude/firestore-postgres-migration`).
+
+**Découverte d'architecture** : une base Postgres locale (`guitarhunter_pg_staging`, 6533
+annonces au 2026-09-14) existe déjà sur le **serveur de production** (Lenovo ThinkCentre M720q —
+pas le Dell), issue du Chantier A (migration Firestore→Postgres, isolée sur sa propre branche
+`claude/firestore-postgres-migration`, jamais mergée sur `dev`, Phase B/bascule réelle non
+engagée). Cette base permet la comparaison **sans aucune credential Firebase** — à condition que
+le script tourne sur cette même machine (`DATABASE_URL` en auth locale, non joignable à distance).
+
+**Codé** : `backend/scripts/compare_qwen_local_vs_prod.py` — lit les annonces récentes avec un
+`gatekeeperVerdict` valide, reconstruit le prompt Portier exact (config utilisateur réelle si
+personnalisée), appelle `qwen_local` (un seul appel réel), compare et sauvegarde un résumé JSON
+(cas prioritaire : "Cloud accepte, Local aurait rejeté" = rappel perdu). **Non exécuté** — reste
+à lancer sur le ThinkCentre (accès réseau hors de portée de cette session).
+
 ---
 
 ## Synthèse : indépendance des chantiers
