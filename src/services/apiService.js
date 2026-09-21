@@ -4,11 +4,15 @@
  * l'import sans toucher aux hooks/composants consommateurs, une fois la bascule décidée
  * (voir docs/management/plans/FIRESTORE_MIGRATION_PLAN.md §5.3).
  *
- * CONSTRUIT EN ISOLATION (2026-09-11) : ce fichier n'est importé par AUCUN hook/composant à ce
- * stade — validé uniquement contre `backend/api/*` via Postgres local (voir `backend/api/test_*.py`,
- * 91 tests). Aucun accès Firebase réel depuis cet environnement de dev : la vérification en
- * conditions réelles (vrai token Firebase, vrai navigateur) reste à faire au moment du câblage
- * réel, pas cette étape de construction (même discipline que la Phase A.1 côté bot).
+ * CÂBLÉ DEPUIS LE 2026-09-12 (commit `43991a6`) dans `useDealsManager.js`, `useBotConfig.js`,
+ * `useCities.js`, `useDealChat.js`, `useRestorationPlan.js`, `DealCardActions.jsx`,
+ * `LogViewer.jsx`, `Navbar.jsx`, `SharedDealPage.jsx` — CETTE MENTION EST RESTÉE FAUSSE
+ * ("construit en isolation, importé par AUCUN...") PENDANT PLUS D'UNE SEMAINE après le câblage
+ * réel, jamais mise à jour (trouvé le 2026-09-21). Ne pas répéter l'erreur : ce fichier n'est PAS
+ * isolé, toute modification ici a un effet direct sur l'app une fois buildée/déployée. Toujours
+ * aucun test en conditions réelles (vrai token Firebase, vrai navigateur) depuis cet
+ * environnement de dev — à faire avant toute décision de bascule/déploiement, pas supposé sans
+ * l'avoir vérifié (leçon de l'incident de production du 2026-09-19, `JOURNAL.md`).
  *
  * Firebase Auth reste inchangé (plan §1) : chaque appel s'authentifie avec le même ID token
  * Firebase que Firestore utilisait déjà en interne — porté explicitement ici (en-tête
@@ -31,13 +35,29 @@
  *   IMPORTÉE DEPUIS `firestoreService.js` par `useBotConfig.js` — aucun équivalent Postgres,
  *   opération historique sans rapport avec cette bascule.
  * - Notifications temps réel : le canal WebSocket ne pousse qu'un signal "quelque chose a
- *   changé" (canal partagé filtré par user_id/deal_id côté serveur, voir schema.sql), jamais le
- *   contenu — chaque callback déclenche un ré-appel de la lecture REST correspondante, à
- *   l'inverse d'`onSnapshot` qui livrait déjà les documents complets à chaque changement.
+ *   changé" (canal partagé, filtré côté serveur par la VISIBILITÉ de l'utilisateur sur ce
+ *   deal_id — `user_deal_matches`, voir main.py::ws_deals::_push_if_visible —, pas par un
+ *   user_id porté dans le payload), jamais le contenu — chaque callback déclenche un ré-appel de
+ *   la lecture REST correspondante, à l'inverse d'`onSnapshot` qui livrait déjà les documents
+ *   complets à chaque changement.
  * - `guitar_deals`/`deal_chat`/`restoration_plan_items` sont stockés en colonnes snake_case côté
  *   Postgres (voir schema.sql) : ce fichier reconstruit la forme camelCase + `aiAnalysis` imbriqué
  *   que le reste du frontend consomme déjà (`dealFromRow`/`chatMessageFromRow`/
  *   `restorationItemFromRow`), plutôt que de renvoyer les lignes API brutes.
+ * - MIS À JOUR 2026-09-21 pour le catalogue PARTAGÉ (voir JOURNAL.md 2026-09-19/20, backend/api/
+ *   deals_repo.py) : `guitar_deals` n'a plus `user_id`/`is_favorite`/de colonne de rejet propres
+ *   à un utilisateur — favori et rejet manuel vivent désormais dans `user_deal_state`, exposés
+ *   par l'API sous les MÊMES clés `is_favorite`/`is_rejected` qu'avant (voir
+ *   `deals_repo.py::_PREFERENCE_SELECT`), donc transparents ici. Seule exception : le rejet
+ *   manuel ne touche plus `guitar_deals.status` (réservé au rejet AUTOMATIQUE par verdict IA,
+ *   catalogue partagé oblige — un rejet par un utilisateur ne doit pas cacher l'annonce aux
+ *   autres) — `dealFromRow` ci-dessous synthétise encore `status: 'rejected'` /
+ *   `aiAnalysis.verdict: 'REJECTED'` à partir de `is_rejected` pour ne rien changer côté
+ *   `useDealsManager.js`/`DealsExplorer.jsx`, qui filtrent toujours sur ces deux champs (même
+ *   contrat que l'ancien `firestoreService.js::rejectDeal`). L'achat reste GLOBAL et peut
+ *   désormais échouer avec un 409 (`toggleDealPurchased` ci-dessous) si un AUTRE utilisateur a
+ *   acheté l'annonce entre-temps — nouveau cas d'erreur qui n'existait pas dans l'ancien schéma
+ *   par utilisateur.
  */
 import { auth } from './firebase';
 
@@ -80,7 +100,9 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
   if (resp.status === 404 && skipAuth) return null; // lecture publique (shared-deals) : absent = null, pas une erreur
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    throw new Error(`apiService: ${method} ${path} a échoué (${resp.status}) ${text}`);
+    const error = new Error(`apiService: ${method} ${path} a échoué (${resp.status}) ${text}`);
+    error.status = resp.status; // permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
+    throw error;
   }
   if (resp.status === 204) return null;
   const contentType = resp.headers.get('content-type') || '';
@@ -150,13 +172,19 @@ function dealFromRow(row) {
   AI_ANALYSIS_KEYS.forEach((key) => {
     if (row[key] !== undefined && row[key] !== null) aiAnalysis[key] = row[key];
   });
+  // Rejet manuel ("pas intéressé") : préférence PERSONNELLE (`user_deal_state.is_rejected`,
+  // catalogue partagé depuis le 2026-09-19) — ne touche plus `guitar_deals.status` côté base.
+  // Synthétisé ici en `status: 'rejected'` + `aiAnalysis.verdict: 'REJECTED'` (même contrat que
+  // l'ancien `firestoreService.js::rejectDeal`, qui écrivait les deux) pour que
+  // `useDealsManager.js`/`DealsExplorer.jsx` continuent de filtrer sans modification.
+  if (row.is_rejected) aiAnalysis.verdict = 'REJECTED';
   return {
     id: row.id,
     title: row.title,
     price: row.price,
     originalPrice: row.original_price,
     priceDropAmount: row.price_drop_amount,
-    status: row.status,
+    status: row.is_rejected ? 'rejected' : row.status,
     isFavorite: row.is_favorite,
     isPurchased: row.is_purchased,
     manualClassification: row.manual_classification,
@@ -376,6 +404,9 @@ export const rejectDeal = async (dealId, _chunkId, _userId) => {
 };
 
 export const deleteDeal = async (dealId, _chunkId, _userId) => {
+  // Catalogue partagé (2026-09-19) : ne supprime plus l'annonce globale, seulement la
+  // visibilité/les préférences de CET utilisateur (retrait de son fil) — transparent ici, même
+  // contrat REST, voir backend/api/deals_repo.py::delete_deal.
   try {
     await apiFetch(`/deals/${dealId}`, { method: 'DELETE' });
   } catch (error) {
@@ -407,6 +438,12 @@ export const toggleDealPurchased = async (dealId, currentStatus, _chunkId, _user
     });
   } catch (error) {
     console.error(`Error toggling purchased for deal ${dealId}:`, error);
+    // Achat GLOBAL (catalogue partagé, 2026-09-19) : 409 = un AUTRE utilisateur a acheté cette
+    // annonce entre-temps — cas nouveau qui n'existait pas dans l'ancien schéma par utilisateur,
+    // message dédié plutôt que l'erreur générique ci-dessous (voir main.py::patch_purchased).
+    if (error.status === 409) {
+      throw new Error("Cette annonce a déjà été achetée par un autre utilisateur.");
+    }
     throw new Error("Erreur lors de la mise à jour du statut d'achat.");
   }
 };
