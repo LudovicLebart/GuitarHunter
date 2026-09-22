@@ -81,15 +81,23 @@ Firebase Storage déjà utilisé par le projet (mêmes credentials, aucun nouvel
 rétention des 14 sauvegardes les plus récentes. **Validé en conditions réelles contre
 `guitarhunter_pg_staging`** (dump 16.1 Mo, upload + purge de rétention confirmés).
 
-Reste une **décision opérationnelle, pas encore prise** : fréquence et heure du cron (proposition :
-quotidien, 4h du matin, faible trafic) — à planifier sur le serveur une fois la fréquence tranchée,
-avant B.5 (pas après : un backup avant la bascule est ce qui protège contre un B.5 raté).
+**Tranché et installé (2026-09-21)** : quotidien, 4h du matin. Testé manuellement en conditions
+réelles contre `guitarhunter_pg_prod` (16.9 Mo, upload + purge de rétention confirmés) — pas
+seulement staging.
 
 ```bash
-# Exemple de ligne crontab (à adapter une fois la fréquence tranchée) :
-0 4 * * * cd ~/GuitareHunter && set -a && . ~/.guitarhunter_prod_db.env && set +a && \
-  venv/bin/python backend/scripts/backup_postgres.py --database-url "$DATABASE_URL" \
-  >> /var/log/guitarhunter-backup.log 2>&1
+# /home/ludovic/backup_prod_cron.sh (sur le serveur) — script dédié plutôt qu'une commande
+# inline dans crontab : une première tentative de ligne crontab directe a cassé "$DATABASE_URL"
+# à travers les couches d'échappement (bash local -> SSH -> bash distant -> crontab).
+#!/bin/bash
+cd /home/ludovic/GuitareHunter
+set -a
+. /home/ludovic/.guitarhunter_prod_db.env
+set +a
+venv/bin/python backend/scripts/backup_postgres.py --database-url "$DATABASE_URL"
+
+# Entrée crontab (installée) :
+0 4 * * * /home/ludovic/backup_prod_cron.sh >> /home/ludovic/guitarhunter-backup.log 2>&1
 ```
 
 ## 4. Séquence complète le jour J (une fois 1-3 ci-dessus préparés et mergés)

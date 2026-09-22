@@ -1,5 +1,12 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-21] [PRO] Cron de sauvegarde Postgres installé (quotidien, 4h) — dernier point ouvert de la préparation B.5.
+- **Décision utilisateur** : quotidien, 4h du matin. Confirmé non-incrémental (`pg_dump -Fc` complet à chaque run) et rotation par nombre fixe (14 sauvegardes les plus récentes gardées, pas par durée).
+- **`/home/ludovic/backup_prod_cron.sh`** (nouveau, sur le serveur) : wrapper dédié autour de `backup_postgres.py` — évite l'enfer de quoting d'une commande inline dans crontab (une première tentative directe a cassé `"$DATABASE_URL"` à travers les couches d'échappement bash local → SSH → bash distant → crontab, corrigée en isolant la logique dans un script au lieu d'une ligne crontab complexe).
+- **Crontab installé** : `0 4 * * * /home/ludovic/backup_prod_cron.sh >> /home/ludovic/guitarhunter-backup.log 2>&1`.
+- **Testé manuellement en conditions réelles contre `guitarhunter_pg_prod`** (pas seulement staging cette fois) : dump 16.9 Mo, upload + nettoyage confirmés.
+- **État** : les 4 points ouverts de la préparation B.5 sont maintenant réduits à 2 : merger `claude/firestore-postgres-migration` vers `dev`/`master`, et tester `bot.py` contre `guitarhunter_pg_prod`. Aucune bascule déclenchée.
+
 [2026-09-21] [FLASH] `/deepdocument` — revue de couverture complète de la doc après les chantiers B.4/prep-B.5.
 - **Dérive réelle trouvée et corrigée** : un `JOURNAL.md` parasite à la racine du dépôt (introduit par erreur au commit `050b64d`, Phase B.1) — encodage UTF-16 corrompu, `\n` littéraux jamais interprétés, jamais le bon fichier. Contenait la SEULE trace de "Phase B.1 — bot.py branché sur Postgres" (2026-09-14), absente du vrai `docs/management/JOURNAL.md` bien que citée dans `TODO.md`. Entrée reconstituée à sa vraie place chronologique dans le vrai journal ; fichier parasite supprimé.
 - **`FIRESTORE_MIGRATION_PLAN.md`** : note ajoutée en tête — le schéma §2 (`WHERE user_id = uid`) et le protocole de bascule §5.3 sont périmés depuis le pivot catalogue partagé (2026-09-19) et le nouveau `CUTOVER_RUNBOOK.md` (2026-09-21) ; document gardé pour le contexte/la genèse, plus comme référence opérationnelle.
