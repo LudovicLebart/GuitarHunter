@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-21] [PRO] Merge dev/master, étape 1/5 : `backend/api/schema.sql` poussé sur `dev` (commit `cb58218`).
+- **Préalable fait par l'utilisateur** : secret GitHub `DOT_ENV` mis à jour (`DATABASE_URL` de `guitarhunter_pg_prod` + `VITE_API_BASE_URL` ajoutés à l'`.env` existant) — prêt pour les étapes 3/4 du plan, sans effet pour l'instant (rien ne le lit encore).
+- **Exécution** : nouvelle branche depuis `origin/dev` (dans un `git worktree` séparé, pas la branche de migration — évite tout risque de collision avec la session parallèle), un seul fichier ajouté (`schema.sql`, idempotent, rien sur `dev` ne le lit encore), poussé directement vers `origin/dev`.
+- **Déploiement observé en direct** : `deploy.yml` s'est déclenché comme prévu (`git reset --hard` + redémarrage de `guitare-hunter`) — service actif, logs normaux (toujours en mode Firestore, aucun changement de comportement, comme attendu pour cette étape).
+- **État** : `dev` a maintenant `schema.sql` (`master` pas encore mis à jour — attendu, seulement `dev` à ce stade du plan). Étapes 2-5 restantes (`backend/api/*` → `bot.py`/`main.py` → frontend → `deploy.yml`).
+
 [2026-09-21] [PRO] Plan de merge `dev`/`master` détaillé (`CUTOVER_RUNBOOK.md` §1) — dernier point ouvert avant B.5, toujours pas exécuté.
 - **Découverte en lisant `deploy.yml` (pas un simple `git merge`)** : `deploy.yml` est identique entre cette branche et `origin/dev` (aucune notion de Postgres/`backend/api/*` aujourd'hui), et **toute** push sur `dev`/`master` déclenche automatiquement `git reset --hard` sur `~/GuitareHunter` + redémarrage immédiat de `guitare-hunter` (le vrai bot), sans étape de validation manuelle. Merger `bot.py`/`main.py` sans préparer le secret `DOT_ENV` d'abord redémarrerait le vrai bot en mode Postgres avec le DSN par défaut (`postgresql://guitarhunter@localhost/guitarhunter`, inexistant sur le serveur — le vrai Postgres tourne en conteneur sur le port 5434) — même mécanisme que l'incident du 2026-09-19, reproductible côté bot cette fois.
 - **`requirements.txt`** : `fastapi`/`uvicorn`/`asyncpg`/`psycopg` déjà présents sur `origin/dev` (mergés lors d'un chantier antérieur) — pas un blocage.
