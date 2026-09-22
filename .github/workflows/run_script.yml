@@ -13,14 +13,17 @@
 # artefact GitHub Actions téléchargeable (bouton "Artifacts") ; si le script n'en produit pas,
 # cette étape est un no-op toléré, le résultat se lit directement dans les logs du job.
 #
-# Script actuellement exécuté : backend/scripts/compare_qwen_flashlite_agreement.py (Chantier H
-# — comparaison directe gatekeeperVerdict/qwenGatekeeperVerdict sur toutes les annonces déjà
-# analysées, AUCUN appel Gemini/Qwen, lecture Firestore pure — coût zéro). Objectif recadré le
-# 2026-09-19 : le seul cas qui compte pour une bascule T1 est "Gemini accepte, Qwen aurait
-# rejeté" (rappel, opportunité perdue) — pas les faux positifs de Qwen (coût négligeable,
-# déjà mesurés par audit_rejected_gems.py, run #49).
-# Pour lancer un autre script ponctuel, modifier la commande de l'étape "Exécution du script"
-# et le nom de fichier de l'étape "Récupération du rapport généré" ci-dessous.
+# Repointé le 2026-09-22 (lecture seule, pas de git/venv/pip — même principe que le run #517,
+# check de la parallélisation) : diagnostic sur la panne "Clé API TokenRouter manquante" reçue
+# par email dans la nuit du 2026-09-21 au 2026-09-22, juste après une modification manuelle du
+# secret `DOT_ENV` (ajout de `T1_OBSERVATION_ENABLED=false`) — hypothèse à vérifier : l'édition
+# du secret a-t-elle accidentellement fait disparaître `TOKENROUTER_API_KEY`, et la panne est-elle
+# toujours en cours (le throttle 24h de l'alerte email masquerait une récidive) ? Deux vérifications
+# lecture seule : (1) présence non vide de `TOKENROUTER_API_KEY` dans le `DOT_ENV` actuel (juste
+# écrit dans un `.env` scratch, jamais affiché en clair) ; (2) fréquence/récence réelle des échecs
+# du Portier dans les logs de PRODUCTION (`~/GuitareHunter/logs/`, chemin absolu, lu même si ce job
+# tourne dans le répertoire scratch).
+# Pour lancer un autre script ponctuel, modifier la commande de l'étape ci-dessous.
 name: Run One-Off Script
 
 on:
@@ -38,75 +41,35 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
-      - name: Exécution du script sur le serveur (répertoire scratch, hors production)
+      - name: Diagnostic lecture seule (clé TokenRouter + logs Portier de production)
         uses: appleboy/ssh-action@v1.0.3
         env:
           DOT_ENV: ${{ secrets.DOT_ENV }}
-          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
         with:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           timeout: 60s
-          command_timeout: 10m
-          envs: DOT_ENV,FIREBASE_SERVICE_ACCOUNT_KEY
+          command_timeout: 5m
+          envs: DOT_ENV
           script: |
-            set -e
-            mkdir -p ~/GuitareHunter-scripts
-            cd ~/GuitareHunter-scripts
-
-            echo "--- Git Update (répertoire scratch, PAS le répertoire de production) ---"
-            # `git init` (pas `git clone .`) : tolère un dossier non vide, notamment des fichiers
-            # résiduels (.env, backend/config/serviceAccountKey.json) laissés par un run précédent
-            # interrompu avant la fin — `git clone .` échoue dans ce cas (bug rencontré 2x).
-            if [ ! -d ".git" ]; then
-              echo "Initialisation du dépôt (dossier scratch, éventuels fichiers résiduels tolérés)..."
-              git init -q
-              git remote add origin https://github.com/${{ github.repository }}.git
-            fi
-            git fetch origin ${{ github.ref_name }}
-            git reset --hard origin/${{ github.ref_name }}
-
-            echo "--- Configuration .env ---"
+            echo "--- Présence de TOKENROUTER_API_KEY dans le secret DOT_ENV actuel (valeur jamais affichée) ---"
             if [ -z "$DOT_ENV" ]; then
               echo "⚠️ Secret DOT_ENV manquant."
+            elif printf '%s' "$DOT_ENV" | grep -q '^TOKENROUTER_API_KEY=.\+'; then
+              echo "✅ TOKENROUTER_API_KEY présente et non vide dans le secret DOT_ENV actuel."
             else
-              printf '%s' "$DOT_ENV" > .env
-              echo "✅ Fichier .env écrit."
+              echo "❌ TOKENROUTER_API_KEY ABSENTE ou vide dans le secret DOT_ENV actuel — c'est la cause."
             fi
 
-            echo "--- Configuration Firebase ---"
-            mkdir -p backend/config
-            if [ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
-              echo "❌ Secret FIREBASE_SERVICE_ACCOUNT_KEY manquant — abandon."
-              exit 1
-            fi
-            printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > backend/config/serviceAccountKey.json
-            echo "✅ Clé Firebase écrite."
+            echo ""
+            echo "--- Occurrences 'Clé API TokenRouter manquante' dans les logs de PRODUCTION (bot_*.log, incl. rotations) ---"
+            grep -h "Clé API TokenRouter manquante" ~/GuitareHunter/logs/bot_*.log* 2>/dev/null | tail -20 || echo "(aucune occurrence trouvée dans les fichiers de log conservés)"
 
-            echo "--- Python Environment ---"
-            python3 -m venv venv || echo "Venv déjà présent."
-            source venv/bin/activate
-            pip install -r requirements.txt
+            echo ""
+            echo "--- Toutes les erreurs du Portier réel (❌ [Portier réel...) récentes, quelle que soit la cause ---"
+            grep -h "❌ \[Portier réel" ~/GuitareHunter/logs/bot_*.log* 2>/dev/null | tail -20 || echo "(aucune occurrence trouvée)"
 
-            echo "--- Exécution du script ---"
-            python3 -m backend.scripts.compare_qwen_flashlite_agreement
-
-      - name: Récupération du rapport généré
-        env:
-          FICHIER_A_RECUPERER: backend/benchmark/results/compare_qwen_flashlite_agreement.json
-        run: |
-          mkdir -p ~/.ssh output
-          printf '%s' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key \
-            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_IP }}:~/GuitareHunter-scripts/${FICHIER_A_RECUPERER}" \
-            output/ || echo "⚠️ Aucun rapport à récupérer (le script a peut-être échoué ou ne produit pas ce fichier)."
-
-      - name: Publication de l'artefact
-        uses: actions/upload-artifact@v4
-        with:
-          name: compare-qwen-flashlite-agreement-report
-          path: output/
-          if-no-files-found: warn
-          retention-days: 14
+            echo ""
+            echo "--- Dernières décisions du Portier ayant réussi (préuve que ça fonctionne à nouveau, ou pas) ---"
+            grep -h "👉 Verdict Portier" ~/GuitareHunter/logs/bot_*.log* 2>/dev/null | tail -10 || echo "(aucune occurrence trouvée)"
