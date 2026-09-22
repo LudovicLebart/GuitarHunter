@@ -1,5 +1,10 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-21] [PRO] `firestore.rules.freeze` validé en conditions réelles (émulateur Firestore).
+- **Contexte** : dernier point ouvert de la préparation B.5 laissé "non testé" — comblé le jour même. Bloqué une première fois par `firebase-tools` exigeant Java 21+ (seul le JDK 17 était installé) ; JDK 21 (Temurin) installé avec l'accord explicite de l'utilisateur.
+- **Méthode** : émulateur Firestore local + `@firebase/rules-unit-testing` (installés temporairement, `--no-save`, pas ajoutés aux dépendances du projet). 7 vérifications : lecture toujours permise (proprio + public `shared_deals`), **toute** écriture bloquée (config utilisateur, message de chat, `shared_deals`, catalogue de villes), isolation cross-utilisateur toujours respectée pendant le gel. **7/7 passées.**
+- **État** : `firebase/firestore.rules.freeze` validé, prêt pour un vrai jour J. Fichier de règles réel (`firebase/firestore.rules`) inchangé — le test n'a touché que l'émulateur local, jamais le projet Firebase réel. Script de test temporaire supprimé après usage (pas versionné).
+
 [2026-09-21] [PRO] Préparation de la Phase B.5 (runbook, gel Firestore, sauvegarde Postgres) — bascule réelle toujours PAS déclenchée.
 - **Contexte** : à "On bascule ?", statut honnête donné (B.2-B.4 prêts et validés, mais `bot.py` jamais testé contre `guitarhunter_pg_prod`, rien mergé sur `dev`/`master`, gel Firestore jamais construit, pas de stratégie de sauvegarde Postgres). Choix explicite de l'utilisateur : **préparer d'abord**, pas de fenêtre de coupure aujourd'hui.
 - **`docs/management/plans/CUTOVER_RUNBOOK.md`** (nouveau) : ordre de merge détaillé vers `dev`/`master` (schema.sql → backend/api/* → bot.py Postgres → frontend → deploy.yml, avec la leçon du 2026-09-19 explicitement rappelée à chaque étape), procédure de gel/dégel, séquence complète du jour J, plan de rollback par étape.

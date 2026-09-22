@@ -60,9 +60,12 @@ Le SDK Admin (utilisé par tout `backend/*`) **bypass toujours** les règles de 
    firebase deploy --only firestore:rules
    ```
    Voir `firebase/firestore.rules.freeze` (créé le 2026-09-21) — lecture laissée ouverte
-   (l'app reste consultable), toute écriture bloquée. **Non testé en conditions réelles à ce
-   jour** — à valider via `firebase emulators:start --only firestore` ou un déploiement/rollback
-   à blanc avant la vraie fenêtre, pas la première fois le jour J.
+   (l'app reste consultable), toute écriture bloquée. **Validé le 2026-09-21** via
+   `firebase emulators:start --only firestore` + `@firebase/rules-unit-testing` (7/7 : lectures
+   permises, toutes les écritures bloquées — config, chat, `shared_deals`, villes — isolation
+   cross-utilisateur toujours respectée). Voir `JOURNAL.md`. Reste recommandé : un
+   déploiement/rollback à blanc sur le VRAI projet Firebase (pas seulement l'émulateur) avant la
+   vraie fenêtre, pour vérifier `firebase deploy --only firestore:rules` lui-même.
 
 **Dégel** (une fois la bascule vérifiée, §4) :
 ```bash
