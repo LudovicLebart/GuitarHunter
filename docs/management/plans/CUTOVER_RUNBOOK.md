@@ -16,22 +16,41 @@ n'ont **jamais été faites**, et sont trop risquées pour être improvisées le
 
 ## 1. Ce qui doit être mergé (ordre et raisons)
 
-### 1.0 Fait établi en lisant `deploy.yml` (2026-09-21) — pourquoi ce n'est PAS un simple merge
+### 1.0 Faits établis en lisant `deploy.yml` — pourquoi ce n'est PAS un simple merge
 
-`deploy.yml` est **identique** entre cette branche et `origin/dev` (`git diff origin/dev...HEAD --
-.github/workflows/deploy.yml` : vide) — il n'a **aucune notion** de Postgres/`backend/api/*`
-aujourd'hui. Et surtout : **toute** push sur `dev`/`master` déclenche automatiquement, sur le
-serveur, `git reset --hard origin/<branche>` sur `~/GuitareHunter` **puis** `sudo systemctl
-restart guitare-hunter` (le vrai bot, immédiatement, sans étape de validation manuelle). Donc
-merger `bot.py`/`main.py` sur `dev` sans avoir préparé le terrain redémarre le vrai bot en mode
-Postgres **dans la minute qui suit le push**, avec quoi que `pg_db.py` trouve dans l'environnement
-à ce moment (repli par défaut : `postgresql://guitarhunter@localhost/guitarhunter` — **n'existe
-pas** tel quel sur le serveur, le vrai Postgres tourne en conteneur sur le port `5434`). C'est
-exactly le mécanisme qui a causé l'incident du 2026-09-19 (`apiService.js`), reproduit ici côté
+**Correction (2026-09-22)** : l'affirmation précédente ("`deploy.yml` est identique entre cette
+branche et `origin/dev`") était **fausse** — basée sur un `git diff origin/dev...HEAD` à TROIS
+points (contre l'ancêtre commun), qui masque les changements faits sur `dev` depuis. Un diff
+direct (`git diff origin/dev HEAD -- .github/workflows/deploy.yml`) montre que cette branche a en
+réalité déjà une étape qui synchronise `backend/api/*`/`deal_mapping.py`/
+`export_firestore_to_postgres.py` depuis `claude/firestore-postgres-migration` à CHAQUE
+déploiement (`git checkout FETCH_HEAD -- <paths>`, ajoutée le 2026-09-13) — c'est pour ça que ces
+fichiers réapparaissaient déjà sur `~/GuitareHunter` avant même le merge manuel du 2026-09-21.
+
+Ce qui reste vrai : **toute** push sur `dev`/`master` déclenche automatiquement, sur le serveur,
+`git reset --hard origin/<branche>` sur `~/GuitareHunter` **puis** `sudo systemctl restart
+guitare-hunter` (le vrai bot, immédiatement, sans étape de validation manuelle). Merger
+`bot.py`/`main.py` sur `dev` sans avoir préparé le terrain redémarre le vrai bot en mode Postgres
+**dans la minute qui suit le push**, avec quoi que `pg_db.py` trouve dans l'environnement à ce
+moment (repli par défaut : `postgresql://guitarhunter@localhost/guitarhunter` — **n'existe pas**
+tel quel sur le serveur, le vrai Postgres tourne en conteneur sur le port `5434`). C'est
+exactement le mécanisme qui a causé l'incident du 2026-09-19 (`apiService.js`), reproduit ici côté
 bot si on merge sans préparer les secrets d'abord.
 
 `requirements.txt` a en revanche déjà `fastapi`/`uvicorn`/`asyncpg`/`psycopg` sur `origin/dev`
 (mergés lors d'un chantier antérieur) — pas un blocage de dépendances.
+
+**⚠️ Blocage découvert le 2026-09-22, bien plus sérieux que ce qui précède** : `dev` a mergé
+entre-temps le **Chantier H** (bascule du Portier T1 vers Qwen + mécanisme d'observation fantôme
+`flashliteGatekeeper*`/`qwenGatekeeper*`), jamais porté sur cette branche (exclusion délibérée
+actée le 2026-09-19). Une tentative de `git merge origin/dev` (branche dédiée, avortée proprement)
+a montré que `backend/bot.py`/`backend/analyzer.py` ont divergé en profondeur : `dev` restaure
+désormais des colonnes d'observation fantôme qui n'existent NULLE PART dans le schéma/repository
+Postgres de cette branche, et un dispatcher parallèle (`ThreadPoolExecutor`, `ANALYSIS_WORKERS`)
+motivé par la latence Qwen. **Merger l'étape 3 ci-dessous nécessite d'abord de porter tout le
+Chantier H sur l'architecture Postgres** (nouvelles colonnes, mapping, logique d'appel,
+dispatcher) — un chantier à part entière, pas une résolution de conflit. Voir `JOURNAL.md`
+[2026-09-22].
 
 ### 1.1 Préalable — secrets/sudoers à préparer AVANT tout merge qui en dépend (fait par l'utilisateur, pas par Claude)
 
