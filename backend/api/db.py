@@ -14,7 +14,15 @@ SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # DSN par défaut adapté au serveur de dev/prod (Postgres local, pas de mot de passe réseau
 # nécessaire via peer/trust auth sur socket Unix) ; surchargé en prod via la variable d'env.
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter")
+# .replace("\r", "") : `~/.guitarhunter_prod_db.env` contient un \r embarqué EN PLEIN MILIEU du
+# DSN (juste avant le `@`, probablement un artefact d'un outil Windows lors de sa création) —
+# `asyncpg.create_pool()` casse alors le parsing hôte:port avec une erreur cryptique
+# ("invalid literal for int()"), trouvé en déployant `guitarhunter-api-prod` (2026-09-21) :
+# systemd EnvironmentFile lit les octets du fichier tels quels (contrairement à un `source` bash
+# suivi d'un passage par une ligne de commande SSH, qui normalise \r\n en route — d'où le fait
+# que le script d'export, lancé ainsi, n'avait jamais révélé ce \r). Un simple .strip() ne
+# suffit pas : le \r n'est pas en bout de chaîne.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter").replace("\r", "").strip()
 
 _pool: asyncpg.Pool | None = None
 
