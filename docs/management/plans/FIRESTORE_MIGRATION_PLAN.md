@@ -1,5 +1,14 @@
 # Plan — Remplacement de Firestore par une solution auto-hébergée
 
+> ⚠️ **Document historique, partiellement périmé (mis à jour 2026-09-21)** : le schéma décrit
+> ci-dessous (§2, `WHERE user_id = uid`) reflète l'architecture "une ligne par utilisateur",
+> abandonnée le 2026-09-19 au profit d'un catalogue **partagé** (`guitar_deals` sans `user_id`,
+> visibilité via `user_deal_matches` — voir `JOURNAL.md` [2026-09-19] et `docs/reference/`
+> une fois mis à jour, Phase B.6). Le protocole de bascule détaillé (§5.3) est désormais
+> **remplacé** par [`CUTOVER_RUNBOOK.md`](CUTOVER_RUNBOOK.md), plus à jour et plus précis
+> (ordre de merge, gel Firestore testé, sauvegarde Postgres). Garder ce document pour le
+> contexte/la genèse du chantier, pas comme référence opérationnelle pour une bascule réelle.
+
 ## Contexte
 
 Déclenché par l'analyse des factures GeminiDev (août puis septembre 2026, voir `JOURNAL.md`) : Firestore représente ~16-20% de la facture mensuelle (16,16$ en août sur 102,57$ total, 2,36$ sur 12,12$ en septembre partiel) — pas le poste dominant (Gemini API ~80-85%), mais pas négligeable, avec une tendance à la hausse sur les lectures/écritures (+41%/+74% Reads/Writes en septembre vs période équivalente d'août).
