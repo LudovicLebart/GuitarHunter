@@ -21,7 +21,10 @@
       "Bash(python -c \" *)",
       "mcp__Claude_Code_Remote__add_repo",
       "mcp__Claude_Code_Remote__register_repo_root",
-      "mcp__Claude_Code_Remote__send_later"
+      "mcp__Claude_Code_Remote__send_later",
+      "Bash(ssh ludovic@100.104.124.11 \"sudo -n cp /tmp/guitarhunter-api-prod.service /etc/systemd/system/guitarhunter-api-prod.service && sudo -n systemctl daemon-reload && sudo -n systemctl enable --now guitarhunter-api-prod && echo ok\")",
+      "Bash(ssh ludovic@100.104.124.11 \"sudo -n -l 2>&1\")",
+      "Bash(ssh ludovic@100.104.124.11 \"cd ~/guitarhunter-test-isolated && set -a && source ~/.guitarhunter_prod_db.env && set +a && ~/GuitareHunter/venv/bin/python -m pytest backend/test_pg_repository.py -q 2>&1 | tail -60\")"
     ]
   }
 }
