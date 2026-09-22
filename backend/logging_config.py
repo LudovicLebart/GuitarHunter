@@ -63,10 +63,17 @@ class PostgresHandler(logging.Handler):
 
         try:
             with self.pool.connection() as conn:
-                conn.executemany(
-                    "INSERT INTO logs (user_id, message, level) VALUES (%s, %s, %s)",
-                    [(self.user_id, e["message"], e["level"]) for e in to_send],
-                )
+                # psycopg3 : `executemany` n'existe que sur un curseur, pas sur `Connection`
+                # elle-même (contrairement à `execute`, qui est un raccourci pratique côté
+                # Connection) — bug réel trouvé en testant bot.py pour de vrai contre
+                # guitarhunter_pg_prod (2026-09-21) : chaque flush échouait silencieusement
+                # depuis le tout premier branchement sur Postgres (2026-09-14), le LogViewer
+                # n'a donc jamais reçu la moindre ligne côté bot Postgres.
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO logs (user_id, message, level) VALUES (%s, %s, %s)",
+                        [(self.user_id, e["message"], e["level"]) for e in to_send],
+                    )
         except Exception as e:
             print(f"ERROR: PostgresHandler flush failed: {e}", flush=True)
 
