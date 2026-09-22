@@ -16,27 +16,64 @@ n'ont **jamais été faites**, et sont trop risquées pour être improvisées le
 
 ## 1. Ce qui doit être mergé (ordre et raisons)
 
-Ordre recommandé — chaque étape doit rester déployable seule sans casser la précédente :
+### 1.0 Fait établi en lisant `deploy.yml` (2026-09-21) — pourquoi ce n'est PAS un simple merge
 
-1. **`backend/api/schema.sql`** — appliqué à `guitarhunter_pg_prod` de toute façon idempotent
-   (`CREATE TABLE IF NOT EXISTS`/`ALTER ... ADD COLUMN IF NOT EXISTS`), aucun risque à le
-   fusionner tôt même si le reste suit plus tard.
-2. **`backend/api/*`** (FastAPI/asyncpg) — déployable en parallèle de Firestore sans rien casser
-   (nouveau service, `guitarhunter-api`/`guitarhunter-api-prod` déjà opérationnels en dehors de
-   `dev`). Le merge consiste juste à faire en sorte que `deploy.yml` les déploie aussi depuis
-   `dev`/`master` au lieu de nécessiter un `scp` manuel.
-3. **`backend/deal_mapping.py`, `backend/pg_repository.py`, `backend/database.py` (inchangé),
-   `backend/bot.py`, `main.py`** — bascule du bot lui-même sur `PostgresRepository`. **Ne pas
-   merger avant d'avoir décidé du DSN de prod** : `bot.py` doit pointer sur
-   `guitarhunter_pg_prod`, jamais `guitarhunter_pg_staging`, au moment où ce commit atterrit sur
-   `dev` (sinon le bot réel écrirait dans le mauvais Postgres dès le déploiement suivant).
-4. **Frontend (`src/services/apiService.js` + câblage des hooks/composants)** — dernier morceau,
-   seulement une fois 1-3 validés en prod. Nécessite `VITE_API_BASE_URL` pointé sur
-   `https://serveur.tail16b52e.ts.net/prod` (pas `/` qui reste staging) dans la config de build
-   CI (`.github/workflows/deploy.yml` ou secret GitHub Actions).
-5. **`deploy.yml`** lui-même — mis à jour en dernier pour refléter la nouvelle cible (backend
-   Postgres + bon `VITE_API_BASE_URL`), sinon un déploiement intermédiaire pourrait revenir en
-   arrière sur un morceau déjà mergé.
+`deploy.yml` est **identique** entre cette branche et `origin/dev` (`git diff origin/dev...HEAD --
+.github/workflows/deploy.yml` : vide) — il n'a **aucune notion** de Postgres/`backend/api/*`
+aujourd'hui. Et surtout : **toute** push sur `dev`/`master` déclenche automatiquement, sur le
+serveur, `git reset --hard origin/<branche>` sur `~/GuitareHunter` **puis** `sudo systemctl
+restart guitare-hunter` (le vrai bot, immédiatement, sans étape de validation manuelle). Donc
+merger `bot.py`/`main.py` sur `dev` sans avoir préparé le terrain redémarre le vrai bot en mode
+Postgres **dans la minute qui suit le push**, avec quoi que `pg_db.py` trouve dans l'environnement
+à ce moment (repli par défaut : `postgresql://guitarhunter@localhost/guitarhunter` — **n'existe
+pas** tel quel sur le serveur, le vrai Postgres tourne en conteneur sur le port `5434`). C'est
+exactly le mécanisme qui a causé l'incident du 2026-09-19 (`apiService.js`), reproduit ici côté
+bot si on merge sans préparer les secrets d'abord.
+
+`requirements.txt` a en revanche déjà `fastapi`/`uvicorn`/`asyncpg`/`psycopg` sur `origin/dev`
+(mergés lors d'un chantier antérieur) — pas un blocage de dépendances.
+
+### 1.1 Préalable — secrets/sudoers à préparer AVANT tout merge qui en dépend (fait par l'utilisateur, pas par Claude)
+
+- **Secret GitHub `DOT_ENV`** (déjà utilisé pour `.env` backend ET build Vite frontend, même
+  secret pour les deux jobs) : y ajouter deux lignes AVANT l'étape 1.3 ci-dessous —
+  `DATABASE_URL=postgresql://guitarhunter:...@127.0.0.1:5434/guitarhunter` (le DSN réel de
+  `guitarhunter_pg_prod`, **sans** le `\r` qui a cassé `guitarhunter-api-prod` le 2026-09-21 — le
+  copier depuis `~/.guitarhunter_prod_db.env` sur le serveur, pas retaper à la main) et
+  `VITE_API_BASE_URL=https://serveur.tail16b52e.ts.net/prod`. Ajouter le secret AVANT ne casse
+  rien (rien ne le lit tant que le code correspondant n'est pas mergé) — c'est l'inverse
+  (merger avant d'avoir mis à jour le secret) qui est dangereux.
+- **Règle sudoers** pour `guitarhunter-api-prod` (mêmes commandes que la règle existante pour
+  `guitarhunter-api`, voir `TODO.md`) — seulement si on veut que `deploy.yml` gère ce service
+  automatiquement (étape 1.5bis ci-dessous). Sinon il reste géré à la main comme aujourd'hui,
+  aucune urgence à changer ça.
+
+### 1.2-1.5 Ordre de merge — chaque étape doit rester déployable seule sans casser la précédente
+
+1. **`backend/api/schema.sql`** — idempotent (`CREATE TABLE IF NOT EXISTS`/`ALTER ... ADD COLUMN
+   IF NOT EXISTS`), aucun risque à le fusionner tôt, rien ne le déploie/l'exécute automatiquement.
+2. **`backend/api/*` (code seul, ~4900 lignes, entièrement absent de `dev` aujourd'hui)** — sans
+   toucher `deploy.yml` à ce stade : mergeable sans risque, puisque rien ne le déploie/redémarre
+   automatiquement (reste géré à la main, `scp` + `systemctl`, comme actuellement).
+   - *1.2bis (optionnel)* : ajouter à `deploy.yml` un bloc qui `scp` `backend/api/*` vers
+     `~/guitarhunter-api-prod` et fait `sudo systemctl restart guitarhunter-api-prod` — seulement
+     si la règle sudoers (§1.1) a été ajoutée.
+3. **`backend/deal_mapping.py`, `backend/pg_repository.py`, `backend/pg_db.py`,
+   `backend/logging_config.py`, `backend/bot.py`, `main.py`** — bascule le VRAI bot sur
+   `PostgresRepository`. **Le morceau sensible** : à merger le MÊME JOUR que le secret `DOT_ENV`
+   (§1.1) est en place, et de préférence en observant le déploiement en direct
+   (`ssh ... journalctl -u guitare-hunter -f` pendant que le push tourne dans GitHub Actions) —
+   pas improvisé un vendredi soir. Une fois ce commit sur `dev`, le bot réel écrit dans
+   `guitarhunter_pg_prod` à la place de Firestore — **c'est en pratique le vrai moment de la
+   bascule pour les écritures**, avant même la fenêtre B.5 formelle (§4 plus bas) ; y réfléchir
+   comme tel plutôt que comme "juste un merge de code".
+4. **Frontend (`src/services/apiService.js` + câblage des 9 hooks/composants)** — seulement une
+   fois 1-3 validés en prod. `VITE_API_BASE_URL` déjà dans `DOT_ENV` depuis §1.1, rien à ajouter.
+   Publication immédiate sur GitHub Pages au push (pas de fenêtre de validation intermédiaire
+   dans le pipeline actuel) — même prudence que pour l'étape 3.
+5. **`deploy.yml`** lui-même (si le 1.2bis n'a pas été fait plus tôt) — pour que les futurs
+   déploiements gèrent `guitarhunter-api-prod` automatiquement, plutôt que de rester une procédure
+   manuelle indéfiniment.
 
 **Leçon du 2026-09-19 à ne pas reproduire** : ne jamais pousser un morceau isolé (ex: seulement le
 frontend) sur `dev` en affirmant qu'il est "sans risque" sans avoir vérifié son comportement par
