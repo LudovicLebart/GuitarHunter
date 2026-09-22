@@ -40,17 +40,17 @@ bot si on merge sans préparer les secrets d'abord.
 `requirements.txt` a en revanche déjà `fastapi`/`uvicorn`/`asyncpg`/`psycopg` sur `origin/dev`
 (mergés lors d'un chantier antérieur) — pas un blocage de dépendances.
 
-**⚠️ Blocage découvert le 2026-09-22, bien plus sérieux que ce qui précède** : `dev` a mergé
-entre-temps le **Chantier H** (bascule du Portier T1 vers Qwen + mécanisme d'observation fantôme
+**✅ Blocage découvert le 2026-09-22, levé le même jour** : `dev` avait mergé entre-temps le
+**Chantier H** (bascule du Portier T1 vers Qwen + mécanisme d'observation fantôme
 `flashliteGatekeeper*`/`qwenGatekeeper*`), jamais porté sur cette branche (exclusion délibérée
 actée le 2026-09-19). Une tentative de `git merge origin/dev` (branche dédiée, avortée proprement)
-a montré que `backend/bot.py`/`backend/analyzer.py` ont divergé en profondeur : `dev` restaure
-désormais des colonnes d'observation fantôme qui n'existent NULLE PART dans le schéma/repository
-Postgres de cette branche, et un dispatcher parallèle (`ThreadPoolExecutor`, `ANALYSIS_WORKERS`)
-motivé par la latence Qwen. **Merger l'étape 3 ci-dessous nécessite d'abord de porter tout le
-Chantier H sur l'architecture Postgres** (nouvelles colonnes, mapping, logique d'appel,
-dispatcher) — un chantier à part entière, pas une résolution de conflit. Voir `JOURNAL.md`
-[2026-09-22].
+avait montré que `backend/bot.py`/`backend/analyzer.py` avaient divergé en profondeur. **Porté
+depuis** sur l'architecture Postgres — sans nécessiter de nouvelle colonne `schema.sql`
+(l'observation fantôme vit dans `ai_analysis_raw` JSONB, déjà en place), architecture d'attache
+des métadonnées Portier volontairement gardée centralisée plutôt que copiée telle quelle depuis
+`dev`. Validé (mocked end-to-end, `test_bot.py`/`test_pg_repository.py`, smoke test `main.py`
+réel). Voir `JOURNAL.md` [2026-09-22]. L'étape 3 ci-dessous peut désormais être mergée sans
+régresser Qwen.
 
 ### 1.1 Préalable — secrets/sudoers à préparer AVANT tout merge qui en dépend (fait par l'utilisateur, pas par Claude)
 

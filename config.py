@@ -78,6 +78,32 @@ GEMINI_MODELS = {
     "default_expert": "gemini-3.1-pro-preview"
 }
 
+# --- CHANTIER H : BASCULE DU PORTIER (TIER 1) VERS QWEN (2026-09-20) ---
+# Porté depuis `dev` sur cette branche Postgres le 2026-09-22 (jamais inclus dans le rattrapage
+# Chantier G du 2026-09-19 — exclusion délibérée à l'époque, "module d'observation séparé, jamais
+# utilisé pour la décision réelle"). Historique : observation Qwen en parallèle depuis le
+# 2026-09-13 (jamais décisionnelle), puis analyse complète le 2026-09-20 — comparaison directe sur
+# 166 annonces réelles (`backend/scripts/compare_qwen_flashlite_agreement.py`) + lecture des
+# verdicts T2/T3 déjà écrits en base pour les 21 désaccords "coûteux" : 10/21 jamais promues en
+# Tier 2 (`NOT_PROMOTED`, hors recherche active — aucune perte possible), 3/21 confirmées
+# `BAD_DEAL` par le Tier 2 lui-même (Qwen avait raison, pas Flash-Lite), 6/21 confirmées `FAIR`
+# (marge insuffisante pour un flip), 1/21 `LUTHIER_PROJ` marginal. Un seul cas réel de perte
+# confirmée sur 166 annonces. Décision utilisateur : bascule.
+#
+# `T1_GATEKEEPER_PROVIDER` détermine qui décide RÉELLEMENT (accept/reject) : "qwen" (nouveau
+# défaut) ou "gemini" (repli instantané vers le comportement historique, sans redéploiement de
+# code — juste cette variable d'env). Quel que soit le décideur, l'AUTRE fournisseur continue
+# de tourner en miroir (best-effort, coupe-circuit `T1_OBSERVATION_ENABLED`) pour continuer à
+# accumuler de la comparaison — voir `analyzer.py::_run_t1_shadow_observation`.
+TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
+TOKENROUTER_BASE_URL = "https://api.tokenrouter.com/v1"
+T1_OBSERVATION_QWEN_MODEL = os.getenv("T1_OBSERVATION_QWEN_MODEL", "qwen/qwen3.8-flash")
+T1_GATEKEEPER_PROVIDER = os.getenv("T1_GATEKEEPER_PROVIDER", "qwen").strip().lower()
+# Coupe-circuit explicite : si l'observation miroir cause un problème en production (latence,
+# erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
+# redéploiement de code.
+T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "true").lower() in ("1", "true", "yes")
+
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
 DEFAULT_PRO_DEAL_SCORE_THRESHOLD = 8

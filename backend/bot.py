@@ -5,6 +5,7 @@ import threading
 import random
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import firebase_admin.auth as fb_auth
 
 from config import (
@@ -25,6 +26,7 @@ from backend.pg_repository import PostgresRepository
 from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
+from backend.taxonomy import matches_active_search_family
 
 class GuitarHunterBot:
     # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
@@ -50,6 +52,14 @@ class GuitarHunterBot:
     # Kijiji : voir `_run_kijiji_scan()`, qui utilise `AnchorCluster.max_member_distance_km()`
     # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
     KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
+
+    # Chantier H (porté depuis dev le 2026-09-22) : nombre de workers du pool qui analyse les
+    # annonces d'un même lot en parallèle (voir _dispatch_analysis_batch) — motivé par l'ajout
+    # d'un appel d'observation Qwen (Portier) nettement plus lent que Gemini (~22s contre ~5s),
+    # sans parallélisation cet appel ralentirait directement la cadence de scan. Valeur prudente,
+    # à recalibrer selon les limites de débit réelles de TokenRouter/Gemini si des erreurs de
+    # rate-limit apparaissent en production.
+    ANALYSIS_WORKERS = 5
 
     def __init__(self, pg_pool, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
@@ -308,6 +318,89 @@ class GuitarHunterBot:
 
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
+
+    # Chantier H (porté depuis dev le 2026-09-22) : outcomes après lesquels l'id ne doit PAS être
+    # ajouté à `session_processed_ids` — un mécanisme de retentative existe déjà pour ces cas
+    # précis dans `handle_deal_found` (scraping raté, doublon cross-plateforme, marqueur de vente,
+    # arrêt demandé, erreur inattendue) : le marquer "traité" prématurément casserait cette
+    # retentative. Tout le reste (rejeté, hors budget, déjà connu, traité...) EST marqué, comme
+    # avant.
+    _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
+        "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
+        "stopped", "error",
+    })
+
+    def _handle_deal_found_unless_stopped(self, deal, source):
+        """Vérifie l'arrêt au moment où CE worker démarre réellement la tâche (pas seulement à
+        la soumission, des dizaines de secondes plus tôt pour les tâches en file) — une tâche pas
+        encore commencée s'arrête donc net dès qu'un stop est demandé, au lieu de lancer une
+        analyse complète (Gemini + observation Qwen, ~5-25s) qui serait de toute façon jetée."""
+        if self._is_stop_requested():
+            return "stopped"
+        return self.handle_deal_found(deal, source=source)
+
+    def _timed_handle_deal_found_unless_stopped(self, deal, source):
+        """Chronomètre l'exécution réelle (dans CE worker) de `_handle_deal_found_unless_stopped`
+        — sert uniquement à mesurer l'efficacité de la parallélisation (voir
+        `_dispatch_analysis_batch`), pas le temps d'attente en file avant d'être pris par un
+        worker libre."""
+        start = time.time()
+        outcome = self._handle_deal_found_unless_stopped(deal, source)
+        return outcome, time.time() - start
+
+    def _dispatch_analysis_batch(self, deals, source, cycle_stats):
+        """Chantier H (porté depuis dev le 2026-09-22) : analyse `deals` (déjà filtrés/enrichis,
+        prêts pour handle_deal_found) en parallèle via un pool de workers borné (ANALYSIS_WORKERS)
+        — remplace la boucle séquentielle historique. Le scraping (Playwright) est déjà
+        entièrement terminé avant cet appel (`deals` est une simple liste de dicts), donc aucune
+        instance de scraper n'est partagée entre les workers : chaque appel `handle_deal_found` ne
+        fait que des requêtes HTTP (Gemini/TokenRouter, téléchargement d'image, Postgres via le
+        pool `psycopg`, tous thread-safe côté clients utilisés ici) et des écritures Postgres.
+
+        `session_processed_ids` est thread-local (voir sa docstring, conçu pour le modèle "un
+        thread par utilisateur") : les workers de CE pool tournent dans des threads distincts du
+        thread appelant (celui qui scrapera la ville suivante juste après) et n'écrivent donc PAS
+        dans le même set — l'ajout fait à l'intérieur de `handle_deal_found` se perdrait pour la
+        suite du cycle. On l'alimente donc explicitement ICI, dans le thread appelant, mais
+        SEULEMENT une fois l'issue réelle connue (voir `_NEVER_MARK_PROCESSED_OUTCOMES`) — un
+        pré-marquage aveugle de tout le lot AVANT analyse casserait le mécanisme de retentative
+        déjà en place dans `handle_deal_found` pour ces cas précis.
+
+        Mesure l'efficacité réelle de la parallélisation : compare le temps mur du lot au temps
+        cumulé individuel de chaque analyse (chronométré dans le worker qui l'exécute, hors
+        attente en file) — le ratio des deux est l'accélération réellement obtenue, à comparer à
+        `ANALYSIS_WORKERS`.
+        """
+        if not deals:
+            return
+
+        batch_start = time.time()
+        total_individual_time = 0.0
+        with ThreadPoolExecutor(max_workers=self.ANALYSIS_WORKERS) as executor:
+            future_to_deal = {
+                executor.submit(self._timed_handle_deal_found_unless_stopped, deal, source): deal
+                for deal in deals
+            }
+            for future in as_completed(future_to_deal):
+                deal = future_to_deal[future]
+                try:
+                    outcome, elapsed = future.result()
+                    outcome = outcome or "unknown"
+                except Exception as e:
+                    self.logger.error(f"❌ [{source}] Erreur lors de l'analyse de '{deal.get('title', '?')}' : {e}", exc_info=True)
+                    outcome, elapsed = "error", 0.0
+                total_individual_time += elapsed
+                cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                if outcome not in self._NEVER_MARK_PROCESSED_OUTCOMES:
+                    self.session_processed_ids.add(deal['id'])
+
+        wall_time = time.time() - batch_start
+        speedup = (total_individual_time / wall_time) if wall_time > 0 else 0.0
+        self.logger.info(
+            f"⏱️ [{source}] Lot de {len(deals)} annonce(s) traité en {wall_time:.1f}s "
+            f"(ANALYSIS_WORKERS={self.ANALYSIS_WORKERS}) — {total_individual_time:.1f}s cumulées "
+            f"individuellement, accélération ×{speedup:.1f}"
+        )
 
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
@@ -677,11 +770,8 @@ class GuitarHunterBot:
                         self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
                         found_deals = deals_in_radius
 
-                    # --- TRAITEMENT DES ANNONCES FILTRÉES ---
-                    for deal in found_deals:
-                        if self._is_stop_requested(): break
-                        outcome = self.handle_deal_found(deal, source="Facebook") or "unknown"
-                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                    # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
+                    self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
 
                 finally:
                     temp_scraper.close_session()
@@ -882,6 +972,10 @@ class GuitarHunterBot:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
                         continue
 
+                    # Pré-traitement séquentiel (préfixe d'ID, résolution de ville, filtre de
+                    # rayon) — bon marché, aucun appel réseau — puis analyse parallélisée des
+                    # annonces retenues (voir _dispatch_analysis_batch).
+                    ready_deals = []
                     for deal in found_deals:
                         if self._is_stop_requested():
                             break
@@ -898,9 +992,9 @@ class GuitarHunterBot:
                             self.logger.info(f"[Kijiji] '{deal.get('title', 'N/A')}' rejetée — hors rayon de {max_radius_km}km de toute ville configurée.")
                             cycle_stats["rejected_out_of_radius"] += 1
                             continue
+                        ready_deals.append(deal)
 
-                        outcome = self.handle_deal_found(deal, source="Kijiji") or "unknown"
-                        cycle_stats[outcome] = cycle_stats.get(outcome, 0) + 1
+                    self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
 
                     time.sleep(2)
             finally:
@@ -1147,10 +1241,7 @@ class GuitarHunterBot:
                 # Colonne plate (pas de nesting aiAnalysis côté Postgres, contrairement à
                 # Firestore) — voir pg_repository.py::get_not_promoted_listings.
                 classification = data.get('gatekeeper_classification')
-                matches_active_search = not active_families or (classification and any(
-                    classification == family or classification.startswith(f"{family}.")
-                    for family in active_families
-                ))
+                matches_active_search = not active_families or matches_active_search_family(classification, active_families)
                 if not matches_active_search:
                     continue
 
@@ -1171,6 +1262,17 @@ class GuitarHunterBot:
                     # écraser un gatekeeper_verdict correct mais vide.
                     for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
                         analysis[key] = data.get(col)
+                    # Chantier H (porté depuis dev le 2026-09-22) : restaure aussi l'observation
+                    # fantôme (`flashliteGatekeeper*`/`qwenGatekeeper*`) — jamais promue en colonne
+                    # Postgres dédiée (voir analyzer.py::_attach_gatekeeper_metadata), elle ne vit
+                    # que dans `ai_analysis_raw` (JSONB). Sans cette restauration, la repromotion
+                    # perdrait silencieusement les données de comparaison Qwen/Gemini déjà
+                    # accumulées pour cette annonce.
+                    raw = data.get('ai_analysis_raw') or {}
+                    shadow_prefixes = ('qwenGatekeeper', 'flashliteGatekeeper')
+                    for key, value in raw.items():
+                        if key.startswith(shadow_prefixes):
+                            analysis[key] = value
                     self.repo.update_deal_analysis(doc.id, analysis)
                     promoted_count += 1
                 except Exception as e:
