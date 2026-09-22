@@ -1,5 +1,11 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-21] [PRO] `/code-review` sur `backup_postgres.py` : 2 findings corrigés (rétention partagée staging/prod, fichier orphelin sur échec).
+- **Finding 1** : toutes les sauvegardes (staging et prod) partageaient le même préfixe de blob, donc la même fenêtre de rétention de 14 — un run manuel contre staging pouvait faire expulser une vraie sauvegarde de prod. Corrigé : `--label` obligatoire, préfixe dédié `backups/postgres/<label>/` par base. Wrapper `/home/ludovic/backup_prod_cron.sh` mis à jour (`--label prod`).
+- **Finding 2** : le fichier de dump local n'était nettoyé qu'en cas de succès complet — un échec de `pg_dump` (fichier partiel) ou de l'upload (fichier complet) laissait un fichier orphelin dans `/tmp`, s'accumulant à chaque échec du cron quotidien. Corrigé : bloc dump+upload dans un `try/finally`.
+- **Les deux validés en conditions réelles** : run contre staging avec `--label staging` (préfixe séparé confirmé), run avec un DSN invalide (échec propre, fichier bien supprimé), run réel contre prod avec le wrapper mis à jour (`backups/postgres/prod/`, 16.8 Mo).
+- **Reste en place** : 2 fichiers de test des runs précédents sous l'ancien préfixe plat `backups/postgres/` (avant ce correctif) — orphelins, non gérés par la nouvelle logique de rétention, non critiques (33 Mo au total), pas nettoyés (mass-delete refusé par le sandbox pour une action aussi mineure).
+
 [2026-09-21] [PRO] Merge dev/master, étape 2/5 : `backend/api/*` (20 fichiers) poussé sur `dev` (commit `8622471`).
 - Même méthode que l'étape 1 : `git worktree` séparé depuis `origin/dev`, code seul (rien sur `dev` ne l'importe/le déploie encore), déploiement observé en direct — `guitare-hunter` toujours actif, logs normaux.
 - **État** : `dev` a maintenant `schema.sql` + `backend/api/*`. Reste : `bot.py`/`main.py` (le morceau sensible, secret `DOT_ENV` déjà prêt) → frontend → `deploy.yml`. `master` toujours pas touché.

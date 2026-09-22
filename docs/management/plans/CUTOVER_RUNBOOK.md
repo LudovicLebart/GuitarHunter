@@ -131,11 +131,19 @@ cd /home/ludovic/GuitareHunter
 set -a
 . /home/ludovic/.guitarhunter_prod_db.env
 set +a
-venv/bin/python backend/scripts/backup_postgres.py --database-url "$DATABASE_URL"
+venv/bin/python backend/scripts/backup_postgres.py --database-url "$DATABASE_URL" --label prod
 
 # Entrée crontab (installée) :
 0 4 * * * /home/ludovic/backup_prod_cron.sh >> /home/ludovic/guitarhunter-backup.log 2>&1
 ```
+
+**Correctif de revue de code (2026-09-21)** : `--label` est obligatoire — sans lui, un run manuel
+contre staging partagerait la même fenêtre de rétention (14) que le cron de prod, risquant
+d'expulser une vraie sauvegarde de prod (trouvé après coup : le script avait déjà tourné deux fois
+contre staging et une fois contre prod dans le même préfixe). Chaque base a désormais son propre
+préfixe (`backups/postgres/<label>/`). Le nettoyage du fichier local est aussi passé dans un
+`try/finally` — un échec de `pg_dump` ou de l'upload ne laisse plus de fichier orphelin dans
+`/tmp` (testé : DSN invalide → échec propre, fichier bien supprimé).
 
 ## 4. Séquence complète le jour J (une fois 1-3 ci-dessus préparés et mergés)
 
