@@ -41,27 +41,31 @@ from backend.taxonomy import (
 
 logger = logging.getLogger(__name__)
 
-# Les 9 verdicts que `gatekeeper_verbosity_instruction` (prompts.json) autorise explicitement
-# pour le champ `status` du Portier — seule liste fermée du contrat T1 (contrairement à
-# `classification`, un chemin de taxonomie à ~142 feuilles, bien trop large pour un enum, validé
-# après coup par `_canonicalize_classification`). Partagée par le schéma Gemini (enum natif du
-# SDK) et le schéma OpenAI-compatible (Qwen) ci-dessous, pour que les deux appels T1 (le décideur
-# réel et l'observation Chantier H) soient contraints à exactement le même vocabulaire.
+# Rattrapage Chantier G (2026-09-19) : verdicts T1 jamais cachés par le routage
+# `activeSearchFamilies`, quelle que soit la correspondance de classification — garde-fou non
+# négociable, ne jamais masquer une pépite hors-filtre.
+T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
+
+# Verdicts d'erreur du Portier (appel raté ou réponse malformée) — n'ont par définition aucune
+# classification fiable, donc jamais soumis au routage Chantier G (`activeSearchFamilies`) au
+# risque d'être routés à tort vers NOT_PROMOTED au lieu du fail-open habituel vers l'Analyste
+# (Chantier H, porté depuis dev le 2026-09-22).
+T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
+
+# Chantier H (porté depuis dev le 2026-09-22) : les 9 verdicts que `gatekeeper_verbosity_instruction`
+# (prompts.json) autorise explicitement pour le champ `status` du Portier — seule liste fermée du
+# contrat T1. Partagée par le schéma Gemini (enum natif du SDK) et le schéma OpenAI-compatible
+# (Qwen) ci-dessous, pour que les deux appels T1 (le décideur réel et l'observation Chantier H)
+# soient contraints à exactement le même vocabulaire.
 T1_VALID_STATUSES = (
     "PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION",
     "FAIR", "BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE",
 )
 
-# Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : contrat JSON du Portier,
-# tel qu'exigé par `gatekeeper_verbosity_instruction` (prompts.json) — { status, reasoning,
-# brand, classification }. `classification` n'est PAS contraint par un enum (voir
-# `T1_VALID_STATUSES` ci-dessus) et n'est pas requis : le prompt demande la valeur littérale
-# "NULL" (une chaîne, pas un JSON null) quand le modèle est incertain, donc un champ manquant ou
-# "NULL" sont tous deux des réponses valides plutôt qu'une erreur de schéma.
-# `enum` sur `status` (2026-09-13, suite à un `qwenGatekeeperVerdict` observé hors taxonomie —
-# "ACCEPTED" — au run #42) : le SDK `google.generativeai` supporte nativement `enum` sur un champ
-# `string` d'un `response_schema`, un ajout gratuit (même mécanisme déjà en place, aucun coût ni
-# risque de compatibilité) qui ferme la même faille côté Gemini, le vrai décideur.
+# Contrat JSON du Portier, tel qu'exigé par `gatekeeper_verbosity_instruction` (prompts.json) —
+# { status, reasoning, brand, classification }. `classification` n'est pas contrainte par un enum
+# et n'est pas requise : le prompt demande la valeur littérale "NULL" (une chaîne, pas un JSON
+# null) quand le modèle est incertain.
 T1_GATEKEEPER_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -73,11 +77,11 @@ T1_GATEKEEPER_RESPONSE_SCHEMA = {
     "required": ["status", "reasoning", "brand"],
 }
 
-# Chantier H — même contrat que ci-dessus, au format "json_schema" structuré des API compatibles
-# OpenAI (Qwen via TokenRouter). `strict: True` + `additionalProperties: False` + les 4 champs
-# tous `required` (contrainte du mode strict — pas de champ optionnel) : `classification`
-# manquante doit donc être la chaîne littérale "NULL", déjà le comportement demandé par le prompt
-# quand le Portier est incertain (voir plus haut) — pas un assouplissement du contrat.
+# Même contrat que ci-dessus, au format "json_schema" structuré des API compatibles OpenAI (Qwen
+# via TokenRouter). `strict: True` + `additionalProperties: False` + les 4 champs tous `required`
+# (contrainte du mode strict — pas de champ optionnel) : `classification` manquante doit donc être
+# la chaîne littérale "NULL", déjà le comportement demandé par le prompt quand le Portier est
+# incertain — pas un assouplissement du contrat.
 T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -97,19 +101,6 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
     },
 }
 
-# Chantier G (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : verdicts T1 qui doivent
-# TOUJOURS être promus vers T2/T3, indépendamment d'une recherche active — garde-fou non
-# négociable pour ne jamais cacher silencieusement une pépite potentielle derrière un filtre.
-# FAIR ("correct mais sans opportunité claire") et BAD_DEAL ("surévalué") sont volontairement
-# exclus : ni l'un ni l'autre n'indique une pépite, contrairement aux 5 verdicts ci-dessous
-# (voir gatekeeper_verbosity_instruction, prompts.json).
-T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
-
-# Verdicts d'erreur du Portier (appel raté ou réponse malformée, voir plus bas dans
-# `_run_analysis_cascade`) — n'ont par définition aucune classification fiable, donc jamais
-# soumis au routage Chantier G (`activeSearchFamilies`) au risque d'être routés à tort vers
-# NOT_PROMOTED au lieu du fail-open habituel vers l'Analyste (trouvé en revue de code, 2026-09-20).
-T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
 
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
@@ -119,12 +110,13 @@ class DealAnalyzer:
         # analysée (200 nœuds parcourus à chaque fois) alors qu'il ne change qu'avec la config.
         self._taxonomy_index = None
         self._taxonomy_index_source = None
-        # Chantier H : `bot.py::_dispatch_analysis_batch` appelle désormais cette même instance
-        # depuis plusieurs threads worker en parallèle (avant, un seul thread par utilisateur
-        # appelait `analyze_deal` séquentiellement) — `self.models`/`self._taxonomy_index` sont de
-        # simples caches "vérifier-puis-écrire" jamais protégés jusqu'ici. Un seul verrou pour les
-        # deux : leur construction est rapide et purement locale (aucun appel réseau tenu sous le
-        # verrou), donc pas de risque de contention significative ni de deadlock croisé.
+        # Chantier H (porté 2026-09-22) : `bot.py::_dispatch_analysis_batch` appelle désormais
+        # cette même instance depuis plusieurs threads worker en parallèle (avant, un seul thread
+        # par utilisateur appelait `analyze_deal` séquentiellement) — `self.models`/
+        # `self._taxonomy_index` sont de simples caches "vérifier-puis-écrire" jamais protégés
+        # jusqu'ici. Un seul verrou pour les deux : leur construction est rapide et purement
+        # locale (aucun appel réseau tenu sous le verrou), donc pas de risque de contention
+        # significative ni de deadlock croisé.
         self._cache_lock = threading.Lock()
         # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
         # logger de module si non fourni (scripts autonomes/tests).
@@ -142,9 +134,9 @@ class DealAnalyzer:
 
     def _get_model(self, model_name, system_instruction=None, response_schema=None):
         # `response_schema` fait partie de la clé de cache : un même modèle peut être appelé
-        # avec ou sans schéma structuré selon l'appelant (ex: T1 avec schéma, T2/T3 sans pour
-        # l'instant) — sans ça, la première instance mise en cache déciderait pour tous les
-        # appels suivants au même modèle, schéma ou pas.
+        # avec ou sans schéma structuré selon l'appelant (T1 avec schéma, T2/T3 sans) — sans ça,
+        # la première instance mise en cache déciderait pour tous les appels suivants au même
+        # modèle, schéma ou pas (Chantier H, porté 2026-09-22).
         cache_key = (model_name, hash(str(system_instruction)), hash(str(response_schema)))
         with self._cache_lock:
             if cache_key not in self.models:
@@ -168,19 +160,8 @@ class DealAnalyzer:
             if not url or "via.placeholder.com" in url: return None
             response = requests.get(url, timeout=10)
             if response.status_code != 200: return None
-
+            
             img = Image.open(BytesIO(response.content))
-            # `Image.open()` ne lit que l'en-tête — le décodage réel des pixels (donc la détection
-            # d'un fichier tronqué) n'était forcé ici que si l'image dépassait max_size
-            # (`.thumbnail()`) ou était en mode RGBA/P (`.convert()`) : une image RGB de taille
-            # normale (le cas courant) sortait de cette fonction sans jamais avoir été décodée, et
-            # l'erreur "image file is truncated" ne se déclenchait que bien plus tard, chez
-            # n'importe quel appelant qui force enfin la lecture des pixels (ex: `img.save()` dans
-            # `_call_openai_compatible_json`) — remontant comme un échec générique de l'appel IA
-            # plutôt qu'un problème d'image (bug trouvé le 2026-09-20 suite à une fausse alerte
-            # "modèle Gemini indisponible" causée par une image Marketplace tronquée). `.load()`
-            # force ce décodage ICI, avec le même filet `except` que le reste de la fonction.
-            img.load()
             if img.size[0] > max_size or img.size[1] > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             return img.convert("RGB") if img.mode in ("RGBA", "P") else img
@@ -205,11 +186,7 @@ class DealAnalyzer:
         # sort_keys=True : garantit un préfixe identique octet pour octet entre threads/
         # redémarrages (le cache implicite Gemini est un match de préfixe exact) — sans ça,
         # l'ordre des clés d'un dict Python n'est pas garanti stable d'un process à l'autre.
-        # separators=(',', ':') (indentation compacte, sans espaces) au lieu de indent=2 :
-        # réduit le nombre de tokens de ce bloc statique, partagé par les 3 Tiers de la
-        # cascade (Chantier H, gain "gratuit" identifié par Opus 2026-09-13) — la lisibilité
-        # humaine n'a pas d'importance ici, seul un LLM lit ce texte.
-        taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        taxonomy_str = json.dumps(taxonomy_data, indent=2, ensure_ascii=False, sort_keys=True)
 
         return (
             f"{main_prompt_str}\n\n"
@@ -244,12 +221,10 @@ class DealAnalyzer:
 
     def _notify_gatekeeper_failure(self, provider_label, error_text, user_email):
         """Alerte email (throttlée à 1x/24h par fournisseur) sur un échec du Portier T1 réel qui
-        n'est PAS identifié comme une dépréciation de modèle — corrige un bug trouvé le
-        2026-09-20 : le premier appelant de cette alerte (`_run_analysis_cascade`, échec du
-        décideur T1 primaire) déclenchait `_notify_model_unavailable` sur N'IMPORTE QUEL échec
-        (ex: une image tronquée téléchargée depuis Marketplace), affirmant à tort à l'utilisateur
-        qu'un modèle Gemini avait été retiré. Voir `_is_model_unavailable_error` pour la
-        distinction entre les deux cas."""
+        n'est PAS identifié comme une dépréciation de modèle — distinct de
+        `_notify_model_unavailable` (ex: une image tronquée téléchargée depuis Marketplace ne
+        doit pas affirmer à tort qu'un modèle Gemini a été retiré). Chantier H, porté depuis dev
+        le 2026-09-22 — voir `_is_model_unavailable_error` pour la distinction entre les deux cas."""
         if not user_email:
             return
         now = time.time()
@@ -309,21 +284,18 @@ class DealAnalyzer:
                 return None, str(e)
 
     def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None):
-        """Appelle un modèle compatible OpenAI (Qwen via TokenRouter, etc.) et parse le JSON,
-        avec la même tolérance que `_call_gemini_json` (accolades ```json). Réutilise les
-        images DÉJÀ téléchargées (objets PIL) — pas de second téléchargement des mêmes URLs.
-        Ne lève jamais : renvoie toujours (dict|None, erreur|None). Utilisée à la fois pour la
-        décision T1 réelle quand Qwen est le fournisseur primaire (`T1_GATEKEEPER_PROVIDER`,
-        bascule du 2026-09-20) et pour l'observation miroir best-effort de l'autre fournisseur —
-        dans les deux cas l'appelant décide comment traiter une erreur (fail-open pour la
-        décision réelle, silencieusement ignorée pour l'observation).
+        """Chantier H (porté depuis dev le 2026-09-22) : appelle un modèle compatible OpenAI
+        (Qwen via TokenRouter, etc.) et parse le JSON, avec la même tolérance que
+        `_call_gemini_json` (accolades ```json```). Réutilise les images DÉJÀ téléchargées (objets
+        PIL) — pas de second téléchargement des mêmes URLs. Ne lève jamais : renvoie toujours
+        (dict|None, erreur|None). Utilisée à la fois pour la décision T1 réelle quand Qwen est le
+        fournisseur primaire (`T1_GATEKEEPER_PROVIDER`) et pour l'observation miroir best-effort
+        de l'autre fournisseur — dans les deux cas l'appelant décide comment traiter une erreur
+        (fail-open pour la décision réelle, silencieusement ignorée pour l'observation).
 
         `response_format` : mode JSON large (`{"type": "json_object"}`, par défaut si omis) ou
         schéma structuré strict (`{"type": "json_schema", ...}`, voir
-        `T1_GATEKEEPER_OPENAI_JSON_SCHEMA`) — au choix de l'appelant. Si le fournisseur/modèle
-        rejette un format non supporté, l'exception est capturée normalement ci-dessous (pas de
-        second appel de repli ici : doublerait le coût de chaque observation pour un cas qui doit
-        rester l'exception, pas la norme)."""
+        `T1_GATEKEEPER_OPENAI_JSON_SCHEMA`) — au choix de l'appelant."""
         if not api_key:
             return None, "Clé API manquante."
         try:
@@ -345,22 +317,16 @@ class DealAnalyzer:
                 result = result[0] if result and isinstance(result[0], dict) else {}
             return result, None
         except Exception as e:
-            # Log ajouté 2026-09-20 (revue de code) : cette méthode sert désormais aussi la
-            # décision T1 réelle (Qwen primaire) — un échec y était jusqu'ici totalement
-            # silencieux (contrairement à `_call_gemini_json`), masquant une éventuelle panne
-            # TokenRouter systémique jusqu'à ce qu'un humain remarque la facture Gemini anormale.
             self.logger.error(f"❌ Erreur avec le modèle {model_name} (TokenRouter) : {e}")
             return None, str(e)
 
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None):
-        """Point d'appel UNIQUE pour n'importe lequel des deux fournisseurs T1 (Qwen via
-        TokenRouter, ou Gemini Flash-Lite), avec exactement le même prompt et le schéma
-        structuré correspondant — réutilisé à la fois par le décideur réel
-        (`_run_analysis_cascade`) et l'observation miroir (`_run_t1_shadow_observation`), pour
-        qu'un futur changement de l'appel (timeout, retry, format) ne puisse plus être fait dans
-        un seul des deux endroits sans désynchroniser décision et observation (trouvé en revue
-        de code, 2026-09-20 — c'est exactement ce type de duplication qui avait déjà causé le
-        bug `qwenGatekeeper*`/`flashliteGatekeeper*` sur `bot.py::reevaluate_not_promoted`)."""
+        """Chantier H (porté depuis dev le 2026-09-22) : point d'appel UNIQUE pour n'importe
+        lequel des deux fournisseurs T1 (Qwen via TokenRouter, ou Gemini Flash-Lite), avec
+        exactement le même prompt et le schéma structuré correspondant — réutilisé à la fois par
+        le décideur réel et l'observation miroir, pour qu'un futur changement de l'appel (timeout,
+        retry, format) ne puisse plus être fait dans un seul des deux endroits sans désynchroniser
+        décision et observation."""
         if provider == "qwen":
             if not TOKENROUTER_API_KEY:
                 return None, "Clé API TokenRouter manquante."
@@ -374,14 +340,12 @@ class DealAnalyzer:
         )
 
     def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
-        """Chantier H — OBSERVATION EN MIROIR (généralisée le 2026-09-20, bascule du décideur
-        réel vers Qwen) : rejoue le Portier avec EXACTEMENT le même prompt sur le fournisseur T1
-        qui N'EST PAS le décideur réel (`T1_GATEKEEPER_PROVIDER`), pour continuer à accumuler de
-        la comparaison en conditions réelles après la bascule — n'influence JAMAIS
-        `gatekeeper_status` ni la décision accept/reject réelle. Avant le 2026-09-20, Gemini
-        décidait et Qwen observait (`qwenGatekeeper*`) ; depuis, c'est l'inverse par défaut
-        (`shadow_provider="gemini"`, clés `flashliteGatekeeper*`) — ou l'ancien sens en cas de
-        repli (`T1_GATEKEEPER_PROVIDER=gemini`).
+        """Chantier H (porté depuis dev le 2026-09-22) — OBSERVATION EN MIROIR : rejoue le
+        Portier avec EXACTEMENT le même prompt sur le fournisseur T1 qui N'EST PAS le décideur
+        réel (`T1_GATEKEEPER_PROVIDER`), pour continuer à accumuler de la comparaison en
+        conditions réelles après la bascule — n'influence JAMAIS `gatekeeper_status` ni la
+        décision accept/reject réelle. Décideur "qwen" (défaut) -> observation sous
+        `flashliteGatekeeper*` ; décideur "gemini" (repli) -> observation sous `qwenGatekeeper*`.
 
         Best-effort strict : toute erreur (clé absente, fournisseur indisponible, JSON invalide)
         est absorbée ici et ne doit jamais faire échouer l'analyse réelle qui l'entoure —
@@ -464,8 +428,9 @@ class DealAnalyzer:
         deux analyses, donc l'index n'est reconstruit qu'après une vraie modification de la config
         (et une comparaison par identité qui échouerait à tort ne coûterait qu'une reconstruction,
         jamais un résultat faux). Verrouillé (`_cache_lock`, partagé avec `_get_model`) depuis que
-        plusieurs workers peuvent appeler cette méthode en parallèle (Chantier H) : sans ça, deux
-        threads pourraient interfoliocer lecture/écriture de `_taxonomy_index`/`_taxonomy_index_source`.
+        plusieurs workers peuvent appeler cette méthode en parallèle (Chantier H, porté
+        2026-09-22) : sans ça, deux threads pourraient interfolier lecture/écriture de
+        `_taxonomy_index`/`_taxonomy_index_source`.
         """
         with self._cache_lock:
             if self._taxonomy_index is None or self._taxonomy_index_source is not taxonomy:
@@ -506,12 +471,16 @@ class DealAnalyzer:
         return result
 
     def _attach_gatekeeper_metadata(self, result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation):
-        """Attache marque/classification/verdict bruts du Portier + l'observation Qwen
-        (Chantier H) à `result`, en place, et le retourne. Factorise les 5 points de sortie de
-        `_run_analysis_cascade` qui répétaient ces mêmes affectations une à une — exactement le
-        genre de duplication qui a déjà causé un vrai bug par le passé (gatekeeperBrand/
-        Classification n'étaient conservés QUE sur le chemin de rejet avant un correctif dédié,
-        voir JOURNAL.md) : un seul endroit à maintenir si un champ change encore."""
+        """Rattrapage Chantier G (2026-09-19) : attache marque/classification/verdict BRUTS du
+        Portier à `result`, en place, et le retourne — nécessaires pour retrouver, sans rappeler
+        le Portier, la classification d'une annonce `NOT_PROMOTED` quand le filtre
+        `activeSearchFamilies` change (voir `bot.py::reevaluate_not_promoted`). `qwen_observation`
+        (Chantier H, porté depuis dev le 2026-09-22) : merge l'observation miroir best-effort
+        (`flashliteGatekeeper*`/`qwenGatekeeper*`, voir `_run_t1_shadow_observation`) — jamais
+        utilisée pour la décision réelle. Stockée sans colonne Postgres dédiée : `result` devient
+        `analysis_data`, qui atterrit tel quel dans `ai_analysis_raw` (JSONB, voir
+        `deal_mapping.py::map_deal`) — aucune promotion de colonne nécessaire pour des champs
+        purement d'observation, jamais lus par le frontend."""
         result["gatekeeperBrand"] = gatekeeper_brand
         result["gatekeeperClassification"] = gatekeeper_classification
         result["gatekeeperVerdict"] = gatekeeper_status
@@ -519,9 +488,28 @@ class DealAnalyzer:
         return result
 
     def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Point d'entrée public : point de sortie UNIQUE pour l'attache des métadonnées Portier
+        (`_attach_gatekeeper_metadata`), quel que soit le chemin emprunté par `_run_analysis_cascade_body`
+        (rejet T1, hors-recherche-active, erreur T2, échec T3 avec repli T2, succès T2/T3) — un futur
+        point de sortie ajouté au corps de la cascade n'a qu'à retourner le même tuple `(result,
+        gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)`, l'attache
+        elle-même ne peut plus être oubliée à un site d'appel particulier (rattrapage Chantier G,
+        2026-09-19)."""
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
+        result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation = self._run_analysis_cascade_body(
+            listing_data, firestore_config, force_expert, user_comment, user_email,
+        )
+        return self._attach_gatekeeper_metadata(
+            result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
+        )
+
+    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+        """Corps de la cascade 3-Tiers — chaque point de sortie retourne
+        `(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)`,
+        jamais un dict déjà attaché (voir `_run_analysis_cascade`, seul appelant, qui fait
+        l'attache une fois pour tous les chemins)."""
         config = firestore_config.get('analysisConfig', {})
         # Défauts alignés sur GEMINI_MODELS (config.py) — gemini-2.5-* est retiré par Google en
         # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
@@ -554,15 +542,12 @@ class DealAnalyzer:
         model_chain = []
         gatekeeper_status = "MANUAL_RETRY"
         gatekeeper_reason = "Analyse experte demandée manuellement."
-        # Capturés pour audit de la précision T1 (Chantier G) : jusqu'ici jetés dès que le
-        # Portier acceptait l'annonce (seul le chemin de rejet, ligne ~344, les conservait) —
-        # aucune comparaison possible entre la sortie brute de T1 et le résultat final T2/T3
-        # sur les annonces acceptées, qui sont pourtant la grande majorité des cas.
         gatekeeper_brand = None
         gatekeeper_classification = None
-        # Chantier H — observation miroir (jamais utilisée pour la décision accept/reject réelle,
-        # voir _run_t1_shadow_observation). Fusionnée dans les 5 dicts de retour ci-dessous via
-        # **qwen_observation, comme gatekeeperBrand/gatekeeperClassification/gatekeeperVerdict.
+        # Chantier H (porté depuis dev le 2026-09-22) — observation miroir (jamais utilisée pour
+        # la décision accept/reject réelle, voir _run_t1_shadow_observation). Fusionnée dans les 5
+        # dicts de retour ci-dessous via _attach_gatekeeper_metadata, comme gatekeeperBrand/
+        # gatekeeperClassification/gatekeeperVerdict.
         qwen_observation = {}
 
         # ==========================================
@@ -577,9 +562,8 @@ class DealAnalyzer:
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
 
-            # Bascule 2026-09-20 (voir JOURNAL.md et config.py) : T1_GATEKEEPER_PROVIDER
-            # détermine qui décide réellement (accept/reject) — "qwen" par défaut depuis cette
-            # date, "gemini" en repli. L'autre fournisseur continue de tourner en miroir,
+            # T1_GATEKEEPER_PROVIDER détermine qui décide réellement (accept/reject) — "qwen" par
+            # défaut, "gemini" en repli. L'autre fournisseur continue de tourner en miroir,
             # best-effort, uniquement pour accumuler de la comparaison (jamais lu pour la
             # décision) — lancé en parallèle pour ne pas cumuler les deux latences sur chaque
             # annonce (~22s Qwen vs ~5s Gemini, peu importe lequel est réel).
@@ -604,18 +588,16 @@ class DealAnalyzer:
             qwen_observation = shadow_result_holder[0]
 
             if err_t1 or not result_t1:
-                # Fail-open vers l'Analyste — mais avec une alerte explicite (ajoutée 2026-09-20,
-                # revue de code) : contrairement à un simple retry Gemini, un échec du DÉCIDEUR
-                # T1 RÉEL revient à ne plus filtrer AUCUNE annonce (100% promues en Tier 2) tant
-                # que ça persiste — avant ce correctif, rien ne le signalait à l'utilisateur
-                # (seule la facture Gemini anormale l'aurait révélé, après coup).
+                # Fail-open vers l'Analyste — mais avec une alerte explicite : contrairement à un
+                # simple retry Gemini, un échec du DÉCIDEUR T1 RÉEL revient à ne plus filtrer
+                # AUCUNE annonce (100% promues en Tier 2) tant que ça persiste.
                 gatekeeper_status = "ERROR_GATEKEEPER"
                 gatekeeper_reason = err_t1 or "Le portier a planté silencieusement."
                 self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — fail-open vers l'Analyste (aucun filtrage T1 pour cette annonce) : {gatekeeper_reason}")
-                # Deux alertes distinctes (corrigé 2026-09-20) : ne prétendre "modèle retiré" que
-                # si l'erreur y ressemble vraiment (_is_model_unavailable_error) — sinon (image
-                # tronquée, panne réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne
-                # présume pas la cause. Les deux sont throttlées séparément (clé distincte).
+                # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
+                # ressemble vraiment (_is_model_unavailable_error) — sinon (image tronquée, panne
+                # réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne présume pas la
+                # cause. Les deux sont throttlées séparément (clé distincte).
                 if self._is_model_unavailable_error(gatekeeper_reason):
                     self._notify_model_unavailable(f"T1-{primary_provider}", gatekeeper_reason, user_email)
                 else:
@@ -629,12 +611,12 @@ class DealAnalyzer:
                 if gatekeeper_status == 'UNKNOWN':
                     gatekeeper_status = 'ERROR'
                     gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
-                
+
                 self.logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
 
                 legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
                 if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    return self._attach_gatekeeper_metadata(
+                    return (
                         {
                             "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
                             "classification": gatekeeper_classification,
@@ -644,7 +626,7 @@ class DealAnalyzer:
                     )
 
                 # ==========================================
-                # CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
+                # RATTRAPAGE CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
                 # ==========================================
                 # Le mode par défaut ("tout analyser, filtrer après") reste inchangé tant
                 # qu'aucune recherche active n'est configurée (`activeSearchFamilies` vide/absent).
@@ -654,12 +636,10 @@ class DealAnalyzer:
                 # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
                 # Garde-fou non négociable : un verdict pépite-tier (T1_PEPITE_TIER_VERDICTS)
                 # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
-                # Second garde-fou (trouvé en revue de code, 2026-09-20) : un verdict d'erreur
-                # (`T1_ERROR_STATUSES` — Portier planté ou réponse malformée) n'a par définition
-                # aucune classification fiable ; sans ce garde-fou, il se retrouvait routé vers
-                # NOT_PROMOTED (classification vide ⇒ aucune correspondance) au lieu du fail-open
-                # habituel vers l'Analyste — une vraie erreur silencieusement traitée comme un
-                # simple hors-filtre.
+                # Second garde-fou (Chantier H) : un verdict d'erreur (T1_ERROR_STATUSES — Portier
+                # planté ou réponse malformée) n'a par définition aucune classification fiable ;
+                # sans ce garde-fou, il se retrouvait routé vers NOT_PROMOTED (classification vide
+                # ⇒ aucune correspondance) au lieu du fail-open habituel vers l'Analyste.
                 active_search_families = config.get('activeSearchFamilies') or []
                 if (
                     active_search_families
@@ -672,7 +652,7 @@ class DealAnalyzer:
                             f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
                             f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
                         )
-                        return self._attach_gatekeeper_metadata(
+                        return (
                             {
                                 "verdict": "NOT_PROMOTED",
                                 "reasoning": (
@@ -701,7 +681,7 @@ class DealAnalyzer:
         result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
         
         if err_t2 or not result_t2:
-            return self._attach_gatekeeper_metadata(
+            return (
                 {
                     "verdict": gatekeeper_status, "reasoning": f"{gatekeeper_reason}\n\nErreur Tier 2 Analyste: {err_t2}",
                     "model_used": " -> ".join(model_chain) + " (Error)",
@@ -767,22 +747,15 @@ class DealAnalyzer:
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
                 result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
-                return self._attach_gatekeeper_metadata(
-                    result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
-                )
+                return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
 
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
             result_t3["tier3_trigger"] = trigger_reason
-            self._attach_gatekeeper_metadata(
-                result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
-            )
             self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
-            return result_t3
+            return (result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
 
         else:
             self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
             result_t2["model_used"] = " -> ".join(model_chain)
-            return self._attach_gatekeeper_metadata(
-                result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
-            )
+            return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)

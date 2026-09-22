@@ -79,14 +79,16 @@ GEMINI_MODELS = {
 }
 
 # --- CHANTIER H : BASCULE DU PORTIER (TIER 1) VERS QWEN (2026-09-20) ---
-# Historique : observation Qwen en parallèle depuis le 2026-09-13 (jamais décisionnelle), puis
-# analyse complète le 2026-09-20 — comparaison directe sur 166 annonces réelles
-# (`backend/scripts/compare_qwen_flashlite_agreement.py`) + lecture des verdicts T2/T3 déjà
-# écrits en base pour les 21 désaccords "coûteux" : 10/21 jamais promues en Tier 2
-# (`NOT_PROMOTED`, hors recherche active — aucune perte possible), 3/21 confirmées `BAD_DEAL`
-# par le Tier 2 lui-même (Qwen avait raison, pas Flash-Lite), 6/21 confirmées `FAIR` (marge
-# insuffisante pour un flip), 1/21 `LUTHIER_PROJ` marginal. Un seul cas réel de perte confirmée
-# sur 166 annonces (voir JOURNAL.md, 2026-09-20). Décision utilisateur : bascule.
+# Porté depuis `dev` sur cette branche Postgres le 2026-09-22 (jamais inclus dans le rattrapage
+# Chantier G du 2026-09-19 — exclusion délibérée à l'époque, "module d'observation séparé, jamais
+# utilisé pour la décision réelle"). Historique : observation Qwen en parallèle depuis le
+# 2026-09-13 (jamais décisionnelle), puis analyse complète le 2026-09-20 — comparaison directe sur
+# 166 annonces réelles (`backend/scripts/compare_qwen_flashlite_agreement.py`) + lecture des
+# verdicts T2/T3 déjà écrits en base pour les 21 désaccords "coûteux" : 10/21 jamais promues en
+# Tier 2 (`NOT_PROMOTED`, hors recherche active — aucune perte possible), 3/21 confirmées
+# `BAD_DEAL` par le Tier 2 lui-même (Qwen avait raison, pas Flash-Lite), 6/21 confirmées `FAIR`
+# (marge insuffisante pour un flip), 1/21 `LUTHIER_PROJ` marginal. Un seul cas réel de perte
+# confirmée sur 166 annonces. Décision utilisateur : bascule.
 #
 # `T1_GATEKEEPER_PROVIDER` détermine qui décide RÉELLEMENT (accept/reject) : "qwen" (nouveau
 # défaut) ou "gemini" (repli instantané vers le comportement historique, sans redéploiement de

@@ -12,6 +12,7 @@ print("--- DÉMARRAGE DU SCRIPT MAIN.PY ---", flush=True)
 
 from config import APP_ID_TARGET, USER_IDS_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
+from backend.pg_db import init_pool as init_pg_pool, close_pool as close_pg_pool
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
@@ -52,7 +53,7 @@ def _trigger_stop_scan(scan_stop_event):
     threading.Thread(target=_reset, daemon=True).start()
 
 
-def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
+def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
     logger = logging.getLogger(__name__)
     logger.info("--- Démarrage de la boucle principale ---")
 
@@ -73,6 +74,7 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
         # bot.py::add_city_auto().
         'ADD_CITY': lambda payload: bot.add_city_auto(payload),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
+        # Rattrapage Chantier G (2026-09-19) : voir bot.py::reevaluate_not_promoted.
         'REEVALUATE_NOT_PROMOTED': lambda _: bot.reevaluate_not_promoted(),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),
@@ -191,11 +193,11 @@ def main_loop(bot, firestore_handler, stop_event, start_event, scan_stop_event):
                 time.sleep(15)
     finally:
         logger.info("Arrêt de la boucle principale. Nettoyage...")
-        if firestore_handler:
-            firestore_handler.close()
+        if pg_handler:
+            pg_handler.close()
 
 
-def _create_user_bot(db_service, user_id):
+def _create_user_bot(pg_pool, storage_bucket, user_id):
     """Instancie un GuitarHunterBot + ses events pour un utilisateur donné.
     Retourne (bot, stop_event, start_event, scan_stop_event) ou lève une exception."""
     stop_event = threading.Event()
@@ -203,8 +205,8 @@ def _create_user_bot(db_service, user_id):
     scan_stop_event = threading.Event()
 
     bot = GuitarHunterBot(
-        db_service.db,
-        db_service.bucket,
+        pg_pool,
+        storage_bucket,
         is_offline=False,
         stop_event=stop_event,
         scan_stop_event=scan_stop_event,
@@ -225,32 +227,32 @@ def _get_user_label(uid):
         return uid[:8]
 
 
-def discover_users(db, app_id):
-    """Scanne Firestore pour trouver tous les UIDs enregistrés sous l'App ID."""
+def discover_users(pg_pool):
+    """Lit la table `users` Postgres pour trouver tous les UIDs enregistrés."""
     try:
-        users_ref = db.collection('artifacts').document(app_id).collection('users')
-        docs = users_ref.stream()
-        return [doc.id for doc in docs]
+        with pg_pool.connection() as conn:
+            rows = conn.execute("SELECT uid FROM users").fetchall()
+        return [row["uid"] for row in rows]
     except Exception as e:
         logging.getLogger(__name__).error(f"Erreur lors de la découverte des utilisateurs : {e}")
         return []
 
 
-def start_user_bot(user_id, db_service, user_contexts, offline_mode=False):
+def start_user_bot(user_id, pg_pool, storage_bucket, user_contexts, offline_mode=False):
     """Initialise et démarre un bot pour un utilisateur s'il n'existe pas déjà."""
     if user_id in user_contexts:
         return False
 
     label = _get_user_label(user_id)
     logging.getLogger(__name__).info(f"🆕 Nouveau bot détecté pour {label}. Initialisation...")
-    
+
     try:
-        firestore_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
-        bot, stop_event, start_event, scan_stop_event = _create_user_bot(db_service, user_id)
+        pg_handler = setup_logging(pg_pool, user_id, offline_mode)
+        bot, stop_event, start_event, scan_stop_event = _create_user_bot(pg_pool, storage_bucket, user_id)
 
         t = threading.Thread(
             target=main_loop,
-            args=(bot, firestore_handler, stop_event, start_event, scan_stop_event),
+            args=(bot, pg_handler, stop_event, start_event, scan_stop_event),
             daemon=True,
             name=f"bot-{label}"
         )
@@ -260,7 +262,7 @@ def start_user_bot(user_id, db_service, user_contexts, offline_mode=False):
             "stop_event": stop_event,
             "start_event": start_event,
             "scan_stop_event": scan_stop_event,
-            "firestore_handler": firestore_handler,
+            "pg_handler": pg_handler,
         }
         t.start()
         print(f"✅ Bot démarré pour {label}", flush=True)
@@ -272,7 +274,7 @@ def start_user_bot(user_id, db_service, user_contexts, offline_mode=False):
 
 def main():
     """Point d'entrée principal de l'application."""
-    print("DEBUG: Initialisation de la DB...", flush=True)
+    print("DEBUG: Initialisation Firebase (Auth + Storage)...", flush=True)
     db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
     offline_mode = db_service.offline_mode
 
@@ -280,17 +282,21 @@ def main():
         print("Le bot est en mode hors ligne. Sortie.", flush=True)
         sys.exit(1)
 
+    print("DEBUG: Initialisation du pool Postgres...", flush=True)
+    pg_pool = init_pg_pool()
+    print("Pool Postgres initialisé.", flush=True)
+
     print(f"🎸 MAX_CONCURRENT_BROWSERS = {MAX_CONCURRENT_BROWSERS}", flush=True)
 
-    # Dictionnaire : user_id -> { thread, bot, stop_event, start_event, scan_stop_event, firestore_handler }
+    # Dictionnaire : user_id -> { thread, bot, stop_event, start_event, scan_stop_event, pg_handler }
     user_contexts = {}
 
-    # Premier scan au démarrage
-    discovered_uids = discover_users(db_service.db, APP_ID_TARGET)
+    # Amorce : utilisateurs déjà présents dans Postgres + ceux forcés par config
+    discovered_uids = discover_users(pg_pool)
     all_target_uids = list(set(USER_IDS_TARGET + discovered_uids))
-    
+
     for user_id in all_target_uids:
-        start_user_bot(user_id, db_service, user_contexts, offline_mode)
+        start_user_bot(user_id, pg_pool, db_service.bucket, user_contexts, offline_mode)
 
     print(f"✅ {len(user_contexts)} bot(s) actif(s). Watchdog et Découverte dynamique activés.", flush=True)
 
@@ -300,7 +306,7 @@ def main():
     schedule.every().day.at("03:00").do(run_admin_stats_job, db_service).tag('admin_stats')
 
     # Job global (singleton) : rétention de l'archive de logs locale (backend/logging_config.py,
-    # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Firestore/db_service.
+    # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Postgres.
     schedule.every().day.at("03:15").do(run_log_retention_job).tag('log_retention')
 
     try:
@@ -308,34 +314,27 @@ def main():
         while True:
             time.sleep(WATCHDOG_INTERVAL)
             try:
-                # schedule.run_pending() exécute TOUS les jobs dus sur le scheduler global
-                # partagé (pas seulement admin_stats — chaque TaskScheduler par-utilisateur
-                # y enregistre aussi scan/cleanup/purge, voir services.py). Non protégé, une
-                # exception ici sortirait de cette boucle watchdog (seul `except
-                # KeyboardInterrupt` l'entoure) et tuerait tout le process, tous utilisateurs
-                # confondus — contrairement à la boucle par-utilisateur (plus bas) qui capture
-                # déjà ses propres erreurs et survit.
                 schedule.run_pending()
             except Exception as e:
                 logging.getLogger(__name__).error(f"Erreur dans schedule.run_pending() (watchdog) : {e}", exc_info=True)
 
-            # 1. Découverte de nouveaux utilisateurs
-            current_uids = discover_users(db_service.db, APP_ID_TARGET)
-            
-            # 2. Suppression des bots obsolètes (utilisateurs supprimés de Firestore)
+            # 1. Découverte de nouveaux utilisateurs (depuis Postgres)
+            current_uids = discover_users(pg_pool)
+
+            # 2. Suppression des bots obsolètes
             for uid in list(user_contexts.keys()):
                 if uid not in current_uids and uid not in USER_IDS_TARGET:
                     label = _get_user_label(uid)
-                    logging.getLogger(__name__).info(f"🗑️ Utilisateur {label} retiré de Firestore. Nettoyage du bot...")
+                    logging.getLogger(__name__).info(f"🗑️ Utilisateur {label} retiré de Postgres. Nettoyage du bot...")
                     ctx = user_contexts.pop(uid)
-                    ctx["stop_event"].set() # On demande l'arrêt (mise en pause)
-                    if ctx.get("firestore_handler"):
-                        ctx["firestore_handler"].close()
+                    ctx["stop_event"].set()
+                    if ctx.get("pg_handler"):
+                        ctx["pg_handler"].close()
 
             # 3. Lancement des nouveaux bots
             for uid in current_uids:
                 if uid not in user_contexts:
-                    start_user_bot(uid, db_service, user_contexts, offline_mode)
+                    start_user_bot(uid, pg_pool, db_service.bucket, user_contexts, offline_mode)
 
             # 4. Watchdog : redémarre les threads morts
             for user_id, ctx in list(user_contexts.items()):
@@ -346,10 +345,9 @@ def main():
                         f"⚠️ Thread bot-{label} est mort ! Tentative de redémarrage..."
                     )
                     try:
-                        # On recrée un handler car le précédent a été fermé dans le bloc 'finally' du thread mort
-                        new_handler = setup_logging(db_service.db, APP_ID_TARGET, user_id, offline_mode)
-                        new_bot, new_stop, new_start, new_scan_stop = _create_user_bot(db_service, user_id)
-                        
+                        new_handler = setup_logging(pg_pool, user_id, offline_mode)
+                        new_bot, new_stop, new_start, new_scan_stop = _create_user_bot(pg_pool, db_service.bucket, user_id)
+
                         new_t = threading.Thread(
                             target=main_loop,
                             args=(new_bot, new_handler, new_stop, new_start, new_scan_stop),
@@ -362,7 +360,7 @@ def main():
                             "stop_event": new_stop,
                             "start_event": new_start,
                             "scan_stop_event": new_scan_stop,
-                            "firestore_handler": new_handler,
+                            "pg_handler": new_handler,
                         })
                         new_t.start()
                         logging.getLogger(__name__).info(f"✅ Bot pour {label} redémarré avec un nouveau handler.")
@@ -375,8 +373,9 @@ def main():
         logging.getLogger(__name__).info("Interruption clavier reçue. Arrêt du bot.")
     finally:
         for ctx in user_contexts.values():
-            if ctx.get("firestore_handler"):
-                ctx["firestore_handler"].close()
+            if ctx.get("pg_handler"):
+                ctx["pg_handler"].close()
+        close_pg_pool()
         sys.exit(0)
 
 

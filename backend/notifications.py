@@ -305,13 +305,13 @@ class NotificationService:
         """
         Alerte (email + ntfy) quand le Portier T1 réel échoue pour une cause QUELCONQUE, sans
         présumer qu'un modèle est mort — contrairement à `notify_model_error`, écrit
-        spécifiquement pour une dépréciation de modèle Gemini. Ajoutée le 2026-09-20 (Chantier H,
-        bascule T1_GATEKEEPER_PROVIDER) : un échec du décideur T1 réel — quelle qu'en soit la
-        cause (image corrompue/tronquée, panne réseau, panne TokenRouter, modèle effectivement
-        indisponible...) — signifie qu'aucun filtrage T1 n'a lieu sur cette annonce (fail-open
-        intégral vers l'Analyste), ce qui reste digne d'alerte même quand ce n'est pas un modèle
-        qui a disparu. Correctif du 2026-09-20 : `notify_model_error` était réutilisée à tort pour
-        TOUT échec du Portier, affirmant à tort "modèle retiré" pour une simple image tronquée.
+        spécifiquement pour une dépréciation de modèle Gemini. Chantier H (bascule
+        T1_GATEKEEPER_PROVIDER), porté depuis dev le 2026-09-22 : un échec du décideur T1 réel —
+        quelle qu'en soit la cause (image corrompue/tronquée, panne réseau, panne TokenRouter,
+        modèle effectivement indisponible...) — signifie qu'aucun filtrage T1 n'a lieu sur cette
+        annonce (fail-open intégral vers l'Analyste), ce qui reste digne d'alerte même quand ce
+        n'est pas un modèle qui a disparu. `notify_model_error` était réutilisée à tort pour TOUT
+        échec du Portier, affirmant à tort "modèle retiré" pour une simple image tronquée.
         Throttlée en amont par l'appelant (1x/24h/provider), même mécanisme que `notify_model_error`.
 
         Args:
