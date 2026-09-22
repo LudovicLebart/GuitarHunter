@@ -21,7 +21,12 @@ from psycopg.rows import dict_row
 SCHEMA_PATH = Path(__file__).parent / "api" / "schema.sql"
 
 # Même défaut que backend/api/db.py (Postgres local, auth locale sans mot de passe réseau).
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter")
+# .replace("\r", "").strip() : ce fichier n'avait pas hérité du même durcissement que
+# backend/api/db.py (trouvé le 2026-09-21 sur guitarhunter-api-prod, un \r embarqué dans
+# ~/.guitarhunter_prod_db.env cassait le parsing du DSN) — la bascule réelle du bot
+# (2026-09-22) a immédiatement reproduit le même symptôme (password authentication failed,
+# le \r se retrouvant collé au mot de passe envoyé au serveur) faute de ce filet ici aussi.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter").replace("\r", "").strip()
 
 _pool: ConnectionPool | None = None
 
