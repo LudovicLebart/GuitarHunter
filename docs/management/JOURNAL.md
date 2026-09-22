@@ -1,5 +1,9 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-21] [PRO] Merge dev/master, étape 2/5 : `backend/api/*` (20 fichiers) poussé sur `dev` (commit `8622471`).
+- Même méthode que l'étape 1 : `git worktree` séparé depuis `origin/dev`, code seul (rien sur `dev` ne l'importe/le déploie encore), déploiement observé en direct — `guitare-hunter` toujours actif, logs normaux.
+- **État** : `dev` a maintenant `schema.sql` + `backend/api/*`. Reste : `bot.py`/`main.py` (le morceau sensible, secret `DOT_ENV` déjà prêt) → frontend → `deploy.yml`. `master` toujours pas touché.
+
 [2026-09-21] [PRO] Merge dev/master, étape 1/5 : `backend/api/schema.sql` poussé sur `dev` (commit `cb58218`).
 - **Préalable fait par l'utilisateur** : secret GitHub `DOT_ENV` mis à jour (`DATABASE_URL` de `guitarhunter_pg_prod` + `VITE_API_BASE_URL` ajoutés à l'`.env` existant) — prêt pour les étapes 3/4 du plan, sans effet pour l'instant (rien ne le lit encore).
 - **Exécution** : nouvelle branche depuis `origin/dev` (dans un `git worktree` séparé, pas la branche de migration — évite tout risque de collision avec la session parallèle), un seul fichier ajouté (`schema.sql`, idempotent, rien sur `dev` ne le lit encore), poussé directement vers `origin/dev`.
