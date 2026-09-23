@@ -1,5 +1,15 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-23] [PRO] 🎉 Migration Firestore → Postgres terminée : `master` fast-forwardé sur `dev` (commit `bbac5a1`).
+- **Contexte** : `master` était exactement l'ancêtre commun avec `dev` (aucun commit unique côté `master`, vérifié via `git log origin/dev..origin/master` — vide) — un simple fast-forward a suffi, aucun merge/conflit à résoudre. `git push origin origin/dev:master`, 95 commits / 63 fichiers avancés d'un coup (rien de nouveau exécuté : tout le contenu était déjà déployé en prod via `dev` depuis les étapes 1-5).
+- **Déploiement re-déclenché** (le workflow écoute `master` ET `dev`, même serveur/services) : run `35812867805`, tous les jobs/étapes verts (`deploy-frontend` + `deploy`). **No-op confirmé en conditions réelles** — même hash de bundle GitHub Pages (`index-O3xpleZS.js`, identique à l'étape 4), `/prod/health` toujours 200.
+- **État final de la migration** :
+  - Le bot réel écrit dans `guitarhunter_pg_prod` (Postgres), plus dans Firestore, pour toutes les données métier (annonces/config/commandes) — Firestore reste utilisé pour Auth/Storage uniquement.
+  - Le frontend réel (`apiService.js`) parle à `guitarhunter-api-prod` via Tailscale Funnel (`https://serveur.tail16b52e.ts.net/prod`).
+  - `deploy.yml` gère désormais automatiquement les 3 services (`guitare-hunter`, `guitarhunter-api` staging, `guitarhunter-api-prod`) à chaque push sur `dev`/`master`.
+  - `master` et `dev` sont synchronisés, aucune divergence.
+- **Reste ouvert (post-migration, pas bloquant)** : Phase B.5 formelle (gel/dégel Firestore, `CUTOVER_RUNBOOK.md` §2) jugée supersédée par la bascule live incrémentale — à confirmer explicitement avec l'utilisateur qu'elle n'est plus nécessaire. Phase B.6 (mise à jour `ARCHITECTURE.md`/`DATA_FLOW.md` pour refléter le schéma Postgres partagé). Phase B.7 (suppression du conteneur `guitarhunter_pg_staging`, devenu obsolète).
+
 [2026-09-23] [PRO] Merge dev/master, étape 5/5 : `deploy.yml` automatise le redémarrage de `guitarhunter-api-prod`.
 - **Contexte** : dernière étape (optionnelle) du plan — jusqu'ici `guitarhunter-api-prod` (port 8001, `~/guitarhunter-api-prod`, voir JOURNAL.md 2026-09-21) était déployé/redémarré à la main. Le bloc staging existant (`guitarhunter-api`, port 8000) automatise déjà ce type de resync depuis le 2026-09-13 — même patron appliqué ici.
 - **Vérification préalable avant d'écrire quoi que ce soit** : demandé à l'utilisateur le contenu réel de `/etc/systemd/system/guitarhunter-api-prod.service` plutôt que de le deviner (discipline appliquée après les 2 incidents de la veille dus à des suppositions non vérifiées sur l'état serveur). Révèle une config plus subtile que prévu : `WorkingDirectory=~/guitarhunter-api-prod` mais `ExecStart` pointe vers le venv de `~/GuitareHunter` (réutilisé, pas un venv dédié) ; `EnvironmentFile` empile `~/GuitareHunter/.env` (Firebase, commun) PUIS `~/.guitarhunter_prod_db.env` (override `DATABASE_URL` vers `guitarhunter_pg_prod`, systemd donnant priorité au dernier fichier listé pour une clé dupliquée).
