@@ -212,3 +212,27 @@ jobs:
                 echo "❌ ÉCHEC de la configuration du service guitarhunter-api."
               fi
             fi
+
+            echo "--- Service API PROD (Phase B.4, guitarhunter_pg_prod) ---"
+            # guitarhunter-api-prod tourne dans un répertoire dédié (~/guitarhunter-api-prod,
+            # voir JOURNAL.md 2026-09-21) pour ne jamais dépendre d'un `git reset --hard` futur sur
+            # ~/GuitareHunter — mais réutilise le venv et le `.env` (Firebase) de ~/GuitareHunter,
+            # overridés par ~/.guitarhunter_prod_db.env pour DATABASE_URL (le fichier .service
+            # lui-même, déjà en place manuellement, n'est pas retouché ici). backend/api/* et
+            # backend/deal_mapping.py (seul import hors backend/api/ que nécessite
+            # backend.api.main:app, vérifié 2026-09-23) sont désormais mergés sur dev — ce bloc se
+            # contente de les resynchroniser vers ce répertoire séparé avant de redémarrer.
+            if ! sudo -n -l 2>/dev/null | grep -q guitarhunter-api-prod; then
+              echo "⚠️ Pas de règle sudoers NOPASSWD couvrant guitarhunter-api-prod — resynchronisation ignorée."
+              echo "   Pour l'activer, ajouter au sudoers (visudo) une règle couvrant :"
+              echo "   /bin/systemctl restart guitarhunter-api-prod"
+            else
+              mkdir -p ~/guitarhunter-api-prod/backend
+              cp -r backend/api ~/guitarhunter-api-prod/backend/
+              cp backend/__init__.py backend/deal_mapping.py ~/guitarhunter-api-prod/backend/
+              if sudo -n systemctl restart guitarhunter-api-prod; then
+                echo "✅ Service guitarhunter-api-prod resynchronisé et redémarré avec succès (127.0.0.1:8001)."
+              else
+                echo "❌ ÉCHEC du redémarrage de guitarhunter-api-prod."
+              fi
+            fi
