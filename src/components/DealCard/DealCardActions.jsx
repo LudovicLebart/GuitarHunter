@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle, ShoppingBag } from 'lucide-react';
-import { createSharedDeal } from '../../services/firestoreService';
+import { createSharedDeal } from '../../services/apiService';
 
 // Actions de gestion de l'annonce (Favori, Acheté, Ré-analyser, Rejeter, Supprimer).
 // Extrait de l'ancien DealCardActions monolithique (2026-08-22) pour permettre à la modale

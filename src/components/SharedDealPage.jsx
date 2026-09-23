@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ExternalLink, MapPin, Guitar } from 'lucide-react';
-import { getSharedDeal } from '../services/firestoreService';
+import { getSharedDeal } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 

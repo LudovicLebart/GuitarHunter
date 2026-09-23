@@ -4,7 +4,7 @@ import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestor
 import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { useBotConfigContext } from '../context/BotConfigContext';
-import { requestClearLogs } from '../services/firestoreService';
+import { requestClearLogs } from '../services/apiService';
 
 const LogViewer = ({ onClose }) => {
   const { user } = useAuth();

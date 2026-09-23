@@ -2,7 +2,7 @@ import React from 'react';
 import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, ShieldCheck } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
-import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/firestoreService';
+import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/apiService';
 
 const StatusDot = ({ ok, label, title }) => (
     <div className="flex items-center gap-1.5 text-[11px] font-bold" title={title}>

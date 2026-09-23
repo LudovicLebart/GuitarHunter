@@ -20,14 +20,23 @@ def _make_bot():
     seuls les attributs lus par _run_kijiji_scan/should_skip_deal/handle_deal_found sont
     posés à la main. handle_deal_found et should_skip_deal sont mockés : on teste
     l'orchestration de _run_kijiji_scan elle-même, pas le pipeline de traitement complet
-    (déjà hors scope du module Kijiji autonome)."""
+    (déjà hors scope du module Kijiji autonome).
+
+    `_local` (Chantier H, porté 2026-09-22) : `_run_kijiji_scan` passe désormais par
+    `_dispatch_analysis_batch`, qui alimente `session_processed_ids` (backé par
+    `threading.local()`, posé dans `__init__`, jamais appelé ici) — sans cet attribut,
+    l'accès à la propriété lève `AttributeError` dès le premier lot traité.
+    `handle_deal_found` renvoie explicitement `"processed"` (au lieu du MagicMock par
+    défaut) pour refléter le vrai contrat de la méthode (toujours une chaîne d'issue),
+    dont `_dispatch_analysis_batch` dépend pour agréger `cycle_stats`."""
     bot = GuitarHunterBot.__new__(GuitarHunterBot)
     bot.logger = MagicMock()
     bot._user_id = "test_user_id"
     bot.stop_event = None
     bot.scan_stop_event = None
     bot._browser_semaphore = None
-    bot.handle_deal_found = MagicMock()
+    bot._local = threading.local()
+    bot.handle_deal_found = MagicMock(return_value="processed")
     bot.should_skip_deal = MagicMock(return_value=False)
     return bot
 

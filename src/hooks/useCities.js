@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { onCitiesUpdate, requestAddCity, deleteCity, toggleCityScannable, setCityKijijiRadius, onCommandUpdate } from '../services/firestoreService';
+import { onCitiesUpdate, requestAddCity, deleteCity, toggleCityScannable, setCityKijijiRadius, onCommandUpdate } from '../services/apiService';
 
 export const useCities = (user, setError) => {
   const [cities, setCities] = useState([]);
