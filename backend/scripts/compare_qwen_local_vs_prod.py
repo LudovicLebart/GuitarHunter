@@ -24,6 +24,12 @@ Dépendances (à installer sur le serveur si absentes) : psycopg[binary], openai
 
 Usage :
     python -m backend.scripts.compare_qwen_local_vs_prod --limit 15
+    python -m backend.scripts.compare_qwen_local_vs_prod --limit 15 --model qwen3-vl:4b  (repli si le 8B étouffe)
+
+Corrections Chantier I-0 (TODO.md, 2026-09-24) appliquées ici : plafond de 4 images/annonce et
+`num_ctx` fixé (marge VRAM sur le 8B, 8Go de la RTX 2060 Super), VRAM Ollama (`/api/ps`) loggée
+avant/après le run, `--model` pour basculer sur le repli `qwen3-vl:4b`, métriques taux JSON
+valide / latence P90 / taux de statuts hors enum en fin de résumé.
 """
 import argparse
 import base64
@@ -85,6 +91,19 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
 QWEN_LOCAL_BASE_URL = os.getenv("QWEN_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1")
 QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b")
 QWEN_LOCAL_API_KEY = os.getenv("QWEN_LOCAL_API_KEY", "ollama")
+# Endpoint natif Ollama (pas /v1, l'API compatible OpenAI n'expose pas /api/ps) — même host/port,
+# utilisé uniquement pour lire la VRAM des modèles chargés (Chantier I-0, marge VRAM sur le 8B).
+QWEN_LOCAL_NATIVE_BASE_URL = QWEN_LOCAL_BASE_URL.rsplit("/v1", 1)[0]
+
+# Chantier I-0 (TODO.md, 2026-09-24) : la RTX 2060 Super du Dell n'a que ~1,2 Go de marge avec le
+# 8B (6982/8192 MiB mesurés à l'installation) — Qwen3-VL supporte nativement un contexte bien plus
+# grand (dizaines de milliers de tokens), et Ollama dimensionne le cache KV en VRAM sur cette base
+# si rien n'est précisé. Fixé à une valeur plafond largement suffisante pour le prompt Portier
+# (taxonomie + few-shot, quelques milliers de tokens) mais bien en-deçà du défaut du modèle.
+QWEN_LOCAL_NUM_CTX = int(os.getenv("QWEN_LOCAL_NUM_CTX", "8192"))
+# Idem : chaque image consomme du contexte une fois encodée — plafonné à 4 (au lieu de 8, le
+# plafond utilisé ailleurs dans le projet pour les appels cloud) pour rester sous la marge VRAM.
+MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "4"))
 
 
 def _is_rejected(verdict):
@@ -135,9 +154,12 @@ def _construct_base_user_prompt(listing_data, main_prompt_template, taxonomy_dat
     )
 
 
-def _call_qwen_local_json(prompt, images):
+def _call_qwen_local_json(prompt, images, model):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
-    renvoie toujours (dict|None, erreur|None), comme _call_openai_compatible_json (analyzer.py)."""
+    renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
+    _call_openai_compatible_json (analyzer.py) pour les deux premiers éléments. `num_ctx` fixé
+    (Chantier I-0, marge VRAM) via `extra_body` — seul moyen de faire passer une option Ollama
+    par l'API compatible OpenAI, qui ignore tout champ hors du schéma OpenAI standard sinon."""
     try:
         client = OpenAI(api_key=QWEN_LOCAL_API_KEY, base_url=QWEN_LOCAL_BASE_URL, timeout=120)
         content = [{"type": "text", "text": prompt}]
@@ -147,11 +169,16 @@ def _call_qwen_local_json(prompt, images):
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
         response = client.chat.completions.create(
-            model=QWEN_LOCAL_MODEL,
+            model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX}},
         )
         text = response.choices[0].message.content.strip()
+    except Exception as e:
+        return None, str(e), False
+
+    try:
         if text.startswith("```"):
             text = text.strip("`")
             if text.lower().startswith("json"):
@@ -159,9 +186,40 @@ def _call_qwen_local_json(prompt, images):
         result = json.loads(text.strip())
         if isinstance(result, list):
             result = result[0] if result and isinstance(result[0], dict) else {}
-        return result, None
+        return result, None, True
     except Exception as e:
-        return None, str(e)
+        return None, f"réponse non-JSON : {e}", False
+
+
+def _log_ollama_vram(label):
+    """Chantier I-0 : logue les modèles actuellement chargés en VRAM sur le Dell (endpoint natif
+    Ollama /api/ps, absent de l'API compatible OpenAI) — repère visuel de marge avant/après le
+    run, pas une mesure exacte (la VRAM totale du GPU n'est pas exposée par cet endpoint)."""
+    try:
+        resp = requests.get(f"{QWEN_LOCAL_NATIVE_BASE_URL}/api/ps", timeout=10)
+        resp.raise_for_status()
+        models = resp.json().get("models", [])
+        if not models:
+            print(f"  📊 VRAM Ollama ({label}) : aucun modèle chargé.")
+            return
+        for m in models:
+            size_vram_gb = m.get("size_vram", 0) / (1024 ** 3)
+            print(f"  📊 VRAM Ollama ({label}) : {m.get('name')} — {size_vram_gb:.2f} Go en VRAM.")
+    except Exception as e:
+        print(f"  ⚠️ Lecture VRAM Ollama ({label}) impossible : {e}")
+
+
+def _percentile(values, pct):
+    """P90 (ou autre) sans dépendance numpy — interpolation linéaire simple, suffisante pour un
+    script de diagnostic ponctuel."""
+    if not values:
+        return None
+    s = sorted(values)
+    k = (len(s) - 1) * (pct / 100)
+    f, c = int(k), min(int(k) + 1, len(s) - 1)
+    if f == c:
+        return s[f]
+    return s[f] + (s[c] - s[f]) * (k - f)
 
 
 def _get_user_analysis_config(conn, user_id, cache):
@@ -192,11 +250,15 @@ def main():
         description="Compare qwen_local (Dell) au verdict Portier déjà en base (Postgres, Chantier A)."
     )
     parser.add_argument("--limit", type=int, default=15, help="Nombre d'annonces à rejouer (défaut : 15).")
+    parser.add_argument("--model", default=QWEN_LOCAL_MODEL,
+                         help="Modèle Ollama à interroger (défaut : qwen3-vl:8b). "
+                              "Repli si le 8B étouffe : qwen3-vl:4b.")
     args = parser.parse_args()
 
     est_minutes = round(args.limit * 20 / 60, 1)
     print(f"🔍 Connexion à {DATABASE_URL.split('@')[-1]} — jusqu'à {args.limit} annonce(s) "
-          f"à rejouer sur qwen_local (~{est_minutes} min estimées, ~20s/annonce).")
+          f"à rejouer sur {args.model} (~{est_minutes} min estimées, ~20s/annonce).")
+    _log_ollama_vram("avant le run")
 
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
@@ -224,6 +286,9 @@ def main():
         cloud_reject_local_accept = []
         n_excluded_invalid = 0
         n_failed_call = 0
+        n_json_valid = 0
+        n_status_out_of_enum = 0
+        latencies_s = []
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -250,11 +315,14 @@ def main():
             # peut avoir expiré depuis l'analyse d'origine) — même priorité que le reste du projet.
             image_urls = row.get("storage_image_urls") or row.get("image_urls") or []
             image_urls = json.loads(image_urls) if isinstance(image_urls, str) else image_urls
-            images = [img for url in image_urls[:8] if (img := _download_and_optimize_image(url))]
+            images = [img for url in image_urls[:MAX_IMAGES] if (img := _download_and_optimize_image(url))]
 
             t0 = time.monotonic()
-            result, err = _call_qwen_local_json(full_prompt_t1, images)
+            result, err, json_valid = _call_qwen_local_json(full_prompt_t1, images, args.model)
             latency_s = round(time.monotonic() - t0, 1)
+            latencies_s.append(latency_s)
+            if json_valid:
+                n_json_valid += 1
 
             if err or not result:
                 print(f"  ❌ Échec qwen_local ({latency_s}s) : {err}")
@@ -263,6 +331,9 @@ def main():
 
             local_verdict = (result.get("status") or "UNKNOWN").upper()
             print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s)")
+            if local_verdict not in T1_VALID_STATUSES:
+                n_status_out_of_enum += 1
+                print(f"  ⚠️ Statut hors enum T1 attendu : {local_verdict!r}")
 
             c_rej, l_rej = _is_rejected(cloud_verdict), _is_rejected(local_verdict)
             if not c_rej and not l_rej:
@@ -274,10 +345,21 @@ def main():
             else:
                 cloud_reject_local_accept.append((row, cloud_verdict, local_verdict, result.get("reasoning")))
 
+        _log_ollama_vram("après le run")
+
         n = agree_accept + agree_reject + len(cloud_accept_local_reject) + len(cloud_reject_local_accept)
+        n_attempted = n + n_failed_call
+        json_valid_rate = (100 * n_json_valid / n_attempted) if n_attempted else 0.0
+        p90_latency_s = _percentile(latencies_s, 90)
+        out_of_enum_rate = (100 * n_status_out_of_enum / n_json_valid) if n_json_valid else 0.0
+
         print(f"\n{'=' * 60}\nRÉSUMÉ ({n} comparaison(s) valide(s), "
               f"{n_excluded_invalid} exclue(s) verdict cloud invalide, "
               f"{n_failed_call} échec(s) d'appel qwen_local)\n{'=' * 60}")
+        print(f"  Taux JSON valide : {n_json_valid}/{n_attempted} ({json_valid_rate:.1f}%)")
+        print(f"  Latence P90 : {p90_latency_s:.1f}s" if p90_latency_s is not None else "  Latence P90 : n/a")
+        print(f"  Statuts hors enum T1 (sur JSON valides) : {n_status_out_of_enum}/{n_json_valid} "
+              f"({out_of_enum_rate:.1f}%)")
         if n == 0:
             print("Aucune comparaison valide obtenue.")
             return
@@ -300,11 +382,17 @@ def main():
     out_path = os.path.join(RESULTS_DIR, "compare_qwen_local_vs_prod.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({
+            "model": args.model,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,
             "n_excluded_invalid": n_excluded_invalid,
             "n_failed_call": n_failed_call,
+            "n_json_valid": n_json_valid,
+            "json_valid_rate_pct": round(json_valid_rate, 1),
+            "p90_latency_s": p90_latency_s,
+            "n_status_out_of_enum": n_status_out_of_enum,
+            "out_of_enum_rate_pct": round(out_of_enum_rate, 1),
             "cloud_accept_local_reject": [
                 {"id": row["id"], "title": row.get("title"), "link": row.get("link"),
                  "cloud_verdict": cv, "local_verdict": lv, "local_reasoning": reasoning}
