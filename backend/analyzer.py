@@ -311,6 +311,18 @@ class DealAnalyzer:
                 messages=[{"role": "user", "content": content}],
                 response_format=response_format or {"type": "json_object"},
             )
+            # Log token usage (patch Chantier C-0 : rendre visible le Portier T1 Qwen dans le dashboard)
+            if hasattr(response, "usage") and response.usage:
+                image_count = len(images)
+                prompt_tokens = getattr(response.usage, "prompt_tokens", 0)
+                completion_tokens = getattr(response.usage, "completion_tokens", 0)
+                self.logger.info(
+                    f"[tokens] model={model_name} images={image_count} "
+                    f"in={prompt_tokens} "
+                    f"out={completion_tokens} "
+                    f"cached=0 "
+                    f"total={prompt_tokens + completion_tokens}"
+                )
             cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
             result = json.loads(cleaned_text)
             if isinstance(result, list):
