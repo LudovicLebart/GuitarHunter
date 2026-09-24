@@ -11,6 +11,36 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🎯 Priorité Immédiate — Chantiers C/I/V/M (2026-09-24)
+
+*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
+
+**Objectif primaire : la facture.** Chaque chantier classé par ce qu'il rapporte en dollars. Chantiers sans gain économique direct (I — Qwen local, M — Mentor RAG) justifiés comme coût de plaisir/apprentissage, **jamais comme économies**.
+
+- [ ] **Chantier C-0 — Dashboard de coût par poste (1 semaine, zéro appel IA)**
+  - Postes : T1 Qwen, miroir Flash-Lite, T2, T3, chat (par modèle), Firestore, Storage.
+  - Sources déjà en place : logs `[tokens]` d'`analyzer.py`, `usage_metadata` chat, facture Google Cloud.
+  - Sortie : script + carte tableau de bord admin, coût/jour par poste, relancé chaque semaine.
+  - **Aucune optimisation ne démarre avant ce chiffre.**
+
+- [ ] **Chantier I-0 — Rejeu Qwen local, 3 corrections avant lancement (cette semaine)**
+  - VRAM : 1,2 Go de marge sur le 8B (`num_ctx` fixé, 4 images max, ollama ps loggé).
+  - Candidat 4B (`qwen3-vl:4b`) si 8B étouffé.
+  - Métriques JSON : taux JSON valide, latence P90, taux statuts hors enum.
+  - Cible : `--limit 15` (validation tech), puis ≥150 annonces.
+
+- [ ] **Chantier V-0 — Couverture (1 semaine, lecture seule, zéro appel IA)**
+  - Sur les ~6500 annonces, pour chaque promue en T2, compter comparables trouvés par filtre SQL + rapprochement naïf.
+  - Résultat : carte de couverture par famille × tranche de prix.
+  - Décide où les sources externes (Reverb, détaillants, eBay) sont indispensables.
+
+- [ ] **Décisions préalables à trancher** (voir plan complet pour détail)
+  - C-0b : Mentor (M) accepté comme coût de plaisir sur chat allégé (C-1) ?
+  - C-1/I-0/V-2 : modèles requis (FLASH vs PRO) avant de coder.
+  - V : quelles sources externes à ingérer ?
+
+---
+
 ## 🗄️ Migration Firestore → solution auto-hébergée (Plan sommaire — 2026-09-05)
 
 *Déclenché par l'analyse des factures GeminiDev (août/septembre 2026) : Firestore pèse ~16-20% de la facture (16,16$ sur 102,57$ en août), avec une tendance à la hausse sur les lectures/écritures (+41%/+74% en septembre). Plan : `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md`. Chantier démarré (2026-09-09) sur la branche dédiée `claude/firestore-postgres-migration`.*
