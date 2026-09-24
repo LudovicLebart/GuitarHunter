@@ -191,6 +191,11 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [/] **Le Portier T1 en échec saute l'annonce au lieu de fail-open vers l'Analyste** *(demandé et codé le 2026-09-24, provisoire)*
+    - *Contexte* : depuis le Chantier H (2026-09-22), un échec du décideur T1 réel (appel raté ou réponse malformée) faisait fail-open vers le Tier 2 — aucun filtrage T1, mais analyse quand même stockée. Une panne T1 prolongée revenait donc à promouvoir 100% des annonces en Tier 2 sans filtrage, silencieusement.
+    - *Changement* : `analyzer.py` retourne désormais `GATEKEEPER_FAILED_SKIP` sur les deux cas d'échec T1 ; `bot.py::handle_deal_found` saute l'annonce (aucune écriture, aucune notification), nouvel outcome `gatekeeper_failed` ajouté à `_NEVER_MARK_PROCESSED_OUTCOMES` — retentée au prochain cycle de scan. Voir `JOURNAL.md`.
+    - *Reste à faire* : validation en conditions réelles (pas d'accès Playwright/réseau/production depuis l'environnement de dev) — confirmer qu'une panne T1 réelle produit bien le skip attendu et la retentative au cycle suivant. Concevoir séparément un vrai mécanisme de fallback (ex: second appel Gemini en repli si Qwen échoue) — ce changement n'est qu'un filet de sécurité immédiat.
+
 - [/] **Fix : commande `SCAN_URL` ("Scan d'URL Direct") sans retour ni log** *(Signalé et corrigé le 2026-08-29, poussé sur `dev`)*
     - *Symptôme :* "rien ne revient et rien dans les logs" lors d'un scan d'URL manuel.
     - *Cause 1 (confirmée)* : `main.py::main_loop()` logue le dispatch/erreurs de commandes via `logging.getLogger(__name__)`, jamais raccordé au LogViewer — même piège logger documenté dans `CLAUDE.md`/`DATA_FLOW.md` §7, jusqu'ici jamais corrigé pour `main.py` lui-même. Basculé sur `bot.logger`.
