@@ -694,3 +694,12 @@ export const setCityKijijiRadius = async (docId, radiusKm, _userId) => {
     throw new Error("Erreur lors de la mise à jour du rayon Kijiji.");
   }
 };
+
+// Chantier C-0 : instrumentation du coût chat pour cost_dashboard.py --from-db. Fire-and-forget
+// (appelée sans await depuis useDealChat.js) — ne doit jamais faire échouer/ralentir le tour de
+// chat en cours, donc avale ses propres erreurs plutôt que de les laisser remonter en rejet non géré.
+export const recordLlmUsage = (usage) => {
+  apiFetch('/usage', { method: 'POST', body: usage }).catch((error) => {
+    console.error('Error recording LLM usage:', error);
+  });
+};
