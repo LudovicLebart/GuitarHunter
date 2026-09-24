@@ -1,4 +1,4 @@
-import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package, Tag, ShoppingBag } from 'lucide-react';
+import { Gem, Sparkles, CheckCircle, AlertTriangle, Ban, XCircle, RefreshCw, Star, List, Hammer, Briefcase, Archive, Search, UserX, Package, Tag, ShoppingBag, Filter } from 'lucide-react';
 
 // --- NOUVELLE GRILLE DE CLASSIFICATION (V2) ---
 export const NEW_VERDICTS = {
@@ -67,6 +67,17 @@ export const NEW_VERDICTS = {
     pluralLabel: 'Données Manquantes',
     color: 'bg-slate-400',
     icon: Search
+  },
+  // Chantier G : mise de côté par le routage T1->T2/T3 (recherche active configurée, cette
+  // annonce n'y correspond pas et n'est pas jugée pépite) — jamais analysée par l'Analyste/Expert,
+  // pas une erreur ni un vrai rejet. Voir ConfigPanel (bouton "Ré-évaluer les annonces mises de
+  // côté") pour la repromouvoir si la recherche active change.
+  NOT_PROMOTED: {
+    id: 'NOT_PROMOTED',
+    label: 'Hors Recherche',
+    pluralLabel: 'Hors Recherche',
+    color: 'bg-amber-700',
+    icon: Filter
   }
 };
 
@@ -109,7 +120,7 @@ export const RADAR_GROUP = ['PEPITE', 'FAST_FLIP', 'LUTHIER_PROJ', 'CASE_WIN', '
 export const MARKET_GROUP = ['COLLECTION', 'FAIR'];
 // Note : PURCHASED n'y figure pas volontairement — un achat est un signal positif, pas du bruit à
 // archiver ; le flag reste orthogonal à ces groupes de verdicts.
-export const ARCHIVE_GROUP = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD'];
+export const ARCHIVE_GROUP = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD', 'NOT_PROMOTED'];
 
 // --- NOTE D'INTÉRÊT (moyenne des 5 scores IA) ---
 // Utilisée pour trier les annonces par intérêt plutôt que par date,
@@ -146,6 +157,7 @@ export const FILTER_ORDER = [
   'COLLECTION',
   'BAD_DEAL',
   'REJECTED_ITEM',
+  'NOT_PROMOTED',
   'SOLD',
   'PURCHASED',
   'ERROR'

@@ -5,6 +5,7 @@ import {
   triggerManualRefresh,
   triggerManualCleanup,
   triggerRelaunchAll,
+  triggerReevaluateNotPromoted,
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
 } from '../services/apiService';
@@ -55,7 +56,10 @@ export const useBotConfig = (user) => {
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
     expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
-    rejectionVerdicts: DEFAULT_REJECTION_VERDICTS
+    rejectionVerdicts: DEFAULT_REJECTION_VERDICTS,
+    // Chantier G : familles de taxonomie actives (routage T1->T2/T3). Vide = comportement
+    // par défaut inchangé ("tout analyser").
+    activeSearchFamilies: []
   });
 
   // Nouvel état pour stocker la liste des modèles disponibles reçue du backend
@@ -74,6 +78,7 @@ export const useBotConfig = (user) => {
   const isRefreshing = botStatus === 'scanning';
   const isCleaning = botStatus === 'cleaning';
   const isReanalyzingAll = botStatus === 'reanalyzing_all';
+  const isReevaluatingNotPromoted = botStatus === 'reevaluating_not_promoted';
   const isScanningUrl = botStatus === 'scanning_url';
   const isPaused = botStatus === 'paused';
 
@@ -120,6 +125,7 @@ export const useBotConfig = (user) => {
           gatekeeperVerbosityInstruction: ensureArray(data.analysisConfig.gatekeeperVerbosityInstruction || prev.gatekeeperVerbosityInstruction),
           expertContextInstruction: ensureArray(data.analysisConfig.expertContextInstruction || prev.expertContextInstruction),
           rejectionVerdicts: ensureArray(data.analysisConfig.rejectionVerdicts || prev.rejectionVerdicts),
+          activeSearchFamilies: ensureArray(data.analysisConfig.activeSearchFamilies || prev.activeSearchFamilies),
         }));
       }
 
@@ -181,6 +187,11 @@ export const useBotConfig = (user) => {
     }
   }, [user]);
 
+  const handleReevaluateNotPromoted = useCallback(async () => {
+    if (!user) return;
+    try { await triggerReevaluateNotPromoted(user.uid); } catch (e) { setError(e.message); }
+  }, [user]);
+
   const handleScanSpecificUrl = useCallback(async (specificUrl, setSpecificUrl) => {
     if (!specificUrl || !user) return;
     try {
@@ -199,7 +210,8 @@ export const useBotConfig = (user) => {
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
         expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
-        rejectionVerdicts: DEFAULT_REJECTION_VERDICTS
+        rejectionVerdicts: DEFAULT_REJECTION_VERDICTS,
+        activeSearchFamilies: []
       };
 
       setExclusionKeywords(DEFAULT_EXCLUSION_KEYWORDS);
@@ -216,6 +228,7 @@ export const useBotConfig = (user) => {
           'analysisConfig.gatekeeperVerbosityInstruction': defaultAnalysis.gatekeeperVerbosityInstruction,
           'analysisConfig.expertContextInstruction': defaultAnalysis.expertContextInstruction,
           'analysisConfig.rejectionVerdicts': defaultAnalysis.rejectionVerdicts,
+          'analysisConfig.activeSearchFamilies': defaultAnalysis.activeSearchFamilies,
           logLimit: 100
         }, user.uid);
       } catch (e) {
@@ -235,10 +248,10 @@ export const useBotConfig = (user) => {
     uiFilters, saveUiFilters,
     botStatus, // Exposé pour affichage dynamique du statut
     isNewUser, // Exposé pour détecter un premier démarrage
-    isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused,
+    isRefreshing, isCleaning, isReanalyzingAll, isScanningUrl, isPaused, isReevaluatingNotPromoted,
     saveConfig,
     handleManualRefresh, handleManualCleanup,
-    handleRelaunchAll, handleScanSpecificUrl,
+    handleRelaunchAll, handleReevaluateNotPromoted, handleScanSpecificUrl,
     handleResetDefaults
   };
 };

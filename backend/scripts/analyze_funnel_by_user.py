@@ -51,6 +51,15 @@ LISTING_DETAILS_TOKENS = 75
 TOKENS_PER_IMAGE = 700
 IMAGES_PER_DEAL = 4
 OUTPUT_TOKENS = {"t1": 130, "t2": 350, "t3": 900}
+# Bascule 2026-09-20 (Chantier H, T1_GATEKEEPER_PROVIDER=qwen, voir config.py) : le tarif "t1"
+# ci-dessous reste celui de Gemini Flash-Lite, mais ce modèle n'est plus le DÉCIDEUR réel du
+# Portier — il ne tourne plus qu'en observation miroir (best-effort, `T1_OBSERVATION_ENABLED`),
+# au même volume d'appels qu'avant la bascule. La décision réelle passe désormais par Qwen/
+# TokenRouter, dont le coût n'est PAS modélisé ici (tarif TokenRouter non disponible côté
+# repo) : `cost_no_cache_per_day`/`cost_with_cache_per_day` sous-estiment donc le coût de
+# production réel du volume "t1" de cette valeur manquante. Le calcul de rentabilité du cache
+# explicite Gemini reste valide tel quel (il ne s'applique qu'à l'observation miroir, toujours
+# sur Gemini), mais ne plus lire "t1" comme "coût du filtrage réel des annonces".
 PRICE = {
     "t1": {"in": 0.30, "out": 2.50},    # gemini-3.5-flash-lite (config.py, MAJ 2026-07-31 ; était gemini-2.5-flash-lite, retiré par Google en octobre 2026)
     "t2": {"in": 0.75, "out": 3.75},    # gemini-3.7-flash (config.py, MAJ 2026-09-06 ; était gemini-3.6-flash). Tarif de lancement jusqu'au 31/12/2026, repasse ensuite à 1.50/7.50 (identique au tarif standard déjà payé pour 3.6-flash)

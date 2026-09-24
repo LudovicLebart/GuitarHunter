@@ -20,7 +20,7 @@ import { formatTaxonomyLabel } from '../constants';
 export const normalizeSegment = (str) => {
   if (!str) return '';
   return String(str)
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
 };
@@ -89,7 +89,7 @@ const buildIndex = () => {
       breadcrumb: segments.slice(0, -1).map(formatTaxonomyLabel).join(' › '),
       depth: segments.length,
       labelNormalized: segments[segments.length - 1]
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
         .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
     });
   };

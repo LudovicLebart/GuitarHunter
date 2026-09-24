@@ -509,6 +509,15 @@ class FirestoreRepository:
             logger.error(f"Failed to get retry queue: {e}", exc_info=True)
             return []
 
+    def get_not_promoted_listings(self):
+        """Annonces mises de côté par le routage Chantier G (verdict NOT_PROMOTED, jamais
+        envoyées vers T2/T3) — candidates à une repromotion si la recherche active change."""
+        try:
+            return self.collection_ref.where(filter=FieldFilter('aiAnalysis.verdict', '==', 'NOT_PROMOTED')).stream()
+        except Exception as e:
+            logger.error(f"Failed to get NOT_PROMOTED listings: {e}", exc_info=True)
+            return []
+
     def mark_all_for_reanalysis(self):
         logger.info("Marking all active listings for re-analysis.")
         try:

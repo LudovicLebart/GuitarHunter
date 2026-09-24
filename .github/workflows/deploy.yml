@@ -137,6 +137,20 @@ jobs:
               git reset --hard origin/${{ github.ref_name }}
             fi
 
+            echo "--- Chantier A : synchronisation backend/api/* (Phase A.3, staging) ---"
+            # backend/api/* et deal_mapping.py ne sont pas mergés sur dev/master (Chantier A
+            # toujours en construction isolée, voir FIRESTORE_MIGRATION_PLAN.md §5.3) — copiés ici
+            # depuis la branche de migration à CHAQUE déploiement via `git checkout <ref> -- <paths>`
+            # (jamais un checkout de branche ni un merge : ne touche que ces chemins dans l'arbre de
+            # travail, sans toucher HEAD ni l'historique de dev). Untracked sur dev -> survivent au
+            # `git reset --hard origin/dev` ci-dessus lors du PROCHAIN déploiement (qui ne touche
+            # que les fichiers suivis), mais toujours resynchronisés explicitement pour rester à jour.
+            # export_firestore_to_postgres.py ajouté le 2026-09-13 (Phase A.4) : run_once.py a
+            # besoin de ce script sur disque pour le lancer en arrière-plan.
+            git fetch origin claude/firestore-postgres-migration
+            git checkout FETCH_HEAD -- backend/api backend/deal_mapping.py backend/scripts/export_firestore_to_postgres.py
+            echo "✅ backend/api/* synchronisé depuis claude/firestore-postgres-migration."
+
             echo "--- Python Environment ---"
             python3 -m venv venv || echo "Venv already exists or failed to create"
             source venv/bin/activate
@@ -161,4 +175,64 @@ jobs:
               echo "❌ ÉCHEC du redémarrage du service."
               echo "Vérifiez : 1. Si le service existe (systemctl status guitare-hunter)"
               echo "Vérifiez : 2. Si l'utilisateur a les droits sudo SANS mot de passe pour cette commande."
+            fi
+
+            echo "--- Service API (Chantier A, Phase A.3, staging) ---"
+            # Service persistant pour backend/api/* (FastAPI/uvicorn), pointé sur
+            # guitarhunter_pg_staging (~/.guitarhunter_staging_db.env, voir JOURNAL.md 2026-09-10)
+            # — PAS une base de production (qui n'existe pas encore, la bascule réelle est la
+            # Phase B). Écoute sur 127.0.0.1 uniquement : aucune exposition publique ici, c'est un
+            # choix séparé et délibéré (Tailscale Funnel), pas fait par ce déploiement.
+            if ! sudo -n -l 2>/dev/null | grep -q guitarhunter-api; then
+              echo "⚠️ Pas de règle sudoers NOPASSWD couvrant guitarhunter-api — service non configuré."
+              echo "   Pour l'activer, ajouter au sudoers (visudo) une règle couvrant :"
+              echo "   /usr/bin/tee /etc/systemd/system/guitarhunter-api.service, /bin/systemctl daemon-reload, /bin/systemctl enable --now guitarhunter-api, /bin/systemctl restart guitarhunter-api"
+            else
+              DEPLOY_USER=$(whoami)
+              DEPLOY_DIR=$(pwd)
+              sudo tee /etc/systemd/system/guitarhunter-api.service > /dev/null <<EOF
+            [Unit]
+            Description=Guitar Hunter API (Postgres, Chantier A, staging)
+            After=network.target
+            [Service]
+            Type=simple
+            User=$DEPLOY_USER
+            WorkingDirectory=$DEPLOY_DIR
+            EnvironmentFile=$DEPLOY_DIR/.env
+            EnvironmentFile=$HOME/.guitarhunter_staging_db.env
+            ExecStart=$DEPLOY_DIR/venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
+            Restart=on-failure
+            RestartSec=5
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+              if sudo -n systemctl daemon-reload && sudo -n systemctl enable --now guitarhunter-api && sudo -n systemctl restart guitarhunter-api; then
+                echo "✅ Service guitarhunter-api démarré/redémarré avec succès (127.0.0.1:8000)."
+              else
+                echo "❌ ÉCHEC de la configuration du service guitarhunter-api."
+              fi
+            fi
+
+            echo "--- Service API PROD (Phase B.4, guitarhunter_pg_prod) ---"
+            # guitarhunter-api-prod tourne dans un répertoire dédié (~/guitarhunter-api-prod,
+            # voir JOURNAL.md 2026-09-21) pour ne jamais dépendre d'un `git reset --hard` futur sur
+            # ~/GuitareHunter — mais réutilise le venv et le `.env` (Firebase) de ~/GuitareHunter,
+            # overridés par ~/.guitarhunter_prod_db.env pour DATABASE_URL (le fichier .service
+            # lui-même, déjà en place manuellement, n'est pas retouché ici). backend/api/* et
+            # backend/deal_mapping.py (seul import hors backend/api/ que nécessite
+            # backend.api.main:app, vérifié 2026-09-23) sont désormais mergés sur dev — ce bloc se
+            # contente de les resynchroniser vers ce répertoire séparé avant de redémarrer.
+            if ! sudo -n -l 2>/dev/null | grep -q guitarhunter-api-prod; then
+              echo "⚠️ Pas de règle sudoers NOPASSWD couvrant guitarhunter-api-prod — resynchronisation ignorée."
+              echo "   Pour l'activer, ajouter au sudoers (visudo) une règle couvrant :"
+              echo "   /bin/systemctl restart guitarhunter-api-prod"
+            else
+              mkdir -p ~/guitarhunter-api-prod/backend
+              cp -r backend/api ~/guitarhunter-api-prod/backend/
+              cp backend/__init__.py backend/deal_mapping.py ~/guitarhunter-api-prod/backend/
+              if sudo -n systemctl restart guitarhunter-api-prod; then
+                echo "✅ Service guitarhunter-api-prod resynchronisé et redémarré avec succès (127.0.0.1:8001)."
+              else
+                echo "❌ ÉCHEC du redémarrage de guitarhunter-api-prod."
+              fi
             fi

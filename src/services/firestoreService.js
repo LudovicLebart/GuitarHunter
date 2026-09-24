@@ -137,6 +137,7 @@ const addCommand = async (type, payload, userId) => {
 export const triggerManualRefresh = (userId) => addCommand('REFRESH', null, userId);
 export const triggerManualCleanup = (userId) => addCommand('CLEANUP', null, userId);
 export const triggerRelaunchAll = (userId) => addCommand('REANALYZE_ALL', null, userId);
+export const triggerReevaluateNotPromoted = (userId) => addCommand('REEVALUATE_NOT_PROMOTED', null, userId);
 export const triggerScanSpecificUrl = (url, userId) => addCommand('SCAN_URL', url, userId);
 export const resetBotConfigToDefaults = (defaults, userId) => updateUserConfig(defaults, userId);
 export const triggerStopBot = (userId) => addCommand('STOP_BOT', null, userId);

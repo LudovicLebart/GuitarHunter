@@ -23,9 +23,6 @@ import sys
 import os
 import logging
 
-# Comme rebuild_index.py : nécessaire pour que `from backend.scripts... import ...` résolve,
-# `python3 backend/scripts/run_once.py` n'ajoutant que le dossier du script (pas la racine du
-# repo) à sys.path. Le job `deploy` exécute toujours ce script depuis la racine (~/GuitareHunter).
 sys.path.insert(0, os.getcwd())
 
 ACTIVE = False
@@ -108,154 +105,17 @@ def _read_staging_dsn(logger):
 def run():
     """Action ponctuelle à exécuter en production. Repasser ACTIVE à False après usage.
 
-    2026-09-12 : validation bout-en-bout de backend/api/* (Phase A.2, Chantier A) contre les
-    2414 annonces RÉELLEMENT migrées dans `guitarhunter_pg_staging` (dry-run du 2026-09-10,
-    conteneur toujours en place) — jamais testé avec un vrai token Firebase ni un vrai serveur
-    HTTP jusqu'ici (seulement TestClient + auth court-circuitée en local, voir backend/api/test_*.py).
-    Aucune mutation : uniquement des requêtes GET sur une base de STAGING, jamais la prod utilisateur.
-
-    Étapes : (1) extraction temporaire de backend/api/* + deal_mapping.py depuis la branche de
-    migration ; (2) DSN de guitarhunter_pg_staging ; (3) identification de l'utilisateur réel
-    (le plus d'annonces) ; (4) `firebase_admin.auth.create_custom_token(uid)` -> échange contre un
-    VRAI ID token via l'API REST Firebase (aucun compte de test créé, aucun mot de passe requis —
-    le bot a déjà les credentials Admin SDK en place) ; (5) vrai serveur uvicorn + requêtes HTTP
-    authentifiées sur /health, /users/me/config, /deals, /deals/{id}, /cities.
-
-    Run #446 : ModuleNotFoundError sur psycopg — fastapi/uvicorn/asyncpg/psycopg sont dans
-    requirements.txt de la branche de migration, jamais mergée, donc absents de celui de `dev`
-    (jamais installés par le `pip install -r requirements.txt` du déploiement). Installés ici à
-    la volée plutôt que de modifier requirements.txt sur dev pour un script one-shot.
-
-    Run #447 (succès, voir JOURNAL.md) : vrai token Firebase obtenu pour l'utilisateur réel
-    (2414 annonces), 200 sur /health, /users/me/config, /deals (2414/2414), /deals/{id}, /cities
-    (28). Désarmé ci-dessous (ACTIVE = False).
+    2026-09-18 : Chantier G — diagnostic lecture seule de l'efficacité du filtre
+    "Recherche Active" (voir backend/scripts/check_active_search_filter_logs.py) — CONFIRMÉ,
+    résultat lu dans les logs GitHub Actions (runs #507/#508, dev + master). Fichier de log
+    serveur du jour vide (0 activité depuis minuit UTC) ; côté Firestore, 36 NOT_PROMOTED
+    historiques cohérents avec le filtre (Dreadnought/Stratocaster/Classique écartés), mais
+    l'échantillon "60 dernières annonces" mélange des analyses d'AVANT la configuration du
+    filtre (35/55 "promues" sans classification ou hors-filtre, ex: Dreadnought, amplis,
+    étuis) — pas concluant tel quel, à rejouer après une vraie fenêtre d'activité récente si
+    le sujet redevient prioritaire. Désarmé ci-dessous — rien à rejouer.
     """
-    import json
-    import subprocess
-    import threading
-    import time
-
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s | %(message)s')
-    logger = logging.getLogger("run_once")
-
-    # `requirements.txt` sur `dev` n'a pas encore ces 4 dépendances (ajoutées seulement sur la
-    # branche de migration, jamais mergée) — installées ici à la volée, même principe que le
-    # script de dry-run précédent (`pip install -q asyncpg`), plutôt que de modifier
-    # `requirements.txt` sur `dev` pour un script one-shot. Idempotent (pip ne réinstalle rien
-    # si déjà présent, confirmé par le run précédent : `ModuleNotFoundError: No module named
-    # 'psycopg'` — fastapi/uvicorn/asyncpg n'avaient pas non plus été installés).
-    pip = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "fastapi", "uvicorn[standard]", "asyncpg", "psycopg[binary,pool]"],
-        capture_output=True, text=True,
-    )
-    if pip.returncode != 0:
-        logger.error(f"pip install a échoué : {pip.stderr.strip()[:500]}")
-        return
-    logger.info("Dépendances backend/api/* installées (ou déjà présentes).")
-
-    import requests
-
-    written = _extract_branch_files(logger)
-    try:
-        dsn = _read_staging_dsn(logger)
-        if not dsn:
-            logger.error("Abandon : impossible de déterminer le DSN de guitarhunter_pg_staging.")
-            return
-        os.environ["DATABASE_URL"] = dsn  # lu par backend/api/db.py au moment de l'import, ci-dessous
-
-        import psycopg
-        try:
-            with psycopg.connect(dsn, connect_timeout=5) as conn:
-                row = conn.execute(
-                    "SELECT user_id, COUNT(*) AS n FROM guitar_deals GROUP BY user_id ORDER BY n DESC LIMIT 1"
-                ).fetchone()
-        except Exception as e:
-            logger.error(f"Connexion à guitarhunter_pg_staging échouée : {e}")
-            return
-        if not row:
-            logger.error("Aucune annonce trouvée dans guitarhunter_pg_staging — rien à valider.")
-            return
-        target_uid, deal_count = row
-        logger.info(f"Utilisateur cible : {target_uid[:6]}… ({deal_count} annonces réelles).")
-
-        from dotenv import load_dotenv
-        load_dotenv()
-        web_api_key = os.getenv("VITE_FIREBASE_API_KEY")
-        if not web_api_key:
-            logger.error("VITE_FIREBASE_API_KEY absent de .env — impossible d'échanger le custom token.")
-            return
-
-        import firebase_admin
-        from firebase_admin import auth as firebase_auth, credentials
-        firebase_key_path = os.getenv("FIREBASE_KEY_PATH", "backend/config/serviceAccountKey.json")
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(credentials.Certificate(firebase_key_path))
-        custom_token = firebase_auth.create_custom_token(target_uid)
-
-        exchange = requests.post(
-            f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={web_api_key}",
-            json={"token": custom_token.decode("utf-8"), "returnSecureToken": True},
-            timeout=10,
-        )
-        if not exchange.ok:
-            logger.error(f"Échange du custom token échoué ({exchange.status_code}) : {exchange.text[:300]}")
-            return
-        id_token = exchange.json()["idToken"]
-        logger.info("ID token Firebase RÉEL obtenu avec succès pour l'utilisateur cible.")
-
-        import uvicorn
-        from backend.api.main import app
-
-        def _free_port():
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.bind(("127.0.0.1", 0))
-                return s.getsockname()[1]
-
-        port = _free_port()
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        server = uvicorn.Server(config)
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
-        deadline = time.time() + 10
-        while not server.started and time.time() < deadline:
-            time.sleep(0.1)
-        if not server.started:
-            logger.error("uvicorn n'a pas démarré à temps.")
-            return
-
-        try:
-            base_url = f"http://127.0.0.1:{port}"
-            headers = {"Authorization": f"Bearer {id_token}"}
-
-            health = requests.get(f"{base_url}/health", timeout=5)
-            logger.info(f"GET /health -> {health.status_code} {health.text}")
-
-            config_resp = requests.get(f"{base_url}/users/me/config", headers=headers, timeout=5)
-            logger.info(f"GET /users/me/config -> {config_resp.status_code} (clés : {sorted(config_resp.json().keys()) if config_resp.ok else config_resp.text[:200]})")
-
-            deals_resp = requests.get(f"{base_url}/deals", headers=headers, timeout=15)
-            deals = deals_resp.json() if deals_resp.ok else []
-            logger.info(f"GET /deals -> {deals_resp.status_code}, {len(deals)} annonces reçues (attendu ~{deal_count}).")
-
-            if deals:
-                sample_id = deals[0]["id"]
-                sample_resp = requests.get(f"{base_url}/deals/{sample_id}", headers=headers, timeout=5)
-                logger.info(f"GET /deals/{sample_id} -> {sample_resp.status_code}")
-                if sample_resp.ok:
-                    # Échantillon RÉEL loggé pour rejouer apiService.js::dealFromRow localement
-                    # côté dev (Node) et vérifier que la reconstruction JS ne casse sur aucun cas
-                    # limite réel (valeurs nulles, types inattendus) — jamais testable autrement
-                    # depuis un environnement sans credentials Firebase.
-                    logger.info(f"ÉCHANTILLON RÉEL /deals/{sample_id} : {json.dumps(sample_resp.json())}")
-
-            cities_resp = requests.get(f"{base_url}/cities", headers=headers, timeout=5)
-            logger.info(f"GET /cities -> {cities_resp.status_code}, {len(cities_resp.json()) if cities_resp.ok else '?'} villes.")
-        finally:
-            server.should_exit = True
-            thread.join(timeout=5)
-    finally:
-        _cleanup_extracted(written, logger)
+    pass
 
 
 if __name__ == "__main__":

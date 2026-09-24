@@ -198,19 +198,9 @@ const CityKijijiRadiusInput = ({ city, onSave }) => {
 const CityManagementSection = () => {
   const { cities, handleToggleScannable, handleSetCityKijijiRadius, handleAddCity, isAddingCity } = useCitiesContext();
   const [searchTerm, setSearchTerm] = useState('');
-  // Candidat Photon choisi (clic ou Entrée) : remplit le champ mais n'ajoute rien tant que
-  // l'utilisateur n'a pas explicitement cliqué sur "+" — voir handleSaveCity. Effacé dès que
-  // l'utilisateur retape du texte (le champ ne représente alors plus ce candidat précis).
   const [pickedCandidate, setPickedCandidate] = useState(null);
   const [activeIndex, setActiveIndex] = useState(-1);
   const scannableCities = useMemo(() => cities.filter(c => c.isScannable), [cities]);
-  // Le catalogue partagé (villes déjà ajoutées par N'IMPORTE QUEL utilisateur de l'app, pas
-  // seulement celui-ci) n'est plus proposé en suggestion de réactivation ici : une correspondance
-  // texte pure ("Sa" → "La saline", ville d'un tout autre utilisateur à l'autre bout du monde) est
-  // structurellement non pertinente pour cet utilisateur, contrairement à Photon qui est biaisé par
-  // sa position réelle (voir useCitySuggestions.js). La dédup réelle (éviter un doublon si le nom
-  // correspond exactement à une ville déjà au catalogue) reste gérée automatiquement à l'exécution
-  // dans add_city_auto() — elle n'a jamais dépendu de cette liste.
   const showPhotonSuggestions = searchTerm.trim().length >= 2 && !pickedCandidate;
   const { suggestions: photonSuggestions, loading: photonLoading } = useCitySuggestions(
     showPhotonSuggestions ? searchTerm : '',
@@ -222,8 +212,6 @@ const CityManagementSection = () => {
     setActiveIndex(-1);
   };
   const removeCityFromWhitelist = (city) => { handleToggleScannable(city.docId, true); };
-  // Sélectionner un candidat (clic ou Entrée) ne fait que remplir le champ — l'ajout réel
-  // n'est déclenché que par le bouton "+" (handleSaveCity), jamais par la sélection elle-même.
   const pickCandidate = (candidate) => {
     setSearchTerm(candidate.displayLabel);
     setPickedCandidate(candidate);
@@ -236,9 +224,6 @@ const CityManagementSection = () => {
     onSelect: pickCandidate,
     onClose: () => setActiveIndex(-1),
   });
-  // ↓/↑ après une sélection (candidat déjà rempli dans le champ, liste fermée) rouvre la liste
-  // au lieu de rester sans effet — l'utilisateur doit pouvoir continuer à parcourir les
-  // suggestions sans retaper de texte.
   const handlePhotonKeyDown = (e) => {
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && pickedCandidate) {
       setPickedCandidate(null);
@@ -246,11 +231,6 @@ const CityManagementSection = () => {
     }
     handlePhotonKeyDownBase(e);
   };
-  // Le menu est rendu dans le flux normal (pas en position absolue/fixe superposée) : à la fois le
-  // z-index (contexte d'empilement local à `CollapsibleSection`) et un portail en position fixe
-  // (coordonnées fiables mais viewport mobile perturbé par le clavier virtuel, cf. captures
-  // utilisateur) se sont révélés peu fiables. En flux normal, le menu pousse simplement le contenu
-  // suivant vers le bas — jamais caché, quel que soit l'appareil.
   const dropdownOpen = showPhotonSuggestions && (photonLoading || photonSuggestions.length > 0);
   const handleSaveCity = async () => {
     if (isAddingCity) return;
@@ -314,8 +294,6 @@ const CityManagementSection = () => {
                 {!photonLoading && photonSuggestions.map((candidate, idx) => (
                   <div
                     key={`${candidate.name}-${candidate.latitude}-${candidate.longitude}-${idx}`}
-                    // onMouseDown (pas onClick) : le blur du champ, qui referme la liste,
-                    // se déclencherait avant le click et emporterait la sélection avec lui.
                     onMouseDown={(e) => { e.preventDefault(); pickCandidate(candidate); }}
                     onMouseEnter={() => setActiveIndex(idx)}
                     className={`p-3 text-xs text-slate-300 cursor-pointer transition-colors border-b border-slate-700/50 last:border-0 ${idx === activeIndex ? 'bg-slate-700 text-white' : 'hover:bg-slate-700 hover:text-white'}`}
@@ -358,13 +336,16 @@ const ExclusionKeywordsSection = () => {
 };
 
 const AiConfigSection = () => {
-  const { analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults, handleRelaunchAll, isReanalyzingAll, availableModels } = useBotConfigContext();
+  const {
+    analysisConfig, setAnalysisConfig, saveConfig, handleResetDefaults,
+    handleRelaunchAll, isReanalyzingAll,
+    availableModels,
+  } = useBotConfigContext();
 
   const handleAnalysisConfigChange = (field, value) => {
     setAnalysisConfig(prev => ({ ...prev, [field]: value }));
   };
 
-  // Fallback si la liste n'est pas encore chargée (aligné sur GEMINI_MODELS["available"], config.py)
   const models = availableModels.length > 0 ? availableModels : [
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
