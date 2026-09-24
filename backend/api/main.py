@@ -19,7 +19,7 @@ from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo, users_repo
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo, usage_repo, users_repo
 
 
 @asynccontextmanager
@@ -144,6 +144,34 @@ async def get_command(command_id: int, uid: str = Depends(get_current_uid)):
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable.")
     return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"])
+
+
+class UsageIn(BaseModel):
+    """Usage d'un appel Gemini fait par le chat (navigateur). Bornes larges mais finies : l'endpoint
+    est authentifié, pas public, mais un client buggé ne doit pas pouvoir polluer la table."""
+    model: str
+    action: str
+    deal_id: Optional[str] = None
+    images: int = 0
+    input_tokens: int = 0
+    cached_tokens: int = 0
+    output_tokens: int = 0
+    thoughts_tokens: int = 0
+    latency_ms: Optional[int] = None
+    ok: bool = True
+
+
+@app.post("/usage", status_code=status.HTTP_204_NO_CONTENT)
+async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
+    """Chantier C-0 : enregistre l'usage d'un tour de chat. Jamais bloquant côté client
+    (appel fire-and-forget) ; ici, validation minimale puis insertion."""
+    row = body.model_dump()
+    for k in ("images", "input_tokens", "cached_tokens", "output_tokens", "thoughts_tokens"):
+        if not 0 <= row[k] <= 5_000_000:
+            raise HTTPException(status_code=422, detail=f"{k} hors bornes")
+    if len(row["model"]) > 100 or len(row["action"]) > 60:
+        raise HTTPException(status_code=422, detail="model/action trop longs")
+    await usage_repo.add_usage(get_pool(), uid, row)
 
 
 # --- Deals (tranche 2) --------------------------------------------------------------------

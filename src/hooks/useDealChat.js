@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
-    markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides,
+    markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides, recordLlmUsage,
 } from '../services/apiService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
@@ -179,10 +179,43 @@ const looksLikeToolsUnsupportedError = (error) => {
 // lieu de le supposer. `cachedContentTokenCount` reflète le caching implicite déjà appliqué par
 // Gemini sur les préfixes stables (historique) — une partie du coût "rejoué à chaque tour" est déjà
 // amortie automatiquement, à regarder avant de conclure sur le gain réel d'une élision.
-const logTokenUsage = (label, response) => {
+//
+// Chantier C-0 (2026-09-22) : en plus de la console, chaque appel est enregistré dans `llm_usage`
+// (Postgres, via POST /usage) avec un code d'action stable — c'est ce qui permet au tableau de
+// bord de coût (`backend/scripts/cost_dashboard.py --from-db`) de chiffrer le chat par modèle et
+// par type de tour. Les libellés console restent en français ; les codes d'action, eux, ne
+// doivent PAS changer (ils servent de clé de regroupement dans l'historique).
+const CHAT_USAGE_ACTIONS = {
+    'tour principal': 'chat_turn',
+    'tour principal (repli sans tools)': 'chat_turn_fallback_no_tools',
+    'tour rejoué (photos rappelées)': 'chat_photo_recall_replay',
+    'tour de suite (après rappel photo)': 'chat_followup_after_photo_recall',
+    'tour de suite (rappel photo invalide)': 'chat_followup_invalid_photo_recall',
+    'tour de suite (après erreur rappel photo)': 'chat_followup_after_photo_recall_error',
+    'tour de suite (functionResponse)': 'chat_followup_function_response',
+};
+
+const countImageParts = (parts) =>
+    Array.isArray(parts) ? parts.filter((p) => p?.inlineData || p?.fileData).length : 0;
+
+const logTokenUsage = (label, response, { modelName, dealId, sentParts } = {}) => {
     const u = response?.usageMetadata;
     if (!u) return;
     console.log(`[tokens] ${label} — prompt=${u.promptTokenCount ?? '?'} cached=${u.cachedContentTokenCount ?? 0} réponse=${u.candidatesTokenCount ?? '?'} total=${u.totalTokenCount ?? '?'}`);
+    if (!modelName) return;
+    const input = u.promptTokenCount ?? 0;
+    const output = u.candidatesTokenCount ?? 0;
+    recordLlmUsage({
+        model: modelName,
+        action: CHAT_USAGE_ACTIONS[label] || 'chat_other',
+        deal_id: dealId || null,
+        images: countImageParts(sentParts),
+        input_tokens: input,
+        cached_tokens: u.cachedContentTokenCount ?? 0,
+        output_tokens: output,
+        // thoughtsTokenCount absent sur certains modèles/SDK : déduit du total dans ce cas.
+        thoughts_tokens: u.thoughtsTokenCount ?? Math.max(0, (u.totalTokenCount ?? 0) - input - output),
+    });
 };
 
 // Filet de sécurité Firestore (2026-08-23, Plan 1 tokens, Lot B) — limite dure de 1 Mo/document,
@@ -275,7 +308,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             let result;
             try {
                 result = await chat.sendMessage(parts);
-                logTokenUsage('tour principal', result.response);
+                logTokenUsage('tour principal', result.response, { modelName, dealId: deal?.id, sentParts: parts });
             } catch (sendError) {
                 // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
                 // la construction du modèle) — on retente une fois sans tools depuis le même
@@ -297,7 +330,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     chatRef.current = chat;
                     chatToolsRef.current = toolsSignature(false, false, false);
                     result = await chat.sendMessage(parts);
-                    logTokenUsage('tour principal (repli sans tools)', result.response);
+                    logTokenUsage('tour principal (repli sans tools)', result.response, { modelName, dealId: deal?.id, sentParts: parts });
                 } else {
                     throw sendError;
                 }
@@ -342,7 +375,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false, withRequalification })
                         .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
                     const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
-                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response);
+                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response, { modelName, dealId: deal?.id, sentParts: null });
                     chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
                     chatToolsRef.current = toolsSignature(false, withRestorationTools, withRequalification);
                     photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };

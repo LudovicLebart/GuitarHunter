@@ -1,4 +1,6 @@
 import base64
+import contextvars
+from backend import llm_usage
 import json
 import re
 import threading
@@ -237,7 +239,7 @@ class DealAnalyzer:
         except Exception as e:
             self.logger.error(f"⚠️ Échec de l'envoi de l'alerte Portier en échec : {e}")
 
-    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1, response_schema=None):
+    def _call_gemini_json(self, model_name, content_parts, user_email=None, max_retries=1, response_schema=None, action=None):
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
         model = self._get_model(model_name, response_schema=response_schema)
         if not model:
@@ -246,7 +248,9 @@ class DealAnalyzer:
         current_parts = list(content_parts)
         for attempt in range(max_retries + 1):
             try:
+                t_call = time.monotonic()
                 response = model.generate_content(current_parts)
+                latency_ms = int((time.monotonic() - t_call) * 1000)
                 usage = getattr(response, "usage_metadata", None)
                 if usage:
                     image_count = sum(1 for p in current_parts if isinstance(p, Image.Image))
@@ -256,6 +260,17 @@ class DealAnalyzer:
                         f"out={getattr(usage, 'candidates_token_count', 0)} "
                         f"cached={getattr(usage, 'cached_content_token_count', 0)} "
                         f"total={getattr(usage, 'total_token_count', 0)}"
+                    )
+                    # Chantier C-0 : une ligne par appel dans Postgres (best-effort).
+                    _in = getattr(usage, 'prompt_token_count', 0) or 0
+                    _out = getattr(usage, 'candidates_token_count', 0) or 0
+                    _thoughts = getattr(usage, 'thoughts_token_count', None)
+                    if _thoughts is None:  # SDK ancien : déduire du total
+                        _thoughts = max(0, (getattr(usage, 'total_token_count', 0) or 0) - _in - _out)
+                    llm_usage.record(
+                        provider="gemini", model=model_name, action=action, images=image_count,
+                        input_tokens=_in, cached_tokens=getattr(usage, 'cached_content_token_count', 0) or 0,
+                        output_tokens=_out, thoughts_tokens=_thoughts, latency_ms=latency_ms,
                     )
                 cleaned_text = self._clean_json_response(response.text)
                 result = json.loads(cleaned_text)
@@ -283,7 +298,7 @@ class DealAnalyzer:
                     self._notify_model_unavailable(model_name, str(e), user_email)
                 return None, str(e)
 
-    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None):
+    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None, action=None):
         """Chantier H (porté depuis dev le 2026-09-22) : appelle un modèle compatible OpenAI
         (Qwen via TokenRouter, etc.) et parse le JSON, avec la même tolérance que
         `_call_gemini_json` (accolades ```json```). Réutilise les images DÉJÀ téléchargées (objets
@@ -306,22 +321,33 @@ class DealAnalyzer:
                 img.save(buf, format="JPEG")
                 b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
                 content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+            t_call = time.monotonic()
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": content}],
                 response_format=response_format or {"type": "json_object"},
             )
-            # Log token usage (patch Chantier C-0 : rendre visible le Portier T1 Qwen dans le dashboard)
-            if hasattr(response, "usage") and response.usage:
-                image_count = len(images)
-                prompt_tokens = getattr(response.usage, "prompt_tokens", 0)
-                completion_tokens = getattr(response.usage, "completion_tokens", 0)
+            latency_ms = int((time.monotonic() - t_call) * 1000)
+            # Chantier C-0 : même ligne [tokens] que Gemini + enregistrement Postgres. `out` exclut
+            # le raisonnement (reasoning_tokens), compté à part comme pour Gemini.
+            usage = getattr(response, "usage", None)
+            if usage:
+                completion = getattr(usage, "completion_tokens", 0) or 0
+                details = getattr(usage, "completion_tokens_details", None)
+                reasoning = (getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+                prompt_details = getattr(usage, "prompt_tokens_details", None)
+                cached = (getattr(prompt_details, "cached_tokens", 0) or 0) if prompt_details else 0
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
                 self.logger.info(
-                    f"[tokens] model={model_name} images={image_count} "
-                    f"in={prompt_tokens} "
-                    f"out={completion_tokens} "
-                    f"cached=0 "
-                    f"total={prompt_tokens + completion_tokens}"
+                    f"[tokens] model={model_name} images={len(images)} in={prompt_tokens} "
+                    f"out={max(0, completion - reasoning)} cached={cached} "
+                    f"total={getattr(usage, 'total_tokens', 0) or 0}"
+                )
+                llm_usage.record(
+                    provider="tokenrouter" if "tokenrouter" in (base_url or "") else "openai_compatible",
+                    model=model_name, action=action, images=len(images), input_tokens=prompt_tokens,
+                    cached_tokens=cached, output_tokens=max(0, completion - reasoning),
+                    thoughts_tokens=reasoning, latency_ms=latency_ms,
                 )
             cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
             result = json.loads(cleaned_text)
@@ -332,7 +358,7 @@ class DealAnalyzer:
             self.logger.error(f"❌ Erreur avec le modèle {model_name} (TokenRouter) : {e}")
             return None, str(e)
 
-    def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None):
+    def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
         """Chantier H (porté depuis dev le 2026-09-22) : point d'appel UNIQUE pour n'importe
         lequel des deux fournisseurs T1 (Qwen via TokenRouter, ou Gemini Flash-Lite), avec
         exactement le même prompt et le schéma structuré correspondant — réutilisé à la fois par
@@ -344,11 +370,11 @@ class DealAnalyzer:
                 return None, "Clé API TokenRouter manquante."
             return self._call_openai_compatible_json(
                 full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
-                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
             )
         return self._call_gemini_json(
             gatekeeper_model_name, [full_prompt_t1] + images, user_email,
-            response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA,
+            response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA, action=action,
         )
 
     def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
@@ -367,7 +393,7 @@ class DealAnalyzer:
             return {}
         prefix = "qwenGatekeeper" if shadow_provider == "qwen" else "flashliteGatekeeper"
         t0 = time.monotonic()
-        result, err = self._call_t1_provider(shadow_provider, full_prompt_t1, images, gatekeeper_model_name, user_email)
+        result, err = self._call_t1_provider(shadow_provider, full_prompt_t1, images, gatekeeper_model_name, user_email, action="t1_shadow")
         latency_s = round(time.monotonic() - t0, 1)
         if err or not result:
             self.logger.warning(f"   🔬 [Observation T1/{shadow_provider}] échec (ignoré, n'affecte pas l'analyse) : {err}")
@@ -385,6 +411,8 @@ class DealAnalyzer:
         La canonicalisation est faite ICI, sur le résultat final, plutôt que dans chacun des 5
         points de sortie de la cascade : un seul endroit à maintenir, impossible d'en oublier un.
         """
+        llm_usage.current_deal_id.set(listing_data.get('id'))
+        llm_usage.current_user_ref.set(user_email)
         result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
         taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
         return self._canonicalize_classification(result, taxonomy)
@@ -409,6 +437,8 @@ class DealAnalyzer:
         if not GEMINI_API_KEY:
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
+        llm_usage.current_deal_id.set(listing_data.get('id'))
+        llm_usage.current_user_ref.set(user_email)
         config = (firestore_config or {}).get('analysisConfig', {})
         analyst_model_name = config.get('mainModel', 'gemini-3.7-flash')
         taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
@@ -426,7 +456,7 @@ class DealAnalyzer:
         full_prompt = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE BACKFILL (VENTE HISTORIQUE) ---\n{backfill_instruction}"
 
         self.logger.info(f"   🩹 Backfill léger ({analyst_model_name}) : {listing_data.get('title', 'Inconnu')}")
-        result, err = self._call_gemini_json(analyst_model_name, [full_prompt] + images, user_email)
+        result, err = self._call_gemini_json(analyst_model_name, [full_prompt] + images, user_email, action="t2_backfill_light")
         if err or not result:
             return {"verdict": "ERROR", "reasoning": f"Erreur backfill léger : {err}", "model_used": f"backfill_leger -> {analyst_model_name} (Error)"}
 
@@ -589,7 +619,7 @@ class DealAnalyzer:
                     full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email
                 )
 
-            shadow_thread = threading.Thread(target=_observe_shadow, daemon=True)
+            shadow_thread = threading.Thread(target=contextvars.copy_context().run, args=(_observe_shadow,), daemon=True)
             shadow_thread.start()
 
             result_t1, err_t1 = self._call_t1_provider(
@@ -689,8 +719,8 @@ class DealAnalyzer:
         if isinstance(analyst_instruction, list):
             analyst_instruction = "\n".join(analyst_instruction)
         full_prompt_t2 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE ANALYSTE ---\n{analyst_instruction}"
-        
-        result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email)
+
+        result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email, action="t2_analyst")
         
         if err_t2 or not result_t2:
             return (
@@ -753,8 +783,8 @@ class DealAnalyzer:
             # préfixe statique commun — l'ordre précédent plaçait le contexte T2 (dynamique,
             # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
             full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
-            
-            result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email)
+
+            result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
             
             if err_t3 or not result_t3:
                 self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")

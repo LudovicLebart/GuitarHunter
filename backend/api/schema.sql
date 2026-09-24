@@ -465,3 +465,29 @@ CREATE TABLE IF NOT EXISTS shared_deals (
 
 ALTER TABLE shared_deals DROP COLUMN IF EXISTS deal_id;
 ALTER TABLE shared_deals DROP COLUMN IF EXISTS user_id;
+
+-- Chantier C-0 (tableau de bord de coût) : une ligne par appel LLM, backend ET chat, pour
+-- connaître les tokens par modèle et par action. Écrite en best-effort (un échec d'insertion ne
+-- bloque jamais une analyse ni un message de chat). `deal_id` sans FK : les scripts d'audit et de
+-- rejeu touchent aussi des annonces supprimées depuis. `thoughts_tokens` = raisonnement, facturé
+-- comme de la sortie mais compté à part par les fournisseurs. `cached_tokens` est INCLUS dans
+-- `input_tokens` (même convention que Gemini `promptTokenCount` et OpenAI `prompt_tokens`).
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id               BIGSERIAL PRIMARY KEY,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source           TEXT NOT NULL,            -- 'backend' | 'chat'
+    provider         TEXT NOT NULL,            -- 'gemini' | 'tokenrouter' | 'ollama' | ...
+    model            TEXT NOT NULL,
+    action           TEXT NOT NULL,            -- ex. 't1_gatekeeper', 't2_analyst', 'chat_turn'
+    deal_id          TEXT,
+    user_ref         TEXT,                     -- uid (chat) ou e-mail (bot), pour filtrer par utilisateur
+    images           INTEGER NOT NULL DEFAULT 0,
+    input_tokens     INTEGER NOT NULL DEFAULT 0,
+    cached_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens    INTEGER NOT NULL DEFAULT 0,
+    thoughts_tokens  INTEGER NOT NULL DEFAULT 0,
+    latency_ms       INTEGER,
+    ok               BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE INDEX IF NOT EXISTS llm_usage_created_idx ON llm_usage (created_at);
+CREATE INDEX IF NOT EXISTS llm_usage_model_action_idx ON llm_usage (model, action, created_at);
