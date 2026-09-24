@@ -5,7 +5,11 @@ Objectif : savoir où part la facture AVANT d'optimiser quoi que ce soit.
 
 Sources
 -------
-1. **Fichiers de log serveur** (`logs/bot_*.log*`, y compris les `.gz` compressés par
+0. **Table Postgres `llm_usage`** (`--from-db`, RECOMMANDÉ) : une ligne par appel, backend ET chat,
+   avec le code d'action (`t1_gatekeeper`, `t1_shadow`, `t2_analyst`, `t3_expert`,
+   `t2_backfill_light`, `audit_t2`, `chat_turn`, `chat_followup_*`, ...). Donne le détail
+   modèle × action demandé. Lue via `DATABASE_URL` (même défaut que `backend/pg_db.py`).
+1. **Fichiers de log serveur** (repli, avant déploiement de `llm_usage`) (`logs/bot_*.log*`, y compris les `.gz` compressés par
    `log_retention.py`) : lignes `[tokens] model=... images=N in=... out=... cached=... total=...`
    émises par `analyzer.py::_call_gemini_json` (T1 miroir / T2 / T3) — et par
    `_call_openai_compatible_json` (Qwen/TokenRouter) une fois le patch fourni appliqué.
@@ -18,7 +22,9 @@ Sources
 
 Usage (depuis la racine du dépôt, sur le serveur de prod — même cwd que le bot)
 -------------------------------------------------------------------------------
-    python backend/scripts/cost_dashboard.py # 14 derniers jours
+    python backend/scripts/cost_dashboard.py --from-db             # détail modèle × action (Postgres)
+    python backend/scripts/cost_dashboard.py --from-db --days 30 --by-deal 10   # + 10 annonces les plus chères
+    python backend/scripts/cost_dashboard.py                       # logs seuls, 14 derniers jours
     python backend/scripts/cost_dashboard.py --days 30
     python backend/scripts/cost_dashboard.py --days 30 --billing-csv facture_sept.csv
     python backend/scripts/cost_dashboard.py --json backend/benchmark/results/cost_dashboard.json
@@ -53,7 +59,7 @@ PRICING = {
     "gemini-3.6-flash": [{"in": 1.50, "out": 7.50, "cached": 0.10}],
     "gemini-3.1-pro-preview": [{"in": 2.00, "out": 12.00, "cached": 0.25}],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
-    "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}], # Ollama local (Dell)
+    "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
     "qwen3-vl:4b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
 }
 
@@ -124,6 +130,75 @@ def parse_calls(log_dir, user_prefix, since):
     return calls, unparsed
 
 
+def load_calls_from_db(since, user_ref=None):
+    """Lit `llm_usage` (Postgres) — une entrée par appel, même forme que `parse_calls`."""
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError:
+        raise SystemExit("psycopg absent : pip install 'psycopg[binary]' (déjà requis par le bot).")
+    dsn = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter").replace("\r", "").strip()
+    query = ("SELECT created_at, source, provider, model, action, deal_id, images, input_tokens, "
+             "cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok FROM llm_usage WHERE created_at >= %s")
+    params = [since]
+    if user_ref:
+        query += " AND user_ref = %s"
+        params.append(user_ref)
+    with psycopg.connect(dsn, row_factory=dict_row) as conn:
+        rows = conn.execute(query, params).fetchall()
+    calls = []
+    for r in rows:
+        ts = r["created_at"].replace(tzinfo=None) if r["created_at"].tzinfo else r["created_at"]
+        calls.append({
+            "ts": ts, "day": ts.date(), "model": r["model"], "action": r["action"], "source": r["source"],
+            "deal_id": r["deal_id"], "images": r["images"], "in": r["input_tokens"],
+            "cached": r["cached_tokens"], "out": r["output_tokens"], "thoughts": r["thoughts_tokens"],
+            "latency_ms": r["latency_ms"], "ok": r["ok"],
+        })
+    return calls
+
+
+def print_by_action(calls, pricing, to_month):
+    """Détail demandé : pour chaque modèle ET chaque action, tokens d'entrée/sortie et coût."""
+    agg = defaultdict(lambda: {"calls": 0, "images": 0, "in": 0, "cached": 0, "out": 0, "thoughts": 0,
+                               "cost": 0.0, "lat": [], "errors": 0})
+    for c in calls:
+        a = agg[(c["model"], c.get("action", "?"))]
+        a["calls"] += 1
+        for k in ("images", "in", "cached", "out", "thoughts"):
+            a[k] += c[k]
+        a["cost"] += cost_of(c, pricing) or 0.0
+        if c.get("latency_ms") is not None:
+            a["lat"].append(c["latency_ms"])
+        if c.get("ok") is False:
+            a["errors"] += 1
+    print("\n" + "=" * 118)
+    print("DÉTAIL PAR MODÈLE × ACTION")
+    print("=" * 118)
+    print(f"{'modèle':26s}{'action':34s}{'appels':>7s}{'in tot':>11s}{'dont cache':>11s}{'out tot':>10s}"
+          f"{'raison.':>10s}{'in/app':>8s}{'out/app':>8s}{'/mois':>10s}")
+    for (model, action), a in sorted(agg.items(), key=lambda kv: -kv[1]["cost"]):
+        n = a["calls"]
+        print(f"{model[:25]:26s}{action[:33]:34s}{n:7d}{a['in']:11d}{a['cached']:11d}{a['out']:10d}"
+              f"{a['thoughts']:10d}{a['in'] / n:8.0f}{(a['out'] + a['thoughts']) / n:8.0f}"
+              f"{fmt_money(a['cost'] * to_month):>10s}")
+    return agg
+
+
+def print_by_deal(calls, pricing, top):
+    per = defaultdict(lambda: {"cost": 0.0, "calls": 0, "chat": 0})
+    for c in calls:
+        if not c.get("deal_id"):
+            continue
+        d = per[c["deal_id"]]
+        d["cost"] += cost_of(c, pricing) or 0.0
+        d["calls"] += 1
+        d["chat"] += 1 if c.get("source") == "chat" else 0
+    print(f"\nANNONCES LES PLUS CHÈRES (top {top})")
+    for deal_id, d in sorted(per.items(), key=lambda kv: -kv[1]["cost"])[:top]:
+        print(f"  {deal_id[:40]:40s}{d['cost']:8.3f} $  {d['calls']:4d} appels dont {d['chat']} de chat")
+
+
 def cost_of(call, pricing, as_of=None):
     tier = price_for(call["model"], as_of or call["day"], pricing)
     if tier is None:
@@ -173,12 +248,14 @@ def read_billing_csv(path):
 
 
 def fmt_money(x):
-    return f"{x:8.2f} $" if x is not None else " n/d"
+    return f"{x:8.2f} $" if x is not None else "     n/d"
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--days", type=int, default=14)
+    ap.add_argument("--from-db", action="store_true", help="lire la table Postgres llm_usage au lieu des logs")
+    ap.add_argument("--by-deal", type=int, default=0, help="avec --from-db : afficher les N annonces les plus chères")
     ap.add_argument("--log-dir", default=os.path.join(os.getcwd(), "logs"))
     ap.add_argument("--user", default=None, help="préfixe d'UID (8 caractères) pour un seul utilisateur")
     ap.add_argument("--billing-csv", default=None)
@@ -192,7 +269,10 @@ def main():
             pricing.update(json.load(fh))
 
     since = datetime.now() - timedelta(days=args.days)
-    calls, unparsed = parse_calls(args.log_dir, args.user, since)
+    if args.from_db:
+        calls, unparsed = load_calls_from_db(since, args.user), 0
+    else:
+        calls, unparsed = parse_calls(args.log_dir, args.user, since)
     if not calls:
         print("Aucun appel [tokens] sur la période. Vérifier --log-dir / --days.")
         return
@@ -218,6 +298,10 @@ def main():
         per_day[c["day"]] += cost
 
     backend_total = sum(a["cost"] for a in per_model.values())
+    if args.from_db:
+        chat_total = sum(cost_of(c, pricing) or 0.0 for c in calls if c.get("source") == "chat")
+    else:
+        chat_total = None
     to_month = 30 / span_days
 
     print("=" * 96)
@@ -238,7 +322,7 @@ def main():
         if a["unpriced"]:
             print(f" ↳ ⚠️ modèle absent de PRICING ({a['unpriced']} appels non chiffrés) : {model}")
     print("-" * 96)
-    print(f"{'TOTAL backend (T1+miroir+T2+T3)':34s}{'':51s}{fmt_money(backend_total):>10s}"
+    print(f"{'TOTAL (tous postes lus)':34s}{'':51s}{fmt_money(backend_total):>10s}"
           f"{fmt_money(backend_total * to_month):>10s}")
 
     # Projection 2027 (Gemini 3.7 Flash double de prix au 01/01/2027)
@@ -260,6 +344,13 @@ def main():
             print(f"• {ROLE.get(model, model)} : ≈ {fit['tokens_per_image']:.0f} tokens/photo, "
                   f"≈ {fit['prompt_tokens']:.0f} tokens de prompt+annonce (régression sur {fit['n']} appels).")
 
+    if args.from_db:
+        agg_actions = print_by_action(calls, pricing, to_month)
+        if chat_total is not None:
+            print(f"\n   dont chat : {chat_total:.2f} $ sur la période ({chat_total * to_month:.2f} $/mois)")
+        if args.by_deal:
+            print_by_deal(calls, pricing, args.by_deal)
+
     # Jours les plus chers
     print("\nJOURS LES PLUS CHERS (backend)")
     for d, v in sorted(per_day.items(), key=lambda kv: -kv[1])[:5]:
@@ -279,14 +370,14 @@ def main():
         gemini = sum(v for s, v in by_service.items()
                      if any(k in s.lower() for k in ("gemini", "generative language", "vertex ai")))
         if gemini:
-            # Seuls les modèles Gemini sont facturés par Google : Qwen (TokenRouter) et le local exclus.
-            backend_gemini = sum(a["cost"] for m, a in per_model.items() if m.startswith("gemini"))
+            backend_gemini = sum(cost_of(c, pricing) or 0.0 for c in calls if c["model"].startswith("gemini"))
             residual = gemini - backend_gemini
             billing.update({"gemini_billed": gemini, "backend_gemini": backend_gemini,
                             "residual_chat_and_untracked": residual})
             print(f"\n Gemini facturé {gemini:10.2f} $")
             print(f" − Gemini reconstruit (logs backend) {backend_gemini:10.2f} $")
-            print(f" = CHAT + non instrumenté {residual:10.2f} $ "
+            label = "NON INSTRUMENTÉ" if args.from_db else "CHAT + non instrumenté"
+            print(f" = {label:33s}{residual:10.2f} $ "
                   f"({100 * residual / gemini:.0f}% de la part Gemini)")
             if residual < 0:
                 print(" ⚠️ Résidu négatif : période du CSV ≠ période des logs, ou tarifs PRICING trop hauts.")
