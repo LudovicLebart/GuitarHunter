@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 
 import TaxonomyTreePicker from './TaxonomyTreePicker';
@@ -88,8 +88,19 @@ const InlineOption = ({ label, active, onClick, depth = 0 }) => {
 const ActiveSearchSection = () => {
     const { analysisConfig, setAnalysisConfig, saveConfig, handleReevaluateNotPromoted, isReevaluatingNotPromoted } = useBotConfigContext();
 
+    // Ref reflétant TOUJOURS la dernière valeur voulue de `activeSearchFamilies`, mise à jour de
+    // façon synchrone à chaque toggle — corrige un bug de fermeture obsolète trouvé en revue de
+    // code (2026-09-20) : `handleTogglePath` lisait `analysisConfig.activeSearchFamilies` capturé
+    // par la closure du render, donc deux clics rapprochés (avant le re-render déclenché par le
+    // premier setAnalysisConfig/setState, qui n'est pas garanti synchrone) lisaient tous les deux
+    // le même tableau d'avant clic — le second toggle écrasait le premier au lieu de s'y ajouter.
+    const activeFamiliesRef = useRef(analysisConfig.activeSearchFamilies || []);
+    useEffect(() => {
+        activeFamiliesRef.current = analysisConfig.activeSearchFamilies || [];
+    }, [analysisConfig.activeSearchFamilies]);
+
     const handleTogglePath = (path) => {
-        const current = analysisConfig.activeSearchFamilies || [];
+        const current = activeFamiliesRef.current;
         let next;
         if (current.includes(path)) {
             // Décoche : simple retrait, aucun élagage nécessaire.
@@ -103,6 +114,7 @@ const ActiveSearchSection = () => {
             const filtered = current.filter(p => !(p.startsWith(`${path}.`) || path.startsWith(`${p}.`)));
             next = [...filtered, path];
         }
+        activeFamiliesRef.current = next;
         setAnalysisConfig(prev => ({ ...prev, activeSearchFamilies: next }));
         saveConfig({ 'analysisConfig.activeSearchFamilies': next });
     };

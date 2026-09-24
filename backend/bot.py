@@ -6,7 +6,6 @@ import random
 import logging
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from firebase_admin import firestore
 import firebase_admin.auth as fb_auth
 
 from config import (
@@ -23,9 +22,11 @@ from backend.scraping.city_finder import CityFinder
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
-from backend.repository import FirestoreRepository
+from backend.pg_repository import PostgresRepository
+from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
+from backend.taxonomy import matches_active_search_family
 
 class GuitarHunterBot:
     # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
@@ -52,15 +53,15 @@ class GuitarHunterBot:
     # (le strict nécessaire pour ce cluster précis) plutôt que cette constante elle-même.
     KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM = 80
 
-    # Chantier H (docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md) : nombre de workers
-    # du pool qui analyse les annonces d'un même lot en parallèle (voir _dispatch_analysis_batch)
-    # — motivé par l'ajout d'un appel d'observation Qwen (Portier) nettement plus lent que
-    # Gemini (~22s contre ~5s, run #38) ; sans parallélisation, cet appel ralentirait
-    # directement la cadence de scan. Valeur prudente, à recalibrer selon les limites de débit
-    # réelles de TokenRouter/Gemini si des erreurs de rate-limit apparaissent en production.
+    # Chantier H (porté depuis dev le 2026-09-22) : nombre de workers du pool qui analyse les
+    # annonces d'un même lot en parallèle (voir _dispatch_analysis_batch) — motivé par l'ajout
+    # d'un appel d'observation Qwen (Portier) nettement plus lent que Gemini (~22s contre ~5s),
+    # sans parallélisation cet appel ralentirait directement la cadence de scan. Valeur prudente,
+    # à recalibrer selon les limites de débit réelles de TokenRouter/Gemini si des erreurs de
+    # rate-limit apparaissent en production.
     ANALYSIS_WORKERS = 5
 
-    def __init__(self, db_client, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
+    def __init__(self, pg_pool, storage_bucket=None, is_offline=False, stop_event=None, scan_stop_event=None,
                  app_id=None, user_id=None, browser_semaphore=None):
         self.stop_event = stop_event
         self.scan_stop_event = scan_stop_event
@@ -84,7 +85,7 @@ class GuitarHunterBot:
         self._current_status = 'idle'
         self._active_tasks = set()
 
-        # Email de destination pour les notifications (résolu après init Firebase)
+        # Email de destination pour les notifications (résolu après init Firebase Auth)
         self._user_email = ''  # Valeur par défaut : notifications email silencieusement désactivées
 
         if self.offline_mode:
@@ -93,7 +94,7 @@ class GuitarHunterBot:
             self.scraper = FacebookScraper({}, {}, logger=self.logger)
             return
 
-        self.repo = FirestoreRepository(db_client, self._app_id, self._user_id, bucket=storage_bucket)
+        self.repo = PostgresRepository(pg_pool, self._user_id, bucket=storage_bucket, logger=self.logger)
         self.set_status('idle')
         self.analyzer = DealAnalyzer(logger=self.logger)
 
@@ -108,15 +109,15 @@ class GuitarHunterBot:
         self.is_cleaning = False
         self.cleanup_lock = threading.Lock()
 
-        # Récupération de l'email Firebase Auth pour les notifications
+        # Récupération de l'email Firebase Auth pour les notifications (Firebase Auth reste inchangé)
         self._user_email = self._resolve_user_email()
 
         self.logger.info("--- Configuration du Bot Terminée ---")
         self.logger.info(f"APP ID: {self._app_id}")
         self.logger.info(f"USER ID: {self._user_id}")
-        self.logger.info(f"EMAIL: {self._user_email or 'Non disponible'}") 
+        self.logger.info(f"EMAIL: {self._user_email or 'Non disponible'}")
 
-        self._init_firestore_structure(initial_scan_config)
+        self._init_db_structure(initial_scan_config)
         self.sync_and_apply_config(initial=True)
 
     def _resolve_user_email(self) -> str:
@@ -166,7 +167,7 @@ class GuitarHunterBot:
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la mise à jour du statut {calculated_status}: {e}")
 
-    def _init_firestore_structure(self, initial_scan_config):
+    def _init_db_structure(self, initial_scan_config):
         initial_config = {
             'exclusionKeywords': DEFAULT_EXCLUSION_KEYWORDS,
             'scanConfig': initial_scan_config,
@@ -182,12 +183,12 @@ class GuitarHunterBot:
             },
             'availableModels': GEMINI_MODELS["available"]
         }
-        self.logger.info("DEBUG: Calling ensure_initial_structure with defaults...")
+        self.logger.info("Initialisation de la structure Postgres pour l'utilisateur...")
         self.repo.ensure_initial_structure(initial_config)
 
     def sync_and_apply_config(self, initial=False):
         if self.offline_mode: return
-        sync_result = self.config_manager.sync_with_firestore(initial=initial)
+        sync_result = self.config_manager.sync_with_db(initial=initial)
         return sync_result
 
     @staticmethod
@@ -280,21 +281,29 @@ class GuitarHunterBot:
         return None
 
     def should_skip_deal(self, deal_id, price):
+        """2026-09-19 (catalogue partagé) : `get_deal_by_id` est global — si CE scan retrouve une
+        annonce déjà connue (créée par un autre utilisateur ou par une session précédente), elle
+        correspond quand même aux critères de recherche de CET utilisateur. `record_deal_match`
+        doit être appelé ici (correctif 2026-09-20, revue de code) : sans ça, une annonce au prix
+        inchangé resterait invisible pour toujours dans le fil de cet utilisateur, puisque ce
+        chemin court-circuite `handle_deal_found` (seul autre endroit qui enregistre le match)."""
         if deal_id in self.session_processed_ids: return True
         if self.offline_mode: return False
         existing_deal = self.repo.get_deal_by_id(deal_id)
         if not existing_deal: return False
         if existing_deal.get('status') == 'rejected':
             self.session_processed_ids.add(deal_id)
+            self.repo.record_deal_match(deal_id)
             return True
-            
+
         old_price = self._normalize_price(existing_deal.get('price', -1))
         new_price = self._normalize_price(price)
-        
+
         if old_price > 0 and old_price == new_price:
             self.session_processed_ids.add(deal_id)
+            self.repo.record_deal_match(deal_id)
             return True
-            
+
         return False
 
     def _check_exclusion(self, listing_data, config):
@@ -310,16 +319,15 @@ class GuitarHunterBot:
     def _create_rejection_analysis(self, keyword):
         return {"verdict": "REJECTED", "reasoning": f"REJET AUTOMATIQUE : Mot-clé '{keyword}' détecté.", "model_used": "pre-filter"}
 
-    # Outcomes que `handle_deal_found` renvoie AVANT sa propre ligne `session_processed_ids.add(...)`
-    # (scraping incomplet, doublon cross-plateforme, marqueur de vente) — ces annonces doivent
-    # pouvoir être retentées plus tard dans le MÊME cycle de scan (ex: la même annonce ressort en
-    # scannant une autre ville du cluster), donc ne doivent jamais être marquées "déjà vues" pour
-    # la suite du cycle. "stopped"/"error" ajoutés par prudence : depuis ce thread, impossible de
-    # savoir si l'arrêt/l'échec est survenu avant ou après cette ligne à l'intérieur du worker —
-    # mieux vaut permettre une retentative que perdre silencieusement une annonce pour tout le cycle.
+    # Chantier H (porté depuis dev le 2026-09-22) : outcomes après lesquels l'id ne doit PAS être
+    # ajouté à `session_processed_ids` — un mécanisme de retentative existe déjà pour ces cas
+    # précis dans `handle_deal_found` (scraping raté, doublon cross-plateforme, marqueur de vente,
+    # arrêt demandé, erreur inattendue, échec du Portier T1 depuis le 2026-09-24) : le marquer
+    # "traité" prématurément casserait cette retentative. Tout le reste (rejeté, hors budget, déjà
+    # connu, traité...) EST marqué, comme avant.
     _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
         "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
-        "stopped", "error",
+        "stopped", "error", "gatekeeper_failed",
     })
 
     def _handle_deal_found_unless_stopped(self, deal, source):
@@ -341,13 +349,13 @@ class GuitarHunterBot:
         return outcome, time.time() - start
 
     def _dispatch_analysis_batch(self, deals, source, cycle_stats):
-        """Analyse `deals` (déjà filtrés/enrichis, prêts pour handle_deal_found) en parallèle
-        via un pool de workers borné (Chantier H, ANALYSIS_WORKERS) — remplace la boucle
-        séquentielle historique. Le scraping (Playwright) est déjà entièrement terminé avant cet
-        appel (`deals` est une simple liste de dicts), donc aucune instance de scraper n'est
-        partagée entre les workers : chaque appel `handle_deal_found` ne fait que des requêtes
-        HTTP (Gemini/TokenRouter, téléchargement d'image) et des écritures Firestore, toutes deux
-        thread-safe côté clients utilisés ici.
+        """Chantier H (porté depuis dev le 2026-09-22) : analyse `deals` (déjà filtrés/enrichis,
+        prêts pour handle_deal_found) en parallèle via un pool de workers borné (ANALYSIS_WORKERS)
+        — remplace la boucle séquentielle historique. Le scraping (Playwright) est déjà
+        entièrement terminé avant cet appel (`deals` est une simple liste de dicts), donc aucune
+        instance de scraper n'est partagée entre les workers : chaque appel `handle_deal_found` ne
+        fait que des requêtes HTTP (Gemini/TokenRouter, téléchargement d'image, Postgres via le
+        pool `psycopg`, tous thread-safe côté clients utilisés ici) et des écritures Postgres.
 
         `session_processed_ids` est thread-local (voir sa docstring, conçu pour le modèle "un
         thread par utilisateur") : les workers de CE pool tournent dans des threads distincts du
@@ -358,10 +366,10 @@ class GuitarHunterBot:
         pré-marquage aveugle de tout le lot AVANT analyse casserait le mécanisme de retentative
         déjà en place dans `handle_deal_found` pour ces cas précis.
 
-        Mesure l'efficacité réelle de la parallélisation (2026-09-19, voir TODO.md section
-        "Optimisation coûts Gemini") : compare le temps mur du lot au temps cumulé individuel de
-        chaque analyse (chronométré dans le worker qui l'exécute, hors attente en file) — le
-        ratio des deux est l'accélération réellement obtenue, à comparer à `ANALYSIS_WORKERS`.
+        Mesure l'efficacité réelle de la parallélisation : compare le temps mur du lot au temps
+        cumulé individuel de chaque analyse (chronométré dans le worker qui l'exécute, hors
+        attente en file) — le ratio des deux est l'accélération réellement obtenue, à comparer à
+        `ANALYSIS_WORKERS`.
         """
         if not deals:
             return
@@ -422,6 +430,13 @@ class GuitarHunterBot:
         
         if not self.offline_mode:
             existing_deal = self.repo.get_deal_by_id(listing_data['id'])
+            if existing_deal:
+                # 2026-09-19 (catalogue partagé) : cette annonce existe déjà — peut-être trouvée
+                # par un AUTRE utilisateur en premier. Le scan de CET utilisateur l'a quand même
+                # retrouvée (elle correspond à ses propres critères de recherche) : enregistrer sa
+                # visibilité même si aucune écriture d'analyse ne suit (ex: prix inchangé, déjà
+                # rejetée) — sinon elle n'apparaîtrait jamais dans son propre fil.
+                self.repo.record_deal_match(listing_data['id'])
 
         # Filtre pré-IA : annonce déjà vendue signalée dans le titre ou la description
         # (vendeur qui ajoute "VENDU" sans supprimer l'annonce).
@@ -501,6 +516,15 @@ class GuitarHunterBot:
             return "rejected_prefilter"
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+
+        # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) : le Portier
+        # T1 n'a produit aucun verdict fiable (échec d'appel ou réponse malformée, voir
+        # analyzer.py::T1_ERROR_STATUSES) — l'annonce n'est ni notifiée ni stockée, elle sera
+        # re-scrapée et retentée au prochain cycle de scan (voir _NEVER_MARK_PROCESSED_OUTCOMES).
+        if analysis.get('verdict') == 'GATEKEEPER_FAILED_SKIP':
+            self.logger.warning(f"⏩ [{source}] Portier T1 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
+            return "gatekeeper_failed"
+
         deal_id = listing_data.get('id')
         NotificationService.notify_deal(
             deal_id, listing_data, analysis,
@@ -1143,33 +1167,44 @@ class GuitarHunterBot:
                 self.logger.warning(f"Erreur lors de la fermeture du scraper temporaire : {e}")
         return deleted_count
 
+    @staticmethod
+    def _build_listing_data_from_row(doc_id, data, prefer_storage_images=False):
+        """Reconstruit un `listing_data` (forme attendue par `analyzer.analyze_deal`) à partir
+        d'une ligne déjà en base — factorisé pour `process_retry_queue`/`reevaluate_not_promoted`,
+        qui ne diffèrent que par la priorité donnée aux URLs Storage (permanentes) vs Facebook
+        brutes (voir CLAUDE.md, points d'attention critiques)."""
+        image_urls = data.get('imageUrls', [])
+        if prefer_storage_images:
+            image_urls = data.get('storageImageUrls') or image_urls
+        return {
+            "title": data.get('title'), "price": data.get('price'),
+            "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
+            "imageUrls": image_urls, "imageUrl": data.get('imageUrl'),
+            "link": data.get('link'), "id": doc_id,
+            **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
+        }
+
     def process_retry_queue(self):
         """Traite les annonces en attente de réanalyse."""
         if self.offline_mode: return
-        
+
         docs = list(self.repo.get_retry_queue_listings())
         if not docs:
             return
 
         self.set_status('reanalyzing', task_name='retry_queue')
-        
+
         try:
             for doc in docs:
                 if self._is_stop_requested():
                     self.logger.info("🛑 File d'attente interrompue.")
                     break
-                    
+
                 data = doc.to_dict()
                 self.logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
-                
-                listing_data = {
-                    "title": data.get('title'), "price": data.get('price'),
-                    "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-                    "imageUrls": data.get('imageUrls', []), "imageUrl": data.get('imageUrl'),
-                    "link": data.get('link'), "id": doc.id,
-                    **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-                }
-                
+
+                listing_data = self._build_listing_data_from_row(doc.id, data)
+
                 current_config = self.config_manager.current_config_snapshot
                 
                 found_keyword = self._check_exclusion(listing_data, current_config)
@@ -1189,11 +1224,14 @@ class GuitarHunterBot:
             self.set_status('idle', task_name='retry_queue')
 
     def reevaluate_not_promoted(self, payload=None):
-        """Chantier G : quand `activeSearchFamilies` change (élargi ou vidé), repromeut vers
-        T2/T3 les annonces mises de côté (`aiAnalysis.verdict == 'NOT_PROMOTED'`) dont la
-        classification déjà connue du Portier correspond désormais au filtre actif — sans
-        rappeler le Portier (`force_expert=True`, comme `analyze_single_deal`), puisque sa
-        classification reste valide (aucune nouvelle photo, aucun nouveau texte)."""
+        """Rattrapage Chantier G (2026-09-19, mirroir de `dev`'s `repository.py::
+        reevaluate_not_promoted` côté Firestore — cette branche Postgres n'a pas de
+        `backend/repository.py::reevaluate_not_promoted` propre, la classe Firestore n'ayant
+        jamais reçu ce chantier) : quand `activeSearchFamilies` change (élargi ou vidé), repromeut
+        vers T2/T3 les annonces mises de côté (`verdict == 'NOT_PROMOTED'`) dont la classification
+        déjà connue du Portier correspond désormais au filtre actif — sans rappeler le Portier
+        (`force_expert=True`, comme `analyze_single_deal`), puisque sa classification reste valide
+        (aucune nouvelle photo, aucun nouveau texte)."""
         if self.offline_mode: return
 
         current_config = self.config_manager.current_config_snapshot
@@ -1209,26 +1247,15 @@ class GuitarHunterBot:
                     break
 
                 data = doc.to_dict()
-                ai = data.get('aiAnalysis') or {}
-                classification = ai.get('gatekeeperClassification')
-                matches_active_search = not active_families or (classification and any(
-                    classification == family or classification.startswith(f"{family}.")
-                    for family in active_families
-                ))
+                # Colonne plate (pas de nesting aiAnalysis côté Postgres, contrairement à
+                # Firestore) — voir pg_repository.py::get_not_promoted_listings.
+                classification = data.get('gatekeeper_classification')
+                matches_active_search = not active_families or matches_active_search_family(classification, active_families)
                 if not matches_active_search:
                     continue
 
                 self.logger.info(f"   🔎 Repromotion vers T2/T3 : '{data.get('title')}' (classification '{classification}' correspond au filtre actif).")
-                listing_data = {
-                    "title": data.get('title'), "price": data.get('price'),
-                    "description": data.get('description', ''), "location": data.get('location', 'Inconnue'),
-                    # Priorité aux URLs Firebase Storage (permanentes) — les URLs Facebook
-                    # brutes de imageUrls expirent, contrairement à celles déjà uploadées lors
-                    # du premier passage (voir CLAUDE.md, points d'attention critiques).
-                    "imageUrls": data.get('storageImageUrls') or data.get('imageUrls', []),
-                    "imageUrl": data.get('imageUrl'), "link": data.get('link'), "id": doc.id,
-                    **({'latitude': data['latitude'], 'longitude': data['longitude']} if 'latitude' in data else {})
-                }
+                listing_data = self._build_listing_data_from_row(doc.id, data, prefer_storage_images=True)
 
                 try:
                     analysis = self.analyzer.analyze_deal(
@@ -1236,16 +1263,25 @@ class GuitarHunterBot:
                         force_expert=True, user_email=self._user_email,
                     )
                     # force_expert=True saute le Portier et efface gatekeeperBrand/Classification/
-                    # Verdict (mis à None/"MANUAL_RETRY" par _attach_gatekeeper_metadata) — on
-                    # restaure ici les valeurs déjà connues, seule source de vérité pour cette
-                    # classification (aucun nouvel appel Portier ne les regénère).
-                    for key in (
-                        'gatekeeperBrand', 'gatekeeperClassification', 'gatekeeperVerdict',
-                        'qwenGatekeeperVerdict', 'qwenGatekeeperBrand', 'qwenGatekeeperClassification',
-                        'qwenGatekeeperLatencyS', 'qwenGatekeeperError',
-                    ):
-                        if key in ai:
-                            analysis[key] = ai[key]
+                    # Verdict (le Portier n'ayant pas tourné, _attach_gatekeeper_metadata leur
+                    # affecte des valeurs vides/MANUAL_RETRY) — on restaure ICI INCONDITIONNELLEMENT
+                    # les valeurs déjà connues (seule source de vérité pour cette classification,
+                    # aucun nouvel appel Portier ne les regénère), y compris quand elles valent
+                    # légitimement None : ne pas le faire laisserait le placeholder MANUAL_RETRY
+                    # écraser un gatekeeper_verdict correct mais vide.
+                    for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
+                        analysis[key] = data.get(col)
+                    # Chantier H (porté depuis dev le 2026-09-22) : restaure aussi l'observation
+                    # fantôme (`flashliteGatekeeper*`/`qwenGatekeeper*`) — jamais promue en colonne
+                    # Postgres dédiée (voir analyzer.py::_attach_gatekeeper_metadata), elle ne vit
+                    # que dans `ai_analysis_raw` (JSONB). Sans cette restauration, la repromotion
+                    # perdrait silencieusement les données de comparaison Qwen/Gemini déjà
+                    # accumulées pour cette annonce.
+                    raw = data.get('ai_analysis_raw') or {}
+                    shadow_prefixes = ('qwenGatekeeper', 'flashliteGatekeeper')
+                    for key, value in raw.items():
+                        if key.startswith(shadow_prefixes):
+                            analysis[key] = value
                     self.repo.update_deal_analysis(doc.id, analysis)
                     promoted_count += 1
                 except Exception as e:
@@ -1467,6 +1503,10 @@ class GuitarHunterBot:
         if not deal_data:
             self.logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
             return
+        # update_deal_analysis n'enregistre plus le match lui-même (correctif 2026-09-20,
+        # voir sa docstring) — cette demande explicite de l'utilisateur est un vrai signal
+        # d'intérêt, à enregistrer ici.
+        self.repo.record_deal_match(deal_id)
 
         listing_data = {
             "title": deal_data.get('title'),

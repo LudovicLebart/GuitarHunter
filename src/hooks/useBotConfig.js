@@ -9,9 +9,8 @@ import {
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
 } from '../services/apiService';
-// migrateOldDataToNewUser : migration ponctuelle Firestore -> Firestore (ancienne transition
-// mono- vers multi-utilisateur), sans équivalent Postgres — reste sur l'ancien fichier, voir
-// apiService.js (en-tête).
+// Migration ponctuelle Firestore -> Firestore (ancienne transition mono- vers multi-utilisateur),
+// sans équivalent Postgres — reste sur l'ancien fichier, voir apiService.js (en-tête).
 import { migrateOldDataToNewUser } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 

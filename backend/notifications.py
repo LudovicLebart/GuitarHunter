@@ -299,6 +299,52 @@ class NotificationService:
         )
         _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
 
+    @staticmethod
+    def notify_gatekeeper_failure(provider: str, error: str, user_email: Optional[str] = None,
+                                  logger: logging.Logger = None) -> None:
+        """
+        Alerte (email + ntfy) quand le Portier T1 réel échoue pour une cause QUELCONQUE, sans
+        présumer qu'un modèle est mort — contrairement à `notify_model_error`, écrit
+        spécifiquement pour une dépréciation de modèle Gemini. Chantier H (bascule
+        T1_GATEKEEPER_PROVIDER), porté depuis dev le 2026-09-22 : un échec du décideur T1 réel —
+        quelle qu'en soit la cause (image corrompue/tronquée, panne réseau, panne TokenRouter,
+        modèle effectivement indisponible...) — signifie que l'annonce est sautée sans être
+        analysée (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté ; avant
+        cette date : fail-open intégral vers l'Analyste). `notify_model_error` était réutilisée à
+        tort pour TOUT échec du Portier, affirmant à tort "modèle retiré" pour une simple image
+        tronquée. Throttlée en amont par l'appelant (1x/24h/provider), même mécanisme que
+        `notify_model_error`.
+
+        Args:
+            provider   : Fournisseur T1 en échec (ex: 'T1-qwen', 'T1-gemini').
+            error      : Message d'erreur brut.
+            user_email : Email Firebase Auth de l'utilisateur destinataire.
+            logger     : Logger par-utilisateur (Firestore/LogViewer), optionnel.
+        """
+        log = logger or _module_logger
+        subject = f"[GuitarHunter] ⚠️ Portier T1 en échec : {provider}"
+        body = (
+            f"⚠️ LE PORTIER (TIER 1) A ÉCHOUÉ\n"
+            f"{'=' * 50}\n"
+            f"Fournisseur : {provider}\n"
+            f"Erreur      : {error}\n\n"
+            f"Conséquence : cette annonce est sautée sans être analysée — elle sera retentée "
+            f"automatiquement au prochain cycle de scan (aucune écriture en base pour l'instant).\n\n"
+            f"Cause probablement transitoire (image corrompue/tronquée, panne réseau, panne "
+            f"temporaire du fournisseur) — pas nécessairement un modèle indisponible. Si cette "
+            f"alerte se répète fréquemment, vérifie le fournisseur T1 dans le panneau de "
+            f"configuration de Guitar Hunter.\n\n"
+            f"—\nGuitar Hunter Bot"
+        )
+        _ntfy.send(
+            f"⚠️ Portier T1 en échec : {provider}",
+            f"{error[:200]}",
+            priority='default',
+            tags=['warning'],
+            logger=log
+        )
+        _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
+
     # Messages adaptés au code de statut retourné par bot.py::handle_deal_found()
     _SCAN_URL_OUTCOME_MESSAGES = {
         "processed": "✅ Nouvelle annonce ajoutée et analysée : {title}",

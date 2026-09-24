@@ -9,10 +9,13 @@ Deux sources, lues l'une et l'autre :
 1. **Le vrai fichier de log serveur** (`logging_config.py::LOG_DIR`, `logs/bot_{uid[:8]}.log`,
    relatif au `cwd` du processus bot — identique à celui de ce script quand il tourne via
    `run_once.py` sur le même serveur/répertoire, voir `.github/workflows/deploy.yml` job `deploy`).
-   Correction utilisateur (2026-09-18) : c'est la source de vérité actuelle, pas Firestore — la
-   rotation quotidienne UTC (`backupCount=0`) ne garde que la journée en cours, donc pas d'historique
-   au-delà d'aujourd'hui. Contient les lignes `🔎 Hors recherche active (...)` mais PAS la
-   classification exacte de l'annonce écartée (le message ne l'inclut pas).
+   Correction utilisateur (2026-09-18) : c'est la source de vérité actuelle, pas Firestore.
+   Correction revue de code (2026-09-20) : `backupCount=0` sur un `TimedRotatingFileHandler` ne
+   supprime PAS les anciens fichiers (contrairement à l'hypothèse précédente) — chaque rotation
+   minuit UTC renomme l'ancien fichier en lui ajoutant un suffixe de date
+   (`bot_{uid[:8]}.log.2026-09-19`) et ceux-ci s'accumulent indéfiniment ; seul le fichier SANS
+   suffixe est la journée en cours. Contient les lignes `🔎 Hors recherche active (...)` mais PAS
+   la classification exacte de l'annonce écartée (le message ne l'inclut pas).
 2. **Les documents `guitar_deals`** (`aiAnalysis.gatekeeperClassification`) pour savoir précisément
    QUELLES classifications sont écartées vs promues — complémentaire au fichier de log, qui donne le
    volume/la fréquence mais pas le détail par catégorie.
@@ -43,8 +46,13 @@ TAIL_EXCERPT_LINES = 20
 
 
 def read_server_log_files(uid_prefix=None):
-    """Lit directement le(s) fichier(s) de log serveur (source de vérité — voir docstring)."""
-    pattern = os.path.join(LOG_DIR, f"bot_{uid_prefix}*.log" if uid_prefix else "bot_*.log")
+    """Lit directement le(s) fichier(s) de log serveur (source de vérité — voir docstring).
+
+    Motif corrigé le 2026-09-20 (revue de code) : `bot_*.log` seul ne matchait que le fichier du
+    jour courant, pas les fichiers tournés (`bot_xxx.log.2026-09-19`, jamais supprimés — voir
+    docstring du module) — `bot_*.log*` couvre les deux."""
+    base = f"bot_{uid_prefix}" if uid_prefix else "bot_"
+    pattern = os.path.join(LOG_DIR, f"{base}*.log*")
     log_files = sorted(glob.glob(pattern))
 
     print(f"\n{'#' * 90}")

@@ -20,14 +20,23 @@ def _make_bot():
     seuls les attributs lus par _run_kijiji_scan/should_skip_deal/handle_deal_found sont
     posés à la main. handle_deal_found et should_skip_deal sont mockés : on teste
     l'orchestration de _run_kijiji_scan elle-même, pas le pipeline de traitement complet
-    (déjà hors scope du module Kijiji autonome)."""
+    (déjà hors scope du module Kijiji autonome).
+
+    `_local` (Chantier H, porté 2026-09-22) : `_run_kijiji_scan` passe désormais par
+    `_dispatch_analysis_batch`, qui alimente `session_processed_ids` (backé par
+    `threading.local()`, posé dans `__init__`, jamais appelé ici) — sans cet attribut,
+    l'accès à la propriété lève `AttributeError` dès le premier lot traité.
+    `handle_deal_found` renvoie explicitement `"processed"` (au lieu du MagicMock par
+    défaut) pour refléter le vrai contrat de la méthode (toujours une chaîne d'issue),
+    dont `_dispatch_analysis_batch` dépend pour agréger `cycle_stats`."""
     bot = GuitarHunterBot.__new__(GuitarHunterBot)
     bot.logger = MagicMock()
     bot._user_id = "test_user_id"
     bot.stop_event = None
     bot.scan_stop_event = None
     bot._browser_semaphore = None
-    bot.handle_deal_found = MagicMock()
+    bot._local = threading.local()
+    bot.handle_deal_found = MagicMock(return_value="processed")
     bot.should_skip_deal = MagicMock(return_value=False)
     return bot
 
@@ -586,6 +595,67 @@ class TestFindCrossPlatformDuplicate(unittest.TestCase):
         # Repli sur le nom de ville (coordonnées invalides côté candidat) plutôt que de
         # planter ou de considérer "invalide" comme une coordonnée valide.
         self.assertEqual(result, "999")
+
+
+def _make_handle_deal_found_bot(analyzer_verdict):
+    """Instance minimale pour tester `handle_deal_found` (pas mocké ici, contrairement à
+    `_make_bot()` ci-dessus) sur une annonce NEUVE (pas de doublon, pas de marqueur de
+    vente, dans le budget) dont l'analyse retourne `analyzer_verdict`."""
+    bot = GuitarHunterBot.__new__(GuitarHunterBot)
+    bot.logger = MagicMock()
+    bot._user_id = "test_user_id"
+    bot._user_email = "user@example.com"
+    bot._local = threading.local()
+    bot.offline_mode = False
+    bot.repo = MagicMock()
+    bot.repo.get_deals_index_snapshot.return_value = {}
+    bot.repo.get_deal_by_id.return_value = None  # annonce neuve
+    bot.repo.upload_images_to_storage.return_value = ([], [])
+    bot.config_manager = MagicMock()
+    bot.config_manager.current_config_snapshot = {"scanConfig": {"max_price": 0}, "exclusionKeywords": []}
+    bot.analyzer = MagicMock()
+    bot.analyzer.analyze_deal.return_value = analyzer_verdict
+    return bot
+
+
+def _new_listing():
+    return {
+        "id": "deal_1", "title": "Guitare Fender Stratocaster", "description": "Bon état",
+        "price": 300, "imageUrl": "https://example.com/photo.jpg",
+        "location": "Longueuil", "latitude": 45.53, "longitude": -73.51,
+    }
+
+
+@patch("backend.bot.NotificationService")
+class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
+    """Régression Portier T1 (2026-09-24) : un échec du Portier ne doit plus fail-open vers
+    l'Analyste — l'annonce doit être sautée sans écriture ni notification, pour être
+    retentée au prochain cycle de scan (voir _NEVER_MARK_PROCESSED_OUTCOMES)."""
+
+    def test_gatekeeper_failed_skip_writes_nothing_and_returns_dedicated_outcome(self, mock_notification_service):
+        bot = _make_handle_deal_found_bot({"verdict": "GATEKEEPER_FAILED_SKIP", "reasoning": "Portier en échec."})
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+
+        self.assertEqual(outcome, "gatekeeper_failed")
+        self.assertIn("gatekeeper_failed", bot._NEVER_MARK_PROCESSED_OUTCOMES)
+        bot.repo.create_new_deal.assert_not_called()
+        bot.repo.update_deal_data_and_analysis.assert_not_called()
+
+    def test_gatekeeper_failed_skip_does_not_notify_user(self, mock_notification_service):
+        bot = _make_handle_deal_found_bot({"verdict": "GATEKEEPER_FAILED_SKIP", "reasoning": "Portier en échec."})
+        bot.handle_deal_found(_new_listing(), source="Facebook")
+
+        mock_notification_service.notify_deal.assert_not_called()
+
+    def test_normal_verdict_still_processed_and_stored(self, mock_notification_service):
+        """Garde-fou anti-régression : un verdict normal (Portier opérationnel) doit
+        toujours être stocké et notifié comme avant ce changement."""
+        bot = _make_handle_deal_found_bot({"verdict": "BAD_DEAL", "reasoning": "Prix trop élevé."})
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+
+        self.assertEqual(outcome, "processed")
+        bot.repo.create_new_deal.assert_called_once()
+        mock_notification_service.notify_deal.assert_called_once()
 
 
 if __name__ == "__main__":
