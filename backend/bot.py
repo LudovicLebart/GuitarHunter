@@ -322,12 +322,12 @@ class GuitarHunterBot:
     # Chantier H (porté depuis dev le 2026-09-22) : outcomes après lesquels l'id ne doit PAS être
     # ajouté à `session_processed_ids` — un mécanisme de retentative existe déjà pour ces cas
     # précis dans `handle_deal_found` (scraping raté, doublon cross-plateforme, marqueur de vente,
-    # arrêt demandé, erreur inattendue) : le marquer "traité" prématurément casserait cette
-    # retentative. Tout le reste (rejeté, hors budget, déjà connu, traité...) EST marqué, comme
-    # avant.
+    # arrêt demandé, erreur inattendue, échec du Portier T1 depuis le 2026-09-24) : le marquer
+    # "traité" prématurément casserait cette retentative. Tout le reste (rejeté, hors budget, déjà
+    # connu, traité...) EST marqué, comme avant.
     _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
         "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
-        "stopped", "error",
+        "stopped", "error", "gatekeeper_failed",
     })
 
     def _handle_deal_found_unless_stopped(self, deal, source):
@@ -516,6 +516,15 @@ class GuitarHunterBot:
             return "rejected_prefilter"
 
         analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+
+        # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) : le Portier
+        # T1 n'a produit aucun verdict fiable (échec d'appel ou réponse malformée, voir
+        # analyzer.py::T1_ERROR_STATUSES) — l'annonce n'est ni notifiée ni stockée, elle sera
+        # re-scrapée et retentée au prochain cycle de scan (voir _NEVER_MARK_PROCESSED_OUTCOMES).
+        if analysis.get('verdict') == 'GATEKEEPER_FAILED_SKIP':
+            self.logger.warning(f"⏩ [{source}] Portier T1 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
+            return "gatekeeper_failed"
+
         deal_id = listing_data.get('id')
         NotificationService.notify_deal(
             deal_id, listing_data, analysis,

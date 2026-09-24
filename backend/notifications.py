@@ -308,11 +308,12 @@ class NotificationService:
         spécifiquement pour une dépréciation de modèle Gemini. Chantier H (bascule
         T1_GATEKEEPER_PROVIDER), porté depuis dev le 2026-09-22 : un échec du décideur T1 réel —
         quelle qu'en soit la cause (image corrompue/tronquée, panne réseau, panne TokenRouter,
-        modèle effectivement indisponible...) — signifie qu'aucun filtrage T1 n'a lieu sur cette
-        annonce (fail-open intégral vers l'Analyste), ce qui reste digne d'alerte même quand ce
-        n'est pas un modèle qui a disparu. `notify_model_error` était réutilisée à tort pour TOUT
-        échec du Portier, affirmant à tort "modèle retiré" pour une simple image tronquée.
-        Throttlée en amont par l'appelant (1x/24h/provider), même mécanisme que `notify_model_error`.
+        modèle effectivement indisponible...) — signifie que l'annonce est sautée sans être
+        analysée (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté ; avant
+        cette date : fail-open intégral vers l'Analyste). `notify_model_error` était réutilisée à
+        tort pour TOUT échec du Portier, affirmant à tort "modèle retiré" pour une simple image
+        tronquée. Throttlée en amont par l'appelant (1x/24h/provider), même mécanisme que
+        `notify_model_error`.
 
         Args:
             provider   : Fournisseur T1 en échec (ex: 'T1-qwen', 'T1-gemini').
@@ -327,8 +328,8 @@ class NotificationService:
             f"{'=' * 50}\n"
             f"Fournisseur : {provider}\n"
             f"Erreur      : {error}\n\n"
-            f"Conséquence : aucun filtrage T1 pour cette annonce — elle est passée directement à "
-            f"l'Analyste (fail-open), pas de perte d'annonce.\n\n"
+            f"Conséquence : cette annonce est sautée sans être analysée — elle sera retentée "
+            f"automatiquement au prochain cycle de scan (aucune écriture en base pour l'instant).\n\n"
             f"Cause probablement transitoire (image corrompue/tronquée, panne réseau, panne "
             f"temporaire du fournisseur) — pas nécessairement un modèle indisponible. Si cette "
             f"alerte se répète fréquemment, vérifie le fournisseur T1 dans le panneau de "

@@ -50,8 +50,10 @@ T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CAS
 
 # Verdicts d'erreur du Portier (appel raté ou réponse malformée) — n'ont par définition aucune
 # classification fiable, donc jamais soumis au routage Chantier G (`activeSearchFamilies`) au
-# risque d'être routés à tort vers NOT_PROMOTED au lieu du fail-open habituel vers l'Analyste
-# (Chantier H, porté depuis dev le 2026-09-22).
+# risque d'être routés à tort vers NOT_PROMOTED. Depuis le 2026-09-24, ces verdicts font sauter
+# l'annonce (retentée au prochain cycle de scan, voir GATEKEEPER_FAILED_SKIP) au lieu du fail-open
+# historique vers l'Analyste (Chantier H, porté depuis dev le 2026-09-22) — provisoire, en
+# attendant un vrai mécanisme de repli (ex: second appel Gemini).
 T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
 
 # Chantier H (porté depuis dev le 2026-09-22) : les 9 verdicts que `gatekeeper_verbosity_instruction`
@@ -630,12 +632,14 @@ class DealAnalyzer:
             qwen_observation = shadow_result_holder[0]
 
             if err_t1 or not result_t1:
-                # Fail-open vers l'Analyste — mais avec une alerte explicite : contrairement à un
-                # simple retry Gemini, un échec du DÉCIDEUR T1 RÉEL revient à ne plus filtrer
-                # AUCUNE annonce (100% promues en Tier 2) tant que ça persiste.
+                # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) :
+                # un échec du DÉCIDEUR T1 RÉEL ne fait plus fail-open vers l'Analyste (ce qui
+                # revenait à ne plus filtrer AUCUNE annonce tant que ça persistait) — l'annonce
+                # est sautée sans être stockée ni marquée traitée, elle sera retentée au prochain
+                # cycle de scan (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
                 gatekeeper_status = "ERROR_GATEKEEPER"
                 gatekeeper_reason = err_t1 or "Le portier a planté silencieusement."
-                self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — fail-open vers l'Analyste (aucun filtrage T1 pour cette annonce) : {gatekeeper_reason}")
+                self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
                 # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
                 # ressemble vraiment (_is_model_unavailable_error) — sinon (image tronquée, panne
                 # réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne présume pas la
@@ -680,8 +684,8 @@ class DealAnalyzer:
                 # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
                 # Second garde-fou (Chantier H) : un verdict d'erreur (T1_ERROR_STATUSES — Portier
                 # planté ou réponse malformée) n'a par définition aucune classification fiable ;
-                # sans ce garde-fou, il se retrouvait routé vers NOT_PROMOTED (classification vide
-                # ⇒ aucune correspondance) au lieu du fail-open habituel vers l'Analyste.
+                # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
+                # vide ⇒ aucune correspondance) au lieu du skip dédié juste après ce bloc.
                 active_search_families = config.get('activeSearchFamilies') or []
                 if (
                     active_search_families
@@ -707,6 +711,21 @@ class DealAnalyzer:
                             },
                             gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
                         )
+
+            # Skip (2026-09-24, provisoire) : un Portier qui n'a produit aucun verdict fiable
+            # (échec d'appel OU réponse malformée, T1_ERROR_STATUSES) ne fait plus fail-open vers
+            # l'Analyste — `bot.py::handle_deal_found` reconnaît ce verdict et n'écrit rien en
+            # base, l'annonce sera donc re-scrapée et retentée au prochain cycle plutôt que
+            # figée avec une analyse T2 jamais filtrée par le Portier.
+            if gatekeeper_status in T1_ERROR_STATUSES:
+                return (
+                    {
+                        "verdict": "GATEKEEPER_FAILED_SKIP", "reasoning": gatekeeper_reason,
+                        "classification": gatekeeper_classification,
+                        "model_used": " -> ".join(model_chain),
+                    },
+                    gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
+                )
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
