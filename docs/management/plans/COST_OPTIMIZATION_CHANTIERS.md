@@ -380,6 +380,85 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 
 ---
 
+## Chantier H — Portier T1 : bascule Gemini → Qwen, puis spécialisation locale par distillation (2026-09-13, décision actée 2026-09-20)
+
+**Motivation** : `gemini-3.5-flash-lite` (Tier 1, tourne sur 100% des annonces) coûte significativement plus cher que `qwen/qwen3.8-flash` (TokenRouter) pour un rôle de filtre relativement simple (accept/reject). **Décision de l'utilisateur (2026-09-20) : la bascule est actée**, motivée par le coût seul (~60% moins cher), indépendamment de toute démarche de spécialisation.
+
+**État — observation passive (codé le 2026-09-13, JOURNAL.md)** : `analyzer.py::_run_t1_qwen_observation()` rejoue le Portier en parallèle sur Qwen (thread dédié, jamais bloquant) et logue `qwenGatekeeperVerdict`/`qwenGatekeeperBrand`/`qwenGatekeeperClassification`/`qwenGatekeeperLatencyS` à côté du verdict Gemini réel, sans jamais influencer la décision accept/reject en production. Schéma JSON strict (`T1_GATEKEEPER_OPENAI_JSON_SCHEMA`) ajouté le même jour suite à des verdicts Qwen hors taxonomie observés au run #42.
+
+**Reste à faire avant bascule technique effective** (inchangé depuis le 2026-09-13, toujours pas fait) : script de comparaison `qwenGatekeeperVerdict` vs `gatekeeperVerdict` sur données de production réelles (pas seulement le banc d'essai à 40 fiches) — voir `TODO.md` § Audit de fiabilité du Portier T1.
+
+**Piste complémentaire explorée (session 2026-09-20, analyse seule, aucun code)** : au-delà du simple remplacement zero-shot, spécialiser un Qwen par distillation (fine-tuning LoRA/QLoRA à partir des sorties Gemini/Qwen T1/T2/T3 déjà produites), avec deux volets distincts à ne pas confondre :
+
+- **Réutilisation du corpus existant** : les milliers d'annonces déjà en Firestore (`guitar_deals`) contiennent déjà l'essentiel d'un dataset de distillation — `bot.py::handle_deal_found()` stocke systématiquement la sortie du teacher, y compris les rejets T1 avec leur `reasoning` (CoT). Seuls les rejets par mot-clé et les hors-budget (jamais stockés) manquent de signal exploitable. `backend/scripts/export_dataset_a.py` (autre projet, neck-reset) exclut les rejetés par conception — un export dédié à la distillation devrait au contraire les inclure, et filtrer sur une fenêtre récente pour éviter de mélanger plusieurs générations de prompt/modèle (taxonomie changée le 2026-07-31, contrat JSON durci le 2026-09-13, modèles teacher eux-mêmes changés plusieurs fois).
+- **Hébergement de la spécialisation — cloud vs local** :
+  - *Cloud (Together AI/Fireworks AI)* : entraînement quasi gratuit à ce volume (~2-8$/run pour 1000-3000 exemples), mais l'hébergement d'un LoRA fine-tuné se fait généralement sur un déploiement GPU dédié facturé à l'heure (~8$/GPU-h chez les deux, pas de serverless pay-per-token pour un LoRA) — risque de coût très supérieur à la facture Gemini actuelle si le GPU dédié tourne en continu sans scale-to-zero vérifié.
+  - *Local (Dell T5810, RTX 2060 Super, 8 Go VRAM, déjà relié en Tailscale — voir `run_script_dell.yml`)* : **hébergement explicitement préféré par l'utilisateur**. Faisabilité technique confirmée — `Qwen2.5-VL-7B-Instruct` tient en inférence (Ollama, quantifié) et en fine-tuning QLoRA (Unsloth, ~6,5 Go rapportés pour une taille comparable) sur cette carte. Deux réserves non résolues avant tout engagement : (1) le GPU est une ressource déjà partagée avec le cluster MoneyBot, contention possible ; (2) l'accès actuel au Dell est conçu pour des jobs CI ponctuels (`run_script_dell.yml`), pas pour un service Ollama permanent 24/7 — condition nécessaire pour servir le Portier en production, jamais mise en place à ce jour.
+
+**Non fait à ce stade** : aucun script d'export dédié à la distillation écrit, aucun entraînement lancé, aucun plan d'implémentation dédié rédigé — reste au stade d'option documentée, distincte de la bascule zero-shot actée ci-dessus.
+
+---
+
+## Chantier I — Qwen3-VL-8B-Instruct local (Dell T5810) vs `qwen3.8-flash` prod (2026-09-20)
+
+**Motivation** : chantier distinct du H, demandé explicitement par l'utilisateur pour évaluer un
+modèle Qwen ouvert hébergé **localement** — préférence affirmée pour le local plutôt que le
+cloud — comme candidat de remplacement du fournisseur T1 cloud actuel (`qwen/qwen3.8-flash`,
+TokenRouter). Même méthodologie que pour valider la bascule Gemini → Qwen (Chantier H) : mesurer
+avant de décider, pas l'inverse.
+
+**Modèle retenu** : `Qwen3-VL-8B-Instruct` — le modèle exact en prod (`qwen3.8-flash`, palier
+"flash" propriétaire d'Alibaba) n'est pas publié en poids ouverts, pas plus que le seul
+checkpoint ouvert de cette génération pensé pour du on-prem (`Qwen3.8-27B`, trop gros pour 8 Go
+de VRAM). `Qwen3-VL-8B-Instruct` est le meilleur substitut réaliste : même fournisseur, génération
+vision-langage la plus récente, poids ouverts, quantifié Q4_K_M ≈ 4,7 Go — tient sur la RTX 2060
+Super (8 Go VRAM) du Dell avec de la marge pour le contexte.
+
+**Codé (2026-09-20)** : nouveau candidat `qwen_local` dans `backend/benchmark/candidates.py`
+(réutilise `_call_openai_compatible`, endpoint Ollama compatible OpenAI du Dell via Tailscale —
+`http://100.94.33.54:11434/v1`, configurable par variables d'environnement), enregistré dans
+`CANDIDATES`. Volontairement absent de la liste `--models` par défaut de `run_benchmark.py` (le
+Dell n'est pas garanti joignable) — appel explicite : `python -m backend.benchmark.run_benchmark
+--models qwen,qwen_local`.
+
+**Reste à faire** (aucun accès réseau/Tailscale depuis l'environnement de développement cloud) :
+1. Installer Ollama sur le Dell (`curl -fsSL https://ollama.com/install.sh | sh`) si absent.
+2. Télécharger le modèle : `ollama pull qwen3-vl:8b`.
+3. Vérifier la joignabilité réseau (port 11434 via Tailscale) depuis la machine qui lancera le
+   benchmark.
+4. Lancer la comparaison `qwen` (cloud, prod) vs `qwen_local` (Dell) sur le dataset existant du
+   harnais de benchmark, et en tirer une première mesure de qualité avant toute décision de
+   spécialisation locale (Chantier H, volet distillation).
+
+**Réserves déjà actées (héritées de l'analyse Chantier H)**, non résolues par ce chantier seul :
+GPU du Dell partagé avec le cluster MoneyBot (contention possible), et l'accès actuel au Dell
+(`run_script_dell.yml`) est conçu pour des jobs CI ponctuels, pas pour un service Ollama
+permanent 24/7 — condition nécessaire pour servir le Portier en production, hors périmètre de
+ce chantier (qui ne vise qu'une comparaison hors-ligne).
+
+**Mise à jour 2026-09-21 — installation confirmée, méthodologie de comparaison recadrée.**
+Ollama + `qwen3-vl:8b` installés et fonctionnels sur le Dell (test de fumée OK, VRAM 6982/8192
+Mio). L'utilisateur a ensuite recadré la comparaison utile : pas le harnais générique
+`backend/benchmark/` (questions de lutherie jugées par Claude, biais déjà documentés en
+Chantier F), mais un **rejeu réel** des annonces déjà analysées en prod (`gatekeeperVerdict`
+déjà stocké, Qwen cloud) sur `qwen_local`, en ne rappelant QUE le modèle local — même angle que
+`compare_qwen_flashlite_agreement.py` (Chantier H, branche `claude/firestore-postgres-migration`).
+
+**Découverte d'architecture** : une base Postgres locale (`guitarhunter_pg_staging`, 6533
+annonces au 2026-09-14) existe déjà sur le **serveur de production** (Lenovo ThinkCentre M720q —
+pas le Dell), issue du Chantier A (migration Firestore→Postgres, isolée sur sa propre branche
+`claude/firestore-postgres-migration`, jamais mergée sur `dev`, Phase B/bascule réelle non
+engagée). Cette base permet la comparaison **sans aucune credential Firebase** — à condition que
+le script tourne sur cette même machine (`DATABASE_URL` en auth locale, non joignable à distance).
+
+**Codé** : `backend/scripts/compare_qwen_local_vs_prod.py` — lit les annonces récentes avec un
+`gatekeeperVerdict` valide, reconstruit le prompt Portier exact (config utilisateur réelle si
+personnalisée), appelle `qwen_local` (un seul appel réel), compare et sauvegarde un résumé JSON
+(cas prioritaire : "Cloud accepte, Local aurait rejeté" = rappel perdu). **Non exécuté** — reste
+à lancer sur le ThinkCentre (accès réseau hors de portée de cette session).
+
+---
+
 ## Synthèse : indépendance des chantiers
 
 | Chantier | Touche à | Dépend de | Bloqué par |
@@ -391,10 +470,15 @@ sur sa qualité en analyse d'image, seul terrain qui compte pour le Tier 3 de pr
 | D — Benchmark fournisseurs externes | `backend/benchmark/` uniquement (isolé de la prod) | Rien | Exécution réelle (clés API) + dataset à refaire (voir F) |
 | E — Pool partagé | `firestoreService.js`, `bot.py`, règles Firestore | Chantier 0.a (le split par utilisateur date d'avant la hausse de volume) | Priorité (gain plafonné bas) |
 | F — Claude vs Gemini T3 | `backend/benchmark/` (candidat) puis potentiellement `analyzer.py` si validé | D (même harnais) | Dataset/juge à refaire avant toute conclusion (voir correction Opus) |
+| H — Portier T1 : bascule Qwen + spécialisation locale | `analyzer.py` (bascule), infra Dell (spécialisation) | Rien pour la bascule (actée) ; corpus Firestore existant pour la spécialisation | Script de comparaison (bascule) ; disponibilité réseau Dell 24/7 + contention MoneyBot (spécialisation) |
+| I — Qwen3-VL-8B local vs `qwen3.8-flash` prod | `backend/benchmark/` uniquement (isolé de la prod) | Rien (candidat codé, indépendant) | Ollama + modèle téléchargés sur le Dell, joignabilité réseau (aucun run réel effectué) |
 
 **Ordre recommandé par Opus** : 0 (gratuit, risque nul) → D+F ensemble mais seulement après
 reconstruction du dataset/juge → C réduit à la dédup du plan de restauration → B pour ses
 raisons produit uniquement → A → E (parking, à revérifier après 0.a).
+
+**H n'a pas été soumis à Opus** (ajouté après la consultation) : la bascule zero-shot est actée
+indépendamment de cet ordre ; la spécialisation locale reste une option à valider séparément.
 
 ---
 
