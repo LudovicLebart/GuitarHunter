@@ -63,6 +63,9 @@ import { auth } from './firebase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
+const API_TIMEOUT_MS = 20000;
+const WS_RETRY_DELAY_MS = 1000;
+const WS_RETRY_DELAY_MAX_MS = 30000;
 
 // --- Helper: Unflatten dot notation to nested objects (copié de firestoreService.js — même
 // besoin ici pour updateUserConfig, aucune dépendance Firestore dans cette fonction pure) ---
@@ -92,11 +95,26 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!skipAuth) headers.Authorization = `Bearer ${await getIdToken()}`;
 
-  const resp = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  // Timeout explicite (2026-09-25) : `fetch()` seul n'a pas de limite — une requête bloquée
+  // (serveur lent/injoignable) restait pendante indéfiniment côté UI au lieu d'échouer proprement.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let resp;
+  try {
+    resp = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`apiService: ${method} ${path} a expiré après ${API_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (resp.status === 404 && skipAuth) return null; // lecture publique (shared-deals) : absent = null, pas une erreur
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
@@ -116,26 +134,48 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
  * qu'aucune notification émise entre l'ouverture WS et l'enregistrement du LISTEN Postgres n'est
  * perdue — rien à faire ici pour ça, juste ne pas le traiter comme une notification applicative).
  * Retourne une fonction de nettoyage (même contrat que le retour d'un `onSnapshot`).
+ *
+ * Reconnexion automatique (2026-09-25) : contrairement à `onSnapshot` (Firestore), un WebSocket
+ * ne se rétablit jamais tout seul après une coupure (redémarrage de `guitarhunter-api-prod` à
+ * chaque déploiement — `deploy.yml` —, coupure réseau/Tailscale). Backoff exponentiel
+ * (`WS_RETRY_DELAY_MS` → `WS_RETRY_DELAY_MAX_MS`), réinitialisé dès qu'une connexion s'ouvre
+ * pour de vrai (`onopen`), jeton Firebase redemandé à chaque tentative (peut avoir expiré entre
+ * deux essais).
  */
 function openChangeSocket(path, onChange, onError) {
   let closed = false;
   let ws = null;
-  (async () => {
+  let retryDelay = WS_RETRY_DELAY_MS;
+
+  const scheduleRetry = () => {
+    if (closed) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, WS_RETRY_DELAY_MAX_MS);
+    setTimeout(connect, delay);
+  };
+
+  const connect = async () => {
+    if (closed) return;
     try {
       const token = await getIdToken();
       if (closed) return;
       ws = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
+      ws.onopen = () => { retryDelay = WS_RETRY_DELAY_MS; };
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'ready') return;
         onChange();
       };
       ws.onerror = () => onError?.(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
+      ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
       if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
     } catch (error) {
       onError?.(error);
+      scheduleRetry();
     }
-  })();
+  };
+  connect();
+
   return () => {
     closed = true;
     ws?.close();
