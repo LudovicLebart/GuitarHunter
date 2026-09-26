@@ -264,11 +264,17 @@ def main():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, user_id, title, price, description, location,
-                       image_urls, storage_image_urls, ai_analysis_raw, link, "timestamp"
-                FROM guitar_deals
-                WHERE ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL
-                ORDER BY "timestamp" DESC
+                SELECT gd.id, udm.user_id, gd.title, gd.price, gd.description, gd.location,
+                       gd.image_urls, gd.storage_image_urls, gd.ai_analysis_raw, gd.link,
+                       gd."timestamp"
+                FROM guitar_deals gd
+                LEFT JOIN LATERAL (
+                    SELECT user_id FROM user_deal_matches
+                    WHERE deal_id = gd.id
+                    LIMIT 1
+                ) udm ON true
+                WHERE gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL
+                ORDER BY gd."timestamp" DESC
                 LIMIT %s
                 """,
                 (args.limit,),
