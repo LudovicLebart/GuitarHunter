@@ -221,6 +221,12 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [/] **Fix : erreurs de connexion UI nouvelles (post-migration Postgres) — reconnexion WebSocket absente** *(signalé et corrigé le 2026-09-25)*
+    - *Symptôme signalé* : connexion à la base depuis l'UI lente (préexistant à la migration Firestore→Postgres, cause non confirmée) et erreurs de connexion nouvelles.
+    - *Cause (confirmée par lecture du code)* : `src/services/apiService.js::openChangeSocket()` n'avait aucune reconnexion automatique (pas de `ws.onclose`) — chaque redémarrage de `guitarhunter-api-prod` (à chaque déploiement `dev`/`master`, voir `deploy.yml`) coupait silencieusement les 5 canaux WebSocket temps réel sans jamais se rétablir.
+    - *Correctif* : backoff exponentiel de reconnexion (1s→30s) + timeout de 20s sur les requêtes REST (`apiFetch`). Voir `JOURNAL.md` [2026-09-25].
+    - *Reste à faire* : validation en conditions réelles (pas d'accès navigateur/backend réel depuis l'environnement de dev) — confirmer que les canaux temps réel se rétablissent après une coupure sans recharger la page. La lenteur signalée comme préexistante n'a pas de cause confirmée à ce stade (pool Postgres `max_size=10`/serveur unique évoqués comme pistes, non vérifiées) — à réévaluer si le symptôme persiste après ce correctif.
+
 - [/] **Le Portier T1 en échec saute l'annonce au lieu de fail-open vers l'Analyste** *(demandé et codé le 2026-09-24, provisoire)*
     - *Contexte* : depuis le Chantier H (2026-09-22), un échec du décideur T1 réel (appel raté ou réponse malformée) faisait fail-open vers le Tier 2 — aucun filtrage T1, mais analyse quand même stockée. Une panne T1 prolongée revenait donc à promouvoir 100% des annonces en Tier 2 sans filtrage, silencieusement.
     - *Changement* : `analyzer.py` retourne désormais `GATEKEEPER_FAILED_SKIP` sur les deux cas d'échec T1 ; `bot.py::handle_deal_found` saute l'annonce (aucune écriture, aucune notification), nouvel outcome `gatekeeper_failed` ajouté à `_NEVER_MARK_PROCESSED_OUTCOMES` — retentée au prochain cycle de scan. Voir `JOURNAL.md`.
