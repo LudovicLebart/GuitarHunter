@@ -103,6 +103,17 @@ STATE_CATEGORIES = {
 GENERIC_PATTERNS = [r"^\s*$", r"photos? (de )?(bonne|mauvaise) qualite\.?\s*$", r"rien a signaler",
                     r"aucune? (anomalie|defaut) visible\.?\s*$", r"n/?a"]
 
+# Négation : "sans fissure ni décollement visible" ne doit PAS compter comme un défaut constaté.
+# Un motif de catégorie qui matche n'est retenu que si aucune de ces négations n'apparaît dans le
+# même segment de phrase, avant lui (voir _is_negated). Liste volontairement large plutôt que
+# stricte : un faux négatif ici (négation ratée) recrée le problème d'origine, un faux positif
+# (négation supposée à tort) fait juste perdre un vrai fait visuel, moins grave pour cette étude.
+NEGATION_PATTERNS = [re.compile(p) for p in [
+    r"\bsans\b", r"\baucune?\b", r"\bpas de\b", r"\bpas d['’]", r"\bni\b",
+    r"\babsence de\b", r"\bjamais\b", r"\bexempte?s? de\b", r"\bdepourvue?s? de\b",
+    r"\bwithout\b", r"\bnone\b", r"\bno\b",
+]]
+
 UNKNOWN_BRANDS = {"", "inconnu", "inconnue", "unknown", "n/a", "na", "none", "aucune", "generique",
                   "generic", "sans marque", "no name", "noname"}
 
@@ -116,8 +127,24 @@ COMPILED = {k: [re.compile(p) for p in v["patterns"]] for k, v in CATEGORIES.ite
 GENERIC = [re.compile(p) for p in GENERIC_PATTERNS]
 
 
+def _is_negated(text, match_start, window_chars=60):
+    """Une négation ("sans", "ni", "aucune"...) trouvée dans le même segment de phrase, avant le
+    motif, invalide le match — sans borner la recherche à la phrase précédente : on coupe la
+    fenêtre au dernier séparateur fort (. ! ?) pour ne pas faire déborder une négation d'une
+    phrase sur la suivante."""
+    window = text[max(0, match_start - window_chars):match_start]
+    segment = re.split(r"[.!?]", window)[-1]
+    return any(p.search(segment) for p in NEGATION_PATTERNS)
+
+
 def categories_in(text):
-    return {k for k, pats in COMPILED.items() if any(p.search(text) for p in pats)}
+    found = set()
+    for k, pats in COMPILED.items():
+        for p in pats:
+            if any(not _is_negated(text, m.start()) for m in p.finditer(text)):
+                found.add(k)
+                break
+    return found
 
 
 def load_rows(since, limit):
