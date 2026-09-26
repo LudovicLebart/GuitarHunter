@@ -130,10 +130,11 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
 /**
  * Ouvre un canal WebSocket authentifié et rappelle `onChange()` (sans argument — voir l'en-tête
  * de ce fichier) à chaque notification reçue après le "ready" initial. `onChange` n'est jamais
- * appelé pour le "ready" lui-même (accusé de réception transport, voir main.py : garantit
+ * appelé pour le tout premier "ready" (accusé de réception transport, voir main.py : garantit
  * qu'aucune notification émise entre l'ouverture WS et l'enregistrement du LISTEN Postgres n'est
- * perdue — rien à faire ici pour ça, juste ne pas le traiter comme une notification applicative).
- * Retourne une fonction de nettoyage (même contrat que le retour d'un `onSnapshot`).
+ * perdue — l'appelant a déjà sa donnée via le fetch initial fait en parallèle, voir
+ * `onDealsIndexUpdate`). Retourne une fonction de nettoyage (même contrat que le retour d'un
+ * `onSnapshot`).
  *
  * Reconnexion automatique (2026-09-25) : contrairement à `onSnapshot` (Firestore), un WebSocket
  * ne se rétablit jamais tout seul après une coupure (redémarrage de `guitarhunter-api-prod` à
@@ -141,11 +142,19 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
  * (`WS_RETRY_DELAY_MS` → `WS_RETRY_DELAY_MAX_MS`), réinitialisé dès qu'une connexion s'ouvre
  * pour de vrai (`onopen`), jeton Firebase redemandé à chaque tentative (peut avoir expiré entre
  * deux essais).
+ *
+ * Rafraîchissement après reconnexion (2026-09-26) : un changement survenu PENDANT la coupure
+ * (ex: le fetch initial a échoué juste après un redémarrage serveur, ou une notification Postgres
+ * manquée entre deux connexions) ne serait jamais rattrapé sinon — contrairement à `onSnapshot`,
+ * qui redonne systématiquement un instantané complet après une reconnexion. Tout "ready" qui
+ * suit le tout premier (donc reçu après une reconnexion réelle) déclenche désormais `onChange()`
+ * comme une notification normale.
  */
 function openChangeSocket(path, onChange, onError) {
   let closed = false;
   let ws = null;
   let retryDelay = WS_RETRY_DELAY_MS;
+  let hasConnectedOnce = false;
 
   const scheduleRetry = () => {
     if (closed) return;
@@ -163,7 +172,11 @@ function openChangeSocket(path, onChange, onError) {
       ws.onopen = () => { retryDelay = WS_RETRY_DELAY_MS; };
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === 'ready') return;
+        if (data.type === 'ready') {
+          if (hasConnectedOnce) onChange(); // reconnexion : rattrape ce qui a pu être manqué pendant la coupure
+          hasConnectedOnce = true;
+          return;
+        }
         onChange();
       };
       ws.onerror = () => onError?.(new Error(`apiService: connexion WebSocket ${path} interrompue.`));

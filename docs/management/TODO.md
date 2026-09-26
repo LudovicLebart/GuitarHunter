@@ -221,11 +221,17 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
-- [/] **Fix : erreurs de connexion UI nouvelles (post-migration Postgres) — reconnexion WebSocket absente** *(signalé et corrigé le 2026-09-25)*
+- [/] **Fix : erreurs de connexion UI nouvelles (post-migration Postgres) — reconnexion WebSocket absente** *(signalé le 2026-09-25, 2 correctifs successifs)*
     - *Symptôme signalé* : connexion à la base depuis l'UI lente (préexistant à la migration Firestore→Postgres, cause non confirmée) et erreurs de connexion nouvelles.
-    - *Cause (confirmée par lecture du code)* : `src/services/apiService.js::openChangeSocket()` n'avait aucune reconnexion automatique (pas de `ws.onclose`) — chaque redémarrage de `guitarhunter-api-prod` (à chaque déploiement `dev`/`master`, voir `deploy.yml`) coupait silencieusement les 5 canaux WebSocket temps réel sans jamais se rétablir.
-    - *Correctif* : backoff exponentiel de reconnexion (1s→30s) + timeout de 20s sur les requêtes REST (`apiFetch`). Voir `JOURNAL.md` [2026-09-25].
-    - *Reste à faire* : validation en conditions réelles (pas d'accès navigateur/backend réel depuis l'environnement de dev) — confirmer que les canaux temps réel se rétablissent après une coupure sans recharger la page. La lenteur signalée comme préexistante n'a pas de cause confirmée à ce stade (pool Postgres `max_size=10`/serveur unique évoqués comme pistes, non vérifiées) — à réévaluer si le symptôme persiste après ce correctif.
+    - *Cause 1 (confirmée par lecture du code)* : `src/services/apiService.js::openChangeSocket()` n'avait aucune reconnexion automatique (pas de `ws.onclose`) — chaque redémarrage de `guitarhunter-api-prod` (à chaque déploiement `dev`/`master`, voir `deploy.yml`) coupait silencieusement les 5 canaux WebSocket temps réel sans jamais se rétablir.
+    - *Correctif 1* : backoff exponentiel de reconnexion (1s→30s) + timeout de 20s sur les requêtes REST (`apiFetch`). Voir `JOURNAL.md` [2026-09-25].
+    - *Cause 2 (trouvée en testant le correctif 1 en conditions réelles, 2026-09-26)* : une fois reconnecté, rien ne redéclenchait jamais un rafraîchissement des données (message `"ready"` toujours ignoré) — un fetch initial raté (ex: pendant le redémarrage serveur du déploiement) laissait l'app bloquée à "0 annonces" indéfiniment, même la connexion revenue.
+    - *Correctif 2* : tout `"ready"` reçu après la toute première connexion déclenche désormais un rafraîchissement. Voir `JOURNAL.md` [2026-09-26].
+    - *Reste à faire* : validation en conditions réelles par l'utilisateur (provoquer une coupure et vérifier que la liste se repeuple sans recharger la page). Bug séparé identifié mais non corrigé : le bandeau d'erreur (`error`, `useDealsManager.js`) n'est jamais réinitialisé par un rafraîchissement réussi — reste affiché indéfiniment une fois déclenché, même une fois l'app resynchronisée (voir entrée séparée ci-dessous). La lenteur signalée comme préexistante n'a toujours pas de cause confirmée — à réévaluer si le symptôme persiste après ces deux correctifs.
+
+- [ ] **Bandeau d'erreur UI jamais réinitialisé après une reconnexion réussie** *(trouvé le 2026-09-26 en testant le fix ci-dessus, non corrigé)*
+    - *Détails* : dans `useDealsManager.js` (et les hooks miroirs `useBotConfig.js`/`useDealChat.js`/`useCities.js`/`useRestorationPlan.js`, même pattern `onError` → `setError(...)`), rien ne remet `error` à `null` quand un rafraîchissement ultérieur réussit — l'utilisateur reste avec un message d'erreur affiché en permanence après un simple accroc de connexion résolu, même si l'app fonctionne de nouveau normalement derrière.
+    - *Piste* : effacer `error`/réinitialiser `dbStatus` dans le callback de succès (`onUpdate`), pas seulement dans celui d'erreur.
 
 - [/] **Le Portier T1 en échec saute l'annonce au lieu de fail-open vers l'Analyste** *(demandé et codé le 2026-09-24, provisoire)*
     - *Contexte* : depuis le Chantier H (2026-09-22), un échec du décideur T1 réel (appel raté ou réponse malformée) faisait fail-open vers le Tier 2 — aucun filtrage T1, mais analyse quand même stockée. Une panne T1 prolongée revenait donc à promouvoir 100% des annonces en Tier 2 sans filtrage, silencieusement.
