@@ -149,12 +149,24 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
  * qui redonne systématiquement un instantané complet après une reconnexion. Tout "ready" qui
  * suit le tout premier (donc reçu après une reconnexion réelle) déclenche désormais `onChange()`
  * comme une notification normale.
+ *
+ * Durcissements (2026-09-26, suite consultation Opus sur un "Failed to fetch" systématique) :
+ * - Le backoff ne se réinitialise plus sur `onopen` (simple poignée de main TCP/WS) mais sur la
+ *   réception du "ready" applicatif — seul signal qui prouve que le serveur a accepté la
+ *   connexion ET terminé son `LISTEN` Postgres. Sinon, un socket qui s'ouvre puis se referme
+ *   aussitôt (ex: Postgres indisponible côté serveur) fait boucler les tentatives à l'intervalle
+ *   minimal au lieu de vraiment reculer.
+ * - `onError` n'est plus rappelé à chaque tentative ratée (bruit inutile pendant un backoff qui
+ *   fonctionne normalement) mais seulement après `ERROR_REPORT_THRESHOLD` échecs consécutifs,
+ *   remis à zéro par un "ready" réussi.
  */
 function openChangeSocket(path, onChange, onError) {
+  const ERROR_REPORT_THRESHOLD = 3;
   let closed = false;
   let ws = null;
   let retryDelay = WS_RETRY_DELAY_MS;
   let hasConnectedOnce = false;
+  let consecutiveFailures = 0;
 
   const scheduleRetry = () => {
     if (closed) return;
@@ -163,27 +175,33 @@ function openChangeSocket(path, onChange, onError) {
     setTimeout(connect, delay);
   };
 
+  const reportError = (error) => {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= ERROR_REPORT_THRESHOLD) onError?.(error);
+  };
+
   const connect = async () => {
     if (closed) return;
     try {
       const token = await getIdToken();
       if (closed) return;
       ws = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
-      ws.onopen = () => { retryDelay = WS_RETRY_DELAY_MS; };
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.type === 'ready') {
+          retryDelay = WS_RETRY_DELAY_MS;
+          consecutiveFailures = 0;
           if (hasConnectedOnce) onChange(); // reconnexion : rattrape ce qui a pu être manqué pendant la coupure
           hasConnectedOnce = true;
           return;
         }
         onChange();
       };
-      ws.onerror = () => onError?.(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
+      ws.onerror = () => reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
       ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
       if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
     } catch (error) {
-      onError?.(error);
+      reportError(error);
       scheduleRetry();
     }
   };
