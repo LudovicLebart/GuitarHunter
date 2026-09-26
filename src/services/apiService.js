@@ -223,6 +223,11 @@ const AI_ANALYSIS_KEYS = [
   'production_year', 'country_of_origin', 'color', 'finish_application', 'finish_texture',
   'deal_score', 'authenticity_score', 'condition_score', 'liquidity_score',
   'restoration_interest_score', 'model_used', 'tier3_trigger',
+  // 2026-09-26 : promus en colonnes pour l'index allégé de GET /deals/index (voir
+  // backend/deal_mapping.py) — sans cette entrée, `also_qualifies_pepite`/`estimated_gross_margin`
+  // ne viendraient plus que de `ai_analysis_raw`, absent de l'index léger (filtre "Pépites" et
+  // stats de marge cassés en silence pour toute annonce non individuellement ouverte).
+  'also_qualifies_pepite', 'estimated_gross_margin',
 ];
 
 // Duck-type d'un `firebase/firestore` Timestamp (`.seconds` + `.toDate()`) — Postgres renvoie soit
@@ -439,9 +444,14 @@ export const onCommandUpdate = (commandId, callback, _userId) => {
 // --- Deals ---
 
 export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
+  // /deals/index (2026-09-26, remplace /deals) : colonnes lourdes exclues (images, texte de
+  // raisonnement IA) — mesuré à 34 Mo/7210 annonces sur /deals, téléchargés et parsés en entier
+  // à chaque chargement de page et, depuis la reconnexion WebSocket, à chaque reconnexion.
+  // Les documents complets restent chargés à la demande via fetchDealsByIds() (déjà utilisé par
+  // useDealsManager.js::loadedDeals pour les annonces réellement visibles à l'écran).
   const fetchAndEmit = async () => {
     try {
-      const rows = await apiFetch('/deals');
+      const rows = await apiFetch('/deals/index');
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
       onUpdate(merged, rows.length);

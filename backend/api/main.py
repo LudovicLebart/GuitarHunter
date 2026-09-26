@@ -212,6 +212,22 @@ async def get_deals_by_ids(body: DealIdsBody, uid: str = Depends(get_current_uid
     return [dict(r) for r in rows]
 
 
+# Déclaré AVANT /deals/{deal_id} : un chemin dynamique à un segment intercepterait sinon
+# silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
+# .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
+@app.get("/deals/index")
+async def list_deals_index(status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, uid: str = Depends(get_current_uid)):
+    """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
+    texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
+    téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
+    consomme désormais cet endpoint pour peupler la liste/les stats ; les documents complets
+    restent chargés à la demande via `POST /deals/by-ids`, seulement pour les annonces visibles
+    (mécanisme déjà existant côté frontend, `useDealsManager.js::loadedDeals`)."""
+    pool = get_pool()
+    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
+    return [dict(r) for r in rows]
+
+
 @app.get("/deals/{deal_id}")
 async def get_deal(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()

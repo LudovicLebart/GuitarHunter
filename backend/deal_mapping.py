@@ -72,6 +72,11 @@ _AI_ANALYSIS_FIELDS = {
     "condition_score": "condition_score", "liquidity_score": "liquidity_score",
     "restoration_interest_score": "restoration_interest_score",
     "model_used": "model_used", "tier3_trigger": "tier3_trigger",
+    # 2026-09-26 : promus pour l'index allégé de GET /deals (voir schema.sql) — utilisés par le
+    # filtre "Pépites" (useDealsManager.js) et les stats de marge (StatsView.jsx), donc ne
+    # peuvent plus vivre uniquement dans ai_analysis_raw comme avant.
+    "also_qualifies_pepite": "also_qualifies_pepite",
+    "estimated_gross_margin": "estimated_gross_margin",
     **GATEKEEPER_FIELD_TO_COLUMN,
 }
 
@@ -93,7 +98,7 @@ DEAL_COLUMNS = [
     "published_at_raw", "image_urls", "storage_image_urls", "storage_image_gs_uris",
     "ai_analysis_raw", "sold_at", "timestamp", "purchase_price", "purchased_at", "description",
     "sold_notes", "published_at_ts", "gatekeeper_brand", "gatekeeper_classification",
-    "gatekeeper_verdict",
+    "gatekeeper_verdict", "also_qualifies_pepite", "estimated_gross_margin",
 ]
 
 # Colonnes promues depuis `aiAnalysis` (voir _AI_ANALYSIS_FIELDS) — exposées pour

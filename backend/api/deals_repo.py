@@ -15,7 +15,30 @@ seulement pour l'acheteur.
 """
 import asyncpg
 
-from backend.deal_mapping import AI_ANALYSIS_COLUMNS
+from backend.deal_mapping import AI_ANALYSIS_COLUMNS, DEAL_COLUMNS
+
+# Colonnes exclues de l'index léger (2026-09-26) : consommées seulement à l'ouverture d'une
+# fiche complète (texte de raisonnement IA, overrides détaillés, URI gs:// du chat Gemini), jamais
+# par le filtrage/tri/les compteurs de la liste ni par les stats (`StatsView.jsx`). C'est ce poids
+# par annonce qui rendait `GET /deals` lent à charger/parser côté UI (mesuré : 34 Mo/7210 annonces,
+# ~5 Ko en moyenne par ligne, jusqu'à 41 Ko — voir JOURNAL.md 2026-09-26). `image_urls`/
+# `storage_image_urls` exclus ici aussi (tableaux jusqu'à 10 photos) mais PAS entièrement — voir
+# `_LIGHT_THUMBNAIL_SQL` plus bas : `MapView.jsx`/`DealCard/index.jsx` lisent `storageImageUrls[0]`
+# directement sur l'entrée d'index (pas seulement après chargement paresseux du document complet),
+# il faut donc conserver une vignette — même principe que le champ `i` de l'ancien index Firestore
+# en chunks (`ARCHITECTURE.md`).
+_HEAVY_DEAL_COLUMNS = {
+    "image_urls", "storage_image_urls", "storage_image_gs_uris", "ai_analysis_raw",
+    "description", "manual_analysis_overrides", "sold_notes",
+}
+_LIGHT_DEAL_COLUMNS_SQL = ", ".join(f"gd.{c}" for c in DEAL_COLUMNS if c not in _HEAVY_DEAL_COLUMNS)
+
+_LIGHT_THUMBNAIL_SQL = """
+    (CASE WHEN jsonb_typeof(gd.storage_image_urls) = 'array' AND jsonb_array_length(gd.storage_image_urls) > 0
+          THEN jsonb_build_array(gd.storage_image_urls -> 0) ELSE '[]'::jsonb END) AS storage_image_urls,
+    (CASE WHEN jsonb_typeof(gd.image_urls) = 'array' AND jsonb_array_length(gd.image_urls) > 0
+          THEN jsonb_build_array(gd.image_urls -> 0) ELSE '[]'::jsonb END) AS image_urls
+"""
 
 # Colonnes préférence (`user_deal_state`) exposées sous leur ancien nom de colonne
 # `guitar_deals` pour ne rien changer côté frontend (`apiService.js` mappe déjà ces clés).
@@ -37,6 +60,29 @@ async def _is_visible(pool: asyncpg.Pool, user_id: str, deal_id: str) -> bool:
 async def list_deals(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False):
     query = f"""
         SELECT gd.*, {_PREFERENCE_SELECT}
+        FROM guitar_deals gd
+        JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $1
+        LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $1
+    """
+    params = [user_id]
+    conditions = []
+    if status is not None:
+        params.append(status)
+        conditions.append(f"gd.status = ${len(params)}")
+    if favorite_only:
+        conditions.append("COALESCE(uds.is_favorite, false) = true")
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += ' ORDER BY gd."timestamp" DESC'
+    return await pool.fetch(query, *params)
+
+
+async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False):
+    """Version allégée de `list_deals()` (colonnes lourdes exclues, voir `_HEAVY_DEAL_COLUMNS`,
+    vignette unique via `_LIGHT_THUMBNAIL_SQL`) — même filtrage/tri, pour peupler la liste sans
+    le poids des documents complets."""
+    query = f"""
+        SELECT {_LIGHT_DEAL_COLUMNS_SQL}, {_LIGHT_THUMBNAIL_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
         JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $1
         LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $1
