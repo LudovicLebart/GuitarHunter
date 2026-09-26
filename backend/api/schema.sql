@@ -239,6 +239,24 @@ ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_brand TEXT;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_classification TEXT;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_verdict TEXT;
 
+-- `also_qualifies_pepite`/`estimated_gross_margin` (2026-09-26) : promotion depuis `ai_analysis_raw`
+-- (jusque-là seuls champs de `aiAnalysis` consommés par le filtre "Pépites" (`useDealsManager.js`)
+-- et par `StatsView.jsx` — Sweet Spot, marges par catégorie/ville — à ne PAS vivre uniquement dans
+-- le JSONB lourd. Nécessaire pour qu'un futur index allégé de `GET /deals` (qui exclut
+-- `ai_analysis_raw`/`image_urls`/`storage_image_*`/`description`, voir `deals_repo.py`) reste
+-- correct pour ces deux usages sans devoir charger le document complet de chaque annonce.
+-- Backfill des lignes déjà analysées (idempotent : ne touche que les colonnes encore NULL).
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS also_qualifies_pepite BOOLEAN;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS estimated_gross_margin NUMERIC;
+
+UPDATE guitar_deals
+SET also_qualifies_pepite = (ai_analysis_raw->>'also_qualifies_pepite')::boolean
+WHERE also_qualifies_pepite IS NULL AND ai_analysis_raw ? 'also_qualifies_pepite';
+
+UPDATE guitar_deals
+SET estimated_gross_margin = (ai_analysis_raw->>'estimated_gross_margin')::numeric
+WHERE estimated_gross_margin IS NULL AND ai_analysis_raw ? 'estimated_gross_margin';
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle

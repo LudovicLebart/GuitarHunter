@@ -9,12 +9,14 @@ Lancement local : uvicorn backend.api.main:app --reload
 """
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
 import asyncpg
-from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend.api.auth import get_current_uid, verify_token
@@ -31,6 +33,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Guitar Hunter API", lifespan=lifespan)
 
+logger = logging.getLogger(__name__)
+
 # Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
 # du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
 # cookies) — allow_credentials=False, pas besoin d'assouplir vers "*".
@@ -44,6 +48,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Un handler d'exception explicite passe par CORSMiddleware (contrairement à une exception non
+# gérée, qui remonte jusqu'au ServerErrorMiddleware de Starlette — en dehors de CORSMiddleware,
+# donc sans en-têtes CORS) : le navigateur ne peut alors plus distinguer une vraie panne réseau
+# d'un 500 serveur, les deux se rapportant comme un `TypeError: Failed to fetch` générique côté
+# fetch(). Trouvé le 2026-09-26 en investiguant un "Failed to fetch" systématique côté UI.
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Erreur non gérée sur %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Erreur interne du serveur."})
 
 
 @app.get("/health")
@@ -194,6 +209,22 @@ class DealIdsBody(BaseModel):
 async def get_deals_by_ids(body: DealIdsBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     rows = await deals_repo.get_deals_by_ids(pool, uid, body.ids)
+    return [dict(r) for r in rows]
+
+
+# Déclaré AVANT /deals/{deal_id} : un chemin dynamique à un segment intercepterait sinon
+# silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
+# .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
+@app.get("/deals/index")
+async def list_deals_index(status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, uid: str = Depends(get_current_uid)):
+    """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
+    texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
+    téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
+    consomme désormais cet endpoint pour peupler la liste/les stats ; les documents complets
+    restent chargés à la demande via `POST /deals/by-ids`, seulement pour les annonces visibles
+    (mécanisme déjà existant côté frontend, `useDealsManager.js::loadedDeals`)."""
+    pool = get_pool()
+    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
     return [dict(r) for r in rows]
 
 

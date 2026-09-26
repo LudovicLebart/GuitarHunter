@@ -63,6 +63,9 @@ import { auth } from './firebase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
+const API_TIMEOUT_MS = 20000;
+const WS_RETRY_DELAY_MS = 1000;
+const WS_RETRY_DELAY_MAX_MS = 30000;
 
 // --- Helper: Unflatten dot notation to nested objects (copié de firestoreService.js — même
 // besoin ici pour updateUserConfig, aucune dépendance Firestore dans cette fonction pure) ---
@@ -92,11 +95,26 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!skipAuth) headers.Authorization = `Bearer ${await getIdToken()}`;
 
-  const resp = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  // Timeout explicite (2026-09-25) : `fetch()` seul n'a pas de limite — une requête bloquée
+  // (serveur lent/injoignable) restait pendante indéfiniment côté UI au lieu d'échouer proprement.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let resp;
+  try {
+    resp = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error(`apiService: ${method} ${path} a expiré après ${API_TIMEOUT_MS}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
   if (resp.status === 404 && skipAuth) return null; // lecture publique (shared-deals) : absent = null, pas une erreur
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
@@ -112,30 +130,83 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
 /**
  * Ouvre un canal WebSocket authentifié et rappelle `onChange()` (sans argument — voir l'en-tête
  * de ce fichier) à chaque notification reçue après le "ready" initial. `onChange` n'est jamais
- * appelé pour le "ready" lui-même (accusé de réception transport, voir main.py : garantit
+ * appelé pour le tout premier "ready" (accusé de réception transport, voir main.py : garantit
  * qu'aucune notification émise entre l'ouverture WS et l'enregistrement du LISTEN Postgres n'est
- * perdue — rien à faire ici pour ça, juste ne pas le traiter comme une notification applicative).
- * Retourne une fonction de nettoyage (même contrat que le retour d'un `onSnapshot`).
+ * perdue — l'appelant a déjà sa donnée via le fetch initial fait en parallèle, voir
+ * `onDealsIndexUpdate`). Retourne une fonction de nettoyage (même contrat que le retour d'un
+ * `onSnapshot`).
+ *
+ * Reconnexion automatique (2026-09-25) : contrairement à `onSnapshot` (Firestore), un WebSocket
+ * ne se rétablit jamais tout seul après une coupure (redémarrage de `guitarhunter-api-prod` à
+ * chaque déploiement — `deploy.yml` —, coupure réseau/Tailscale). Backoff exponentiel
+ * (`WS_RETRY_DELAY_MS` → `WS_RETRY_DELAY_MAX_MS`), réinitialisé dès qu'une connexion s'ouvre
+ * pour de vrai (`onopen`), jeton Firebase redemandé à chaque tentative (peut avoir expiré entre
+ * deux essais).
+ *
+ * Rafraîchissement après reconnexion (2026-09-26) : un changement survenu PENDANT la coupure
+ * (ex: le fetch initial a échoué juste après un redémarrage serveur, ou une notification Postgres
+ * manquée entre deux connexions) ne serait jamais rattrapé sinon — contrairement à `onSnapshot`,
+ * qui redonne systématiquement un instantané complet après une reconnexion. Tout "ready" qui
+ * suit le tout premier (donc reçu après une reconnexion réelle) déclenche désormais `onChange()`
+ * comme une notification normale.
+ *
+ * Durcissements (2026-09-26, suite consultation Opus sur un "Failed to fetch" systématique) :
+ * - Le backoff ne se réinitialise plus sur `onopen` (simple poignée de main TCP/WS) mais sur la
+ *   réception du "ready" applicatif — seul signal qui prouve que le serveur a accepté la
+ *   connexion ET terminé son `LISTEN` Postgres. Sinon, un socket qui s'ouvre puis se referme
+ *   aussitôt (ex: Postgres indisponible côté serveur) fait boucler les tentatives à l'intervalle
+ *   minimal au lieu de vraiment reculer.
+ * - `onError` n'est plus rappelé à chaque tentative ratée (bruit inutile pendant un backoff qui
+ *   fonctionne normalement) mais seulement après `ERROR_REPORT_THRESHOLD` échecs consécutifs,
+ *   remis à zéro par un "ready" réussi.
  */
 function openChangeSocket(path, onChange, onError) {
+  const ERROR_REPORT_THRESHOLD = 3;
   let closed = false;
   let ws = null;
-  (async () => {
+  let retryDelay = WS_RETRY_DELAY_MS;
+  let hasConnectedOnce = false;
+  let consecutiveFailures = 0;
+
+  const scheduleRetry = () => {
+    if (closed) return;
+    const delay = retryDelay;
+    retryDelay = Math.min(retryDelay * 2, WS_RETRY_DELAY_MAX_MS);
+    setTimeout(connect, delay);
+  };
+
+  const reportError = (error) => {
+    consecutiveFailures += 1;
+    if (consecutiveFailures >= ERROR_REPORT_THRESHOLD) onError?.(error);
+  };
+
+  const connect = async () => {
+    if (closed) return;
     try {
       const token = await getIdToken();
       if (closed) return;
       ws = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === 'ready') return;
+        if (data.type === 'ready') {
+          retryDelay = WS_RETRY_DELAY_MS;
+          consecutiveFailures = 0;
+          if (hasConnectedOnce) onChange(); // reconnexion : rattrape ce qui a pu être manqué pendant la coupure
+          hasConnectedOnce = true;
+          return;
+        }
         onChange();
       };
-      ws.onerror = () => onError?.(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
+      ws.onerror = () => reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
+      ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
       if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
     } catch (error) {
-      onError?.(error);
+      reportError(error);
+      scheduleRetry();
     }
-  })();
+  };
+  connect();
+
   return () => {
     closed = true;
     ws?.close();
@@ -152,6 +223,11 @@ const AI_ANALYSIS_KEYS = [
   'production_year', 'country_of_origin', 'color', 'finish_application', 'finish_texture',
   'deal_score', 'authenticity_score', 'condition_score', 'liquidity_score',
   'restoration_interest_score', 'model_used', 'tier3_trigger',
+  // 2026-09-26 : promus en colonnes pour l'index allégé de GET /deals/index (voir
+  // backend/deal_mapping.py) — sans cette entrée, `also_qualifies_pepite`/`estimated_gross_margin`
+  // ne viendraient plus que de `ai_analysis_raw`, absent de l'index léger (filtre "Pépites" et
+  // stats de marge cassés en silence pour toute annonce non individuellement ouverte).
+  'also_qualifies_pepite', 'estimated_gross_margin',
 ];
 
 // Duck-type d'un `firebase/firestore` Timestamp (`.seconds` + `.toDate()`) — Postgres renvoie soit
@@ -368,9 +444,14 @@ export const onCommandUpdate = (commandId, callback, _userId) => {
 // --- Deals ---
 
 export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
+  // /deals/index (2026-09-26, remplace /deals) : colonnes lourdes exclues (images, texte de
+  // raisonnement IA) — mesuré à 34 Mo/7210 annonces sur /deals, téléchargés et parsés en entier
+  // à chaque chargement de page et, depuis la reconnexion WebSocket, à chaque reconnexion.
+  // Les documents complets restent chargés à la demande via fetchDealsByIds() (déjà utilisé par
+  // useDealsManager.js::loadedDeals pour les annonces réellement visibles à l'écran).
   const fetchAndEmit = async () => {
     try {
-      const rows = await apiFetch('/deals');
+      const rows = await apiFetch('/deals/index');
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
       onUpdate(merged, rows.length);
