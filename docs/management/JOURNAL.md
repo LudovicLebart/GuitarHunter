@@ -1,5 +1,36 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-26] [FLASH] Chantier I : merge de `origin/master` dans `claude/qwen-gatekeeper-local-test-43pny7` → branche de test à jour avec les fixes critiques prod (deploy.yml/WebSocket).
+- **Demande utilisateur** : la branche de test Chantier I stagnait depuis plusieurs jours pendant que `master` recevait des correctifs critiques (piège `deploy.yml` qui écrasait `backend/api/*` avec une branche figée à chaque déploiement, reconnexion WebSocket) — risque de "casser le serveur" si la branche de test était un jour déployée sans ces fixes.
+- **Vérifié avant merge** : `origin/master`/`origin/dev` pointaient sur le même commit (`8de8454`, 10 commits d'avance). `git merge-tree` prévisualisé (0 conflit) avant d'exécuter pour de vrai.
+- **`git merge origin/master`** : fusion propre, aucun conflit (8 fichiers touchés : `deploy.yml`, `backend/api/deals_repo.py`/`main.py`/`schema.sql`, `deal_mapping.py`, `JOURNAL.md`/`TODO.md`, `apiService.js`). `python3 -m py_compile` sur les fichiers Python fusionnés + nos deux scripts (`compare_qwen_local_vs_prod.py`, `study_visual_dependence.py`) — tous OK.
+- **Poussé** sur `origin/claude/qwen-gatekeeper-local-test-43pny7` (`06e2d09..fd6badc`).
+- **Clarification d'intention actée avec l'utilisateur** : `compare_qwen_local_vs_prod.py` sert le rôle **Chantier I-1 (secours immédiat)** — basculer sur Qwen local si le Qwen cloud (T1 prod) tombe en panne — pas le rôle I-2 (perception locale), distinct et non engagé.
+
+---
+
+[2026-09-25] [PRO] `backend/scripts/study_visual_dependence.py` créé et exécuté en conditions réelles sur le ThinkCentre (1236 annonces) → correctif méthodologique validé sur données réelles.
+- **Objectif** : étude coût zéro (lecture Postgres seule, aucun appel IA) de la dépendance des verdicts T2 (`ai_analysis_raw.visual_inspection`) à des faits visuels absents du texte de l'annonce — informe la prudence à avoir sur un futur Chantier I-2 (perception locale : un modèle décrit les photos en texte, les raisonneurs ne les voient plus).
+- **Script** : `CATEGORIES` (18 catégories état/identification, regex FR/EN), distingue les catégories "état" (jamais déductibles du texte) des catégories "identification" (redondantes si la marque est déjà citée). Lecture via `psycopg`/`DATABASE_URL`, aucune écriture.
+- **Premier run (ThinkCentre, worktree `~/guitarhunter-test-qwen`)** : 1236 annonces, dépendance "état" 43,8%, dépendance totale 59,4%.
+- **Bug méthodologique trouvé en relisant les exemples** (`--examples`, caveat du script lui-même) : la détection par mot-clé ne gérait pas la négation — des phrases comme "sans fissure ni décollement visible" étaient comptées comme une mention positive du défaut, gonflant artificiellement les pourcentages.
+- **Correctif appliqué (validé par l'utilisateur)** : `_is_negated(text, match_start)` — recherche une négation (`sans`, `aucun(e)`, `pas de`, `ni`, `absence de`, `jamais`, `exempte? de`, `depourvue? de`, `without`, `none`, `no`) dans le même segment de phrase avant le motif, fenêtre bornée au dernier séparateur fort (`.!?`) pour ne pas déborder sur la phrase précédente. `categories_in()` ignore désormais tout match négué.
+- **Re-run après correctif (même 1236 annonces, worktree remis à jour via `git fetch`+`git reset --hard`, la première tentative de re-run avait été faite par erreur sur un HEAD non mis à jour — détecté car les chiffres étaient restés identiques)** : dépendance "état" **22,6%** (vs 43,8%), dépendance totale **42,6%** (vs 59,4%).
+- **Lecture** : ~1 verdict T2 sur 4 dépend d'un défaut physique (fissure, décollement, oxydation…) invisible dans le texte — un plancher dur pour tout futur pipeline "texte seul". Pas une mesure de la qualité de restitution du Qwen local (question distincte, à trancher par I-0/I-2), mais un signal chiffré que l'architecture perception-locale devra être validée avec rigueur avant bascule, pas supposée suffisante.
+- **Piste notée pour plus tard (pas codée)** : modifier le prompt global T2 pour réduire les tournures par négation dans `visual_inspection`, ce qui simplifierait aussi ce type d'analyse — à évaluer séparément.
+
+---
+
+[2026-09-24] [PRO] Chantier I : merge de la branche `claude/gatekeeper-specialized-architecture-s866gq` + corrections I-0 minimales sur `compare_qwen_local_vs_prod.py`.
+- **Merge** de la branche contenant le travail Chantier I déjà fait ailleurs (`install_ollama_qwen_dell.sh`, `compare_qwen_local_vs_prod.py`, candidat `qwen_local`) dans `claude/qwen-gatekeeper-local-test-43pny7` — un conflit sur `JOURNAL.md` résolu par concaténation des deux blocs chronologiques divergents.
+- **Corrections I-0** (`TODO.md` § Chantier I-0) appliquées à `compare_qwen_local_vs_prod.py` :
+  - **Marge VRAM** : `QWEN_LOCAL_NUM_CTX` (défaut 8192, configurable) passé explicitement via `extra_body={"options": {"num_ctx": ...}}` (mécanisme Ollama, absent des paramètres OpenAI standards) ; `MAX_IMAGES` (défaut 4, était 8 en dur) ; `_log_ollama_vram()` (GET natif `/api/ps`, absent de l'API compatible OpenAI) loggé avant/après la boucle principale.
+  - **Candidat 4B de repli** : `--model` en argument (défaut `qwen3-vl:8b`), permet de rejouer avec `qwen3-vl:4b` si le 8B est étouffé en VRAM.
+  - **Métriques** : taux de JSON valide, latence P90 (calcul pur Python, sans numpy), taux de statuts hors enum — exportées dans le JSON de résultat en plus de la comparaison cloud/local.
+- **Non exécuté à ce stade** (script prêt, exécution réelle faite le lendemain — voir entrée du 2026-09-25 pour `study_visual_dependence.py` ; `compare_qwen_local_vs_prod.py` lui-même reste à lancer, voir `TODO.md`).
+
+---
+
 [2026-09-26] [PRO] Validation finale en conditions réelles : "Ça marche, beaucoup plus rapide." — investigation lenteur/erreurs de connexion UI close.
 - **Confirmé par l'utilisateur** après le déploiement du correctif du piège `deploy.yml` : `curl http://127.0.0.1:8001/openapi.json` en local sur le serveur montre `/deals/index` bien présent (première livraison réelle de `backend/api/*` depuis la fusion du 23 septembre), et l'app est nettement plus rapide.
 - **Résumé de la chaîne complète de correctifs** (tous sur `dev`, voir entrées `JOURNAL.md` du 2026-09-25/26) : (1) reconnexion WebSocket avec backoff exponentiel, (2) rafraîchissement des données après reconnexion, (3) handler d'exception CORS-safe + durcissement backoff (suite consultation Opus), (4) index Postgres allégé `/deals/index` (34 Mo → charge légère, 2 champs promus en colonnes), (5) suppression d'un bloc `deploy.yml` obsolète qui empêchait silencieusement tout déploiement réel de `backend/api/*` depuis 3 jours.

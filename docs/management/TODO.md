@@ -23,11 +23,8 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
   - Sortie : script + carte tableau de bord admin, coût/jour par poste, relancé chaque semaine.
   - **Aucune optimisation ne démarre avant ce chiffre.**
 
-- [ ] **Chantier I-0 — Rejeu Qwen local, 3 corrections avant lancement (cette semaine)**
-  - VRAM : 1,2 Go de marge sur le 8B (`num_ctx` fixé, 4 images max, ollama ps loggé).
-  - Candidat 4B (`qwen3-vl:4b`) si 8B étouffé.
-  - Métriques JSON : taux JSON valide, latence P90, taux statuts hors enum.
-  - Cible : `--limit 15` (validation tech), puis ≥150 annonces.
+- [x] **Chantier I-0 — 3 corrections appliquées** *(2026-09-24, voir `JOURNAL.md`)* : VRAM (`num_ctx` fixé via `extra_body`, 4 images max, `ollama ps` loggé avant/après), candidat 4B de repli (`--model`), métriques (taux JSON valide, latence P90, taux hors enum). Sur `compare_qwen_local_vs_prod.py`.
+- [ ] **Chantier I-0 — reste à exécuter pour de vrai** : `compare_qwen_local_vs_prod.py --limit 15` (validation tech) puis ≥150 annonces, sur le ThinkCentre (voir commande ci-dessous § Audit Portier T1). **Usage clarifié avec l'utilisateur (2026-09-26) : ce script sert le rôle I-1 (secours immédiat si le Qwen cloud tombe en panne)**, pas la perception locale (I-2).
 
 - [ ] **Chantier V-0 — Couverture (1 semaine, lecture seule, zéro appel IA)**
   - Sur les ~6500 annonces, pour chaque promue en T2, compter comparables trouvés par filtre SQL + rapprochement naïf.
@@ -51,7 +48,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Reste à faire une fois assez de volume accumulé** : script de lecture seule comparant `gatekeeperBrand`/`gatekeeperClassification` (T1) au résultat final stocké par T2/T3 dans `aiAnalysis` — taux d'accord réel sur données de production.
 - [ ] **Bascule T1 Gemini → Qwen actée (2026-09-20, décision utilisateur, coût ~60% moins cher)** *(voir `JOURNAL.md` et `docs/management/plans/COST_OPTIMIZATION_CHANTIERS.md` § Chantier H)* : reste à écrire le script de comparaison `qwenGatekeeperVerdict`/`gatekeeperVerdict` en conditions réelles avant la bascule technique effective. Piste complémentaire explorée (spécialisation par fine-tuning LoRA d'un Qwen local) — hébergement **local** (Dell T5810) explicitement préféré au cloud par l'utilisateur, mais pas encore engagée (aucun code, aucun plan d'implémentation validé).
 - [x] **Chantier I, installation Dell** *(confirmé 2026-09-21, voir `JOURNAL.md`)* : Ollama + `qwen3-vl:8b` installés et fonctionnels sur le Dell (`install_ollama_qwen_dell.sh`), test de fumée OK, VRAM 6982/8192 Mio.
-- [ ] **Chantier I, comparaison réelle contre la prod** *(script `compare_qwen_local_vs_prod.py` codé le 2026-09-21, voir `JOURNAL.md` et `COST_OPTIMIZATION_CHANTIERS.md` § Chantier I)* : reste à exécuter **sur le serveur de production (Lenovo ThinkCentre)**, pas le Dell ni un PC local — lit la base Postgres locale du Chantier A (`guitarhunter_pg_staging`), rejoue les annonces déjà analysées sur `qwen_local`, compare au verdict déjà en base. Commande : `python -m backend.scripts.compare_qwen_local_vs_prod --limit 15` (dépendances à vérifier : `psycopg[binary]`, `openai`).
+- [ ] **Chantier I, comparaison réelle contre la prod (rôle I-1, secours immédiat)** *(script `compare_qwen_local_vs_prod.py` codé le 2026-09-21, corrections I-0 appliquées le 2026-09-24, voir `JOURNAL.md` et `COST_OPTIMIZATION_CHANTIERS.md` § Chantier I)* : reste à exécuter **sur le serveur de production (Lenovo ThinkCentre)**, pas le Dell ni un PC local — lit la base Postgres locale (`guitarhunter_pg_prod`), rejoue les annonces déjà analysées sur `qwen_local`, compare au verdict Qwen cloud déjà en base. Worktree isolé déjà en place : `~/guitarhunter-test-qwen`. Commande (`DATABASE_URL` déjà exporté, venv déjà créé) :
+  ```bash
+  cd ~/guitarhunter-test-qwen
+  git fetch origin claude/qwen-gatekeeper-local-test-43pny7
+  git reset --hard origin/claude/qwen-gatekeeper-local-test-43pny7
+  .venv/bin/python3 backend/scripts/compare_qwen_local_vs_prod.py --limit 15
+  ```
+- [x] **`study_visual_dependence.py` — étude coût zéro de la dépendance visuelle des verdicts T2** *(exécuté 2026-09-25 sur le ThinkCentre, 1236 annonces, voir `JOURNAL.md`)* : dépendance "état" (jamais déductible du texte) **22,6%**, dépendance totale **42,6%** (après correctif négation — chiffres initiaux 43,8%/59,4% invalidés par un bug de comptage sur "sans/aucun/ni..."). Informe la prudence à avoir sur un futur Chantier I-2 (perception locale), pas encore une décision.
 
 ---
 
