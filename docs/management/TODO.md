@@ -256,9 +256,10 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
     - *Correctif 5, validé* : `curl http://127.0.0.1:8001/openapi.json` en local sur le serveur confirme `/deals/index` bien présent après ce déploiement — première livraison réelle de `backend/api/*` depuis la fusion du 23 septembre.
     - *Validé en conditions réelles (2026-09-26)* : "Ça marche, beaucoup plus rapide." Point de départ (lenteur + erreurs de connexion) résolu. Reste ouvert séparément : le bandeau d'erreur jamais réinitialisé (entrée ci-dessous) et la cause exacte du "Failed to fetch" ponctuel (non-bloquant, jamais reproduit depuis).
 
-- [ ] **Bandeau d'erreur UI jamais réinitialisé après une reconnexion réussie** *(trouvé le 2026-09-26 en testant le fix ci-dessus, non corrigé)*
-    - *Détails* : dans `useDealsManager.js` (et les hooks miroirs `useBotConfig.js`/`useDealChat.js`/`useCities.js`/`useRestorationPlan.js`, même pattern `onError` → `setError(...)`), rien ne remet `error` à `null` quand un rafraîchissement ultérieur réussit — l'utilisateur reste avec un message d'erreur affiché en permanence après un simple accroc de connexion résolu, même si l'app fonctionne de nouveau normalement derrière.
-    - *Piste* : effacer `error`/réinitialiser `dbStatus` dans le callback de succès (`onUpdate`), pas seulement dans celui d'erreur.
+- [x] **Bandeau d'erreur UI jamais réinitialisé après une reconnexion réussie** *(trouvé le 2026-09-26, corrigé le 2026-09-27)*
+    - *Détails* : dans `useDealsManager.js`/`useCities.js`/`useDealChat.js`/`useBotConfig.js`/`useRestorationPlan.js`, rien ne remettait `error` à `null` quand un rafraîchissement ultérieur réussissait — bandeau d'erreur affiché en permanence après un simple accroc de connexion déjà résolu.
+    - *Correctif* : `setError(null)` ajouté dans le callback de succès des 5 hooks. Voir `JOURNAL.md` [2026-09-27].
+    - *Reste à faire* : validation en conditions réelles (le bandeau doit disparaître seul après une coupure réseau résolue, sans clic manuel sur le X).
 
 - [/] **Le Portier T1 en échec saute l'annonce au lieu de fail-open vers l'Analyste** *(demandé et codé le 2026-09-24, provisoire)*
     - *Contexte* : depuis le Chantier H (2026-09-22), un échec du décideur T1 réel (appel raté ou réponse malformée) faisait fail-open vers le Tier 2 — aucun filtrage T1, mais analyse quand même stockée. Une panne T1 prolongée revenait donc à promouvoir 100% des annonces en Tier 2 sans filtrage, silencieusement.

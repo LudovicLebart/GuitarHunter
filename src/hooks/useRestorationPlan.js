@@ -35,6 +35,7 @@ export const useRestorationPlan = (deal, user) => {
         const unsubscribe = onRestorationPlanUpdate(deal.id, (list) => {
             setItems(list);
             setLoading(false);
+            setError(null); // efface un bandeau laissé par une coupure désormais résolue
             // Réorganisation par glisser-déposer (2026-08-22) : `order` n'existe pas sur les items
             // créés avant cette fonctionnalité (ou tout juste ajoutés). Jamais de migration
             // explicite — le premier client qui charge un plan où au moins un item n'a pas `order`
