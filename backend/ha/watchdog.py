@@ -76,15 +76,39 @@ def _attempt_failover(db, cfg: HaConfig) -> bool:
         return False
 
     logger.warning(f"[HA] Panne confirmée de {cfg.peer_host} — tentative de bascule vers {cfg.node_id}.")
+
+    # Le bail est pris AVANT le fencing, jamais l'inverse : si le check ci-dessus est un
+    # faux-négatif transitoire (ex: `systemctl is-active` interrogé pile pendant un redémarrage
+    # du service pair) et que le pair a en réalité déjà renouvelé son bail de son côté,
+    # acquire_or_renew() échoue ici et on abandonne SANS avoir arrêté son service — l'arrêter
+    # avant de savoir si la bascule va réellement avoir lieu tuerait un service pair sain pour
+    # rien, sans même prendre le relais derrière (panne totale évitable).
+    if not lease.acquire_or_renew(db, cfg.node_id, cfg.lease_ttl_seconds):
+        logger.info("[HA] Bascule abandonnée — un autre nœud détient déjà le bail.")
+        return False
+
     stop_peer_service(cfg.peer_host, cfg.peer_ssh_user, cfg.peer_ssh_key_path,
                        cfg.peer_service_name, logger=logger)
 
-    if not lease.acquire_or_renew(db, cfg.node_id, cfg.lease_ttl_seconds):
-        logger.info("[HA] Bascule abandonnée — un autre nœud a pris le bail entre-temps.")
+    try:
+        promote_local_postgres_replica(cfg.local_pg_dsn)
+        start_local_service(cfg.local_service_name)
+    except Exception:
+        # Bail libéré pour qu'un autre nœud (y compris le pair, une fois revenu) puisse retenter
+        # — sans ça, ce nœud continuerait à renouveler indéfiniment un bail de "primaire" sans
+        # qu'aucun service ne tourne réellement : `run_forever()` ne retente promote/start QUE
+        # dans cette fonction, jamais depuis la branche `i_am_leader`, qui se contente de
+        # renouveler (voir plus bas) — un échec ici serait sinon silencieux et permanent.
+        logger.exception(f"[HA] Échec de la bascule vers {cfg.node_id} après prise du bail — bail libéré.")
+        lease.release(db, cfg.node_id)
+        NtfyNotifier.send(
+            "🔴 Échec de la bascule HA",
+            f"{cfg.node_id} a pris le bail suite à une panne de {cfg.peer_host} mais n'a pas pu "
+            "démarrer (promotion Postgres ou service local en échec) — bail libéré, "
+            "intervention manuelle requise.",
+            priority="urgent", logger=logger,
+        )
         return False
-
-    promote_local_postgres_replica(cfg.local_pg_dsn)
-    start_local_service(cfg.local_service_name)
 
     logger.warning(f"[HA] Bascule effectuée — {cfg.node_id} est désormais primaire.")
     NtfyNotifier.send(

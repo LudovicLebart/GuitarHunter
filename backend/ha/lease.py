@@ -63,9 +63,19 @@ def acquire_or_renew(db, node_id: str, ttl_seconds: int) -> bool:
 
 
 def release(db, node_id: str) -> None:
-    """Libère volontairement le bail (arrêt propre du service) — seulement si `node_id` le
-    détient encore, pour ne jamais effacer par erreur le bail d'un autre nœud."""
+    """Libère volontairement le bail (arrêt propre du service, ou watchdog qui abandonne une
+    bascule ratée) — seulement si `node_id` le détient encore au moment de la suppression.
+
+    Transactionnel comme acquire_or_renew() (et pas un simple get() puis delete()) : sans ça, un
+    autre nœud pourrait légitimement prendre le bail entre notre lecture et notre suppression
+    (ex: à l'arrêt d'un nœud dont le bail était sur le point d'expirer, pile au moment où le pair
+    le récupère) — notre delete supprimerait alors le bail du pair, pas le nôtre."""
     ref = _lease_ref(db)
-    snap = ref.get()
-    if snap.exists and snap.to_dict().get("host") == node_id:
-        ref.delete()
+
+    @firestore.transactional
+    def _txn(transaction) -> None:
+        snap = ref.get(transaction=transaction)
+        if snap.exists and snap.to_dict().get("host") == node_id:
+            transaction.delete(ref)
+
+    _txn(db.transaction())

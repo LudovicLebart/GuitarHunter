@@ -249,13 +249,22 @@ ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS gatekeeper_verdict TEXT;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS also_qualifies_pepite BOOLEAN;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS estimated_gross_margin NUMERIC;
 
+-- Ce script est rejoué EN ENTIER à chaque démarrage du service (backend/api/db.py::init_pool(),
+-- backend/pg_db.py::init_pool()) — une seule ligne dont la valeur JSON ne correspond pas au type
+-- attendu (champ IA libre, jamais validé par un `response_schema`, voir CLAUDE.md § Piège
+-- classification) ferait échouer le `::boolean`/`::numeric` et donc TOUT le script, empêchant le
+-- service de redémarrer indéfiniment (le WHERE continue de matcher la même ligne à chaque essai).
+-- Filtre de forme avant le cast plutôt qu'un cast nu : une valeur qui ne correspond pas reste
+-- simplement NULL (rattrapable manuellement) au lieu de bloquer tout le démarrage.
 UPDATE guitar_deals
 SET also_qualifies_pepite = (ai_analysis_raw->>'also_qualifies_pepite')::boolean
-WHERE also_qualifies_pepite IS NULL AND ai_analysis_raw ? 'also_qualifies_pepite';
+WHERE also_qualifies_pepite IS NULL AND ai_analysis_raw ? 'also_qualifies_pepite'
+  AND lower(ai_analysis_raw->>'also_qualifies_pepite') IN ('true', 'false', 't', 'f', 'yes', 'no', '1', '0');
 
 UPDATE guitar_deals
 SET estimated_gross_margin = (ai_analysis_raw->>'estimated_gross_margin')::numeric
-WHERE estimated_gross_margin IS NULL AND ai_analysis_raw ? 'estimated_gross_margin';
+WHERE estimated_gross_margin IS NULL AND ai_analysis_raw ? 'estimated_gross_margin'
+  AND ai_analysis_raw->>'estimated_gross_margin' ~ '^-?[0-9]+(\.[0-9]+)?$';
 
 -- Chantier redondance Dell (préparation, voir backend/ha/) : quelle machine (config.HA_NODE_ID,
 -- "lenovo"/"dell") a scrapé cette occurrence de l'annonce — traçabilité/diagnostic en cas de

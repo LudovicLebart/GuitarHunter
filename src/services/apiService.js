@@ -201,6 +201,11 @@ function openChangeSocket(path, onChange, onError) {
       ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
       if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
     } catch (error) {
+      // `closed` peut être passé à true PENDANT le `await getIdToken()` ci-dessus (composant
+      // démonté en cours de route) — sans ce check, un rejet tardif de `getIdToken()` appellerait
+      // encore `onError` (via reportError, une fois le seuil atteint) sur un composant déjà
+      // nettoyé. `scheduleRetry()` se protège déjà lui-même, mais `reportError()` non.
+      if (closed) return;
       reportError(error);
       scheduleRetry();
     }
