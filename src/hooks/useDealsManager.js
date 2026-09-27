@@ -138,6 +138,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         setDealsIndexMap(indexMap);
         setLoading(false);
         setDbStatus({ status: 'success', msg: `${count} annonces` });
+        setError(null); // efface un bandeau d'erreur laissé par une coupure désormais résolue
       },
       (err) => {
         setError(err.message);

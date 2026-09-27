@@ -135,8 +135,13 @@ export const useBotConfig = (user) => {
       // rien n'a jamais été sauvegardé — on initialise alors à {} pour signaler "chargé, vide".
       setUiFilters(prev => prev ?? (data.uiFilters || {}));
 
+      // else setError(null) : efface aussi un bandeau laissé par une coupure de connexion
+      // désormais résolue (voir les autres hooks — error/setError est un état global partagé,
+      // pas propre à ce hook), pas seulement un scanError qui aurait disparu côté serveur.
       if (data.scanError) {
         setError(data.scanError);
+      } else {
+        setError(null);
       }
     };
 

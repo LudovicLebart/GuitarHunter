@@ -279,6 +279,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         const unsubscribe = onDealChatUpdate(deal.id, (msgs) => {
             setMessages(msgs);
             setLoading(false);
+            setError(null); // efface un bandeau laissé par une coupure désormais résolue
             try {
                 const withRestorationTools = !!dealRef.current?.isPurchased && !toolsUnsupportedRef.current;
                 const withPhotoRecall = !toolsUnsupportedRef.current;
