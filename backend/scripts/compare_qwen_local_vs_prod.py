@@ -439,17 +439,25 @@ def main():
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
                               "réflexion sans jamais produire le JSON de sortie. À comparer avec "
                               "le comportement par défaut (risque connu de qualité, pas supposé).")
+    parser.add_argument("--before", default=None,
+                         help="Date ISO (ex: 2026-09-20) : ne rejoue que les annonces antérieures "
+                              "à cette date. Permet de comparer contre l'ère Gemini Flash-Lite "
+                              "(ancien Portier T1, avant la bascule Qwen cloud du 2026-09-20) "
+                              "plutôt que les annonces récentes (décidées par Qwen cloud depuis).")
     args = parser.parse_args()
 
     est_minutes = round(args.limit * 20 / 60, 1)
-    print(f"🔍 Connexion à {DATABASE_URL.split('@')[-1]} — jusqu'à {args.limit} annonce(s) "
+    before_info = f" (antérieures à {args.before} — ère Gemini Flash-Lite)" if args.before else ""
+    print(f"🔍 Connexion à {DATABASE_URL.split('@')[-1]} — jusqu'à {args.limit} annonce(s){before_info} "
           f"à rejouer sur {args.model} (~{est_minutes} min estimées, ~20s/annonce).")
     _log_ollama_vram("avant le run")
 
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
+            date_filter = 'AND gd."timestamp" < %s' if args.before else ""
+            params = (args.before, args.limit) if args.before else (args.limit,)
             cur.execute(
-                """
+                f"""
                 SELECT gd.id, udm.user_id, gd.title, gd.price, gd.description, gd.location,
                        gd.image_urls, gd.storage_image_urls, gd.ai_analysis_raw, gd.link,
                        gd."timestamp"
@@ -460,10 +468,11 @@ def main():
                     LIMIT 1
                 ) udm ON true
                 WHERE gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL
+                {date_filter}
                 ORDER BY gd."timestamp" DESC
                 LIMIT %s
                 """,
-                (args.limit,),
+                params,
             )
             rows = cur.fetchall()
 
@@ -632,6 +641,7 @@ def main():
             "model": args.model,
             "simplified_prompt": args.simplified_prompt,
             "no_think": args.no_think,
+            "before": args.before,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,
