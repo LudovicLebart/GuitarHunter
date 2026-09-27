@@ -247,8 +247,20 @@ def _call_qwen_local_json(prompt, images, model):
         completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
         details = getattr(usage, "completion_tokens_details", None) if usage else None
         reasoning_tokens = (getattr(details, "reasoning_tokens", None) if details else None)
+        # Diagnostic échecs (2026-09-27) : plusieurs signatures d'échec différentes observées en
+        # conditions réelles (content vide + finish_reason="length", finish_reason=None + 0 token,
+        # finish_reason="stop" + 2 tokens + content quand même vide) — sans le contenu brut de la
+        # réponse, impossible de distinguer "le modèle a réfléchi puis rien produit" de "Ollama a
+        # renvoyé un champ inattendu (ex: reasoning_content séparé, non lu par ce SDK)". Capturé
+        # systématiquement (pas seulement en cas d'échec) pour ne rater aucun signal, tronqué pour
+        # rester lisible ; jamais levé (best-effort, un échec de capture ne doit pas invalider un
+        # appel par ailleurs réussi).
+        try:
+            raw_debug = json.dumps(response.model_dump(), ensure_ascii=False, default=str)[:1500]
+        except Exception:
+            raw_debug = repr(response)[:1500]
     except Exception as e:
-        return None, str(e), False, None, None
+        return None, str(e), False, None, None, None
 
     if not text:
         # content vide + finish_reason="length" = num_predict atteint pendant la réflexion interne
@@ -256,7 +268,7 @@ def _call_qwen_local_json(prompt, images, model):
         # d'un JSON simplement malformé.
         return (None, f"réponse vide (finish_reason={finish_reason!r}, "
                 f"num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS} peut-être trop bas)",
-                False, completion_tokens, reasoning_tokens)
+                False, completion_tokens, reasoning_tokens, raw_debug)
 
     try:
         if text.startswith("```"):
@@ -266,10 +278,10 @@ def _call_qwen_local_json(prompt, images, model):
         result = json.loads(text.strip())
         if isinstance(result, list):
             result = result[0] if result and isinstance(result[0], dict) else {}
-        return result, None, True, completion_tokens, reasoning_tokens
+        return result, None, True, completion_tokens, reasoning_tokens, raw_debug
     except Exception as e:
         return (None, f"réponse non-JSON (finish_reason={finish_reason!r}) : {e}",
-                False, completion_tokens, reasoning_tokens)
+                False, completion_tokens, reasoning_tokens, raw_debug)
 
 
 def _log_ollama_vram(label, quiet=False):
@@ -396,6 +408,7 @@ def main():
         completion_tokens_list = []
         prompt_tokens_est_list = []
         vram_gb_list = []
+        failed_calls = []
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -439,7 +452,7 @@ def main():
                       f"risque de troncature (limite connue : 4096).")
 
             t0 = time.monotonic()
-            result, err, json_valid, completion_tokens, reasoning_tokens = _call_qwen_local_json(
+            result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = _call_qwen_local_json(
                 full_prompt_t1, images, args.model
             )
             latency_s = round(time.monotonic() - t0, 1)
@@ -461,6 +474,13 @@ def main():
 
             if err or not result:
                 print(f"  ❌ Échec qwen_local ({latency_s}s{tok_info}) : {err}")
+                if raw_debug:
+                    print(f"     brut (tronqué) : {raw_debug[:400]}")
+                failed_calls.append({
+                    "id": row["id"], "title": row.get("title"), "error": err,
+                    "latency_s": latency_s, "completion_tokens": completion_tokens,
+                    "raw_debug": raw_debug,
+                })
                 n_failed_call += 1
                 continue
 
@@ -556,6 +576,7 @@ def main():
                 for row, cv, lv, reasoning in cloud_accept_local_reject
             ],
             "cloud_reject_local_accept_count": len(cloud_reject_local_accept),
+            "failed_calls": failed_calls,
         }, f, ensure_ascii=False, indent=2)
     print(f"\nRésultats détaillés sauvegardés dans : {out_path}")
 
