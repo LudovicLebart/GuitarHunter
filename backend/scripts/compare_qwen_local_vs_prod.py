@@ -104,6 +104,13 @@ QWEN_LOCAL_NUM_CTX = int(os.getenv("QWEN_LOCAL_NUM_CTX", "8192"))
 # Idem : chaque image consomme du contexte une fois encodée — plafonné à 4 (au lieu de 8, le
 # plafond utilisé ailleurs dans le projet pour les appels cloud) pour rester sous la marge VRAM.
 MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "4"))
+# Expérimentation 2026-09-27 (TODO.md § Chantier I) : le script n'avait jamais de plafond sur la
+# génération — sur un 8B, le decode (génération token par token) domine largement la latence,
+# bien plus que le prompt lui-même. Les raisonnements confus observés sur le run n=141 (plusieurs
+# centaines de mots pour certains) expliquent une bonne part des P90 ~35s mesurés. Plafond généreux
+# (statut + raisonnement court + marque + classification tiennent largement dedans) pour ne pas
+# tronquer un JSON légitime en cours de génération.
+QWEN_LOCAL_MAX_OUTPUT_TOKENS = int(os.getenv("QWEN_LOCAL_MAX_OUTPUT_TOKENS", "600"))
 
 
 def _is_rejected(verdict):
@@ -195,7 +202,7 @@ def _call_qwen_local_json(prompt, images, model):
             model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX}},
+            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
         )
         text = response.choices[0].message.content.strip()
     except Exception as e:
