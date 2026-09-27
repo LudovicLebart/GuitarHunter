@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-27] [PRO] Lenteur persistante malgré l'index allégé (13s signalés) → compression gzip absente sur l'API.
+- **Symptôme** : l'utilisateur signale que le chargement des annonces reste lent (13s) après le correctif `/deals/index` de la veille, plus des "erreurs de fetch" ponctuelles.
+- **Cause probable** : `backend/api/main.py` n'avait **aucune compression de réponse** (`GZipMiddleware` absent) — le JSON de `/deals/index`, très répétitif donc très compressible, partait en clair. Le serveur étant une machine résidentielle exposée via Tailscale Funnel, la bande passante **montante** (souvent le maillon le plus faible d'une connexion domestique) est le goulot le plus probable, pas la requête SQL (index déjà corrects sur `user_deal_matches`/`user_deal_state`/`guitar_deals`, vérifiés).
+- **`backend/api/main.py`** : `app.add_middleware(GZipMiddleware, minimum_size=1000)` — compresse toute réponse HTTP de plus de 1 Ko. Sans effet sur les WebSockets (upgrades de connexion, jamais des réponses HTTP classiques).
+- **Tests** : `ast.parse` + import isolé de `GZipMiddleware` (Starlette, déjà une dépendance de FastAPI). Aucune mesure réelle de gain possible depuis cet environnement (pas de Postgres/serveur réel accessible).
+- **Reste à faire** : validation en conditions réelles par l'utilisateur (nouveau temps de chargement mesuré). Si la lenteur persiste malgré la compression, la piste suivante serait la bande passante/latence réseau elle-même (test `curl -w "%{time_total} %{size_download}"` en conditions réelles) plutôt qu'un problème côté code.
+
+---
+
 [2026-09-27] [PRO] Fix : le chat était réservé à l'acheteur par erreur — seul le plan de restauration doit l'être.
 - **Symptôme découvert en marge du chantier connexion** : ouvrir "Discuter avec Gemini" sur une annonce non achetée échouait systématiquement (`GET /deals/{id}/chat` → 404 "Annonce introuvable.", même rejet côté WebSocket `/ws/deals/{id}/chat` en code 1008) — repéré sur 2 annonces différentes non achetées.
 - **Cause** : `chat_repo.get_deal_owner()` restreint l'accès à `purchased_by_user_id` (catalogue partagé, décision produit du 2026-09-19 documentée dans le code : *"chat/restauration toujours réservés à l'acheteur"*). Confirmé avec l'utilisateur que cette restriction ne devait s'appliquer **qu'au plan de restauration** — le chat lui-même a été réservé à l'acheteur par erreur à cette même date. Côté frontend, `DealCardActions.jsx` n'a d'ailleurs jamais gardé le bouton "Discuter avec Gemini" sur `isPurchased` (contrairement à l'onglet Restauration), confirmant que le chat était censé rester ouvert à tous.

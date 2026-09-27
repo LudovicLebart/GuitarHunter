@@ -221,6 +221,12 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [/] **Fix : lenteur persistante malgré l'index allégé (13s signalés) — compression gzip absente** *(trouvé et corrigé le 2026-09-27)*
+    - *Symptôme* : chargement des annonces toujours lent (13s) après le correctif `/deals/index`, + "erreurs de fetch" ponctuelles.
+    - *Cause probable* : aucune compression de réponse (`GZipMiddleware` absent) — JSON répétitif envoyé en clair, sur une bande passante montante résidentielle probablement limitée (via Tailscale Funnel).
+    - *Correctif* : `GZipMiddleware` ajouté (`backend/api/main.py`, seuil 1 Ko). Voir `JOURNAL.md` [2026-09-27].
+    - *Reste à faire* : validation en conditions réelles (nouveau temps de chargement). Si la lenteur persiste, creuser la bande passante/latence réseau directement (`curl -w "%{time_total} %{size_download}"`).
+
 - [x] **Fix : le chat était réservé à l'acheteur par erreur (seule la restauration doit l'être)** *(trouvé et corrigé le 2026-09-27)*
     - *Symptôme* : "Discuter avec Gemini" échouait systématiquement (404) sur toute annonce non achetée — repéré sur 2 annonces différentes.
     - *Cause* : `chat_repo.get_deal_owner()` (accès par `purchased_by_user_id`) appliqué à tort au chat, alors que seul le plan de restauration doit être réservé à l'acheteur — confirmé avec l'utilisateur.

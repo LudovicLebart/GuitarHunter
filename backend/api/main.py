@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
@@ -48,6 +49,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compression des réponses HTTP (2026-09-27) : aucune n'était activée — le JSON de /deals/index
+# (très répétitif, donc très compressible) partait en clair, coûteux sur la bande passante montante
+# limitée d'un serveur résidentiel exposé via Tailscale Funnel. Sans effet sur les WebSockets
+# (upgrades de connexion, jamais des réponses HTTP classiques — ce middleware ne s'y applique pas).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # Un handler d'exception explicite passe par CORSMiddleware (contrairement à une exception non
