@@ -221,6 +221,13 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Fix : le chat était réservé à l'acheteur par erreur (seule la restauration doit l'être)** *(trouvé et corrigé le 2026-09-27)*
+    - *Symptôme* : "Discuter avec Gemini" échouait systématiquement (404) sur toute annonce non achetée — repéré sur 2 annonces différentes.
+    - *Cause* : `chat_repo.get_deal_owner()` (accès par `purchased_by_user_id`) appliqué à tort au chat, alors que seul le plan de restauration doit être réservé à l'acheteur — confirmé avec l'utilisateur.
+    - *Correctif* : nouvelle garde `is_deal_visible()`/`_require_deal_visible()` (basée sur `user_deal_matches`, sans condition d'achat) pour les 6 endpoints chat (5 REST + 1 WS). Le plan de restauration (8 endpoints) reste sur l'ancienne garde par achat. Voir `JOURNAL.md` [2026-09-27].
+    - *Reste ouvert, non bloquant* : `apiService.js::openChangeSocket()` retente indéfiniment même après un rejet permanent (code 1008) au lieu d'abandonner — repéré via ce bug, moins critique maintenant que la restriction chat trop stricte est corrigée. À traiter si un rejet WS permanent légitime se reproduit ailleurs.
+    - *Reste à faire* : validation en conditions réelles par l'utilisateur (ouvrir le chat sur une annonce non achetée, confirmer que ça fonctionne).
+
 - [x] **Fix : erreurs de connexion UI nouvelles + lenteur (post-migration Postgres)** *(signalé le 2026-09-25, validé en conditions réelles le 2026-09-26 : "Ça marche, beaucoup plus rapide.")*
     - *Symptôme signalé* : connexion à la base depuis l'UI lente (préexistant à la migration Firestore→Postgres, cause non confirmée) et erreurs de connexion nouvelles.
     - *Cause 1 (confirmée par lecture du code)* : `src/services/apiService.js::openChangeSocket()` n'avait aucune reconnexion automatique (pas de `ws.onclose`) — chaque redémarrage de `guitarhunter-api-prod` (à chaque déploiement `dev`/`master`, voir `deploy.yml`) coupait silencieusement les 5 canaux WebSocket temps réel sans jamais se rétablir.
