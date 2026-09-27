@@ -107,10 +107,13 @@ MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "4"))
 # Expérimentation 2026-09-27 (TODO.md § Chantier I) : le script n'avait jamais de plafond sur la
 # génération — sur un 8B, le decode (génération token par token) domine largement la latence,
 # bien plus que le prompt lui-même. Les raisonnements confus observés sur le run n=141 (plusieurs
-# centaines de mots pour certains) expliquent une bonne part des P90 ~35s mesurés. Plafond généreux
-# (statut + raisonnement court + marque + classification tiennent largement dedans) pour ne pas
-# tronquer un JSON légitime en cours de génération.
-QWEN_LOCAL_MAX_OUTPUT_TOKENS = int(os.getenv("QWEN_LOCAL_MAX_OUTPUT_TOKENS", "600"))
+# centaines de mots pour certains) expliquent une bonne part des P90 ~35s mesurés.
+# RÉGRESSION TROUVÉE (2026-09-27, même jour) : un premier plafond à 600 provoquait des réponses
+# JSON VIDES (`content` = "") sur certaines annonces — Qwen3 est un modèle "thinking", Ollama
+# sépare son raisonnement interne (`reasoning_content`) du JSON final (`content`) ; si le plafond
+# tombe pendant la phase de réflexion, `content` ne contient jamais rien. Remonté à 2000 pour
+# laisser assez de marge à la réflexion + la réponse — reste fini, juste moins agressif.
+QWEN_LOCAL_MAX_OUTPUT_TOKENS = int(os.getenv("QWEN_LOCAL_MAX_OUTPUT_TOKENS", "2000"))
 
 
 def _is_rejected(verdict):
@@ -204,9 +207,17 @@ def _call_qwen_local_json(prompt, images, model):
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
             extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
         )
-        text = response.choices[0].message.content.strip()
+        choice = response.choices[0]
+        text = choice.message.content.strip()
+        finish_reason = choice.finish_reason
     except Exception as e:
         return None, str(e), False
+
+    if not text:
+        # Diagnostic (2026-09-27) : content vide + finish_reason="length" = num_predict atteint
+        # pendant la réflexion interne du modèle (thinking), avant tout JSON — pas une erreur de
+        # parsing classique, à distinguer d'un JSON simplement malformé.
+        return None, f"réponse vide (finish_reason={finish_reason!r}, num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS} peut-être trop bas)", False
 
     try:
         if text.startswith("```"):
@@ -218,7 +229,7 @@ def _call_qwen_local_json(prompt, images, model):
             result = result[0] if result and isinstance(result[0], dict) else {}
         return result, None, True
     except Exception as e:
-        return None, f"réponse non-JSON : {e}", False
+        return None, f"réponse non-JSON (finish_reason={finish_reason!r}) : {e}", False
 
 
 def _log_ollama_vram(label):
