@@ -1371,11 +1371,17 @@ class GuitarHunterBot:
             confirmed_lat = confirmed_lon = region_hint = None
         self.logger.info(f"Tentative d'ajout de la ville: {city_name}")
 
-        # Dédoublonnage sur le catalogue partagé (nom)
+        # Dédoublonnage sur le catalogue partagé (nom). Comparaison sur la clé canonique
+        # (`normalize_city_key`, insensible aux accents/casse/tirets/abréviations Saint-St —
+        # miroir de la clé utilisée côté stats, voir `backend/cities.py`) plutôt qu'un simple
+        # `.lower()` : un `.lower()` seul laissait passer des graphies quasi identiques
+        # ("Montréal" vs "montreal") comme deux villes distinctes, créant un doublon au
+        # catalogue (trouvé 2026-09-27, voir backend/scripts/audit_city_catalog_duplicates.py).
         catalog = self.repo.get_all_catalog_cities()
+        target_key = normalize_city_key(city_name)
         existing_id_by_name = None
         for city_id_key, data in catalog.items():
-            if data.get('name', '').lower() == city_name.lower():
+            if normalize_city_key(data.get('name', '')) == target_key:
                 existing_id_by_name = city_id_key
                 break
 

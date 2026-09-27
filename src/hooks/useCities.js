@@ -10,7 +10,7 @@ export const useCities = (user, setError) => {
     if (!user) return;
     const uid = user.uid;
     const unsubscribe = onCitiesUpdate(
-      (data) => setCities(data),
+      (data) => { setCities(data); setError(null); }, // efface un bandeau laissé par une coupure désormais résolue
       (err) => setError(err.message),
       uid
     );

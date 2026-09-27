@@ -318,6 +318,21 @@ class TestAddCityAuto(unittest.TestCase):
         with self.assertRaises(Exception):
             self.bot.add_city_auto("Ville introuvable")
 
+    def test_dedup_matches_existing_name_ignoring_accents_and_case(self, mock_city_finder, _mock_fb_scraper):
+        """2026-09-27 : un `.lower()` seul ne détectait pas "Montreal" comme déjà présent sous
+        "Montréal" (accent différent) et créait un doublon au catalogue partagé — voir
+        backend/scripts/audit_city_catalog_duplicates.py. La comparaison doit passer par la même
+        clé canonique que les stats (`normalize_city_key`)."""
+        self.bot.repo.get_all_catalog_cities.return_value = {
+            "111": {"name": "Montréal", "latitude": 45.5, "longitude": -73.6}
+        }
+
+        result = self.bot.add_city_auto("montreal")
+
+        self.assertTrue(result)
+        self.bot.repo.set_city_user_pref.assert_called_once_with("111", True)
+        mock_city_finder.find_city_id_and_coords.assert_not_called()
+
 
 class TestRunSourcesInParallel(unittest.TestCase):
     """_run_sources_in_parallel() dispatche Facebook et Kijiji chacun dans son propre
