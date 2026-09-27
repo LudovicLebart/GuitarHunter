@@ -1,5 +1,13 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-27] [PRO] Fix : crash chat (`... .slice is not a function`) sur l'envoi d'une photo — ids Postgres (nombres) traités comme des chaînes Firestore.
+- **Symptôme** : capture d'écran utilisateur — après une réponse de Gemini sur une photo envoyée dans le chat, bandeau d'erreur `(s.id || "").slice is not a function` (nom minifié).
+- **Cause** : `src/services/geminiChatService.js` construit des identifiants courts et stables (`buildPhotoRefIndex`/`buildRestorationItemRefs`) en tronquant `message.id`/`item.id` via `.slice()` — hérité de l'époque où ces ids étaient des chaînes Firestore. Depuis la migration Postgres, `deal_chat.id`/`restoration_plan_items.id` sont des `BIGSERIAL` (des `number` côté JS) : `.slice()` n'existe pas sur un nombre, crash immédiat dès qu'une photo de chat était jointe (ou, non encore rencontré mais même bug, dès qu'un plan de restauration avec plusieurs étapes générait des refs).
+- **`src/services/geminiChatService.js`** : les 3 sites concernés (`buildRestorationItemRefs` ×2, `buildPhotoRefIndex` ×1) enveloppent désormais l'id dans `String(...)` avant `.slice()`. Comportement inchangé pour un id déjà court (BIGSERIAL) — la troncature à 6 caractères ne s'applique plus vraiment dans ce cas (ids déjà courts), mais reste inoffensive.
+- **Tests** : `npm run build` OK. Recherché exhaustivement (`grep`) tout autre `.slice()`/`.substring()`/`.padStart()`/`.charAt()` sur un champ `.id` dans `src/` — aucun autre site trouvé (les usages restants de `.id.startsWith('kijiji_')` portent sur `deal.id`, resté une vraie chaîne TEXT, pas concerné). **Non testé en conditions réelles** (pas de vrai chat/photo depuis l'environnement de dev) — à valider par l'utilisateur : renvoyer une photo dans un chat, et si possible tester une proposition de réordonnancement du plan de restauration (même classe de bug, jamais encore rencontrée en pratique).
+
+---
+
 [2026-09-27] [PRO] Lenteur persistante malgré l'index allégé (13s signalés) → compression gzip absente sur l'API.
 - **Symptôme** : l'utilisateur signale que le chargement des annonces reste lent (13s) après le correctif `/deals/index` de la veille, plus des "erreurs de fetch" ponctuelles.
 - **Cause probable** : `backend/api/main.py` n'avait **aucune compression de réponse** (`GZipMiddleware` absent) — le JSON de `/deals/index`, très répétitif donc très compressible, partait en clair. Le serveur étant une machine résidentielle exposée via Tailscale Funnel, la bande passante **montante** (souvent le maillon le plus faible d'une connexion domestique) est le goulot le plus probable, pas la requête SQL (index déjà corrects sur `user_deal_matches`/`user_deal_state`/`guitar_deals`, vérifiés).
