@@ -106,10 +106,14 @@ QWEN_LOCAL_NATIVE_BASE_URL = QWEN_LOCAL_BASE_URL.rsplit("/v1", 1)[0]
 # la marge VRAM s'améliore un jour côté MAX_IMAGES ci-dessous) — mais ne pas supposer qu'elle est
 # honorée sans revérifier `ollama ps`/les logs après un changement.
 QWEN_LOCAL_NUM_CTX = int(os.getenv("QWEN_LOCAL_NUM_CTX", "8192"))
-# Idem : chaque image consomme du contexte une fois encodée — plafonné à 2 (2026-09-27, était 4
-# puis 8 pour les appels cloud) pour réduire la pression sur la fenêtre de 4096 réellement
-# disponible (voir ci-dessus) et laisser de la place à la taxonomie + l'instruction + l'annonce.
-MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "2"))
+# Idem : chaque image consomme du contexte une fois encodée — plafonné à 4 (au lieu de 8, le
+# plafond utilisé ailleurs dans le projet pour les appels cloud) pour rester sous la marge VRAM.
+# Laissé à 4 (2026-09-27, pas réduit à 2 malgré la pression sur les 4096 tokens réellement
+# disponibles — décision utilisateur) : les images sont le signal le plus riche pour ce que le
+# texte seul ne peut pas révéler (voir `study_visual_dependence.py`, ~23-43% des verdicts en
+# dépendent) — le compromis retenu passe par le réordonnancement du prompt (taxonomie sacrifiable
+# en premier) plutôt que par moins d'images.
+MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "4"))
 # Expérimentation 2026-09-27 (TODO.md § Chantier I) : le script n'avait jamais de plafond sur la
 # génération — sur un 8B, le decode (génération token par token) domine largement la latence,
 # bien plus que le prompt lui-même. Les raisonnements confus observés sur le run n=141 (plusieurs
