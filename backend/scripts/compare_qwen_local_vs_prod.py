@@ -215,21 +215,18 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
     )
 
 
-def _call_qwen_local_json(prompt, images, model, no_think=False):
+def _call_qwen_local_json(prompt, images, model):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
     renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
     _call_openai_compatible_json (analyzer.py) pour les deux premiers éléments. `num_ctx` fixé
     (Chantier I-0, marge VRAM) via `extra_body` — seul moyen de faire passer une option Ollama
     par l'API compatible OpenAI, qui ignore tout champ hors du schéma OpenAI standard sinon.
 
-    `no_think` (2026-09-27, expérimental, voir --no-think) : trouvé en conditions réelles (champ
-    `message.reasoning` du brut Ollama, capturé via raw_debug) que Qwen3-VL termine parfois sa
-    réflexion interne (`finish_reason="stop"`) SANS jamais produire le JSON de `content` — pas un
-    problème de plafond de tokens (691/2000 utilisés sur un cas observé). `think: false` est un
-    champ de PREMIER NIVEAU côté API native Ollama (pas dans `options`, qui ne couvre que les
-    paramètres du runtime comme num_ctx/num_predict) — passé seulement si demandé, pour comparer
-    au comportement par défaut (risque connu : moins de raisonnement peut coûter en qualité sur
-    les cas ambigus, à mesurer, pas supposer)."""
+    Pas de contrôle `think` ici (2026-09-27) : `extra_body["think"] = False` testé en conditions
+    réelles, sans AUCUN effet observé (le modèle continuait de produire un raisonnement complet
+    dans `message.reasoning`) — la couche de compatibilité OpenAI d'Ollama ne semble transmettre
+    que `options.*`, pas les champs de premier niveau comme `think`. Voir
+    `_call_qwen_local_json_native()` (API native, `--no-think`) pour la variante qui fonctionne."""
     try:
         client = OpenAI(api_key=QWEN_LOCAL_API_KEY, base_url=QWEN_LOCAL_BASE_URL, timeout=120)
         content = [{"type": "text", "text": prompt}]
@@ -238,14 +235,11 @@ def _call_qwen_local_json(prompt, images, model, no_think=False):
             img.save(buf, format="JPEG")
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
-        extra_body = {"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}}
-        if no_think:
-            extra_body["think"] = False
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            extra_body=extra_body,
+            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
         )
         choice = response.choices[0]
         text = choice.message.content.strip()
@@ -294,6 +288,63 @@ def _call_qwen_local_json(prompt, images, model, no_think=False):
     except Exception as e:
         return (None, f"réponse non-JSON (finish_reason={finish_reason!r}) : {e}",
                 False, completion_tokens, reasoning_tokens, raw_debug)
+
+
+def _call_qwen_local_json_native(prompt, images, model):
+    """Variante API NATIVE Ollama (`/api/chat`, pas le SDK OpenAI-compat) — utilisée uniquement
+    pour `--no-think` (2026-09-27). `think` est un champ de premier niveau documenté et garanti
+    supporté par l'API native ; côté SDK OpenAI-compat, `extra_body["think"] = False` n'avait
+    AUCUN effet observé en conditions réelles (voir `_call_qwen_local_json`). Même contrat de
+    retour que `_call_qwen_local_json` (6-uplet) pour rester interchangeable côté appelant.
+
+    Encodage image différent : liste de chaînes base64 brutes (sans préfixe `data:...`) dans
+    `message.images`, pas des blocs `content` multi-parties comme l'API OpenAI-compat. Le schéma
+    JSON strict passe par `format` (objet schéma brut, pas enveloppé dans `json_schema`/`strict`
+    comme côté OpenAI — l'API native a sa propre convention pour les sorties structurées)."""
+    try:
+        images_b64 = []
+        for img in images:
+            buf = BytesIO()
+            img.save(buf, format="JPEG")
+            images_b64.append(base64.b64encode(buf.getvalue()).decode("utf-8"))
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt, "images": images_b64}],
+            "format": T1_GATEKEEPER_OPENAI_JSON_SCHEMA["json_schema"]["schema"],
+            "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS},
+            "think": False,
+            "stream": False,
+        }
+        resp = requests.post(f"{QWEN_LOCAL_NATIVE_BASE_URL}/api/chat", json=payload, timeout=120)
+        resp.raise_for_status()
+        data = resp.json()
+        message = data.get("message", {}) or {}
+        text = (message.get("content") or "").strip()
+        finish_reason = data.get("done_reason")
+        eval_count = data.get("eval_count")  # équivalent natif de completion_tokens
+        try:
+            raw_debug = json.dumps(data, ensure_ascii=False, default=str)[:1500]
+        except Exception:
+            raw_debug = repr(data)[:1500]
+    except Exception as e:
+        return None, str(e), False, None, None, None
+
+    if not text:
+        return (None, f"réponse vide (done_reason={finish_reason!r}, API native, think=false)",
+                False, eval_count, None, raw_debug)
+
+    try:
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+        result = json.loads(text.strip())
+        if isinstance(result, list):
+            result = result[0] if result and isinstance(result[0], dict) else {}
+        return result, None, True, eval_count, None, raw_debug
+    except Exception as e:
+        return (None, f"réponse non-JSON (done_reason={finish_reason!r}) : {e}",
+                False, eval_count, None, raw_debug)
 
 
 def _log_ollama_vram(label, quiet=False):
@@ -469,8 +520,9 @@ def main():
                       f"risque de troncature (limite connue : 4096).")
 
             t0 = time.monotonic()
-            result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = _call_qwen_local_json(
-                full_prompt_t1, images, args.model, no_think=args.no_think
+            call_fn = _call_qwen_local_json_native if args.no_think else _call_qwen_local_json
+            result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = call_fn(
+                full_prompt_t1, images, args.model
             )
             latency_s = round(time.monotonic() - t0, 1)
             latencies_s.append(latency_s)
