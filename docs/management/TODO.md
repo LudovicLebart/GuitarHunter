@@ -11,6 +11,18 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🐛 Doublons de villes dans le ConfigPanel (2026-09-27, en cours)
+
+*Signalé par capture d'écran utilisateur : la liste de villes affiche des doublons (ex: "Boucherville", "Bromont" en double).*
+
+- [x] **Cause du futur re-doublon corrigée** : `bot.py::add_city_auto()` comparait les noms via `.lower()` seul (n'aurait pas détecté "Montreal" comme doublon de "Montréal") — bascule sur `normalize_city_key()`, la même clé canonique que les stats. Voir `JOURNAL.md`.
+- [x] **Script d'audit lecture seule créé et armé** : `backend/scripts/audit_city_catalog_duplicates.py`, branché dans `run_once.py` (`ACTIVE = True`) — liste les doublons du catalogue `cities` (Postgres) avec assez de détail (id, coords, date, users actifs) pour décider d'une fusion manuelle.
+- [ ] **À faire après le prochain déploiement (dev/master)** : lire les logs GitHub Actions de l'étape "Script de maintenance ponctuel" pour voir la liste exacte des doublons.
+- [ ] **Décider et exécuter la fusion** des entrées dupliquées du catalogue (réassigner `user_city_prefs` vers l'id conservé, supprimer les lignes en trop) — pas encore de script d'écriture, à construire une fois le rapport d'audit lu.
+- [ ] **Repasser `run_once.py::ACTIVE` à `False`** dans un commit séparé immédiatement après lecture des logs (protocole one-shot, sinon l'audit se rejoue à chaque déploiement futur).
+
+---
+
 ## 🎯 Priorité Immédiate — Chantiers C/I/V/M (2026-09-24)
 
 *Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
