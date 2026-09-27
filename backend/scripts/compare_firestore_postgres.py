@@ -37,7 +37,10 @@ logger = logging.getLogger("compare_firestore_postgres")
 # Colonnes exclues de la comparaison champ par champ :
 # - ai_analysis_raw : dict potentiellement enrichi de `_unmapped` par l'export, comparaison
 #   directe trop fragile (faux positifs) pour la valeur qu'elle apporterait ici.
-_SKIP_COLUMNS = {"ai_analysis_raw"}
+# scraped_by_node : métadonnée native Postgres (chantier redondance Dell, voir backend/ha/),
+# jamais écrite côté Firestore — comparer ce champ produirait un faux mismatch dès que HA_NODE_ID
+# est configuré en production, sans indiquer une vraie divergence de migration.
+_SKIP_COLUMNS = {"ai_analysis_raw", "scraped_by_node"}
 _TIMESTAMP_TOLERANCE = timedelta(seconds=1)  # précision nanoseconde Firestore vs microseconde Postgres
 
 

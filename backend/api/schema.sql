@@ -257,6 +257,12 @@ UPDATE guitar_deals
 SET estimated_gross_margin = (ai_analysis_raw->>'estimated_gross_margin')::numeric
 WHERE estimated_gross_margin IS NULL AND ai_analysis_raw ? 'estimated_gross_margin';
 
+-- Chantier redondance Dell (préparation, voir backend/ha/) : quelle machine (config.HA_NODE_ID,
+-- "lenovo"/"dell") a scrapé cette occurrence de l'annonce — traçabilité/diagnostic en cas de
+-- doublon si les deux nœuds tournaient par erreur en même temps. Le bail Firestore
+-- (backend/ha/lease.py) est le mécanisme censé empêcher ce cas, pas cette colonne.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS scraped_by_node TEXT;
+
 -- ATTENTION migrations : `CREATE TABLE IF NOT EXISTS` ne modifie JAMAIS une table déjà
 -- existante — toute colonne ajoutée après la création initiale d'une table DOIT passer par
 -- un `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` séparé (comme ci-dessous), sinon elle
