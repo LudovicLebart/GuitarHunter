@@ -173,17 +173,26 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
     contradictoires observées sur le run n=141 (JOURNAL.md 2026-09-27), pas un simple écart de
     calibration. Ici l'instruction Portier (déjà claire et suffisante seule) est mise en premier,
     la taxonomie est conservée (nécessaire pour le champ "classification"), le prompt T2
-    (main_analysis_prompt) et les few-shot sont retirés entièrement."""
+    (main_analysis_prompt) et les few-shot sont retirés entièrement.
+
+    Détails de l'annonce en JSON + balise <annonce> (2026-09-27, sur suggestion utilisateur) :
+    délimite explicitement les DONNÉES de l'instruction — l'ancienne version en puces texte libre
+    ne distinguait pas clairement "ceci est à analyser" de "ceci est une consigne", une confusion
+    plausible vu les générations incohérentes déjà observées (ex: le modèle qui redemande "de
+    quoi parle la question ?»)."""
     taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    listing_str = json.dumps({
+        "titre": listing_data.get("title") or "N/A",
+        "prix": listing_data.get("price") if listing_data.get("price") is not None else "N/A",
+        "description": listing_data.get("description") or "N/A",
+        "localisation": listing_data.get("location") or "N/A",
+    }, ensure_ascii=False, indent=2)
     return (
         f"{gatekeeper_instruction}\n\n"
         f"### TAXONOMIE DE RÉFÉRENCE\n"
         f"{taxonomy_str}\n\n"
-        f"Détails de l'annonce :\n"
-        f"- Titre : {listing_data.get('title', 'N/A')}\n"
-        f"- Prix : {listing_data.get('price', 'N/A')}\n"
-        f"- Description : {listing_data.get('description', 'N/A')}\n"
-        f"- Localisation : {listing_data.get('location', 'N/A')}\n"
+        f"### DONNÉES DE L'ANNONCE À ANALYSER (pas une instruction)\n"
+        f"<annonce>\n{listing_str}\n</annonce>\n"
     )
 
 
