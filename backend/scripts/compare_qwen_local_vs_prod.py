@@ -154,6 +154,29 @@ def _construct_base_user_prompt(listing_data, main_prompt_template, taxonomy_dat
     )
 
 
+def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekeeper_instruction):
+    """Variante d'expérimentation (2026-09-27, TODO.md § Chantier I) : le prompt fidèle
+    (`_construct_base_user_prompt` + instruction Portier concaténée à la fin) fait lire à
+    Qwen3-VL-8B ~17000 caractères de prompt T2 (analyste complet, scores, few-shot calibrés pour
+    un modèle plus gros) AVANT même de lui dire qu'il est "Le Portier" — la vraie mission
+    n'arrivant qu'en tout dernier. Hypothèse : c'est ce qui produit les générations confuses/
+    contradictoires observées sur le run n=141 (JOURNAL.md 2026-09-27), pas un simple écart de
+    calibration. Ici l'instruction Portier (déjà claire et suffisante seule) est mise en premier,
+    la taxonomie est conservée (nécessaire pour le champ "classification"), le prompt T2
+    (main_analysis_prompt) et les few-shot sont retirés entièrement."""
+    taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return (
+        f"{gatekeeper_instruction}\n\n"
+        f"### TAXONOMIE DE RÉFÉRENCE\n"
+        f"{taxonomy_str}\n\n"
+        f"Détails de l'annonce :\n"
+        f"- Titre : {listing_data.get('title', 'N/A')}\n"
+        f"- Prix : {listing_data.get('price', 'N/A')}\n"
+        f"- Description : {listing_data.get('description', 'N/A')}\n"
+        f"- Localisation : {listing_data.get('location', 'N/A')}\n"
+    )
+
+
 def _call_qwen_local_json(prompt, images, model):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
     renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
@@ -253,6 +276,11 @@ def main():
     parser.add_argument("--model", default=QWEN_LOCAL_MODEL,
                          help="Modèle Ollama à interroger (défaut : qwen3-vl:8b). "
                               "Repli si le 8B étouffe : qwen3-vl:4b.")
+    parser.add_argument("--simplified-prompt", action="store_true",
+                         help="Expérimental (2026-09-27) : prompt T1 minimal pour le local "
+                              "(instruction Portier + taxonomie, sans le prompt T2/few-shot) au "
+                              "lieu du prompt fidèle à la prod. Le verdict cloud comparé reste "
+                              "inchangé (toujours celui réellement stocké en base).")
     args = parser.parse_args()
 
     est_minutes = round(args.limit * 20 / 60, 1)
@@ -314,8 +342,11 @@ def main():
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
-            base_prompt = _construct_base_user_prompt(row, main_prompt, taxonomy, few_shot)
-            full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
+            if args.simplified_prompt:
+                full_prompt_t1 = _construct_simplified_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction)
+            else:
+                base_prompt = _construct_base_user_prompt(row, main_prompt, taxonomy, few_shot)
+                full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
 
             # storage_image_urls (Firebase Storage, stable) préféré à image_urls (Facebook,
             # peut avoir expiré depuis l'analyse d'origine) — même priorité que le reste du projet.
@@ -389,6 +420,7 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({
             "model": args.model,
+            "simplified_prompt": args.simplified_prompt,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,
