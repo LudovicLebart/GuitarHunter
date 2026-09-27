@@ -219,14 +219,25 @@ def _call_qwen_local_json(prompt, images, model):
         choice = response.choices[0]
         text = choice.message.content.strip()
         finish_reason = choice.finish_reason
+        # Diagnostic (2026-09-27) : la latence semble augmenter avec le prompt simplifié, contraire
+        # à l'hypothèse de départ ("prompt plus court = génération plus courte") — pour savoir si
+        # le modèle consomme vraiment tout le budget num_predict ou si le ralentissement vient
+        # d'ailleurs, sans re-deviner : completion_tokens/reasoning_tokens comme _call_openai_
+        # compatible_json (analyzer.py).
+        usage = getattr(response, "usage", None)
+        completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
+        details = getattr(usage, "completion_tokens_details", None) if usage else None
+        reasoning_tokens = (getattr(details, "reasoning_tokens", None) if details else None)
     except Exception as e:
-        return None, str(e), False
+        return None, str(e), False, None, None
 
     if not text:
-        # Diagnostic (2026-09-27) : content vide + finish_reason="length" = num_predict atteint
-        # pendant la réflexion interne du modèle (thinking), avant tout JSON — pas une erreur de
-        # parsing classique, à distinguer d'un JSON simplement malformé.
-        return None, f"réponse vide (finish_reason={finish_reason!r}, num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS} peut-être trop bas)", False
+        # content vide + finish_reason="length" = num_predict atteint pendant la réflexion interne
+        # du modèle (thinking), avant tout JSON — pas une erreur de parsing classique, à distinguer
+        # d'un JSON simplement malformé.
+        return (None, f"réponse vide (finish_reason={finish_reason!r}, "
+                f"num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS} peut-être trop bas)",
+                False, completion_tokens, reasoning_tokens)
 
     try:
         if text.startswith("```"):
@@ -236,9 +247,10 @@ def _call_qwen_local_json(prompt, images, model):
         result = json.loads(text.strip())
         if isinstance(result, list):
             result = result[0] if result and isinstance(result[0], dict) else {}
-        return result, None, True
+        return result, None, True, completion_tokens, reasoning_tokens
     except Exception as e:
-        return None, f"réponse non-JSON (finish_reason={finish_reason!r}) : {e}", False
+        return (None, f"réponse non-JSON (finish_reason={finish_reason!r}) : {e}",
+                False, completion_tokens, reasoning_tokens)
 
 
 def _log_ollama_vram(label):
@@ -350,6 +362,7 @@ def main():
         n_json_valid = 0
         n_status_out_of_enum = 0
         latencies_s = []
+        completion_tokens_list = []
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -382,19 +395,27 @@ def main():
             images = [img for url in image_urls[:MAX_IMAGES] if (img := _download_and_optimize_image(url))]
 
             t0 = time.monotonic()
-            result, err, json_valid = _call_qwen_local_json(full_prompt_t1, images, args.model)
+            result, err, json_valid, completion_tokens, reasoning_tokens = _call_qwen_local_json(
+                full_prompt_t1, images, args.model
+            )
             latency_s = round(time.monotonic() - t0, 1)
             latencies_s.append(latency_s)
+            if completion_tokens is not None:
+                completion_tokens_list.append(completion_tokens)
             if json_valid:
                 n_json_valid += 1
 
+            tok_info = f", {completion_tokens} tokens" if completion_tokens is not None else ""
+            if reasoning_tokens:
+                tok_info += f" (dont {reasoning_tokens} de réflexion)"
+
             if err or not result:
-                print(f"  ❌ Échec qwen_local ({latency_s}s) : {err}")
+                print(f"  ❌ Échec qwen_local ({latency_s}s{tok_info}) : {err}")
                 n_failed_call += 1
                 continue
 
             local_verdict = (result.get("status") or "UNKNOWN").upper()
-            print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s)")
+            print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s{tok_info})")
             if local_verdict not in T1_VALID_STATUSES:
                 n_status_out_of_enum += 1
                 print(f"  ⚠️ Statut hors enum T1 attendu : {local_verdict!r}")
@@ -416,12 +437,18 @@ def main():
         json_valid_rate = (100 * n_json_valid / n_attempted) if n_attempted else 0.0
         p90_latency_s = _percentile(latencies_s, 90)
         out_of_enum_rate = (100 * n_status_out_of_enum / n_json_valid) if n_json_valid else 0.0
+        avg_completion_tokens = (round(sum(completion_tokens_list) / len(completion_tokens_list), 1)
+                                  if completion_tokens_list else None)
+        p90_completion_tokens = _percentile(completion_tokens_list, 90)
 
         print(f"\n{'=' * 60}\nRÉSUMÉ ({n} comparaison(s) valide(s), "
               f"{n_excluded_invalid} exclue(s) verdict cloud invalide, "
               f"{n_failed_call} échec(s) d'appel qwen_local)\n{'=' * 60}")
         print(f"  Taux JSON valide : {n_json_valid}/{n_attempted} ({json_valid_rate:.1f}%)")
         print(f"  Latence P90 : {p90_latency_s:.1f}s" if p90_latency_s is not None else "  Latence P90 : n/a")
+        if avg_completion_tokens is not None:
+            print(f"  Tokens générés : moyenne {avg_completion_tokens}, P90 {p90_completion_tokens:.0f} "
+                  f"(plafond num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS})")
         print(f"  Statuts hors enum T1 (sur JSON valides) : {n_status_out_of_enum}/{n_json_valid} "
               f"({out_of_enum_rate:.1f}%)")
         if n == 0:
@@ -456,6 +483,9 @@ def main():
             "n_json_valid": n_json_valid,
             "json_valid_rate_pct": round(json_valid_rate, 1),
             "p90_latency_s": p90_latency_s,
+            "avg_completion_tokens": avg_completion_tokens,
+            "p90_completion_tokens": p90_completion_tokens,
+            "max_output_tokens_cap": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
             "n_status_out_of_enum": n_status_out_of_enum,
             "out_of_enum_rate_pct": round(out_of_enum_rate, 1),
             "cloud_accept_local_reject": [
