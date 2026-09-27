@@ -21,14 +21,25 @@ import asyncpg
 
 
 async def get_deal_owner(pool: asyncpg.Pool, deal_id: str) -> str | None:
-    """Utilisé pour vérifier la propriété d'une annonce avant d'exposer son chat (REST et WS) —
-    `deal_chat` n'a pas de `user_id` propre, seulement une FK vers `guitar_deals`. 2026-09-19 :
-    `guitar_deals` est un catalogue partagé, plus de `user_id` — le "propriétaire" du chat/plan
-    de restauration est désormais l'ACHETEUR (`purchased_by_user_id`), décision explicite de
-    l'utilisateur (chat/restauration toujours réservés à l'acheteur, même si l'annonce reste
-    visible pour d'autres avant achat)."""
+    """Utilisé pour vérifier la propriété d'une annonce avant d'exposer son PLAN DE RESTAURATION
+    (REST et WS) — `guitar_deals` est un catalogue partagé (2026-09-19, plus de `user_id` propre),
+    le "propriétaire" du plan de restauration est l'ACHETEUR (`purchased_by_user_id`), décision
+    explicite de l'utilisateur : la réparation reste un privilège d'achat.
+    **Ne plus utiliser pour le chat** (voir `is_deal_visible` ci-dessous) — corrigé le 2026-09-27,
+    la restriction à l'acheteur avait été appliquée par erreur au chat aussi."""
     row = await pool.fetchrow("SELECT purchased_by_user_id FROM guitar_deals WHERE id = $1", deal_id)
     return row["purchased_by_user_id"] if row else None
+
+
+async def is_deal_visible(pool: asyncpg.Pool, deal_id: str, user_id: str) -> bool:
+    """Le chat est ouvert à tout utilisateur ayant visibilité sur l'annonce (son propre scan l'a
+    matchée, voir `user_deal_matches`) — contrairement au plan de restauration, ce n'est PAS un
+    privilège d'achat (décision produit explicite, 2026-09-27 : seul le mode réparation est
+    réservé à l'acheteur)."""
+    row = await pool.fetchrow(
+        "SELECT 1 FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2", user_id, deal_id
+    )
+    return row is not None
 
 
 async def list_messages(pool: asyncpg.Pool, deal_id: str):

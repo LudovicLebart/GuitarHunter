@@ -18,6 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
@@ -48,6 +49,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Compression des réponses HTTP (2026-09-27) : aucune n'était activée — le JSON de /deals/index
+# (très répétitif, donc très compressible) partait en clair, coûteux sur la bande passante montante
+# limitée d'un serveur résidentiel exposé via Tailscale Funnel. Sans effet sur les WebSockets
+# (upgrades de connexion, jamais des réponses HTTP classiques — ce middleware ne s'y applique pas).
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # Un handler d'exception explicite passe par CORSMiddleware (contrairement à une exception non
@@ -384,8 +391,10 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
 
 # --- Chat (tranche 3) ----------------------------------------------------------------------
 # Remplace onDealChatUpdate/addDealChatMessage/replaceDealChatMessage/markChatMessage*
-# (firestoreService.js). `deal_chat` n'a pas de user_id propre (FK vers guitar_deals) :
-# chaque route vérifie la propriété du deal parent avant d'exposer/modifier son chat.
+# (firestoreService.js). `deal_chat` n'a pas de user_id propre (FK vers guitar_deals) : chaque
+# route vérifie la VISIBILITÉ du deal parent (pas la propriété/achat — corrigé 2026-09-27, le
+# chat avait été réservé à l'acheteur par erreur en même temps que le plan de restauration, qui
+# lui doit le rester : voir `_require_deal_owner` plus bas, toujours utilisé pour la restauration).
 
 async def _require_deal_owner(pool, deal_id: str, uid: str) -> None:
     owner = await chat_repo.get_deal_owner(pool, deal_id)
@@ -393,10 +402,15 @@ async def _require_deal_owner(pool, deal_id: str, uid: str) -> None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
 
 
+async def _require_deal_visible(pool, deal_id: str, uid: str) -> None:
+    if not await chat_repo.is_deal_visible(pool, deal_id, uid):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+
+
 @app.get("/deals/{deal_id}/chat")
 async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     rows = await chat_repo.list_messages(pool, deal_id)
     return [dict(r) for r in rows]
 
@@ -415,7 +429,7 @@ class ChatMessageCreate(BaseModel):
 @app.post("/deals/{deal_id}/chat", status_code=status.HTTP_201_CREATED)
 async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     message_id = await chat_repo.add_message(
         pool, deal_id, body.role, body.parts, body.displayText,
         body.attachedImagePartIndices, body.restorationProposals,
@@ -441,7 +455,7 @@ async def _require_chat_message_found(found: bool) -> None:
 @app.patch("/deals/{deal_id}/chat/{message_id}")
 async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     found = await chat_repo.replace_message(
         pool, deal_id, message_id, body.parts, body.displayText,
         body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
@@ -458,7 +472,7 @@ class GalleryMarkBody(BaseModel):
 @app.patch("/deals/{deal_id}/chat/{message_id}/gallery")
 async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)
     await _require_chat_message_found(found)
     return {"status": "ok"}
@@ -473,7 +487,7 @@ class RestorationProposalStatusBody(BaseModel):
 @app.patch("/deals/{deal_id}/chat/{message_id}/restoration-proposal")
 async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId)
     await _require_chat_message_found(found)
     return {"status": "ok"}
@@ -486,7 +500,7 @@ class RequalificationStatusBody(BaseModel):
 @app.patch("/deals/{deal_id}/chat/{message_id}/requalification-proposal")
 async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_deal_visible(pool, deal_id, uid)
     found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status)
     await _require_chat_message_found(found)
     return {"status": "ok"}
@@ -502,9 +516,9 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
 
     # Vérifié via une connexion à part (avant accept()) : le pool applicatif normal convient
     # ici, contrairement à listen_conn qui doit rester dédiée à LISTEN pour toute la durée du socket.
+    # Visibilité (pas propriété/achat) : voir _require_deal_visible, même correctif 2026-09-27.
     pool = get_pool()
-    owner = await chat_repo.get_deal_owner(pool, deal_id)
-    if owner != uid:
+    if not await chat_repo.is_deal_visible(pool, deal_id, uid):
         await websocket.close(code=1008)
         return
 

@@ -224,6 +224,24 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Fix : crash chat (`.slice is not a function`) sur envoi de photo — ids Postgres traités comme des chaînes Firestore** *(trouvé et corrigé le 2026-09-27, capture d'écran utilisateur)*
+    - *Cause* : `geminiChatService.js::buildPhotoRefIndex`/`buildRestorationItemRefs` tronquaient `message.id`/`item.id` via `.slice()`, hérité de l'époque Firestore (chaînes) — `deal_chat.id`/`restoration_plan_items.id` sont des `BIGSERIAL` (nombres) depuis la migration Postgres.
+    - *Correctif* : `String(...)` avant `.slice()` aux 3 sites concernés. Voir `JOURNAL.md` [2026-09-27].
+    - *Reste à faire* : validation en conditions réelles (renvoyer une photo en chat ; tester si possible un réordonnancement du plan de restauration, même classe de bug jamais rencontrée en pratique).
+
+- [/] **Fix : lenteur persistante malgré l'index allégé (13s signalés) — compression gzip absente** *(trouvé et corrigé le 2026-09-27)*
+    - *Symptôme* : chargement des annonces toujours lent (13s) après le correctif `/deals/index`, + "erreurs de fetch" ponctuelles.
+    - *Cause probable* : aucune compression de réponse (`GZipMiddleware` absent) — JSON répétitif envoyé en clair, sur une bande passante montante résidentielle probablement limitée (via Tailscale Funnel).
+    - *Correctif* : `GZipMiddleware` ajouté (`backend/api/main.py`, seuil 1 Ko). Voir `JOURNAL.md` [2026-09-27].
+    - *Reste à faire* : validation en conditions réelles (nouveau temps de chargement). Si la lenteur persiste, creuser la bande passante/latence réseau directement (`curl -w "%{time_total} %{size_download}"`).
+
+- [x] **Fix : le chat était réservé à l'acheteur par erreur (seule la restauration doit l'être)** *(trouvé et corrigé le 2026-09-27)*
+    - *Symptôme* : "Discuter avec Gemini" échouait systématiquement (404) sur toute annonce non achetée — repéré sur 2 annonces différentes.
+    - *Cause* : `chat_repo.get_deal_owner()` (accès par `purchased_by_user_id`) appliqué à tort au chat, alors que seul le plan de restauration doit être réservé à l'acheteur — confirmé avec l'utilisateur.
+    - *Correctif* : nouvelle garde `is_deal_visible()`/`_require_deal_visible()` (basée sur `user_deal_matches`, sans condition d'achat) pour les 6 endpoints chat (5 REST + 1 WS). Le plan de restauration (8 endpoints) reste sur l'ancienne garde par achat. Voir `JOURNAL.md` [2026-09-27].
+    - *Reste ouvert, non bloquant* : `apiService.js::openChangeSocket()` retente indéfiniment même après un rejet permanent (code 1008) au lieu d'abandonner — repéré via ce bug, moins critique maintenant que la restriction chat trop stricte est corrigée. À traiter si un rejet WS permanent légitime se reproduit ailleurs.
+    - *Reste à faire* : validation en conditions réelles par l'utilisateur (ouvrir le chat sur une annonce non achetée, confirmer que ça fonctionne).
+
 - [x] **Fix : erreurs de connexion UI nouvelles + lenteur (post-migration Postgres)** *(signalé le 2026-09-25, validé en conditions réelles le 2026-09-26 : "Ça marche, beaucoup plus rapide.")*
     - *Symptôme signalé* : connexion à la base depuis l'UI lente (préexistant à la migration Firestore→Postgres, cause non confirmée) et erreurs de connexion nouvelles.
     - *Cause 1 (confirmée par lecture du code)* : `src/services/apiService.js::openChangeSocket()` n'avait aucune reconnexion automatique (pas de `ws.onclose`) — chaque redémarrage de `guitarhunter-api-prod` (à chaque déploiement `dev`/`master`, voir `deploy.yml`) coupait silencieusement les 5 canaux WebSocket temps réel sans jamais se rétablir.
