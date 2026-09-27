@@ -215,12 +215,21 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
     )
 
 
-def _call_qwen_local_json(prompt, images, model):
+def _call_qwen_local_json(prompt, images, model, no_think=False):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
     renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
     _call_openai_compatible_json (analyzer.py) pour les deux premiers éléments. `num_ctx` fixé
     (Chantier I-0, marge VRAM) via `extra_body` — seul moyen de faire passer une option Ollama
-    par l'API compatible OpenAI, qui ignore tout champ hors du schéma OpenAI standard sinon."""
+    par l'API compatible OpenAI, qui ignore tout champ hors du schéma OpenAI standard sinon.
+
+    `no_think` (2026-09-27, expérimental, voir --no-think) : trouvé en conditions réelles (champ
+    `message.reasoning` du brut Ollama, capturé via raw_debug) que Qwen3-VL termine parfois sa
+    réflexion interne (`finish_reason="stop"`) SANS jamais produire le JSON de `content` — pas un
+    problème de plafond de tokens (691/2000 utilisés sur un cas observé). `think: false` est un
+    champ de PREMIER NIVEAU côté API native Ollama (pas dans `options`, qui ne couvre que les
+    paramètres du runtime comme num_ctx/num_predict) — passé seulement si demandé, pour comparer
+    au comportement par défaut (risque connu : moins de raisonnement peut coûter en qualité sur
+    les cas ambigus, à mesurer, pas supposer)."""
     try:
         client = OpenAI(api_key=QWEN_LOCAL_API_KEY, base_url=QWEN_LOCAL_BASE_URL, timeout=120)
         content = [{"type": "text", "text": prompt}]
@@ -229,11 +238,14 @@ def _call_qwen_local_json(prompt, images, model):
             img.save(buf, format="JPEG")
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
             content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+        extra_body = {"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}}
+        if no_think:
+            extra_body["think"] = False
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
+            extra_body=extra_body,
         )
         choice = response.choices[0]
         text = choice.message.content.strip()
@@ -363,6 +375,11 @@ def main():
                               "(instruction Portier + taxonomie, sans le prompt T2/few-shot) au "
                               "lieu du prompt fidèle à la prod. Le verdict cloud comparé reste "
                               "inchangé (toujours celui réellement stocké en base).")
+    parser.add_argument("--no-think", action="store_true",
+                         help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
+                              "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
+                              "réflexion sans jamais produire le JSON de sortie. À comparer avec "
+                              "le comportement par défaut (risque connu de qualité, pas supposé).")
     args = parser.parse_args()
 
     est_minutes = round(args.limit * 20 / 60, 1)
@@ -453,7 +470,7 @@ def main():
 
             t0 = time.monotonic()
             result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = _call_qwen_local_json(
-                full_prompt_t1, images, args.model
+                full_prompt_t1, images, args.model, no_think=args.no_think
             )
             latency_s = round(time.monotonic() - t0, 1)
             latencies_s.append(latency_s)
@@ -554,6 +571,7 @@ def main():
         json.dump({
             "model": args.model,
             "simplified_prompt": args.simplified_prompt,
+            "no_think": args.no_think,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,
