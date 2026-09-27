@@ -54,6 +54,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
   // Ref pour tracker les IDs en cours de fetch et éviter les double-appels réseau au scroll rapide
   const fetchingIdsRef = useRef(new Set());
+  // IDs dont une réanalyse (Standard/Expert) vient d'être déclenchée — voir onDealsIndexUpdate
+  // ci-dessous : `loadedDeals` (cache figé, jamais invalidé par défaut) doit être évincé dès que
+  // l'index temps réel signale que l'analyse est terminée, sinon `finalFilteredDeals` continue
+  // d'afficher indéfiniment l'ancien statut/verdict (voir sa docstring, `{...deal, ...full}`).
+  const pendingReanalysisIdsRef = useRef(new Set());
 
   const [filterType, setFilterType] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -139,6 +144,32 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         setLoading(false);
         setDbStatus({ status: 'success', msg: `${count} annonces` });
         setError(null); // efface un bandeau d'erreur laissé par une coupure désormais résolue
+
+        // Réanalyse terminée (voir handleRetryAnalysis/handleForceExpertAnalysis) : l'index
+        // temps réel ne porte plus un statut "analyzing"/"analyzing_expert" pour cet id — évince
+        // le doc complet mis en cache pour qu'il soit réobtenu avec le nouveau verdict/scores au
+        // lieu de rester figé sur l'ancienne analyse (`finalFilteredDeals` le referait sinon
+        // primer indéfiniment sur l'index à jour).
+        if (pendingReanalysisIdsRef.current.size > 0) {
+          const stillPending = new Set();
+          const idsToEvict = [];
+          pendingReanalysisIdsRef.current.forEach((id) => {
+            const status = indexMap[id]?.status;
+            if (status === 'analyzing' || status === 'analyzing_expert') {
+              stillPending.add(id);
+            } else {
+              idsToEvict.push(id);
+            }
+          });
+          pendingReanalysisIdsRef.current = stillPending;
+          if (idsToEvict.length > 0) {
+            setLoadedDeals(prev => {
+              const next = { ...prev };
+              idsToEvict.forEach(id => { delete next[id]; });
+              return next;
+            });
+          }
+        }
       },
       (err) => {
         setError(err.message);
@@ -171,6 +202,18 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
       return next;
     });
+    // `finalFilteredDeals` fait primer `loadedDeals` (doc complet, mis en cache une seule fois)
+    // sur l'index ci-dessus — sans ce patch miroir, le statut "analyzing" resterait invisible
+    // pour toute annonce déjà ouverte (donc déjà dans `loadedDeals`), ce qui est le cas courant
+    // puisqu'il faut ouvrir la fiche pour voir le bouton "Ré-analyser". `pendingReanalysisIdsRef`
+    // (voir onDealsIndexUpdate) évincera ce cache une fois l'analyse réellement terminée.
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], status: 'analyzing', aiAnalysis: { ...next[dealId].aiAnalysis, verdict: undefined } };
+      return next;
+    });
+    pendingReanalysisIdsRef.current.add(dealId);
     try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
@@ -183,6 +226,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       }
       return next;
     });
+    // Voir le commentaire équivalent dans handleRetryAnalysis ci-dessus.
+    setLoadedDeals(prev => {
+      if (!prev[dealId]) return prev;
+      const next = { ...prev };
+      next[dealId] = { ...next[dealId], status: 'analyzing_expert', aiAnalysis: { ...next[dealId].aiAnalysis, verdict: undefined } };
+      return next;
+    });
+    pendingReanalysisIdsRef.current.add(dealId);
     try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
   }, [user, setError]);
 
