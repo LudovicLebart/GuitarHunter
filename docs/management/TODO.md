@@ -221,6 +221,11 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 🚨 Priorité Haute (Bugs & Correctifs)
 
+- [x] **Fix : crash chat (`.slice is not a function`) sur envoi de photo — ids Postgres traités comme des chaînes Firestore** *(trouvé et corrigé le 2026-09-27, capture d'écran utilisateur)*
+    - *Cause* : `geminiChatService.js::buildPhotoRefIndex`/`buildRestorationItemRefs` tronquaient `message.id`/`item.id` via `.slice()`, hérité de l'époque Firestore (chaînes) — `deal_chat.id`/`restoration_plan_items.id` sont des `BIGSERIAL` (nombres) depuis la migration Postgres.
+    - *Correctif* : `String(...)` avant `.slice()` aux 3 sites concernés. Voir `JOURNAL.md` [2026-09-27].
+    - *Reste à faire* : validation en conditions réelles (renvoyer une photo en chat ; tester si possible un réordonnancement du plan de restauration, même classe de bug jamais rencontrée en pratique).
+
 - [/] **Fix : lenteur persistante malgré l'index allégé (13s signalés) — compression gzip absente** *(trouvé et corrigé le 2026-09-27)*
     - *Symptôme* : chargement des annonces toujours lent (13s) après le correctif `/deals/index`, + "erreurs de fetch" ponctuelles.
     - *Cause probable* : aucune compression de réponse (`GZipMiddleware` absent) — JSON répétitif envoyé en clair, sur une bande passante montante résidentielle probablement limitée (via Tailscale Funnel).

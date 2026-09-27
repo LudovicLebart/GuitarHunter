@@ -99,11 +99,14 @@ const MIN_REF_LENGTH = 6;
 export const buildRestorationItemRefs = (items) => {
     let length = MIN_REF_LENGTH;
     while (length < 20) {
-        const refs = items.map(i => i.id.slice(0, length));
+        // String(...) : id BIGSERIAL Postgres (nombre), plus une chaîne Firestore depuis la
+        // migration — .slice() n'existe pas sur un number et crashait ("... .slice is not a
+        // function", trouvé le 2026-09-27).
+        const refs = items.map(i => String(i.id).slice(0, length));
         if (new Set(refs).size === refs.length) break;
         length += 2;
     }
-    return items.map(item => ({ item, ref: item.id.slice(0, length) }));
+    return items.map(item => ({ item, ref: String(item.id).slice(0, length) }));
 };
 
 // Résout une proposition de réordonnancement (refs bruts renvoyés par Gemini) contre l'état
@@ -282,7 +285,9 @@ export const buildPhotoRefIndex = (deal, messages) => {
             ?? (message.attachedImagePartIndex != null ? [message.attachedImagePartIndex] : []);
         indices.forEach((partIndex) => {
             if (!message.parts?.[partIndex]?.inlineData) return; // déjà élidé ou absent
-            const ref = `c-${(message.id || '').slice(0, 6)}-${partIndex}`;
+            // String(...) : id BIGSERIAL Postgres (nombre) depuis la migration, plus une chaîne
+            // Firestore — même correctif que buildRestorationItemRefs ci-dessus.
+            const ref = `c-${String(message.id ?? '').slice(0, 6)}-${partIndex}`;
             refToLocation.set(ref, { kind: 'chat', messageId: message.id, partIndex });
             locationToRef.set(`chat:${message.id}:${partIndex}`, ref);
         });
