@@ -186,7 +186,7 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
         "prix": listing_data.get("price") if listing_data.get("price") is not None else "N/A",
         "description": listing_data.get("description") or "N/A",
         "localisation": listing_data.get("location") or "N/A",
-    }, ensure_ascii=False, indent=2)
+    }, ensure_ascii=False, indent=2, default=str)  # `price` est un Decimal (colonne NUMERIC Postgres)
     return (
         f"{gatekeeper_instruction}\n\n"
         f"### TAXONOMIE DE RÉFÉRENCE\n"
