@@ -272,22 +272,34 @@ def _call_qwen_local_json(prompt, images, model):
                 False, completion_tokens, reasoning_tokens)
 
 
-def _log_ollama_vram(label):
+def _log_ollama_vram(label, quiet=False):
     """Chantier I-0 : logue les modèles actuellement chargés en VRAM sur le Dell (endpoint natif
     Ollama /api/ps, absent de l'API compatible OpenAI) — repère visuel de marge avant/après le
-    run, pas une mesure exacte (la VRAM totale du GPU n'est pas exposée par cet endpoint)."""
+    run, pas une mesure exacte (la VRAM totale du GPU n'est pas exposée par cet endpoint).
+    Retourne la VRAM (Go) du premier modèle chargé, ou None (aucun modèle / erreur) — utilisé
+    depuis le 2026-09-27 pour tracer une dérive VRAM par appel (voir `main()`), en plus de
+    l'impression avant/après le run. `quiet` (2026-09-27) : n'imprime qu'en cas d'anomalie
+    (aucun modèle chargé — signe d'un déchargement, ex: `OLLAMA_KEEP_ALIVE` dépassé) quand appelé
+    par appel, pour ne pas noyer la sortie déjà chargée d'une ligne de plus par annonce.
+    Pas de température/% GPU ici (nécessiterait `nvidia-smi`, qui tourne sur le Dell — le script
+    tourne sur le ThinkCentre, aucun accès direct sans SSH ; laissé de côté pour l'instant, cette
+    seule métrique VRAM suffit à repérer une dérive sans ajouter de dépendance SSH)."""
     try:
         resp = requests.get(f"{QWEN_LOCAL_NATIVE_BASE_URL}/api/ps", timeout=10)
         resp.raise_for_status()
         models = resp.json().get("models", [])
         if not models:
             print(f"  📊 VRAM Ollama ({label}) : aucun modèle chargé.")
-            return
-        for m in models:
-            size_vram_gb = m.get("size_vram", 0) / (1024 ** 3)
-            print(f"  📊 VRAM Ollama ({label}) : {m.get('name')} — {size_vram_gb:.2f} Go en VRAM.")
+            return None
+        size_vram_gb = models[0].get("size_vram", 0) / (1024 ** 3)
+        if not quiet:
+            for m in models:
+                print(f"  📊 VRAM Ollama ({label}) : {m.get('name')} — "
+                      f"{m.get('size_vram', 0) / (1024 ** 3):.2f} Go en VRAM.")
+        return size_vram_gb
     except Exception as e:
         print(f"  ⚠️ Lecture VRAM Ollama ({label}) impossible : {e}")
+        return None
 
 
 def _percentile(values, pct):
@@ -383,6 +395,7 @@ def main():
         latencies_s = []
         completion_tokens_list = []
         prompt_tokens_est_list = []
+        vram_gb_list = []
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -436,6 +449,12 @@ def main():
             if json_valid:
                 n_json_valid += 1
 
+            # Dérive VRAM par appel (2026-09-27) : `quiet=True` sauf anomalie (aucun modèle
+            # chargé) pour ne pas alourdir la sortie — juste accumulée pour le résumé/JSON.
+            vram_gb = _log_ollama_vram(f"annonce {i}", quiet=True)
+            if vram_gb is not None:
+                vram_gb_list.append(vram_gb)
+
             tok_info = f", {completion_tokens} tokens" if completion_tokens is not None else ""
             if reasoning_tokens:
                 tok_info += f" (dont {reasoning_tokens} de réflexion)"
@@ -472,6 +491,8 @@ def main():
                                   if completion_tokens_list else None)
         p90_completion_tokens = _percentile(completion_tokens_list, 90)
         p90_prompt_tokens_est = _percentile(prompt_tokens_est_list, 90)
+        vram_min_gb = min(vram_gb_list) if vram_gb_list else None
+        vram_max_gb = max(vram_gb_list) if vram_gb_list else None
 
         print(f"\n{'=' * 60}\nRÉSUMÉ ({n} comparaison(s) valide(s), "
               f"{n_excluded_invalid} exclue(s) verdict cloud invalide, "
@@ -484,6 +505,9 @@ def main():
         if p90_prompt_tokens_est is not None:
             print(f"  Prompt texte (estimation, hors images) : P90 ~{p90_prompt_tokens_est:.0f} tokens "
                   f"(limite de contexte réelle connue : 4096)")
+        if vram_min_gb is not None:
+            print(f"  VRAM Ollama par appel : min {vram_min_gb:.2f} Go, max {vram_max_gb:.2f} Go "
+                  f"({'stable' if vram_max_gb - vram_min_gb < 0.1 else 'DÉRIVE détectée'})")
         print(f"  Statuts hors enum T1 (sur JSON valides) : {n_status_out_of_enum}/{n_json_valid} "
               f"({out_of_enum_rate:.1f}%)")
         if n == 0:
@@ -522,6 +546,8 @@ def main():
             "p90_completion_tokens": p90_completion_tokens,
             "max_output_tokens_cap": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
             "p90_prompt_tokens_est": p90_prompt_tokens_est,
+            "vram_min_gb": round(vram_min_gb, 2) if vram_min_gb is not None else None,
+            "vram_max_gb": round(vram_max_gb, 2) if vram_max_gb is not None else None,
             "n_status_out_of_enum": n_status_out_of_enum,
             "out_of_enum_rate_pct": round(out_of_enum_rate, 1),
             "cloud_accept_local_reject": [
