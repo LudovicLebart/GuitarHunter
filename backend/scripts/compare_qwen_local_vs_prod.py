@@ -131,7 +131,15 @@ def _is_rejected(verdict):
 
 
 def _download_and_optimize_image(url, max_size=2048):
-    """Copie fidèle de DealAnalyzer._download_and_optimize_image (backend/analyzer.py)."""
+    """Copie fidèle de DealAnalyzer._download_and_optimize_image (backend/analyzer.py).
+
+    Résolution volontairement PAS réduite (2026-09-27, décision utilisateur) : consultation Opus
+    sur les échecs Qwen3-VL avait suggéré de descendre à ~448-512px pour réduire la pression sur
+    les 4096 tokens de contexte réels — décliné pour la même raison que `MAX_IMAGES` ci-dessus
+    (risque de perte de qualité visuelle sur ce que le texte seul ne révèle pas). La cause
+    principale des échecs s'est révélée être le tag de modèle (`qwen3-vl:8b` = variante Thinking,
+    pas Instruct), pas la troncature — ce compromis résolution/contexte reste donc à réévaluer
+    seulement si des échecs de troncature réapparaissent avec la variante Instruct."""
     try:
         if not url or "via.placeholder.com" in url:
             return None
