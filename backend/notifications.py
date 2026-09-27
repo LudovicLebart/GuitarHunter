@@ -354,6 +354,7 @@ class NotificationService:
         "rejected_prefilter": "🚫 Annonce rejetée automatiquement (mot-clé exclu) : {title}",
         "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
+        "gatekeeper_failed": "🛡️⚠️ Le Portier IA (Tier 1) a échoué sur cette annonce (panne/latence Qwen-TokenRouter) — rien n'a été analysé ni stocké. Réessaie dans quelques minutes.",
     }
 
     @staticmethod
