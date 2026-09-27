@@ -25,7 +25,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -114,8 +114,15 @@ def run():
     filtre (35/55 "promues" sans classification ou hors-filtre, ex: Dreadnought, amplis,
     étuis) — pas concluant tel quel, à rejouer après une vraie fenêtre d'activité récente si
     le sujet redevient prioritaire. Désarmé ci-dessous — rien à rejouer.
+
+    2026-09-27 : signalement UI — la liste de villes du ConfigPanel affiche des doublons/
+    triplons. Lecture seule sur `cities`/`user_city_prefs` (Postgres) via
+    `backend/scripts/audit_city_catalog_duplicates.py`, voir ce fichier pour l'analyse. Ne
+    fusionne rien : sert à lire, dans les logs GitHub Actions de ce déploiement, la liste
+    exacte des entrées en double avant toute décision de fusion manuelle.
     """
-    pass
+    from backend.scripts.audit_city_catalog_duplicates import run as audit_city_catalog_duplicates
+    audit_city_catalog_duplicates()
 
 
 if __name__ == "__main__":
