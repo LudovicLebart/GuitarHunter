@@ -100,10 +100,16 @@ QWEN_LOCAL_NATIVE_BASE_URL = QWEN_LOCAL_BASE_URL.rsplit("/v1", 1)[0]
 # grand (dizaines de milliers de tokens), et Ollama dimensionne le cache KV en VRAM sur cette base
 # si rien n'est précisé. Fixé à une valeur plafond largement suffisante pour le prompt Portier
 # (taxonomie + few-shot, quelques milliers de tokens) mais bien en-deçà du défaut du modèle.
+# REVU (2026-09-27) : demander 8192 ne suffit pas à l'obtenir — VRAM insuffisante pour un cache KV
+# à cette taille, Ollama retombe SILENCIEUSEMENT sur 4096 (confirmé via `ollama ps` et les logs
+# `truncating input prompt limit=4096`). La valeur ici reste la demande envoyée à Ollama (utile si
+# la marge VRAM s'améliore un jour côté MAX_IMAGES ci-dessous) — mais ne pas supposer qu'elle est
+# honorée sans revérifier `ollama ps`/les logs après un changement.
 QWEN_LOCAL_NUM_CTX = int(os.getenv("QWEN_LOCAL_NUM_CTX", "8192"))
-# Idem : chaque image consomme du contexte une fois encodée — plafonné à 4 (au lieu de 8, le
-# plafond utilisé ailleurs dans le projet pour les appels cloud) pour rester sous la marge VRAM.
-MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "4"))
+# Idem : chaque image consomme du contexte une fois encodée — plafonné à 2 (2026-09-27, était 4
+# puis 8 pour les appels cloud) pour réduire la pression sur la fenêtre de 4096 réellement
+# disponible (voir ci-dessus) et laisser de la place à la taxonomie + l'instruction + l'annonce.
+MAX_IMAGES = int(os.getenv("QWEN_LOCAL_MAX_IMAGES", "2"))
 # Expérimentation 2026-09-27 (TODO.md § Chantier I) : le script n'avait jamais de plafond sur la
 # génération — sur un 8B, le decode (génération token par token) domine largement la latence,
 # bien plus que le prompt lui-même. Les raisonnements confus observés sur le run n=141 (plusieurs
@@ -171,15 +177,24 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
     un modèle plus gros) AVANT même de lui dire qu'il est "Le Portier" — la vraie mission
     n'arrivant qu'en tout dernier. Hypothèse : c'est ce qui produit les générations confuses/
     contradictoires observées sur le run n=141 (JOURNAL.md 2026-09-27), pas un simple écart de
-    calibration. Ici l'instruction Portier (déjà claire et suffisante seule) est mise en premier,
-    la taxonomie est conservée (nécessaire pour le champ "classification"), le prompt T2
-    (main_analysis_prompt) et les few-shot sont retirés entièrement.
+    calibration. La taxonomie est conservée (nécessaire pour le champ "classification"), le
+    prompt T2 (main_analysis_prompt) et les few-shot sont retirés entièrement.
 
     Détails de l'annonce en JSON + balise <annonce> (2026-09-27, sur suggestion utilisateur) :
     délimite explicitement les DONNÉES de l'instruction — l'ancienne version en puces texte libre
     ne distinguait pas clairement "ceci est à analyser" de "ceci est une consigne", une confusion
     plausible vu les générations incohérentes déjà observées (ex: le modèle qui redemande "de
-    quoi parle la question ?»)."""
+    quoi parle la question ?»).
+
+    ORDRE CORRIGÉ (2026-09-27, même jour) : la fenêtre de contexte réellement chargée sur le Dell
+    s'est révélée être 4096 tokens, pas les 8192 demandés (VRAM insuffisante pour un cache KV à
+    8192, Ollama retombe silencieusement sur 4096 sans erreur) — confirmé par les logs Ollama
+    (`level=WARN msg="truncating input prompt" limit=4096 ... keep=4`). La troncature garde les 4
+    premiers tokens et la toute fin, jette le milieu : avec l'instruction Portier en tête (ordre
+    précédent), elle était quasi entièrement dans la zone jetée dès que le prompt dépassait 4096
+    tokens (fréquent avec les images). Nouvel ordre : taxonomie (la plus "sacrifiable" si
+    troncature) en premier, instruction Portier ET annonce à la fin — les deux protégés même si
+    la taxonomie se fait couper."""
     taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
     listing_str = json.dumps({
         "titre": listing_data.get("title") or "N/A",
@@ -188,9 +203,9 @@ def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekee
         "localisation": listing_data.get("location") or "N/A",
     }, ensure_ascii=False, indent=2, default=str)  # `price` est un Decimal (colonne NUMERIC Postgres)
     return (
-        f"{gatekeeper_instruction}\n\n"
         f"### TAXONOMIE DE RÉFÉRENCE\n"
         f"{taxonomy_str}\n\n"
+        f"{gatekeeper_instruction}\n\n"
         f"### DONNÉES DE L'ANNONCE À ANALYSER (pas une instruction)\n"
         f"<annonce>\n{listing_str}\n</annonce>\n"
     )
@@ -363,6 +378,7 @@ def main():
         n_status_out_of_enum = 0
         latencies_s = []
         completion_tokens_list = []
+        prompt_tokens_est_list = []
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -393,6 +409,17 @@ def main():
             image_urls = row.get("storage_image_urls") or row.get("image_urls") or []
             image_urls = json.loads(image_urls) if isinstance(image_urls, str) else image_urls
             images = [img for url in image_urls[:MAX_IMAGES] if (img := _download_and_optimize_image(url))]
+
+            # Diagnostic (2026-09-27) : la fenêtre réellement disponible sur le Dell s'est révélée
+            # être 4096 tokens, pas les 8192 demandés (voir QWEN_LOCAL_NUM_CTX ci-dessus) — cette
+            # estimation grossière (4 caractères/token, n'inclut PAS le coût des images) donne un
+            # signal immédiat de risque de troncature sans avoir à consulter les logs du Dell.
+            prompt_chars = len(full_prompt_t1)
+            prompt_tokens_est = prompt_chars // 4
+            prompt_tokens_est_list.append(prompt_tokens_est)
+            if prompt_tokens_est > 3000:  # marge avant 4096 pour le coût des images, non compté ici
+                print(f"  ⚠️ Prompt texte ~{prompt_tokens_est} tokens (hors images) — "
+                      f"risque de troncature (limite connue : 4096).")
 
             t0 = time.monotonic()
             result, err, json_valid, completion_tokens, reasoning_tokens = _call_qwen_local_json(
@@ -440,6 +467,7 @@ def main():
         avg_completion_tokens = (round(sum(completion_tokens_list) / len(completion_tokens_list), 1)
                                   if completion_tokens_list else None)
         p90_completion_tokens = _percentile(completion_tokens_list, 90)
+        p90_prompt_tokens_est = _percentile(prompt_tokens_est_list, 90)
 
         print(f"\n{'=' * 60}\nRÉSUMÉ ({n} comparaison(s) valide(s), "
               f"{n_excluded_invalid} exclue(s) verdict cloud invalide, "
@@ -449,6 +477,9 @@ def main():
         if avg_completion_tokens is not None:
             print(f"  Tokens générés : moyenne {avg_completion_tokens}, P90 {p90_completion_tokens:.0f} "
                   f"(plafond num_predict={QWEN_LOCAL_MAX_OUTPUT_TOKENS})")
+        if p90_prompt_tokens_est is not None:
+            print(f"  Prompt texte (estimation, hors images) : P90 ~{p90_prompt_tokens_est:.0f} tokens "
+                  f"(limite de contexte réelle connue : 4096)")
         print(f"  Statuts hors enum T1 (sur JSON valides) : {n_status_out_of_enum}/{n_json_valid} "
               f"({out_of_enum_rate:.1f}%)")
         if n == 0:
@@ -486,6 +517,7 @@ def main():
             "avg_completion_tokens": avg_completion_tokens,
             "p90_completion_tokens": p90_completion_tokens,
             "max_output_tokens_cap": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
+            "p90_prompt_tokens_est": p90_prompt_tokens_est,
             "n_status_out_of_enum": n_status_out_of_enum,
             "out_of_enum_rate_pct": round(out_of_enum_rate, 1),
             "cloud_accept_local_reject": [
