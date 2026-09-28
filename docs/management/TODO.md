@@ -28,9 +28,11 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] **Cause du futur re-doublon corrigée** : `bot.py::add_city_auto()` comparait les noms via `.lower()` seul (n'aurait pas détecté "Montreal" comme doublon de "Montréal") — bascule sur `normalize_city_key()`, la même clé canonique que les stats. Voir `JOURNAL.md`.
 - [x] **Script d'audit lecture seule créé et armé** : `backend/scripts/audit_city_catalog_duplicates.py`, branché dans `run_once.py` (`ACTIVE = True`) — liste les doublons du catalogue `cities` (Postgres) avec assez de détail (id, coords, date, users actifs) pour décider d'une fusion manuelle.
-- [ ] **À faire après le prochain déploiement (dev/master)** : lire les logs GitHub Actions de l'étape "Script de maintenance ponctuel" pour voir la liste exacte des doublons.
-- [ ] **Décider et exécuter la fusion** des entrées dupliquées du catalogue (réassigner `user_city_prefs` vers l'id conservé, supprimer les lignes en trop) — pas encore de script d'écriture, à construire une fois le rapport d'audit lu.
-- [ ] **Repasser `run_once.py::ACTIVE` à `False`** dans un commit séparé immédiatement après lecture des logs (protocole one-shot, sinon l'audit se rejoue à chaque déploiement futur).
+- [x] **Audit exécuté en prod (runs #558/#559)** : 20 villes en double sur 50, un seul schéma (1 entrée à ID Facebook numérique + coordonnées, 1 entrée à ID Firestore sans coordonnées) — voir `JOURNAL.md` pour le détail (dont les cas `montreal`/`la saline`). Premier essai (#556/#557) resté bloqué 10 min sur la connexion Postgres (service jamais redémarré) — corrigé (`connect_timeout` explicite).
+- [x] **Script de fusion écrit et validé** : `backend/scripts/merge_city_catalog_duplicates.py` (garde l'id numérique, réassigne `user_city_prefs`, supprime l'autre ; garde-fou sur tout groupe hors schéma). Testé en local contre un vrai Postgres (schéma réel + jeu de données reproduisant les 20 cas) — dry-run, exécution réelle, idempotence, garde-fou tous confirmés.
+- [x] **Armé dans `run_once.py`** (`ACTIVE = True`, `run()` appelle désormais la fusion).
+- [ ] **À faire après le prochain déploiement (dev/master)** : lire les logs GitHub Actions de l'étape "Script de maintenance ponctuel" pour confirmer les 20 fusions en prod (aucune ligne "schéma inattendu" attendue).
+- [ ] **Repasser `run_once.py::ACTIVE` à `False`** dans un commit séparé immédiatement après confirmation (protocole one-shot, sinon la fusion se rejoue — sans effet, idempotente, mais autant désarmer).
 
 ---
 
