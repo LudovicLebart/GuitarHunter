@@ -120,3 +120,109 @@ un aller-retour incontrôlé entre les deux machines. Runbook à écrire (§6), 
 6. Avenant CI (`run_script_dell.yml` ou nouveau workflow) pour déployer/mettre à jour le
    watchdog et les services standby sur le Dell.
 7. Runbook de retour à la normale (§3.4).
+
+## 7. Runbook de provisioning + étapes de déploiement suivantes
+
+> À exécuter par l'utilisateur (accès SSH réel requis, pas disponible depuis l'environnement de
+> dev). Chaque bloc a sa propre vérification avant de passer au suivant — ne pas enchaîner à
+> l'aveugle. Rédigé le 2026-09-28, avant toute exécution réelle : à ajuster si le terrain diverge
+> (même discipline que `CUTOVER_RUNBOOK.md` — vérifier l'état réel du serveur avant d'agir, ne
+> jamais supposer).
+
+### 7.1 Réplication Postgres (Lenovo → Dell)
+
+`guitarhunter_pg_prod` tourne en conteneur Docker (`postgres:16-alpine`) sur le Lenovo, exposé en
+`127.0.0.1:5434` **seulement** (pas sur le tailnet) — cohérent avec la posture du projet
+(Tailscale Funnel pour l'API HTTP, jamais Postgres directement exposé). Plutôt que de rebinder le
+port sur l'interface Tailscale (surface d'exposition supplémentaire, à éviter), la réplication
+passe par un **tunnel SSH persistant** (`autossh`) initié depuis le Dell — cohérent avec le fait
+que tout l'accès inter-machines du projet passe déjà par SSH.
+
+1. **Sur le Lenovo** — utilisateur de réplication dédié (jamais le compte applicatif) :
+   ```sql
+   -- Dans le conteneur guitarhunter_pg_prod
+   CREATE ROLE guitarhunter_replicator WITH REPLICATION LOGIN PASSWORD '<à générer>';
+   ```
+   `pg_hba.conf` du conteneur : ajouter une ligne `host replication guitarhunter_replicator 127.0.0.1/32 scram-sha-256` (le tunnel SSH fait apparaître la connexion comme locale — pas besoin d'ouvrir plus large) puis `SELECT pg_reload_conf();`.
+   Vérifier `wal_level = replica` et `max_wal_senders >= 3` (marge pour `guitarhunter_pg_staging` existant + cette réplique) dans `postgresql.conf` du conteneur — redémarrage du conteneur requis si `wal_level` doit changer (pas un simple reload).
+
+2. **Sur le Dell** — tunnel SSH persistant vers le port de réplication du Lenovo :
+   ```bash
+   # Service systemd dédié (voir 7.3) plutôt qu'un tunnel lancé à la main, qui ne survivrait pas à un redémarrage
+   autossh -M 0 -N -L 6543:127.0.0.1:5434 ludovic@serveur.tail16b52e.ts.net
+   ```
+   Vérification : `psql "host=127.0.0.1 port=6543 dbname=guitarhunter user=guitarhunter_replicator" -c "SELECT 1;"` depuis le Dell doit répondre.
+
+3. **Sur le Dell** — base de la réplique via `pg_basebackup` (à travers le tunnel) :
+   ```bash
+   docker run -d --name guitarhunter_pg_dell -p 127.0.0.1:5435:5432 \
+     -v guitarhunter_pg_dell_data:/var/lib/postgresql/data postgres:16-alpine
+   docker stop guitarhunter_pg_dell   # on a juste besoin du volume vide, pas du process
+   docker run --rm -v guitarhunter_pg_dell_data:/var/lib/postgresql/data postgres:16-alpine \
+     pg_basebackup -h 127.0.0.1 -p 6543 -U guitarhunter_replicator -D /var/lib/postgresql/data -Fp -Xs -R -P
+   ```
+   `-R` écrit automatiquement `postgresql.auto.conf`/le signal de standby avec `primary_conninfo` pointant sur `127.0.0.1:6543` (le tunnel) — cohérent avec `backend/ha/watchdog.py::promote_local_postgres_replica()`, qui suppose une base déjà en mode standby.
+   Démarrer ensuite `guitarhunter_pg_dell` et vérifier `SELECT pg_is_in_recovery();` → doit renvoyer `t`.
+
+4. **Validation de bout en bout** : écrire une ligne de test sur `guitarhunter_pg_prod` (Lenovo),
+   confirmer son apparition sur `guitarhunter_pg_dell` (Dell) en quelques secondes. Mesurer le lag
+   de réplication réel (`pg_stat_replication` côté primaire) avant de considérer §7.1 clos.
+
+### 7.2 Dépendances applicatives sur le Dell
+
+Répertoire dédié `~/guitarhunter-standby` (jamais `~/MoneyBot`, même logique que
+`run_script_dell.yml`) :
+```bash
+mkdir -p ~/guitarhunter-standby && cd ~/guitarhunter-standby
+git clone https://github.com/LudovicLebart/GuitarHunter.git .
+git checkout dev
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+python3 -m playwright install chromium
+```
+Fichiers `.env`/`backend/config/serviceAccountKey.json` à copier manuellement depuis le Lenovo
+(mêmes secrets Firebase/`DOT_ENV` — jamais commités), plus `HA_NODE_ID=dell` et
+`DATABASE_URL=postgresql://guitarhunter@127.0.0.1:5435/guitarhunter` (le port de la réplique
+locale, §7.1) ajoutés à l'`.env` du Dell spécifiquement.
+
+### 7.3 Unités systemd (contenu à créer via SSH, jamais versionné dans ce repo — même
+convention que `guitarhunter-api-prod`, voir `ARCHITECTURE.md`)
+
+Trois unités sur le Dell, toutes `Enabled: no` / arrêtées après création (démarrage manuel une
+fois validées, jamais automatique au provisioning) :
+- `guitarhunter-pg-dell-tunnel.service` — le tunnel `autossh` de 7.1.2 (`Restart=always`, pour
+  survivre à une coupure réseau transitoire).
+- `guitare-hunter-dell.service` — le bot (`WorkingDirectory=~/guitarhunter-standby`,
+  `ExecStart=<venv>/bin/python main.py`).
+- `guitarhunter-api-dell.service` — l'API FastAPI, sur un port distinct de `guitarhunter-api-prod`
+  (ex: 8002) pour ne jamais collisionner si les deux tournaient par erreur en même temps.
+- `guitarhunter-ha-watchdog.service` (Lenovo ET Dell cette fois, symétrique) —
+  `backend/ha/watchdog.py::run_forever()`, ne dépend d'aucune des unités ci-dessus (doit survivre
+  à leur arrêt, voir §4 du plan).
+
+### 7.4 Règles sudoers NOPASSWD (Lenovo ET Dell)
+
+Scopées aux seules commandes nécessaires — jamais un NOPASSWD large :
+```
+# /etc/sudoers.d/guitarhunter-ha (visudo -f)
+ludovic ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop guitare-hunter-dell.service, /usr/bin/systemctl start guitare-hunter-dell.service, /usr/bin/systemctl stop guitarhunter-api-dell.service, /usr/bin/systemctl start guitarhunter-api-dell.service
+```
+(adapter les noms d'unité sur le Lenovo, symétriquement, pour que chaque watchdog puisse arrêter/démarrer les unités de SON PROPRE nœud et arrêter celles du pair via SSH).
+
+### 7.5 Étapes de déploiement suivantes (après 7.1-7.4 validés manuellement)
+
+1. **Valider `backend/ha/` en conditions réelles, SANS automatisme** : lancer `watchdog.py` à la
+   main sur les deux machines, observer le bail se renouveler dans Firestore, couper
+   volontairement le service du Lenovo et vérifier que le Dell détecte, fence, promeut et démarre
+   correctement — avant de brancher quoi que ce soit en continu (unités `Enabled`).
+2. **Gating de `bot.py::run_scan()`** (§6.4 du plan) : coder et tester séparément, une fois 1.
+   validé — ne jamais l'activer sur un nœud dont le bail/watchdog n'a pas encore été validé en
+   conditions réelles.
+3. **Indirection frontend** (§6.5) : une fois 1-2 validés, pour que le frontend suive réellement
+   une bascule.
+4. **Avenant CI** (§6.6) : automatiser le déploiement du code (pas le provisioning, qui reste
+   manuel et ponctuel) vers `~/guitarhunter-standby` sur le Dell à chaque push `dev`/`master`,
+   sur le modèle de `run_script_dell.yml` mais sans jamais redémarrer les services (le watchdog
+   s'en charge).
+5. **Activation finale** : unités `Enabled` sur les deux machines, watchdog en continu — dernière
+   étape, seulement après validation manuelle complète de 1-4.

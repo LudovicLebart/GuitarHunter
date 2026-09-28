@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-28] [PRO] Chantier redondance Dell : runbook de provisioning + étapes de déploiement suivantes rédigé — aucune exécution réelle.
+- **Contexte** : après validation du socle HA (`backend/ha/`, voir entrée du 2026-09-27), l'utilisateur a demandé la suite logique — préparer le Dell avant tout branchement automatique. Aucun accès SSH réel au Dell/Lenovo depuis cet environnement : le livrable est un runbook exécutable par l'utilisateur, pas du code.
+- **`docs/management/plans/DB_REDUNDANCY_DELL_PLAN.md` §7** (nouveau) :
+  - **Réplication Postgres** (Lenovo → Dell) via un **tunnel SSH persistant** (`autossh`) plutôt que d'exposer `guitarhunter_pg_prod` (actuellement `127.0.0.1:5434` seulement) sur le tailnet — cohérent avec la posture réseau déjà en place dans le projet (Tailscale Funnel pour l'API HTTP, jamais Postgres directement exposé). Rôle de réplication dédié, `pg_basebackup -R` pour une réplique standby prête pour `backend/ha/watchdog.py::promote_local_postgres_replica()`.
+  - Dépendances applicatives (répertoire dédié `~/guitarhunter-standby`, jamais `~/MoneyBot`), unités systemd (contenu à créer via SSH, jamais versionné dans ce repo — même convention que `guitarhunter-api-prod`), règles sudoers NOPASSWD scopées.
+  - Ordre des étapes de déploiement suivantes : valider `backend/ha/` manuellement (sans automatisme) → gating de `run_scan()` → indirection frontend → avenant CI → activation finale des unités.
+- **`TODO.md`** : note ajoutée sous "Provisioning réel du Dell" pointant vers ce runbook.
+- **Rien codé, rien déployé** — document uniquement, à valider/ajuster par l'utilisateur au fil de l'exécution réelle (même discipline que `CUTOVER_RUNBOOK.md`).
+
+---
+
 [2026-09-27] [PRO] Chantier redondance Dell : socle HA (bail Firestore + checks mutuels) conçu, codé et poussé — préparation, rien encore déployé.
 - **Contexte** : reprise du chantier "redondance serveur" (`TODO.md`, ouvert le 2026-09-06, explicitement mis en pause jusqu'à la fin de la bascule Firestore→Postgres — close depuis Phase B.5). Périmètre + design actés avec l'utilisateur avant tout code (protocole `CLAUDE.md`) : redondance **Postgres + bot/API** (pas Postgres seul), bascule **automatique**, accord MoneyBot déjà obtenu pour le partage du Dell.
 - **Design (discussion avec l'utilisateur)** : un health-check mutuel entre seulement 2 machines est structurellement ambigu (coupure réseau *entre elles* → chacune peut croire l'autre morte). L'utilisateur a identifié le besoin d'un "juge" — traduit en un **bail de leadership Firestore** (`system_ha/leader`, transaction atomique, un seul gagnant possible), avec les 2 checks mutuels demandés par l'utilisateur (l'autre machine est-elle allumée ? son service est-il actif ?) en garde-fou SECONDAIRE avant une auto-promotion sur bail expiré, plus une traçabilité `scraped_by_node` par annonce en cas de doublon.
