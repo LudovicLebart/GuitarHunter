@@ -381,7 +381,10 @@ export const updateUserConfig = async (newConfig, _userId) => {
     console.log("Config saved successfully.");
   } catch (error) {
     console.error("Error updating user config:", error);
-    throw new Error("Erreur de sauvegarde de la configuration.");
+    // Cause réelle (401 token expiré, timeout, 500 backend, réseau...) préservée dans le message
+    // au lieu d'être remplacée par un texte générique — sinon impossible de distinguer les causes
+    // depuis le toast d'erreur (`App.jsx`), qui affiche `error.message` tel quel.
+    throw new Error(`Erreur de sauvegarde de la configuration (${error.message}).`);
   }
 };
 
