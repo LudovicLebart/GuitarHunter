@@ -11,6 +11,17 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🐛 Réanalyse (Standard/Expert) sans effet visible + SCAN_URL/Tier 3 (2026-09-27, codé)
+
+*Signalé par l'utilisateur : "Les demandes d'analyse expert ne semblent plus fonctionner. De même que les demandes d'analyse d'URL spécifiques."*
+
+- [x] **Cause racine (priorité)** : `useDealsManager.js::finalFilteredDeals` faisait toujours primer `loadedDeals` (cache figé, jamais invalidé) sur l'index temps réel — `handleRetryAnalysis`/`handleForceExpertAnalysis` ne patchaient que l'index, donc l'update optimiste et le verdict final restaient invisibles. Corrigé (`loadedDeals` patché en parallèle + éviction via `pendingReanalysisIdsRef` une fois l'analyse terminée). Voir `JOURNAL.md`.
+- [x] **Tier 3 (Expert Pro) ne fallback plus silencieusement sur T2 en cas d'échec** (demande explicite utilisateur) : lève désormais une exception, traitée par les 4 appelants existants (`analysis_failed` visible ou annonce non stockée). Voir `JOURNAL.md`.
+- [x] **Message d'erreur manquant pour `gatekeeper_failed` sur SCAN_URL** : ajouté à `notifications.py::_SCAN_URL_OUTCOME_MESSAGES`.
+- [ ] **Reste à faire** : validation en conditions réelles (pas d'accès Postgres/Firebase/Gemini depuis cet environnement de dev) — confirmer que "Ré-analyser"/"Luthier Expert" affichent bien un spinner puis le nouveau verdict (ou un échec explicite), et qu'un scan d'URL en échec Portier affiche le nouveau message dédié.
+
+---
+
 ## 🐛 Doublons de villes dans le ConfigPanel (2026-09-27, en cours)
 
 *Signalé par capture d'écran utilisateur : la liste de villes affiche des doublons (ex: "Boucherville", "Bromont" en double).*

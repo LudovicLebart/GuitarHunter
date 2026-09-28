@@ -806,9 +806,22 @@ class DealAnalyzer:
             result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
             
             if err_t3 or not result_t3:
-                self.logger.error(f"❌ Erreur Expert Pro, fallback sur T2. Erreur: {err_t3}")
-                result_t2["model_used"] = " -> ".join(model_chain) + " (T3 Failed, fallback T2)"
-                return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
+                # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite
+                # utilisateur) : un Tier 3 déclenché (auto ou Analyse Expert manuelle) doit soit
+                # réussir en tant que tel, soit échouer visiblement — l'ancien repli produisait un
+                # résultat quasi identique à l'analyse déjà en base (le T2 avait déjà tourné juste
+                # avant), donnant l'impression trompeuse qu'une "Analyse Expert" n'avait servi à
+                # rien. `_call_gemini_json` a déjà notifié _notify_model_unavailable si l'erreur y
+                # ressemble (voir plus haut dans ce fichier) — pas de second appel ici.
+                # L'exception remonte jusqu'à `analyze_deal()` (aucun try/except entre les deux) :
+                # chaque appelant (bot.py::analyze_single_deal/process_retry_queue/
+                # reevaluate_not_promoted, et _dispatch_analysis_batch pour le scan automatique) la
+                # traite déjà comme un échec d'analyse (statut 'analysis_failed' / commande en
+                # erreur / annonce non stockée), sans qu'aucun de ces sites n'ait besoin d'être
+                # modifié pour ce changement.
+                error_msg = f"Échec de l'analyse Expert Pro (Tier 3, {expert_pro_model_name}) : {err_t3 or 'réponse vide'}"
+                self.logger.error(f"❌ {error_msg}")
+                raise RuntimeError(error_msg)
 
             # L'Expert Pro écrase le T2
             result_t3["model_used"] = " -> ".join(model_chain)
