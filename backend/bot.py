@@ -12,7 +12,7 @@ from config import (
     APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
-    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID
+    GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID, HA_NODE_ID
 )
 from backend.analyzer import DealAnalyzer
 from backend.cities import normalize_city_key, format_city_label, pick_best_label
@@ -404,6 +404,11 @@ class GuitarHunterBot:
 
     def handle_deal_found(self, listing_data, is_manual_scan=False, source="Facebook"):
         self.logger.info(f"[{source}] Traitement de la nouvelle annonce : {listing_data['title']}")
+
+        # Chantier redondance Dell (préparation) : trace quelle machine a scrapé cette occurrence
+        # (voir backend/ha/, deal_mapping.py). No-op tant que HA_NODE_ID n'est pas configuré.
+        if HA_NODE_ID:
+            listing_data['scraped_by_node'] = HA_NODE_ID
 
         # Scraping probablement raté (page dégradée/gatée par Facebook) : ni image ni prix
         # extraits. On ne stocke rien pour ne pas figer une fiche vide comme "déjà traitée" —

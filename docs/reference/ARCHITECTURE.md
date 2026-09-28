@@ -102,6 +102,41 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **`run_script.yml`** : cible le serveur de production GuitarHunter (mêmes secrets `SERVER_IP`/`SERVER_USER`/`SSH_PRIVATE_KEY` que `deploy.yml`), accès Firebase Admin (credentials écrites sur le serveur). Script actuellement exécuté : `backend/scripts/export_dataset_a.py`.
 - **`run_script_dell.yml`** : cible une machine tierce, le Dell Precision T5810 du cluster MoneyBot (100.94.33.54, joignable via le même tailnet Tailscale que GuitarHunter — connectivité et accès SSH validés le 2026-08-19), utilisé comme ressource GPU (RTX 2060 SUPER, 8 Go VRAM) pour l'inférence de modèles vision. Secret d'accès dédié `DELL_SSH_PRIVATE_KEY` (clé ed25519 propre à GuitarHunter, indépendante de la clé SSH que MoneyBot utilise déjà pour son propre déploiement sur la même machine). Pas d'accès Firebase — les scripts qu'il exécute sont autonomes (pas de dépendance Firestore).
 
+### `backend/ha/` — Redondance Dell (chantier en préparation, 2026-09-27)
+Voir `docs/management/plans/DB_REDUNDANCY_DELL_PLAN.md` pour le design complet et l'état
+d'avancement. **Aucun module de ce paquet n'est encore importé par un chemin de production** —
+isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRESTORE_MIGRATION_PLAN.md`
+§5.1 : "construire sur une branche séparée, sans toucher au chemin existant").
+- **`lease.py`** — le "juge" : bail de leadership dans un document Firestore unique
+  (`system_ha/leader`, hors de `artifacts/{APP_ID}/...` — concerne l'infra elle-même, pas les
+  données d'un tenant), pris/renouvelé/libéré via **transaction Firestore** (atomique — de deux
+  tentatives concurrentes des deux nœuds, une seule peut gagner). Choisi comme arbitre plutôt
+  qu'un simple health-check mutuel entre les 2 machines : ambigu en cas de coupure réseau *entre
+  elles* (chacune peut croire l'autre morte), alors que Firestore est un tiers indépendant des
+  deux.
+- **`health.py`** — garde-fou secondaire avant qu'un nœud standby ne se promeuve suite à un bail
+  expiré : `is_peer_reachable` (le pair répond-il ?) + `is_peer_service_active` (son service
+  systemd est-il rapporté actif, via SSH ?) — si les deux sont vrais malgré un bail expiré,
+  probable bug de renouvellement plutôt qu'une vraie panne, pas de bascule automatique.
+  `stop_peer_service` : fencing (arrêt actif du service pair via SSH avant promotion locale),
+  nécessite une règle sudoers NOPASSWD dédiée sur chaque machine (même pattern que celle déjà en
+  place pour `guitarhunter-api-prod`, non encore ajoutée pour ce chantier).
+- **`watchdog.py`** — boucle de bascule (`run_forever`) : bail expiré `failover_confirm_rounds`
+  tours consécutifs → check mutuel (`health.py`) → **le bail est pris AVANT le fencing** (jamais
+  l'inverse — correctif code-review 2026-09-27 : sinon un faux-négatif transitoire du
+  health-check pouvait faire tuer un service pair sain sans que ce nœud parvienne à se
+  promouvoir derrière, panne totale évitable) → fencing SSH → `pg_promote()` sur la réplique
+  Postgres locale → démarrage du service local. Un échec de promotion/démarrage APRÈS prise du
+  bail libère le bail (`lease.release()`) et alerte plutôt que de laisser le nœud se croire
+  indéfiniment primaire sans service réel.
+- **Traçabilité (`scraped_by_node`)** : `bot.py::handle_deal_found` pose `listing_data['scraped_by_node']`
+  (colonne `guitar_deals.scraped_by_node`, voir `deal_mapping.py`) quand `config.HA_NODE_ID` est
+  configuré — sert au diagnostic en cas de doublon si les deux nœuds tournaient par erreur en même
+  temps, pas de mécanisme de verrouillage (c'est le rôle du bail).
+- **`config.HA_NODE_ID`** (`config.py`) : identifiant de la machine courante (`"lenovo"`/`"dell"`),
+  vide par défaut — aucun comportement HA actif tant qu'il n'est pas explicitement configuré, le
+  déploiement actuel (nœud unique) n'est pas affecté.
+
 ### `backend/bot.py` (`GuitarHunterBot`)
 - **Classe centrale:** Orchestre toutes les opérations du backend.
 - **Multi-utilisateur:** Accepte `app_id`, `user_id`, `browser_semaphore` en paramètres. Logger isolé par user : `logging.getLogger(f"bot.{user_id[:8]}")`.

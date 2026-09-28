@@ -18,6 +18,10 @@ _DEAL_SCALAR_FIELDS = {
     "price_drop_amount": "price_drop_amount", "link": "link", "location": "location",
     "latitude": "latitude", "longitude": "longitude", "published_at_raw": "published_at_raw",
     "description": "description", "published_at_ts": "published_at_ts",
+    # Chantier redondance Dell (préparation) : quelle machine (config.HA_NODE_ID) a scrapé cette
+    # occurrence — traçabilité/diagnostic en cas de doublon, pas un mécanisme de verrouillage
+    # (voir backend/ha/lease.py pour le bail Firestore qui joue ce rôle).
+    "scraped_by_node": "scraped_by_node",
 }
 
 # Champs camelCase écrits par le frontend (firestoreService.js) ou par repository.py::create_new_deal
@@ -98,7 +102,7 @@ DEAL_COLUMNS = [
     "published_at_raw", "image_urls", "storage_image_urls", "storage_image_gs_uris",
     "ai_analysis_raw", "sold_at", "timestamp", "purchase_price", "purchased_at", "description",
     "sold_notes", "published_at_ts", "gatekeeper_brand", "gatekeeper_classification",
-    "gatekeeper_verdict", "also_qualifies_pepite", "estimated_gross_margin",
+    "gatekeeper_verdict", "also_qualifies_pepite", "estimated_gross_margin", "scraped_by_node",
 ]
 
 # Colonnes promues depuis `aiAnalysis` (voir _AI_ANALYSIS_FIELDS) — exposées pour

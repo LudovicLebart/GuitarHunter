@@ -21,6 +21,13 @@ USER_ID_TARGET = USER_IDS_TARGET[0] if USER_IDS_TARGET else ""
 
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
+# --- REDONDANCE SERVEUR (chantier Dell, préparation — voir backend/ha/) ---
+# Identifiant de CETTE machine ("lenovo"/"dell") pour le bail de leadership Firestore et le
+# marquage des annonces scrapées (`scraped_by_node`, voir deal_mapping.py). Vide par défaut :
+# aucun comportement HA n'est activé tant que ce n'est pas explicitement configuré — le
+# déploiement actuel (nœud unique) n'est pas affecté.
+HA_NODE_ID = os.getenv("HA_NODE_ID", "")
+
 # --- CONFIGURATION SMTP (Notifications Email) ---
 # Compatible Gmail (port 587 + STARTTLS) et tout autre SMTP.
 # Si non configuré, les notifications email sont silencieusement désactivées.

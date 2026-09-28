@@ -17,6 +17,14 @@ RIEN automatiquement : une fusion réassigne des `user_city_prefs` et supprime d
 `cities`, irréversible — décision à prendre à la main une fois ce rapport lu.
 
 Depuis cet environnement de dev (aucun accès Postgres prod) : armer via `backend/scripts/run_once.py`.
+
+Connexion directe (`psycopg.connect`, pas `pg_db.init_pool()`) : un premier run en production
+(2026-09-27, run GitHub Actions #556/#557) est resté bloqué ~10 minutes avant que le
+`command_timeout` SSH ne tue tout le déploiement (service jamais redémarré) — `init_pool()`
+lance ses connexions en tâche de fond SANS timeout borné (`open=True` sans `wait=True`,
+voir `ConnectionPool._open()`), donc un souci réseau ponctuel vers Postgres peut bloquer
+indéfiniment. Un script one-shot n'a besoin que d'UNE connexion ; `connect_timeout=10` fait
+échouer vite et fort plutôt que de rejouer ce blocage.
 """
 import sys
 import os
@@ -26,7 +34,9 @@ from collections import defaultdict
 sys.path.insert(0, os.getcwd())
 
 import config  # noqa: F401 -- charge .env (DATABASE_URL) via load_dotenv() à l'import
-from backend.pg_db import init_pool
+import psycopg
+from psycopg.rows import dict_row
+from backend.pg_db import DATABASE_URL
 from backend.cities import normalize_city_key
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
@@ -34,9 +44,7 @@ logger = logging.getLogger("audit_city_catalog_duplicates")
 
 
 def run():
-    pool = init_pool()
-
-    with pool.connection() as conn:
+    with psycopg.connect(DATABASE_URL, connect_timeout=10, row_factory=dict_row) as conn:
         cities = conn.execute(
             "SELECT id, name, latitude, longitude, created_at, created_by FROM cities ORDER BY name ASC"
         ).fetchall()

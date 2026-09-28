@@ -120,9 +120,21 @@ def run():
     `backend/scripts/audit_city_catalog_duplicates.py`, voir ce fichier pour l'analyse. Ne
     fusionne rien : sert à lire, dans les logs GitHub Actions de ce déploiement, la liste
     exacte des entrées en double avant toute décision de fusion manuelle.
+    EXÉCUTÉ (run #558/#559, dev+master) : 20 villes en double trouvées, un seul schéma pour
+    les 20 (1 entrée à ID Facebook numérique + coordonnées, 1 entrée à ID Firestore sans
+    coordonnées) — voir JOURNAL.md. Premier essai (run #556/#557) resté bloqué 10 min sur la
+    connexion Postgres avant le timeout SSH (service jamais redémarré) — cause probable : pas
+    de `connect_timeout` sur cette connexion one-shot, corrigé depuis (voir le fichier).
+
+    2026-09-28 : fusion des 20 doublons ci-dessus, décision actée avec l'utilisateur — voir
+    `backend/scripts/merge_city_catalog_duplicates.py` pour la règle de fusion (garder l'ID
+    Facebook numérique, réassigner `user_city_prefs`, supprimer l'autre) et sa garde-fou (un
+    groupe qui ne suit pas exactement ce schéma est laissé de côté, jamais fusionné à
+    l'aveugle). Validé en local contre un vrai Postgres (schéma réel, jeu de données
+    reproduisant les 20 cas + un cas volontairement invalide) avant armement ici.
     """
-    from backend.scripts.audit_city_catalog_duplicates import run as audit_city_catalog_duplicates
-    audit_city_catalog_duplicates()
+    from backend.scripts.merge_city_catalog_duplicates import run as merge_city_catalog_duplicates
+    merge_city_catalog_duplicates()
 
 
 if __name__ == "__main__":
