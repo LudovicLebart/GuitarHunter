@@ -109,7 +109,12 @@ T1_GATEKEEPER_PROVIDER = os.getenv("T1_GATEKEEPER_PROVIDER", "qwen").strip().low
 # Coupe-circuit explicite : si l'observation miroir cause un problème en production (latence,
 # erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
 # redéploiement de code.
-T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "true").lower() in ("1", "true", "yes")
+# Défaut passé à "false" (2026-09-28, décision utilisateur) : la comparaison Qwen/Gemini qui a
+# validé la bascule du 2026-09-20 est terminée (voir JOURNAL.md) — laisser tourner ce miroir
+# n'accumulait plus qu'un coût caché (double appel IA sur chaque annonce) sans nouvelle décision
+# à informer. Repasser à "true" (variable d'env, sans redéploiement) si une nouvelle comparaison
+# Gemini est nécessaire un jour.
+T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in ("1", "true", "yes")
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
