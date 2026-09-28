@@ -21,6 +21,13 @@ USER_ID_TARGET = USER_IDS_TARGET[0] if USER_IDS_TARGET else ""
 
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
+# --- REDONDANCE SERVEUR (chantier Dell, préparation — voir backend/ha/) ---
+# Identifiant de CETTE machine ("lenovo"/"dell") pour le bail de leadership Firestore et le
+# marquage des annonces scrapées (`scraped_by_node`, voir deal_mapping.py). Vide par défaut :
+# aucun comportement HA n'est activé tant que ce n'est pas explicitement configuré — le
+# déploiement actuel (nœud unique) n'est pas affecté.
+HA_NODE_ID = os.getenv("HA_NODE_ID", "")
+
 # --- CONFIGURATION SMTP (Notifications Email) ---
 # Compatible Gmail (port 587 + STARTTLS) et tout autre SMTP.
 # Si non configuré, les notifications email sont silencieusement désactivées.
@@ -102,7 +109,12 @@ T1_GATEKEEPER_PROVIDER = os.getenv("T1_GATEKEEPER_PROVIDER", "qwen").strip().low
 # Coupe-circuit explicite : si l'observation miroir cause un problème en production (latence,
 # erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
 # redéploiement de code.
-T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "true").lower() in ("1", "true", "yes")
+# Défaut passé à "false" (2026-09-28, décision utilisateur) : la comparaison Qwen/Gemini qui a
+# validé la bascule du 2026-09-20 est terminée (voir JOURNAL.md) — laisser tourner ce miroir
+# n'accumulait plus qu'un coût caché (double appel IA sur chaque annonce) sans nouvelle décision
+# à informer. Repasser à "true" (variable d'env, sans redéploiement) si une nouvelle comparaison
+# Gemini est nécessaire un jour.
+T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in ("1", "true", "yes")
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
