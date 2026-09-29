@@ -522,5 +522,9 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     latency_ms       INTEGER,
     ok               BOOLEAN NOT NULL DEFAULT TRUE
 );
+-- Chantier I (2026-09-29) : catégorie d'échec quand ok=FALSE ('model_unavailable' |
+-- 'call_failure'), pour distinguer un modèle retiré d'une panne transitoire sans avoir à
+-- reparser `logs` (courte rétention) — voir backend/analyzer.py::_t1_error_type.
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error_type TEXT;
 CREATE INDEX IF NOT EXISTS llm_usage_created_idx ON llm_usage (created_at);
 CREATE INDEX IF NOT EXISTS llm_usage_model_action_idx ON llm_usage (model, action, created_at);

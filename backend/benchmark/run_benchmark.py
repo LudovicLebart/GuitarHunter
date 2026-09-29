@@ -18,15 +18,23 @@ bon marché (gemini-3.5-flash-lite), dégrade le raisonnement par rapport à
 sortie du Tier 3 ($12/M tokens). Le candidat "claude_sonnet" compare Claude
 Sonnet 5 (vision native) à Gemini sur le même jeu de questions — comparatif
 coût ET qualité demandé par l'utilisateur (2026-09-07), pas seulement le rôle
-de juge que Claude tient déjà (judge.py).
+de juge que Claude tient déjà (judge.py). Le candidat "qwen_local" (Chantier I,
+2026-09-20) compare Qwen3-VL-8B-Instruct hébergé localement sur le Dell T5810
+(via Ollama, Tailscale) à "qwen" (qwen3.8-flash cloud, le fournisseur T1 réel
+en prod depuis la bascule du même jour) — nécessite qu'Ollama tourne sur le
+Dell avec le modèle déjà téléchargé (`ollama pull qwen3-vl:8b`), sans quoi ce
+candidat échoue explicitement (score 0, pas de repli silencieux).
 
 Usage :
     python -m backend.benchmark.run_benchmark
     python -m backend.benchmark.run_benchmark --models gemini,qwen --limit 5
+    python -m backend.benchmark.run_benchmark --models qwen,qwen_local --limit 10
 
 Clés API requises (.env), selon les candidats sélectionnés :
     GEMINI_API_KEY, OPENAI_API_KEY, TOKENROUTER_API_KEY, ANTHROPIC_API_KEY
     (ANTHROPIC_API_KEY sert à la fois au juge, toujours requis, et au candidat claude_sonnet)
+    QWEN_LOCAL_BASE_URL/QWEN_LOCAL_MODEL (facultatif, pour "qwen_local" — défauts déjà
+    pointés sur le Dell, voir backend/benchmark/candidates.py)
 """
 import argparse
 import json
