@@ -41,10 +41,11 @@ Coût caché à surveiller : le Portier local accepte plus d'annonces que le clo
 - Table Postgres **`llm_usage`** : une ligne par appel LLM, bot **et** chat (modèle, action, annonce, photos, tokens d'entrée / en cache / de sortie / de raisonnement, latence).
 - Actions du bot : `t1_gatekeeper`, `t1_shadow`, `t2_analyst`, `t3_expert`, `t2_backfill_light`, `audit_t2`. Actions du chat : `chat_turn`, `chat_photo_recall_replay`, `chat_followup_*`.
 - **Correctif du 28/09 (`llm_usage_failures.patch`)** : jusqu'ici seuls les succès étaient enregistrés, donc `ok` était toujours vrai et le taux d'échec invisible. Désormais :
-  - chaque échec produit une ligne `ok=false` avec **`error_type`** : `timeout`, `http`, `connection`, `json`, `no_key`, `other` ;
+  - chaque échec produit une ligne `ok=false` avec **`error_type`** : `timeout`, `connection`, `model_unavailable` (modèle retiré, ajouté à l'intégration), `http`, `json`, `no_key`, `other` ;
   - le succès est enregistré **après** la lecture du JSON (un appel qui répond mais produit un JSON invalide, comme la boucle de répétition du local, compte comme un échec `json`, avec ses tokens puisqu'ils ont été consommés) ;
   - une ligne par tentative Gemini (chaque tentative est facturée) ;
-  - le fournisseur local est étiqueté `ollama`.
+  - le fournisseur local est étiqueté **`local`** (décision utilisateur à l'intégration, 2026-09-29 — et non `ollama` comme dans le patch d'origine) ;
+  - **Intégré le 2026-09-29** (`4ac0ade`), fusionné avec le chantier T1 : l'enregistrement se fait dans les fonctions d'appel, plus au niveau de la chaîne (évite le double comptage).
 - **Tableau de bord** (`cost_dashboard.py --from-db`) : détail modèle × action avec taux d'échec, types d'échec, latence P90 et coût mensuel ; `--by-deal N` pour les annonces les plus chères ; `--billing-csv` pour confronter à la facture réelle.
 
 À vérifier avant de croire les coûts : tarifs de la table `PRICING` (surtout TokenRouter), remise du cache implicite Gemini.
@@ -72,6 +73,7 @@ Cache explicite Gemini (ROI négatif mesuré) ; « langage machine » ultra-comp
 Conclusion : le local n'est plus seulement un secours, il devient **le Portier principal**, le cloud passant en secours.
 
 ### 2.2 Le prompt simplifié devient le prompt de prod du Portier
+**État (2026-09-29) : EN PROD pour tous les fournisseurs** (`backend/t1_prompt.py`, source unique), sur décision utilisateur. **Le rejeu de non-régression décrit ci-dessous sur Qwen cloud et Flash-Lite n'a PAS été fait** (validé seulement sur le local, n=665) : à faire pour confirmer que les secours ne sont pas dégradés.
 Les bons résultats ont été obtenus avec un prompt simplifié (moins de raisonnement demandé, sans les exemples conçus pour de gros modèles). Il doit devenir **le prompt du Portier pour tous les fournisseurs**, local et secours, pour que tout le monde juge avec les mêmes règles.
 Condition avant bascule : rejouer ce prompt sur **Qwen cloud et Gemini Flash-Lite** (les secours) sur ~150 annonces, pour vérifier qu'il ne les dégrade pas. Coût de l'ordre de 0,50 $. Bonus probable : un prompt plus court coûte moins cher quand le secours sert.
 
@@ -80,10 +82,10 @@ Une incohérence entre le logo et la marque annoncée ne doit pas faire **rejete
 Avant d'écrire la consigne : relire les ~10 cas concernés avec une seule question, « si c'était vrai, serait-ce une affaire ? ».
 
 ### 2.4 Chaîne de repli et fiabilité (recommandations Opus, validées)
-1. **Instrumenter les échecs** (fait par le correctif du 28/09).
-2. **`T1_PROVIDER_CHAIN`** : liste ordonnée configurable (`local,qwen,gemini`) remplaçant le fournisseur unique ; timeouts propres par fournisseur.
-3. **Coupe-circuit en mémoire** : 3 échecs consécutifs → pause 5–10 min → un appel test pour réactiver. Les échecs `json` isolés (boucle de répétition) déclenchent un repli immédiat sur le fournisseur suivant sans compter comme panne.
-4. **Champ `gatekeeperProvider` par annonce** : savoir qui a vraiment décidé, pour attribuer une dérive.
+1. **Instrumenter les échecs** — **fait** (livraison du 28/09 intégrée le 2026-09-29).
+2. **`T1_PROVIDER_CHAIN`** : liste ordonnée configurable (`local,qwen,gemini`) remplaçant le fournisseur unique ; timeouts propres par fournisseur. **Fait** (défaut `local,qwen` depuis le 2026-09-29, en prod) ; timeouts propres par fournisseur non faits (60 s communs).
+3. **Coupe-circuit en mémoire** : 3 échecs consécutifs → pause 5–10 min → un appel test pour réactiver. Les échecs `json` isolés (boucle de répétition) déclenchent un repli immédiat sur le fournisseur suivant sans compter comme panne. **Fait, sauf la dernière phrase** : le repli est immédiat, mais tout échec (`json` compris) compte dans le coupe-circuit — décision du 2026-09-29 de ne pas changer avant d'avoir une semaine de données `error_type`.
+4. **Champ `gatekeeperProvider` par annonce** : savoir qui a vraiment décidé, pour attribuer une dérive. **Pas encore fait** (seul `llm_usage` dit qui a répondu).
 5. **Fiabiliser le Dell** : Ollama en systemd, redémarrage automatique après coupure ou mise à jour, clés Tailscale sans expiration, `OLLAMA_KEEP_ALIVE` long contre les rechargements à froid.
 6. **Concurrence** : un seul 8B tient en VRAM, Ollama sérialise les requêtes. Sans gravité avec 1 à 3 utilisateurs ; au-delà, traiter « file trop longue » comme une panne et passer au cloud.
 7. **Suivi hebdomadaire** après bascule : taux de rejet par fournisseur, surveillance des marques obscures rejetées à tort.
@@ -258,9 +260,9 @@ Le mentor ajoute des tokens au chat ; il se paie par l'apprentissage. À constru
 
 ## 8. Prochaines actions, dans l'ordre
 
-1. **Appliquer la livraison** (`livraison.patch` : échecs dans `llm_usage` + tables et recherche de la base de connaissances + script d'import), déployer.
+1. ~~**Appliquer la livraison**~~ — **fait le 2026-09-29** (intégrée avec le chantier T1, revue de code corrigée, poussée sur `dev`). Reste : premier `--dry-run` de l'import sur le serveur.
 2. **Tableau de bord** après une semaine : part réelle du Portier, chat, Expert, échecs par fournisseur.
-3. **Portier local** : rejouer le prompt simplifié sur les secours (~0,50 $), relire les cas « incohérence de marque » et ajouter la consigne, chaîne de repli et coupe-circuit, fiabiliser le Dell, basculer.
+3. **Portier local** (chaîne, coupe-circuit, prompt simplifié, bascule : **faits le 2026-09-29** ; restent le rejeu sur les secours, la consigne « incohérence de marque » et le durcissement du Dell) : rejouer le prompt simplifié sur les secours (~0,50 $), relire les cas « incohérence de marque » et ajouter la consigne, chaîne de repli et coupe-circuit, fiabiliser le Dell, basculer.
 4. **Base de connaissances, en parallèle dès maintenant** (0 $, n'affecte pas la prod) : premier import, couverture, curation prioritaire ; puis branchement au Portier juste après sa bascule, et validation par rejeu.
 5. **Étude de dépendance visuelle** (0 $), puis **rejeu en texte seul** (~2 $).
 6. **Stocker l'entrée complète de chaque verdict de l'Analyste** (dataset du projet de recherche).
