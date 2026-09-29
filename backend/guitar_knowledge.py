@@ -27,8 +27,17 @@ _STOP = {  # alias trop génériques pour déclencher une fiche à eux seuls
     "deluxe", "special", "junior", "senior", "pro", "plus", "limited", "edition", "signature",
     "reissue", "series", "model", "master", "player", "traditional", "modern", "elite", "artist",
     "supreme", "ultra", "mini", "jumbo", "prime", "select", "original", "anniversary", "american",
+    # Mots génériques de description d'instrument (alias composés uniquement de ces mots rejetés).
+    "electrique", "electric", "acoustique", "classique", "folk", "dreadnought", "archtop", "solid", "body",
 }
-_MIN_FUZZY_LEN = 5          # pas de fuzzy sous 5 caractères (« Aria » ≠ « Arias »)
+# Mots courants du français d'annonces qui sont AUSSI des noms de marques (« premier propriétaire »,
+# « Heritage Cherry Sunburst ») : interdits comme alias d'UN SEUL mot, mais la marque reste reconnue par son
+# nom complet (« heritage guitars ») — ils ne rendent donc pas un alias composé « générique ».
+_AMBIGUOUS_SINGLE = {"premier", "heritage", "national", "superior", "reserve", "tribute", "legacy",
+                     "genuine", "authentic"}
+_GENERIC = frozenset(_STOP)          # mots qui, SEULS ENTRE EUX, ne désignent aucune marque
+_STOP = _STOP | _AMBIGUOUS_SINGLE    # interdits comme alias d'un seul mot
+_MIN_FUZZY_LEN = 6          # pas de fuzzy sous 6 caractères (« matin » ≠ « martin », « hammer » ≠ « hamer »)
 _FUZZY_RATIO = 0.88
 _CACHE_TTL_S = 600
 
@@ -46,6 +55,19 @@ def normalize(text):
     return re.sub(r"\s+", " ", text).strip()
 
 
+def alias_usable(alias_norm):
+    """Un alias normalisé est-il exploitable ? Rejette : trop court (< 3 caractères), purement numérique
+    (« 6120 », « 500 1 » : n'importe quel prix ou numéro le déclencherait), réduit à un mot générique de
+    `_STOP`, ou composé UNIQUEMENT de mots génériques (« guitare electrique », « custom shop »). Même
+    règle à l'écriture (import) et à la lecture (recherche)."""
+    if not alias_norm or len(alias_norm) < 3 or alias_norm in _STOP:
+        return False
+    tokens = alias_norm.split()
+    if all(t.isdigit() for t in tokens):
+        return False
+    return not all(t in _GENERIC for t in tokens)
+
+
 def _load_aliases(conn):
     rows = conn.execute(
         """SELECT a.alias_norm, a.knowledge_id
@@ -55,7 +77,7 @@ def _load_aliases(conn):
     aliases = {}
     for row in rows:
         alias_norm, kid = (row["alias_norm"], row["knowledge_id"]) if isinstance(row, dict) else row
-        if not alias_norm or alias_norm in _STOP or len(alias_norm) < 3:
+        if not alias_usable(alias_norm):
             continue
         aliases.setdefault(alias_norm, set()).add(kid)
     by_len = {}
@@ -89,8 +111,10 @@ def _fuzzy_match(tok, aliases, by_len):
     with _lock:
         if tok in _cache["fuzzy"]:
             return _cache["fuzzy"][tok]
+    # Une vraie faute de frappe est INTERNE : un mot qui n'est que l'alias + un suffixe (« martine »,
+    # « carving », pluriels, féminins) ou un préfixe de lui n'est pas une faute, c'est un autre mot.
     candidates = [c for n in (len(tok) - 1, len(tok), len(tok) + 1) for c in by_len.get(n, ())
-                  if c[0] == tok[0] or c[-1] == tok[-1]]
+                  if (c[0] == tok[0] or c[-1] == tok[-1]) and not tok.startswith(c) and not c.startswith(tok)]
     matches = difflib.get_close_matches(tok, candidates, n=1, cutoff=_FUZZY_RATIO)
     match = matches[0] if matches else None
     with _lock:
@@ -108,12 +132,15 @@ def find_ids(conn, *texts, max_ngram=4):
             gram = " ".join(tokens[i:i + n])
             for kid in aliases.get(gram, ()):
                 found.setdefault(kid, (gram, "exact"))
-    for tok in set(tokens):
+    # Fuzzy seulement sur le PREMIER texte (le titre) : la description, longue et bavarde, multiplie les
+    # faux rapprochements sur du français courant.
+    title_tokens = normalize(texts[0]).split() if texts and texts[0] else []
+    for tok in set(title_tokens):
         if len(tok) < _MIN_FUZZY_LEN or tok in aliases or tok in _STOP:
             continue
         match = _fuzzy_match(tok, aliases, by_len)
         if match:
-            for kid in aliases[match]:
+            for kid in aliases.get(match, ()):  # .get : l'alias a pu disparaître si le cache a été rechargé entre-temps
                 found.setdefault(kid, (f"{tok}→{match}", "fuzzy"))
     return found
 

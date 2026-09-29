@@ -172,6 +172,86 @@ class TestBuildRecordsOnRealPreviewCases(unittest.TestCase):
         self.assertIn("G-400", records["Epiphone G-400"]["aliases"])  # alias dérivé unique, ≥ 4 caractères
 
 
+class TestReviewCases(unittest.TestCase):
+    """Cas de la revue Opus du 2026-09-29 (accessoires en français, mots génériques, rôles d'entités)."""
+
+    def _rel(self, description, lang="en", from_category=False, label=None):
+        return imp.relevance_of(_typed({lang: description}, ["Q4830453"], label=label), False, from_category)
+
+    def test_accessory_makers_described_with_guitar_are_accessories(self):
+        for description in ("American manufacturer of pickups for electric guitars",       # DiMarzio
+                            "maker of effects pedals for guitars",
+                            "manufacturer of guitar and bass pickups",                       # Seymour Duncan
+                            "manufacturer of guitar accessories",                            # Dunlop
+                            "guitar amplifier manufacturer"):
+            self.assertEqual(self._rel(description), "accessories", description)
+        for description in ("fabricant américain de pédales d'effets pour guitare",
+                            "amplificateur de guitare",
+                            "entreprise américaine de matériel audio (amplificateurs et multi-effets)"):  # Line 6
+            self.assertEqual(self._rel(description, lang="fr"), "accessories", description)
+
+    def test_makers_of_guitars_stay_guitars(self):
+        for description in ("manufacturer of guitars and pickups", "American guitar and amplifier manufacturer",
+                            "German guitar builder", "fabricant de guitares électriques"):
+            self.assertEqual(self._rel(description), "guitars", description)
+
+    def test_string_instruments_are_not_strings(self):
+        for description, lang in (("manufacturer of high-end electric string instruments", "en"),  # Jens Ritter
+                                  ("fabricant d'instruments à cordes", "fr")):
+            self.assertNotEqual(self._rel(description, lang), "accessories", description)
+
+    def test_entity_roles_from_the_real_preview(self):
+        self.assertEqual(imp.entity_role(_typed({"en": "digital audio workstation"}, ["Q1060750"])), "skip")  # PreSonus
+        self.assertEqual(imp.entity_role(_typed({"en": "guitars imported from Asia during the 1970s"})), "org")  # Memphis
+        self.assertEqual(imp.entity_role(_typed({"en": "electric guitar"})), "model")                           # Fender Bronco
+        self.assertEqual(imp.entity_role(_typed({}, ["Q811701"])), "model")                                     # type de modèle seul
+        self.assertEqual(imp.entity_role(_typed({"en": "manufacturer of instruments"}, ["Q13235160"])), "org")  # type inconnu + entreprise
+        self.assertEqual(imp.entity_role(_typed({}, [])), "org")                                                # aucune info : historique
+
+    def test_skipped_entities_do_not_reach_the_records(self):
+        entities = {
+            "Q1": {**_typed({"en": "digital audio workstation"}, ["Q1060750"]), "labels": {"en": {"value": "PreSonus Studio One"}}},
+            "Q2": {**_typed({"en": "electric guitar"}, ["Q6607"]), "labels": {"en": {"value": "Gibson ES-5"}}},
+        }
+        client = MagicMock()
+        client.entities.side_effect = lambda qids, props=None: {q: entities[q] for q in qids if q in entities}
+        with patch.object(imp, "collect_from_categories", return_value={q: {"category:en"} for q in entities}), \
+                patch.object(imp, "collect_from_products", return_value=set()):
+            names = {r["name"] for r in imp.build_records(client, ["en"], 1, with_lines=False)}
+        self.assertEqual(names, {"Gibson ES-5"})
+
+
+class TestAliasUsability(unittest.TestCase):
+    def test_unusable_aliases(self):
+        for alias in ("6120", "500 1", "sg", "guitare electrique", "custom shop", "premier", "heritage", ""):
+            self.assertFalse(gk.alias_usable(alias), alias)
+
+    def test_usable_aliases(self):
+        for alias in ("esp", "prs", "g l", "es 335", "heritage guitars", "martin", "stratocaster", "bc rich"):
+            self.assertTrue(gk.alias_usable(alias), alias)
+
+
+class TestFuzzyGuards(unittest.TestCase):
+    def setUp(self):
+        gk.invalidate_cache()
+        self.addCleanup(gk.invalidate_cache)
+        self.conn = _FakeConn([{"alias_norm": a, "knowledge_id": f"wd:{i}"}
+                               for i, a in enumerate(("martin", "carvin", "hamer", "stratocaster"))])
+
+    def test_common_french_words_and_affixes_do_not_match(self):
+        for title in ("dispo le matin", "guitare de martine", "carving vintage", "hammer style"):
+            self.assertEqual(gk.find_ids(self.conn, title), {}, title)
+
+    def test_real_typo_in_the_title_matches(self):
+        self.assertIn("wd:3", gk.find_ids(self.conn, "fender stratocster 1979"))
+
+    def test_fuzzy_only_looks_at_the_title(self):
+        self.assertEqual(gk.find_ids(self.conn, "guitare électrique", "vend stratocster excellent état"), {})
+
+    def test_exact_match_still_works_in_the_description(self):
+        self.assertIn("wd:0", gk.find_ids(self.conn, "guitare électrique", "fabriquée par martin en 1975"))
+
+
 class TestDerivedAliases(unittest.TestCase):
     def test_generic_ambiguous_and_colliding_aliases_are_dropped(self):
         records = [
@@ -197,7 +277,7 @@ class TestDerivedAliases(unittest.TestCase):
 
 class TestWikiClientGet(unittest.TestCase):
     def _client(self, responses):
-        client = imp.WikiClient(pause=0)
+        client = imp.WikiClient(pause=0, contact="test@example.com")
         client.session = MagicMock()
         client.session.get.side_effect = responses
         return client
@@ -267,6 +347,85 @@ class TestModelUnavailableClassification(unittest.TestCase):
     def test_other_categories_take_precedence_over_not_found_wording(self):
         self.assertEqual(llm_usage.classify_error(Exception("Connection error: host not found")), "connection")
         self.assertEqual(llm_usage.classify_error(TimeoutError("timed out")), "timeout")
+
+
+@unittest.skipUnless(os.getenv("KB_TEST_DATABASE_URL"),
+                     "définir KB_TEST_DATABASE_URL (base Postgres JETABLE) pour tester write_records")
+class TestWriteRecordsPostgres(unittest.TestCase):
+    """write_records contre un vrai Postgres : curation préservée, orphelins, refus des imports partiels."""
+
+    def setUp(self):
+        import contextlib
+        import psycopg
+        from psycopg.rows import dict_row
+        self.conn = psycopg.connect(os.environ["KB_TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row)
+        self.addCleanup(self.conn.close)
+        schema = open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8").read()
+        self.conn.execute(schema)
+        self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions CASCADE")
+        conn = self.conn
+
+        class _Pool:
+            @contextlib.contextmanager
+            def connection(self):
+                yield conn
+
+        patcher = patch("backend.pg_db.init_pool", return_value=_Pool())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _rec(qid, name, aliases=(), relevance="guitars"):
+        return {"id": f"wd:{qid}", "kind": "brand", "name": name, "description": None, "parent_id": None,
+                "countries": None, "active_from": None, "active_to": None, "relevance": relevance,
+                "wikidata_qid": qid, "wikipedia_url": None, "aliases": list(aliases), "raw": {}}
+
+    def _names(self):
+        return {r["name"] for r in self.conn.execute("SELECT name FROM guitar_knowledge").fetchall()}
+
+    def test_reimport_keeps_curated_fields_and_manual_aliases(self):
+        imp.write_records([self._rec("Q1", "Alpha", ["Alpha Guitars"])], "v1")
+        self.conn.execute("UPDATE guitar_knowledge SET tier='mid', curated=true, hunt_notes='chercher' WHERE id='wd:Q1'")
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('alfa','wd:Q1','Alfa','manual')")
+        imp.write_records([self._rec("Q1", "Alpha renommé", ["Alpha Guitars"])], "v2")
+        row = self.conn.execute("SELECT * FROM guitar_knowledge WHERE id='wd:Q1'").fetchone()
+        self.assertEqual((row["name"], row["tier"], row["curated"], row["hunt_notes"]),
+                         ("Alpha renommé", "mid", True, "chercher"))
+        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_alias WHERE source='manual'")
+                         .fetchone()["n"], 1)
+
+    def test_orphans_are_deleted_but_touched_records_survive(self):
+        imp.write_records([self._rec("Q1", "Alpha"), self._rec("Q2", "Beta"), self._rec("Q3", "Gamma"),
+                           self._rec("Q4", "Delta")], "v1")
+        self.conn.execute("UPDATE guitar_knowledge SET curated=true WHERE id='wd:Q3'")
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('dd','wd:Q4','DD','manual')")
+        _, counts = imp.write_records([self._rec("Q1", "Alpha"), self._rec("Q9", "Zeta")], "v2")
+        self.assertEqual(self._names(), {"Alpha", "Zeta", "Gamma", "Delta"})  # Beta seule disparaît
+        self.assertEqual(counts["orphans_deleted"], 1)
+
+    def test_partial_import_is_refused_and_writes_nothing(self):
+        imp.write_records([self._rec("Q1", "Alpha")], "v1")
+        with self.assertRaises(imp.PartialImportError):
+            imp.write_records([self._rec("Q2", "Beta")], "v2", failed_routes=["p1056"])
+        self.assertEqual(self._names(), {"Alpha"})
+        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_versions").fetchone()["n"], 1)
+
+    def test_partial_import_forced_keeps_everything(self):
+        imp.write_records([self._rec("Q1", "Alpha")], "v1")
+        _, counts = imp.write_records([self._rec("Q2", "Beta")], "v2", failed_routes=["p1056"], allow_partial=True)
+        self.assertEqual(self._names(), {"Alpha", "Beta"})  # aucune suppression sur un import partiel
+        self.assertEqual(counts["failed_routes"], "p1056")
+
+    def test_shrunk_batch_is_refused(self):
+        imp.write_records([self._rec(f"Q{i}", f"Marque{i}") for i in range(10)], "v1")
+        with self.assertRaises(imp.PartialImportError):
+            imp.write_records([self._rec("Q0", "Marque0")], "v2")
+        self.assertEqual(len(self._names()), 10)
+
+    def test_unusable_aliases_are_not_written(self):
+        imp.write_records([self._rec("Q1", "Alpha", ["Alpha Guitars", "6120", "premier"])], "v1")
+        aliases = {r["alias_norm"] for r in self.conn.execute("SELECT alias_norm FROM guitar_knowledge_alias").fetchall()}
+        self.assertEqual(aliases, {"alpha guitars"})
 
 
 if __name__ == "__main__":

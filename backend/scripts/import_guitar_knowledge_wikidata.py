@@ -49,12 +49,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import requests  # noqa: E402
 
-from backend.guitar_knowledge import _STOP, normalize  # noqa: E402
+from backend.guitar_knowledge import alias_usable, normalize  # noqa: E402
 
 CATEGORY_QID = "Q9962269"  # Category:Guitar manufacturing companies (et ses équivalents par langue)
 GUITAR_ROOTS = ("Q6607", "Q46185")  # guitare, basse
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 SPARQL_URL = "https://query.wikidata.org/sparql"
+SPARQL_LIMIT = 20000
 LABEL_LANGS = ("en", "fr", "mul", "de", "es", "it", "ja")
 
 # Types Wikidata (P31) → nature de la fiche.
@@ -64,24 +65,32 @@ COMPANY_TYPES = {"Q4830453", "Q783794", "Q6881511", "Q891723", "Q1589009"}  # en
 
 LIST_PAGE = "Q13406463"  # « article de liste » Wikimedia
 LIST_TITLE = re.compile(r"^(list of|liste\b|lista\b|lijst van|liste des)|\b(list|liste|一覧)$", re.IGNORECASE)
-# Un MODÈLE (guitare, ampli...) = entité dont le type Wikidata n'est NI une organisation NI une personne,
-# et dont la description ne parle pas d'une entreprise (mots ci-dessous). Les types sont hétérogènes
-# (« modèle de guitare » Q29982117, « guitare » Q6607...) et souvent absents : sans type, il faut en plus
-# que la description parle de guitare/modèle. Constaté sur le dry-run réel du 2026-09-29 (Gibson ES-135,
-# ES-5, L-5, Danelectro U2, Ibanez K5 restaient « company » avec l'exigence du seul mot « model »).
+# Rôle d'une entité (voir `entity_role`) : organisation (fiche « company/brand »), modèle (fiche « line »)
+# ou « skip » (type Wikidata ni organisation ni modèle reconnu : logiciel, lieu... — dans le doute on
+# n'importe pas, une fiche fausse est pire que pas de fiche). Les types de modèles ci-dessous viennent du
+# dry-run réel du 2026-09-29 (Gibson Firebird, Fender Bronco, Gretsch White Falcon...).
+MODEL_TYPES = {"Q29982117", "Q6607", "Q46185", "Q78987", "Q811701", "Q12335229", "Q1339359"}
 MODEL_WORDS = re.compile(r"\bmodels?\b|\bmodèles?\b|\bmodell\b|\bseries\b|\bproduced by\b|\bintroduced in\b")
 MAKER_WORDS = re.compile(
     r"manufactur|\bmakers?\b|\bcompan(y|ies)\b|\bfirm\b|\bfirme\b|\bentreprise|\bfabricant|"
-    r"\bluthier|\bbusiness|\bbrand|\bmarque|\bbuilders?\b")
+    r"\bluthier|\bbusiness|\bbrand|\bmarque|\bbuilders?\b|"
+    r"\bimport(ed|er|s)?\b|\bdistribut|\bretailer|\bstore\b|\bshop\b")
 
 GUITAR_WORDS = re.compile(
     r"guitar|guitare|gitarre|guitarra|chitarr|\bbass(es)?\b|\bbasse|luthier|luthie|ギター|ベース")
+# Accessoires : mots anglais ET français (la description principale est souvent en français), pluriels
+# compris. « string instruments » / « instruments à cordes » ne sont PAS des cordes de guitare.
 ACCESSORY_WORDS = re.compile(
-    r"tuner|tuning machine|machine head|\bstrings?\b|pickups?|effects?|pedals?|amplifier|amps?\b|"
-    r"\bcordes?\b|mecaniques|mécaniques|micros?\b|capo|straps?|cases?\b|picks?\b")
+    r"tuner|tuning machine|machine head|\bstrings?\b(?!\s+instruments?)|pickups?|effects?|pedals?|"
+    r"amplifiers?|\bamps?\b|(?<!à )(?<!a )\bcordes?\b|mecaniques|mécaniques|micros?\b|capo|straps?|"
+    r"cases?\b|picks?\b|amplificateurs?|\bamplis?\b|multi-?effets?|\beffets?\b|p[ée]dales?|"
+    r"accessoires?|accessories|preamps?")
+# « manufacturer of X for guitars » n'est PAS un fabricant de guitares : le mot « guitars » de la 2e
+# alternative ne compte que si aucun mot d'accessoire ne le précède dans la phrase.
 GUITAR_MAKER = re.compile(
     r"guitars?( and (bass|bass guitars?|amplifiers?))? (manufacturer|maker|company|brand)|"
-    r"(manufacturer|maker|builder) of [a-z ,-]*guitars|fabricant de guitares|marque de guitares|luthier")
+    rf"(manufacturer|maker|builder) of (?:(?!{ACCESSORY_WORDS.pattern})[a-z ,-])*guitars|"
+    r"fabricant de guitares|marque de guitares|luthier")
 # Le suffixe doit être un MOT entier, précédé d'un espace (ou début de chaîne) : sans cette
 # frontière, `co`/`inc`/`ltd`... étaient arrachés au milieu des noms (« Marco » → « Mar »,
 # « Nico » → « Ni ») et créaient des alias parasites.
@@ -95,9 +104,14 @@ SUFFIXES = re.compile(
 class WikiClient:
     def __init__(self, pause=0.3, contact=None):
         self.session = requests.Session()
-        contact = contact or os.getenv("KB_CONTACT", "contact-not-set")
+        contact = contact or os.getenv("KB_CONTACT")
+        if not contact:
+            # Wikimedia peut bloquer un User-Agent anonyme : mieux vaut refuser de démarrer.
+            raise SystemExit("KB_CONTACT non défini : exporter une adresse e-mail (politique User-Agent "
+                             "de Wikimedia), ex. export KB_CONTACT=\"toi@exemple.com\"")
         self.session.headers["User-Agent"] = f"GuitarHunterKB/1.0 (personal hobby project; {contact})"
         self.pause = pause
+        self.failed_routes = []  # routes de collecte abandonnées : un import PARTIEL n'est pas écrit sans --allow-partial
 
     @staticmethod
     def _retry_after(resp, default):
@@ -145,7 +159,8 @@ class WikiClient:
     def category_members(self, lang, title):
         api = f"https://{lang}.wikipedia.org/w/api.php"
         params = {"action": "query", "list": "categorymembers", "cmtitle": title, "cmlimit": "500",
-                  "cmtype": "page|subcat", "format": "json", "formatversion": "2"}
+                  "cmtype": "page|subcat", "cmnamespace": "0|14",  # 0 = articles, 14 = sous-catégories : pas de Modèle:/Portail:
+                  "format": "json", "formatversion": "2"}
         pages, subcats = [], []
         while True:
             data = self._get(api, params)
@@ -244,11 +259,6 @@ def all_names(ent):
     return [n for n in dict.fromkeys(n.strip() for n in names) if n]
 
 
-# « guitar string manufacturer », « guitar pedal maker » : le mot « guitar » QUALIFIE un accessoire, il ne
-# dit pas que le fabricant fait des guitares — on le retire avant de décider s'il reste un mot de guitare.
-GUITAR_QUALIFIER = re.compile(rf"(?:{GUITAR_WORDS.pattern})\w*[\s-]+(?={ACCESSORY_WORDS.pattern})")
-
-
 def _description_text(ent):
     return " ".join(filter(None, [best_description(ent)] +
                            [d["value"] for d in ent.get("descriptions", {}).values()])).lower()
@@ -259,39 +269,72 @@ def is_list_page(ent, name):
     return LIST_PAGE in claim_ids(ent, "P31") or bool(LIST_TITLE.search(name or ""))
 
 
-def is_model(ent):
-    """Modèle de guitare/ampli (Epiphone G-400, Gibson ES-135, Fender Princeton) et non organisation."""
+ORG_TYPES = BRAND_TYPES | COMPANY_TYPES
+
+
+def entity_role(ent):
+    """'org' (fiche company/brand), 'model' (fiche line) ou 'skip' (à ne pas importer).
+    - type organisation, ou description qui parle d'une entreprise / d'un distributeur : org ;
+    - type ni organisation ni personne : modèle SI le type est un type de modèle connu ou si la description
+      parle de guitare/basse/ampli/modèle, sinon skip (ex. « digital audio workstation », un logiciel) ;
+    - sans type : modèle si la description parle de guitare/modèle, sinon org (comportement historique)."""
     types = set(claim_ids(ent, "P31"))
-    if types & (BRAND_TYPES | COMPANY_TYPES | {HUMAN}):
-        return False
     text = _description_text(ent)
+    if HUMAN in types or types & ORG_TYPES:
+        return "org"
     if MAKER_WORDS.search(text) or GUITAR_MAKER.search(text):
+        return "org"
+    looks_like_model = bool(MODEL_WORDS.search(text) or GUITAR_WORDS.search(text) or ACCESSORY_WORDS.search(text))
+    if types:
+        return "model" if (types & MODEL_TYPES or looks_like_model) else "skip"
+    return "model" if looks_like_model else "org"
+
+
+def is_model(ent):
+    return entity_role(ent) == "model"
+
+
+# « guitar pickups », « guitar and bass pickups » : « guitar » QUALIFIE l'accessoire. On retire ces
+# qualificatifs avant de chercher s'il reste un mot de guitare ; « guitars and pickups » (coordination :
+# fabricant des DEUX) n'est volontairement pas retiré.
+_COORD_END = r"(?<!\band)(?<!\bet)(?<!\bor)(?<!\bou)"
+GUITAR_QUALIFIER = re.compile(
+    rf"(?:{GUITAR_WORDS.pattern})\w*(?:[\s,&/-]+(?:bass(?:es)?|basse|guitars?|guitares?|electric|électrique|acoustic|"
+    rf"acoustique|and|et|or|ou)\b)*{_COORD_END}[\s-]+(?={ACCESSORY_WORDS.pattern})")
+# « pickups for electric guitars », « amplificateur de guitare » : la guitare est la CIBLE de l'accessoire.
+GUITAR_FOR = re.compile(rf"\b(?:for|pour|de|d')\s*(?:[\w'-]+\s+){{0,2}}(?:{GUITAR_WORDS.pattern})\w*")
+
+
+def _accessory_only(text):
+    """Vrai si le texte décrit un fabricant/produit d'accessoire et rien d'autre."""
+    if not ACCESSORY_WORDS.search(text):
         return False
-    # Sans type Wikidata, seule une description qui parle de guitare ou de modèle autorise à conclure.
-    return bool(types) or bool(MODEL_WORDS.search(text) or GUITAR_WORDS.search(text))
+    stripped = GUITAR_FOR.sub("", GUITAR_QUALIFIER.sub("", text))
+    return not GUITAR_WORDS.search(ACCESSORY_WORDS.sub("", stripped))
 
 
 def relevance_of(ent, is_line, from_category=False, model=False):
-    """`is_line` = série trouvée par la route « séries de modèles » (toujours des guitares). `model` = modèle
-    rangé dans la catégorie Wikipédia : un ampli reste `accessories`.
+    """`is_line` = série de la route « séries de modèles » (toujours des guitares). `model` = modèle rangé
+    dans la catégorie Wikipédia : un ampli reste `accessories`.
 
-    Le verdict `accessories` se juge sur la description PRINCIPALE (fr puis en), pas sur le mélange de
-    toutes les langues : Framus (« firme allemande ») était classé accessoire à cause d'une description
-    dans une autre langue. Exception : un fabricant de la catégorie « Guitar manufacturing companies »
-    dont le NOM dit « guitar » (Robin Guitars, décrit « brand of guitar pickups ») reste `unknown`. Les
-    vrais fabricants d'accessoires de la catégorie (EMG, Fishman, Maxon...) restent `accessories`."""
+    Ordre : (1) « fabricant de guitares » explicite sur la description principale ; (2) accessoire seul sur la
+    description PRINCIPALE (fr puis en — pas le mélange de toutes les langues, qui classait Framus en
+    accessoire) ; (3) sinon, mot de guitare dans n'importe quelle langue → `guitars`, sinon `unknown`.
+    Exception : un fabricant de la catégorie « Guitar manufacturing companies » dont le NOM dit « guitar »
+    (Robin Guitars, décrit « brand of guitar pickups ») reste `unknown`."""
     if is_line:
         return "guitars"
     text = _description_text(ent)
-    if GUITAR_MAKER.search(text):
-        return "guitars"
     primary = (best_description(ent) or "").lower() or text
-    if ACCESSORY_WORDS.search(primary) and not GUITAR_WORDS.search(
-            ACCESSORY_WORDS.sub("", GUITAR_QUALIFIER.sub("", primary))):
+    if GUITAR_MAKER.search(primary):
+        return "guitars"
+    if _accessory_only(primary):
         if from_category and not model and GUITAR_WORDS.search((best_label(ent) or "").lower()):
             return "unknown"
         return "accessories"
-    return "guitars" if GUITAR_WORDS.search(text) else "unknown"
+    if GUITAR_MAKER.search(text) or GUITAR_WORDS.search(text):
+        return "guitars"
+    return "unknown"
 
 
 def kind_of(ent, is_line):
@@ -351,12 +394,17 @@ def collect_from_products(client):
               ?product wdt:P279* ?root .
               ?item wdt:P1056 ?product .
               FILTER NOT EXISTS {{ ?item wdt:P31 wd:{HUMAN} }}
-            }} LIMIT 20000""")
+            }} LIMIT {SPARQL_LIMIT}""")
     except (RuntimeError, requests.RequestException) as e:
         # Route secondaire (la catégorie Wikipédia est la route principale) : sa requête est la plus
         # lourde de WDQS et échoue parfois — on continue avec les autres routes plutôt qu'avorter.
         print(f"  ⚠️ route « produit = guitare/basse » ignorée ({e})", file=sys.stderr)
+        client.failed_routes.append("p1056")
         return set()
+    if len(rows) >= SPARQL_LIMIT:
+        print(f"  ⚠️ la requête « produit » a atteint LIMIT {SPARQL_LIMIT} : la liste est peut-être tronquée",
+              file=sys.stderr)
+        client.failed_routes.append("p1056_truncated")
     qids = {r["item"]["value"].rsplit("/", 1)[-1] for r in rows}
     print(f"  Wikidata « produit = guitare/basse » : {len(qids)} entités")
     return qids
@@ -378,6 +426,7 @@ def collect_lines(client, maker_qids):
                 }}""")
         except (RuntimeError, requests.RequestException) as e:
             print(f"  ⚠️ lot de séries {i}–{i + 150} ignoré ({e})", file=sys.stderr)
+            client.failed_routes.append(f"lines[{i}]")
             continue
         for r in rows:
             lines[r["model"]["value"].rsplit("/", 1)[-1]] = r["maker"]["value"].rsplit("/", 1)[-1]
@@ -411,13 +460,17 @@ def build_records(client, langs, depth, with_lines):
                     for c in claim_ids(e, "P17") + claim_ids(e, "P495")}
     country_names = {q: best_label(e) for q, e in client.entities(list(country_qids), props="labels").items()}
 
-    records = []
+    records, skipped = [], 0
     for qid, e, is_line in [(q, e, False) for q, e in ents.items()] + [(q, e, True) for q, e in line_ents.items()]:
         name = best_label(e)
         if not name or is_list_page(e, name):
             continue
-        model = not is_line and is_model(e)
-        as_line = is_line or model  # kind « line » : série de modèles OU modèle isolé
+        role = "model" if is_line else entity_role(e)
+        if role == "skip":
+            skipped += 1
+            continue
+        model = role == "model" and not is_line
+        as_line = role == "model"  # kind « line » : série de modèles OU modèle isolé
         from_category = any(o.startswith("category") for o in origin.get(qid, ()))
         parents = (claim_ids(e, "P176") if as_line else []) or claim_ids(e, "P749") or claim_ids(e, "P127")
         if is_line and lines.get(qid):
@@ -451,6 +504,8 @@ def build_records(client, langs, depth, with_lines):
             "_derived": derived,
             "raw": {"origin": sorted(origin.get(qid, {"line"})), "p31": claim_ids(e, "P31")},
         })
+    if skipped:
+        print(f"  entités ignorées (type ni organisation ni modèle reconnu) : {skipped}")
     _merge_derived_aliases(records)
     return records
 
@@ -466,7 +521,7 @@ def _merge_derived_aliases(records):
         keep = []
         for alias in dict.fromkeys(r.pop("_derived")):
             n = normalize(alias)
-            if len(n) >= 4 and n not in _STOP and produced[n] == 1 and owned[n] == 0:
+            if len(n) >= 4 and alias_usable(n) and produced[n] == 1 and owned[n] == 0:
                 keep.append(alias)
             else:
                 dropped += 1
@@ -478,14 +533,35 @@ def _merge_derived_aliases(records):
 # ------------------------------------------------------------------------------------------
 # Écriture Postgres
 # ------------------------------------------------------------------------------------------
-def write_records(records, notes):
+MIN_KEPT_RATIO = 0.5  # un lot plus petit que la moitié de la base actuelle = import suspect, pas de nettoyage
+
+
+class PartialImportError(RuntimeError):
+    pass
+
+
+def write_records(records, notes, failed_routes=(), allow_partial=False):
+    """Écrit un lot dans une transaction unique. Refuse (PartialImportError) : un lot issu d'un import
+    PARTIEL (route abandonnée) sans `allow_partial`, ou un lot qui ferait disparaître plus de la moitié de la
+    base actuelle. Les fiches `wikidata` ABSENTES du lot (disparues de Wikidata ou désormais écartées par les
+    règles) sont supprimées, sauf celles que l'utilisateur a touchées (curated, tier, hunt_notes, made_by,
+    alias manuel) — sinon une fiche fausse écrite un jour survivrait à la correction du code."""
     from backend import pg_db
-    from backend.guitar_knowledge import normalize
     pool = pg_db.init_pool()  # applique schema.sql (tables guitar_knowledge* comprises)
+    if failed_routes and not allow_partial:
+        raise PartialImportError(
+            f"import PARTIEL (routes abandonnées : {', '.join(failed_routes)}) : rien n'est écrit. Relancer "
+            f"plus tard, ou --allow-partial pour écrire quand même (sans suppression des fiches absentes).")
     counts = Counter(r["kind"] for r in records)
     counts.update(f"relevance_{r['relevance']}" for r in records)
     with pool.connection() as conn:
         with conn.transaction():
+            row = conn.execute("SELECT count(*) AS n FROM guitar_knowledge WHERE source = 'wikidata'").fetchone()
+            existing = row["n"] if isinstance(row, dict) else row[0]
+            if existing and len(records) < MIN_KEPT_RATIO * existing and not allow_partial:
+                raise PartialImportError(
+                    f"le lot ({len(records)} fiches) est inférieur à {int(MIN_KEPT_RATIO * 100)} % de la base "
+                    f"actuelle ({existing}) : import suspect, rien n'est écrit (--allow-partial pour forcer).")
             version = conn.execute("SELECT COALESCE(MAX(version), 0) + 1 AS v FROM guitar_knowledge_versions").fetchone()
             version = version["v"] if isinstance(version, dict) else version[0]
             for r in records:
@@ -509,10 +585,22 @@ def write_records(records, notes):
                              (r["id"],))
                 for alias in r["aliases"]:
                     norm = normalize(alias)
-                    if len(norm) >= 2:
+                    if alias_usable(norm):
                         conn.execute("""INSERT INTO guitar_knowledge_alias (alias_norm, knowledge_id, alias, source)
                                         VALUES (%s,%s,%s,'wikidata') ON CONFLICT DO NOTHING""",
                                      (norm, r["id"], alias))
+            orphans = 0
+            if not failed_routes:  # un import partiel (--allow-partial) ne supprime rien
+                cur = conn.execute("""
+                    DELETE FROM guitar_knowledge k
+                    WHERE k.source = 'wikidata' AND k.kb_version < %s AND NOT k.curated
+                      AND k.tier IS NULL AND k.hunt_notes IS NULL AND k.made_by IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM guitar_knowledge_alias a
+                                      WHERE a.knowledge_id = k.id AND a.source = 'manual')""", (version,))
+                orphans = cur.rowcount or 0
+            counts["orphans_deleted"] = orphans
+            if failed_routes:
+                counts["failed_routes"] = ",".join(failed_routes)
             conn.execute("INSERT INTO guitar_knowledge_versions (version, source, notes, counts) VALUES (%s,%s,%s,%s)",
                          (version, "wikidata", notes, json.dumps(dict(counts))))
     return version, counts
@@ -538,6 +626,8 @@ def main():
     ap.add_argument("--depth", type=int, default=2, help="profondeur des sous-catégories")
     ap.add_argument("--no-lines", action="store_true", help="ne pas importer les séries de modèles")
     ap.add_argument("--dry-run", action="store_true", help="n'écrit rien en base")
+    ap.add_argument("--allow-partial", action="store_true",
+                    help="écrit même si une route de collecte a échoué ou si le lot est très réduit (aucune suppression)")
     ap.add_argument("--json-out", default=None)
     ap.add_argument("--notes", default=None, help="note attachée à la version créée")
     ap.add_argument("--lookup", default=None, help="teste la recherche sur un texte (base déjà importée)")
@@ -556,6 +646,9 @@ def main():
           + " | pertinence : " + ", ".join(f"{k} {v}" for k, v in rel.most_common()))
     print(f"  alias : {sum(len(r['aliases']) for r in records)}")
 
+    if client.failed_routes:
+        print(f"  ⚠️ routes abandonnées : {', '.join(client.failed_routes)} — import PARTIEL "
+              f"(l'écriture sera refusée sans --allow-partial)", file=sys.stderr)
     if args.json_out:
         with open(args.json_out, "w", encoding="utf-8") as fh:
             json.dump(records, fh, ensure_ascii=False, indent=2)
@@ -563,7 +656,12 @@ def main():
     if args.dry_run:
         print("  (dry-run : rien écrit en base)")
         return
-    version, _ = write_records(records, args.notes)
+    try:
+        version, counts = write_records(records, args.notes, client.failed_routes, args.allow_partial)
+    except PartialImportError as e:
+        raise SystemExit(f"❌ {e}")
+    if counts.get("orphans_deleted"):
+        print(f"  fiches disparues supprimées : {counts['orphans_deleted']}")
     print(f"\n✅ Version {version} de la base écrite (NON validée). Rejouer le Portier avant de la "
           f"marquer validée : UPDATE guitar_knowledge_versions SET validated = true WHERE version = {version};")
 
