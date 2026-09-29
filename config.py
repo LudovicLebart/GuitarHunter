@@ -27,6 +27,19 @@ NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 # aucun comportement HA n'est activé tant que ce n'est pas explicitement configuré — le
 # déploiement actuel (nœud unique) n'est pas affecté.
 HA_NODE_ID = os.getenv("HA_NODE_ID", "")
+# Le reste des réglages HA (résolution de `HaConfig`, voir backend/ha/watchdog.py) n'est lu que
+# par backend/scripts/run_ha_watchdog.py, jamais importé par le bot/l'API — ne peut donc jamais
+# affecter le déploiement nœud unique actuel même si mal configuré.
+HA_PEER_HOST = os.getenv("HA_PEER_HOST", "")
+HA_PEER_SSH_USER = os.getenv("HA_PEER_SSH_USER", "")
+HA_PEER_SSH_KEY_PATH = os.getenv("HA_PEER_SSH_KEY_PATH", "")
+HA_PEER_HEALTH_URL = os.getenv("HA_PEER_HEALTH_URL", "")
+HA_LOCAL_SERVICE_NAME = os.getenv("HA_LOCAL_SERVICE_NAME", "")
+HA_PEER_SERVICE_NAME = os.getenv("HA_PEER_SERVICE_NAME", "")
+HA_LOCAL_PG_DSN = os.getenv("HA_LOCAL_PG_DSN", "")
+HA_LEASE_TTL_SECONDS = int(os.getenv("HA_LEASE_TTL_SECONDS", 60))
+HA_HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HA_HEARTBEAT_INTERVAL_SECONDS", 15))
+HA_FAILOVER_CONFIRM_ROUNDS = int(os.getenv("HA_FAILOVER_CONFIRM_ROUNDS", 3))
 
 # --- CONFIGURATION SMTP (Notifications Email) ---
 # Compatible Gmail (port 587 + STARTTLS) et tout autre SMTP.
