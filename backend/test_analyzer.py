@@ -5,12 +5,19 @@ réel (appel raté OU réponse malformée) ne doit plus fail-open vers l'Analyst
 `_run_analysis_cascade_body`/`T1_ERROR_STATUSES`. Le reste de la cascade (rejet T1, routage
 Chantier G, Tier 2/3) n'est pas couvert ici.
 """
+import os
 import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
+# config.py fait sys.exit(1) à l'import sans APP_ID_TARGET : valeurs neutres par défaut pour que
+# ces tests tournent sans .env (n'écrase jamais une vraie valeur déjà présente).
+os.environ.setdefault("APP_ID_TARGET", "test")
+os.environ.setdefault("USER_IDS_TARGET", "test_user")
+
 from backend import t1_circuit_breaker
 from backend.analyzer import DealAnalyzer
+from backend.t1_prompt import build_t1_gatekeeper_prompt
 
 
 def _make_analyzer():
@@ -46,6 +53,11 @@ class TestGatekeeperFailureSkip(unittest.TestCase):
         self._llm_usage_record_patcher = patch("backend.analyzer.llm_usage.record")
         self._llm_usage_record_patcher.start()
         self.addCleanup(self._llm_usage_record_patcher.stop)
+        # `_run_analysis_cascade` sort en "ERROR" dès le départ sans GEMINI_API_KEY (garde-fou de
+        # prod) : sans ce patch, ces tests dépendaient de la variable d'environnement réelle.
+        gemini_key_patcher = patch("backend.analyzer.GEMINI_API_KEY", "dummy")
+        gemini_key_patcher.start()
+        self.addCleanup(gemini_key_patcher.stop)
 
     def test_t1_call_failure_returns_skip_verdict_not_fail_open(self):
         """err_t1 renseigné (appel raté, ex: panne réseau/TokenRouter) : doit sauter
@@ -93,6 +105,67 @@ class TestGatekeeperFailureSkip(unittest.TestCase):
         result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
 
         self.assertEqual(result["verdict"], "REJECTED")
+
+
+class TestT1PromptBuilder(unittest.TestCase):
+    def test_annonce_block_is_always_last_even_with_user_correction(self):
+        prompt = build_t1_gatekeeper_prompt(_listing(), {"guitare": {}}, "INSTRUCTION", user_comment="C'est une vraie Strat")
+        self.assertTrue(prompt.rstrip().endswith("</annonce>"))
+        self.assertLess(prompt.index("CORRECTION UTILISATEUR"), prompt.index("<annonce>"))
+
+    def test_empty_string_is_preserved_but_missing_key_becomes_na(self):
+        prompt = build_t1_gatekeeper_prompt({"title": "X", "description": ""}, {}, "INSTRUCTION")
+        self.assertIn('"description": ""', prompt)
+        self.assertIn('"localisation": "N/A"', prompt)
+
+    def test_analyzer_delegates_to_shared_builder(self):
+        analyzer = _make_analyzer()
+        self.assertEqual(
+            analyzer._construct_t1_gatekeeper_prompt(_listing(), {}, "INSTRUCTION", "note"),
+            build_t1_gatekeeper_prompt(_listing(), {}, "INSTRUCTION", "note"),
+        )
+
+
+class TestT1UsageProviderLabel(unittest.TestCase):
+    def test_failure_labels_match_success_labels(self):
+        self.assertEqual(DealAnalyzer._t1_usage_provider_for("local"), "local")
+        self.assertEqual(DealAnalyzer._t1_usage_provider_for("qwen"), "tokenrouter")
+        self.assertEqual(DealAnalyzer._t1_usage_provider_for("gemini"), "gemini")
+
+    @patch("backend.analyzer.llm_usage.record")
+    @patch("backend.analyzer.OpenAI")
+    def test_local_call_records_provider_local(self, mock_openai, mock_record):
+        response = MagicMock()
+        response.choices[0].message.content = '{"status": "FAIR"}'
+        response.usage.completion_tokens = 5
+        response.usage.completion_tokens_details = None
+        response.usage.prompt_tokens_details = None
+        response.usage.prompt_tokens = 10
+        response.usage.total_tokens = 15
+        mock_openai.return_value.chat.completions.create.return_value = response
+        analyzer = _make_analyzer()
+
+        result, err = analyzer._call_openai_compatible_json(
+            "p", [], "qwen3-vl:8b-instruct", "ollama", "http://100.94.33.54:11434/v1", provider_label="local"
+        )
+
+        self.assertIsNone(err)
+        self.assertEqual(result, {"status": "FAIR"})
+        self.assertEqual(mock_record.call_args.kwargs["provider"], "local")
+
+    @patch("backend.analyzer.llm_usage.record")
+    @patch("backend.analyzer.OpenAI")
+    def test_without_label_provider_is_deduced_from_base_url(self, mock_openai, mock_record):
+        response = MagicMock()
+        response.choices[0].message.content = '{"status": "FAIR"}'
+        response.usage.completion_tokens = 5
+        response.usage.completion_tokens_details = None
+        response.usage.prompt_tokens_details = None
+        response.usage.prompt_tokens = 10
+        response.usage.total_tokens = 15
+        mock_openai.return_value.chat.completions.create.return_value = response
+        _make_analyzer()._call_openai_compatible_json("p", [], "m", "k", "https://api.tokenrouter.io/v1")
+        self.assertEqual(mock_record.call_args.kwargs["provider"], "tokenrouter")
 
 
 if __name__ == "__main__":

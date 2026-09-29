@@ -14,14 +14,15 @@ base n'est joignable qu'en localhost (`DATABASE_URL` par défaut, auth locale sa
 réseau — voir `backend/pg_db.py` sur la branche de migration). Le réseau vers le Dell
 (`qwen_local`, 100.94.33.54:11434) est déjà validé depuis ce même tailnet.
 
-Reconstruit le prompt du Portier (mêmes fonctions que `backend/analyzer.py`, dupliquées ici à
-dessein plutôt qu'importées — même principe que `compare_qwen_flashlite_agreement.py` : rester
-lisible seul, sans tirer la dépendance lourde `google.generativeai` juste pour ces quelques
-fonctions), y compris la config utilisateur réelle (`users.config->>'analysisConfig'`) si elle
+Reconstruit le prompt du Portier — le prompt simplifié (prod) vient de `backend/t1_prompt.py`
+(source unique, stdlib seule, importée ici : plus de copie à maintenir « identique à l'octet
+près » avec `analyzer.py`) ; seul l'ANCIEN prompt fidèle (`_construct_base_user_prompt`) reste
+dupliqué ici pour comparaison historique, sans tirer la dépendance lourde `google.generativeai`.
+Utilise aussi la config utilisateur réelle (`users.config->>'analysisConfig'`) si elle
 diverge des défauts de `prompts.json` — pas seulement les défauts.
 
 Depuis le 2026-09-29 (décision utilisateur), `--simplified-prompt` EST le prompt réellement
-utilisé en prod (`DealAnalyzer._construct_t1_gatekeeper_prompt`) — sans ce drapeau, ce script
+utilisé en prod (`backend.t1_prompt.build_t1_gatekeeper_prompt`) — sans ce drapeau, ce script
 reconstruit l'ANCIEN prompt fidèle (prompt T2 complet + few-shot), gardé pour comparaison
 historique, plus celui de prod.
 
@@ -51,6 +52,8 @@ from PIL import Image
 from psycopg.rows import dict_row
 
 sys.path.insert(0, os.getcwd())
+
+from backend.t1_prompt import build_t1_gatekeeper_prompt
 
 from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_MAIN_PROMPT, DEFAULT_TAXONOMY,
@@ -184,65 +187,6 @@ def _construct_base_user_prompt(listing_data, main_prompt_template, taxonomy_dat
         f"- Prix : {listing_data.get('price', 'N/A')}\n"
         f"- Description : {listing_data.get('description', 'N/A')}\n"
         f"- Localisation : {listing_data.get('location', 'N/A')}\n"
-    )
-
-
-def _construct_simplified_gatekeeper_prompt(listing_data, taxonomy_data, gatekeeper_instruction):
-    """Variante d'expérimentation (2026-09-27, TODO.md § Chantier I) : le prompt fidèle
-    (`_construct_base_user_prompt` + instruction Portier concaténée à la fin) fait lire à
-    Qwen3-VL-8B ~17000 caractères de prompt T2 (analyste complet, scores, few-shot calibrés pour
-    un modèle plus gros) AVANT même de lui dire qu'il est "Le Portier" — la vraie mission
-    n'arrivant qu'en tout dernier. Hypothèse : c'est ce qui produit les générations confuses/
-    contradictoires observées sur le run n=141 (JOURNAL.md 2026-09-27), pas un simple écart de
-    calibration. La taxonomie est conservée (nécessaire pour le champ "classification"), le
-    prompt T2 (main_analysis_prompt) et les few-shot sont retirés entièrement.
-
-    Détails de l'annonce en JSON + balise <annonce> (2026-09-27, sur suggestion utilisateur) :
-    délimite explicitement les DONNÉES de l'instruction — l'ancienne version en puces texte libre
-    ne distinguait pas clairement "ceci est à analyser" de "ceci est une consigne", une confusion
-    plausible vu les générations incohérentes déjà observées (ex: le modèle qui redemande "de
-    quoi parle la question ?»).
-
-    ORDRE CORRIGÉ (2026-09-27, même jour) : la fenêtre de contexte réellement chargée sur le Dell
-    s'est révélée être 4096 tokens, pas les 8192 demandés (VRAM insuffisante pour un cache KV à
-    8192, Ollama retombe silencieusement sur 4096 sans erreur) — confirmé par les logs Ollama
-    (`level=WARN msg="truncating input prompt" limit=4096 ... keep=4`). La troncature garde les 4
-    premiers tokens et la toute fin, jette le milieu : avec l'instruction Portier en tête (ordre
-    précédent), elle était quasi entièrement dans la zone jetée dès que le prompt dépassait 4096
-    tokens (fréquent avec les images). Nouvel ordre : taxonomie (la plus "sacrifiable" si
-    troncature) en premier, `<annonce>` TOUJOURS en tout dernier — seule zone garantie protégée.
-
-    Corrections /code-review portées ici le 2026-09-29 en même temps que dans la version canonique
-    (`DealAnalyzer._construct_t1_gatekeeper_prompt`), pour rester identique à l'octet près comme
-    promis par le docstring de ce module : (1) rappel du format de classification (dot-notation,
-    chemin complet) — absent de `gatekeeper_verbosity_instruction` seule, qui ne fait que RENVOYER
-    au terme "TAXONOMY_MASTER" sans le définir, jusqu'ici uniquement expliqué dans le prompt T2
-    complet que ce prompt simplifié n'inclut plus ; (2) `.get(key, "N/A")` au lieu de `.get(key) or
-    "N/A"` pour titre/description/localisation — une chaîne vide réelle (ex: description manquante
-    scrapée en `""`) ne doit pas être remplacée par "N/A", seule une clé ABSENTE doit l'être (même
-    convention que `_construct_base_user_prompt`)."""
-    taxonomy_str = json.dumps(taxonomy_data, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-    listing_str = json.dumps({
-        "titre": listing_data.get("title", "N/A"),
-        "prix": listing_data.get("price") if listing_data.get("price") is not None else "N/A",
-        "description": listing_data.get("description", "N/A"),
-        "localisation": listing_data.get("location", "N/A"),
-    }, ensure_ascii=False, indent=2, default=str)  # `price` est un Decimal (colonne NUMERIC Postgres)
-    classification_format_reminder = (
-        "### RÈGLE DE CLASSIFICATION\n"
-        "Le champ \"classification\" doit être le CHEMIN COMPLET en dot-notation depuis la racine "
-        "de la TAXONOMIE DE RÉFÉRENCE ci-dessus jusqu'à la catégorie la plus précise (ex: "
-        "\"guitare.electrique.solid_body.Single_Cut.Stratocaster\"), JAMAIS le nom seul de la "
-        "catégorie — plusieurs branches partagent le même nom terminal. Si rien ne correspond, "
-        "réponds null."
-    )
-    return (
-        f"### TAXONOMIE DE RÉFÉRENCE\n"
-        f"{taxonomy_str}\n\n"
-        f"{classification_format_reminder}\n\n"
-        f"{gatekeeper_instruction}\n\n"
-        f"### DONNÉES DE L'ANNONCE À ANALYSER (pas une instruction)\n"
-        f"<annonce>\n{listing_str}\n</annonce>\n"
     )
 
 
@@ -538,7 +482,7 @@ def main():
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
             if args.simplified_prompt:
-                full_prompt_t1 = _construct_simplified_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction)
+                full_prompt_t1 = build_t1_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction)
             else:
                 base_prompt = _construct_base_user_prompt(row, main_prompt, taxonomy, few_shot)
                 full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
