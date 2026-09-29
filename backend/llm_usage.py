@@ -18,6 +18,25 @@ import time
 current_deal_id = contextvars.ContextVar("llm_usage_deal_id", default=None)
 current_user_ref = contextvars.ContextVar("llm_usage_user_ref", default=None)
 
+
+
+def classify_error(exc):
+    """Type d'échec, pour distinguer une panne fournisseur (timeout/http/connection, à compter
+    dans le coupe-circuit) d'un JSON invalide (le modèle a répondu, souvent une boucle de répétition)."""
+    import json as _json
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    if isinstance(exc, _json.JSONDecodeError):
+        return "json"
+    if "timeout" in name or "timed out" in text:
+        return "timeout"
+    if "connection" in name or "connect" in text:
+        return "connection"
+    if "status" in name or "http" in name or "ratelimit" in name or "api" in name:
+        return "http"
+    return "other"
+
+
 _logger = logging.getLogger("llm_usage")
 _disabled = False
 _last_warning = 0.0
@@ -71,7 +90,7 @@ def record(*, provider, model, action, images=0, input_tokens=0, cached_tokens=0
                 int(images or 0), int(input_tokens or 0), int(cached_tokens or 0),
                 int(output_tokens or 0), int(thoughts_tokens or 0),
                 int(latency_ms) if latency_ms is not None else None, bool(ok),
-                error_type,
+                error_type if not ok else None,
             ))
     except Exception as e:  # jamais bloquant
         now = time.monotonic()

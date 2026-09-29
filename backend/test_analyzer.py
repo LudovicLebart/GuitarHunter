@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 os.environ.setdefault("APP_ID_TARGET", "test")
 os.environ.setdefault("USER_IDS_TARGET", "test_user")
 
-from backend import t1_circuit_breaker
+from backend import llm_usage, t1_circuit_breaker
 from backend.analyzer import DealAnalyzer
 from backend.t1_prompt import build_t1_gatekeeper_prompt
 
@@ -126,12 +126,7 @@ class TestT1PromptBuilder(unittest.TestCase):
         )
 
 
-class TestT1UsageProviderLabel(unittest.TestCase):
-    def test_failure_labels_match_success_labels(self):
-        self.assertEqual(DealAnalyzer._t1_usage_provider_for("local"), "local")
-        self.assertEqual(DealAnalyzer._t1_usage_provider_for("qwen"), "tokenrouter")
-        self.assertEqual(DealAnalyzer._t1_usage_provider_for("gemini"), "gemini")
-
+class TestLlmUsageRecording(unittest.TestCase):
     @patch("backend.analyzer.llm_usage.record")
     @patch("backend.analyzer.OpenAI")
     def test_local_call_records_provider_local(self, mock_openai, mock_record):
@@ -166,6 +161,56 @@ class TestT1UsageProviderLabel(unittest.TestCase):
         mock_openai.return_value.chat.completions.create.return_value = response
         _make_analyzer()._call_openai_compatible_json("p", [], "m", "k", "https://api.tokenrouter.io/v1")
         self.assertEqual(mock_record.call_args.kwargs["provider"], "tokenrouter")
+
+    @patch("backend.analyzer.llm_usage.record")
+    @patch("backend.analyzer.OpenAI")
+    def test_failed_call_records_ok_false_with_error_type_and_provider_local(self, mock_openai, mock_record):
+        mock_openai.return_value.chat.completions.create.side_effect = TimeoutError("request timed out")
+
+        result, err = _make_analyzer()._call_openai_compatible_json(
+            "p", [], "qwen3-vl:8b-instruct", "ollama", "http://100.94.33.54:11434/v1", provider_label="local"
+        )
+
+        self.assertIsNone(result)
+        self.assertIn("timed out", err)
+        kwargs = mock_record.call_args.kwargs
+        self.assertEqual((kwargs["provider"], kwargs["ok"], kwargs["error_type"]), ("local", False, "timeout"))
+        mock_record.assert_called_once()
+
+    @patch("backend.analyzer.llm_usage.record")
+    @patch("backend.analyzer.OpenAI")
+    def test_invalid_json_records_a_single_failure_row_not_a_success(self, mock_openai, mock_record):
+        response = MagicMock()
+        response.choices[0].message.content = "pas du json {"
+        response.usage.completion_tokens = 5
+        response.usage.completion_tokens_details = None
+        response.usage.prompt_tokens_details = None
+        response.usage.prompt_tokens = 10
+        response.usage.total_tokens = 15
+        mock_openai.return_value.chat.completions.create.return_value = response
+
+        result, err = _make_analyzer()._call_openai_compatible_json("p", [], "m", "k", "https://api.tokenrouter.io/v1")
+
+        self.assertIsNone(result)
+        mock_record.assert_called_once()
+        kwargs = mock_record.call_args.kwargs
+        self.assertEqual((kwargs["ok"], kwargs["error_type"]), (False, "json"))
+        self.assertEqual(kwargs["input_tokens"], 10)  # tokens facturés conservés
+
+    @patch("backend.analyzer.llm_usage.record")
+    def test_missing_api_key_records_no_key(self, mock_record):
+        _, err = _make_analyzer()._call_openai_compatible_json("p", [], "m", "", "https://api.tokenrouter.io/v1")
+        self.assertIn("manquante", err)
+        self.assertEqual(mock_record.call_args.kwargs["error_type"], "no_key")
+
+
+class TestClassifyError(unittest.TestCase):
+    def test_categories(self):
+        import json
+        self.assertEqual(llm_usage.classify_error(json.JSONDecodeError("x", "y", 0)), "json")
+        self.assertEqual(llm_usage.classify_error(TimeoutError("boom")), "timeout")
+        self.assertEqual(llm_usage.classify_error(Exception("Connection refused")), "connection")
+        self.assertEqual(llm_usage.classify_error(type("APIStatusError", (Exception,), {})("x")), "http")
 
 
 if __name__ == "__main__":

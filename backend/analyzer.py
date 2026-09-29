@@ -267,12 +267,15 @@ class DealAnalyzer:
         """Méthode utilitaire DRY pour appeler Gemini et parser le JSON."""
         model = self._get_model(model_name, response_schema=response_schema)
         if not model:
+            llm_usage.record(provider="gemini", model=model_name, action=action, ok=False, error_type="other")
             return None, f"Modèle {model_name} non disponible."
             
         current_parts = list(content_parts)
         for attempt in range(max_retries + 1):
+            # Une ligne `llm_usage` par TENTATIVE (chaque tentative est facturée), ok ou non.
+            usage_row = {"provider": "gemini", "model": model_name, "action": action, "latency_ms": None}
+            t_call = time.monotonic()
             try:
-                t_call = time.monotonic()
                 response = model.generate_content(current_parts)
                 latency_ms = int((time.monotonic() - t_call) * 1000)
                 usage = getattr(response, "usage_metadata", None)
@@ -291,11 +294,12 @@ class DealAnalyzer:
                     _thoughts = getattr(usage, 'thoughts_token_count', None)
                     if _thoughts is None:  # SDK ancien : déduire du total
                         _thoughts = max(0, (getattr(usage, 'total_token_count', 0) or 0) - _in - _out)
-                    llm_usage.record(
-                        provider="gemini", model=model_name, action=action, images=image_count,
-                        input_tokens=_in, cached_tokens=getattr(usage, 'cached_content_token_count', 0) or 0,
-                        output_tokens=_out, thoughts_tokens=_thoughts, latency_ms=latency_ms,
+                    usage_row.update(
+                        images=image_count, input_tokens=_in,
+                        cached_tokens=getattr(usage, 'cached_content_token_count', 0) or 0,
+                        output_tokens=_out, thoughts_tokens=_thoughts,
                     )
+                usage_row["latency_ms"] = latency_ms
                 cleaned_text = self._clean_json_response(response.text)
                 result = json.loads(cleaned_text)
                 if isinstance(result, list):
@@ -303,8 +307,10 @@ class DealAnalyzer:
                     # (ex: [{...}]) — on normalise en dict pour que tous les appelants
                     # (T1/T2/T3) puissent utiliser .get()/["clé"]= sans planter.
                     result = result[0] if result and isinstance(result[0], dict) else {}
+                llm_usage.record(**usage_row)  # succès : enregistré APRÈS le parse, pas avant
                 return result, None
             except json.decoder.JSONDecodeError as e:
+                llm_usage.record(**usage_row, ok=False, error_type="json")
                 self.logger.warning(f"⚠️ JSON invalide généré par {model_name} (tentative {attempt+1}/{max_retries+1}) : {e}")
                 if attempt == max_retries:
                     self.logger.error(f"❌ Impossible de parser le JSON après {max_retries+1} tentatives. Réponse brute: {getattr(response, 'text', 'Aucun texte')[:500]}...")
@@ -317,6 +323,9 @@ class DealAnalyzer:
                 else:
                     current_parts.insert(0, retry_warning)
             except Exception as e:
+                if usage_row.get("latency_ms") is None:
+                    usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
                 self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
                 if self._is_model_unavailable_error(e):
                     self._notify_model_unavailable(model_name, str(e), user_email)
@@ -340,7 +349,12 @@ class DealAnalyzer:
         ("tokenrouter" ou "openai_compatible") ; les appels au Dell passent "local" pour qu'ils ne
         se confondent plus avec n'importe quel endpoint compatible OpenAI (avant le 2026-09-29, seul
         `model` les distinguait)."""
+        provider = provider_label or ("tokenrouter" if "tokenrouter" in (base_url or "").lower() else "openai_compatible")
+        usage_row = {"provider": provider, "model": model_name, "action": action, "images": len(images),
+                     "latency_ms": None}
+        t_start = time.monotonic()
         if not api_key:
+            llm_usage.record(**usage_row, ok=False, error_type="no_key")
             return None, "Clé API manquante."
         try:
             client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
@@ -372,19 +386,20 @@ class DealAnalyzer:
                     f"out={max(0, completion - reasoning)} cached={cached} "
                     f"total={getattr(usage, 'total_tokens', 0) or 0}"
                 )
-                llm_usage.record(
-                    provider=provider_label or ("tokenrouter" if "tokenrouter" in (base_url or "") else "openai_compatible"),
-                    model=model_name, action=action, images=len(images), input_tokens=prompt_tokens,
-                    cached_tokens=cached, output_tokens=max(0, completion - reasoning),
-                    thoughts_tokens=reasoning, latency_ms=latency_ms,
-                )
+                usage_row.update(input_tokens=prompt_tokens, cached_tokens=cached,
+                                 output_tokens=max(0, completion - reasoning), thoughts_tokens=reasoning)
+            usage_row["latency_ms"] = latency_ms
             cleaned_text = self._clean_json_response(response.choices[0].message.content.strip())
             result = json.loads(cleaned_text)
             if isinstance(result, list):
                 result = result[0] if result and isinstance(result[0], dict) else {}
+            llm_usage.record(**usage_row)  # succès : enregistré APRÈS le parse, pas avant
             return result, None
         except Exception as e:
-            self.logger.error(f"❌ Erreur avec le modèle {model_name} ({provider_label or base_url}) : {e}")
+            self.logger.error(f"❌ Erreur avec le modèle {model_name} ({provider}) : {e}")
+            if usage_row.get("latency_ms") is None:
+                usage_row["latency_ms"] = int((time.monotonic() - t_start) * 1000)
+            llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
             return None, str(e)
 
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
@@ -413,17 +428,8 @@ class DealAnalyzer:
         )
 
     @staticmethod
-    def _t1_usage_provider_for(provider):
-        """Valeur de `llm_usage.provider` pour un fournisseur T1 — la MÊME que celle écrite par les
-        appels réussis (`_call_openai_compatible_json`/`_call_gemini_json`), pour que succès et
-        échecs d'un même fournisseur se retrouvent sous un seul label dans les requêtes de suivi."""
-        return {"local": "local", "qwen": "tokenrouter"}.get(provider, "gemini")
-
-    @staticmethod
     def _t1_model_name_for(provider, gatekeeper_model_name):
-        """Nom de modèle correspondant à un fournisseur T1 — pour le logging (`model_chain`) et
-        l'enregistrement `llm_usage` des échecs (les succès l'enregistrent déjà eux-mêmes, voir
-        `_call_openai_compatible_json`/`_call_gemini_json`)."""
+        """Nom de modèle correspondant à un fournisseur T1 — pour le logging (`model_chain`)."""
         if provider == "local":
             return T1_LOCAL_MODEL
         if provider == "qwen":
@@ -692,7 +698,6 @@ class DealAnalyzer:
                     self.logger.warning(f"   ⏸️ [Portier/{candidate}] en pause (coupe-circuit) — passage au suivant.")
                     continue
                 tried.append(candidate)
-                t_call = time.monotonic()
                 candidate_result, candidate_err = self._call_t1_provider(
                     candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
                 )
@@ -700,12 +705,8 @@ class DealAnalyzer:
                     t1_circuit_breaker.record_failure(
                         candidate, T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS
                     )
-                    error_type = "model_unavailable" if self._is_model_unavailable_error(candidate_err) else "call_failure"
-                    llm_usage.record(
-                        provider=self._t1_usage_provider_for(candidate), model=self._t1_model_name_for(candidate, gatekeeper_model_name),
-                        action="t1_gatekeeper", images=len(images),
-                        latency_ms=int((time.monotonic() - t_call) * 1000), ok=False, error_type=error_type,
-                    )
+                    # L'échec est déjà enregistré dans `llm_usage` (ok=False + error_type) par l'appelé
+                    # (`_call_openai_compatible_json`/`_call_gemini_json`), une ligne par tentative.
                     self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err}")
                     chain_errors.append(f"{candidate}: {candidate_err}")
                     continue

@@ -41,7 +41,7 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, date, timedelta
 
 # ---------------------------------------------------------------------------
@@ -59,8 +59,10 @@ PRICING = {
     "gemini-3.6-flash": [{"in": 1.50, "out": 7.50, "cached": 0.10}],
     "gemini-3.1-pro-preview": [{"in": 2.00, "out": 12.00, "cached": 0.25}],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
-    "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
+    "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # Ollama local (Dell)
     "qwen3-vl:4b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
+    "qwen3-vl:8b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # le bon tag (Instruct, pas Thinking)
+    "qwen3-vl:4b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
 }
 
 # Libellé de poste par modèle (le même modèle peut changer de rôle : à ajuster si config.py bouge).
@@ -72,6 +74,8 @@ ROLE = {
     "gemini-3.1-pro-preview": "T3 Expert Pro",
     "qwen3-vl:8b": "Local (Dell)",
     "qwen3-vl:4b": "Local (Dell)",
+    "qwen3-vl:8b-instruct": "T1 Portier local (Dell)",
+    "qwen3-vl:4b-instruct": "Local (Dell)",
 }
 
 LINE_RE = re.compile(
@@ -106,9 +110,9 @@ def iter_log_lines(log_dir, user_prefix):
                     if "[tokens]" in line:
                         yield line
         except OSError as e:
-            print(f"⚠️ Lecture impossible : {path} ({e})", file=sys.stderr)
+            print(f"⚠️  Lecture impossible : {path} ({e})", file=sys.stderr)
     if not files:
-        print(f"⚠️ Aucun fichier de log trouvé dans {log_dir} (motif {base}*.log*)", file=sys.stderr)
+        print(f"⚠️  Aucun fichier de log trouvé dans {log_dir} (motif {base}*.log*)", file=sys.stderr)
 
 
 def parse_calls(log_dir, user_prefix, since):
@@ -139,7 +143,7 @@ def load_calls_from_db(since, user_ref=None):
         raise SystemExit("psycopg absent : pip install 'psycopg[binary]' (déjà requis par le bot).")
     dsn = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter").replace("\r", "").strip()
     query = ("SELECT created_at, source, provider, model, action, deal_id, images, input_tokens, "
-             "cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok FROM llm_usage WHERE created_at >= %s")
+             "cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok, error_type FROM llm_usage WHERE created_at >= %s")
     params = [since]
     if user_ref:
         query += " AND user_ref = %s"
@@ -153,15 +157,22 @@ def load_calls_from_db(since, user_ref=None):
             "ts": ts, "day": ts.date(), "model": r["model"], "action": r["action"], "source": r["source"],
             "deal_id": r["deal_id"], "images": r["images"], "in": r["input_tokens"],
             "cached": r["cached_tokens"], "out": r["output_tokens"], "thoughts": r["thoughts_tokens"],
-            "latency_ms": r["latency_ms"], "ok": r["ok"],
+            "latency_ms": r["latency_ms"], "ok": r["ok"], "error_type": r.get("error_type"),
         })
     return calls
+
+
+def p90(values):
+    if not values:
+        return float("nan")
+    v = sorted(values)
+    return v[min(len(v) - 1, int(0.9 * len(v)))] / 1000
 
 
 def print_by_action(calls, pricing, to_month):
     """Détail demandé : pour chaque modèle ET chaque action, tokens d'entrée/sortie et coût."""
     agg = defaultdict(lambda: {"calls": 0, "images": 0, "in": 0, "cached": 0, "out": 0, "thoughts": 0,
-                               "cost": 0.0, "lat": [], "errors": 0})
+                               "cost": 0.0, "lat": [], "errors": 0, "err_types": Counter()})
     for c in calls:
         a = agg[(c["model"], c.get("action", "?"))]
         a["calls"] += 1
@@ -172,16 +183,20 @@ def print_by_action(calls, pricing, to_month):
             a["lat"].append(c["latency_ms"])
         if c.get("ok") is False:
             a["errors"] += 1
+            a["err_types"][c.get("error_type") or "?"] += 1
     print("\n" + "=" * 118)
     print("DÉTAIL PAR MODÈLE × ACTION")
     print("=" * 118)
     print(f"{'modèle':26s}{'action':34s}{'appels':>7s}{'in tot':>11s}{'dont cache':>11s}{'out tot':>10s}"
-          f"{'raison.':>10s}{'in/app':>8s}{'out/app':>8s}{'/mois':>10s}")
+          f"{'raison.':>10s}{'in/app':>8s}{'out/app':>8s}{'échecs':>8s}{'P90 s':>7s}{'/mois':>10s}")
     for (model, action), a in sorted(agg.items(), key=lambda kv: -kv[1]["cost"]):
         n = a["calls"]
         print(f"{model[:25]:26s}{action[:33]:34s}{n:7d}{a['in']:11d}{a['cached']:11d}{a['out']:10d}"
               f"{a['thoughts']:10d}{a['in'] / n:8.0f}{(a['out'] + a['thoughts']) / n:8.0f}"
+              f"{100 * a['errors'] / n:7.1f}%{p90(a['lat']):7.1f}"
               f"{fmt_money(a['cost'] * to_month):>10s}")
+        if a["errors"]:
+            print(f"{'':60s}↳ échecs : " + ", ".join(f"{k} {v}" for k, v in a["err_types"].most_common()))
     return agg
 
 
@@ -236,7 +251,7 @@ def read_billing_csv(path):
         if not (svc and cost):
             raise SystemExit(f"CSV de facturation non reconnu. Colonnes trouvées : {cols}")
         for row in reader:
-            raw = (row.get(cost) or "").replace("$", "").replace(" ", "").replace(" ", "").replace(",", ".")
+            raw = (row.get(cost) or "").replace("$", "").replace("\u00a0", "").replace(" ", "").replace(",", ".")
             try:
                 value = float(raw)
             except ValueError:
@@ -299,15 +314,17 @@ def main():
 
     backend_total = sum(a["cost"] for a in per_model.values())
     if args.from_db:
+        # Le chat est dans la table : séparer backend / chat pour le résidu de facturation.
+        backend_only = [c for c in calls if c.get("source") != "chat"]
         chat_total = sum(cost_of(c, pricing) or 0.0 for c in calls if c.get("source") == "chat")
     else:
-        chat_total = None
+        backend_only, chat_total = calls, None
     to_month = 30 / span_days
 
     print("=" * 96)
     print(f"COÛT PAR POSTE — logs backend du {first_day} au {last_day} ({span_days} j, {len(calls)} appels)")
     if unparsed:
-        print(f"⚠️ {unparsed} ligne(s) [tokens] non reconnues (format différent : chat ? autre logger ?)")
+        print(f"⚠️  {unparsed} ligne(s) [tokens] non reconnues (format différent : chat ? autre logger ?)")
     print("=" * 96)
     print(f"{'Poste':34s}{'appels':>8s}{'img/app':>8s}{'in moy':>9s}{'cache':>7s}{'raison.':>9s}"
           f"{'période':>10s}{'/mois':>10s}")
@@ -320,7 +337,7 @@ def main():
         print(f"{label[:33]:34s}{n:8d}{a['images'] / n:8.1f}{a['in'] / n:9.0f}{cache_pct:6.0f}%{think_pct:8.0f}%"
               f"{fmt_money(a['cost'] if not a['unpriced'] else None):>10s}{fmt_money(a['cost'] * to_month):>10s}")
         if a["unpriced"]:
-            print(f" ↳ ⚠️ modèle absent de PRICING ({a['unpriced']} appels non chiffrés) : {model}")
+            print(f"   ↳ ⚠️  modèle absent de PRICING ({a['unpriced']} appels non chiffrés) : {model}")
     print("-" * 96)
     print(f"{'TOTAL (tous postes lus)':34s}{'':51s}{fmt_money(backend_total):>10s}"
           f"{fmt_money(backend_total * to_month):>10s}")
@@ -328,7 +345,7 @@ def main():
     # Projection 2027 (Gemini 3.7 Flash double de prix au 01/01/2027)
     total_2027 = sum(a["cost_2027"] for a in per_model.values())
     if abs(total_2027 - backend_total) > 1e-6:
-        print(f"{' … même volume aux tarifs 2027':34s}{'':51s}{fmt_money(total_2027):>10s}"
+        print(f"{'  … même volume aux tarifs 2027':34s}{'':51s}{fmt_money(total_2027):>10s}"
               f"{fmt_money(total_2027 * to_month):>10s}")
 
     # Lecture : raisonnement et photos
@@ -347,14 +364,14 @@ def main():
     if args.from_db:
         agg_actions = print_by_action(calls, pricing, to_month)
         if chat_total is not None:
-            print(f"\n   dont chat : {chat_total:.2f} $ sur la période ({chat_total * to_month:.2f} $/mois)")
+            print(f"\n  dont chat : {chat_total:.2f} $ sur la période ({chat_total * to_month:.2f} $/mois)")
         if args.by_deal:
             print_by_deal(calls, pricing, args.by_deal)
 
     # Jours les plus chers
-    print("\nJOURS LES PLUS CHERS (backend)")
+    print("\nJOURS LES PLUS CHERS")
     for d, v in sorted(per_day.items(), key=lambda kv: -kv[1])[:5]:
-        print(f" {d} {v:6.3f} $")
+        print(f"  {d}  {v:6.3f} $")
 
     # Facturation réelle
     billing = None
@@ -366,26 +383,27 @@ def main():
         print("=" * 96)
         for s, v in sorted(by_service.items(), key=lambda kv: -kv[1]):
             if abs(v) >= 0.005:
-                print(f" {s[:60]:60s}{v:10.2f} $")
+                print(f"  {s[:60]:60s}{v:10.2f} $")
         gemini = sum(v for s, v in by_service.items()
                      if any(k in s.lower() for k in ("gemini", "generative language", "vertex ai")))
         if gemini:
+            # Seuls les modèles Gemini sont facturés par Google : Qwen (TokenRouter) et le local exclus.
             backend_gemini = sum(cost_of(c, pricing) or 0.0 for c in calls if c["model"].startswith("gemini"))
             residual = gemini - backend_gemini
             billing.update({"gemini_billed": gemini, "backend_gemini": backend_gemini,
                             "residual_chat_and_untracked": residual})
-            print(f"\n Gemini facturé {gemini:10.2f} $")
-            print(f" − Gemini reconstruit (logs backend) {backend_gemini:10.2f} $")
+            print(f"\n  Gemini facturé                      {gemini:10.2f} $")
+            print(f"  − Gemini reconstruit (appels lus)   {backend_gemini:10.2f} $")
             label = "NON INSTRUMENTÉ" if args.from_db else "CHAT + non instrumenté"
-            print(f" = {label:33s}{residual:10.2f} $ "
+            print(f"  = {label:33s}{residual:10.2f} $  "
                   f"({100 * residual / gemini:.0f}% de la part Gemini)")
             if residual < 0:
-                print(" ⚠️ Résidu négatif : période du CSV ≠ période des logs, ou tarifs PRICING trop hauts.")
+                print("  ⚠️  Résidu négatif : période du CSV ≠ période des logs, ou tarifs PRICING trop hauts.")
         top_sku = sorted(by_sku.items(), key=lambda kv: -kv[1])[:8]
         if top_sku:
-            print("\n SKU les plus chers :")
+            print("\n  SKU les plus chers :")
             for (s, k), v in top_sku:
-                print(f" {v:8.2f} $ {s[:25]} / {k[:55]}")
+                print(f"    {v:8.2f} $  {s[:25]} / {k[:55]}")
 
     if args.json:
         os.makedirs(os.path.dirname(os.path.abspath(args.json)), exist_ok=True)
