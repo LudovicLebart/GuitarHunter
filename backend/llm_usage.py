@@ -20,9 +20,21 @@ current_user_ref = contextvars.ContextVar("llm_usage_user_ref", default=None)
 
 
 
+# Marqueurs d'un modèle retiré/introuvable/non supporté (404 Gemini `NotFound`, `NotFoundError`
+# OpenAI...). Partagés avec `DealAnalyzer._is_model_unavailable_error` pour ne définir cette
+# notion qu'à UN endroit.
+MODEL_UNAVAILABLE_MARKERS = ("404", "not found", "not supported", "is not supported for")
+
+
+def is_model_unavailable(error_text):
+    needle = str(error_text).lower()
+    return any(marker in needle for marker in MODEL_UNAVAILABLE_MARKERS)
+
+
 def classify_error(exc):
     """Type d'échec, pour distinguer une panne fournisseur (timeout/http/connection, à compter
-    dans le coupe-circuit) d'un JSON invalide (le modèle a répondu, souvent une boucle de répétition)."""
+    dans le coupe-circuit) d'un JSON invalide (le modèle a répondu, souvent une boucle de répétition)
+    ou d'un modèle retiré (`model_unavailable`, à traiter autrement qu'une panne transitoire)."""
     import json as _json
     name = type(exc).__name__.lower()
     text = str(exc).lower()
@@ -32,6 +44,8 @@ def classify_error(exc):
         return "timeout"
     if "connection" in name or "connect" in text:
         return "connection"
+    if is_model_unavailable(exc) or "notfound" in name:
+        return "model_unavailable"
     if "status" in name or "http" in name or "ratelimit" in name or "api" in name:
         return "http"
     return "other"

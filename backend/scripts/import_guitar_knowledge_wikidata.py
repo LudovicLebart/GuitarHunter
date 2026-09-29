@@ -36,16 +36,20 @@ Politesse envers Wikimedia : User-Agent descriptif obligatoire (renseigner KB_CO
 requêtes groupées (50 entités par appel), pause entre appels, respect du Retry-After.
 """
 import argparse
+import email.utils
 import json
 import os
 import re
 import sys
 import time
 from collections import Counter
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import requests  # noqa: E402
+
+from backend.guitar_knowledge import _STOP, normalize  # noqa: E402
 
 CATEGORY_QID = "Q9962269"  # Category:Guitar manufacturing companies (et ses équivalents par langue)
 GUITAR_ROOTS = ("Q6607", "Q46185")  # guitare, basse
@@ -66,8 +70,11 @@ ACCESSORY_WORDS = re.compile(
 GUITAR_MAKER = re.compile(
     r"guitars?( and (bass|bass guitars?|amplifiers?))? (manufacturer|maker|company|brand)|"
     r"(manufacturer|maker|builder) of [a-z ,-]*guitars|fabricant de guitares|marque de guitares|luthier")
+# Le suffixe doit être un MOT entier, précédé d'un espace (ou début de chaîne) : sans cette
+# frontière, `co`/`inc`/`ltd`... étaient arrachés au milieu des noms (« Marco » → « Mar »,
+# « Nico » → « Ni ») et créaient des alias parasites.
 SUFFIXES = re.compile(
-    r"\s*(\((guitar|musical instrument|bass guitar)?\s*(manufacturer|company|brand|guitars?)\)|"
+    r"(?:^|\s+)(\((guitar|musical instrument|bass guitar)?\s*(manufacturer|company|brand|guitars?)\)|"
     r"guitars?( company| co\.?| corporation| inc\.?| ltd\.?)?|musical instruments?( corporation| co\.?| inc\.?)?|"
     r"manufacturing( company| co\.?)?|(& )?co(mpany)?\.?|inc\.?|ltd\.?|llc|gmbh|s\.a\.|corporation|corp\.?)\s*$",
     re.IGNORECASE)
@@ -80,18 +87,47 @@ class WikiClient:
         self.session.headers["User-Agent"] = f"GuitarHunterKB/1.0 (personal hobby project; {contact})"
         self.pause = pause
 
+    @staticmethod
+    def _retry_after(resp, default):
+        """`Retry-After` = nombre de secondes OU date HTTP (RFC 9110) ; défaut si absent/illisible."""
+        raw = resp.headers.get("Retry-After")
+        if not raw:
+            return default
+        try:
+            return max(0, min(int(raw), 300))
+        except ValueError:
+            pass
+        try:
+            when = email.utils.parsedate_to_datetime(raw)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            return max(0, min(int((when - datetime.now(timezone.utc)).total_seconds()), 300))
+        except (TypeError, ValueError):
+            return default
+
     def _get(self, url, params, tries=4):
+        """GET JSON avec reprise : 429/5xx (souvent transitoires sur WDQS), timeouts et coupures
+        réseau sont retentés avec pause croissante ; toute autre erreur HTTP remonte tout de suite."""
+        last = None
         for attempt in range(tries):
-            resp = self.session.get(url, params=params, timeout=60)
-            if resp.status_code in (429, 503):
-                wait = int(resp.headers.get("Retry-After", 5 * (attempt + 1)))
-                print(f"  … limité par {url.split('/')[2]}, pause {wait}s", file=sys.stderr)
+            wait = 5 * (attempt + 1)
+            try:
+                resp = self.session.get(url, params=params, timeout=60)
+            except (requests.Timeout, requests.ConnectionError) as e:
+                last = e
+                print(f"  … {type(e).__name__} sur {url.split('/')[2]}, pause {wait}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            if resp.status_code in (429, 500, 502, 503, 504):
+                last = RuntimeError(f"HTTP {resp.status_code}")
+                wait = self._retry_after(resp, wait)
+                print(f"  … HTTP {resp.status_code} de {url.split('/')[2]}, pause {wait}s", file=sys.stderr)
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
             time.sleep(self.pause)
             return resp.json()
-        raise RuntimeError(f"Échec répété : {url}")
+        raise RuntimeError(f"Échec répété : {url} ({last})")
 
     # --- Wikipédia -------------------------------------------------------------------------
     def category_members(self, lang, title):
@@ -196,18 +232,22 @@ def all_names(ent):
     return [n for n in dict.fromkeys(n.strip() for n in names) if n]
 
 
-def relevance_of(ent, from_category, is_line):
+# « guitar string manufacturer », « guitar pedal maker » : le mot « guitar » QUALIFIE un accessoire, il ne
+# dit pas que le fabricant fait des guitares — on le retire avant de décider s'il reste un mot de guitare.
+GUITAR_QUALIFIER = re.compile(rf"(?:{GUITAR_WORDS.pattern})\w*[\s-]+(?={ACCESSORY_WORDS.pattern})")
+
+
+def relevance_of(ent, is_line):
     if is_line:
         return "guitars"
     text = " ".join(filter(None, [best_description(ent)] +
                            [d["value"] for d in ent.get("descriptions", {}).values()])).lower()
     if GUITAR_MAKER.search(text):
         return "guitars"
-    if ACCESSORY_WORDS.search(text) and not GUITAR_WORDS.search(re.sub(ACCESSORY_WORDS, "", text)):
+    if ACCESSORY_WORDS.search(text) and not GUITAR_WORDS.search(
+            ACCESSORY_WORDS.sub("", GUITAR_QUALIFIER.sub("", text))):
         return "accessories"
-    if GUITAR_WORDS.search(text) or from_category:
-        return "guitars" if GUITAR_WORDS.search(text) else "unknown"
-    return "unknown"
+    return "guitars" if GUITAR_WORDS.search(text) else "unknown"
 
 
 def kind_of(ent, is_line):
@@ -260,13 +300,19 @@ def collect_from_categories(client, langs, depth):
 
 def collect_from_products(client):
     roots = " ".join(f"wd:{q}" for q in GUITAR_ROOTS)
-    rows = client.sparql(f"""
-        SELECT DISTINCT ?item WHERE {{
-          VALUES ?root {{ {roots} }}
-          ?product wdt:P279* ?root .
-          ?item wdt:P1056 ?product .
-          FILTER NOT EXISTS {{ ?item wdt:P31 wd:{HUMAN} }}
-        }} LIMIT 20000""")
+    try:
+        rows = client.sparql(f"""
+            SELECT DISTINCT ?item WHERE {{
+              VALUES ?root {{ {roots} }}
+              ?product wdt:P279* ?root .
+              ?item wdt:P1056 ?product .
+              FILTER NOT EXISTS {{ ?item wdt:P31 wd:{HUMAN} }}
+            }} LIMIT 20000""")
+    except (RuntimeError, requests.RequestException) as e:
+        # Route secondaire (la catégorie Wikipédia est la route principale) : sa requête est la plus
+        # lourde de WDQS et échoue parfois — on continue avec les autres routes plutôt qu'avorter.
+        print(f"  ⚠️ route « produit = guitare/basse » ignorée ({e})", file=sys.stderr)
+        return set()
     qids = {r["item"]["value"].rsplit("/", 1)[-1] for r in rows}
     print(f"  Wikidata « produit = guitare/basse » : {len(qids)} entités")
     return qids
@@ -278,13 +324,17 @@ def collect_lines(client, maker_qids):
     roots = " ".join(f"wd:{q}" for q in GUITAR_ROOTS)
     for i in range(0, len(makers), 150):
         values = " ".join(f"wd:{q}" for q in makers[i:i + 150])
-        rows = client.sparql(f"""
-            SELECT DISTINCT ?model ?maker WHERE {{
-              VALUES ?maker {{ {values} }}
-              VALUES ?root {{ {roots} }}
-              ?model wdt:P176 ?maker .
-              ?model (wdt:P31|wdt:P279)/wdt:P279* ?root .
-            }}""")
+        try:
+            rows = client.sparql(f"""
+                SELECT DISTINCT ?model ?maker WHERE {{
+                  VALUES ?maker {{ {values} }}
+                  VALUES ?root {{ {roots} }}
+                  ?model wdt:P176 ?maker .
+                  ?model (wdt:P31|wdt:P279)/wdt:P279* ?root .
+                }}""")
+        except (RuntimeError, requests.RequestException) as e:
+            print(f"  ⚠️ lot de séries {i}–{i + 150} ignoré ({e})", file=sys.stderr)
+            continue
         for r in rows:
             lines[r["model"]["value"].rsplit("/", 1)[-1]] = r["maker"]["value"].rsplit("/", 1)[-1]
     print(f"  séries de modèles : {len(lines)}")
@@ -327,6 +377,7 @@ def build_records(client, langs, depth, with_lines):
             parents = [lines[qid]]
         countries = [country_names[c] for c in claim_ids(e, "P17") + claim_ids(e, "P495") if country_names.get(c)]
         aliases = all_names(e)
+        derived = []  # alias courts dérivés (sans le nom du fabricant), filtrés plus bas
         if is_line and parents:
             # « Yamaha Eterna » → aussi « Eterna » : c'est souvent ce qu'on lit seul sur la tête.
             parent_ent = ents.get(parents[0]) or line_ents.get(parents[0])
@@ -335,9 +386,8 @@ def build_records(client, langs, depth, with_lines):
             for alias in list(aliases):
                 for pn in parent_names:
                     if pn and alias.lower().startswith(pn.lower() + " "):
-                        aliases.append(alias[len(pn):].strip())
+                        derived.append(alias[len(pn):].strip())
                         break
-            aliases = list(dict.fromkeys(aliases))
         records.append({
             "id": f"wd:{qid}",
             "kind": kind_of(e, is_line),
@@ -347,13 +397,35 @@ def build_records(client, langs, depth, with_lines):
             "countries": list(dict.fromkeys(countries)) or None,
             "active_from": claim_year(e, "P571"),
             "active_to": claim_year(e, "P576") or claim_year(e, "P2669"),
-            "relevance": relevance_of(e, any(o.startswith("category") for o in origin.get(qid, ())), is_line),
+            "relevance": relevance_of(e, is_line),
             "wikidata_qid": qid,
             "wikipedia_url": enwiki_url(e),
             "aliases": aliases,
+            "_derived": derived,
             "raw": {"origin": sorted(origin.get(qid, {"line"})), "p31": claim_ids(e, "P31")},
         })
+    _merge_derived_aliases(records)
     return records
+
+
+def _merge_derived_aliases(records):
+    """« Yamaha Eterna » → « Eterna » est utile, « Fender Deluxe » → « Deluxe » est dangereux (homonymes :
+    ampli Peavey Deluxe, « Special edition »...). Un alias dérivé n'est gardé que s'il est UNIQUE : pas
+    un mot générique (`_STOP`), pas produit par plusieurs séries, pas déjà un nom/alias d'une autre fiche."""
+    owned = Counter(normalize(a) for r in records for a in set(r["aliases"]))
+    produced = Counter(normalize(a) for r in records for a in set(r["_derived"]))
+    dropped = 0
+    for r in records:
+        keep = []
+        for alias in dict.fromkeys(r.pop("_derived")):
+            n = normalize(alias)
+            if len(n) >= 3 and n not in _STOP and produced[n] == 1 and owned[n] == 0:
+                keep.append(alias)
+            else:
+                dropped += 1
+        r["aliases"] = list(dict.fromkeys(r["aliases"] + keep))
+    if dropped:
+        print(f"  alias dérivés écartés (génériques ou ambigus) : {dropped}")
 
 
 # ------------------------------------------------------------------------------------------

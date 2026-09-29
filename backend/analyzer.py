@@ -228,8 +228,7 @@ class DealAnalyzer:
 
     def _is_model_unavailable_error(self, error_text):
         """Détecte si une erreur Gemini correspond à un modèle introuvable/retiré/non supporté."""
-        needle = str(error_text).lower()
-        return any(marker in needle for marker in ("404", "not found", "not supported", "is not supported for"))
+        return llm_usage.is_model_unavailable(error_text)
 
     def _notify_model_unavailable(self, model_name, error_text, user_email):
         """Alerte email (throttlée à 1x/24h par modèle) si un modèle semble avoir été retiré."""
@@ -416,8 +415,9 @@ class DealAnalyzer:
                 provider_label="local",
             )
         if provider == "qwen":
-            if not TOKENROUTER_API_KEY:
-                return None, "Clé API TokenRouter manquante."
+            # Clé absente : `_call_openai_compatible_json` la détecte lui-même, renvoie une erreur ET
+            # enregistre l'échec dans `llm_usage` (error_type="no_key") — pas de garde-fou ici, sinon
+            # l'échec ne laisserait aucune ligne.
             return self._call_openai_compatible_json(
                 full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
                 response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
@@ -681,10 +681,10 @@ class DealAnalyzer:
             # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
             # fournisseur en pause (coupe-circuit, voir t1_circuit_breaker.py) est sauté sans être
             # appelé. Deux échecs distincts :
-            # - ERREUR RÉELLE (candidate_err) : appel raté (réseau, auth, JSON invalide...) — pas
-            #   encore enregistré par l'appelé (`_call_openai_compatible_json`/`_call_gemini_json`
-            #   ne loggent que le succès), donc enregistré ICI (ok=False, error_type) ET compte
-            #   pour le coupe-circuit.
+            # - ERREUR RÉELLE (candidate_err) : appel raté (réseau, auth, JSON invalide...) — DÉJÀ
+            #   enregistré dans `llm_usage` (ok=False, error_type) par l'appelé
+            #   (`_call_openai_compatible_json`/`_call_gemini_json`), ne PAS le ré-enregistrer ici
+            #   (double comptage) ; compte seulement pour le coupe-circuit.
             # - RÉPONSE VIDE SANS ERREUR (`{}`, ex: JSON normalisé depuis un tableau vide) : l'appel
             #   a réussi et est DÉJÀ enregistré ok=True par l'appelé (tokens réels facturés) — ne
             #   pas ré-enregistrer ok=False dessus (double comptage) ni compter comme panne pour le

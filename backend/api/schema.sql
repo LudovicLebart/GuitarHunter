@@ -526,7 +526,8 @@ CREATE INDEX IF NOT EXISTS llm_usage_created_idx ON llm_usage (created_at);
 CREATE INDEX IF NOT EXISTS llm_usage_model_action_idx ON llm_usage (model, action, created_at);
 -- 2026-09-28/29 : les ÉCHECS sont enregistrés aussi (`ok=false`) — jusque-là seul le chemin de succès
 -- écrivait une ligne, ce qui rendait `ok` toujours vrai et le taux d'échec invisible. `error_type` :
--- 'timeout' | 'http' | 'connection' | 'json' | 'no_key' | 'other' (voir llm_usage.classify_error).
+-- 'timeout' | 'connection' | 'model_unavailable' | 'http' | 'json' | 'no_key' | 'other' (voir
+-- llm_usage.classify_error ; 'model_unavailable' = modèle retiré/introuvable, à ne pas confondre avec une panne).
 -- Les tokens d'un appel qui a répondu mais dont le JSON était invalide sont conservés : ils ont été
 -- facturés. Fournisseur local (Dell/Ollama) étiqueté `local`.
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error_type TEXT;

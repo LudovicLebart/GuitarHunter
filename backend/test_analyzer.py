@@ -197,6 +197,13 @@ class TestLlmUsageRecording(unittest.TestCase):
         self.assertEqual((kwargs["ok"], kwargs["error_type"]), (False, "json"))
         self.assertEqual(kwargs["input_tokens"], 10)  # tokens facturés conservés
 
+    @patch("backend.analyzer.TOKENROUTER_API_KEY", "")
+    @patch("backend.analyzer.llm_usage.record")
+    def test_qwen_provider_without_tokenrouter_key_still_records_the_failure(self, mock_record):
+        _, err = _make_analyzer()._call_t1_provider("qwen", "prompt", [], "gemini-x")
+        self.assertIn("manquante", err)
+        self.assertEqual(mock_record.call_args.kwargs["error_type"], "no_key")
+
     @patch("backend.analyzer.llm_usage.record")
     def test_missing_api_key_records_no_key(self, mock_record):
         _, err = _make_analyzer()._call_openai_compatible_json("p", [], "m", "", "https://api.tokenrouter.io/v1")
