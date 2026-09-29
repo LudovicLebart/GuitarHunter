@@ -14,11 +14,16 @@ base n'est joignable qu'en localhost (`DATABASE_URL` par défaut, auth locale sa
 réseau — voir `backend/pg_db.py` sur la branche de migration). Le réseau vers le Dell
 (`qwen_local`, 100.94.33.54:11434) est déjà validé depuis ce même tailnet.
 
-Reconstruit le prompt EXACT du Portier de prod (mêmes fonctions que `backend/analyzer.py`,
-dupliquées ici à dessein plutôt qu'importées — même principe que `compare_qwen_flashlite_agreement.py`
-: rester lisible seul, sans tirer la dépendance lourde `google.generativeai` juste pour ces
-quelques fonctions), y compris la config utilisateur réelle (`users.config->>'analysisConfig'`)
-si elle diverge des défauts de `prompts.json` — pas seulement les défauts.
+Reconstruit le prompt du Portier (mêmes fonctions que `backend/analyzer.py`, dupliquées ici à
+dessein plutôt qu'importées — même principe que `compare_qwen_flashlite_agreement.py` : rester
+lisible seul, sans tirer la dépendance lourde `google.generativeai` juste pour ces quelques
+fonctions), y compris la config utilisateur réelle (`users.config->>'analysisConfig'`) si elle
+diverge des défauts de `prompts.json` — pas seulement les défauts.
+
+Depuis le 2026-09-29 (décision utilisateur), `--simplified-prompt` EST le prompt réellement
+utilisé en prod (`DealAnalyzer._construct_t1_gatekeeper_prompt`) — sans ce drapeau, ce script
+reconstruit l'ANCIEN prompt fidèle (prompt T2 complet + few-shot), gardé pour comparaison
+historique, plus celui de prod.
 
 Dépendances (à installer sur le serveur si absentes) : psycopg[binary], openai, pillow, requests.
 
@@ -430,10 +435,11 @@ def main():
                          help="Modèle Ollama à interroger (défaut : qwen3-vl:8b). "
                               "Repli si le 8B étouffe : qwen3-vl:4b.")
     parser.add_argument("--simplified-prompt", action="store_true",
-                         help="Expérimental (2026-09-27) : prompt T1 minimal pour le local "
-                              "(instruction Portier + taxonomie, sans le prompt T2/few-shot) au "
-                              "lieu du prompt fidèle à la prod. Le verdict cloud comparé reste "
-                              "inchangé (toujours celui réellement stocké en base).")
+                         help="EST le prompt de prod depuis le 2026-09-29 (instruction Portier + "
+                              "taxonomie, sans le prompt T2/few-shot) — sans ce drapeau, "
+                              "reconstruit l'ANCIEN prompt fidèle (comparaison historique). Le "
+                              "verdict cloud comparé reste inchangé (toujours celui réellement "
+                              "stocké en base).")
     parser.add_argument("--no-think", action="store_true",
                          help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
