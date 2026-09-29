@@ -64,9 +64,15 @@ COMPANY_TYPES = {"Q4830453", "Q783794", "Q6881511", "Q891723", "Q1589009"}  # en
 
 LIST_PAGE = "Q13406463"  # « article de liste » Wikimedia
 LIST_TITLE = re.compile(r"^(list of|liste\b|lista\b|lijst van|liste des)|\b(list|liste|一覧)$", re.IGNORECASE)
-# Un MODÈLE (guitare, ampli...) se reconnaît à son type Wikidata (ni organisation ni personne) ET à une
-# description qui le dit — les deux, car un fabricant au type Wikidata inhabituel ne doit pas devenir un modèle.
+# Un MODÈLE (guitare, ampli...) = entité dont le type Wikidata n'est NI une organisation NI une personne,
+# et dont la description ne parle pas d'une entreprise (mots ci-dessous). Les types sont hétérogènes
+# (« modèle de guitare » Q29982117, « guitare » Q6607...) et souvent absents : sans type, il faut en plus
+# que la description parle de guitare/modèle. Constaté sur le dry-run réel du 2026-09-29 (Gibson ES-135,
+# ES-5, L-5, Danelectro U2, Ibanez K5 restaient « company » avec l'exigence du seul mot « model »).
 MODEL_WORDS = re.compile(r"\bmodels?\b|\bmodèles?\b|\bmodell\b|\bseries\b|\bproduced by\b|\bintroduced in\b")
+MAKER_WORDS = re.compile(
+    r"manufactur|\bmakers?\b|\bcompan(y|ies)\b|\bfirm\b|\bfirme\b|\bentreprise|\bfabricant|"
+    r"\bluthier|\bbusiness|\bbrand|\bmarque|\bbuilders?\b")
 
 GUITAR_WORDS = re.compile(
     r"guitar|guitare|gitarre|guitarra|chitarr|\bbass(es)?\b|\bbasse|luthier|luthie|ギター|ベース")
@@ -254,28 +260,37 @@ def is_list_page(ent, name):
 
 
 def is_model(ent):
-    """Modèle de guitare/ampli (Epiphone G-400, Gibson ES-335, Fender Princeton) et non organisation."""
+    """Modèle de guitare/ampli (Epiphone G-400, Gibson ES-135, Fender Princeton) et non organisation."""
     types = set(claim_ids(ent, "P31"))
-    if not types or types & (BRAND_TYPES | COMPANY_TYPES | {HUMAN}):
+    if types & (BRAND_TYPES | COMPANY_TYPES | {HUMAN}):
         return False
     text = _description_text(ent)
-    return bool(MODEL_WORDS.search(text)) and not GUITAR_MAKER.search(text)
+    if MAKER_WORDS.search(text) or GUITAR_MAKER.search(text):
+        return False
+    # Sans type Wikidata, seule une description qui parle de guitare ou de modèle autorise à conclure.
+    return bool(types) or bool(MODEL_WORDS.search(text) or GUITAR_WORDS.search(text))
 
 
 def relevance_of(ent, is_line, from_category=False, model=False):
-    """`is_line` = série trouvée par la route « séries de modèles » (toujours des guitares). `model` =
-    modèle rangé dans la catégorie Wikipédia : jugé sur sa description (un ampli reste `accessories`).
-    `from_category` : un FABRICANT rangé dans la catégorie « Guitar manufacturing companies » n'est jamais
-    classé `accessories` sur la seule foi de sa description (Framus « firme allemande », Supro « effects
-    units », Robin « guitar pickups » l'étaient à tort) — au pire `unknown`, qui reste reconnaissable."""
+    """`is_line` = série trouvée par la route « séries de modèles » (toujours des guitares). `model` = modèle
+    rangé dans la catégorie Wikipédia : un ampli reste `accessories`.
+
+    Le verdict `accessories` se juge sur la description PRINCIPALE (fr puis en), pas sur le mélange de
+    toutes les langues : Framus (« firme allemande ») était classé accessoire à cause d'une description
+    dans une autre langue. Exception : un fabricant de la catégorie « Guitar manufacturing companies »
+    dont le NOM dit « guitar » (Robin Guitars, décrit « brand of guitar pickups ») reste `unknown`. Les
+    vrais fabricants d'accessoires de la catégorie (EMG, Fishman, Maxon...) restent `accessories`."""
     if is_line:
         return "guitars"
     text = _description_text(ent)
     if GUITAR_MAKER.search(text):
         return "guitars"
-    if ACCESSORY_WORDS.search(text) and not GUITAR_WORDS.search(
-            ACCESSORY_WORDS.sub("", GUITAR_QUALIFIER.sub("", text))):
-        return "unknown" if (from_category and not model) else "accessories"
+    primary = (best_description(ent) or "").lower() or text
+    if ACCESSORY_WORDS.search(primary) and not GUITAR_WORDS.search(
+            ACCESSORY_WORDS.sub("", GUITAR_QUALIFIER.sub("", primary))):
+        if from_category and not model and GUITAR_WORDS.search((best_label(ent) or "").lower()):
+            return "unknown"
+        return "accessories"
     return "guitars" if GUITAR_WORDS.search(text) else "unknown"
 
 

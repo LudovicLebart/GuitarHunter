@@ -57,8 +57,10 @@ class TestRelevance(unittest.TestCase):
         self.assertEqual(imp.relevance_of(_ent("anything"), True), "guitars")
 
 
-def _typed(description_by_lang, p31=None):
+def _typed(description_by_lang, p31=None, label=None):
     ent = {"descriptions": {lang: {"value": v} for lang, v in description_by_lang.items()}, "claims": {}}
+    if label:
+        ent["labels"] = {"en": {"value": label}}
     if p31:
         ent["claims"]["P31"] = [{"mainsnak": {"datavalue": {"value": {"id": q}}}} for q in p31]
     return ent
@@ -68,11 +70,25 @@ class TestRealPreviewCases(unittest.TestCase):
     """Cas constatés sur le premier `--dry-run` réel (2026-09-29) : fabricants de la catégorie classés
     `accessories` à tort, articles « liste » et modèles importés comme entreprises."""
 
-    def test_makers_from_the_guitar_category_are_never_accessories(self):
-        framus = _typed({"fr": "firme allemande", "en": "manufacturer of effects units"})
-        self.assertEqual(imp.relevance_of(framus, False, from_category=True), "unknown")
-        # hors catégorie : le même texte reste un accessoire
-        self.assertEqual(imp.relevance_of(framus, False, from_category=False), "accessories")
+    def test_accessory_verdict_uses_the_primary_description(self):
+        # Framus : « firme allemande » en fr, une autre langue parlait d'accessoires — pas un accessoire.
+        framus = _typed({"fr": "firme allemande", "de": "Hersteller von Effektgeräten und amplifier"}, label="Framus")
+        self.assertNotEqual(imp.relevance_of(framus, False, from_category=True), "accessories")
+
+    def test_real_accessory_makers_of_the_category_stay_accessories(self):
+        for label, description in (("EMG, Inc.", "guitar pickups and EQ accessories manufacturer"),
+                                   ("Fishman", "guitar pickups, preamps manufacturer"),
+                                   ("Maxon Effects", "effect pedals company"),
+                                   ("Dean Markley USA", "company that manufactures musical instrument "
+                                                        "related products, primarily guitar strings"),
+                                   ("Pignose", "portable guitar amp manufacturer")):
+            ent = _typed({"en": description}, ["Q4830453"], label=label)
+            self.assertEqual(imp.relevance_of(ent, False, from_category=True), "accessories", label)
+
+    def test_maker_named_guitars_from_the_category_is_not_an_accessory(self):
+        robin = _typed({"en": "brand of guitar pickups"}, ["Q4830453"], label="Robin Guitars")
+        self.assertEqual(imp.relevance_of(robin, False, from_category=True), "unknown")
+        self.assertEqual(imp.relevance_of(robin, False, from_category=False), "accessories")
 
     def test_amplifier_model_from_category_stays_accessory_and_is_a_model(self):
         princeton = _typed({"en": "guitar amplifier produced by Fender introduced in 1947"}, ["Q1339359"])
@@ -83,6 +99,26 @@ class TestRealPreviewCases(unittest.TestCase):
         g400 = _typed({"en": "solid body electric guitar model"}, ["Q29982117"])
         self.assertTrue(imp.is_model(g400))
         self.assertEqual(imp.relevance_of(g400, False, from_category=True, model=True), "guitars")
+
+    def test_models_seen_in_the_real_preview(self):
+        """Descriptions et types réels du dry-run du 2026-09-29 (Gibson/Danelectro/Ibanez...)."""
+        cases = [
+            ({"en": "Semi-hollow body electric guitar"}, ["Q29982117"]),       # ES-135
+            ({"en": "hollow-body electric guitar"}, ["Q6607"]),                # ES-5
+            ({"en": "archtop guitar by Gibson"}, ["Q29982117"]),               # L-5
+            ({"en": "dual-pickup hollow bodied guitar"}, []),                  # Danelectro U2
+            ({"en": "electric guitar model"}, []),                             # ES-137
+            ({"en": "the signature bass for KoRn's bassist Fieldy"}, ["Q64166304"]),  # Ibanez K5
+            ({"en": "guitar made by the Gibson Guitar Corporation"}, ["Q78987"]),     # S-1
+            ({}, ["Q29982117"]),                                               # GL-1 : type seul
+        ]
+        for descriptions, types in cases:
+            self.assertTrue(imp.is_model(_typed(descriptions, types)), (descriptions, types))
+
+    def test_makers_are_not_models_even_without_wikidata_type(self):
+        self.assertFalse(imp.is_model(_typed({"en": "German guitar builder"}, [])))
+        self.assertFalse(imp.is_model(_typed({"fr": "entreprise américaine de matériel audio"}, ["Q4830453"])))  # Line 6
+        self.assertFalse(imp.is_model(_typed({"en": "manufacturer of effects units"}, ["Q431289"])))           # Supro
 
     def test_organisations_are_never_models(self):
         company = _typed({"en": "series of guitars, model range"}, ["Q4830453"])
