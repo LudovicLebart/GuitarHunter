@@ -38,3 +38,11 @@ def record_failure(provider, threshold, cooldown_seconds, now=None):
         st["consecutive_failures"] += 1
         if st["consecutive_failures"] >= threshold:
             st["opened_until"] = now + cooldown_seconds
+
+
+def reset():
+    """Vide tout l'état — réservé aux tests (`backend/test_analyzer.py`) : `_state` est un
+    global process-wide, sans ça l'historique d'échecs fuit d'un test à l'autre dans le même
+    process pytest."""
+    with _lock:
+        _state.clear()

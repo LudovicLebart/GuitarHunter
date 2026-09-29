@@ -7,8 +7,9 @@ Chantier G, Tier 2/3) n'est pas couvert ici.
 """
 import threading
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from backend import t1_circuit_breaker
 from backend.analyzer import DealAnalyzer
 
 
@@ -36,6 +37,15 @@ class TestGatekeeperFailureSkip(unittest.TestCase):
         # Portier miroir (Chantier H) : best-effort, jamais utilisé pour la décision — neutralisé
         # pour isoler le comportement du décideur T1 réel testé ici.
         self.analyzer._run_t1_shadow_observation = MagicMock(return_value={})
+        # t1_circuit_breaker._state est un global process-wide : sans reset, l'historique d'échecs
+        # d'un test fuit vers le suivant (ex: 2 échecs "local"/"qwen" par test, seuil par défaut 3).
+        t1_circuit_breaker.reset()
+        self.addCleanup(t1_circuit_breaker.reset)
+        # llm_usage.record() est appelé directement par le nouveau bloc T1_PROVIDER_CHAIN sur
+        # chaque échec — mocké pour ne jamais tenter une vraie connexion Postgres dans les tests.
+        self._llm_usage_record_patcher = patch("backend.analyzer.llm_usage.record")
+        self._llm_usage_record_patcher.start()
+        self.addCleanup(self._llm_usage_record_patcher.stop)
 
     def test_t1_call_failure_returns_skip_verdict_not_fail_open(self):
         """err_t1 renseigné (appel raté, ex: panne réseau/TokenRouter) : doit sauter
@@ -56,6 +66,24 @@ class TestGatekeeperFailureSkip(unittest.TestCase):
 
         self.assertEqual(result["verdict"], "GATEKEEPER_FAILED_SKIP")
         self.assertEqual(result["gatekeeperVerdict"], "ERROR")
+
+    @patch("backend.analyzer.T1_PROVIDER_CHAIN", ["local", "qwen"])
+    def test_t1_chain_falls_through_to_next_candidate_on_failure(self):
+        """Chantier I — coeur du fallback chaîné : un échec du PREMIER fournisseur de
+        T1_PROVIDER_CHAIN (ex: local/Dell injoignable) ne doit pas sauter l'annonce si un
+        fournisseur suivant répond correctement, verdict inclus. Chaîne figée par le décorateur
+        (indépendante de la config d'environnement réelle) pour un test déterministe."""
+        def _side_effect(provider, *args, **kwargs):
+            if provider == "local":
+                return None, "Connection refused (Dell injoignable)."
+            return {"status": "REJECTED", "reason": "Pas une guitare."}, None
+
+        self.analyzer._call_t1_provider = MagicMock(side_effect=_side_effect)
+
+        result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
+
+        self.assertEqual(self.analyzer._call_t1_provider.call_count, 2)
+        self.assertEqual(result["verdict"], "REJECTED")
 
     def test_t1_normal_rejection_is_unaffected(self):
         """Garde-fou anti-régression : un verdict normal (Portier opérationnel) suit

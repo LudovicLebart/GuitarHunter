@@ -647,11 +647,19 @@ class DealAnalyzer:
 
             # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
             # fournisseur en pause (coupe-circuit, voir t1_circuit_breaker.py) est sauté sans être
-            # appelé ; tout échec réel est enregistré dans llm_usage (ok=False, error_type) ET compte
-            # pour le coupe-circuit avant de passer au suivant — l'annonce n'est sautée (retentée au
-            # prochain cycle) que si TOUTE la chaîne échoue.
-            result_t1, err_t1, primary_provider = None, None, None
-            tried = []
+            # appelé. Deux échecs distincts :
+            # - ERREUR RÉELLE (candidate_err) : appel raté (réseau, auth, JSON invalide...) — pas
+            #   encore enregistré par l'appelé (`_call_openai_compatible_json`/`_call_gemini_json`
+            #   ne loggent que le succès), donc enregistré ICI (ok=False, error_type) ET compte
+            #   pour le coupe-circuit.
+            # - RÉPONSE VIDE SANS ERREUR (`{}`, ex: JSON normalisé depuis un tableau vide) : l'appel
+            #   a réussi et est DÉJÀ enregistré ok=True par l'appelé (tokens réels facturés) — ne
+            #   pas ré-enregistrer ok=False dessus (double comptage) ni compter comme panne pour le
+            #   coupe-circuit (le fournisseur a bien répondu, c'est un problème de qualité de
+            #   réponse, pas de disponibilité) : on essaie juste le candidat suivant.
+            # L'annonce n'est sautée (retentée au prochain cycle) que si TOUTE la chaîne échoue.
+            result_t1, primary_provider = None, None
+            tried, chain_errors = [], []
             for candidate in T1_PROVIDER_CHAIN:
                 if t1_circuit_breaker.is_open(candidate):
                     self.logger.warning(f"   ⏸️ [Portier/{candidate}] en pause (coupe-circuit) — passage au suivant.")
@@ -661,18 +669,22 @@ class DealAnalyzer:
                 candidate_result, candidate_err = self._call_t1_provider(
                     candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
                 )
-                if candidate_err or not candidate_result:
+                if candidate_err:
                     t1_circuit_breaker.record_failure(
                         candidate, T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS
                     )
-                    error_type = "model_unavailable" if self._is_model_unavailable_error(candidate_err or "") else "call_failure"
+                    error_type = "model_unavailable" if self._is_model_unavailable_error(candidate_err) else "call_failure"
                     llm_usage.record(
                         provider=candidate, model=self._t1_model_name_for(candidate, gatekeeper_model_name),
                         action="t1_gatekeeper", images=len(images),
                         latency_ms=int((time.monotonic() - t_call) * 1000), ok=False, error_type=error_type,
                     )
-                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err or 'réponse vide'}")
-                    err_t1 = candidate_err
+                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err}")
+                    chain_errors.append(f"{candidate}: {candidate_err}")
+                    continue
+                if not candidate_result:
+                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] réponse vide — passage au suivant.")
+                    chain_errors.append(f"{candidate}: réponse vide")
                     continue
                 t1_circuit_breaker.record_success(candidate)
                 result_t1, primary_provider = candidate_result, candidate
@@ -694,10 +706,12 @@ class DealAnalyzer:
                 # être stockée ni marquée traitée, elle sera retentée au prochain cycle de scan
                 # (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
                 gatekeeper_status = "ERROR_GATEKEEPER"
-                gatekeeper_reason = err_t1 or (
-                    "Toute la chaîne T1_PROVIDER_CHAIN est en pause (coupe-circuit)." if not tried
-                    else "Le portier a planté silencieusement."
-                )
+                if chain_errors:
+                    gatekeeper_reason = " | ".join(chain_errors)
+                elif not T1_PROVIDER_CHAIN:
+                    gatekeeper_reason = "T1_PROVIDER_CHAIN est vide — configuration invalide."
+                else:
+                    gatekeeper_reason = "Toute la chaîne T1_PROVIDER_CHAIN est en pause (coupe-circuit)."
                 chain_label = "T1-chain(" + ",".join(tried or T1_PROVIDER_CHAIN) + ")"
                 self.logger.error(f"   ❌ [Portier réel/{chain_label}] échec sur toute la chaîne — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
                 # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
