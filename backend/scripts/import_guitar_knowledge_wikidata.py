@@ -62,6 +62,12 @@ HUMAN = "Q5"
 BRAND_TYPES = {"Q431289", "Q167270"}          # marque, marque déposée
 COMPANY_TYPES = {"Q4830453", "Q783794", "Q6881511", "Q891723", "Q1589009"}  # entreprise, société, entreprise, cotée, privée
 
+LIST_PAGE = "Q13406463"  # « article de liste » Wikimedia
+LIST_TITLE = re.compile(r"^(list of|liste\b|lista\b|lijst van|liste des)|\b(list|liste|一覧)$", re.IGNORECASE)
+# Un MODÈLE (guitare, ampli...) se reconnaît à son type Wikidata (ni organisation ni personne) ET à une
+# description qui le dit — les deux, car un fabricant au type Wikidata inhabituel ne doit pas devenir un modèle.
+MODEL_WORDS = re.compile(r"\bmodels?\b|\bmodèles?\b|\bmodell\b|\bseries\b|\bproduced by\b|\bintroduced in\b")
+
 GUITAR_WORDS = re.compile(
     r"guitar|guitare|gitarre|guitarra|chitarr|\bbass(es)?\b|\bbasse|luthier|luthie|ギター|ベース")
 ACCESSORY_WORDS = re.compile(
@@ -237,16 +243,39 @@ def all_names(ent):
 GUITAR_QUALIFIER = re.compile(rf"(?:{GUITAR_WORDS.pattern})\w*[\s-]+(?={ACCESSORY_WORDS.pattern})")
 
 
-def relevance_of(ent, is_line):
+def _description_text(ent):
+    return " ".join(filter(None, [best_description(ent)] +
+                           [d["value"] for d in ent.get("descriptions", {}).values()])).lower()
+
+
+def is_list_page(ent, name):
+    """Article Wikipédia « liste de… » (« list of guitar manufacturers ») : pas une marque."""
+    return LIST_PAGE in claim_ids(ent, "P31") or bool(LIST_TITLE.search(name or ""))
+
+
+def is_model(ent):
+    """Modèle de guitare/ampli (Epiphone G-400, Gibson ES-335, Fender Princeton) et non organisation."""
+    types = set(claim_ids(ent, "P31"))
+    if not types or types & (BRAND_TYPES | COMPANY_TYPES | {HUMAN}):
+        return False
+    text = _description_text(ent)
+    return bool(MODEL_WORDS.search(text)) and not GUITAR_MAKER.search(text)
+
+
+def relevance_of(ent, is_line, from_category=False, model=False):
+    """`is_line` = série trouvée par la route « séries de modèles » (toujours des guitares). `model` =
+    modèle rangé dans la catégorie Wikipédia : jugé sur sa description (un ampli reste `accessories`).
+    `from_category` : un FABRICANT rangé dans la catégorie « Guitar manufacturing companies » n'est jamais
+    classé `accessories` sur la seule foi de sa description (Framus « firme allemande », Supro « effects
+    units », Robin « guitar pickups » l'étaient à tort) — au pire `unknown`, qui reste reconnaissable."""
     if is_line:
         return "guitars"
-    text = " ".join(filter(None, [best_description(ent)] +
-                           [d["value"] for d in ent.get("descriptions", {}).values()])).lower()
+    text = _description_text(ent)
     if GUITAR_MAKER.search(text):
         return "guitars"
     if ACCESSORY_WORDS.search(text) and not GUITAR_WORDS.search(
             ACCESSORY_WORDS.sub("", GUITAR_QUALIFIER.sub("", text))):
-        return "accessories"
+        return "unknown" if (from_category and not model) else "accessories"
     return "guitars" if GUITAR_WORDS.search(text) else "unknown"
 
 
@@ -370,15 +399,18 @@ def build_records(client, langs, depth, with_lines):
     records = []
     for qid, e, is_line in [(q, e, False) for q, e in ents.items()] + [(q, e, True) for q, e in line_ents.items()]:
         name = best_label(e)
-        if not name:
+        if not name or is_list_page(e, name):
             continue
-        parents = (claim_ids(e, "P176") if is_line else []) or claim_ids(e, "P749") or claim_ids(e, "P127")
+        model = not is_line and is_model(e)
+        as_line = is_line or model  # kind « line » : série de modèles OU modèle isolé
+        from_category = any(o.startswith("category") for o in origin.get(qid, ()))
+        parents = (claim_ids(e, "P176") if as_line else []) or claim_ids(e, "P749") or claim_ids(e, "P127")
         if is_line and lines.get(qid):
             parents = [lines[qid]]
         countries = [country_names[c] for c in claim_ids(e, "P17") + claim_ids(e, "P495") if country_names.get(c)]
         aliases = all_names(e)
         derived = []  # alias courts dérivés (sans le nom du fabricant), filtrés plus bas
-        if is_line and parents:
+        if as_line and parents:
             # « Yamaha Eterna » → aussi « Eterna » : c'est souvent ce qu'on lit seul sur la tête.
             parent_ent = ents.get(parents[0]) or line_ents.get(parents[0])
             parent_names = sorted({strip_suffix(n) for n in all_names(parent_ent)} if parent_ent else set(),
@@ -390,14 +422,14 @@ def build_records(client, langs, depth, with_lines):
                         break
         records.append({
             "id": f"wd:{qid}",
-            "kind": kind_of(e, is_line),
+            "kind": kind_of(e, as_line),
             "name": name,
             "description": best_description(e),
             "parent_id": f"wd:{parents[0]}" if parents else None,
             "countries": list(dict.fromkeys(countries)) or None,
             "active_from": claim_year(e, "P571"),
             "active_to": claim_year(e, "P576") or claim_year(e, "P2669"),
-            "relevance": relevance_of(e, is_line),
+            "relevance": relevance_of(e, is_line, from_category, model),
             "wikidata_qid": qid,
             "wikipedia_url": enwiki_url(e),
             "aliases": aliases,
@@ -419,7 +451,7 @@ def _merge_derived_aliases(records):
         keep = []
         for alias in dict.fromkeys(r.pop("_derived")):
             n = normalize(alias)
-            if len(n) >= 3 and n not in _STOP and produced[n] == 1 and owned[n] == 0:
+            if len(n) >= 4 and n not in _STOP and produced[n] == 1 and owned[n] == 0:
                 keep.append(alias)
             else:
                 dropped += 1

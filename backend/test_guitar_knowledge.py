@@ -57,6 +57,85 @@ class TestRelevance(unittest.TestCase):
         self.assertEqual(imp.relevance_of(_ent("anything"), True), "guitars")
 
 
+def _typed(description_by_lang, p31=None):
+    ent = {"descriptions": {lang: {"value": v} for lang, v in description_by_lang.items()}, "claims": {}}
+    if p31:
+        ent["claims"]["P31"] = [{"mainsnak": {"datavalue": {"value": {"id": q}}}} for q in p31]
+    return ent
+
+
+class TestRealPreviewCases(unittest.TestCase):
+    """Cas constatés sur le premier `--dry-run` réel (2026-09-29) : fabricants de la catégorie classés
+    `accessories` à tort, articles « liste » et modèles importés comme entreprises."""
+
+    def test_makers_from_the_guitar_category_are_never_accessories(self):
+        framus = _typed({"fr": "firme allemande", "en": "manufacturer of effects units"})
+        self.assertEqual(imp.relevance_of(framus, False, from_category=True), "unknown")
+        # hors catégorie : le même texte reste un accessoire
+        self.assertEqual(imp.relevance_of(framus, False, from_category=False), "accessories")
+
+    def test_amplifier_model_from_category_stays_accessory_and_is_a_model(self):
+        princeton = _typed({"en": "guitar amplifier produced by Fender introduced in 1947"}, ["Q1339359"])
+        self.assertTrue(imp.is_model(princeton))
+        self.assertEqual(imp.relevance_of(princeton, False, from_category=True, model=True), "accessories")
+
+    def test_guitar_model_becomes_a_line(self):
+        g400 = _typed({"en": "solid body electric guitar model"}, ["Q29982117"])
+        self.assertTrue(imp.is_model(g400))
+        self.assertEqual(imp.relevance_of(g400, False, from_category=True, model=True), "guitars")
+
+    def test_organisations_are_never_models(self):
+        company = _typed({"en": "series of guitars, model range"}, ["Q4830453"])
+        self.assertFalse(imp.is_model(company))
+        self.assertFalse(imp.is_model(_typed({"fr": "firme allemande"})))  # aucun type
+
+    def test_list_pages_are_skipped(self):
+        for title in ("list of guitar manufacturers", "list of Yamaha guitars", "Liste des marques de guitares",
+                      "list of electric guitar brands"):
+            self.assertTrue(imp.is_list_page(_typed({}), title), title)
+        self.assertTrue(imp.is_list_page(_typed({}, ["Q13406463"]), "Guitar makers"))
+        self.assertFalse(imp.is_list_page(_typed({}), "Listen Guitars"))
+        self.assertFalse(imp.is_list_page(_typed({}), "Yamaha"))
+
+
+class TestBuildRecordsOnRealPreviewCases(unittest.TestCase):
+    """`build_records` de bout en bout (Wikimedia simulé) sur les cas du premier dry-run réel."""
+
+    def _entity(self, label, description, p31, claims=None, sitelinks=None):
+        ent = _typed({"en": description}, p31)
+        ent["labels"] = {"en": {"value": label}}
+        ent["claims"].update(claims or {})
+        return ent
+
+    def test_wiring(self):
+        maker_claim = [{"mainsnak": {"datavalue": {"value": {"id": "Q10"}}}}]
+        entities = {
+            "Q10": self._entity("Epiphone", "American guitar manufacturer", ["Q4830453"]),
+            "Q11": self._entity("Framus", "firme allemande", ["Q167270"]),
+            "Q12": self._entity("list of guitar manufacturers", "Wikimedia list article", ["Q13406463"]),
+            "Q13": self._entity("Epiphone G-400", "solid body electric guitar model", ["Q29982117"],
+                                claims={"P176": maker_claim}),
+            "Q14": self._entity("Fender Princeton", "guitar amplifier produced by Fender introduced in 1947",
+                                ["Q1339359"]),
+        }
+        origin = {q: {"category:en"} for q in entities}
+        client = MagicMock()
+        client.entities.side_effect = lambda qids, props=None: {q: entities[q] for q in qids if q in entities}
+        with patch.object(imp, "collect_from_categories", return_value=origin), \
+                patch.object(imp, "collect_from_products", return_value=set()):
+            records = {r["name"]: r for r in imp.build_records(client, ["en"], 1, with_lines=False)}
+
+        self.assertNotIn("list of guitar manufacturers", records)
+        self.assertIn(records["Framus"]["relevance"], ("unknown", "guitars"))  # jamais « accessories »
+        self.assertEqual((records["Epiphone G-400"]["kind"], records["Epiphone G-400"]["relevance"]),
+                         ("line", "guitars"))
+        self.assertEqual(records["Epiphone G-400"]["parent_id"], "wd:Q10")
+        self.assertEqual((records["Fender Princeton"]["kind"], records["Fender Princeton"]["relevance"]),
+                         ("line", "accessories"))
+        self.assertEqual(records["Epiphone"]["kind"], "company")
+        self.assertIn("G-400", records["Epiphone G-400"]["aliases"])  # alias dérivé unique, ≥ 4 caractères
+
+
 class TestDerivedAliases(unittest.TestCase):
     def test_generic_ambiguous_and_colliding_aliases_are_dropped(self):
         records = [
@@ -73,6 +152,11 @@ class TestDerivedAliases(unittest.TestCase):
         self.assertNotIn("Vega", records[2]["aliases"] + records[3]["aliases"])
         self.assertNotIn("Aria", records[4]["aliases"])
         self.assertTrue(all("_derived" not in r for r in records))
+
+    def test_very_short_model_numbers_are_not_kept(self):
+        records = [{"aliases": ["Gibson S-1"], "_derived": ["S-1"]}]  # « s 1 » = 3 caractères : bruit
+        imp._merge_derived_aliases(records)
+        self.assertNotIn("S-1", records[0]["aliases"])
 
 
 class TestWikiClientGet(unittest.TestCase):
