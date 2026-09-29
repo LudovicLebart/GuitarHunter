@@ -33,7 +33,14 @@ from config import (
     T1_OBSERVATION_QWEN_MODEL,
     T1_OBSERVATION_ENABLED,
     T1_GATEKEEPER_PROVIDER,
+    T1_PROVIDER_CHAIN,
+    T1_LOCAL_BASE_URL,
+    T1_LOCAL_MODEL,
+    T1_LOCAL_API_KEY,
+    T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+    T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
 )
+from backend import t1_circuit_breaker
 from backend.scraping.parser import ListingParser
 from backend.taxonomy import (
     build_index as build_taxonomy_index,
@@ -361,12 +368,17 @@ class DealAnalyzer:
             return None, str(e)
 
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
-        """Chantier H (porté depuis dev le 2026-09-22) : point d'appel UNIQUE pour n'importe
-        lequel des deux fournisseurs T1 (Qwen via TokenRouter, ou Gemini Flash-Lite), avec
-        exactement le même prompt et le schéma structuré correspondant — réutilisé à la fois par
-        le décideur réel et l'observation miroir, pour qu'un futur changement de l'appel (timeout,
-        retry, format) ne puisse plus être fait dans un seul des deux endroits sans désynchroniser
-        décision et observation."""
+        """Chantier H/I : point d'appel UNIQUE pour n'importe lequel des fournisseurs T1 ("local"
+        Dell/Ollama, "qwen" via TokenRouter, ou "gemini" Flash-Lite), avec exactement le même
+        prompt et le schéma structuré correspondant — réutilisé à la fois par la chaîne de
+        décision réelle (`T1_PROVIDER_CHAIN`) et l'observation miroir historique, pour qu'un futur
+        changement de l'appel (timeout, retry, format) ne puisse plus être fait dans un seul
+        endroit sans désynchroniser décision et observation."""
+        if provider == "local":
+            return self._call_openai_compatible_json(
+                full_prompt_t1, images, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
+                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
+            )
         if provider == "qwen":
             if not TOKENROUTER_API_KEY:
                 return None, "Clé API TokenRouter manquante."
@@ -378,6 +390,17 @@ class DealAnalyzer:
             gatekeeper_model_name, [full_prompt_t1] + images, user_email,
             response_schema=T1_GATEKEEPER_RESPONSE_SCHEMA, action=action,
         )
+
+    @staticmethod
+    def _t1_model_name_for(provider, gatekeeper_model_name):
+        """Nom de modèle correspondant à un fournisseur T1 — pour le logging (`model_chain`) et
+        l'enregistrement `llm_usage` des échecs (les succès l'enregistrent déjà eux-mêmes, voir
+        `_call_openai_compatible_json`/`_call_gemini_json`)."""
+        if provider == "local":
+            return T1_LOCAL_MODEL
+        if provider == "qwen":
+            return T1_OBSERVATION_QWEN_MODEL
+        return gatekeeper_model_name
 
     def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
         """Chantier H (porté depuis dev le 2026-09-22) — OBSERVATION EN MIROIR : rejoue le
@@ -595,24 +618,22 @@ class DealAnalyzer:
         qwen_observation = {}
 
         # ==========================================
-        # PHASE 1 : TIER 1 - PORTIER (bascule 2026-09-20 : Qwen par défaut, voir config.py)
+        # PHASE 1 : TIER 1 - PORTIER (Chantier I, 2026-09-29 : chaîne T1_PROVIDER_CHAIN — local Dell
+        # primaire / Qwen cloud secours par défaut, voir config.py)
         # ==========================================
         if not force_expert:
-            t1_real_model_name = T1_OBSERVATION_QWEN_MODEL if T1_GATEKEEPER_PROVIDER == "qwen" else gatekeeper_model_name
-            self.logger.info(f"   🛡️ Étape 1 : Portier ({t1_real_model_name})")
-            model_chain.append(t1_real_model_name)
+            self.logger.info(f"   🛡️ Étape 1 : Portier (chaîne {' -> '.join(T1_PROVIDER_CHAIN)})")
             gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
             if isinstance(gatekeeper_instruction, list):
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
 
-            # T1_GATEKEEPER_PROVIDER détermine qui décide réellement (accept/reject) — "qwen" par
-            # défaut, "gemini" en repli. L'autre fournisseur continue de tourner en miroir,
-            # best-effort, uniquement pour accumuler de la comparaison (jamais lu pour la
-            # décision) — lancé en parallèle pour ne pas cumuler les deux latences sur chaque
-            # annonce (~22s Qwen vs ~5s Gemini, peu importe lequel est réel).
-            primary_provider = T1_GATEKEEPER_PROVIDER
-            shadow_provider = "gemini" if primary_provider == "qwen" else "qwen"
+            # Observation miroir Chantier H (Qwen vs Gemini) : conservée telle quelle, ORTHOGONALE
+            # à la chaîne T1_PROVIDER_CHAIN — toujours sur l'opposé de T1_GATEKEEPER_PROVIDER, quel
+            # que soit le fournisseur qui décidera réellement ci-dessous (y compris "local"), pour
+            # continuer à accumuler la comparaison historique Qwen/Gemini sans dépendre du résultat
+            # de la chaîne. Lancée en parallèle pour ne pas cumuler les latences sur chaque annonce.
+            shadow_provider = "gemini" if T1_GATEKEEPER_PROVIDER == "qwen" else "qwen"
 
             shadow_result_holder = [{}]
 
@@ -624,30 +645,69 @@ class DealAnalyzer:
             shadow_thread = threading.Thread(target=contextvars.copy_context().run, args=(_observe_shadow,), daemon=True)
             shadow_thread.start()
 
-            result_t1, err_t1 = self._call_t1_provider(
-                primary_provider, full_prompt_t1, images, gatekeeper_model_name, user_email
+            # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
+            # fournisseur en pause (coupe-circuit, voir t1_circuit_breaker.py) est sauté sans être
+            # appelé ; tout échec réel est enregistré dans llm_usage (ok=False, error_type) ET compte
+            # pour le coupe-circuit avant de passer au suivant — l'annonce n'est sautée (retentée au
+            # prochain cycle) que si TOUTE la chaîne échoue.
+            result_t1, err_t1, primary_provider = None, None, None
+            tried = []
+            for candidate in T1_PROVIDER_CHAIN:
+                if t1_circuit_breaker.is_open(candidate):
+                    self.logger.warning(f"   ⏸️ [Portier/{candidate}] en pause (coupe-circuit) — passage au suivant.")
+                    continue
+                tried.append(candidate)
+                t_call = time.monotonic()
+                candidate_result, candidate_err = self._call_t1_provider(
+                    candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
+                )
+                if candidate_err or not candidate_result:
+                    t1_circuit_breaker.record_failure(
+                        candidate, T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS
+                    )
+                    error_type = "model_unavailable" if self._is_model_unavailable_error(candidate_err or "") else "call_failure"
+                    llm_usage.record(
+                        provider=candidate, model=self._t1_model_name_for(candidate, gatekeeper_model_name),
+                        action="t1_gatekeeper", images=len(images),
+                        latency_ms=int((time.monotonic() - t_call) * 1000), ok=False, error_type=error_type,
+                    )
+                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err or 'réponse vide'}")
+                    err_t1 = candidate_err
+                    continue
+                t1_circuit_breaker.record_success(candidate)
+                result_t1, primary_provider = candidate_result, candidate
+                break
+
+            t1_real_model_name = (
+                self._t1_model_name_for(primary_provider, gatekeeper_model_name) if primary_provider
+                else "/".join(self._t1_model_name_for(p, gatekeeper_model_name) for p in (tried or T1_PROVIDER_CHAIN))
             )
+            model_chain.append(t1_real_model_name)
 
             shadow_thread.join()
             qwen_observation = shadow_result_holder[0]
 
-            if err_t1 or not result_t1:
-                # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) :
-                # un échec du DÉCIDEUR T1 RÉEL ne fait plus fail-open vers l'Analyste (ce qui
-                # revenait à ne plus filtrer AUCUNE annonce tant que ça persistait) — l'annonce
-                # est sautée sans être stockée ni marquée traitée, elle sera retentée au prochain
-                # cycle de scan (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
+            if not result_t1:
+                # Skip (2026-09-24, chaîne Chantier I depuis le 2026-09-29) : un échec de TOUTE la
+                # chaîne T1_PROVIDER_CHAIN ne fait plus fail-open vers l'Analyste (ce qui revenait à
+                # ne plus filtrer AUCUNE annonce tant que ça persistait) — l'annonce est sautée sans
+                # être stockée ni marquée traitée, elle sera retentée au prochain cycle de scan
+                # (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
                 gatekeeper_status = "ERROR_GATEKEEPER"
-                gatekeeper_reason = err_t1 or "Le portier a planté silencieusement."
-                self.logger.error(f"   ❌ [Portier réel/{primary_provider}] échec — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
+                gatekeeper_reason = err_t1 or (
+                    "Toute la chaîne T1_PROVIDER_CHAIN est en pause (coupe-circuit)." if not tried
+                    else "Le portier a planté silencieusement."
+                )
+                chain_label = "T1-chain(" + ",".join(tried or T1_PROVIDER_CHAIN) + ")"
+                self.logger.error(f"   ❌ [Portier réel/{chain_label}] échec sur toute la chaîne — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
                 # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
                 # ressemble vraiment (_is_model_unavailable_error) — sinon (image tronquée, panne
                 # réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne présume pas la
                 # cause. Les deux sont throttlées séparément (clé distincte).
                 if self._is_model_unavailable_error(gatekeeper_reason):
-                    self._notify_model_unavailable(f"T1-{primary_provider}", gatekeeper_reason, user_email)
+                    self._notify_model_unavailable(chain_label, gatekeeper_reason, user_email)
                 else:
-                    self._notify_gatekeeper_failure(f"T1-{primary_provider}", gatekeeper_reason, user_email)
+                    self._notify_gatekeeper_failure(chain_label, gatekeeper_reason, user_email)
             else:
                 gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
                 gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'

@@ -24,8 +24,9 @@ _last_warning = 0.0
 
 _INSERT = """
 INSERT INTO llm_usage (source, provider, model, action, deal_id, user_ref, images,
-                       input_tokens, cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       input_tokens, cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok,
+                       error_type)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -53,7 +54,7 @@ def _pool():
 
 
 def record(*, provider, model, action, images=0, input_tokens=0, cached_tokens=0,
-           output_tokens=0, thoughts_tokens=0, latency_ms=None, ok=True,
+           output_tokens=0, thoughts_tokens=0, latency_ms=None, ok=True, error_type=None,
            deal_id=None, user_ref=None, source="backend"):
     global _last_warning
     if _disabled:
@@ -70,6 +71,7 @@ def record(*, provider, model, action, images=0, input_tokens=0, cached_tokens=0
                 int(images or 0), int(input_tokens or 0), int(cached_tokens or 0),
                 int(output_tokens or 0), int(thoughts_tokens or 0),
                 int(latency_ms) if latency_ms is not None else None, bool(ok),
+                error_type,
             ))
     except Exception as e:  # jamais bloquant
         now = time.monotonic()

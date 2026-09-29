@@ -97,15 +97,38 @@ GEMINI_MODELS = {
 # (marge insuffisante pour un flip), 1/21 `LUTHIER_PROJ` marginal. Un seul cas réel de perte
 # confirmée sur 166 annonces. Décision utilisateur : bascule.
 #
-# `T1_GATEKEEPER_PROVIDER` détermine qui décide RÉELLEMENT (accept/reject) : "qwen" (nouveau
-# défaut) ou "gemini" (repli instantané vers le comportement historique, sans redéploiement de
-# code — juste cette variable d'env). Quel que soit le décideur, l'AUTRE fournisseur continue
-# de tourner en miroir (best-effort, coupe-circuit `T1_OBSERVATION_ENABLED`) pour continuer à
-# accumuler de la comparaison — voir `analyzer.py::_run_t1_shadow_observation`.
+# `T1_GATEKEEPER_PROVIDER` : ne pilote plus la décision T1 réelle depuis le Chantier I (voir
+# T1_PROVIDER_CHAIN ci-dessous) — rôle réduit au choix du fournisseur comparé en miroir par
+# l'observation Chantier H ("qwen" -> miroir Gemini, "gemini" -> miroir Qwen), déjà désactivée
+# par défaut (T1_OBSERVATION_ENABLED=false). Conservé pour ne pas casser ce mécanisme existant.
 TOKENROUTER_API_KEY = os.getenv("TOKENROUTER_API_KEY")
 TOKENROUTER_BASE_URL = "https://api.tokenrouter.com/v1"
 T1_OBSERVATION_QWEN_MODEL = os.getenv("T1_OBSERVATION_QWEN_MODEL", "qwen/qwen3.8-flash")
 T1_GATEKEEPER_PROVIDER = os.getenv("T1_GATEKEEPER_PROVIDER", "qwen").strip().lower()
+
+# --- CHANTIER I (2026-09-29) : CHAÎNE DE FOURNISSEURS T1 (local Dell primaire, Qwen cloud secours) ---
+# Historique complet (validation du local sur 665 annonces, découverte du vrai taux d'échec de
+# Qwen cloud 13-25%, décision "local permanent, cloud en secours" actée avec Opus) : voir
+# JOURNAL.md/TODO.md § Chantier I. `T1_PROVIDER_CHAIN` remplace `T1_GATEKEEPER_PROVIDER` comme
+# source de vérité pour la décision RÉELLE (accept/reject) : liste ordonnée, essayée dans l'ordre
+# par `analyzer.py::_run_analysis_cascade`, chaque fournisseur pouvant être mis en pause par le
+# coupe-circuit (`backend/t1_circuit_breaker.py`) après des échecs répétés. Un seul mot suffit à
+# revenir au comportement pré-Chantier I (ex: "qwen" seul), sans redéploiement de code.
+_t1_chain_raw = os.getenv("T1_PROVIDER_CHAIN", "local,qwen")
+T1_PROVIDER_CHAIN = [p.strip().lower() for p in _t1_chain_raw.split(",") if p.strip()]
+
+# Portier local (Dell T5810, Ollama via Tailscale) — modèle `qwen3-vl:8b-instruct` validé (pas la
+# variante Thinking `qwen3-vl:8b`, voir JOURNAL.md 2026-09-27) avec le prompt simplifié devenu
+# l'instruction Portier de prod (décision utilisateur 2026-09-29, voir DEFAULT_GATEKEEPER_INSTRUCTION).
+T1_LOCAL_BASE_URL = os.getenv("T1_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1")
+T1_LOCAL_MODEL = os.getenv("T1_LOCAL_MODEL", "qwen3-vl:8b-instruct")
+# Ollama n'exige aucune authentification, mais le SDK OpenAI refuse une clé vide — valeur factice.
+T1_LOCAL_API_KEY = os.getenv("T1_LOCAL_API_KEY", "ollama")
+
+# Coupe-circuit T1 : nombre d'échecs CONSÉCUTIFS avant de mettre un fournisseur en pause, et durée
+# de cette pause. Volontairement simple (pas de sondes dédiées) — voir t1_circuit_breaker.py.
+T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD = int(os.getenv("T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3))
+T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS = int(os.getenv("T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 600))
 # Coupe-circuit explicite : si l'observation miroir cause un problème en production (latence,
 # erreurs TokenRouter, etc.), la désactiver ne nécessite qu'une variable d'env, pas un
 # redéploiement de code.
