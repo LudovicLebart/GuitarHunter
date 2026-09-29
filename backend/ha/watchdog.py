@@ -46,10 +46,12 @@ class HaConfig:
 
 
 def promote_local_postgres_replica(pg_dsn: str) -> None:
-    """`pg_promote()` (Postgres 12+) est un no-op si la base locale n'est déjà plus en standby —
-    sûr à appeler même si ce nœud est déjà primaire (idempotent)."""
+    """Idempotent : `pg_promote()` lève 'recovery is not in progress' sur une base qui n'est pas
+    en standby, donc on vérifie `pg_is_in_recovery()` avant — sûr si ce nœud est déjà primaire."""
     with psycopg.connect(pg_dsn, autocommit=True) as conn:
-        conn.execute("SELECT pg_promote();")
+        in_recovery = conn.execute("SELECT pg_is_in_recovery();").fetchone()[0]
+        if in_recovery:
+            conn.execute("SELECT pg_promote();")
 
 
 def start_local_service(service_name: str, timeout: float = 30.0) -> None:
