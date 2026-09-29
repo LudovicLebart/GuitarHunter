@@ -37,9 +37,25 @@ HA_PEER_HEALTH_URL = os.getenv("HA_PEER_HEALTH_URL", "")
 HA_LOCAL_SERVICE_NAME = os.getenv("HA_LOCAL_SERVICE_NAME", "")
 HA_PEER_SERVICE_NAME = os.getenv("HA_PEER_SERVICE_NAME", "")
 HA_LOCAL_PG_DSN = os.getenv("HA_LOCAL_PG_DSN", "")
-HA_LEASE_TTL_SECONDS = int(os.getenv("HA_LEASE_TTL_SECONDS", 60))
-HA_HEARTBEAT_INTERVAL_SECONDS = int(os.getenv("HA_HEARTBEAT_INTERVAL_SECONDS", 15))
-HA_FAILOVER_CONFIRM_ROUNDS = int(os.getenv("HA_FAILOVER_CONFIRM_ROUNDS", 3))
+
+
+def _safe_int_env(name: str, default: int) -> int:
+    """Comme int(os.getenv(...)), mais ne casse jamais l'import de config.py (importé par le
+    bot/l'API/tous les scripts) sur une valeur mal formée — retombe sur le défaut avec un
+    avertissement plutôt qu'une ValueError non gérée au chargement du module."""
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        print(f"[WARN] {name}={raw!r} invalide (entier attendu) — repli sur la valeur par défaut {default}.")
+        return default
+
+
+HA_LEASE_TTL_SECONDS = _safe_int_env("HA_LEASE_TTL_SECONDS", 60)
+HA_HEARTBEAT_INTERVAL_SECONDS = _safe_int_env("HA_HEARTBEAT_INTERVAL_SECONDS", 15)
+HA_FAILOVER_CONFIRM_ROUNDS = _safe_int_env("HA_FAILOVER_CONFIRM_ROUNDS", 3)
 
 # --- CONFIGURATION SMTP (Notifications Email) ---
 # Compatible Gmail (port 587 + STARTTLS) et tout autre SMTP.
