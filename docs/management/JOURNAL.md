@@ -1,5 +1,16 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-09-29] [PRO] Signalement utilisateur : des annonces analysées par le Tier 2, non pépites, ne correspondent pas au filtre "Recherche Active" actuel → Résultat : cause structurelle identifiée (pas un bug), décision produit actée de ne rien coder, documentée dans `ARCHITECTURE.md`.
+- **Symptôme signalé** : "regarde les annonces analysées par t2 qui ne sont pas des pépites, si elles ne correspondent pas au filtre actif actuel, ça ne marche pas."
+- **Investigation (sans exemple concret fourni, sans accès Postgres/Firestore depuis cet environnement de dev)** : relecture complète du routage Chantier G (`backend/analyzer.py::_run_analysis_cascade`, lignes 674-713) et de `backend/bot.py::handle_deal_found` (lignes 405-523). Deux mécanismes expliquent entièrement le symptôme, sans qu'aucun des deux ne soit un bug de code :
+  1. **Garde-fou pépite T1 non négociable** : un verdict T1 pépite-tier (`PEPITE`/`FAST_FLIP`/`LUTHIER_PROJ`/`CASE_WIN`/`COLLECTION`) promeut toujours vers T2 malgré un hors-filtre — l'Analyste peut ensuite requalifier en verdict ordinaire, laissant une annonce "T2, pas pépite, hors-filtre" en base par conception.
+  2. **Catalogue partagé (`guitar_deals`, bascule du 2026-09-19)** : une annonce déjà analysée (par un autre utilisateur, ou par le même utilisateur sous un ancien filtre) n'est **jamais réanalysée** quand un utilisateur la retrouve — seule sa visibilité (`record_deal_match`) est enregistrée. Le filtre `activeSearchFamilies` ne s'applique donc qu'au moment précis de la toute première analyse, jamais rétroactivement, jamais pour le compte d'un autre utilisateur.
+- **Clarifié avec l'utilisateur (`AskUserQuestion`)** : le filtre doit-il aussi cacher ces annonces de la liste affichée ? Réponse : **non, c'est un contrôle de coût d'analyse uniquement** — rien à coder, comportement confirmé comme voulu.
+- **`docs/reference/ARCHITECTURE.md`** : nouvelle puce sous `analyze_deal()` documentant explicitement cette portée limitée du filtre, pour éviter de rouvrir la même investigation au prochain signalement similaire.
+- **Rien codé** — investigation + clarification produit uniquement.
+
+---
+
 [2026-09-28] [PRO] Signalement UI : toast "Erreur de sauvegarde de la configuration" sur la case "Recherche Active" du `FilterDrawer` → Résultat : pas de bug de code reproduit, message d'erreur générique rendu diagnosticable ; utilisateur confirme ne plus voir l'erreur après le correctif.
 - **Symptôme signalé** : capture d'écran mobile — cocher une famille dans "Recherche Active" (`FilterDrawer.jsx::ActiveSearchSection`) déclenche le toast rouge `Erreur de sauvegarde de la configuration.`.
 - **Chemin tracé** : `handleTogglePath` → `saveConfig()` (`useBotConfig.js`) → `updateUserConfig()` (`apiService.js`) → `PATCH /users/me/config` → `backend/api/main.py::patch_my_config` → `users_repo.update_user_config()` (fusion JSONB Postgres). Chaque maillon relu correct et déjà durci contre les bugs précédents de cette même section (fermeture obsolète du 2026-09-20, blocage de sélection parent du 2026-09-16) — **aucun bug de code reproduit** dans ce chemin.
