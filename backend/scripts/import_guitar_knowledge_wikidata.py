@@ -635,9 +635,10 @@ def write_records(records, notes, failed_routes=(), allow_partial=False):
     return version, counts
 
 
-def run_lookup(text):
+def run_lookup(text, kb_version="latest"):
     from backend import pg_db
-    from backend.guitar_knowledge import lookup, format_for_prompt
+    from backend.guitar_knowledge import configure_version, lookup, format_for_prompt
+    configure_version(kb_version)
     pool = pg_db.init_pool()
     from psycopg.rows import dict_row
     with pool.connection() as conn:
@@ -662,10 +663,13 @@ def main():
     ap.add_argument("--json-out", default=None)
     ap.add_argument("--notes", default=None, help="note attachée à la version créée")
     ap.add_argument("--lookup", default=None, help="teste la recherche sur un texte (base déjà importée)")
+    ap.add_argument("--kb-version", default="latest",
+                    help="version utilisée par --lookup : latest (défaut, tout le contenu actuel), validated (ce que verrait "
+                         "le Portier) ou un numéro")
     args = ap.parse_args()
 
     if args.lookup:
-        run_lookup(args.lookup)
+        run_lookup(args.lookup, args.kb_version)
         return
 
     client = WikiClient()

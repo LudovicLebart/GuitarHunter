@@ -127,6 +127,8 @@ class TestSeedAgainstPostgres(unittest.TestCase):
         from psycopg.rows import dict_row
         from backend import guitar_knowledge as gk
         self.gk = gk
+        gk.configure_version("latest")
+        self.addCleanup(gk.configure_version, "validated")
         self.conn = psycopg.connect(os.environ["KB_TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row)
         self.addCleanup(self.conn.close)
         with open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8") as fh:
@@ -144,10 +146,10 @@ class TestSeedAgainstPostgres(unittest.TestCase):
 
     def test_write_resolves_names_writes_sources_and_aliases(self):
         planned = self._plan([entry(made_by=["Matsumoku"], aliases=["Vantage Guitars"], tier="entry")])
-        self.assertEqual(sk.write(self.conn, planned), 3)
+        self.assertEqual(sk.write(self.conn, planned), 4)        # nouvelle version (l'existante est la 3), non validée
         row = self.conn.execute("SELECT * FROM guitar_knowledge WHERE id='manual:vantage'").fetchone()
         self.assertEqual((row["made_by"], row["curated"], row["source"], row["confidence"], row["kb_version"], row["tier"]),
-                         (["wd:matsumoku"], True, "manual", "sourced", 3, "entry"))
+                         (["wd:matsumoku"], True, "manual", "sourced", 4, "entry"))
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_source WHERE origin='manual'")
                          .fetchone()["n"], 2)
         aliases = {r["alias_norm"] for r in self.conn.execute("SELECT alias_norm FROM guitar_knowledge_alias").fetchall()}
@@ -216,6 +218,27 @@ class TestSeedAgainstPostgres(unittest.TestCase):
         self.assertEqual(fiche["relevance"], "guitars")                                      # pertinence effective
         self.assertIn("Amplis ET guitares", self.gk.format_for_prompt([fiche]))              # notes, pas « accessoires »
         self.assertNotIn("accessoires de musique", self.gk.format_for_prompt([fiche]))
+
+    def test_seed_and_patch_go_into_a_new_unvalidated_version(self):
+        """Un amorçage n'entre jamais en prod sans validation : la fiche corrigée sort de la version validée."""
+        self.conn.execute("UPDATE guitar_knowledge_versions SET validated = true WHERE version = 3")
+        self._add_vox()
+        self.conn.execute("UPDATE guitar_knowledge SET relevance = 'guitars' WHERE id = 'wd:vox'")   # visible en v3
+        self.gk.invalidate_cache()
+        self.gk.configure_version("validated")
+        self.assertIn("wd:vox", self.gk.find_ids(self.conn, "guitare vox"))
+        version = sk.write(self.conn, self._plan([patch(), entry(slug="nouvelle", name="Marque Nouvelle")]), notes="test")
+        self.assertEqual(version, 4)
+        row = self.conn.execute("SELECT validated, source, notes, counts FROM guitar_knowledge_versions WHERE version = 4").fetchone()
+        self.assertEqual((row["validated"], row["source"], row["notes"], row["counts"]),
+                         (False, "seed", "test", {"fiches": 1, "corrections": 1}))
+        self.gk.invalidate_cache()
+        self.assertEqual(self.gk.find_ids(self.conn, "guitare vox et marque nouvelle"), {})     # rien de la v4 tant que non validée
+        self.gk.configure_version("latest")
+        self.assertEqual(set(self.gk.find_ids(self.conn, "guitare vox et marque nouvelle")), {"wd:vox", "manual:nouvelle"})
+        self.conn.execute("UPDATE guitar_knowledge_versions SET validated = true WHERE version = 4")
+        self.gk.configure_version("validated")
+        self.assertEqual(set(self.gk.find_ids(self.conn, "guitare vox et marque nouvelle")), {"wd:vox", "manual:nouvelle"})
 
     def test_patch_never_overwrites_existing_notes_and_survives_a_reimport(self):
         import contextlib

@@ -168,6 +168,17 @@ T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS = int(os.getenv("T1_CIRCUIT_BREAKER_COOLDOWN
 # Gemini est nécessaire un jour.
 T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in ("1", "true", "yes")
 
+# --- BASE DE CONNAISSANCES « UNIVERS DES GUITARES » DANS LE PORTIER T1 (2026-09-30) ---
+# Désactivée par défaut : rien ne change en production tant que cette variable n'est pas passée à "true" (sans
+# redéploiement de code). Quand elle est active, `DealAnalyzer._t1_knowledge()` cherche dans le titre et la description
+# les marques/séries/usines connues et injecte au plus T1_KNOWLEDGE_MAX_FICHES fiches courtes dans le prompt du
+# Portier, AVANT le bloc <annonce> (voir backend/t1_prompt.py) — pour RECONNAÎTRE, jamais pour rejeter. Échec ouvert :
+# si la base est injoignable, le Portier tourne comme avant. Version utilisée : "validated" (défaut, dernière
+# version marquée validée après le rejeu de non-régression), "latest" (tout le contenu, pour les essais) ou un numéro.
+T1_KNOWLEDGE_ENABLED = os.getenv("T1_KNOWLEDGE_ENABLED", "false").lower() in ("1", "true", "yes")
+T1_KNOWLEDGE_VERSION = os.getenv("T1_KNOWLEDGE_VERSION", "validated")
+T1_KNOWLEDGE_MAX_FICHES = int(os.getenv("T1_KNOWLEDGE_MAX_FICHES", 3))
+
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
 DEFAULT_PRO_DEAL_SCORE_THRESHOLD = 8

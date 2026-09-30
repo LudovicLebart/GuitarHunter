@@ -211,6 +211,7 @@ def load_accessory_aliases(conn):
 
 
 def run_analysis(conn, days=None, min_count=2):
+    gk.configure_version("latest")      # audit du CONTENU de la base, validée ou non
     rows = load_rows(conn, days)
     kinds = load_kinds(conn)
     report = analyze(rows, kinds, lambda *texts: gk.find_ids(conn, *texts), min_count=min_count,

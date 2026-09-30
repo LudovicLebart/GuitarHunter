@@ -53,6 +53,7 @@ from psycopg.rows import dict_row
 
 sys.path.insert(0, os.getcwd())
 
+from backend import guitar_knowledge
 from backend.t1_prompt import build_t1_gatekeeper_prompt
 
 from config import (
@@ -388,6 +389,13 @@ def _get_user_analysis_config(conn, user_id, cache):
     return analysis_config
 
 
+def knowledge_for(conn, row, limit=3):
+    """Fiches de la base de connaissances pour une annonce rejouée : `(bloc_prompt, fiches)` — exactement ce que le
+    Portier de prod injecterait (`DealAnalyzer._t1_knowledge`) : titre et description, `limit` fiches au plus."""
+    fiches = guitar_knowledge.lookup(conn, row.get("title"), row.get("description"), limit=limit)
+    return guitar_knowledge.format_for_prompt(fiches), fiches
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compare qwen_local (Dell) au verdict Portier déjà en base (Postgres, Chantier A)."
@@ -402,6 +410,16 @@ def main():
                               "reconstruit l'ANCIEN prompt fidèle (comparaison historique). Le "
                               "verdict cloud comparé reste inchangé (toujours celui réellement "
                               "stocké en base).")
+    parser.add_argument("--with-knowledge", action="store_true",
+                         help="Rejoue AVEC la base de connaissances injectée dans le prompt (comme le Portier de prod avec "
+                              "T1_KNOWLEDGE_ENABLED). Exige --simplified-prompt. Comparer à un rejeu SANS ce drapeau avec "
+                              "compare_knowledge_effect.py.")
+    parser.add_argument("--kb-version", default="latest",
+                         help="Version de la base pour --with-knowledge : latest (défaut : la version à valider), validated "
+                              "ou un numéro.")
+    parser.add_argument("--out", default="compare_qwen_local_vs_prod.json",
+                         help="Nom du fichier de résultats dans backend/benchmark/results/ (à changer pour garder les "
+                              "rejeux sans/avec base côte à côte).")
     parser.add_argument("--no-think", action="store_true",
                          help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
@@ -413,6 +431,10 @@ def main():
                               "(ancien Portier T1, avant la bascule Qwen cloud du 2026-09-20) "
                               "plutôt que les annonces récentes (décidées par Qwen cloud depuis).")
     args = parser.parse_args()
+    if args.with_knowledge and not args.simplified_prompt:
+        parser.error("--with-knowledge exige --simplified-prompt (le prompt de prod du Portier)")
+    if args.with_knowledge:
+        guitar_knowledge.configure_version(args.kb_version)
 
     est_minutes = round(args.limit * 20 / 60, 1)
     before_info = f" (antérieures à {args.before} — ère Gemini Flash-Lite)" if args.before else ""
@@ -444,6 +466,9 @@ def main():
             )
             rows = cur.fetchall()
 
+        kb_version_number = guitar_knowledge.effective_version(conn) if args.with_knowledge else None
+        if args.with_knowledge:
+            print(f"📚 Base de connaissances : version {kb_version_number} ({args.kb_version}).")
         print(f"📦 {len(rows)} annonce(s) avec un gatekeeperVerdict déjà en base (les plus récentes).\n")
         if not rows:
             print("Rien à comparer — l'export Chantier A a-t-il bien tourné sur cette base ?")
@@ -462,6 +487,7 @@ def main():
         prompt_tokens_est_list = []
         vram_gb_list = []
         failed_calls = []
+        per_listing = []      # un verdict local par annonce, pour comparer deux rejeux (compare_knowledge_effect.py)
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
@@ -481,8 +507,15 @@ def main():
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
+            kb_fiches = []
             if args.simplified_prompt:
-                full_prompt_t1 = build_t1_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction)
+                knowledge_block = ""
+                if args.with_knowledge:
+                    knowledge_block, kb_fiches = knowledge_for(conn, row)
+                    if kb_fiches:
+                        print(f"  📚 base de connaissances : {', '.join(f['name'] for f in kb_fiches)}")
+                full_prompt_t1 = build_t1_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction,
+                                                            knowledge_block=knowledge_block)
             else:
                 base_prompt = _construct_base_user_prompt(row, main_prompt, taxonomy, few_shot)
                 full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
@@ -539,6 +572,10 @@ def main():
                 continue
 
             local_verdict = (result.get("status") or "UNKNOWN").upper()
+            per_listing.append({"id": row["id"], "title": row.get("title"), "link": row.get("link"),
+                                "cloud_verdict": cloud_verdict, "local_verdict": local_verdict,
+                                "local_reasoning": result.get("reasoning"),
+                                "kb_ids": [f["id"] for f in kb_fiches], "kb_names": [f["name"] for f in kb_fiches]})
             print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s{tok_info})")
             if local_verdict not in T1_VALID_STATUSES:
                 n_status_out_of_enum += 1
@@ -603,11 +640,13 @@ def main():
                     print(f"    raisonnement local : {str(reasoning)[:300]}")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    out_path = os.path.join(RESULTS_DIR, "compare_qwen_local_vs_prod.json")
+    out_path = os.path.join(RESULTS_DIR, args.out)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({
             "model": args.model,
             "simplified_prompt": args.simplified_prompt,
+            "with_knowledge": args.with_knowledge,
+            "kb_version": kb_version_number,
             "no_think": args.no_think,
             "before": args.before,
             "n_total": n,
@@ -633,6 +672,7 @@ def main():
             ],
             "cloud_reject_local_accept_count": len(cloud_reject_local_accept),
             "failed_calls": failed_calls,
+            "per_listing": per_listing,
         }, f, ensure_ascii=False, indent=2)
     print(f"\nRésultats détaillés sauvegardés dans : {out_path}")
 

@@ -68,12 +68,60 @@ def alias_usable(alias_norm):
     return not all(t in _GENERIC for t in tokens)
 
 
+# Version de la base utilisée par la recherche (STRATEGIE_IA.md §3.6 : « seule une version VALIDÉE est utilisée en
+# prod »). "validated" (défaut, celui du Portier) = dernière version marquée `validated` ; "latest" = tout le
+# contenu actuel, validé ou non (outils d'audit, carte des trous, rejeu de non-régression qui valide justement la
+# version) ; un entier = cette version. Une fiche appartient à la version de sa DERNIÈRE modification
+# (`kb_version`) : un import, un amorçage ou une correction non validés la sortent de la version validée tant
+# que `UPDATE guitar_knowledge_versions SET validated = true WHERE version = N` n'a pas été fait.
+_VERSION_MODE = "validated"
+
+
+def configure_version(mode):
+    """"validated" | "latest" | entier. Vide le cache (le résultat dépend du mode)."""
+    global _VERSION_MODE
+    if isinstance(mode, str) and mode.isdigit():
+        mode = int(mode)
+    if mode not in ("validated", "latest") and not isinstance(mode, int):
+        raise ValueError(f"mode de version inconnu : {mode!r} (validated | latest | numéro)")
+    if mode == _VERSION_MODE:
+        return                       # idempotent : appelé à chaque annonce sans vider le cache
+    _VERSION_MODE = mode
+    invalidate_cache()
+
+
+def _first(row):
+    return row["v"] if isinstance(row, dict) else row[0]
+
+
+def effective_version(conn):
+    """Numéro de version réellement utilisé par la recherche (pour la traçabilité) : 0 si aucune version
+    validée n'existe (la base est alors inerte), ou None si aucune version du tout."""
+    mode = _VERSION_MODE
+    if isinstance(mode, int):
+        return mode
+    if mode == "latest":
+        return _first(conn.execute("SELECT MAX(version) AS v FROM guitar_knowledge_versions").fetchone())
+    return _first(conn.execute(
+        "SELECT COALESCE(MAX(version), 0) AS v FROM guitar_knowledge_versions WHERE validated").fetchone())
+
+
 def _load_aliases(conn):
+    # Éligibilité à l'INJECTION (revue Opus, 2026-09-29) : ni accessoire, ni fiche à source unique, ni personne
+    # (luthier) sauf curée, ni entité « unknown » qui ne vient pas d'une catégorie de fabricants (modèles non-guitare,
+    # produits Wikidata) sauf curée / écrite à la main, et seulement dans la version choisie.
+    limit = None if _VERSION_MODE == "latest" else effective_version(conn)
     rows = conn.execute(
         """SELECT a.alias_norm, a.knowledge_id
            FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
            WHERE COALESCE(k.relevance_override, k.relevance) <> 'accessories'
-             AND (k.confidence IS NULL OR k.confidence = 'sourced')"""
+             AND (k.confidence IS NULL OR k.confidence = 'sourced')
+             AND (k.kind <> 'luthier' OR k.curated)
+             AND (COALESCE(k.relevance_override, k.relevance) <> 'unknown' OR k.curated OR k.source = 'manual'
+                  OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.raw->'origin', '[]'::jsonb)) o
+                             WHERE o LIKE 'category%%'))
+             AND (%s::int IS NULL OR k.kb_version <= %s::int)""",
+        (limit, limit),
     ).fetchall()
     aliases = {}
     for row in rows:
@@ -162,7 +210,10 @@ def lookup(conn, *texts, limit=3):
     ).fetchall()
     kind_rank = {"line": 0, "factory": 1, "brand": 2, "company": 3}
     rows = [dict(r) if not isinstance(r, dict) else r for r in rows]
-    rows.sort(key=lambda r: (found[r["id"]][1] != "exact", kind_rank.get(r["kind"], 9), not r["curated"]))
+    # Ordre DÉTERMINISTE (un rejeu doit injecter les mêmes fiches) : exactes d'abord, séries avant marques, fiches
+    # curées d'abord, puis alias trouvé le plus LONG (le plus spécifique), puis l'id.
+    rows.sort(key=lambda r: (found[r["id"]][1] != "exact", kind_rank.get(r["kind"], 9), not r["curated"],
+                             -len(found[r["id"]][0]), r["id"]))
     for r in rows:
         r["matched_on"], r["match_type"] = found[r["id"]]
     rows = rows[:limit]

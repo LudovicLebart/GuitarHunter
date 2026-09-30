@@ -1,6 +1,7 @@
 """Tests de la base de connaissances « univers des guitares » (backend/guitar_knowledge.py) et de
 son script d'import (backend/scripts/import_guitar_knowledge_wikidata.py) — sans Postgres ni réseau :
 la connexion et les réponses Wikimedia sont simulées."""
+import json
 import os
 import unittest
 from unittest.mock import MagicMock, patch
@@ -238,6 +239,104 @@ class TestSourceUrls(unittest.TestCase):
         self.assertEqual([s["kind"] for s in imp.source_urls("Q9", {}, ["en"])], ["wikidata"])
 
 
+@unittest.skipUnless(os.getenv("KB_TEST_DATABASE_URL"),
+                     "définir KB_TEST_DATABASE_URL (base Postgres JETABLE) pour tester l'éligibilité et les versions")
+class TestEligibilityAndVersions(unittest.TestCase):
+    """Ce que le Portier peut réellement voir : filtre d'éligibilité + version validée (revue Opus)."""
+
+    def setUp(self):
+        import psycopg
+        from psycopg.rows import dict_row
+        self.conn = psycopg.connect(os.environ["KB_TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row)
+        self.addCleanup(self.conn.close)
+        with open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8") as fh:
+            self.conn.execute(fh.read())
+        self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions CASCADE")
+        self.addCleanup(gk.configure_version, "validated")
+        gk.configure_version("latest")
+
+    def _fiche(self, fid, name, kind="brand", relevance="guitars", version=1, origin=None, **cols):
+        raw = json.dumps({"origin": origin or ["category:en"]}) if origin != [] else None
+        self.conn.execute(
+            """INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version, raw, curated, confidence,
+                                             relevance_override)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (fid, kind, name, relevance, cols.get("source", "wikidata"), version, raw, cols.get("curated", False),
+             cols.get("confidence"), cols.get("relevance_override")))
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES (%s,%s,%s,'wikidata')",
+                          (gk.normalize(name), fid, name))
+        gk.invalidate_cache()
+
+    def _versions(self, *rows):
+        for version, validated in rows:
+            self.conn.execute("INSERT INTO guitar_knowledge_versions (version, source, validated) VALUES (%s,'t',%s)",
+                              (version, validated))
+
+    def _found(self, text):
+        return set(gk.find_ids(self.conn, text))
+
+    def test_luthiers_are_not_injected_unless_curated(self):
+        self._fiche("wd:p1", "Jens Ritterson", kind="luthier")
+        self._fiche("wd:p2", "Paul Reedman", kind="luthier", curated=True)
+        self.assertEqual(self._found("guitare jens ritterson et paul reedman"), {"wd:p2"})
+
+    def test_unknown_only_when_from_a_manufacturer_category_or_curated(self):
+        self._fiche("wd:u1", "Marque Categorie", relevance="unknown", origin=["category:fr"])
+        self._fiche("wd:u2", "Produit Wikidata", relevance="unknown", origin=["p1056"])
+        self._fiche("wd:u3", "Marque Curee", relevance="unknown", origin=["p1056"], curated=True)
+        self._fiche("manual:u4", "Marque Manuelle", relevance="unknown", origin=[], source="manual")
+        self.assertEqual(self._found("marque categorie produit wikidata marque curee marque manuelle"),
+                         {"wd:u1", "wd:u3", "manual:u4"})
+
+    def test_validated_mode_only_sees_the_latest_validated_version(self):
+        self._versions((1, True), (2, False))
+        self._fiche("wd:old", "Marque Ancienne", version=1)
+        self._fiche("wd:new", "Marque Nouvelle", version=2)          # créée/modifiée par la version 2, non validée
+        text = "marque ancienne et marque nouvelle"
+        gk.configure_version("validated")
+        self.assertEqual(self._found(text), {"wd:old"})
+        gk.configure_version("latest")
+        self.assertEqual(self._found(text), {"wd:old", "wd:new"})
+        gk.configure_version(1)
+        self.assertEqual(self._found(text), {"wd:old"})
+        self.conn.execute("UPDATE guitar_knowledge_versions SET validated = true WHERE version = 2")
+        gk.configure_version("validated")
+        self.assertEqual(self._found(text), {"wd:old", "wd:new"})     # la validation promeut tout ce qui est ≤ 2
+
+    def test_no_validated_version_means_an_inert_knowledge_base(self):
+        self._versions((1, False))
+        self._fiche("wd:a", "Marque Alpha", version=1)
+        gk.configure_version("validated")
+        self.assertEqual(self._found("marque alpha"), set())
+        self.assertEqual(gk.effective_version(self.conn), 0)
+        gk.configure_version("latest")
+        self.assertEqual(gk.effective_version(self.conn), 1)
+
+    def test_effective_version_and_bad_mode(self):
+        self._versions((1, True), (2, False))
+        gk.configure_version("validated")
+        self.assertEqual(gk.effective_version(self.conn), 1)
+        gk.configure_version("2")                                       # depuis la CLI : chaîne numérique
+        self.assertEqual(gk.effective_version(self.conn), 2)
+        with self.assertRaises(ValueError):
+            gk.configure_version("dernière")
+
+    def test_lookup_order_is_deterministic(self):
+        for fid in ("wd:c", "wd:a", "wd:b"):                             # même nom, même kind : seul l'id départage
+            self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version, raw)
+                                 VALUES (%s,'brand','Marque Jumelle','guitars','wikidata',1,'{"origin":["category:en"]}')""", (fid,))
+            self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('marque jumelle', %s, 'Marque Jumelle', 'wikidata')", (fid,))
+        gk.invalidate_cache()
+        runs = [[f["id"] for f in gk.lookup(self.conn, "vends marque jumelle")] for _ in range(3)]
+        self.assertEqual(runs, [["wd:a", "wd:b", "wd:c"]] * 3)
+
+    def test_longer_matched_alias_ranks_first_among_equals(self):
+        self._fiche("wd:short", "Fender")
+        self._fiche("wd:long", "Fender Jazzmaster")
+        gk.invalidate_cache()
+        self.assertEqual([f["id"] for f in gk.lookup(self.conn, "fender jazzmaster 1965")][0], "wd:long")
+
+
 class TestFormatForPrompt(unittest.TestCase):
     SATURN = ("Marque de guitares électriques construites au Japon (par Kawai et/ou Guyatone, attribution "
               "discutée) et vendues au Canada par les magasins Eaton dès le catalogue de 1968. "
@@ -291,6 +390,7 @@ class TestAliasUsability(unittest.TestCase):
 
 class TestFuzzyGuards(unittest.TestCase):
     def setUp(self):
+        use_latest_kb(self)
         gk.invalidate_cache()
         self.addCleanup(gk.invalidate_cache)
         self.conn = _FakeConn([{"alias_norm": a, "knowledge_id": f"wd:{i}"}
@@ -371,8 +471,15 @@ class TestWikiClientGet(unittest.TestCase):
         self.assertEqual(imp.collect_from_products(client), set())
 
 
+def use_latest_kb(testcase):
+    """Ces tests vérifient la LOGIQUE de recherche, pas le filtre de version : contenu actuel, validé ou non."""
+    gk.configure_version("latest")
+    testcase.addCleanup(gk.configure_version, "validated")
+
+
 class TestAliasCache(unittest.TestCase):
     def setUp(self):
+        use_latest_kb(self)
         gk.invalidate_cache()
         self.addCleanup(gk.invalidate_cache)
 
@@ -416,6 +523,7 @@ class TestWriteRecordsPostgres(unittest.TestCase):
         import contextlib
         import psycopg
         from psycopg.rows import dict_row
+        use_latest_kb(self)
         self.conn = psycopg.connect(os.environ["KB_TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row)
         self.addCleanup(self.conn.close)
         schema = open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8").read()

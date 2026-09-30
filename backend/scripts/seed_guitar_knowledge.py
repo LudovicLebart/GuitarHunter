@@ -230,15 +230,23 @@ def plan(conn, entries):
     return planned
 
 
-def write(conn, planned):
-    version = conn.execute("SELECT MAX(version) AS v FROM guitar_knowledge_versions").fetchone()
-    version = version["v"] if isinstance(version, dict) else version[0]
-    if not version:
+def write(conn, planned, notes=None):
+    """Écrit le lot dans UNE NOUVELLE VERSION de la base (non validée) : les fiches créées ou corrigées prennent ce
+    numéro et ne sont donc utilisées par le Portier qu'après `UPDATE guitar_knowledge_versions SET validated = true
+    WHERE version = N` (STRATEGIE_IA.md §3.6) — un amorçage n'entre jamais en prod sans le rejeu de non-régression."""
+    previous = conn.execute("SELECT MAX(version) AS v FROM guitar_knowledge_versions").fetchone()
+    previous = previous["v"] if isinstance(previous, dict) else previous[0]
+    if not previous:
         raise SeedError("aucune version de la base : lancer d'abord import_guitar_knowledge_wikidata.py")
+    version = previous + 1
     with conn.transaction():
+        conn.execute("INSERT INTO guitar_knowledge_versions (version, source, notes, counts) VALUES (%s,'seed',%s,%s)",
+                     (version, notes or "amorçage sourcé : " + ", ".join(sorted({e.get("_file", "?") for e in planned})),
+                      json.dumps({"fiches": sum(1 for e in planned if not e.get("_patch")),
+                                  "corrections": sum(1 for e in planned if e.get("_patch"))})))
         for e in planned:
             if e.get("_patch"):
-                _write_patch(conn, e)
+                _write_patch(conn, e, version)
                 continue
             conn.execute("""
                 INSERT INTO guitar_knowledge (id, kind, name, description, parent_id, countries, active_from, active_to,
@@ -274,7 +282,7 @@ def write(conn, planned):
     return version
 
 
-def _write_patch(conn, e):
+def _write_patch(conn, e, version):
     """Corrige une fiche existante sans jamais écraser tes notes : `hunt_notes` seulement s'il est vide."""
     conn.execute("""
         UPDATE guitar_knowledge SET
@@ -282,9 +290,9 @@ def _write_patch(conn, e):
             tier = COALESCE(%s, tier),
             made_by = COALESCE(%s, made_by),
             hunt_notes = COALESCE(hunt_notes, %s),
-            curated = true, updated_at = now()
+            curated = true, kb_version = %s, updated_at = now()
         WHERE id = %s""", (e.get("relevance_override"), e.get("tier"), e["made_by_ids"] or None,
-                           e.get("hunt_notes"), e["target_id"]))
+                           e.get("hunt_notes"), version, e["target_id"]))
     for alias in e.get("aliases") or []:
         norm = normalize(alias)
         if alias_usable(norm):
@@ -328,6 +336,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--file", action="append", help="fichier JSON à charger (défaut : tout backend/knowledge/seed/*.json)")
     ap.add_argument("--dry-run", action="store_true", help="valide et affiche, n'écrit rien")
+    ap.add_argument("--notes", default=None, help="note attachée à la version créée")
     args = ap.parse_args()
 
     url = os.getenv("DATABASE_URL")
@@ -350,8 +359,10 @@ def main():
         if args.dry_run:
             print("\n(dry-run : rien écrit)")
             return
-        version = write(conn, planned)
-        print(f"\n✅ {len(planned)} entrée(s) écrite(s) (kb_version {version}, curated).")
+        version = write(conn, planned, args.notes)
+        print(f"\n✅ {len(planned)} entrée(s) écrite(s) dans la version {version} de la base (NON validée : utilisée par le "
+              f"Portier seulement après le rejeu, puis UPDATE guitar_knowledge_versions SET validated = true WHERE "
+              f"version = {version};).")
     except SeedError as e:
         raise SystemExit(f"❌ {e}")
     finally:
