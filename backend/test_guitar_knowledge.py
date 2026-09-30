@@ -221,6 +221,23 @@ class TestReviewCases(unittest.TestCase):
         self.assertEqual(names, {"Gibson ES-5"})
 
 
+class TestSourceUrls(unittest.TestCase):
+    def test_wikidata_and_each_retained_wikipedia_language(self):
+        ent = {"sitelinks": {"enwiki": {"title": "Yamaha Corporation"}, "jawiki": {"title": "ヤマハ"},
+                             "dewiki": {"title": "Höfner (Musik)"}, "commonswiki": {"title": "Category:Yamaha"},
+                             "frwiki": {"title": "Yamaha"}}}
+        sources = imp.source_urls("Q123", ent, ["en", "fr", "ja", "es"])
+        self.assertEqual([(s["kind"], s["lang"]) for s in sources],
+                         [("wikidata", None), ("wikipedia", "en"), ("wikipedia", "fr"), ("wikipedia", "ja")])
+        self.assertEqual(sources[0]["url"], "https://www.wikidata.org/wiki/Q123")
+        self.assertEqual(sources[1]["url"], "https://en.wikipedia.org/wiki/Yamaha_Corporation")
+        self.assertEqual({s["license"] for s in sources}, {"CC0", "CC BY-SA 4.0"})   # attribution stockée
+        self.assertTrue(all(s["title"] for s in sources[1:]))
+
+    def test_entity_without_sitelinks_still_has_wikidata_source(self):
+        self.assertEqual([s["kind"] for s in imp.source_urls("Q9", {}, ["en"])], ["wikidata"])
+
+
 class TestAliasUsability(unittest.TestCase):
     def test_unusable_aliases(self):
         for alias in ("6120", "500 1", "sg", "guitare electrique", "custom shop", "premier", "heritage", ""):
@@ -421,6 +438,41 @@ class TestWriteRecordsPostgres(unittest.TestCase):
         with self.assertRaises(imp.PartialImportError):
             imp.write_records([self._rec("Q0", "Marque0")], "v2")
         self.assertEqual(len(self._names()), 10)
+
+    def test_sources_are_written_replaced_and_manual_ones_kept(self):
+        rec = self._rec("Q1", "Alpha")
+        rec["sources"] = [{"url": "https://www.wikidata.org/wiki/Q1", "kind": "wikidata", "title": None,
+                           "publisher": "Wikidata", "lang": None, "license": "CC0"},
+                          {"url": "https://en.wikipedia.org/wiki/Alpha", "kind": "wikipedia", "title": "Alpha",
+                           "publisher": "Wikipédia", "lang": "en", "license": "CC BY-SA 4.0"}]
+        imp.write_records([rec], "v1")
+        self.conn.execute("""INSERT INTO guitar_knowledge_source (knowledge_id, url, kind, publisher, origin)
+                             VALUES ('wd:Q1', 'https://collectionneur.example/alpha', 'collector', 'Site X', 'manual')""")
+        rec2 = self._rec("Q1", "Alpha")
+        rec2["sources"] = [rec["sources"][0]]          # la page Wikipédia n'existe plus côté import
+        imp.write_records([rec2], "v2")
+        urls = {r["url"] for r in self.conn.execute("SELECT url FROM guitar_knowledge_source").fetchall()}
+        self.assertEqual(urls, {"https://www.wikidata.org/wiki/Q1", "https://collectionneur.example/alpha"})
+
+    def test_lookup_returns_sources_manual_first_and_not_in_the_prompt(self):
+        from backend import guitar_knowledge as gk_
+        rec = self._rec("Q1", "Alphabrand", ["Alphabrand"])
+        rec["sources"] = [{"url": "https://www.wikidata.org/wiki/Q1", "kind": "wikidata", "title": None,
+                           "publisher": "Wikidata", "lang": None, "license": "CC0"}]
+        imp.write_records([rec], "v1")
+        self.conn.execute("""INSERT INTO guitar_knowledge_source (knowledge_id, url, kind, origin)
+                             VALUES ('wd:Q1', 'https://collectionneur.example/alpha', 'collector', 'manual')""")
+        gk_.invalidate_cache()
+        fiches = gk_.lookup(self.conn, "vends alphabrand vintage")
+        self.assertEqual([s["kind"] for s in fiches[0]["sources"]], ["collector", "wikidata"])
+        self.assertNotIn("http", gk_.format_for_prompt(fiches))     # aucune URL dans le prompt
+
+    def test_sources_disappear_with_an_orphan_fiche(self):
+        rec = self._rec("Q1", "Alpha")
+        rec["sources"] = [{"url": "https://www.wikidata.org/wiki/Q1", "kind": "wikidata"}]
+        imp.write_records([rec, self._rec("Q2", "Beta")], "v1")
+        imp.write_records([self._rec("Q2", "Beta")], "v2")
+        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_source").fetchone()["n"], 0)
 
     def test_unusable_aliases_are_not_written(self):
         imp.write_records([self._rec("Q1", "Alpha", ["Alpha Guitars", "6120", "premier"])], "v1")

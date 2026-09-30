@@ -42,6 +42,7 @@ import os
 import re
 import sys
 import time
+import urllib.parse
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -356,6 +357,24 @@ def enwiki_url(ent):
     return f"https://{lang}.wikipedia.org/wiki/" + link["title"].replace(" ", "_")
 
 
+def source_urls(qid, ent, langs):
+    """Sources d'une fiche : l'entité Wikidata (CC0) et sa page Wikipédia dans chaque langue retenue
+    (CC BY-SA 4.0, attribution obligatoire — d'où le stockage du titre et de la langue)."""
+    sources = [{"url": f"https://www.wikidata.org/wiki/{qid}", "kind": "wikidata", "title": None,
+                "publisher": "Wikidata", "lang": None, "license": "CC0"}]
+    sitelinks = ent.get("sitelinks", {})
+    for lang in langs:
+        link = sitelinks.get(f"{lang}wiki")
+        if not link:
+            continue
+        title = link["title"]
+        sources.append({
+            "url": f"https://{lang}.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"), safe="_()',:!-"),
+            "kind": "wikipedia", "title": title, "publisher": "Wikipédia", "lang": lang,
+            "license": "CC BY-SA 4.0"})
+    return sources
+
+
 # ------------------------------------------------------------------------------------------
 # Collecte
 # ------------------------------------------------------------------------------------------
@@ -500,6 +519,7 @@ def build_records(client, langs, depth, with_lines):
             "relevance": relevance_of(e, is_line, from_category, model),
             "wikidata_qid": qid,
             "wikipedia_url": enwiki_url(e),
+            "sources": source_urls(qid, e, langs),
             "aliases": aliases,
             "_derived": derived,
             "raw": {"origin": sorted(origin.get(qid, {"line"})), "p31": claim_ids(e, "P31")},
@@ -589,6 +609,15 @@ def write_records(records, notes, failed_routes=(), allow_partial=False):
                         conn.execute("""INSERT INTO guitar_knowledge_alias (alias_norm, knowledge_id, alias, source)
                                         VALUES (%s,%s,%s,'wikidata') ON CONFLICT DO NOTHING""",
                                      (norm, r["id"], alias))
+            for r in records:
+                conn.execute("DELETE FROM guitar_knowledge_source WHERE knowledge_id = %s AND origin = 'import'",
+                             (r["id"],))
+                for src in r.get("sources", []):
+                    conn.execute("""INSERT INTO guitar_knowledge_source
+                                        (knowledge_id, url, kind, title, publisher, lang, license, origin)
+                                    VALUES (%s,%s,%s,%s,%s,%s,%s,'import') ON CONFLICT (knowledge_id, url) DO NOTHING""",
+                                 (r["id"], src["url"], src["kind"], src.get("title"), src.get("publisher"),
+                                  src.get("lang"), src.get("license")))
             orphans = 0
             if not failed_routes:  # un import partiel (--allow-partial) ne supprime rien
                 cur = conn.execute("""
@@ -617,6 +646,8 @@ def run_lookup(text):
     for f in fiches:
         print(f"  {f['match_type']:5s} « {f['matched_on']} » → {f['name']} ({f['kind']}, {f['relevance']})"
               + (f", rattaché à {f['parent_name']}" if f.get("parent_name") else ""))
+        for src in f.get("sources", []):
+            print(f"        source [{src['kind']}{'/' + src['lang'] if src.get('lang') else ''}] {src['url']}")
     print("\n" + (format_for_prompt(fiches) or "(aucune fiche)"))
 
 

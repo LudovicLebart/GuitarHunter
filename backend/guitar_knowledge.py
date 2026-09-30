@@ -164,7 +164,18 @@ def lookup(conn, *texts, limit=3):
     rows.sort(key=lambda r: (found[r["id"]][1] != "exact", kind_rank.get(r["kind"], 9), not r["curated"]))
     for r in rows:
         r["matched_on"], r["match_type"] = found[r["id"]]
-    return rows[:limit]
+    rows = rows[:limit]
+    # Sources (traçabilité) : jointes à la fiche pour l'affichage/l'audit, JAMAIS injectées dans le prompt
+    # (`format_for_prompt` ne les lit pas). Les sources ajoutées à la main passent avant celles de l'import.
+    sources = conn.execute(
+        """SELECT knowledge_id, url, kind, title, publisher, lang, license
+           FROM guitar_knowledge_source WHERE knowledge_id = ANY(%s)
+           ORDER BY knowledge_id, (origin = 'manual') DESC, kind, lang NULLS FIRST""",
+        ([r["id"] for r in rows],),
+    ).fetchall()
+    for r in rows:
+        r["sources"] = [dict(x) for x in sources if x["knowledge_id"] == r["id"]]
+    return rows
 
 
 def format_for_prompt(fiches):

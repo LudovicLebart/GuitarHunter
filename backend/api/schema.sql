@@ -584,3 +584,25 @@ CREATE TABLE IF NOT EXISTS guitar_knowledge_versions (
     counts          JSONB,
     validated       BOOLEAN NOT NULL DEFAULT false   -- vrai après le rejeu de non-régression
 );
+
+-- Sources d'une fiche (2026-09-30) : PLUSIEURS par fiche (page Wikipédia dans chaque langue, entité
+-- Wikidata, site de collectionneur, page du fabricant...). Sert à la traçabilité (d'où vient ce qu'on
+-- injecte), à l'attribution des licences (CC BY-SA de Wikipédia) et au niveau de confiance (« sourcé » =
+-- au moins 2 sources indépendantes concordantes). Jamais injectées dans le prompt du Portier.
+-- Même règle que les alias : `origin='import'` est réécrit à chaque import, `origin='manual'` (ajouté à la
+-- main) n'est JAMAIS touché.
+CREATE TABLE IF NOT EXISTS guitar_knowledge_source (
+    id              BIGSERIAL PRIMARY KEY,
+    knowledge_id    TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
+    url             TEXT NOT NULL,
+    kind            TEXT NOT NULL,             -- 'wikidata' | 'wikipedia' | 'wikipedia_list' | 'collector' | 'manufacturer' | 'forum' | 'other'
+    title           TEXT,
+    publisher       TEXT,                      -- site ou auteur (ex. 'Wikipédia', nom du site de collectionneur)
+    lang            TEXT,
+    license         TEXT,                      -- 'CC0' | 'CC BY-SA 4.0' | 'copyright' (citation courte seulement) | NULL
+    excerpt         TEXT,                      -- courte citation qui appuie la fiche (jamais l'article entier)
+    origin          TEXT NOT NULL DEFAULT 'manual',   -- 'import' (réécrit) | 'manual' (jamais touché)
+    retrieved_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (knowledge_id, url)
+);
+CREATE INDEX IF NOT EXISTS guitar_knowledge_source_kid_idx ON guitar_knowledge_source (knowledge_id);
