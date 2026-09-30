@@ -1,0 +1,169 @@
+{
+  "entries": [
+    {
+      "slug": "yamaki",
+      "kind": "brand",
+      "name": "Yamaki",
+      "description": "Marque japonaise de guitares acoustiques, d'abord classiques puis à cordes acier de style Martin, fondée par Kazuyuki Teradaira et vendue par la firme Daion.",
+      "countries": [
+        "Japan"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Yamaki Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/List_of_Japanese_OEM_guitar_manufacturers",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "List of Japanese OEM guitar manufacturers",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "Founded by Kazuyuki Teradaira as a maker of classical guitars. Yamaki guitars were sold by Daion."
+        },
+        {
+          "url": "http://vintagejapaneseacoustics.blogspot.com/2010/10/yamaki-yw-50-12.html",
+          "publisher": "Vintage Japanese Acoustics",
+          "kind": "collector",
+          "title": "Yamaki YW-50-12",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "In 1967 Kazuyuki left Zenon to produce classical guitars under the name Yamaki"
+        }
+      ]
+    },
+    {
+      "slug": "saturn",
+      "kind": "brand",
+      "name": "Saturn",
+      "description": "Marque de guitares électriques construites au Japon (par Kawai et/ou Guyatone, attribution discutée) et vendues au Canada par les magasins Eaton dès le catalogue de 1968. À ne pas confondre avec le modèle Saturn de Hopf.",
+      "relevance": "guitars",
+      "aliases": [
+        "Saturn Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://jedistar.com/saturn/",
+          "publisher": "Jedistar",
+          "kind": "collector",
+          "title": "Saturn guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Saturn guitars – made in Japan by Kawai and Guyatone (bottom example). (different to Saturn model by Hopf). They appeared in the 1968 Canadian Eaton's catalog."
+        },
+        {
+          "url": "https://dogisblue.com/gear/no-will-power-another-vintage-saturn-guitar/",
+          "publisher": "Dog Is Blue",
+          "kind": "collector",
+          "title": "No Will Power: Another Vintage Saturn Guitar",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Some say they were built in Japan by Kawai, others say Guyatone, but everyone seems to agree that Saturns first appeared in a 1968 Eaton's department store catalogue."
+        }
+      ]
+    },
+    {
+      "slug": "alhambra",
+      "kind": "brand",
+      "name": "Alhambra",
+      "description": "Fabricant espagnol de guitares classiques (aussi flamenco et acoustiques) fondé en 1965 à Muro de Alcoy (Alicante), du modèle d'initiation au haut de gamme.",
+      "countries": [
+        "Spain"
+      ],
+      "active_from": 1965,
+      "relevance": "guitars",
+      "aliases": [
+        "Alhambra Guitars",
+        "Guitarras Alhambra"
+      ],
+      "sources": [
+        {
+          "url": "https://alhambraguitarras.com/en-us/pages/quienes_somos",
+          "publisher": "Guitarras Alhambra",
+          "kind": "manufacturer",
+          "title": "Who are we?",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "In 1965, after years of growth and the entry of new partners who contributed their vision, 'Manufacturas Alhambra, SA' was born. All our guitars are made in Muro de Alcoy (Alicante)."
+        },
+        {
+          "url": "https://nylonplucks.com/guitar-basics/9-great-made-in-spain-classical-guitars-compared/",
+          "publisher": "Nylon Plucks",
+          "kind": "press",
+          "title": "9 Great 'Made in Spain' Classical Guitars Compared",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Established in 1965 … in Alicante, Spain … the whole range from beginner instruments to pro quality guitars."
+        }
+      ]
+    },
+    {
+      "slug": "carmelo-catania",
+      "kind": "brand",
+      "name": "Carmelo Catania",
+      "description": "Luthier et fabricant sicilien (Catane) : premier luthier à s'être organisé de façon industrielle et à exporter ses guitares ; âge d'or de l'après-guerre aux années 1960.",
+      "countries": [
+        "Italy"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Catania Carmelo"
+      ],
+      "sources": [
+        {
+          "url": "https://www.fetishguitars.com/sicily-southern-italy/",
+          "publisher": "Fetish Guitars",
+          "kind": "collector",
+          "title": "Sicily & Southern Italy",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Carmelo Catania was probably the first luthier to organize himself industrially, promoting himself, exporting guitars, settling commercial alleys and trades."
+        },
+        {
+          "url": "https://guitarz.blogspot.com/2011/09/carmelo-catania-era-ii-vintage-jazz.html",
+          "publisher": "Guitar Blog (Guitarz)",
+          "kind": "collector",
+          "title": "Carmelo Catania Era II vintage jazz guitar from Sicily",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Carmelo Catania's golden age was from the end of the war to the 60s."
+        },
+        {
+          "url": "https://commons.wikimedia.org/wiki/Category:Carmelo_Catania_(guitar_brand)",
+          "publisher": "Wikimedia Commons",
+          "kind": "wikipedia",
+          "title": "Category:Carmelo Catania (guitar brand)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "[résumé] Catégorie Commons dédiée à la marque de guitares Carmelo Catania (existence de la marque)"
+        }
+      ]
+    },
+    {
+      "slug": "antonio-aparicio",
+      "kind": "brand",
+      "name": "Antonio Aparicio",
+      "description": "Atelier de luthier de Valence (Espagne) : guitares classiques fabriquées par Antonio Aparicio, formé à l'usine Hijos de Vicente Tatay.",
+      "countries": [
+        "Spain"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Antonio Aparicio Guitars",
+        "Aparicio Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://www.classicalguitardelcamp.com/viewtopic.php?t=13559",
+          "publisher": "Delcamp Classical Guitar Forum",
+          "kind": "forum",
+          "title": "Aparicio Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "He started working as a kid with the Hijos de Vicente Tatay Guitar Factory, the largest ever in Valencia"
+        }
+      ]
+    }
+  ]
+}

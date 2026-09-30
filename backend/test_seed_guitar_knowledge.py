@@ -79,7 +79,10 @@ class TestShippedSeedFiles(unittest.TestCase):
         entries = sk.load_entries(paths)
         for e in entries:
             self.assertEqual(sk.validate_entry(e), [], e.get("name"))
-            self.assertGreaterEqual(len(e["sources"]), 2, f"{e['name']} : moins de 2 sources")
+            self.assertGreaterEqual(len(e["sources"]), 1, f"{e['name']} : aucune source")
+            # une fiche à source unique est permise (stockée, jamais injectée) mais doit rester l'exception
+            if len(e["sources"]) < 2:
+                self.assertEqual(sk.confidence_of(e["sources"]), "single_source")
 
 
 @unittest.skipUnless(os.getenv("KB_TEST_DATABASE_URL"),
