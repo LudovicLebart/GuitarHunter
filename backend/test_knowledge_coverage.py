@@ -199,6 +199,11 @@ class TestAgainstPostgres(unittest.TestCase):
         self.assertEqual((gap["brand"], gap["n_listings"], gap["n_gems"], gap["n_rejected"]), ("kalamazoo", 3, 1, 2))
         self.assertEqual(report["brands"]["exact"], 1)
         self.assertEqual(report["brands"]["known_accessory"], 1)     # Maxon : accessoire connu, pas un trou
+        admin.execute("UPDATE guitar_knowledge SET relevance_override = 'guitars' WHERE id = 'wd:pedals'")
+        gk.invalidate_cache()
+        overridden = kc.run_analysis(conn, min_count=1)
+        self.assertEqual(overridden["brands"].get("known_accessory", 0), 0)      # surcharge curée : Maxon n'est plus « accessoire »
+        self.assertEqual(overridden["brands"]["exact"], 2)                        # … et est désormais reconnue
         self.assertEqual([g["brand"] for g in report["gaps"]], ["kalamazoo"])
         with self.assertRaises(psycopg.errors.ReadOnlySqlTransaction):
             conn.execute("DELETE FROM guitar_deals")

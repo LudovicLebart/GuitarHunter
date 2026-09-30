@@ -19,6 +19,12 @@ Format d'une entrée (liste JSON, ou {"entries": [...]}) :
      "sources": [{"url": "https://…", "publisher": "…", "kind": "collector", "title": "…", "lang": "en",
                   "license": "copyright", "excerpt": "courte citation (300 caractères max)"}]}
 Un `excerpt` qui n'est PAS une citation mot pour mot (résumé de la page, titre d'annonce) commence par « [résumé] ».
+CORRIGER UNE FICHE EXISTANTE (import Wikidata) : entrée « patch » — la surcharge que l'import n'écrasera jamais :
+    {"patch": "Vox", "relevance_override": "guitars", "hunt_notes": "…faits sourcés…", "tier": "mid",
+     "made_by": ["Matsumoku"], "aliases": ["…"], "sources": [au moins 2 éditeurs distincts]}
+`patch` = nom EXACT unique (ou id) de la fiche à corriger. Une correction exige AU MOINS 2 sources de domaines
+distincts (changer la pertinence d'une marque est plus risqué que d'ajouter une fiche). `hunt_notes` n'est posé que
+s'il est vide (jamais d'écrasement de tes notes) ; `relevance_override` et `tier` remplacent la valeur actuelle.
 `name_as_alias: false` : ne PAS utiliser le nom seul comme alias (nom trop courant, ex. « Profile », aussi une marque
 d'accordeurs) ; seuls les alias listés sont alors reconnus.
 `parent` / `made_by` : nom EXACT d'une fiche existante (ou id `wd:Q…` / `manual:slug`) ; un nom ambigu est refusé.
@@ -58,13 +64,75 @@ def domain(url):
     return host[4:] if host.startswith("www.") else host
 
 
+# Hébergeurs où chaque sous-domaine est un éditeur DIFFÉRENT (un blog n'est pas l'autre).
+SHARED_HOSTS = {"blogspot.com", "wordpress.com", "fandom.com", "github.io", "substack.com", "medium.com",
+                "tumblr.com", "wixsite.com", "weebly.com"}
+
+
+def publisher_key(url):
+    """Éditeur indépendant d'une URL : le domaine « racine » (en.wikipedia.org et fr.wikipedia.org = UN éditeur,
+    Wikipédia), sauf sur les hébergeurs de blogs où chaque sous-domaine est un auteur distinct."""
+    labels = domain(url).split(".")
+    root = ".".join(labels[-2:])
+    return ".".join(labels[-3:]) if root in SHARED_HOSTS and len(labels) >= 3 else root
+
+
 def confidence_of(sources):
-    """`sourced` si au moins 2 éditeurs (domaines) distincts, sinon `single_source`."""
-    return "sourced" if len({domain(s["url"]) for s in sources}) >= 2 else "single_source"
+    """`sourced` si au moins 2 éditeurs indépendants (voir `publisher_key`), sinon `single_source`."""
+    return "sourced" if len({publisher_key(s["url"]) for s in sources}) >= 2 else "single_source"
+
+
+PATCH_KEYS = {"patch", "relevance_override", "hunt_notes", "tier", "made_by", "aliases", "sources", "_file"}
+
+
+def _validate_sources(label, sources):
+    problems = []
+    for i, src in enumerate(sources, 1):
+        where = f"{label} source #{i}"
+        if not str(src.get("url", "")).startswith(("http://", "https://")):
+            problems.append(f"{where} : url http(s) manquante")
+        if not src.get("publisher"):
+            problems.append(f"{where} : éditeur (publisher) manquant")
+        if src.get("kind") and src["kind"] not in SOURCE_KINDS:
+            problems.append(f"{where} : kind « {src['kind']} » inconnu")
+        excerpt = src.get("excerpt") or ""
+        if not excerpt:
+            problems.append(f"{where} : citation (excerpt) manquante — dire ce que cette source appuie")
+        elif len(excerpt) > MAX_EXCERPT:
+            problems.append(f"{where} : citation trop longue ({len(excerpt)} > {MAX_EXCERPT}) — une citation courte, pas l'article")
+    urls = [s.get("url") for s in sources]
+    if len(urls) != len(set(urls)):
+        problems.append(f"{label} : URL de source en double")
+    return problems
+
+
+def validate_patch(entry):
+    """Correction d'une fiche existante : au moins 2 sources de domaines distincts, champs limités."""
+    label = f"patch « {entry.get('patch')} »"
+    problems = []
+    unknown = set(entry) - PATCH_KEYS
+    if unknown:
+        problems.append(f"{label} : champs non autorisés dans un patch : {', '.join(sorted(unknown))}")
+    if not any(entry.get(k) for k in ("relevance_override", "hunt_notes", "tier", "made_by", "aliases")):
+        problems.append(f"{label} : rien à corriger (relevance_override, hunt_notes, tier, made_by ou aliases)")
+    if entry.get("relevance_override") and entry["relevance_override"] not in RELEVANCES:
+        problems.append(f"{label} : relevance_override invalide ({', '.join(sorted(RELEVANCES))})")
+    if entry.get("tier") and entry["tier"] not in TIERS:
+        problems.append(f"{label} : tier invalide")
+    sources = entry.get("sources") or []
+    problems += _validate_sources(label, sources)
+    if len({publisher_key(s.get("url", "")) for s in sources}) < 2:
+        problems.append(f"{label} : une correction exige AU MOINS 2 sources de sites distincts")
+    for alias in entry.get("aliases") or []:
+        if not alias_usable(normalize(alias)):
+            problems.append(f"{label} : alias « {alias} » inexploitable (trop court, numérique ou générique)")
+    return problems
 
 
 def validate_entry(entry):
     """Renvoie la liste des problèmes de l'entrée (vide = valide)."""
+    if entry.get("patch"):
+        return validate_patch(entry)
     problems = []
     label = entry.get("name") or entry.get("slug") or "?"
     for key in ("slug", "kind", "name", "description"):
@@ -85,22 +153,7 @@ def validate_entry(entry):
     sources = entry.get("sources") or []
     if not sources:
         problems.append(f"{label} : AUCUNE source — une fiche sans source est refusée")
-    for i, src in enumerate(sources, 1):
-        where = f"{label} source #{i}"
-        if not str(src.get("url", "")).startswith(("http://", "https://")):
-            problems.append(f"{where} : url http(s) manquante")
-        if not src.get("publisher"):
-            problems.append(f"{where} : éditeur (publisher) manquant")
-        if src.get("kind") and src["kind"] not in SOURCE_KINDS:
-            problems.append(f"{where} : kind « {src['kind']} » inconnu")
-        excerpt = src.get("excerpt") or ""
-        if not excerpt:
-            problems.append(f"{where} : citation (excerpt) manquante — dire ce que cette source appuie")
-        elif len(excerpt) > MAX_EXCERPT:
-            problems.append(f"{where} : citation trop longue ({len(excerpt)} > {MAX_EXCERPT}) — une citation courte, pas l'article")
-    urls = [s.get("url") for s in sources]
-    if len(urls) != len(set(urls)):
-        problems.append(f"{label} : URL de source en double")
+    problems += _validate_sources(label, sources)
     for alias in entry.get("aliases") or []:
         if not alias_usable(normalize(alias)):
             problems.append(f"{label} : alias « {alias} » inexploitable (trop court, numérique ou générique)")
@@ -116,21 +169,24 @@ def load_entries(paths):
         for item in items:
             item["_file"] = os.path.basename(path)
             entries.append(item)
-    slugs = [e.get("slug") for e in entries]
+    slugs = [e.get("slug") or (f"patch:{e['patch']}" if e.get("patch") else None) for e in entries]
     dups = {s for s in slugs if s and slugs.count(s) > 1}
     if dups:
         raise SeedError(f"slugs en double : {', '.join(sorted(dups))}")
     return entries
 
 
-def resolve_ref(conn, ref, entry_ids):
-    """Résout un `parent` / `made_by` en id de fiche : id direct, slug du même lot, ou nom exact UNIQUE."""
+def resolve_ref(conn, ref, entry_ids, include_accessories=False):
+    """Résout un `parent` / `made_by` en id de fiche : id direct, slug du même lot, ou nom exact UNIQUE.
+    `include_accessories` : pour la CIBLE d'une correction (patch), qui est justement souvent classée
+    « accessories » à tort (Vox, Supro)."""
     if ref.startswith(("wd:", "manual:")):
         return ref
     if f"manual:{ref}" in entry_ids:
         return f"manual:{ref}"
-    rows = conn.execute("""SELECT id, kind, name FROM guitar_knowledge
-                           WHERE lower(name) = lower(%s) AND relevance <> 'accessories'""", (ref,)).fetchall()
+    rows = conn.execute(f"""SELECT id, kind, name FROM guitar_knowledge
+                            WHERE lower(name) = lower(%s){'' if include_accessories else " AND relevance <> 'accessories'"}""",
+                        (ref,)).fetchall()
     if len(rows) > 1:
         preferred = [r for r in rows if r["kind"] in ("company", "brand", "factory")]
         rows = preferred if len(preferred) == 1 else rows
@@ -151,6 +207,16 @@ def plan(conn, entries):
     if problems:
         raise SeedError("\n".join(problems))
     for entry in entries:
+        if entry.get("patch"):
+            try:
+                target = resolve_ref(conn, entry["patch"], entry_ids, include_accessories=True)
+                made_by = [resolve_ref(conn, m, entry_ids) for m in entry.get("made_by") or []]
+            except SeedError as e:
+                problems.append(f"patch « {entry['patch']} » : {e}")
+                continue
+            planned.append({**entry, "_patch": True, "target_id": target, "made_by_ids": made_by,
+                            "name": entry["patch"]})
+            continue
         try:
             parent = resolve_ref(conn, entry["parent"], entry_ids) if entry.get("parent") else None
             made_by = [resolve_ref(conn, m, entry_ids) for m in entry.get("made_by") or []]
@@ -171,6 +237,9 @@ def write(conn, planned):
         raise SeedError("aucune version de la base : lancer d'abord import_guitar_knowledge_wikidata.py")
     with conn.transaction():
         for e in planned:
+            if e.get("_patch"):
+                _write_patch(conn, e)
+                continue
             conn.execute("""
                 INSERT INTO guitar_knowledge (id, kind, name, description, parent_id, countries, active_from, active_to,
                     relevance, tier, made_by, curated, source, confidence, kb_version, updated_at)
@@ -205,17 +274,54 @@ def write(conn, planned):
     return version
 
 
+def _write_patch(conn, e):
+    """Corrige une fiche existante sans jamais écraser tes notes : `hunt_notes` seulement s'il est vide."""
+    conn.execute("""
+        UPDATE guitar_knowledge SET
+            relevance_override = COALESCE(%s, relevance_override),
+            tier = COALESCE(%s, tier),
+            made_by = COALESCE(%s, made_by),
+            hunt_notes = COALESCE(hunt_notes, %s),
+            curated = true, updated_at = now()
+        WHERE id = %s""", (e.get("relevance_override"), e.get("tier"), e["made_by_ids"] or None,
+                           e.get("hunt_notes"), e["target_id"]))
+    for alias in e.get("aliases") or []:
+        norm = normalize(alias)
+        if alias_usable(norm):
+            conn.execute("""INSERT INTO guitar_knowledge_alias (alias_norm, knowledge_id, alias, source)
+                            VALUES (%s,%s,%s,'manual') ON CONFLICT DO NOTHING""", (norm, e["target_id"], alias))
+    for src in e["sources"]:
+        conn.execute("""
+            INSERT INTO guitar_knowledge_source (knowledge_id, url, kind, title, publisher, lang, license, excerpt, origin)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'manual')
+            ON CONFLICT (knowledge_id, url) DO UPDATE SET kind = EXCLUDED.kind, title = EXCLUDED.title,
+                publisher = EXCLUDED.publisher, lang = EXCLUDED.lang, license = EXCLUDED.license,
+                excerpt = EXCLUDED.excerpt, origin = 'manual'""",
+                     (e["target_id"], src["url"], src.get("kind") or "other", src.get("title"), src["publisher"],
+                      src.get("lang"), src.get("license"), src["excerpt"]))
+
+
 def print_plan(planned):
-    print(f"{len(planned)} fiche(s) valide(s) :")
+    print(f"{len(planned)} entrée(s) valide(s) :")
     for e in planned:
-        made = f" | fabriquée par {', '.join(e['made_by_ids'])}" if e["made_by_ids"] else ""
-        parent = f" | parent {e['parent_id']}" if e["parent_id"] else ""
-        print(f"  [{e['confidence']:13s}] {e['name']} ({e['kind']}/{e.get('relevance', 'guitars')}){parent}{made}"
-              f" | {len(e['sources'])} source(s) : {', '.join(sorted({domain(s['url']) for s in e['sources']}))}")
-    single = [e["name"] for e in planned if e["confidence"] == "single_source"]
+        if e.get("_patch"):
+            changes = [k for k in ("relevance_override", "hunt_notes", "tier", "made_by", "aliases") if e.get(k)]
+            print(f"  [correction   ] {e['name']} → {e['target_id']} | {', '.join(changes)}"
+                  + (f" = {e['relevance_override']}" if e.get("relevance_override") else "")
+                  + f" | {len(e['sources'])} source(s) : {', '.join(sorted({domain(s['url']) for s in e['sources']}))}")
+        else:
+            _print_fiche(e)
+    single = [e["name"] for e in planned if not e.get("_patch") and e["confidence"] == "single_source"]
     if single:
         print(f"\n⚠️ {len(single)} fiche(s) à source unique — enregistrées mais JAMAIS injectées tant qu'une 2e source "
               f"indépendante n'est pas ajoutée : {', '.join(single)}")
+
+
+def _print_fiche(e):
+    made = f" | fabriquée par {', '.join(e['made_by_ids'])}" if e["made_by_ids"] else ""
+    parent = f" | parent {e['parent_id']}" if e["parent_id"] else ""
+    print(f"  [{e['confidence']:13s}] {e['name']} ({e['kind']}/{e.get('relevance', 'guitars')}){parent}{made}"
+          f" | {len(e['sources'])} source(s) : {', '.join(sorted({domain(s['url']) for s in e['sources']}))}")
 
 
 def main():
@@ -245,7 +351,7 @@ def main():
             print("\n(dry-run : rien écrit)")
             return
         version = write(conn, planned)
-        print(f"\n✅ {len(planned)} fiche(s) écrite(s) (kb_version {version}, curated, source manual).")
+        print(f"\n✅ {len(planned)} entrée(s) écrite(s) (kb_version {version}, curated).")
     except SeedError as e:
         raise SystemExit(f"❌ {e}")
     finally:

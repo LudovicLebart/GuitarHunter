@@ -59,6 +59,13 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(sk.confidence_of(two_pages_same_site[:1]), "single_source")
         self.assertEqual(sk.confidence_of([{"url": "https://www.jedistar.com/a"}, {"url": "https://jedistar.com/b"}]),
                          "single_source")     # « www. » ne fait pas un 2e éditeur
+        # Wikipédia dans deux langues = UN éditeur ; deux blogs d'un même hébergeur = DEUX éditeurs
+        self.assertEqual(sk.confidence_of([{"url": "https://en.wikipedia.org/wiki/A"}, {"url": "https://fr.wikipedia.org/wiki/A"}]),
+                         "single_source")
+        self.assertEqual(sk.confidence_of([{"url": "https://unblog.blogspot.com/a"}, {"url": "https://autreblog.blogspot.com/b"}]),
+                         "sourced")
+        self.assertEqual(sk.confidence_of([{"url": "https://unblog.blogspot.com/a"}, {"url": "https://unblog.blogspot.com/b"}]),
+                         "single_source")
 
     def test_duplicate_slugs_are_refused(self):
         import tempfile
@@ -70,6 +77,32 @@ class TestValidation(unittest.TestCase):
                 sk.load_entries([path])
 
 
+def patch(**over):
+    base = {"patch": "Vox", "relevance_override": "guitars", "hunt_notes": "Amplis ET guitares.",
+            "sources": entry()["sources"]}
+    base.update(over)
+    return base
+
+
+class TestPatchValidation(unittest.TestCase):
+    def test_valid_patch(self):
+        self.assertEqual(sk.validate_entry(patch()), [])
+
+    def test_patch_needs_two_distinct_sites(self):
+        one = patch(sources=entry()["sources"][:1])
+        self.assertTrue(any("AU MOINS 2 sources" in p for p in sk.validate_entry(one)))
+        same_site = patch(sources=[{"url": "https://en.wikipedia.org/wiki/A", "publisher": "W", "excerpt": "x"},
+                                   {"url": "https://fr.wikipedia.org/wiki/A", "publisher": "W", "excerpt": "y"}])
+        self.assertTrue(any("AU MOINS 2 sources" in p for p in sk.validate_entry(same_site)))
+
+    def test_patch_field_rules(self):
+        problems = " ".join(sk.validate_entry(patch(relevance_override="peut-être", tier="luxe", description="non")))
+        for expected in ("relevance_override invalide", "tier invalide", "champs non autorisés"):
+            self.assertIn(expected, problems)
+        self.assertTrue(any("rien à corriger" in p for p in sk.validate_entry(
+            {"patch": "Vox", "sources": entry()["sources"]})))
+
+
 class TestShippedSeedFiles(unittest.TestCase):
     """Les fichiers de fiches livrés dans le dépôt doivent tous être valides (aucune fiche sans source)."""
 
@@ -78,10 +111,11 @@ class TestShippedSeedFiles(unittest.TestCase):
         self.assertTrue(paths)
         entries = sk.load_entries(paths)
         for e in entries:
-            self.assertEqual(sk.validate_entry(e), [], e.get("name"))
-            self.assertGreaterEqual(len(e["sources"]), 1, f"{e['name']} : aucune source")
+            label = e.get("name") or e.get("patch")
+            self.assertEqual(sk.validate_entry(e), [], label)
+            self.assertGreaterEqual(len(e["sources"]), 1, f"{label} : aucune source")
             # une fiche à source unique est permise (stockée, jamais injectée) mais doit rester l'exception
-            if len(e["sources"]) < 2:
+            if len(e["sources"]) < 2 and not e.get("patch"):
                 self.assertEqual(sk.confidence_of(e["sources"]), "single_source")
 
 
@@ -166,15 +200,80 @@ class TestSeedAgainstPostgres(unittest.TestCase):
         self.assertEqual(self.gk.find_ids(self.conn, "Accordeur à pince PROFILE PT-3000BK"), {})
         self.assertIn("manual:profile-guitars", self.gk.find_ids(self.conn, "Profile Guitars Silhouette 1985"))
 
+    def _add_vox(self):
+        self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, description, relevance, source, kb_version)
+                             VALUES ('wd:vox', 'brand', 'Vox', 'fabricant d''accessoires de musique', 'accessories', 'wikidata', 3)""")
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('vox', 'wd:vox', 'Vox', 'wikidata')")
+        self.gk.invalidate_cache()
+
+    def test_patch_overrides_relevance_and_makes_the_brand_findable(self):
+        self._add_vox()
+        self.assertEqual(self.gk.find_ids(self.conn, "Guitare Vox Phantom 1965"), {})        # accessoire : jamais trouvée
+        sk.write(self.conn, self._plan([patch()]))
+        self.gk.invalidate_cache()
+        self.assertIn("wd:vox", self.gk.find_ids(self.conn, "Guitare Vox Phantom 1965"))
+        fiche = self.gk.lookup(self.conn, "Guitare Vox Phantom 1965")[0]
+        self.assertEqual(fiche["relevance"], "guitars")                                      # pertinence effective
+        self.assertIn("Amplis ET guitares", self.gk.format_for_prompt([fiche]))              # notes, pas « accessoires »
+        self.assertNotIn("accessoires de musique", self.gk.format_for_prompt([fiche]))
+
+    def test_patch_never_overwrites_existing_notes_and_survives_a_reimport(self):
+        import contextlib
+        from unittest.mock import patch as mock_patch
+        from backend.scripts import import_guitar_knowledge_wikidata as imp
+        conn = self.conn
+
+        class _Pool:
+            @contextlib.contextmanager
+            def connection(self):
+                yield conn
+
+        pool_patcher = mock_patch("backend.pg_db.init_pool", return_value=_Pool())
+        pool_patcher.start()
+        self.addCleanup(pool_patcher.stop)
+        self._add_vox()
+        self.conn.execute("UPDATE guitar_knowledge SET hunt_notes = 'MES NOTES' WHERE id = 'wd:vox'")
+        sk.write(self.conn, self._plan([patch(hunt_notes="notes du patch")]))
+        row = self.conn.execute("SELECT hunt_notes, relevance_override, curated FROM guitar_knowledge WHERE id='wd:vox'").fetchone()
+        self.assertEqual((row["hunt_notes"], row["relevance_override"], row["curated"]), ("MES NOTES", "guitars", True))
+        rec = {"id": "wd:vox", "kind": "brand", "name": "Vox", "description": "fabricant d'accessoires", "parent_id": None,
+               "countries": None, "active_from": None, "active_to": None, "relevance": "accessories",
+               "wikidata_qid": "vox", "wikipedia_url": None, "aliases": ["Vox"], "raw": {}}
+        keep = {**rec, "id": "wd:godin", "name": "Godin", "aliases": ["Godin"]}
+        imp.write_records([rec, keep], "reimport")                                            # l'import ré-écrit relevance
+        row = self.conn.execute("SELECT relevance, relevance_override FROM guitar_knowledge WHERE id='wd:vox'").fetchone()
+        self.assertEqual((row["relevance"], row["relevance_override"]), ("accessories", "guitars"))   # la surcharge survit
+
+    def test_patch_on_unknown_or_ambiguous_target_is_refused(self):
+        with self.assertRaises(sk.SeedError):
+            self._plan([patch(patch="Inexistante")])
+        with self.assertRaises(sk.SeedError) as ctx:
+            self._plan([patch(patch="Godin")])                                                # deux fiches « Godin » dans ce jeu d'essai
+        self.assertIn("ambigu", str(ctx.exception))
+
+    def test_patch_can_flip_a_guitar_brand_back_to_accessories(self):
+        self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version)
+                             VALUES ('wd:pedals', 'company', 'Boutik', 'guitars', 'wikidata', 3)""")
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('boutik', 'wd:pedals', 'Boutik', 'wikidata')")
+        self.gk.invalidate_cache()
+        self.assertIn("wd:pedals", self.gk.find_ids(self.conn, "pedale boutik"))
+        sk.write(self.conn, self._plan([patch(patch="Boutik", relevance_override="accessories", hunt_notes=None)]))
+        self.gk.invalidate_cache()
+        self.assertEqual(self.gk.find_ids(self.conn, "pedale boutik"), {})
+
     def test_shipped_batch_plans_against_a_kb_containing_its_references(self):
         # Le lot livré ne doit dépendre que de fiches « Godin » et « Matsumoku » uniques dans la base réelle.
         self.conn.execute("DELETE FROM guitar_knowledge WHERE id = 'wd:godin2'")
+        self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version) VALUES
+            ('wd:vox', 'brand', 'Vox', 'accessories', 'wikidata', 3), ('wd:supro', 'company', 'Supro', 'accessories', 'wikidata', 3)""")
         entries = sk.load_entries(sorted(glob.glob(os.path.join(sk.SEED_DIR, "*.json"))))
         planned = sk.plan(self.conn, entries)
         self.assertEqual(len(planned), len(entries))
         sk.write(self.conn, planned)
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge WHERE source='manual'").fetchone()["n"],
-                         len(entries))
+                         len([e for e in entries if not e.get("patch")]))
+        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge WHERE relevance_override = 'guitars'")
+                         .fetchone()["n"], len([e for e in entries if e.get("patch")]))
 
 
 if __name__ == "__main__":

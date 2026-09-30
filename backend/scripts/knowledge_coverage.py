@@ -207,7 +207,7 @@ def load_kinds(conn):
 def load_accessory_aliases(conn):
     return {r["alias_norm"] for r in conn.execute(
         """SELECT a.alias_norm FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
-           WHERE k.relevance = 'accessories'""").fetchall()}
+           WHERE COALESCE(k.relevance_override, k.relevance) = 'accessories'""").fetchall()}
 
 
 def run_analysis(conn, days=None, min_count=2):

@@ -72,7 +72,7 @@ def _load_aliases(conn):
     rows = conn.execute(
         """SELECT a.alias_norm, a.knowledge_id
            FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
-           WHERE k.relevance <> 'accessories'
+           WHERE COALESCE(k.relevance_override, k.relevance) <> 'accessories'
              AND (k.confidence IS NULL OR k.confidence = 'sourced')"""
     ).fetchall()
     aliases = {}
@@ -154,7 +154,7 @@ def lookup(conn, *texts, limit=3):
         return []
     rows = conn.execute(
         """SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
-                  k.tier, k.hunt_notes, k.made_by, k.curated, k.relevance,
+                  k.tier, k.hunt_notes, k.made_by, k.curated, COALESCE(k.relevance_override, k.relevance) AS relevance,
                   p.name AS parent_name, p.tier AS parent_tier
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
            WHERE k.id = ANY(%s)""",

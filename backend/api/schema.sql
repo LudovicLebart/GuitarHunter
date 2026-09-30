@@ -612,3 +612,10 @@ CREATE INDEX IF NOT EXISTS guitar_knowledge_source_kid_idx ON guitar_knowledge_s
 -- JAMAIS injectée dans le prompt (une fiche fausse est pire que pas de fiche). NULL = fiche de l'import
 -- Wikidata/Wikipédia ou fiche écrite à la main par l'utilisateur : injectable. Colonne CURÉE : l'import n'y touche pas.
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS confidence TEXT;
+
+-- Surcharge CURÉE de la pertinence (2026-09-30) : l'import réécrit `relevance` d'après les descriptions
+-- Wikidata, ce qui classe à tort en « accessories » une marque d'amplis qui a AUSSI fait des guitares (Vox,
+-- Supro). `relevance_override` ('guitars' | 'accessories' | 'unknown') prime sur `relevance` à la recherche et
+-- dans la carte des trous ; l'import n'y touche JAMAIS. À poser via seed_guitar_knowledge.py (entrée « patch »
+-- avec au moins 2 sources), pas à la main.
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS relevance_override TEXT;
