@@ -154,7 +154,7 @@ def lookup(conn, *texts, limit=3):
         return []
     rows = conn.execute(
         """SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
-                  k.tier, k.hunt_notes, k.made_by, k.curated, COALESCE(k.relevance_override, k.relevance) AS relevance,
+                  k.tier, k.hunt_notes, k.made_by, k.curated, k.source, COALESCE(k.relevance_override, k.relevance) AS relevance,
                   p.name AS parent_name, p.tier AS parent_tier
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
            WHERE k.id = ANY(%s)""",
@@ -210,13 +210,14 @@ def format_for_prompt(fiches):
             parts.append(f"rattaché à {_one_line(f['parent_name'], MAX_NAME_CHARS)}")
         if f.get("countries"):
             parts.append("pays : " + ", ".join(f["countries"][:3]))
-        # Années : seulement si elles sont fiables. « actif 1987–aujourd'hui » pour Yamaha (date de création de
-        # l'entité Wikidata, pas de la marque) affirmait à tort une histoire ; une fiche curée à la main peut
-        # donner « depuis X », une fiche importée seulement une période complète.
+        # Années : seulement si elles sont fiables. L'année d'une entité Wikidata est celle de l'ENTITÉ, pas
+        # forcément de la marque (Yamaha « 1987 », Vox « 1947 » alors que la note sourcée dit 1957) : une fiche
+        # importée n'affiche une période que complète, et « depuis X » n'est réservé qu'aux fiches écrites À LA
+        # MAIN (source « manual »). Corriger une fiche importée (patch) ne rend PAS ses années fiables.
         active_from, active_to = f.get("active_from"), f.get("active_to")
         if active_from and active_to:
             parts.append(f"actif {active_from}–{active_to}")
-        elif active_from and f.get("curated"):
+        elif active_from and f.get("source") == "manual":
             parts.append(f"depuis {active_from}")
         if f.get("tier"):
             parts.append(f"gamme : {f['tier']}")

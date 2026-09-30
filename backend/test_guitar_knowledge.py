@@ -244,7 +244,7 @@ class TestFormatForPrompt(unittest.TestCase):
               "À ne pas confondre avec le modèle Saturn de Hopf.")
 
     def _fiche(self, **over):
-        base = {"name": "Saturn", "kind": "brand", "description": self.SATURN, "curated": True}
+        base = {"name": "Saturn", "kind": "brand", "description": self.SATURN, "curated": True, "source": "manual"}
         base.update(over)
         return base
 
@@ -269,10 +269,13 @@ class TestFormatForPrompt(unittest.TestCase):
         self.assertNotIn("http", out)
 
     def test_years_only_when_reliable(self):
-        imported = self._fiche(curated=False, active_from=1987)
+        imported = self._fiche(curated=False, source="wikidata", active_from=1987)
         self.assertNotIn("1987", gk.format_for_prompt([imported]))          # période incomplète, fiche importée : rien
-        self.assertIn("depuis 1965", gk.format_for_prompt([self._fiche(active_from=1965)]))   # fiche curée
-        self.assertIn("actif 1946–1966", gk.format_for_prompt([self._fiche(curated=False, active_from=1946, active_to=1966)]))
+        self.assertIn("depuis 1965", gk.format_for_prompt([self._fiche(active_from=1965)]))   # fiche écrite à la main
+        # fiche IMPORTÉE puis corrigée (patch → curated) : son année reste celle de l'entité Wikidata, non fiable
+        vox = self._fiche(name="Vox", curated=True, source="wikidata", active_from=1947, hunt_notes="Constructeur (1957)")
+        self.assertNotIn("1947", gk.format_for_prompt([vox]))
+        self.assertIn("actif 1946–1966", gk.format_for_prompt([self._fiche(curated=False, source="wikidata", active_from=1946, active_to=1966)]))
         self.assertNotIn("aujourd", gk.format_for_prompt([imported, self._fiche(active_from=1965)]))
 
 
