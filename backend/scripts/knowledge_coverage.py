@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import statistics
 import sys
 from collections import Counter, defaultdict
@@ -39,6 +40,15 @@ SKIP_BRANDS = {
 }
 ORG_KINDS = {"company", "brand", "factory", "line"}        # ce qui compte comme « la base connaît cette marque »
 GEM_VERDICTS = {"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"}   # verdicts « bonne affaire »
+# Type probable d'un « trou », d'après les titres de ses annonces : la plupart des trous ne sont pas des marques
+# de guitares (accordeurs, amplis, pédales, jeux vidéo) et noient les vraies marques à chercher.
+TITLE_TYPES = (
+    ("jeu video", re.compile(r"guitar hero|rock ?band|xbox|playstation|\bps[2345]\b|\bwii\b|nintendo|manette|controller")),
+    ("ampli", re.compile(r"\bamplis?\b|amplificateur|amplifier|\bamp\b|combo")),
+    ("pedale/effet", re.compile(r"p[ée]dale|pedal|overdrive|distortion|delay|reverb|chorus|fuzz|wah|multi-?effets?|looper")),
+    ("accessoire", re.compile(r"accordeur|tuner|\bcapo\b|\bstand\b|support|sangle|strap|c[âa]ble|cable|m[ée]diator|\bpicks?\b|\bcordes?\b|strings")),
+)
+NON_GUITAR_SHARE = 0.5      # un trou est « probablement pas une guitare » si ≥ 50 % de ses titres sont d'un même type
 SAMPLES_TITLES = 3
 SAMPLES_LINKS = 2
 
@@ -65,18 +75,29 @@ def group_of(row):
     return "rejected" if row.get("status") == "rejected" else "accepted"
 
 
+def title_type(title):
+    t = (title or "").lower()
+    for label, pattern in TITLE_TYPES:
+        if pattern.search(t):
+            return label
+    return "guitare/autre"
+
+
 def _kinds_seen(found, kinds):
     return {kinds.get(k) for k in found}
 
 
 def _new_stats():
-    return {"n": 0, "gem": 0, "accepted": 0, "rejected": 0, "prices": [], "variants": Counter(),
-            "titles": [], "links": []}
+    return {"n": 0, "gem": 0, "pepite": 0, "accepted": 0, "rejected": 0, "prices": [], "variants": Counter(),
+            "forms": Counter(), "types": Counter(), "titles": [], "links": []}
 
 
-def _add(stats, row, group, raw_variant):
+def _add(stats, row, group, raw_variant, form):
     stats["n"] += 1
     stats[group] += 1
+    stats["pepite"] += 1 if (row.get("verdict") or "") == "PEPITE" else 0
+    stats["forms"][form] += 1
+    stats["types"][title_type(row.get("title"))] += 1
     if row.get("price") is not None:
         try:
             stats["prices"].append(float(row["price"]))
@@ -91,12 +112,19 @@ def _add(stats, row, group, raw_variant):
         stats["links"].append(link)
 
 
+def _probable_type(stats):
+    label, count = next(((t, c) for t, c in stats["types"].most_common() if t != "guitare/autre"), (None, 0))
+    return label if label and count / stats["n"] >= NON_GUITAR_SHARE else "guitare/autre"
+
+
 def _finalize(key, stats):
     prices = stats["prices"]
+    brand = stats["forms"].most_common(1)[0][0]      # forme la plus fréquente (« carmelo catania » et « catania carmelo » fusionnés)
     return {
-        "brand": key if isinstance(key, str) else key[0],
+        "brand": brand,
         **({"model": key[1]} if not isinstance(key, str) else {}),
-        "n_listings": stats["n"], "n_gems": stats["gem"], "n_accepted": stats["accepted"],
+        "probable_type": _probable_type(stats),
+        "n_listings": stats["n"], "n_gems": stats["gem"], "n_pepites": stats["pepite"], "n_accepted": stats["accepted"],
         "n_rejected": stats["rejected"],
         "median_price": round(statistics.median(prices)) if prices else None,
         "variants": [v for v, _ in stats["variants"].most_common(5)],
@@ -104,9 +132,15 @@ def _finalize(key, stats):
     }
 
 
-def analyze(rows, kinds, find, min_count=2):
+def _sorted_key(norm):
+    return " ".join(sorted(norm.split()))
+
+
+def analyze(rows, kinds, find, min_count=2, accessory_brands=frozenset()):
     """`kinds` : {id de fiche: kind} ; `find(*textes)` : {id de fiche: (alias, 'exact'|'fuzzy')} (voir
-    `guitar_knowledge.find_ids`). Séparé de la base pour être testable sans Postgres."""
+    `guitar_knowledge.find_ids`). `accessory_brands` : alias normalisés des fiches classées « accessories »
+    (D'Addario, Line 6...) : connues de la base, donc PAS des trous (mais jamais injectées au Portier).
+    Séparé de la base pour être testable sans Postgres."""
     listing_cov = defaultdict(lambda: Counter())     # groupe -> {total, recognized}
     brand_cov = Counter()                            # total / exact / fuzzy / missing
     gaps, model_gaps = defaultdict(_new_stats), defaultdict(_new_stats)
@@ -127,11 +161,14 @@ def analyze(rows, kinds, find, min_count=2):
             brand_cov["no_brand"] += 1
             continue
         brand_cov["total"] += 1
+        if brand in accessory_brands:
+            brand_cov["known_accessory"] += 1
+            continue
         brand_found = find(brand_raw)
         org_matches = {k: v for k, v in brand_found.items() if kinds.get(k) in ORG_KINDS}
         if not org_matches:
             brand_cov["missing"] += 1
-            _add(gaps[brand], row, group, brand_raw.strip())
+            _add(gaps[_sorted_key(brand)], row, group, brand_raw.strip(), brand)
             continue
         brand_cov["fuzzy_only" if all(t == "fuzzy" for _, t in org_matches.values()) else "exact"] += 1
 
@@ -139,7 +176,8 @@ def analyze(rows, kinds, find, min_count=2):
         if model_norm and model_norm not in SKIP_BRANDS and not model_norm.replace(" ", "").isdigit():
             line_found = find(f"{brand_raw} {model}", title)
             if "line" not in _kinds_seen(line_found, kinds):
-                _add(model_gaps[(brand, model_norm)], row, group, f"{brand_raw.strip()} {model.strip()}")
+                _add(model_gaps[(_sorted_key(brand), model_norm)], row, group,
+                     f"{brand_raw.strip()} {model.strip()}", brand)
 
     def rank(d):
         out = [_finalize(k, s) for k, s in d.items() if s["n"] >= min_count]
@@ -166,10 +204,17 @@ def load_kinds(conn):
     return {r["id"]: r["kind"] for r in conn.execute("SELECT id, kind FROM guitar_knowledge").fetchall()}
 
 
+def load_accessory_aliases(conn):
+    return {r["alias_norm"] for r in conn.execute(
+        """SELECT a.alias_norm FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
+           WHERE k.relevance = 'accessories'""").fetchall()}
+
+
 def run_analysis(conn, days=None, min_count=2):
     rows = load_rows(conn, days)
     kinds = load_kinds(conn)
-    report = analyze(rows, kinds, lambda *texts: gk.find_ids(conn, *texts), min_count=min_count)
+    report = analyze(rows, kinds, lambda *texts: gk.find_ids(conn, *texts), min_count=min_count,
+                     accessory_brands=load_accessory_aliases(conn))
     report["kb_fiches"] = len(kinds)
     return report
 
@@ -178,7 +223,7 @@ def _pct(part, whole):
     return f"{100 * part / whole:5.1f} %" if whole else "   n/a"
 
 
-def print_report(report, top=30):
+def print_report(report, top=30, all_types=False):
     total = report["total_listings"]
     print(f"Annonces analysées : {total}   |   fiches dans la base : {report['kb_fiches']}")
     print("\n== 1. COUVERTURE : annonces où la base reconnaît au moins une marque/série ==")
@@ -192,39 +237,49 @@ def print_report(report, top=30):
         print(f"\n  Marques citées par les annonces : {b['total']} (hors « inconnu », {b.get('no_brand', 0)} sans marque)")
         print(f"    reconnues : {b.get('exact', 0)} ({_pct(b.get('exact', 0), b['total']).strip()})"
               f", seulement approximatives : {b.get('fuzzy_only', 0)}"
+              f", connues comme accessoires/amplis (jamais injectées) : {b.get('known_accessory', 0)}"
               f", ABSENTES de la base : {b.get('missing', 0)} ({_pct(b.get('missing', 0), b['total']).strip()})")
 
-    def table(title, items, with_model=False):
+    def table(title, items, with_model=False, all_types=False):
+        shown = items if all_types else [g for g in items if g["probable_type"] == "guitare/autre"]
+        hidden = len(items) - len(shown)
         print(f"\n{title}")
-        if not items:
+        if not shown:
             print("  (rien à signaler)")
-            return
-        head = f"  {'marque':24s}" + (f"{'modèle':22s}" if with_model else "") + f"{'annonces':>9s}{'pépites':>8s}{'acc.':>6s}{'rej.':>6s}{'prix méd.':>10s}  exemple"
-        print(head)
-        for g in items[:top]:
-            price = f"{g['median_price']} $" if g["median_price"] is not None else "-"
-            print(f"  {g['brand'][:23]:24s}" + (f"{g['model'][:21]:22s}" if with_model else "") +
-                  f"{g['n_listings']:9d}{g['n_gems']:8d}{g['n_accepted']:6d}{g['n_rejected']:6d}{price:>10s}  "
-                  f"{(g['sample_titles'] or [''])[0][:60]}")
+        else:
+            head = (f"  {'marque':24s}" + (f"{'modèle':22s}" if with_model else "") +
+                    f"{'annonces':>9s}{'PEPITE':>7s}{'aff.':>6s}{'acc.':>6s}{'rej.':>6s}{'prix méd.':>10s}  exemple")
+            print(head)
+            for g in shown[:top]:
+                price = f"{g['median_price']} $" if g["median_price"] is not None else "-"
+                print(f"  {g['brand'][:23]:24s}" + (f"{g['model'][:21]:22s}" if with_model else "") +
+                      f"{g['n_listings']:9d}{g['n_pepites']:7d}{g['n_gems']:6d}{g['n_accepted']:6d}{g['n_rejected']:6d}{price:>10s}  "
+                      f"{(g['sample_titles'] or [''])[0].splitlines()[0][:60]}")
+        if hidden:
+            kinds_hidden = Counter(g["probable_type"] for g in items if g["probable_type"] != "guitare/autre")
+            print(f"  ({hidden} masqués car probablement pas des guitares : "
+                  + ", ".join(f"{k} {v}" for k, v in kinds_hidden.most_common()) + " — voir --all-types / le CSV)")
 
+    print("\n  Colonnes : PEPITE = verdict PEPITE ; aff. = « bonnes affaires » (PEPITE, FAST_FLIP, LUTHIER_PROJ, CASE_WIN, COLLECTION)")
     with_gems = [g for g in report["gaps"] if g["n_gems"]]
-    table("== 2a. TROUS À PRIORITÉ HAUTE : marques absentes de la base où tu as trouvé des PÉPITES ==", with_gems)
+    table("== 2a. TROUS À PRIORITÉ HAUTE : marques absentes de la base où tu as trouvé des bonnes affaires ==", with_gems, all_types=all_types)
     table("== 2b. TROUS LES PLUS FRÉQUENTS : marques absentes de la base (toutes annonces) ==",
-          report["gaps_by_frequency"])
+          report["gaps_by_frequency"], all_types=all_types)
     table("== 3. TROUS DE MODÈLES : marque connue, mais aucune fiche de série/modèle pour le modèle cité ==",
-          report["model_gaps"], with_model=True)
+          report["model_gaps"], with_model=True, all_types=all_types)
 
 
 def write_csv(report, path):
     with open(path, "w", encoding="utf-8", newline="") as fh:
         w = csv.writer(fh)
-        w.writerow(["type", "brand", "model", "n_listings", "n_gems", "n_accepted", "n_rejected", "median_price",
-                    "variants", "sample_titles", "sample_links", "decision"])
+        w.writerow(["type", "probable_type", "brand", "model", "n_listings", "n_pepites", "n_gems", "n_accepted",
+                    "n_rejected", "median_price", "variants", "sample_titles", "sample_links", "decision"])
         for typ, items in (("marque_absente", report["gaps_by_frequency"]), ("modele_absent", report["model_gaps"])):
             for g in items:
-                w.writerow([typ, g["brand"], g.get("model", ""), g["n_listings"], g["n_gems"], g["n_accepted"],
-                            g["n_rejected"], g["median_price"] if g["median_price"] is not None else "",
-                            " | ".join(g["variants"]), " | ".join(g["sample_titles"]), " | ".join(g["sample_links"]),
+                w.writerow([typ, g["probable_type"], g["brand"], g.get("model", ""), g["n_listings"], g["n_pepites"],
+                            g["n_gems"], g["n_accepted"], g["n_rejected"], g["median_price"] if g["median_price"] is not None else "",
+                            " | ".join(g["variants"]), " | ".join(t.replace("\n", " ") for t in g["sample_titles"]),
+                            " | ".join(g["sample_links"]),
                             ""])   # colonne « decision » à remplir à la main (ajouter / ignorer / déjà connu sous un autre nom)
 
 
@@ -233,6 +288,8 @@ def main():
     ap.add_argument("--days", type=int, default=None, help="limiter aux annonces des N derniers jours")
     ap.add_argument("--min-count", type=int, default=2, help="n'afficher que les trous vus dans au moins N annonces")
     ap.add_argument("--top", type=int, default=30, help="lignes affichées par tableau (le CSV contient tout)")
+    ap.add_argument("--all-types", action="store_true",
+                    help="afficher aussi les trous probablement pas des guitares (accordeurs, amplis, pédales, jeux vidéo)")
     ap.add_argument("--csv-out", default=None)
     ap.add_argument("--json-out", default=None)
     args = ap.parse_args()
@@ -248,7 +305,7 @@ def main():
         report = run_analysis(conn, days=args.days, min_count=args.min_count)
     finally:
         conn.close()
-    print_report(report, args.top)
+    print_report(report, args.top, args.all_types)
     if args.csv_out:
         write_csv(report, os.path.expanduser(args.csv_out))
         print(f"\nCSV écrit : {args.csv_out} ({len(report['gaps_by_frequency'])} marques absentes, "

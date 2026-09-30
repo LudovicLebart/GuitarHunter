@@ -94,6 +94,59 @@ class TestAnalyze(unittest.TestCase):
         self.assertEqual((kal["type"], kal["n_gems"], kal["decision"]), ("marque_absente", "1", ""))
         self.assertTrue(any(r["type"] == "modele_absent" and r["model"] == "bronco" for r in rows))
 
+    def test_known_accessory_brands_are_not_gaps(self):
+        rows = [row("Pédale delay", "Line 6"), row("Câble", "D'Addario")]
+        report = kc.analyze(rows, KINDS, fake_find, min_count=1, accessory_brands={"line 6", "d addario"})
+        self.assertEqual(report["gaps"], [])
+        self.assertEqual(report["brands"]["known_accessory"], 2)
+
+    def test_word_order_variants_are_merged(self):
+        rows = [row("Catania Carmelo acoustic 1963", "Carmelo Catania", verdict="PEPITE"),
+                row("Carmelo Catania guitare", "Catania Carmelo")]
+        gaps = kc.analyze(rows, KINDS, fake_find, min_count=1)["gaps"]
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual((gaps[0]["n_listings"], gaps[0]["n_pepites"]), (2, 1))
+        self.assertEqual(set(gaps[0]["variants"]), {"Carmelo Catania", "Catania Carmelo"})
+
+    def test_probable_type_from_titles(self):
+        rows = [row("Pédale delay Joyo", "Joyo"), row("Joyo overdrive pedal", "Joyo"), row("Joyo guitare", "Joyo"),
+                row("Ampli Orange 20W", "Orange"), row("Amplificateur guitare", "Orange"),
+                row("Guitare Yamaki 1975", "Yamaki")]
+        gaps = {g["brand"]: g for g in kc.analyze(rows, KINDS, fake_find, min_count=1)["gaps"]}
+        self.assertEqual(gaps["joyo"]["probable_type"], "pedale/effet")
+        self.assertEqual(gaps["orange"]["probable_type"], "ampli")
+        self.assertEqual(gaps["yamaki"]["probable_type"], "guitare/autre")
+
+    def test_non_guitar_gaps_are_hidden_unless_requested(self):
+        import contextlib
+        import io
+        rows = [row("Ampli Orange 20W", "Orange"), row("Amplificateur guitare", "Orange"),
+                row("Guitare Yamaki 1975", "Yamaki"), row("Guitare Yamaki", "Yamaki")]
+        report = kc.analyze(rows, KINDS, fake_find, min_count=1)
+        report["kb_fiches"] = 4
+        for all_types, expect_orange in ((False, False), (True, True)):
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                kc.print_report(report, top=10, all_types=all_types)
+            out = buf.getvalue()
+            self.assertIn("yamaki", out)
+            self.assertEqual("orange" in out.split("2b.")[1].split("== 3.")[0].lower(), expect_orange, all_types)
+
+    def test_multiline_titles_do_not_break_the_report_or_csv(self):
+        rows = [row("Guitare Yamaki\nSeulement 99$\ndans Montréal", "Yamaki")] * 2
+        report = kc.analyze(rows, KINDS, fake_find, min_count=1)
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()) as buf:
+            report["kb_fiches"] = 1
+            kc.print_report(report, top=5)
+        self.assertNotIn("Seulement", buf.getvalue())
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "g.csv")
+            kc.write_csv(report, path)
+            with open(path, encoding="utf-8") as fh:
+                self.assertEqual(len(list(csv.DictReader(fh))), 1)
+
     def test_print_report_runs(self):
         import contextlib
         import io
@@ -123,6 +176,10 @@ class TestAgainstPostgres(unittest.TestCase):
         admin.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version)
                          VALUES ('wd:fender', 'brand', 'Fender', 'guitars', 'wikidata', 1)""")
         admin.execute("INSERT INTO guitar_knowledge_alias VALUES ('fender', 'wd:fender', 'Fender', 'wikidata')")
+        admin.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version)
+                         VALUES ('wd:pedals', 'company', 'Maxon', 'accessories', 'wikidata', 1)""")
+        admin.execute("INSERT INTO guitar_knowledge_alias VALUES ('maxon', 'wd:pedals', 'Maxon', 'wikidata')")
+        admin.execute("INSERT INTO guitar_deals (id, title, brand, status, verdict) VALUES ('m1', 'Maxon OD808', 'Maxon', 'analyzed', 'FAIR')")
         for i, (title, brand, status, verdict) in enumerate([
                 ("Fender Jazzmaster", "Fender", "analyzed", "FAIR"),
                 ("Kalamazoo KG-1", "Kalamazoo", "analyzed", "PEPITE"),
@@ -141,6 +198,8 @@ class TestAgainstPostgres(unittest.TestCase):
         gap = report["gaps"][0]
         self.assertEqual((gap["brand"], gap["n_listings"], gap["n_gems"], gap["n_rejected"]), ("kalamazoo", 3, 1, 2))
         self.assertEqual(report["brands"]["exact"], 1)
+        self.assertEqual(report["brands"]["known_accessory"], 1)     # Maxon : accessoire connu, pas un trou
+        self.assertEqual([g["brand"] for g in report["gaps"]], ["kalamazoo"])
         with self.assertRaises(psycopg.errors.ReadOnlySqlTransaction):
             conn.execute("DELETE FROM guitar_deals")
 
