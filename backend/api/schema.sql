@@ -606,3 +606,9 @@ CREATE TABLE IF NOT EXISTS guitar_knowledge_source (
     UNIQUE (knowledge_id, url)
 );
 CREATE INDEX IF NOT EXISTS guitar_knowledge_source_kid_idx ON guitar_knowledge_source (knowledge_id);
+
+-- Niveau de confiance d'une fiche AJOUTÉE À LA MAIN (2026-09-30), calculé par seed_guitar_knowledge.py d'après
+-- ses sources : 'sourced' = au moins 2 éditeurs (sites) distincts ; 'single_source' = un seul → conservée mais
+-- JAMAIS injectée dans le prompt (une fiche fausse est pire que pas de fiche). NULL = fiche de l'import
+-- Wikidata/Wikipédia ou fiche écrite à la main par l'utilisateur : injectable. Colonne CURÉE : l'import n'y touche pas.
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS confidence TEXT;

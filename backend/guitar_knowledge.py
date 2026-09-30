@@ -72,7 +72,8 @@ def _load_aliases(conn):
     rows = conn.execute(
         """SELECT a.alias_norm, a.knowledge_id
            FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
-           WHERE k.relevance <> 'accessories'"""
+           WHERE k.relevance <> 'accessories'
+             AND (k.confidence IS NULL OR k.confidence = 'sourced')"""
     ).fetchall()
     aliases = {}
     for row in rows:
