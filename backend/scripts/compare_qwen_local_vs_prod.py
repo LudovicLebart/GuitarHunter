@@ -195,7 +195,19 @@ def _construct_base_user_prompt(listing_data, main_prompt_template, taxonomy_dat
     )
 
 
-def _call_qwen_local_json(prompt, images, model):
+def _sampling_options(temperature, seed):
+    """Options d'échantillonnage Ollama ajoutées à `options` : vides (réglages par défaut du modèle, comme la prod
+    aujourd'hui) tant que ni température ni graine ne sont demandées. `temperature=0` + `seed` fixe rend le rejeu
+    reproductible : l'écart entre deux rejeux ne peut alors plus venir de l'aléa d'échantillonnage."""
+    opts = {}
+    if temperature is not None:
+        opts["temperature"] = temperature
+    if seed is not None:
+        opts["seed"] = seed
+    return opts
+
+
+def _call_qwen_local_json(prompt, images, model, temperature=None, seed=None):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
     renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
     _call_openai_compatible_json (analyzer.py) pour les deux premiers éléments. `num_ctx` fixé
@@ -219,7 +231,8 @@ def _call_qwen_local_json(prompt, images, model):
             model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
+            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
+                                    **_sampling_options(temperature, seed)}},
         )
         choice = response.choices[0]
         text = choice.message.content.strip()
@@ -270,7 +283,7 @@ def _call_qwen_local_json(prompt, images, model):
                 False, completion_tokens, reasoning_tokens, raw_debug)
 
 
-def _call_qwen_local_json_native(prompt, images, model):
+def _call_qwen_local_json_native(prompt, images, model, temperature=None, seed=None):
     """Variante API NATIVE Ollama (`/api/chat`, pas le SDK OpenAI-compat) — utilisée uniquement
     pour `--no-think` (2026-09-27). `think` est un champ de premier niveau documenté et garanti
     supporté par l'API native ; côté SDK OpenAI-compat, `extra_body["think"] = False` n'avait
@@ -291,7 +304,8 @@ def _call_qwen_local_json_native(prompt, images, model):
             "model": model,
             "messages": [{"role": "user", "content": prompt, "images": images_b64}],
             "format": T1_GATEKEEPER_OPENAI_JSON_SCHEMA["json_schema"]["schema"],
-            "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS},
+            "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
+                        **_sampling_options(temperature, seed)},
             "think": False,
             "stream": False,
         }
@@ -424,6 +438,11 @@ def main():
     parser.add_argument("--out", default="compare_qwen_local_vs_prod.json",
                          help="Nom du fichier de résultats dans backend/benchmark/results/ (à changer pour garder les "
                               "rejeux sans/avec base côte à côte).")
+    parser.add_argument("--temperature", type=float, default=0.0,
+                         help="Température d'échantillonnage envoyée à Ollama (défaut 0 : rejeu reproductible, pour que l'écart "
+                              "sans/avec la base ne vienne que de la base). La PROD n'impose aucune température aujourd'hui "
+                              "(réglage par défaut du modèle) : --temperature -1 rejoue dans ces conditions, avec leur bruit.")
+    parser.add_argument("--seed", type=int, default=42, help="Graine d'échantillonnage (défaut 42), ignorée si --temperature -1.")
     parser.add_argument("--reclassified", action="store_true",
                          help="Ne rejoue QUE les annonces rejetées à l'origine (initial_verdict) puis reclassées en non-rejet "
                               "(analyse forcée, ré-analyse) : faux rejets présumés du Portier, la seule vérité terrain "
@@ -444,6 +463,8 @@ def main():
     args = parser.parse_args()
     if args.with_knowledge and not args.simplified_prompt:
         parser.error("--with-knowledge exige --simplified-prompt (le prompt de prod du Portier)")
+    temperature = None if args.temperature < 0 else args.temperature     # -1 = réglages par défaut du modèle (comme la prod)
+    seed = None if temperature is None else args.seed
     if args.with_knowledge:
         guitar_knowledge.configure_version(args.kb_version)
 
@@ -572,7 +593,7 @@ def main():
             t0 = time.monotonic()
             call_fn = _call_qwen_local_json_native if args.no_think else _call_qwen_local_json
             result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = call_fn(
-                full_prompt_t1, images, args.model
+                full_prompt_t1, images, args.model, temperature=temperature, seed=seed
             )
             latency_s = round(time.monotonic() - t0, 1)
             latencies_s.append(latency_s)
@@ -684,6 +705,8 @@ def main():
             "no_think": args.no_think,
             "before": args.before,
             "reclassified": args.reclassified,
+            "temperature": temperature,
+            "seed": seed,
             "excluded_ids": excluded,
             "n_total": n,
             "agree_accept": agree_accept,

@@ -39,6 +39,10 @@ _AMBIGUOUS_SINGLE = {"premier", "heritage", "national", "superior", "reserve", "
                      # « KILLER DEAL » injectait la fiche Killer Guitars) — comme ci-dessus, la marque reste reconnue
                      # par son nom complet (« killer guitars »), jamais par ce mot seul.
                      "killer", "legend", "monster", "beast", "mint", "rare", "unique", "perfect", "super"}
+# Séquences de lettres isolées qui sont du FRANÇAIS courant une fois la ponctuation retirée : « à l'épaule » →
+# « a l », « l'a » → « l a ». « A&L » (Art & Lutherie) se normalise pareil et ne peut pas en être distingué : la marque
+# reste reconnue par son nom complet. (« g l » = G&L reste exploitable.)
+_FUNCTION_SEQUENCES = frozenset({"a l", "l a"})
 _GENERIC = frozenset(_STOP)          # mots qui, SEULS ENTRE EUX, ne désignent aucune marque
 _STOP = _STOP | _AMBIGUOUS_SINGLE    # interdits comme alias d'un seul mot
 _MIN_FUZZY_LEN = 6          # pas de fuzzy sous 6 caractères (« matin » ≠ « martin », « hammer » ≠ « hamer »)
@@ -64,7 +68,7 @@ def alias_usable(alias_norm):
     (« 6120 », « 500 1 » : n'importe quel prix ou numéro le déclencherait), réduit à un mot générique de
     `_STOP`, ou composé UNIQUEMENT de mots génériques (« guitare electrique », « custom shop »). Même
     règle à l'écriture (import) et à la lecture (recherche)."""
-    if not alias_norm or len(alias_norm) < 3 or alias_norm in _STOP:
+    if not alias_norm or len(alias_norm) < 3 or alias_norm in _STOP or alias_norm in _FUNCTION_SEQUENCES:
         return False
     tokens = alias_norm.split()
     if all(t.isdigit() for t in tokens):

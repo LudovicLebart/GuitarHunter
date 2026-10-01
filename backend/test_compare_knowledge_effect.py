@@ -191,6 +191,60 @@ class TestMainOnFiles(unittest.TestCase):
                 self._run("--baseline", old, "--with-kb", kb)
 
 
+class TestSamplingConsistency(unittest.TestCase):
+    def test_runs_with_different_sampling_cannot_be_compared(self):
+        cke.check_same_sampling([("a", {"temperature": 0, "seed": 42}), ("b", {"temperature": 0, "seed": 42})])
+        cke.check_same_sampling([("a", {}), ("b", {})])                                  # anciens JSON entre eux : ok
+        for other in ({"temperature": 0.8, "seed": 42}, {"temperature": 0, "seed": 7}, {}):
+            with self.assertRaises(SystemExit) as ctx:
+                cke.check_same_sampling([("a", {"temperature": 0, "seed": 42}), ("b", other)])
+            self.assertIn("échantillonnage", str(ctx.exception))
+
+    def test_replay_sampling_options(self):
+        from backend.scripts import compare_qwen_local_vs_prod as replay
+        self.assertEqual(replay._sampling_options(None, None), {})
+        self.assertEqual(replay._sampling_options(0.0, 42), {"temperature": 0.0, "seed": 42})
+        self.assertEqual(replay._sampling_options(0.0, None), {"temperature": 0.0})
+
+
+class TestReplayCallsCarrySampling(unittest.TestCase):
+    """La température et la graine demandées doivent réellement partir vers Ollama, dans les deux chemins d'appel."""
+
+    def test_openai_compat_path_sends_temperature_and_seed(self):
+        from backend.scripts import compare_qwen_local_vs_prod as replay
+        seen = {}
+
+        class FakeCompletions:
+            def create(self, **kw):
+                seen.update(kw)
+                raise RuntimeError("stop")            # la fonction ne lève jamais : renvoie une erreur
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                self.chat = type("C", (), {"completions": FakeCompletions()})()
+
+        with patch.object(replay, "OpenAI", FakeClient):
+            replay._call_qwen_local_json("p", [], "m", temperature=0.0, seed=42)
+            self.assertEqual(seen["extra_body"]["options"]["temperature"], 0.0)
+            self.assertEqual(seen["extra_body"]["options"]["seed"], 42)
+            seen.clear()
+            replay._call_qwen_local_json("p", [], "m")                       # défaut : aucun réglage ajouté
+            self.assertNotIn("temperature", seen["extra_body"]["options"])
+            self.assertNotIn("seed", seen["extra_body"]["options"])
+
+    def test_native_path_sends_temperature_and_seed(self):
+        from backend.scripts import compare_qwen_local_vs_prod as replay
+        seen = {}
+
+        def fake_post(url, json=None, timeout=None):
+            seen.update(json)
+            raise RuntimeError("stop")
+
+        with patch.object(replay.requests, "post", fake_post):
+            replay._call_qwen_local_json_native("p", [], "m", temperature=0.0, seed=7)
+        self.assertEqual((seen["options"]["temperature"], seen["options"]["seed"]), (0.0, 7))
+
+
 class TestRunQualityGuards(unittest.TestCase):
     def _file(self, tmp, **data):
         path = os.path.join(tmp, "r.json")

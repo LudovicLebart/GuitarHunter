@@ -207,6 +207,20 @@ def print_report(report, baseline, with_kb, kb_version=None):
         print("   relire les cas ci-dessus, corriger ou retirer les fiches en cause, puis rejouer.")
 
 
+def check_same_sampling(named_metas):
+    """Deux rejeux comparés doivent avoir été produits avec la même température et la même graine : sinon l'écart
+    mélange l'effet de la base et celui de l'échantillonnage. Les anciens JSON (sans ces champs) ne se mélangent
+    pas avec les nouveaux."""
+    ref_name, ref = named_metas[0]
+    for name, meta in named_metas[1:]:
+        if (meta.get("temperature"), meta.get("seed")) != (ref.get("temperature"), ref.get("seed")):
+            raise SystemExit(
+                f"{name} (température={meta.get('temperature')}, graine={meta.get('seed')}) et {ref_name} "
+                f"(température={ref.get('temperature')}, graine={ref.get('seed')}) n'ont pas été rejoués avec le même "
+                f"échantillonnage : comparaison faussée. Relancer tous les rejeux avec la version à jour "
+                f"(compare_qwen_local_vs_prod.py, température 0 par défaut).")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--baseline", required=True, help="rejeu SANS la base (JSON de compare_qwen_local_vs_prod)")
@@ -223,9 +237,13 @@ def main():
     if base_meta.get("model") != kb_meta.get("model"):
         print(f"⚠️ modèles différents ({base_meta.get('model')} vs {kb_meta.get('model')}) : la comparaison est faussée",
               file=sys.stderr)
-    baseline2 = load(args.baseline2)[1] if args.baseline2 else None
+    base2_meta, baseline2 = load(args.baseline2) if args.baseline2 else (None, None)
+    check_same_sampling([("--baseline", base_meta), ("--with-kb", kb_meta)] + ([("--baseline2", base2_meta)] if base2_meta else []))
     report = analyze(baseline, with_kb, baseline2)
     print_report(report, baseline, with_kb, kb_meta.get("kb_version"))
+    if base_meta.get("temperature") == 0 and report["noise_flips"]:
+        print(f"\n⚠️ température 0 et graine fixe, pourtant {len(report['noise_flips'])} décision(s) diffèrent entre les deux rejeux "
+              f"SANS base : le rejeu n'est pas parfaitement reproductible (Ollama/GPU) ; le seuil de bruit ci-dessus en tient compte.")
     return 0 if report["passes"] else 1
 
 

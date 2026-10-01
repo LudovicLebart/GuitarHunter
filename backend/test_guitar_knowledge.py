@@ -356,6 +356,13 @@ class TestEligibilityAndVersions(unittest.TestCase):
         self.assertEqual(sorted(found), ["Fender", "Norman"])
         self.assertEqual([f["id"] for f in gk.lookup(self.conn, "Norman B20")], ["wd:n1"])     # la curée est gardée
 
+    def test_a_l_alias_does_not_fire_on_french_a_l_apostrophe(self):
+        """Constaté le 2026-10-01 : « ceinture de support à l'épaule » injectait Art & Lutherie (alias « A&L »)."""
+        self._fiche("manual:al", "Art & Lutherie", kind="brand", curated=True)
+        self._alias("manual:al", "A&L")
+        self.assertEqual(gk.lookup(self.conn, "Guitare Washburn", "la ceinture de support à l'épaule"), [])
+        self.assertEqual([f["name"] for f in gk.lookup(self.conn, "Guitare Art & Lutherie Cedar")], ["Art & Lutherie"])
+
     def test_marketing_word_alone_does_not_inject_a_company(self):
         self._fiche("wd:k", "Killer Guitars", kind="company", relevance="unknown")
         self._alias("wd:k", "Killer")
@@ -431,12 +438,13 @@ class TestFormatForPrompt(unittest.TestCase):
 class TestAliasUsability(unittest.TestCase):
     def test_unusable_aliases(self):
         for alias in ("6120", "500 1", "sg", "guitare electrique", "custom shop", "premier", "heritage", "",
-                      "killer", "legend", "monster"):                      # mots d'accroche : « KILLER DEAL »
+                      "killer", "legend", "monster",                      # mots d'accroche : « KILLER DEAL »
+                      "a l", "l a"):                                     # « à l'épaule » (alias de « A&L »)
             self.assertFalse(gk.alias_usable(alias), alias)
 
     def test_usable_aliases(self):
         for alias in ("esp", "prs", "g l", "es 335", "heritage guitars", "martin", "stratocaster", "bc rich",
-                      "killer guitars"):                                    # le nom complet reste reconnu
+                      "killer guitars", "g l", "art lutherie"):             # le nom complet / « G&L » restent reconnus
             self.assertTrue(gk.alias_usable(alias), alias)
 
 
