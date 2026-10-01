@@ -107,6 +107,36 @@ class TestMainOnFiles(unittest.TestCase):
                 self._run("--baseline", old, "--with-kb", kb)
 
 
+class TestRunQualityGuards(unittest.TestCase):
+    def _file(self, tmp, **data):
+        path = os.path.join(tmp, "r.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"model": "qwen3-vl:8b-instruct", "per_listing": [entry("a", "FAIR")], **data}, fh)
+        return path
+
+    def test_thinking_variant_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as ctx:
+                cke.load(self._file(tmp, model="qwen3-vl:8b"))
+            self.assertIn("THINKING", str(ctx.exception))
+            cke.load(self._file(tmp))                                     # l'instruct passe
+
+    def test_high_failure_rate_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            failed = [{"id": f"f{i}"} for i in range(3)]                 # 3 échecs pour 1 réussite
+            with self.assertRaises(SystemExit) as ctx:
+                cke.load(self._file(tmp, failed_calls=failed))
+            self.assertIn("inexploitables", str(ctx.exception))
+            cke.load(self._file(tmp, per_listing=[entry(str(i), "FAIR") for i in range(20)], failed_calls=failed[:1]))
+
+    def test_replay_default_model_is_the_production_model(self):
+        """Constaté le 2026-10-01 : un rejeu lancé sans --model utilisait le tag Thinking (réponses vides)."""
+        from backend.scripts import compare_qwen_local_vs_prod as replay
+        import config
+        self.assertEqual(replay.QWEN_LOCAL_MODEL, config.T1_LOCAL_MODEL)
+        self.assertNotEqual(replay.QWEN_LOCAL_MODEL, cke.THINKING_TAG)
+
+
 class TestReplayKnowledgeHelper(unittest.TestCase):
     def test_knowledge_for_returns_the_prompt_block_and_the_fiches(self):
         from backend.scripts import compare_qwen_local_vs_prod as replay

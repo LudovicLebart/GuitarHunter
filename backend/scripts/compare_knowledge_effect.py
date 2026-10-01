@@ -29,11 +29,22 @@ def is_rejected(verdict):
     return (verdict or "").upper() in REJECTION_VERDICTS
 
 
+THINKING_TAG = "qwen3-vl:8b"      # variante Thinking : écrit son raisonnement, laisse `content` vide (réponses vides)
+MAX_FAILURE_RATE = 0.10
+
+
 def load(path):
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     if "per_listing" not in data:
         raise SystemExit(f"{path} : pas de « per_listing » — relancer compare_qwen_local_vs_prod avec la version à jour")
+    if data.get("model") == THINKING_TAG:
+        raise SystemExit(f"{path} : modèle « {THINKING_TAG} » = variante THINKING (réponses vides, latences > 100 s). "
+                         f"Rejouer avec --model qwen3-vl:8b-instruct, le modèle de la prod.")
+    n_ok, n_failed = len(data["per_listing"]), len(data.get("failed_calls") or [])
+    if n_ok + n_failed and n_failed / (n_ok + n_failed) > MAX_FAILURE_RATE:
+        raise SystemExit(f"{path} : {n_failed} appel(s) en échec sur {n_ok + n_failed} (> {int(MAX_FAILURE_RATE * 100)} %) — "
+                         f"résultats inexploitables, vérifier le Dell (ollama ps, modèle chargé) avant de rejouer.")
     return data, {e["id"]: e for e in data["per_listing"]}
 
 

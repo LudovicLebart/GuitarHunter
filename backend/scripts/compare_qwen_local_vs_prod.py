@@ -98,7 +98,11 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
 # ici plutôt qu'importés (candidates.py tire anthropic/google.generativeai au chargement, inutile
 # ici, même philosophie d'imports légers que le reste de ce fichier).
 QWEN_LOCAL_BASE_URL = os.getenv("QWEN_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1")
-QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b")
+# Défaut = le modèle réellement utilisé en prod (`config.py::T1_LOCAL_MODEL`, qwen3-vl:8b-instruct). L'ancien défaut
+# « qwen3-vl:8b » est la variante THINKING : elle écrit son raisonnement dans `reasoning` et laisse `content` vide
+# (« réponse vide », latence > 100 s) — constaté le 2026-10-01 sur un rejeu lancé sans --model. Ne plus jamais
+# rejouer un lot avec ce tag par défaut.
+QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b-instruct")
 QWEN_LOCAL_API_KEY = os.getenv("QWEN_LOCAL_API_KEY", "ollama")
 # Endpoint natif Ollama (pas /v1, l'API compatible OpenAI n'expose pas /api/ps) — même host/port,
 # utilisé uniquement pour lire la VRAM des modèles chargés (Chantier I-0, marge VRAM sur le 8B).
@@ -402,7 +406,7 @@ def main():
     )
     parser.add_argument("--limit", type=int, default=15, help="Nombre d'annonces à rejouer (défaut : 15).")
     parser.add_argument("--model", default=QWEN_LOCAL_MODEL,
-                         help="Modèle Ollama à interroger (défaut : qwen3-vl:8b). "
+                         help="Modèle Ollama à interroger (défaut : qwen3-vl:8b-instruct, celui de la prod). "
                               "Repli si le 8B étouffe : qwen3-vl:4b.")
     parser.add_argument("--simplified-prompt", action="store_true",
                          help="EST le prompt de prod depuis le 2026-09-29 (instruction Portier + "
