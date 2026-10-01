@@ -216,7 +216,9 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         const vLabels = {
           PEPITE: 'Pépite', FAST_FLIP: 'Fast Flip', LUTHIER_PROJ: 'Projet Luthier',
           CASE_WIN: 'Case Win', COLLECTION: 'Collection', BAD_DEAL: 'Trop Cher',
-          REJECTED_ITEM: 'Rejeté', REJECTED_SERVICE: 'Service', ERROR: 'Erreur', DEFAULT: 'Analyse...'
+          REJECTED_ITEM: 'Rejeté', REJECTED_SERVICE: 'Service', ERROR: 'Erreur',
+          FAIR: 'Prix correct', NOT_PROMOTED: 'Hors recherche', INCOMPLETE_DATA: 'Données manquantes',
+          REJECTED: 'Rejeté', GOOD_DEAL: 'Bonne affaire', DEFAULT: 'Analyse...'
         };
         const vColors = {
           PEPITE: { bg: '#eab308', text: '#713f12' },
@@ -228,6 +230,11 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
           REJECTED_ITEM: { bg: '#475569', text: '#e2e8f0' },
           REJECTED_SERVICE: { bg: '#475569', text: '#e2e8f0' },
           ERROR: { bg: '#7f1d1d', text: '#fecaca' },
+          FAIR: { bg: '#3b82f6', text: '#172554' },
+          NOT_PROMOTED: { bg: '#b45309', text: '#fef3c7' },
+          INCOMPLETE_DATA: { bg: '#94a3b8', text: '#0f172a' },
+          REJECTED: { bg: '#475569', text: '#e2e8f0' },
+          GOOD_DEAL: { bg: '#10b981', text: '#064e3b' },
           DEFAULT: { bg: '#334155', text: '#e2e8f0' }
         };
         
