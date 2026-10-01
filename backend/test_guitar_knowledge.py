@@ -330,6 +330,38 @@ class TestEligibilityAndVersions(unittest.TestCase):
         runs = [[f["id"] for f in gk.lookup(self.conn, "vends marque jumelle")] for _ in range(3)]
         self.assertEqual(runs, [["wd:a", "wd:b", "wd:c"]] * 3)
 
+    def _alias(self, fid, alias):
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES (%s,%s,%s,'wikidata')", (gk.normalize(alias), fid, alias))
+        gk.invalidate_cache()
+
+    def test_alias_of_another_fiche_does_not_inject_a_fiche_that_is_not_named_so(self):
+        """Constaté le 2026-10-01 : « Jay Turser » déclenchait aussi « James Tyler Guitars » (alias parasite)."""
+        self._fiche("wd:jt", "James Tyler Guitars", kind="company")
+        self._alias("wd:jt", "Jay Turser")
+        self._fiche("wd:jay", "Jay Turser", kind="company")
+        names = [f["name"] for f in gk.lookup(self.conn, "Guitare électrique Jay Turser")]
+        self.assertEqual(names, ["Jay Turser"])
+        # sans la fiche qui porte ce nom, l'alias reste exploitable (on n'invente pas de propriétaire)
+        self.conn.execute("DELETE FROM guitar_knowledge WHERE id = 'wd:jay'")
+        gk.invalidate_cache()
+        self.assertEqual([f["name"] for f in gk.lookup(self.conn, "Guitare électrique Jay Turser")], ["James Tyler Guitars"])
+
+    def test_parent_company_matched_only_by_the_brand_alias_is_dropped_and_same_names_merge(self):
+        self._fiche("wd:f", "Fender", kind="brand")
+        self._fiche("wd:fmic", "Fender Musical Instruments Corporation", kind="company")
+        self._alias("wd:fmic", "Fender")
+        self._fiche("wd:n1", "Norman", kind="brand", curated=True)
+        self._fiche("wd:n2", "Norman", kind="brand")
+        found = [f["name"] for f in gk.lookup(self.conn, "Fender Stratocaster et Norman B20")]
+        self.assertEqual(sorted(found), ["Fender", "Norman"])
+        self.assertEqual([f["id"] for f in gk.lookup(self.conn, "Norman B20")], ["wd:n1"])     # la curée est gardée
+
+    def test_marketing_word_alone_does_not_inject_a_company(self):
+        self._fiche("wd:k", "Killer Guitars", kind="company", relevance="unknown")
+        self._alias("wd:k", "Killer")
+        self.assertEqual(gk.lookup(self.conn, "KILLER DEAL Cort Earth Grand"), [])
+        self.assertEqual([f["name"] for f in gk.lookup(self.conn, "vends killer guitars 1999")], ["Killer Guitars"])
+
     def test_longer_matched_alias_ranks_first_among_equals(self):
         self._fiche("wd:short", "Fender")
         self._fiche("wd:long", "Fender Jazzmaster")
@@ -398,11 +430,13 @@ class TestFormatForPrompt(unittest.TestCase):
 
 class TestAliasUsability(unittest.TestCase):
     def test_unusable_aliases(self):
-        for alias in ("6120", "500 1", "sg", "guitare electrique", "custom shop", "premier", "heritage", ""):
+        for alias in ("6120", "500 1", "sg", "guitare electrique", "custom shop", "premier", "heritage", "",
+                      "killer", "legend", "monster"):                      # mots d'accroche : « KILLER DEAL »
             self.assertFalse(gk.alias_usable(alias), alias)
 
     def test_usable_aliases(self):
-        for alias in ("esp", "prs", "g l", "es 335", "heritage guitars", "martin", "stratocaster", "bc rich"):
+        for alias in ("esp", "prs", "g l", "es 335", "heritage guitars", "martin", "stratocaster", "bc rich",
+                      "killer guitars"):                                    # le nom complet reste reconnu
             self.assertTrue(gk.alias_usable(alias), alias)
 
 

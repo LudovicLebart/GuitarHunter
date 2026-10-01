@@ -34,7 +34,11 @@ _STOP = {  # alias trop génériques pour déclencher une fiche à eux seuls
 # « Heritage Cherry Sunburst ») : interdits comme alias d'UN SEUL mot, mais la marque reste reconnue par son
 # nom complet (« heritage guitars ») — ils ne rendent donc pas un alias composé « générique ».
 _AMBIGUOUS_SINGLE = {"premier", "heritage", "national", "superior", "reserve", "tribute", "legacy",
-                     "genuine", "authentic"}
+                     "genuine", "authentic",
+                     # Mots d'accroche d'annonces qui sont aussi des noms d'entreprises (constaté le 2026-10-01 :
+                     # « KILLER DEAL » injectait la fiche Killer Guitars) — comme ci-dessus, la marque reste reconnue
+                     # par son nom complet (« killer guitars »), jamais par ce mot seul.
+                     "killer", "legend", "monster", "beast", "mint", "rare", "unique", "perfect", "super"}
 _GENERIC = frozenset(_STOP)          # mots qui, SEULS ENTRE EUX, ne désignent aucune marque
 _STOP = _STOP | _AMBIGUOUS_SINGLE    # interdits comme alias d'un seul mot
 _MIN_FUZZY_LEN = 6          # pas de fuzzy sous 6 caractères (« matin » ≠ « martin », « hammer » ≠ « hamer »)
@@ -194,6 +198,32 @@ def find_ids(conn, *texts, max_ngram=4):
     return found
 
 
+def _prefer_name_owners(rows, found):
+    """Retire les fiches qui ne sont là que par l'ALIAS d'une autre : si une fiche s'appelle exactement comme l'alias
+    trouvé, les fiches qui ont le même alias sans porter ce nom sont écartées (constaté le 2026-10-01 : « Jay Turser »
+    déclenchait aussi « James Tyler Guitars » ; « fender » doublait « Fender » avec « Fender Musical Instruments
+    Corporation »). Puis, pour les fiches de MÊME NOM, ne garde que la fiche curée/écrite à la main quand il y en a une
+    (elle fait foi sur son doublon importé). Sans fiche curée, des homonymes restent tous : on ne sait pas lequel est
+    le bon, mieux vaut ne pas en choisir un au hasard. `rows` est déjà trié du plus au moins prioritaire."""
+    by_alias = {}
+    for r in rows:
+        by_alias.setdefault(found[r["id"]][0], []).append(r)
+    drop = set()
+    for alias, group in by_alias.items():
+        owners = {r["id"] for r in group if normalize(r["name"]) == alias}
+        if owners:
+            drop.update(r["id"] for r in group if r["id"] not in owners)
+    vouched = {normalize(r["name"]) for r in rows if r["curated"] or r["source"] == "manual"}
+    kept = []
+    for r in rows:
+        if r["id"] in drop:
+            continue
+        if normalize(r["name"]) in vouched and not (r["curated"] or r["source"] == "manual"):
+            continue
+        kept.append(r)
+    return kept
+
+
 def lookup(conn, *texts, limit=3):
     """Fiches correspondant aux textes, avec leur parent (maison mère / fabricant), triées :
     correspondances exactes d'abord, séries avant marques (plus spécifiques), fiches curées d'abord."""
@@ -216,7 +246,7 @@ def lookup(conn, *texts, limit=3):
                              -len(found[r["id"]][0]), r["id"]))
     for r in rows:
         r["matched_on"], r["match_type"] = found[r["id"]]
-    rows = rows[:limit]
+    rows = _prefer_name_owners(rows, found)[:limit]
     # Sources (traçabilité) : jointes à la fiche pour l'affichage/l'audit, JAMAIS injectées dans le prompt
     # (`format_for_prompt` ne les lit pas). Les sources ajoutées à la main passent avant celles de l'import.
     sources = conn.execute(
