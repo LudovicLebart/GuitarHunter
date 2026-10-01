@@ -425,6 +425,10 @@ export const triggerStopScan = (_userId) => addCommand('STOP_SCAN', null);
 export const triggerStartBot = (_userId) => addCommand('START_BOT', null);
 export const requestClearLogs = (_userId) => addCommand('CLEAR_LOGS', null);
 
+// LogViewer : lecture ponctuelle (poll côté composant, pas de WebSocket) des derniers logs du
+// bot, du plus ancien au plus récent. Chaque ligne : { id, message, level, created_at (ISO) }.
+export const fetchLogs = (limit = 100) => apiFetch(`/logs?limit=${encodeURIComponent(limit)}`);
+
 // Pas de canal temps réel dédié pour une commande individuelle (voir schema.sql — aucun trigger
 // NOTIFY sur `commands`, le bot la traite en quelques secondes au plus) : poll léger de
 // `GET /commands/{id}` jusqu'à sortie de `pending`, mêmes appels que le callback `onSnapshot`
