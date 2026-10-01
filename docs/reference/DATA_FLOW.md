@@ -54,6 +54,8 @@ Lorsqu'une annonce est trouvée et analysée, elle est enregistrée dans Firesto
     "status": "analyzed" | "rejected" | "sold",
     "initialVerdict": "Verdict du tout premier passage IA (figé, jamais réécrit)",
     "initialModelUsed": "Chain of models du tout premier passage (ex: flash-lite seul si arrêté au Portier) - absent sur les annonces créées avant 2026-07-11",
+    "(Postgres : initial_verdict / initial_model_used)": "Seule trace fiable du verdict T1 d'ORIGINE : une analyse forcée (force_expert) saute le Portier et écrase ai_analysis_raw.gatekeeperVerdict par 'MANUAL_RETRY'. Un verdict d'origine BAD_DEAL peut aussi venir de l'ancien pré-filtre de prix (avant 2026-07-27).",
+    "(ai_analysis_raw.gatekeeperKnowledge)": "{version, fiches[], matched[]} — fiches de la base de connaissances injectées au Portier (seulement si T1_KNOWLEDGE_ENABLED, 2026-10-01, éteint par défaut)",
     "imageUrls": ["URL CDN Facebook (temporaire)"],
     "storageImageUrls": ["URL Firebase Storage HTTPS (pérenne) — alimenté par le backend à l'ingestion ET, depuis 2026-08-21, par le frontend (arrayUnion) via le bouton \"Ajouter à la galerie\" du chat Gemini, voir §5.1"],
     "storageImageGsUris": ["gs://bucket/deals/{id}/... — 2026-07-31, pour le chat Gemini (Firebase AI Logic)"],

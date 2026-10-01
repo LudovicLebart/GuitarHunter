@@ -80,6 +80,7 @@ Condition avant bascule : rejouer ce prompt sur **Qwen cloud et Gemini Flash-Lit
 ### 2.3 Corriger le biais d'authenticité
 Une incohérence entre le logo et la marque annoncée ne doit pas faire **rejeter** : un vendeur qui ne sait pas ce qu'il a est la source classique d'une bonne affaire (cas Yamaha Eterna). Consigne à ajouter au prompt : *incohérence de marque → ACCEPT avec signalement*, l'Analyste tranche.
 Avant d'écrire la consigne : relire les ~10 cas concernés avec une seule question, « si c'était vrai, serait-ce une affaire ? ».
+Preuve supplémentaire (rejeux du 2026-10-01) : la Jay Turser (logo Fender) et l'Olympia by Tacoma (logo Oscar Schmidt) étaient rejetées à chaque rejeu, avec ou sans base de connaissances, alors que leur verdict final était `FAIR` / `LUTHIER_PROJ`. C'est la piste la plus solide pour améliorer le Portier.
 
 ### 2.4 Chaîne de repli et fiabilité (recommandations Opus, validées)
 1. **Instrumenter les échecs** — **fait** (livraison du 28/09 intégrée le 2026-09-29).
@@ -155,6 +156,12 @@ Coût : 0 $, seulement du temps de calcul sur le Dell.
 - **Couverture** : part des annonces où au moins une fiche est trouvée.
 - **Justesse** : sur 50 correspondances tirées au hasard, part de fiches correctes (cible ≥ 95 % ; une fiche fausse coûte plus qu'une fiche manquante).
 - **Effet sur le Portier** : cas coûteux et marques obscures sur les rejeux de référence, avant/après.
+
+### 3.8 bis État réel et résultat de la mesure (2026-10-01)
+- **Faits** : étapes 1 à 4 (import 878 fiches, 14 entrées manuelles sourcées, script de couverture, branchement derrière `T1_KNOWLEDGE_ENABLED`, éteint) et l'outillage de l'étape 5 (`compare_knowledge_effect.py`, rejeu `--with-knowledge`). La version 1 n'est **pas validée**.
+- **Résultat de l'étape 5, honnête** : **aucun gain démontré**. Le rejeu sur les 142 + 117 n'a pas été refait tel quel ; la mesure a porté sur (a) un lot récent de 99 annonces (bruit du modèle 11/98 entre deux rejeux identiques, accord cloud 83,3 % → 90,5 % sur n=42, non concluant) et (b) 18 « faux rejets présumés » (rejetés par T1 puis reclassés, trace dans `initial_verdict`) : le Portier actuel en accepte déjà 14 sans base, effet net nul avec base. Les rejets restants viennent de réponses absurdes du modèle local et du biais « logo différent de la marque », pas d'un manque de connaissance.
+- **Limite de la mesure** : on ne peut pas mesurer les faux rejets du Portier en général (une annonce rejetée ne passe pas au palier suivant) ; seuls les cas reclassés après analyse forcée ou chat servent de vérité terrain, et ils sont peu nombreux (26 au départ, 18 après retrait des étuis/amplis). Un `BAD_DEAL` d'origine peut provenir de l'ancien pré-filtre de prix.
+- **Suite** : rejeu à température 0 (option ajoutée, pas encore exécutée avec le bon code) ; si le bruit ne tombe pas à 0, la base reste un outil d'audit et non un composant du Portier. Pistes plus prometteuses pour le Portier : §2.3 (consigne « incohérence de marque »), second avis sur les rejets absurdes, température, `gatekeeperProvider`.
 
 ### 3.9 Risques
 | Risque | Parade |

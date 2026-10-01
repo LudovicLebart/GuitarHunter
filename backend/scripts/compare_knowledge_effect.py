@@ -14,6 +14,11 @@ seuls les changements qui dépassent ce bruit comptent.
     python backend/scripts/compare_knowledge_effect.py --baseline backend/benchmark/results/kb_sans_1.json \\
         --baseline2 backend/benchmark/results/kb_sans_2.json --with-kb backend/benchmark/results/kb_avec.json
 
+Variante « faux rejets présumés » (annonces rejetées à l'origine puis reclassées en non-rejet ; `--exclude-ids` retire
+les étuis/amplis rejetés à juste titre) : mêmes trois rejeux avec `--reclassified --exclude-ids ID1,ID2,... --limit 50`.
+Les rejeux sont par défaut à température 0 + graine 42 (reproductibles) ; la comparaison refuse deux échantillonnages
+différents. Les JSON se lisent dans `backend/benchmark/results/`.
+
 Critère de non-régression (rejeter à tort une pépite coûte plus cher que d'en laisser passer une à l'Analyste) :
 parmi les annonces où la base a injecté des fiches, on compte les NOUVEAUX REJETS NUISIBLES = acceptés sans base,
 rejetés avec base, ALORS QUE la référence ne les rejette pas (verdict FINAL après T2/T3 si disponible, sinon verdict T1
