@@ -58,6 +58,40 @@ class TestAnalyze(unittest.TestCase):
         report = cke.analyze(by_id(entry("a", "FAIR"), entry("z", "FAIR")), by_id(entry("a", "FAIR", kb=[1]), entry("y", "FAIR")))
         self.assertEqual((report["n_common"], report["n_injected"]), (1, 1))
 
+    def test_new_rejection_confirmed_by_cloud_is_not_harmful(self):
+        """Cas Art & Lutherie (2026-10-01) : accepté sans base, rejeté avec, et le cloud rejette aussi."""
+        baseline = by_id(entry("a", "FAIR", cloud="REJECTED_SERVICE"))
+        with_kb = by_id(entry("a", "REJECTED_ITEM", cloud="REJECTED_SERVICE", kb=[1]))
+        report = cke.analyze(baseline, with_kb)
+        self.assertEqual((report["neutral_new_injected"], report["harmful_new_injected"]), (["a"], []))
+        self.assertTrue(report["passes"])
+
+    def test_harmful_rejections_are_tolerated_up_to_the_noise_on_the_same_listings(self):
+        base1 = by_id(entry("a", "FAIR"), entry("b", "FAIR"), entry("c", "FAIR"))
+        base2 = by_id(entry("a", "REJECTED_ITEM"), entry("b", "FAIR"), entry("c", "FAIR"))   # bruit : a bascule seul
+        one = by_id(entry("a", "FAIR", kb=[1]), entry("b", "REJECTED_ITEM", kb=[2]), entry("c", "FAIR", kb=[3]))
+        two = by_id(entry("a", "FAIR", kb=[1]), entry("b", "REJECTED_ITEM", kb=[2]), entry("c", "REJECTED_ITEM", kb=[3]))
+        r1 = cke.analyze(base1, one, base2)
+        self.assertEqual((r1["noise_harmful_injected"], r1["harmful_new_injected"]), (["a"], ["b"]))
+        self.assertTrue(r1["passes"])                       # 1 rejet nuisible avec base <= 1 de bruit
+        r2 = cke.analyze(base1, two, base2)
+        self.assertEqual(len(r2["harmful_new_injected"]), 2)
+        self.assertFalse(r2["passes"])                      # 2 > 1
+        self.assertFalse(cke.analyze(base1, one)["passes"])  # sans 2e rejeu : seuil 0
+
+    def test_noise_outside_injected_listings_does_not_raise_the_threshold(self):
+        base1 = by_id(entry("a", "FAIR"), entry("z", "FAIR"))
+        base2 = by_id(entry("a", "FAIR"), entry("z", "REJECTED_ITEM"))                      # bruit sur z, où rien n'est injecté
+        with_kb = by_id(entry("a", "REJECTED_ITEM", kb=[1]), entry("z", "FAIR"))
+        report = cke.analyze(base1, with_kb, base2)
+        self.assertEqual(report["noise_harmful_injected"], [])
+        self.assertFalse(report["passes"])
+
+    def test_real_gains_count_only_where_cloud_did_not_reject(self):
+        baseline = by_id(entry("a", "REJECTED_ITEM", cloud="FAIR"), entry("b", "REJECTED_ITEM", cloud="REJECTED_ITEM"))
+        with_kb = by_id(entry("a", "FAIR", cloud="FAIR", kb=[1]), entry("b", "FAIR", cloud="REJECTED_ITEM", kb=[2]))
+        self.assertEqual(cke.analyze(baseline, with_kb)["gains_injected"], ["a"])
+
     def test_report_prints_validation_command_only_when_it_passes(self):
         def render(passes):
             baseline = by_id(entry("a", "FAIR"))
@@ -70,7 +104,7 @@ class TestAnalyze(unittest.TestCase):
         self.assertIn("UPDATE guitar_knowledge_versions SET validated = true WHERE version = 7", ok)
         self.assertNotIn("UPDATE guitar_knowledge_versions", ko)
         self.assertIn("NON tenu", ko)
-        self.assertIn("NOUVEAUX REJETS À EXAMINER", ko)
+        self.assertIn("REJETS NUISIBLES AVEC FICHES", ko)
 
 
 class TestMainOnFiles(unittest.TestCase):
