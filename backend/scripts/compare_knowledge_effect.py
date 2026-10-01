@@ -16,8 +16,8 @@ seuls les changements qui dépassent ce bruit comptent.
 
 Critère de non-régression (rejeter à tort une pépite coûte plus cher que d'en laisser passer une à l'Analyste) :
 parmi les annonces où la base a injecté des fiches, on compte les NOUVEAUX REJETS NUISIBLES = acceptés sans base,
-rejetés avec base, ALORS QUE le verdict cloud ne les rejette pas. Un nouveau rejet que le cloud confirme n'est pas une
-erreur (le Portier se rapproche du cloud). Avec `--baseline2`, le critère est « pas plus de rejets nuisibles que le
+rejetés avec base, ALORS QUE la référence ne les rejette pas (verdict FINAL après T2/T3 si disponible, sinon verdict T1
+stocké). Un nouveau rejet que la référence confirme n'est pas une erreur (le Portier se rapproche de la référence). Avec `--baseline2`, le critère est « pas plus de rejets nuisibles que le
 bruit du modèle sur ces mêmes annonces » (le modèle local n'est pas déterministe : exiger 0 serait inatteignable) ;
 sans `--baseline2`, il faut 0. Chaque rejet nuisible est listé : à relire un par un pour savoir si une fiche précise
 en est la cause. Si le critère est tenu, la commande pour valider la version est affichée.
@@ -30,7 +30,22 @@ REJECTION_VERDICTS = {"BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE"}   # même
 
 
 def is_rejected(verdict):
-    return (verdict or "").upper() in REJECTION_VERDICTS
+    v = (verdict or "").upper()
+    return v in REJECTION_VERDICTS or v.startswith("REJECTED")      # « REJECTED » seul : ancien verdict
+
+
+# Verdicts « finaux » qui ne disent rien de la qualité de l'annonce : on retombe alors sur le verdict T1 d'origine.
+NON_JUDGEMENT_FINAL_PREFIXES = ("NOT_PROMOTED", "MANUAL", "ERROR", "ANALYSIS_FAILED")
+
+
+def reference_rejected(entry):
+    """Décision de RÉFÉRENCE d'une annonce : son verdict FINAL (après T2/T3, une analyse forcée ou une correction) quand
+    il juge réellement l'annonce, sinon le verdict T1 d'origine. Plus fiable que le seul verdict T1 : T1 est un autre
+    classifieur bruité. Les anciens JSON (sans `final_verdict`) retombent sur T1."""
+    final = (entry.get("final_verdict") or "").strip().upper()
+    if final and not final.startswith(NON_JUDGEMENT_FINAL_PREFIXES):
+        return is_rejected(final)
+    return is_rejected(entry.get("cloud_verdict"))
 
 
 THINKING_TAG = "qwen3-vl:8b"      # variante Thinking : écrit son raisonnement, laisse `content` vide (réponses vides)
@@ -68,15 +83,28 @@ def analyze(baseline, with_kb, baseline2=None):
     def agreement(entries, ids):
         if not ids:
             return None
-        return sum(1 for i in ids if is_rejected(entries[i]["cloud_verdict"]) == is_rejected(entries[i]["local_verdict"])) / len(ids)
+        return sum(1 for i in ids if reference_rejected(entries[i]) == is_rejected(entries[i]["local_verdict"])) / len(ids)
 
-    def cloud_rejects(i):
-        return is_rejected(with_kb[i]["cloud_verdict"])
+    def cloud_rejects(i):          # nom historique : décision de RÉFÉRENCE (verdict final si disponible, sinon T1)
+        return reference_rejected(with_kb[i])
 
     new_injected = [i for i in new_rejections if i in injected_set]
     lifted_injected = [i for i in lifted if i in injected_set]
     harmful = [i for i in new_injected if not cloud_rejects(i)]        # rejeté à tort : le cloud ne rejette pas
     gains = [i for i in lifted_injected if not cloud_rejects(i)]       # rejet à tort levé : le cloud ne rejetait pas non plus
+
+    # Faux rejets présumés : rejetés à l'origine puis reclassés en non-rejet (rejeu --reclassified). Le plafond compte :
+    # si le modèle d'aujourd'hui ne les rejette déjà plus SANS la base, la base ne peut rien y gagner.
+    reclass = [i for i in common if with_kb[i].get("reclassified")]
+    reclass_report = {
+        "ids": reclass,
+        "n_injected": sum(1 for i in reclass if i in injected_set),
+        "rejected_without": [i for i in reclass if is_rejected(baseline[i]["local_verdict"])],
+        "rejected_with": [i for i in reclass if is_rejected(with_kb[i]["local_verdict"])],
+        "saved": [i for i in reclass if is_rejected(baseline[i]["local_verdict"]) and not is_rejected(with_kb[i]["local_verdict"])],
+        "rejected_without_2": ([i for i in reclass if i in baseline2 and is_rejected(baseline2[i]["local_verdict"])]
+                               if baseline2 else None),
+    }
 
     noise = flips(baseline, baseline2) if baseline2 else None
     noise_harmful = None
@@ -93,6 +121,7 @@ def analyze(baseline, with_kb, baseline2=None):
         "harmful_new_injected": harmful, "neutral_new_injected": [i for i in new_injected if cloud_rejects(i)],
         "gains_injected": gains,
         "noise_harmful_injected": noise_harmful,
+        "reclassified": reclass_report,
         "agreement_baseline_injected": agreement(baseline, injected),
         "agreement_with_kb_injected": agreement(with_kb, injected),
         "noise_flips": [i for i, _, _ in noise] if noise is not None else None,
@@ -114,8 +143,8 @@ def print_report(report, baseline, with_kb, kb_version=None):
               f"{report['n_noise_common']} — à retrancher de ce qui suit")
     print(f"\nNOUVEAUX REJETS (accepté sans base → rejeté avec) : {len(report['new_rejections'])}, dont "
           f"{len(report['new_rejections_injected'])} là où la base a injecté des fiches")
-    print(f"   parmi ces derniers : {len(report['neutral_new_injected'])} confirmé(s) par le cloud (pas une erreur), "
-          f"{len(report['harmful_new_injected'])} NUISIBLE(S) (le cloud ne rejette pas)")
+    print(f"   parmi ces derniers : {len(report['neutral_new_injected'])} confirmé(s) par la référence (pas une erreur), "
+          f"{len(report['harmful_new_injected'])} NUISIBLE(S) (la référence ne rejette pas)")
     if report["noise_harmful_injected"] is not None:
         print(f"   même mesure entre 2 rejeux SANS base, sur ces mêmes annonces : {len(report['noise_harmful_injected'])} "
               f"← seuil toléré")
@@ -123,9 +152,21 @@ def print_report(report, baseline, with_kb, kb_version=None):
         print("   pas de 2e rejeu sans base (--baseline2) : seuil toléré = 0")
     print(f"REJETS LEVÉS (rejeté sans base → accepté avec)    : {len(report['lifted_rejections'])}, dont "
           f"{len(report['lifted_injected'])} là où la base a injecté des fiches "
-          f"({len(report['gains_injected'])} où le cloud ne rejetait pas non plus : vrais gains)")
-    print(f"Accord avec le verdict cloud sur les annonces avec fiches : {_pct(report['agreement_baseline_injected'])} "
-          f"sans base → {_pct(report['agreement_with_kb_injected'])} avec")
+          f"({len(report['gains_injected'])} où la référence ne rejetait pas non plus : vrais gains)")
+    print(f"Accord avec la référence (verdict final T2/T3, sinon T1) sur les annonces avec fiches : "
+          f"{_pct(report['agreement_baseline_injected'])} sans base → {_pct(report['agreement_with_kb_injected'])} avec")
+    rc = report["reclassified"]
+    if rc["ids"]:
+        print(f"\nFAUX REJETS PRÉSUMÉS (rejetés à l'origine, reclassés depuis) : {len(rc['ids'])} annonce(s), "
+              f"dont {rc['n_injected']} avec fiches injectées")
+        extra = (f" (2e rejeu sans base : {len(rc['rejected_without_2'])})" if rc["rejected_without_2"] is not None else "")
+        print(f"   encore rejetés SANS base : {len(rc['rejected_without'])}{extra}   |   encore rejetés AVEC base : "
+              f"{len(rc['rejected_with'])}   |   sauvés par la base : {len(rc['saved'])}")
+        if not rc["rejected_without"]:
+            print("   → aucun n'est rejeté sans base : le modèle d'aujourd'hui les accepte déjà, le gain de la base n'est "
+                  "PAS mesurable ici (ce n'est pas un gain nul).")
+        print("   ⚠️ un BAD_DEAL d'origine peut venir de l'ancien pré-filtre de prix, et le verdict final d'une annonce "
+              "vendue d'une réanalyse en lot : label plus faible qu'une correction humaine, échantillon trop petit pour un taux.")
 
     def detail(title, ids):
         if not ids:
@@ -134,15 +175,16 @@ def print_report(report, baseline, with_kb, kb_version=None):
         for i in ids:
             e0, e1 = baseline[i], with_kb[i]
             print(f"- {i} : {(e1.get('title') or '')[:70]}")
-            print(f"    cloud={e1['cloud_verdict']} | sans base={e0['local_verdict']} | avec base={e1['local_verdict']}"
-                  f" | fiches : {', '.join(e1.get('kb_names') or []) or '(aucune)'}")
+            print(f"    cloud={e1['cloud_verdict']} | final={e1.get('final_verdict') or 'n/a'} | sans base={e0['local_verdict']}"
+                  f" | avec base={e1['local_verdict']} | fiches : {', '.join(e1.get('kb_names') or []) or '(aucune)'}")
             if e1.get("link"):
                 print(f"    lien : {e1['link']}")
             if e1.get("local_reasoning"):
                 print(f"    raisonnement (avec base) : {str(e1['local_reasoning'])[:240]}")
 
+    detail("FAUX REJETS PRÉSUMÉS — cas par cas", rc["ids"])
     detail("REJETS NUISIBLES AVEC FICHES — à relire un par un (la fiche est-elle en cause ?)", report["harmful_new_injected"])
-    detail("NOUVEAUX REJETS CONFIRMÉS PAR LE CLOUD (avec fiches)", report["neutral_new_injected"])
+    detail("NOUVEAUX REJETS CONFIRMÉS PAR LA RÉFÉRENCE (avec fiches)", report["neutral_new_injected"])
     detail("NOUVEAUX REJETS SANS FICHE INJECTÉE (bruit du modèle)", [i for i in report["new_rejections"] if i not in report["new_rejections_injected"]])
     detail("REJETS LEVÉS (gain potentiel : marque obscure reconnue ?)", report["lifted_rejections"])
 

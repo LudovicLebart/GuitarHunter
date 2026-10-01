@@ -232,6 +232,7 @@ def lookup(conn, *texts, limit=3):
 
 MAX_NAME_CHARS = 60
 MAX_TEXT_CHARS = 260
+SPARSE_DESCRIPTION_CHARS = 60      # en dessous : la description ne dit rien de précis (ex. « entreprise étasunienne »)
 
 
 def _one_line(text, limit):
@@ -246,6 +247,16 @@ def _one_line(text, limit):
         if i >= limit // 2:
             return cut[:i + 1].rstrip()
     return cut.rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+
+
+def _is_sparse(f):
+    """Fiche « creuse » : elle atteste qu'une marque ou une entreprise EXISTE, sans rien dire de précis de ses
+    produits (ni note de chasse, ni gamme, ni usine, ni description substantielle). Utile à garder — savoir qu'une
+    marque obscure existe aide à ne pas la rejeter comme inconnue —, mais le modèle ne doit pas en déduire ce
+    qu'elle fabrique : le bloc le dit explicitement."""
+    if f.get("hunt_notes") or f.get("tier") or f.get("made_by") or f.get("curated"):
+        return False
+    return len((f.get("description") or "").strip()) < SPARSE_DESCRIPTION_CHARS
 
 
 def format_for_prompt(fiches):
@@ -276,5 +287,7 @@ def format_for_prompt(fiches):
             parts.append(f"à savoir : {_one_line(f['hunt_notes'], MAX_TEXT_CHARS)}")
         elif f.get("description"):
             parts.append(_one_line(f["description"], MAX_TEXT_CHARS))
+        if _is_sparse(f):
+            parts.append("répertoriée, sans précision sur ses produits")
         lines.append(" ; ".join(parts))
     return "\n".join(lines)

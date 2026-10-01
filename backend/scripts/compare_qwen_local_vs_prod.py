@@ -424,6 +424,13 @@ def main():
     parser.add_argument("--out", default="compare_qwen_local_vs_prod.json",
                          help="Nom du fichier de résultats dans backend/benchmark/results/ (à changer pour garder les "
                               "rejeux sans/avec base côte à côte).")
+    parser.add_argument("--reclassified", action="store_true",
+                         help="Ne rejoue QUE les annonces rejetées à l'origine (initial_verdict) puis reclassées en non-rejet "
+                              "(analyse forcée, ré-analyse) : faux rejets présumés du Portier, la seule vérité terrain "
+                              "disponible sur les rejets. Le verdict d'origine sert de « cloud ». ATTENTION : un BAD_DEAL "
+                              "d'origine peut venir de l'ancien pré-filtre de prix (avant 2026-07-27), pas du Portier.")
+    parser.add_argument("--exclude-ids", default="",
+                         help="Identifiants à ignorer, séparés par des virgules (ex : étuis et amplis rejetés à juste titre).")
     parser.add_argument("--no-think", action="store_true",
                          help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
@@ -449,20 +456,37 @@ def main():
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             date_filter = 'AND gd."timestamp" < %s' if args.before else ""
-            params = (args.before, args.limit) if args.before else (args.limit,)
+            params = [args.before] if args.before else []
+            excluded = [x.strip() for x in args.exclude_ids.split(",") if x.strip()]
+            exclude_filter = "AND gd.id <> ALL(%s)" if excluded else ""
+            if excluded:
+                params.append(excluded)
+            if args.reclassified:
+                # rejeté à l'origine, non rejeté aujourd'hui : gatekeeperVerdict n'est PAS fiable ici (une analyse
+                # forcée le remplace par MANUAL_RETRY) ; la trace du rejet d'origine est initial_verdict
+                # Le verdict actuel doit JUGER l'annonce : NOT_PROMOTED (filtre de recherche active), MANUAL*, ERROR* ne
+                # sont pas une reclassification.
+                selection = ("gd.initial_verdict = ANY(%s) AND gd.verdict <> ALL(%s) "
+                             "AND gd.verdict NOT LIKE 'NOT_PROMOTED%%' AND gd.verdict NOT LIKE 'MANUAL%%' "
+                             "AND gd.verdict NOT LIKE 'ERROR%%'")
+                params = [list(T1_REJECTION_VERDICTS | {"REJECTED"}), list(T1_REJECTION_VERDICTS | {"REJECTED"})] + params
+            else:
+                selection = "gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL"
+            params.append(args.limit)
             cur.execute(
                 f"""
                 SELECT gd.id, udm.user_id, gd.title, gd.price, gd.description, gd.location,
                        gd.image_urls, gd.storage_image_urls, gd.ai_analysis_raw, gd.link,
-                       gd."timestamp"
+                       gd.initial_verdict, gd.verdict AS final_verdict, gd."timestamp"
                 FROM guitar_deals gd
                 LEFT JOIN LATERAL (
                     SELECT user_id FROM user_deal_matches
                     WHERE deal_id = gd.id
                     LIMIT 1
                 ) udm ON true
-                WHERE gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL
+                WHERE {selection}
                 {date_filter}
+                {exclude_filter}
                 ORDER BY gd."timestamp" DESC
                 LIMIT %s
                 """,
@@ -473,7 +497,9 @@ def main():
         kb_version_number = guitar_knowledge.effective_version(conn) if args.with_knowledge else None
         if args.with_knowledge:
             print(f"📚 Base de connaissances : version {kb_version_number} ({args.kb_version}).")
-        print(f"📦 {len(rows)} annonce(s) avec un gatekeeperVerdict déjà en base (les plus récentes).\n")
+        what = ("rejetée(s) à l'origine puis reclassée(s) en non-rejet (faux rejets présumés)" if args.reclassified
+                else "avec un gatekeeperVerdict déjà en base (les plus récentes)")
+        print(f"📦 {len(rows)} annonce(s) {what}.\n")
         if not rows:
             print("Rien à comparer — l'export Chantier A a-t-il bien tourné sur cette base ?")
             return
@@ -496,7 +522,9 @@ def main():
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
             ai = json.loads(ai) if isinstance(ai, str) else (ai or {})
-            cloud_verdict = ai.get("gatekeeperVerdict")
+            # --reclassified : le verdict d'origine (initial_verdict) tient lieu de « cloud » — gatekeeperVerdict vaut
+            # alors MANUAL_RETRY (analyse forcée), qui n'est pas un verdict du Portier.
+            cloud_verdict = row.get("initial_verdict") if args.reclassified else ai.get("gatekeeperVerdict")
             if cloud_verdict not in T1_VALID_STATUSES:
                 n_excluded_invalid += 1
                 continue
@@ -578,6 +606,8 @@ def main():
             local_verdict = (result.get("status") or "UNKNOWN").upper()
             per_listing.append({"id": row["id"], "title": row.get("title"), "link": row.get("link"),
                                 "cloud_verdict": cloud_verdict, "local_verdict": local_verdict,
+                                "initial_verdict": row.get("initial_verdict"), "final_verdict": row.get("final_verdict"),
+                                "reclassified": bool(args.reclassified),
                                 "local_reasoning": result.get("reasoning"),
                                 "kb_ids": [f["id"] for f in kb_fiches], "kb_names": [f["name"] for f in kb_fiches]})
             print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s{tok_info})")
@@ -653,6 +683,8 @@ def main():
             "kb_version": kb_version_number,
             "no_think": args.no_think,
             "before": args.before,
+            "reclassified": args.reclassified,
+            "excluded_ids": excluded,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,

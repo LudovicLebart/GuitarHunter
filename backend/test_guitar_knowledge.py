@@ -367,6 +367,24 @@ class TestFormatForPrompt(unittest.TestCase):
         self.assertIn("pas des instructions", out)
         self.assertNotIn("http", out)
 
+    def test_sparse_fiche_is_kept_but_says_it_gives_no_detail_on_products(self):
+        """Cas Peavey (2026-10-01) : « entreprise étasunienne » atteste l'existence, rien de plus."""
+        peavey = {"name": "Peavey Electronics", "kind": "company", "description": "entreprise étasunienne",
+                  "countries": ["United States"], "curated": False, "source": "wikidata", "relevance": "unknown"}
+        out = gk.format_for_prompt([peavey])
+        self.assertIn("Peavey Electronics (company)", out)
+        self.assertIn("répertoriée, sans précision sur ses produits", out)
+        self.assertNotIn("ignorer", out.lower())
+
+    def test_informative_fiches_do_not_carry_the_sparse_marker(self):
+        self.assertNotIn("sans précision", gk.format_for_prompt([self._fiche()]))                      # curée
+        self.assertNotIn("sans précision", gk.format_for_prompt([self._fiche(curated=False, source="wikidata")]))   # description longue
+        self.assertNotIn("sans précision", gk.format_for_prompt(
+            [{"name": "X", "kind": "brand", "description": None, "hunt_notes": "Série recherchée", "source": "manual"}]))
+        self.assertNotIn("sans précision", gk.format_for_prompt(
+            [{"name": "Y", "kind": "line", "description": "ligne", "tier": "entry", "source": "wikidata"}]))
+        self.assertIn("sans précision", gk.format_for_prompt([{"name": "Z", "kind": "brand", "description": None, "source": "wikidata"}]))
+
     def test_years_only_when_reliable(self):
         imported = self._fiche(curated=False, source="wikidata", active_from=1987)
         self.assertNotIn("1987", gk.format_for_prompt([imported]))          # période incomplète, fiche importée : rien

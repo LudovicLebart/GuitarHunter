@@ -14,9 +14,14 @@ os.environ.setdefault("USER_IDS_TARGET", "test_user")
 from backend.scripts import compare_knowledge_effect as cke
 
 
-def entry(i, local, cloud="FAIR", kb=()):
-    return {"id": i, "title": f"annonce {i}", "link": f"https://x/{i}", "cloud_verdict": cloud, "local_verdict": local,
-            "local_reasoning": "raison", "kb_ids": [f"k{n}" for n in kb], "kb_names": [f"Marque{n}" for n in kb]}
+def entry(i, local, cloud="FAIR", kb=(), final=None, reclassified=False):
+    e = {"id": i, "title": f"annonce {i}", "link": f"https://x/{i}", "cloud_verdict": cloud, "local_verdict": local,
+         "local_reasoning": "raison", "kb_ids": [f"k{n}" for n in kb], "kb_names": [f"Marque{n}" for n in kb]}
+    if final is not None:
+        e["final_verdict"] = final
+    if reclassified:
+        e["reclassified"] = True
+    return e
 
 
 def by_id(*entries):
@@ -91,6 +96,51 @@ class TestAnalyze(unittest.TestCase):
         baseline = by_id(entry("a", "REJECTED_ITEM", cloud="FAIR"), entry("b", "REJECTED_ITEM", cloud="REJECTED_ITEM"))
         with_kb = by_id(entry("a", "FAIR", cloud="FAIR", kb=[1]), entry("b", "FAIR", cloud="REJECTED_ITEM", kb=[2]))
         self.assertEqual(cke.analyze(baseline, with_kb)["gains_injected"], ["a"])
+
+    def test_final_verdict_is_the_reference_when_it_judges_the_listing(self):
+        """T1 avait accepté, T2/T3 ont jugé « BAD_DEAL » : rejeter avec la base n'est pas une erreur."""
+        baseline = by_id(entry("a", "FAIR", cloud="FAIR", final="BAD_DEAL"))
+        with_kb = by_id(entry("a", "REJECTED_ITEM", cloud="FAIR", final="BAD_DEAL", kb=[1]))
+        self.assertEqual(cke.analyze(baseline, with_kb)["harmful_new_injected"], [])
+        # et inversement : T1 avait « rejeté » mais le verdict final est bon → le rejeter est une erreur
+        baseline = by_id(entry("b", "FAIR", cloud="BAD_DEAL", final="FAIR"))
+        with_kb = by_id(entry("b", "BAD_DEAL", cloud="BAD_DEAL", final="FAIR", kb=[1]))
+        self.assertEqual(cke.analyze(baseline, with_kb)["harmful_new_injected"], ["b"])
+
+    def test_non_judging_final_verdicts_fall_back_to_t1(self):
+        for final in ("NOT_PROMOTED", "MANUAL_RETRY", "ERROR_GATEKEEPER", "", None):
+            self.assertTrue(cke.reference_rejected(entry("a", "FAIR", cloud="REJECTED_ITEM", final=final)))
+            self.assertFalse(cke.reference_rejected(entry("a", "FAIR", cloud="FAIR", final=final)))
+        self.assertTrue(cke.is_rejected("REJECTED"))        # ancien verdict
+
+    def test_reclassified_section_counts_rescued_false_rejections(self):
+        base1 = by_id(entry("a", "BAD_DEAL", cloud="BAD_DEAL", final="FAIR", reclassified=True),
+                      entry("b", "BAD_DEAL", cloud="BAD_DEAL", final="FAIR", reclassified=True),
+                      entry("c", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True))
+        base2 = by_id(entry("a", "BAD_DEAL", cloud="BAD_DEAL", final="FAIR", reclassified=True),
+                      entry("b", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True),
+                      entry("c", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True))
+        with_kb = by_id(entry("a", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True, kb=[1]),
+                        entry("b", "BAD_DEAL", cloud="BAD_DEAL", final="FAIR", reclassified=True),
+                        entry("c", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True))
+        rc = cke.analyze(base1, with_kb, base2)["reclassified"]
+        self.assertEqual(rc["ids"], ["a", "b", "c"])
+        self.assertEqual(rc["rejected_without"], ["a", "b"])
+        self.assertEqual(rc["rejected_with"], ["b"])
+        self.assertEqual(rc["saved"], ["a"])
+        self.assertEqual(rc["n_injected"], 1)
+        self.assertEqual(rc["rejected_without_2"], ["a"])
+
+    def test_reclassified_report_warns_when_nothing_is_rejected_without_the_base(self):
+        baseline = by_id(entry("a", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True))
+        with_kb = by_id(entry("a", "FAIR", cloud="BAD_DEAL", final="FAIR", reclassified=True, kb=[1]))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cke.print_report(cke.analyze(baseline, with_kb), baseline, with_kb)
+        out = buf.getvalue()
+        self.assertIn("FAUX REJETS PRÉSUMÉS", out)
+        self.assertIn("PAS mesurable", out)
+        self.assertIn("pré-filtre de prix", out)
 
     def test_report_prints_validation_command_only_when_it_passes(self):
         def render(passes):
