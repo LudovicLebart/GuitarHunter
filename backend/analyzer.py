@@ -51,10 +51,22 @@ from backend.taxonomy import (
 
 logger = logging.getLogger(__name__)
 
-# Rattrapage Chantier G (2026-09-19) : verdicts T1 jamais cachés par le routage
-# `activeSearchFamilies`, quelle que soit la correspondance de classification — garde-fou non
-# négociable, ne jamais masquer une pépite hors-filtre.
+# Regroupe les 5 verdicts T1 "d'opportunité" (par opposition à FAIR/BAD_DEAL, "sans intérêt") —
+# utilisé par `backend/scripts/audit_rejected_gems.py` (comparaison Qwen/Gemini, désaccord
+# pépite-tier au sens large), PAS par le routage `activeSearchFamilies` ci-dessous (voir
+# T1_FILTER_BYPASS_VERDICTS, volontairement plus restreint depuis le 2026-09-29).
 T1_PEPITE_TIER_VERDICTS = frozenset({"PEPITE", "FAST_FLIP", "LUTHIER_PROJ", "CASE_WIN", "COLLECTION"})
+
+# Rattrapage Chantier G (2026-09-19), restreint le 2026-09-29 (retour utilisateur) : SEUL le
+# verdict PEPITE littéral (pas les 4 autres verdicts d'opportunité T1_PEPITE_TIER_VERDICTS) est
+# jamais caché par le routage `activeSearchFamilies`, quelle que soit la correspondance de
+# classification — garde-fou non négociable, ne jamais masquer une pépite hors-filtre. Décision
+# explicite : un catalogue partagé entre utilisateurs (chacun avec son propre filtre) couvre déjà
+# les autres verdicts d'opportunité (FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION) pour un
+# utilisateur dont le filtre les inclut — pas besoin qu'ils percent AUSSI le filtre explicite d'un
+# utilisateur qui les a délibérément exclus (ex: un ampli FAST_FLIP alors que la recherche active
+# ne porte que sur des petites guitares acoustiques).
+T1_FILTER_BYPASS_VERDICTS = frozenset({"PEPITE"})
 
 # Verdicts d'erreur du Portier (appel raté ou réponse malformée) — n'ont par définition aucune
 # classification fiable, donc jamais soumis au routage Chantier G (`activeSearchFamilies`) au
@@ -782,8 +794,14 @@ class DealAnalyzer:
                 # (`gatekeeper_classification`, déjà produite par le Portier — aucun nouvel appel
                 # ni champ de prompt) promeut vers T2/T3 ; le scraping et le Portier lui-même
                 # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
-                # Garde-fou non négociable : un verdict pépite-tier (T1_PEPITE_TIER_VERDICTS)
-                # passe TOUJOURS, correspondance ou non — ne jamais cacher une pépite hors-filtre.
+                # Garde-fou non négociable, restreint le 2026-09-29 : SEUL un verdict PEPITE
+                # littéral (T1_FILTER_BYPASS_VERDICTS) passe TOUJOURS, correspondance ou non — ne
+                # jamais cacher une vraie pépite hors-filtre. Les 4 autres verdicts d'opportunité
+                # (FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION) sont désormais soumis au filtre
+                # comme n'importe quel verdict ordinaire — un utilisateur qui exclut une catégorie
+                # (ex: amplis) ne veut pas la voir malgré un potentiel de revente, et le catalogue
+                # partagé couvre déjà cette catégorie pour un autre utilisateur dont le filtre
+                # l'inclut.
                 # Second garde-fou (Chantier H) : un verdict d'erreur (T1_ERROR_STATUSES — Portier
                 # planté ou réponse malformée) n'a par définition aucune classification fiable ;
                 # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
@@ -791,7 +809,7 @@ class DealAnalyzer:
                 active_search_families = config.get('activeSearchFamilies') or []
                 if (
                     active_search_families
-                    and gatekeeper_status not in T1_PEPITE_TIER_VERDICTS
+                    and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
                     and gatekeeper_status not in T1_ERROR_STATUSES
                 ):
                     matches_active_search = matches_active_search_family(gatekeeper_classification, active_search_families)
