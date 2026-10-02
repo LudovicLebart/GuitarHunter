@@ -126,6 +126,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `main.py` (racine) | Point d'entrée, boucle principale, watchdog, dispatching commandes |
 | `backend/bot.py` | `GuitarHunterBot` — orchestration globale |
 | `backend/analyzer.py` | `DealAnalyzer` — pipeline 3-Tiers Gemini |
+| `backend/llm_clients.py` | `LLMClientsMixin` — appels Gemini / OpenAI-compatible (Qwen, Dell), schémas T1 (hérité par `DealAnalyzer`) |
 | `backend/scraping/` | `FacebookScraper` — Playwright + stealth mode |
 | `backend/notifications.py` | `NotificationService` — email SMTP + ntfy.sh |
 | `backend/logging_config.py` | `setup_logging()`/`FirestoreHandler` — logger par-utilisateur → LogViewer |

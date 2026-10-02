@@ -128,7 +128,7 @@ class TestT1PromptBuilder(unittest.TestCase):
 
 class TestLlmUsageRecording(unittest.TestCase):
     @patch("backend.analyzer.llm_usage.record")
-    @patch("backend.analyzer.OpenAI")
+    @patch("backend.llm_clients.OpenAI")
     def test_local_call_records_provider_local(self, mock_openai, mock_record):
         response = MagicMock()
         response.choices[0].message.content = '{"status": "FAIR"}'
@@ -149,7 +149,7 @@ class TestLlmUsageRecording(unittest.TestCase):
         self.assertEqual(mock_record.call_args.kwargs["provider"], "local")
 
     @patch("backend.analyzer.llm_usage.record")
-    @patch("backend.analyzer.OpenAI")
+    @patch("backend.llm_clients.OpenAI")
     def test_without_label_provider_is_deduced_from_base_url(self, mock_openai, mock_record):
         response = MagicMock()
         response.choices[0].message.content = '{"status": "FAIR"}'
@@ -163,7 +163,7 @@ class TestLlmUsageRecording(unittest.TestCase):
         self.assertEqual(mock_record.call_args.kwargs["provider"], "tokenrouter")
 
     @patch("backend.analyzer.llm_usage.record")
-    @patch("backend.analyzer.OpenAI")
+    @patch("backend.llm_clients.OpenAI")
     def test_failed_call_records_ok_false_with_error_type_and_provider_local(self, mock_openai, mock_record):
         mock_openai.return_value.chat.completions.create.side_effect = TimeoutError("request timed out")
 
@@ -178,7 +178,7 @@ class TestLlmUsageRecording(unittest.TestCase):
         mock_record.assert_called_once()
 
     @patch("backend.analyzer.llm_usage.record")
-    @patch("backend.analyzer.OpenAI")
+    @patch("backend.llm_clients.OpenAI")
     def test_invalid_json_records_a_single_failure_row_not_a_success(self, mock_openai, mock_record):
         response = MagicMock()
         response.choices[0].message.content = "pas du json {"
@@ -197,7 +197,7 @@ class TestLlmUsageRecording(unittest.TestCase):
         self.assertEqual((kwargs["ok"], kwargs["error_type"]), (False, "json"))
         self.assertEqual(kwargs["input_tokens"], 10)  # tokens facturés conservés
 
-    @patch("backend.analyzer.TOKENROUTER_API_KEY", "")
+    @patch("backend.llm_clients.TOKENROUTER_API_KEY", "")
     @patch("backend.analyzer.llm_usage.record")
     def test_qwen_provider_without_tokenrouter_key_still_records_the_failure(self, mock_record):
         _, err = _make_analyzer()._call_t1_provider("qwen", "prompt", [], "gemini-x")
