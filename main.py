@@ -17,7 +17,7 @@ from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
 from backend.admin_stats import run_admin_stats_job
-from backend.log_retention import run_log_retention_job
+from backend.log_retention import run_log_retention_job, run_pg_log_archive_job
 import firebase_admin.auth as fb_auth
 
 # --- Sémaphore global : limite le nombre de navigateurs Playwright simultanés ---
@@ -308,6 +308,11 @@ def main():
     # Job global (singleton) : rétention de l'archive de logs locale (backend/logging_config.py,
     # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Postgres.
     schedule.every().day.at("03:15").do(run_log_retention_job).tag('log_retention')
+
+    # Job global (singleton) : fenêtre glissante de la table Postgres `logs` — déplace >30j vers
+    # `logs_archive` (interrogeable en SQL), purge l'archive >12 mois. Décalé de 5 min du job
+    # de fichiers ci-dessus pour ne pas chevaucher.
+    schedule.every().day.at("03:20").do(run_pg_log_archive_job, pg_pool).tag('pg_log_archive')
 
     try:
         # Boucle de surveillance (watchdog) + Découverte dynamique
