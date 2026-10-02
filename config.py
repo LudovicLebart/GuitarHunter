@@ -22,7 +22,7 @@ USER_ID_TARGET = USER_IDS_TARGET[0] if USER_IDS_TARGET else ""
 NTFY_TOPIC = os.getenv("NTFY_TOPIC")
 
 # --- REDONDANCE SERVEUR (chantier Dell, préparation — voir backend/ha/) ---
-# Identifiant de CETTE machine ("lenovo"/"dell") pour le bail de leadership Firestore et le
+# Identifiant de CETTE machine ("serveur"/"dell") pour le bail de leadership Firestore et le
 # marquage des annonces scrapées (`scraped_by_node`, voir deal_mapping.py). Vide par défaut :
 # aucun comportement HA n'est activé tant que ce n'est pas explicitement configuré — le
 # déploiement actuel (nœud unique) n'est pas affecté.
@@ -153,6 +153,16 @@ T1_LOCAL_BASE_URL = os.getenv("T1_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1
 T1_LOCAL_MODEL = os.getenv("T1_LOCAL_MODEL", "qwen3-vl:8b-instruct")
 # Ollama n'exige aucune authentification, mais le SDK OpenAI refuse une clé vide — valeur factice.
 T1_LOCAL_API_KEY = os.getenv("T1_LOCAL_API_KEY", "ollama")
+# Concurrence max des appels T1 vers le Dell, tous threads utilisateurs confondus. Diagnostic
+# 2026-10-02 (llm_usage) : appel isolé P90 14 s, mais en rafale (ANALYSIS_WORKERS=5 requêtes
+# simultanées sur un Ollama à 8 Go de VRAM) P50 23 s / P90 52 s — les requêtes font la queue côté
+# Ollama. Le sémaphore fait attendre en amont de l'appel HTTP, donc l'attente ne compte pas dans
+# le timeout. À remonter (env) seulement si OLLAMA_NUM_PARALLEL le permet réellement.
+T1_LOCAL_MAX_CONCURRENCY = max(1, int(os.getenv("T1_LOCAL_MAX_CONCURRENCY", 1)))
+# Timeout d'UN appel local (hors attente du sémaphore). Le SDK OpenAI refaisait 2 retries
+# silencieux par défaut : 3 × 60 s = jusqu'à 180 s par appel (pic 181 s observé) — désormais 0
+# retry, l'échec remonte au coupe-circuit/chaîne qui bascule sur Qwen cloud.
+T1_LOCAL_TIMEOUT_SECONDS = int(os.getenv("T1_LOCAL_TIMEOUT_SECONDS", 60))
 
 # Coupe-circuit T1 : nombre d'échecs CONSÉCUTIFS avant de mettre un fournisseur en pause, et durée
 # de cette pause. Volontairement simple (pas de sondes dédiées) — voir t1_circuit_breaker.py.
