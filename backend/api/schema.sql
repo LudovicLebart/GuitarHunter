@@ -417,8 +417,23 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_logs_user_created ON logs(user_id, created_at DESC);
--- Remplace la TTL policy Firestore (3 jours) : job cron/schedule côté API à écrire
--- (`DELETE FROM logs WHERE created_at < now() - interval '3 days'`), voir plan §2.
+-- Sert au déplacement quotidien vers `logs_archive` (filtre sur created_at seul, sans user_id).
+CREATE INDEX IF NOT EXISTS idx_logs_created ON logs(created_at);
+
+-- Fenêtre glissante (2026-10-02) : `logs` ne garde que 30 jours (ce que lit le LogViewer) ; le
+-- job quotidien `backend/log_retention.py::run_pg_log_archive_job` déplace le reste ici, puis
+-- purge cette archive après 12 mois. Même forme que `logs`, `id` repris tel quel (pas de
+-- séquence), pour s'interroger en SQL sur l'historique (ex: croiser avec `llm_usage`).
+CREATE TABLE IF NOT EXISTS logs_archive (
+    id          BIGINT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    message     TEXT NOT NULL,
+    level       TEXT NOT NULL DEFAULT 'INFO',
+    created_at  TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_logs_archive_user_created ON logs_archive(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_archive_created ON logs_archive(created_at);
 
 -- Catalogue partagé (remplace `artifacts/{APP_ID}/cities`, écrit par bot.py::add_city_auto()
 -- avec un `.set(merge=True)` — hors périmètre ici : cette tranche ne construit que la surface
