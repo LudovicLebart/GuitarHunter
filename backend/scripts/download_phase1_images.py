@@ -1,7 +1,7 @@
 """
 Download Phase 1 — Constitution du dossier source pour extract_phase1.py
 =========================================================================
-Lit dataset_a_phase0.jsonl (déjà présent à la racine du projet),
+Lit backend/scripts/data/dataset_a_phase0.jsonl (voir backend/scripts/data/README.md),
 télécharge les images `usable=True` et les range dans :
 
     scratch/dataset_brut/
@@ -128,8 +128,8 @@ def main():
     )
     parser.add_argument(
         "--jsonl",
-        default=str(project_root / "dataset_a_phase0.jsonl"),
-        help="Chemin du fichier JSONL source (défaut: dataset_a_phase0.jsonl à la racine)",
+        default=str(project_root / "backend" / "scripts" / "data" / "dataset_a_phase0.jsonl"),
+        help="Chemin du fichier JSONL source (défaut: backend/scripts/data/dataset_a_phase0.jsonl)",
     )
     parser.add_argument(
         "--output",

@@ -42,6 +42,15 @@ Le template Label Studio actuel (6 classes : headstock, neck, body, bridge, pick
 - Une boîte par micro.
 - Ne pas annoter ce qui n'est pas visible ou pas identifiable (une photo sans rosace n'a pas de `soundhole`).
 
+### 3.2 bis Outil d'export et de suivi (ajouté le 2026-10-02)
+
+`backend/auto_annotation/labelstudio_export.py` (lit la base SQLite locale de Label Studio, ou un export JSON) :
+- `progress` : images faites, boîtes par classe, classes rares (< 15 boîtes), par catégorie ;
+- `export` : dataset YOLO-OBB (`images/` et `labels/` en train/val, découpage 80/20 par catégorie, `dataset.yaml` à 10 classes) dans `scratch/yolo_dataset_phase1/` ; une image annotée sans boîte est conservée comme exemple négatif, une image ignorée (« Skip ») est exclue ;
+- `preview` : images avec les boîtes dessinées, pour contrôle visuel.
+
+Convention de rotation de Label Studio (degrés, sens horaire, autour du coin haut-gauche) implémentée mais **à confirmer visuellement sur les premières boîtes pivotées** (`preview`) : l'unique annotation existante a une rotation de 0,4°, donc ne la prouve pas.
+
 ### 3.3 Mutualisation avec le neck reset
 
 La TODO prévoit un « sprint d'annotation manuelle sur Dataset A » (100-200 photos, points sillet/12e frette/chevalet). **Un seul passage sur les 150 images** doit servir les deux besoins : boîtes orientées pour les 10 classes, et, pour `saddle`, `nut` et la 12e frette, les points demandés par le neck reset. À trancher au moment d'ajuster le template : champs de points dans le même projet Label Studio, ou second passage restreint aux images où le manche est visible.
@@ -52,7 +61,7 @@ La TODO prévoit un « sprint d'annotation manuelle sur Dataset A » (100-200 ph
 2. **Oracle de la Phase 4** : Moondream (2B) a été choisi avant l'installation de Qwen3-VL sur le Dell. À réévaluer sur un petit lot avec Qwen3-VL-8B (déjà en place, VRAM partagée).
 3. **GPU partagé avec le Portier** : l'entraînement et l'inférence de masse sur le Dell se font **hors des heures de scan**, ou sur une machine louée. Le contexte 8192 laisse déjà ~26 % du modèle sur CPU.
 4. **OCR Surya sur les têtes (Phase 6)** : probablement redondant si Qwen local transcrit les crops de tête et de plaque. Décision après les premiers crops réels.
-5. **Données voisines non réconciliées** : `dataset_a_phase0.jsonl` (5 974 lignes, racine), `backend/scripts/data/dataset_a_manifest.jsonl` (1 066, annonces du neck reset), `experiments/yolo_annotation/dataset_a_frontal.jsonl` (606). Une seule source de vérité à désigner avant la Phase 2 de masse.
+5. **Trois jeux `dataset_a_*` : réconciliés le 2026-10-02.** Ce n'est pas un conflit mais une chaîne : manifeste (1 061 annonces) → `dataset_a_phase0.jsonl` (5 974 photos, filtre OWLv2) → `dataset_a_frontal.jsonl` (606 vues frontales, sous-ensemble). **Source de vérité : `dataset_a_phase0.jsonl`**, déplacé dans `backend/scripts/data/` avec un `README.md` qui détaille les trois étages et leurs limites.
 
 ## 5. Étapes
 

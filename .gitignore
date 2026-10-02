@@ -19,3 +19,10 @@ leboncoin_probe_*.html
 leboncoin_probe_*.json
 backend/benchmark/results/
 /logs/
+
+# Données Dataset A : identifiants utilisateurs, titres d'annonces et URLs de photos (dépôt public) — locales uniquement.
+# Voir backend/scripts/data/README.md
+backend/scripts/data/dataset_a_*.jsonl
+backend/scripts/experiments/yolo_annotation/dataset_a_*.jsonl
+/dataset_a_*.jsonl
+/dataset_test.jsonl

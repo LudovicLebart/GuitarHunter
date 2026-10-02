@@ -163,6 +163,21 @@ class TestApplyHeuristics:
         valid = apply_heuristics(rects, classes)
         assert 1 not in valid  # pickup doit être rejeté
 
+    def test_pickup_close_up_without_body_is_kept(self):
+        """Gros plan : micro visible, corps hors cadre (donc non annoté) → le micro n'est pas supprimé."""
+        pickup = rect(320, 300, 80, 30, 0)
+        assert apply_heuristics([pickup], cls_tensor(['pickups'])) == [0]
+
+    def test_soundhole_close_up_without_body_is_kept(self):
+        soundhole = rect(320, 300, 100, 100, 0)
+        assert apply_heuristics([soundhole], cls_tensor(['soundhole'])) == [0]
+
+    def test_pickup_outside_detected_body_still_rejected(self):
+        """Quand un corps est détecté, un micro situé hors de ce corps reste rejeté (inchangé)."""
+        body = rect(100, 100, 100, 80, 0)
+        pickup = rect(600, 600, 40, 20, 0)
+        assert 1 not in apply_heuristics([body, pickup], cls_tensor(['body', 'pickups']))
+
     def test_neck_good_ratio_and_connected_passes(self):
         """
         Un manche avec ratio >> NECK_RATIO_MIN et connecté au body passe.

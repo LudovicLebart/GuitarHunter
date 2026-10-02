@@ -41,8 +41,10 @@ def apply_heuristics(rects, classes):
         c_name = CLASS_NAMES[int(cls)]
         
         if c_name in ['pickups', 'soundhole']:
-            # L'élément doit être situé à l'intérieur du corps (body)
-            is_valid = any(check_inclusion_obb(rect, rects[bi]) for bi in body_boxes)
+            # L'élément doit être situé à l'intérieur du corps (body) quand un corps est détecté. Sans
+            # aucun corps détecté (gros plan : le corps est coupé par le bord, donc non annoté, règle
+            # Phase 1), on le garde — comme pour le manche ; l'oracle de la Phase 4 le validera.
+            is_valid = not body_boxes or any(check_inclusion_obb(rect, rects[bi]) for bi in body_boxes)
             if is_valid: 
                 valid_indices.append(i)
                 
