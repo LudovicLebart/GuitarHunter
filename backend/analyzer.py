@@ -37,10 +37,15 @@ from config import (
     T1_LOCAL_BASE_URL,
     T1_LOCAL_MODEL,
     T1_LOCAL_API_KEY,
+    T1_LOCAL_MAX_CONCURRENCY,
+    T1_LOCAL_TIMEOUT_SECONDS,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
 )
 from backend import t1_circuit_breaker
+
+# Un seul Dell pour tous les threads utilisateurs : sémaphore au niveau du module (voir config.py).
+_T1_LOCAL_SEMAPHORE = threading.BoundedSemaphore(T1_LOCAL_MAX_CONCURRENCY)
 from backend.t1_prompt import build_t1_gatekeeper_prompt, format_user_correction
 from backend.scraping.parser import ListingParser
 from backend.taxonomy import (
@@ -342,7 +347,7 @@ class DealAnalyzer:
                     self._notify_model_unavailable(model_name, str(e), user_email)
                 return None, str(e)
 
-    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None, action=None, provider_label=None):
+    def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None, action=None, provider_label=None, timeout=60, max_retries=2):
         """Chantier H (porté depuis dev le 2026-09-22) : appelle un modèle compatible OpenAI
         (Qwen via TokenRouter, etc.) et parse le JSON, avec la même tolérance que
         `_call_gemini_json` (accolades ```json```). Réutilise les images DÉJÀ téléchargées (objets
@@ -368,7 +373,7 @@ class DealAnalyzer:
             llm_usage.record(**usage_row, ok=False, error_type="no_key")
             return None, "Clé API manquante."
         try:
-            client = OpenAI(api_key=api_key, base_url=base_url, timeout=60)
+            client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=max_retries)
             content = [{"type": "text", "text": prompt}]
             for img in images:
                 buf = BytesIO()
@@ -421,11 +426,15 @@ class DealAnalyzer:
         changement de l'appel (timeout, retry, format) ne puisse plus être fait dans un seul
         endroit sans désynchroniser décision et observation."""
         if provider == "local":
-            return self._call_openai_compatible_json(
-                full_prompt_t1, images, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
-                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
-                provider_label="local",
-            )
+            # Sérialise les appels vers le Dell (voir T1_LOCAL_MAX_CONCURRENCY) : la file d'attente
+            # se fait ici, hors timeout HTTP, et non dans Ollama où elle gonflait la latence et
+            # déclenchait des timeouts/retries. 0 retry : la chaîne T1 gère déjà le repli.
+            with _T1_LOCAL_SEMAPHORE:
+                return self._call_openai_compatible_json(
+                    full_prompt_t1, images, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
+                    response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
+                    provider_label="local", timeout=T1_LOCAL_TIMEOUT_SECONDS, max_retries=0,
+                )
         if provider == "qwen":
             # Clé absente : `_call_openai_compatible_json` la détecte lui-même, renvoie une erreur ET
             # enregistre l'échec dans `llm_usage` (error_type="no_key") — pas de garde-fou ici, sinon
