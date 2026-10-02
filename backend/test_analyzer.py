@@ -298,6 +298,140 @@ class TestT1Knowledge(unittest.TestCase):
         self.assertNotIn("CONNAISSANCES", self.analyzer._call_t1_provider.call_args[0][1])
 
 
+class TestCascadeCharacterization(unittest.TestCase):
+    """Tests de CARACTÉRISATION de la cascade complète T1 -> T2 -> T3 via l'API publique `analyze_deal`
+    (2026-10-02) : figent le comportement AVANT le découpage de `_run_analysis_cascade_body` en phases,
+    pour qu'un refactoring sans changement de comportement reste vérifiable. Appels réseau mockés."""
+
+    T1_ACCEPT = {"status": "FAIR", "reasoning": "Prix correct.", "brand": "Fender", "classification": "guitare.electrique"}
+
+    def setUp(self):
+        self.a = _make_analyzer()
+        self.a._run_t1_shadow_observation = MagicMock(return_value={})
+        self.a._download_and_optimize_image = MagicMock(return_value=None)
+        self.a._call_t1_provider = MagicMock(return_value=(dict(self.T1_ACCEPT), None))
+        self.t2 = {"verdict": "FAIR", "deal_score": 3, "authenticity_score": 9, "restoration_interest_score": 0,
+                   "confidence": 0.9, "summary": "RAS"}
+        self.t3 = {"verdict": "PEPITE", "deal_score": 9, "authenticity_score": 9, "confidence": 0.95, "summary": "Top"}
+        self.gemini_calls = []
+
+        def _gemini(model, parts, user_email=None, **kw):
+            self.gemini_calls.append((model, kw.get("action"), parts))
+            if kw.get("action") == "t2_analyst":
+                return (dict(self.t2) if self.t2 is not None else None), self.t2_err
+            return (dict(self.t3) if self.t3 is not None else None), self.t3_err
+        self.t2_err = None
+        self.t3_err = None
+        self.a._call_gemini_json = _gemini
+        t1_circuit_breaker.reset()
+        self.addCleanup(t1_circuit_breaker.reset)
+        for target, value in (("backend.analyzer.llm_usage.record", None), ):
+            p = patch(target)
+            p.start()
+            self.addCleanup(p.stop)
+        for p in (patch("backend.analyzer.GEMINI_API_KEY", "dummy"), patch("backend.analyzer.T1_PROVIDER_CHAIN", ["local"])):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _run(self, config=None, **kw):
+        return self.a.analyze_deal(_listing(), firestore_config={"analysisConfig": config or {}}, **kw)
+
+    def _actions(self):
+        return [c[1] for c in self.gemini_calls]
+
+    def test_t1_rejection_stops_before_t2(self):
+        self.a._call_t1_provider = MagicMock(return_value=({"status": "REJECTED_ITEM", "reasoning": "Étui seul", "brand": "X",
+                                                            "classification": None}, None))
+        r = self._run()
+        self.assertEqual(r["verdict"], "REJECTED_ITEM")
+        self.assertEqual(r["gatekeeperVerdict"], "REJECTED_ITEM")
+        self.assertEqual(r["gatekeeperBrand"], "X")
+        self.assertEqual(self.gemini_calls, [])
+
+    def test_t2_only_when_expert_not_triggered(self):
+        r = self._run()
+        self.assertEqual(self._actions(), ["t2_analyst"])
+        self.assertEqual(r["verdict"], "FAIR")
+        self.assertEqual(r["gatekeeperVerdict"], "FAIR")
+        self.assertEqual(r["gatekeeperBrand"], "Fender")
+        self.assertEqual(r["gatekeeperClassification"], "guitare.electrique")
+        self.assertNotIn("tier3_trigger", r)
+        self.assertEqual(r["model_used"].count(" -> "), 1)  # portier -> analyste
+
+    def test_expert_runs_and_overrides_t2_when_triggered(self):
+        self.t2["deal_score"] = 9
+        r = self._run()
+        self.assertEqual(self._actions(), ["t2_analyst", "t3_expert"])
+        self.assertEqual(r["verdict"], "PEPITE")
+        self.assertIn("critique", r["tier3_trigger"])
+        self.assertEqual(r["model_used"].count(" -> "), 2)  # portier -> analyste -> expert
+        self.assertEqual(r["gatekeeperVerdict"], "FAIR")
+
+    def test_t3_failure_raises(self):
+        self.t2["deal_score"] = 9
+        self.t3, self.t3_err = None, "boom"
+        with self.assertRaises(RuntimeError):
+            self._run()
+
+    def test_t2_failure_returns_error_result_with_gatekeeper_status(self):
+        self.t2, self.t2_err = None, "quota"
+        r = self._run()
+        self.assertEqual(r["verdict"], "FAIR")  # verdict du Portier conservé
+        self.assertIn("Erreur Tier 2", r["reasoning"])
+        self.assertIn("quota", r["reasoning"])
+        self.assertTrue(r["model_used"].endswith("(Error)"))
+        self.assertEqual(self._actions(), ["t2_analyst"])
+
+    def test_force_expert_skips_t1_and_marks_manual_retry(self):
+        r = self._run(force_expert=True)
+        self.a._call_t1_provider.assert_not_called()
+        self.assertEqual(self._actions(), ["t2_analyst", "t3_expert"])
+        self.assertEqual(r["gatekeeperVerdict"], "MANUAL_RETRY")
+        self.assertIn("forcée", r["tier3_trigger"])
+        self.assertIsNone(r["gatekeeperBrand"])
+
+    def test_active_search_not_matching_is_not_promoted(self):
+        r = self._run(config={"activeSearchFamilies": ["amplificateur"]})
+        self.assertEqual(r["verdict"], "NOT_PROMOTED")
+        self.assertEqual(r["gatekeeperVerdict"], "FAIR")
+        self.assertEqual(self.gemini_calls, [])
+
+    def test_active_search_matching_continues_to_t2(self):
+        r = self._run(config={"activeSearchFamilies": ["guitare.electrique"]})
+        self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
+        self.assertEqual(self._actions(), ["t2_analyst"])
+
+    def test_pepite_bypasses_active_search_filter(self):
+        self.a._call_t1_provider = MagicMock(return_value=({**self.T1_ACCEPT, "status": "PEPITE"}, None))
+        r = self._run(config={"activeSearchFamilies": ["amplificateur"]})
+        self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
+        self.assertEqual(self._actions(), ["t2_analyst"])
+
+    def test_gatekeeper_failure_skips_without_calling_gemini(self):
+        self.a._call_t1_provider = MagicMock(return_value=(None, "panne"))
+        r = self._run()
+        self.assertEqual(r["verdict"], "GATEKEEPER_FAILED_SKIP")
+        self.assertEqual(self.gemini_calls, [])
+
+    def test_model_used_starts_with_the_t1_model_of_the_provider(self):
+        from backend.llm_clients import T1_LOCAL_MODEL
+        r = self._run()
+        self.assertTrue(r["model_used"].startswith(T1_LOCAL_MODEL))
+
+    def test_user_comment_reaches_t1_prompt_and_t2_prompt(self):
+        self._run(user_comment="C'est une vraie Strat")
+        t1_prompt = self.a._call_t1_provider.call_args[0][1]
+        self.assertIn("C'est une vraie Strat", t1_prompt)
+        self.assertLess(t1_prompt.index("CORRECTION UTILISATEUR"), t1_prompt.index("<annonce>"))
+        t2_parts = self.gemini_calls[0][2]
+        self.assertIn("C'est une vraie Strat", t2_parts[0])
+
+    def test_custom_models_from_config_are_used(self):
+        self.t2["deal_score"] = 9
+        self._run(config={"mainModel": "m-analyst", "proModel": "m-expert"})
+        self.assertEqual([c[0] for c in self.gemini_calls], ["m-analyst", "m-expert"])
+
+
 class TestExpertTriggerReason(unittest.TestCase):
     """`expert_trigger_reason` : décision pure (extraite de la cascade le 2026-10-02) de déclencher
     l'Expert Pro après l'Analyste. Seuils par défaut : prix 1000, deal 8, combo 6+resto 7, auth 7,
