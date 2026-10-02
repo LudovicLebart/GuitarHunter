@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Guide d'annotation — Label Studio</title>
+<style>
+  @page { size: A4; margin: 18mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 11pt; line-height: 1.45; color: #1a1a1a; }
+  h1 { font-size: 20pt; margin: 0 0 4px; }
+  .sub { color: #555; margin-bottom: 18px; }
+  h2 { font-size: 13pt; margin: 20px 0 6px; border-bottom: 2px solid #2980B9; padding-bottom: 3px; }
+  code, pre { font-family: Consolas, monospace; background: #f1f3f5; border-radius: 3px; }
+  code { padding: 1px 4px; }
+  pre { padding: 8px 10px; }
+  ul, ol { margin: 6px 0 6px 20px; padding: 0; }
+  li { margin: 3px 0; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; font-size: 10pt; }
+  th { background: #eef3f8; }
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  .box { border: 1px solid #c9a227; background: #fff8e1; padding: 8px 12px; margin-top: 10px; border-radius: 4px; }
+  .nobreak { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>Guide d'annotation — Label Studio</h1>
+<div class="sub">Guitar Hunter · détecteur de parties de guitare · 150 images à annoter · 2 octobre 2026</div>
+
+<p><b>But :</b> sur 150 photos d'annonces, entourer chaque pièce de la guitare par un rectangle. Ces exemples servent à entraîner un petit modèle qui repérera ensuite ces pièces tout seul. Les rectangles seuls suffisent : pas de points précis pour l'instant.</p>
+
+<h2>1. Lancer Label Studio</h2>
+<p>Dans PowerShell, depuis le dossier du projet :</p>
+<pre>.\scratch\start_label_studio.ps1</pre>
+<p>Laisse cette fenêtre ouverte : elle fait tourner Label Studio. Ouvre ensuite <b>http://localhost:8080</b> dans le navigateur.</p>
+
+<h2>2. Ouvrir le bon projet</h2>
+<p>Deux projets existent dans la base. Prends celui qui contient les 150 images, sans doute « GuitarHunter OBB Phase 1 ». Il doit montrer 150 tâches, dont une seule déjà annotée.</p>
+
+<h2>3. Mettre la nouvelle liste de pièces</h2>
+<ol>
+  <li>Dans le projet : <b>Settings</b> (Paramètres), puis <b>Labeling Interface</b>.</li>
+  <li>Onglet <b>Code</b> (le texte de configuration).</li>
+  <li>Efface tout, puis colle le contenu du fichier <code>backend/auto_annotation/label_studio_template_obb.xml</code> (ouvre-le dans un éditeur, tout copier).</li>
+  <li>Clique <b>Save</b>.</li>
+</ol>
+<p>Tu dois alors voir 10 pièces colorées, avec leurs raccourcis clavier :</p>
+
+<table class="nobreak">
+  <tr><th>Touche</th><th>Pièce</th><th>Quoi entourer</th></tr>
+  <tr><td>1</td><td><span class="sw" style="background:#E74C3C"></span>headstock</td><td>La tête, mécaniques comprises</td></tr>
+  <tr><td>2</td><td><span class="sw" style="background:#2980B9"></span>neck</td><td>Le manche, du sillet de tête jusqu'au talon (corps exclu)</td></tr>
+  <tr><td>3</td><td><span class="sw" style="background:#D35400"></span>heel</td><td>Le talon, jonction manche/corps (vue de dos ou de côté seulement)</td></tr>
+  <tr><td>4</td><td><span class="sw" style="background:#27AE60"></span>body</td><td>Le corps : table, éclisses, fond</td></tr>
+  <tr><td>5</td><td><span class="sw" style="background:#F39C12"></span>bridge</td><td>Le chevalet ou cordier, en entier</td></tr>
+  <tr><td>6</td><td><span class="sw" style="background:#C0392B"></span>saddle</td><td>La selle, la pièce où reposent les cordes sur le chevalet</td></tr>
+  <tr><td>7</td><td><span class="sw" style="background:#7F8C8D"></span>nut</td><td>Le sillet de tête, entre le manche et la tête</td></tr>
+  <tr><td>8</td><td><span class="sw" style="background:#16A085"></span>soundhole</td><td>La rosace (acoustiques et classiques seulement)</td></tr>
+  <tr><td>9</td><td><span class="sw" style="background:#8E44AD"></span>pickups</td><td>Les micros : une boîte par micro visible</td></tr>
+  <tr><td>0</td><td><span class="sw" style="background:#2C3E50"></span>plate</td><td>Plaque, étiquette ou numéro de série lisible : une boîte par plaque</td></tr>
+</table>
+
+<h2>4. Annoter une image</h2>
+<ol>
+  <li>Ouvre une image, appuie sur la touche de la pièce, puis trace le rectangle autour.</li>
+  <li>Fais pivoter le rectangle pour qu'il suive l'orientation de la pièce et colle au plus près (le moins de fond possible).</li>
+  <li>Clique <b>Submit</b> : l'image suivante s'ouvre.</li>
+</ol>
+
+<div class="box nobreak">
+<b>Règles à respecter</b>
+<ul>
+  <li><b>Pièce coupée par le bord de la photo : ne pas l'annoter.</b> Les autres pièces visibles de la même image restent à annoter.</li>
+  <li>Ne marque pas ce qui est absent ou illisible (pas de rosace sur une électrique, par exemple).</li>
+  <li>Une boîte par micro, une par plaque.</li>
+</ul>
+</div>
+
+<h2>5. L'image déjà annotée</h2>
+<p>Une image porte une annotation faite avant le changement de liste, un <code>headstock</code>. Elle reste valable : vérifie-la simplement au passage.</p>
+
+<h2>6. Quand c'est fini</h2>
+<p>Préviens-moi quand les 150 images sont traitées. Je lancerai la vérification des fichiers d'annotation, puis l'entraînement sur le Dell, en dehors des heures de scan.</p>
+
+<h2>En cas de problème</h2>
+<ul>
+  <li>Label Studio ne démarre pas, ou un bouton reste introuvable : note ce que tu vois à l'écran et envoie-le-moi.</li>
+  <li>Rien n'est perdu si tu arrêtes en cours de route : les annotations sont enregistrées dans <code>scratch/label_studio_data/</code>.</li>
+</ul>
+
+</body>
+</html>

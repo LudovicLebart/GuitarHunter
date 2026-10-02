@@ -1,0 +1,10 @@
+headstock
+neck
+heel
+body
+bridge
+saddle
+nut
+soundhole
+pickups
+plate

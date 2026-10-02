@@ -596,6 +596,8 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 
 ## 5. 🧠 Pipeline d'Auto-Annotation (YOLO-OBB)
 
+> **Statut (2026-10-02)** : pipeline d'annotation non branché en production ; objectif, taxonomie commune à 10 classes (`headstock, neck, heel, body, bridge, saddle, nut, soundhole, pickups, plate` — `CLASS_NAMES` de `config.py`, `label_studio_template_obb.xml`, `classes.txt`) et étapes dans [`PARTS_DETECTOR_AND_CROPS_PLAN.md`](../management/plans/PARTS_DETECTOR_AND_CROPS_PLAN.md). Le neck reset est un chantier distinct qui consomme ce détecteur ([`NECK_RESET_VISION_PLAN.md`](../management/plans/NECK_RESET_VISION_PLAN.md)).
+
 Le module `backend/auto_annotation/` permet de générer des datasets de haute qualité pour la détection orientée (Oriented Bounding Boxes) à partir d'images brutes stockées dans Firestore, sans supervision humaine. Ce pipeline tourne en hors-ligne (ex: sur une machine GPU locale via Tailscale) pour préparer les entraînements de modèles.
 
 ### 5.1 Architecture du Pipeline

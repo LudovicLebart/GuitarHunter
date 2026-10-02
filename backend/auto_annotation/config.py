@@ -28,7 +28,9 @@ LABELS_DIR = OUTPUT_DIR / 'labels'
 # --- Classes du modèle ---
 # CRITIQUE : cet ordre doit correspondre EXACTEMENT à l'ordre du data.yaml utilisé
 # pour le fine-tuning Phase 0. Validé au démarrage contre model.names (voir main.py).
-CLASS_NAMES = ['headstock', 'neck', 'body', 'bridge', 'pickups', 'soundhole']
+# Taxonomie commune figée le 2026-10-02 (PARTS_DETECTOR_AND_CROPS_PLAN.md §3.1) ; même ordre que
+# backend/auto_annotation/label_studio_template_obb.xml et classes.txt.
+CLASS_NAMES = ['headstock', 'neck', 'heel', 'body', 'bridge', 'saddle', 'nut', 'soundhole', 'pickups', 'plate']
 
 # --- Heuristiques spatiales (seuils configurables) ---
 # Ratio min max(w/h, h/w) pour valider un manche (long et fin par nature)

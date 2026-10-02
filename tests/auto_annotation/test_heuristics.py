@@ -193,6 +193,34 @@ class TestApplyHeuristics:
         valid = apply_heuristics(rects, classes)
         assert 1 not in valid
 
+    def test_neck_close_up_without_body_passes(self):
+        """Plan serré : manche + tête visibles, corps hors cadre (donc non annoté) → le manche reste."""
+        headstock = rect(320, 100, 80, 100, 0)
+        neck = rect(320, 260, 240, 40, 90)       # allongé, touche la tête
+        rects = [headstock, neck]
+        classes = cls_tensor(['headstock', 'neck'])
+        valid = apply_heuristics(rects, classes)
+        assert 1 in valid
+
+    def test_neck_alone_passes_when_no_neighbour_detected(self):
+        """Aucun voisin détecté (ni corps, ni tête, ni talon) : on garde le manche si le ratio tient."""
+        neck = rect(320, 300, 240, 40, 0)
+        valid = apply_heuristics([neck], cls_tensor(['neck']))
+        assert valid == [0]
+
+    def test_neck_touching_heel_only_passes(self):
+        """Vue de dos : talon détecté et touchant le manche, pas de corps annoté → conservé."""
+        heel = rect(320, 380, 80, 60, 0)
+        neck = rect(320, 250, 40, 240, 0)
+        valid = apply_heuristics([heel, neck], cls_tensor(['heel', 'neck']))
+        assert 1 in valid
+
+    def test_new_classes_are_kept(self):
+        """heel, saddle, nut, plate n'ont pas d'heuristique exclusive : elles ne sont pas supprimées."""
+        rects = [rect(100, 100, 40, 40, 0) for _ in range(4)]
+        valid = apply_heuristics(rects, cls_tensor(['heel', 'saddle', 'nut', 'plate']))
+        assert valid == [0, 1, 2, 3]
+
     def test_empty_input(self):
         """Aucune boîte → aucune boîte valide."""
         valid = apply_heuristics([], [])

@@ -39,7 +39,7 @@ class TestConfig:
 
     def test_class_names_contains_expected_classes(self):
         """Les classes attendues du pipeline doivent toutes être présentes."""
-        expected = {'headstock', 'neck', 'body', 'bridge', 'pickups', 'soundhole'}
+        expected = {'headstock', 'neck', 'heel', 'body', 'bridge', 'saddle', 'nut', 'soundhole', 'pickups', 'plate'}
         assert expected == set(cfg.CLASS_NAMES)
 
     def test_neck_ratio_min_positive(self):

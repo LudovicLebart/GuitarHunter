@@ -1,0 +1,62 @@
+<!--
+  Template Label Studio — Annotation OBB YOLO (Guitar Hunter, détecteur de parties)
+  =================================================================================
+  Taxonomie commune figée le 2026-10-02 (voir docs/management/plans/PARTS_DETECTOR_AND_CROPS_PLAN.md §3.1).
+  Les index de classe YOLO suivent l'ordre ci-dessous (0 = headstock ... 9 = plate).
+
+  Règles :
+    - Boîtes ORIENTÉES uniquement (canRotate), au plus près de la pièce.
+    - Partie coupée par le bord de l'image : NE PAS l'annoter (les autres classes visibles restent annotées).
+    - Une boîte par micro / par plaque. Ne pas annoter ce qui est absent ou illisible.
+
+  Import : Settings > Labeling Interface > Custom template > coller ce XML.
+-->
+<View>
+
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="true"/>
+
+  <RectangleLabels name="label" toName="image" canRotate="true">
+
+    <Label value="headstock" background="#E74C3C"
+           hotkey="1"
+           hint="Tête de guitare — inclure les mécaniques"/>
+
+    <Label value="neck" background="#2980B9"
+           hotkey="2"
+           hint="Manche — du sillet de tête jusqu'au talon (corps exclu)"/>
+
+    <Label value="heel" background="#D35400"
+           hotkey="3"
+           hint="Talon — jonction manche/corps (vue de dos ou de côté ; sinon ne pas annoter)"/>
+
+    <Label value="body" background="#27AE60"
+           hotkey="4"
+           hint="Corps / caisse — table, éclisses, fond"/>
+
+    <Label value="bridge" background="#F39C12"
+           hotkey="5"
+           hint="Chevalet ou cordier (ensemble)"/>
+
+    <Label value="saddle" background="#C0392B"
+           hotkey="6"
+           hint="Sillet de chevalet (selle) — la pièce où reposent les cordes"/>
+
+    <Label value="nut" background="#7F8C8D"
+           hotkey="7"
+           hint="Sillet de tête — entre manche et tête"/>
+
+    <Label value="soundhole" background="#16A085"
+           hotkey="8"
+           hint="Rosace (acoustique/classique uniquement)"/>
+
+    <Label value="pickups" background="#8E44AD"
+           hotkey="9"
+           hint="Micro(s) — une boîte par micro visible"/>
+
+    <Label value="plate" background="#2C3E50"
+           hotkey="0"
+           hint="Plaque / étiquette / numéro de série lisible (une boîte par plaque)"/>
+
+  </RectangleLabels>
+
+</View>

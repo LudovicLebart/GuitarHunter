@@ -33,6 +33,7 @@ def apply_heuristics(rects, classes):
     # Indexation par type de pièce
     body_boxes = [i for i, c in enumerate(classes) if int(c) < len(CLASS_NAMES) and CLASS_NAMES[int(c)] == 'body']
     headstock_boxes = [i for i, c in enumerate(classes) if int(c) < len(CLASS_NAMES) and CLASS_NAMES[int(c)] == 'headstock']
+    heel_boxes = [i for i, c in enumerate(classes) if int(c) < len(CLASS_NAMES) and CLASS_NAMES[int(c)] == 'heel']
     
     for i, (rect, cls) in enumerate(zip(rects, classes)):
         if int(cls) >= len(CLASS_NAMES):
@@ -56,15 +57,16 @@ def apply_heuristics(rects, classes):
             if ratio < NECK_RATIO_MIN:
                 continue
             
-            # Connectivité : doit toucher le corps et la tête (si détectée)
-            touches_body = any(check_connectivity_obb(rect, rects[bi]) for bi in body_boxes)
-            touches_headstock = any(check_connectivity_obb(rect, rects[hi]) for hi in headstock_boxes) if headstock_boxes else True
-            
-            if touches_body and touches_headstock:
+            # Connectivité : un manche doit toucher AU MOINS UNE des pièces voisines détectées (corps,
+            # tête, talon). Une partie hors cadre n'est pas annotée (règle Phase 1) : exiger corps ET
+            # tête supprimerait les manches valides des plans serrés. Aucun voisin détecté : on garde
+            # le manche (le ratio de forme a déjà été vérifié).
+            neighbours = body_boxes + headstock_boxes + heel_boxes
+            if not neighbours or any(check_connectivity_obb(rect, rects[ni]) for ni in neighbours):
                 valid_indices.append(i)
                 
-        elif c_name in ['body', 'headstock', 'bridge']:
-            # Aucune heuristique exclusive pour l'instant
+        else:
+            # body, headstock, heel, bridge, saddle, nut, plate : aucune heuristique exclusive pour l'instant
             valid_indices.append(i)
 
     return valid_indices

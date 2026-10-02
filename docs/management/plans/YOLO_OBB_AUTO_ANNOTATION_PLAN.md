@@ -1,5 +1,7 @@
-﻿# Plan d'Implémentation Technique — YOLO-OBB Auto-Annotation V2.1
+# Plan d'Implémentation Technique — YOLO-OBB Auto-Annotation V2.1
 _Correction et formalisation du plan original V2 — 2026-09-09_
+
+> **Mis à jour le 2026-10-02** : ce document reste la référence technique des phases 0 à 6. Le plan d'ensemble (objectifs, taxonomie à 10 classes, étapes, critères, partage avec le neck reset) est dans [`PARTS_DETECTOR_AND_CROPS_PLAN.md`](PARTS_DETECTOR_AND_CROPS_PLAN.md). Changements appliqués ici : classes `headstock, neck, heel, body, bridge, saddle, nut, soundhole, pickups, plate` ; règle de connectivité du manche assouplie (Phase 3) ; oracle Moondream à réévaluer face à Qwen3-VL (Phase 4).
 
 ## Objectif
 
@@ -49,7 +51,7 @@ dossier_brut/
 
 **Label Studio — Configuration OBB :** Attribut `canRotate="true"`. Les boîtes doivent être dessinées inclinées pour border parfaitement la pièce (zéro arrière-plan).
 
-Classes : `headstock`, `neck`, `body`, `bridge`, `pickups`, `soundhole`
+Classes (taxonomie commune, 2026-10-02) : `headstock`, `neck`, `heel`, `body`, `bridge`, `saddle`, `nut`, `soundhole`, `pickups`, `plate`
 
 **Livrable :** Dataset `dataset_phase1/` au format YOLO-OBB + checkpoint fine-tuné (voir Phase 0).
 
@@ -72,8 +74,8 @@ Script `heuristics.py`. Filtres sur `RotatedRect` OpenCV réels (pas des AABB).
 |-------|-------|------------------------|
 | Inclusion | pickups, soundhole | < 80% de la surface incluse dans body → supprimée |
 | Ratio forme | neck | max(w/h, h/w) < 2.0 → manche carré aberrant |
-| Connectivité | neck | Ne touche pas body ET headstock → supprimé |
-| Aucune | body, headstock, bridge | Toujours conservées |
+| Connectivité | neck | Ne touche **aucune** des pièces voisines détectées (body, headstock, heel) → supprimé ; aucun voisin détecté → conservé (assoupli le 2026-10-02 : les parties hors cadre ne sont pas annotées) |
+| Aucune | body, headstock, heel, bridge, saddle, nut, plate | Toujours conservées |
 
 ---
 

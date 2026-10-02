@@ -183,7 +183,7 @@ Coût : 0 $, seulement du temps de calcul sur le Dell.
 Faire décrire les photos par le Qwen local, en texte, pour que les modèles payants n'aient plus à les voir. Base indispensable du projet de recherche (§5).
 
 ### 4.2 Architecture par crops
-1. **Détecteur de parties** (projet en cours) : tête, chevalet, manche, talon/plaque, rosace/ouïes, micros, étiquette/plaque de série, corps.
+1. **Détecteur de parties** (projet en cours, plan : [`PARTS_DETECTOR_AND_CROPS_PLAN.md`](PARTS_DETECTOR_AND_CROPS_PLAN.md)) : tête, manche, talon, corps, chevalet, sillet de chevalet, sillet de tête, rosace, micros, plaque/étiquette de série (10 classes figées le 2026-10-02). Les détecteurs zéro-shot (OWLv2, SAM, Gemini) ont été essayés et ne suffisent pas : d'où 150 images annotées à la main pour l'amorçage.
 2. **Qwen-VL local** : décrit chaque crop **sans interpréter** (transcrire un logo, jamais « c'est une Gibson »), plus une vue d'ensemble.
 3. **Repli photo entière** quand la détection est faible (instruments atypiques, luthiers, pièces abîmées).
 4. **Perception à la demande** : le modèle qui raisonne pose des questions ciblées au modèle local (« photo 3 : fissure près du chevalet ? »), comme `request_photo_review` dans le chat.
