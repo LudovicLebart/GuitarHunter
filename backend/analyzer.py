@@ -135,6 +135,35 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
 }
 
 
+def expert_trigger_reason(config, result_t2, numeric_price, force_expert=False):
+    """Motif de déclenchement de l'Expert Pro (Tier 3) d'après le résultat de l'Analyste (Tier 2),
+    ou None s'il n'est pas déclenché. Fonction pure (aucune E/S, aucun logger) : extraite de
+    `_run_analysis_cascade_body` pour être testable seule. L'ORDRE des conditions fait foi (la
+    première qui correspond gagne) ; seuils lus dans `config` avec les défauts `DEFAULT_PRO_*`."""
+    deal_score = result_t2.get('deal_score', 0)
+    auth_score = result_t2.get('authenticity_score', 10)  # 10 par défaut pour ne pas trigger faussement
+    resto_score = result_t2.get('restoration_interest_score', 0)
+    confidence = result_t2.get('confidence', 1.0)
+    verdict = result_t2.get('verdict', '')
+
+    if force_expert:
+        return "Analyse Pro forcée manuellement"
+    if numeric_price > config.get('proTriggerPriceThreshold', DEFAULT_PRO_PRICE_THRESHOLD) and deal_score >= 4:
+        return f"Prix élevé ({numeric_price}) avec score correct ({deal_score})"
+    if deal_score >= config.get('proTriggerDealScoreThreshold', DEFAULT_PRO_DEAL_SCORE_THRESHOLD):
+        return f"Score attractivité critique ({deal_score})"
+    if (deal_score >= config.get('proTriggerCombinedDealScore', DEFAULT_PRO_COMBINED_DEAL_SCORE)
+            and resto_score >= config.get('proTriggerRestoScoreThreshold', DEFAULT_PRO_RESTO_SCORE_THRESHOLD)):
+        return f"Combo Jackpot : Score correct ({deal_score}) + Restaurabilité majeure ({resto_score})"
+    if auth_score <= config.get('proTriggerAuthScoreThreshold', DEFAULT_PRO_AUTH_SCORE_THRESHOLD):
+        return f"Doute authenticité potentiel ({auth_score})"
+    if confidence < config.get('proTriggerConfidenceThreshold', DEFAULT_PRO_CONFIDENCE_THRESHOLD):
+        return f"Faible confiance T2 ({confidence})"
+    if verdict == 'COLLECTION':
+        return "Verdict COLLECTION (Double validation requise)"
+    return None
+
+
 class DealAnalyzer:
     def __init__(self, logger: logging.Logger = None):
         self.models = {}
@@ -925,22 +954,7 @@ class DealAnalyzer:
         
         self.logger.info(f"   📊 Scores T2 -> Deal: {deal_score} | Auth: {auth_score} | Resto: {resto_score} | Conf: {confidence} | Prix: {numeric_price}")
 
-        trigger_reason = None
-        
-        if force_expert:
-            trigger_reason = "Analyse Pro forcée manuellement"
-        elif numeric_price > config.get('proTriggerPriceThreshold', DEFAULT_PRO_PRICE_THRESHOLD) and deal_score >= 4:
-            trigger_reason = f"Prix élevé ({numeric_price}) avec score correct ({deal_score})"
-        elif deal_score >= config.get('proTriggerDealScoreThreshold', DEFAULT_PRO_DEAL_SCORE_THRESHOLD):
-            trigger_reason = f"Score attractivité critique ({deal_score})"
-        elif deal_score >= config.get('proTriggerCombinedDealScore', DEFAULT_PRO_COMBINED_DEAL_SCORE) and resto_score >= config.get('proTriggerRestoScoreThreshold', DEFAULT_PRO_RESTO_SCORE_THRESHOLD):
-             trigger_reason = f"Combo Jackpot : Score correct ({deal_score}) + Restaurabilité majeure ({resto_score})"
-        elif auth_score <= config.get('proTriggerAuthScoreThreshold', DEFAULT_PRO_AUTH_SCORE_THRESHOLD):
-            trigger_reason = f"Doute authenticité potentiel ({auth_score})"
-        elif confidence < config.get('proTriggerConfidenceThreshold', DEFAULT_PRO_CONFIDENCE_THRESHOLD):
-            trigger_reason = f"Faible confiance T2 ({confidence})"
-        elif verdict == 'COLLECTION':
-            trigger_reason = "Verdict COLLECTION (Double validation requise)"
+        trigger_reason = expert_trigger_reason(config, result_t2, numeric_price, force_expert)
 
         # ==========================================
         # PHASE 3 : TIER 3 - EXPERT PRO (Conditionnel)

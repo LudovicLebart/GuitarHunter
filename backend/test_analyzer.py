@@ -298,5 +298,65 @@ class TestT1Knowledge(unittest.TestCase):
         self.assertNotIn("CONNAISSANCES", self.analyzer._call_t1_provider.call_args[0][1])
 
 
+class TestExpertTriggerReason(unittest.TestCase):
+    """`expert_trigger_reason` : décision pure (extraite de la cascade le 2026-10-02) de déclencher
+    l'Expert Pro après l'Analyste. Seuils par défaut : prix 1000, deal 8, combo 6+resto 7, auth 7,
+    confiance 0.75 (config.py `DEFAULT_PRO_*`). Un résultat T2 « neutre » ne déclenche rien."""
+
+    NEUTRAL = {"deal_score": 3, "authenticity_score": 9, "restoration_interest_score": 0,
+               "confidence": 0.9, "verdict": "FAIR"}
+
+    def _reason(self, price=100, config=None, force=False, **t2):
+        from backend.analyzer import expert_trigger_reason
+        return expert_trigger_reason(config or {}, {**self.NEUTRAL, **t2}, price, force)
+
+    def test_neutral_result_does_not_trigger(self):
+        self.assertIsNone(self._reason())
+
+    def test_missing_scores_use_safe_defaults_and_do_not_trigger(self):
+        from backend.analyzer import expert_trigger_reason
+        self.assertIsNone(expert_trigger_reason({}, {}, 100, False))
+
+    def test_force_always_triggers(self):
+        self.assertIn("forcée", self._reason(force=True))
+
+    def test_high_price_needs_a_decent_deal_score(self):
+        self.assertIn("Prix élevé", self._reason(price=1500, deal_score=4))
+        self.assertIsNone(self._reason(price=1500, deal_score=3))
+
+    def test_price_equal_to_threshold_does_not_trigger(self):
+        self.assertIsNone(self._reason(price=1000, deal_score=5))
+
+    def test_critical_deal_score(self):
+        self.assertIn("attractivité critique", self._reason(deal_score=8))
+        self.assertIsNone(self._reason(deal_score=7))
+
+    def test_jackpot_combo(self):
+        self.assertIn("Combo Jackpot", self._reason(deal_score=6, restoration_interest_score=7))
+        self.assertIsNone(self._reason(deal_score=6, restoration_interest_score=6))
+        self.assertIsNone(self._reason(deal_score=5, restoration_interest_score=9))
+
+    def test_low_authenticity(self):
+        self.assertIn("authenticité", self._reason(authenticity_score=7))
+        self.assertIsNone(self._reason(authenticity_score=8))
+
+    def test_low_confidence(self):
+        self.assertIn("Faible confiance", self._reason(confidence=0.7))
+        self.assertIsNone(self._reason(confidence=0.75))
+
+    def test_collection_verdict(self):
+        self.assertIn("COLLECTION", self._reason(verdict="COLLECTION"))
+
+    def test_first_matching_rule_wins(self):
+        # prix élevé ET score critique ET authenticité douteuse : la règle du prix passe en premier
+        self.assertIn("Prix élevé", self._reason(price=2000, deal_score=9, authenticity_score=1))
+        # score critique avant authenticité douteuse
+        self.assertIn("attractivité critique", self._reason(deal_score=9, authenticity_score=1))
+
+    def test_thresholds_come_from_config(self):
+        self.assertIn("attractivité critique", self._reason(deal_score=5, config={"proTriggerDealScoreThreshold": 5}))
+        self.assertIsNone(self._reason(deal_score=8, config={"proTriggerDealScoreThreshold": 9}))
+
+
 if __name__ == "__main__":
     unittest.main()
