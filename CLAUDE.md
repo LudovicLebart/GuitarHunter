@@ -14,11 +14,13 @@
 
 ## Protocole de Travail (OBLIGATOIRE)
 
-Toute tâche suit **3 étapes** dans cet ordre. Impossible de sauter une étape sans validation explicite.
+Toute tâche **significative** suit **3 étapes** dans cet ordre. Impossible de sauter une étape sans validation explicite.
 
-### Étape 1 — Plan (NE PAS CODER)
+**Proportionnalité (décision utilisateur 2026-10-02)** : ne pas imposer un bloc de plan à chaque mini-étape. Le plan formel (Étape 1) est réservé aux tâches qui changent le comportement du système, touchent plusieurs fichiers, ou ont un effet en production/coût. Pour une petite étape (correctif ciblé, ajustement de doc, lecture/diagnostic, une étape découlant d'un plan déjà validé), **agir directement** puis résumer ce qui a été fait. En cas de doute sur la taille ou le risque, poser une question courte plutôt qu'un bloc complet. Les actions à effet externe (push, déploiement, suppression, accès production en écriture) restent soumises à confirmation explicite.
 
-Pour chaque nouvelle demande, répondre **uniquement** avec ce bloc et s'arrêter :
+### Étape 1 — Plan (NE PAS CODER) — pour les tâches significatives
+
+Pour chaque nouvelle demande significative, répondre **uniquement** avec ce bloc et s'arrêter :
 
 ```
 🚦 AIGUILLAGE ET PLAN D'ACTION
@@ -29,7 +31,7 @@ Pour chaque nouvelle demande, répondre **uniquement** avec ce bloc et s'arrête
 👉 Valides-tu ce modèle et ce plan pour que j'exécute la tâche ?
 ```
 
-Attendre le "Oui" ou "Go" de l'utilisateur. Aucune exception.
+Attendre le "Oui" ou "Go" de l'utilisateur avant de coder une tâche significative.
 
 ### Étape 2 — Code (NE PAS METTRE À JOUR LA DOC)
 

@@ -443,6 +443,10 @@ def main():
                               "sans/avec la base ne vienne que de la base). La PROD n'impose aucune température aujourd'hui "
                               "(réglage par défaut du modèle) : --temperature -1 rejoue dans ces conditions, avec leur bruit.")
     parser.add_argument("--seed", type=int, default=42, help="Graine d'échantillonnage (défaut 42), ignorée si --temperature -1.")
+    parser.add_argument("--instruction-file", default=None,
+                         help="Fichier texte remplaçant l'instruction Portier (gatekeeperVerbosityInstruction) de la config "
+                              "utilisateur pour CE rejeu — test A/B d'une formulation avant de toucher à la prod. "
+                              "Ne modifie rien en base.")
     parser.add_argument("--reclassified", action="store_true",
                          help="Ne rejoue QUE les annonces rejetées à l'origine (initial_verdict) puis reclassées en non-rejet "
                               "(analyse forcée, ré-analyse) : faux rejets présumés du Portier, la seule vérité terrain "
@@ -558,6 +562,9 @@ def main():
             gatekeeper_instruction = analysis_config.get("gatekeeperVerbosityInstruction", DEFAULT_GATEKEEPER_INSTRUCTION)
             if isinstance(gatekeeper_instruction, list):
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
+            if args.instruction_file:
+                with open(args.instruction_file, encoding="utf-8") as f:
+                    gatekeeper_instruction = f.read().strip()
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
             kb_fiches = []
