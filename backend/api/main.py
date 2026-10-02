@@ -22,7 +22,7 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, restoration_repo, shared_repo, usage_repo, users_repo
+from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, logs_repo, restoration_repo, shared_repo, usage_repo, users_repo
 
 
 @asynccontextmanager
@@ -194,6 +194,13 @@ async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
     if len(row["model"]) > 100 or len(row["action"]) > 60:
         raise HTTPException(status_code=422, detail="model/action trop longs")
     await usage_repo.add_usage(get_pool(), uid, row)
+
+
+@app.get("/logs")
+async def list_logs(limit: int = Query(100, ge=1, le=1000), uid: str = Depends(get_current_uid)):
+    """Derniers logs du bot de l'utilisateur (LogViewer), du plus ancien au plus récent. Pas de
+    WebSocket : le frontend poll toutes les 3s, cadence du flush de `PostgresHandler`."""
+    return await logs_repo.list_logs(get_pool(), uid, limit)
 
 
 # --- Deals (tranche 2) --------------------------------------------------------------------

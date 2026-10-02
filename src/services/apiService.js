@@ -381,7 +381,10 @@ export const updateUserConfig = async (newConfig, _userId) => {
     console.log("Config saved successfully.");
   } catch (error) {
     console.error("Error updating user config:", error);
-    throw new Error("Erreur de sauvegarde de la configuration.");
+    // Cause réelle (401 token expiré, timeout, 500 backend, réseau...) préservée dans le message
+    // au lieu d'être remplacée par un texte générique — sinon impossible de distinguer les causes
+    // depuis le toast d'erreur (`App.jsx`), qui affiche `error.message` tel quel.
+    throw new Error(`Erreur de sauvegarde de la configuration (${error.message}).`);
   }
 };
 
@@ -421,6 +424,10 @@ export const triggerStopBot = (_userId) => addCommand('STOP_BOT', null);
 export const triggerStopScan = (_userId) => addCommand('STOP_SCAN', null);
 export const triggerStartBot = (_userId) => addCommand('START_BOT', null);
 export const requestClearLogs = (_userId) => addCommand('CLEAR_LOGS', null);
+
+// LogViewer : lecture ponctuelle (poll côté composant, pas de WebSocket) des derniers logs du
+// bot, du plus ancien au plus récent. Chaque ligne : { id, message, level, created_at (ISO) }.
+export const fetchLogs = (limit = 100) => apiFetch(`/logs?limit=${encodeURIComponent(limit)}`);
 
 // Pas de canal temps réel dédié pour une commande individuelle (voir schema.sql — aucun trigger
 // NOTIFY sur `commands`, le bot la traite en quelques secondes au plus) : poll léger de

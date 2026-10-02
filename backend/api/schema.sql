@@ -522,9 +522,65 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     latency_ms       INTEGER,
     ok               BOOLEAN NOT NULL DEFAULT TRUE
 );
--- Chantier I (2026-09-29) : catégorie d'échec quand ok=FALSE ('model_unavailable' |
--- 'call_failure'), pour distinguer un modèle retiré d'une panne transitoire sans avoir à
--- reparser `logs` (courte rétention) — voir backend/analyzer.py::_t1_error_type.
-ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error_type TEXT;
 CREATE INDEX IF NOT EXISTS llm_usage_created_idx ON llm_usage (created_at);
 CREATE INDEX IF NOT EXISTS llm_usage_model_action_idx ON llm_usage (model, action, created_at);
+-- 2026-09-28/29 : les ÉCHECS sont enregistrés aussi (`ok=false`) — jusque-là seul le chemin de succès
+-- écrivait une ligne, ce qui rendait `ok` toujours vrai et le taux d'échec invisible. `error_type` :
+-- 'timeout' | 'connection' | 'model_unavailable' | 'http' | 'json' | 'no_key' | 'other' (voir
+-- llm_usage.classify_error ; 'model_unavailable' = modèle retiré/introuvable, à ne pas confondre avec une panne).
+-- Les tokens d'un appel qui a répondu mais dont le JSON était invalide sont conservés : ils ont été
+-- facturés. Fournisseur local (Dell/Ollama) étiqueté `local`.
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error_type TEXT;
+
+-- ============================================================================================
+-- Base de connaissances « univers des guitares » (2026-09-28) — voir docs/management/plans/
+-- STRATEGIE_IA.md §3. Une fiche par entité : marque, sous-marque, série de modèles, usine.
+-- Deux familles de colonnes, qui ne se mélangent JAMAIS :
+--   * colonnes IMPORTÉES (name, description, parent_id, countries, active_from/to, aliases de
+--     source 'wikidata'/'wikipedia', raw) : réécrites à chaque import ;
+--   * colonnes CURÉES par l'utilisateur (tier, hunt_notes, made_by, curated, aliases de source
+--     'manual') : l'import ne les touche jamais. C'est là qu'entre la connaissance de lutherie.
+-- `kb_version` : numéro de la version de la base qui a créé ou modifié la fiche en dernier ;
+-- chaque version est tracée dans `guitar_knowledge_versions` pour rejouer les tests de
+-- non-régression du Portier (§3.6 de la stratégie) avant de l'utiliser en prod.
+-- ============================================================================================
+CREATE TABLE IF NOT EXISTS guitar_knowledge (
+    id              TEXT PRIMARY KEY,          -- 'wd:Q844871' | 'manual:<slug>'
+    kind            TEXT NOT NULL,             -- 'company' | 'brand' | 'line' | 'factory'
+    name            TEXT NOT NULL,
+    description     TEXT,
+    parent_id       TEXT,                      -- maison mère, ou fabricant pour une série
+    countries       TEXT[],
+    active_from     SMALLINT,
+    active_to       SMALLINT,
+    relevance       TEXT NOT NULL DEFAULT 'unknown',  -- 'guitars' | 'accessories' | 'unknown'
+    tier            TEXT,                      -- CURÉ : 'entry' | 'mid' | 'high' | 'boutique'
+    hunt_notes      TEXT,                      -- CURÉ : séries recherchées, pièges, repères
+    made_by         TEXT[],                    -- CURÉ : ids des usines (ex. Matsumoku)
+    curated         BOOLEAN NOT NULL DEFAULT false,
+    source          TEXT NOT NULL,             -- 'wikidata' | 'manual'
+    wikidata_qid    TEXT,
+    wikipedia_url   TEXT,
+    raw             JSONB,
+    kb_version      INTEGER NOT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS guitar_knowledge_parent_idx ON guitar_knowledge (parent_id);
+
+CREATE TABLE IF NOT EXISTS guitar_knowledge_alias (
+    alias_norm      TEXT NOT NULL,             -- minuscules, sans accents ni ponctuation
+    knowledge_id    TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
+    alias           TEXT NOT NULL,
+    source          TEXT NOT NULL,             -- 'wikidata' | 'wikipedia' | 'manual'
+    PRIMARY KEY (alias_norm, knowledge_id)
+);
+CREATE INDEX IF NOT EXISTS guitar_knowledge_alias_norm_idx ON guitar_knowledge_alias (alias_norm);
+
+CREATE TABLE IF NOT EXISTS guitar_knowledge_versions (
+    version         INTEGER PRIMARY KEY,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source          TEXT NOT NULL,
+    notes           TEXT,
+    counts          JSONB,
+    validated       BOOLEAN NOT NULL DEFAULT false   -- vrai après le rejeu de non-régression
+);

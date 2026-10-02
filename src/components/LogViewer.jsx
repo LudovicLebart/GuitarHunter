@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Terminal, X, Minimize2, Maximize2, Trash2, Pause, Play } from 'lucide-react';
-import { collection, query, limit, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from '../services/firebase';
 import { useAuth } from '../hooks/useAuth';
 import { useBotConfigContext } from '../context/BotConfigContext';
-import { requestClearLogs } from '../services/apiService';
+import { requestClearLogs, fetchLogs } from '../services/apiService';
 
 const LogViewer = ({ onClose }) => {
   const { user } = useAuth();
@@ -14,35 +12,28 @@ const LogViewer = ({ onClose }) => {
   const [isPaused, setIsPaused] = useState(false);
   const logsEndRef = useRef(null);
 
+  // Poll toutes les 3s (cadence du flush de `PostgresHandler`, backend/logging_config.py) —
+  // les logs vivent dans Postgres depuis la migration, plus de `onSnapshot` Firestore. En pause :
+  // aucun appel (l'affichage reste figé). Le drapeau `cancelled` évite qu'une réponse tardive
+  // d'un effet précédent (limite/pause changées) écrase un état plus récent.
   useEffect(() => {
-    if (!user) return;
+    if (!user || isPaused) return;
 
-    const finalAppId = import.meta.env.VITE_APP_ID_TARGET;
-    const userIdTarget = user.uid;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const rows = await fetchLogs(logLimit || 100);
+        if (!cancelled) setLogs(rows);
+      } catch (error) {
+        console.error("Error fetching logs: ", error);
+        // Id fixe : un échec répété (toutes les 3s) n'empile pas la même ligne d'erreur.
+        if (!cancelled) setLogs(prev => prev.some(l => l.id === 'fetch-error') ? prev : [...prev, { id: 'fetch-error', level: 'ERROR', message: 'Failed to fetch logs: ' + error.message }]);
+      }
+    };
 
-    const logsRef = collection(db, `artifacts/${finalAppId}/users/${userIdTarget}/logs`);
-    // On trie par timestamp décroissant pour avoir les derniers logs, puis on limite
-    const q = query(logsRef, orderBy('timestamp', 'desc'), limit(logLimit || 100));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (isPaused) return;
-
-      const newLogs = snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        // On inverse le tri pour l'affichage (du plus vieux au plus récent en bas)
-        .sort((a, b) => {
-          const timeA = a.timestamp?.seconds || a.createdAt || 0;
-          const timeB = b.timestamp?.seconds || b.createdAt || 0;
-          return timeA - timeB;
-        });
-
-      setLogs(newLogs);
-    }, (error) => {
-      console.error("Error fetching logs: ", error);
-      setLogs(prev => [...prev, { id: Date.now(), level: 'ERROR', message: 'Failed to fetch logs from Firestore: ' + error.message }]);
-    });
-
-    return () => unsubscribe();
+    load();
+    const intervalId = setInterval(load, 3000);
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [user, isPaused, logLimit]);
 
   useEffect(() => {
@@ -93,7 +84,7 @@ const LogViewer = ({ onClose }) => {
         ) : (
           logs.map((log) => (
             <div key={log.id} className="break-words hover:bg-slate-800/50 p-1.5 rounded-lg transition-colors border border-transparent hover:border-slate-800/80">
-              <span className="text-slate-600 mr-2 tabular-nums">[{log.timestamp?.seconds ? new Date(log.timestamp.seconds * 1000).toLocaleTimeString() : '??:??:??'}]</span>
+              <span className="text-slate-600 mr-2 tabular-nums">[{log.created_at ? new Date(log.created_at).toLocaleTimeString() : '??:??:??'}]</span>
               <span className={`font-black mr-2 tracking-wide ${getLevelColor(log.level)}`}>{log.level}</span>
               <span className="text-slate-300 leading-relaxed">{log.message}</span>
             </div>

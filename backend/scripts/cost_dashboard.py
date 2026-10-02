@@ -41,7 +41,7 @@ import json
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, date, timedelta
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,8 @@ PRICING = {
     "gemini-3.1-pro-preview": [{"in": 2.00, "out": 12.00, "cached": 0.25}],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
     "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
+    "qwen3-vl:8b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # le bon tag (Instruct, pas Thinking)
+    "qwen3-vl:4b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
     "qwen3-vl:4b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
 }
 
@@ -71,6 +73,8 @@ ROLE = {
     "gemini-3.6-flash": "T2 Analyste (ancien)",
     "gemini-3.1-pro-preview": "T3 Expert Pro",
     "qwen3-vl:8b": "Local (Dell)",
+    "qwen3-vl:8b-instruct": "T1 Portier local (Dell)",
+    "qwen3-vl:4b-instruct": "Local (Dell)",
     "qwen3-vl:4b": "Local (Dell)",
 }
 
@@ -139,7 +143,7 @@ def load_calls_from_db(since, user_ref=None):
         raise SystemExit("psycopg absent : pip install 'psycopg[binary]' (déjà requis par le bot).")
     dsn = os.getenv("DATABASE_URL", "postgresql://guitarhunter@localhost/guitarhunter").replace("\r", "").strip()
     query = ("SELECT created_at, source, provider, model, action, deal_id, images, input_tokens, "
-             "cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok FROM llm_usage WHERE created_at >= %s")
+             "cached_tokens, output_tokens, thoughts_tokens, latency_ms, ok, error_type FROM llm_usage WHERE created_at >= %s")
     params = [since]
     if user_ref:
         query += " AND user_ref = %s"
@@ -153,15 +157,23 @@ def load_calls_from_db(since, user_ref=None):
             "ts": ts, "day": ts.date(), "model": r["model"], "action": r["action"], "source": r["source"],
             "deal_id": r["deal_id"], "images": r["images"], "in": r["input_tokens"],
             "cached": r["cached_tokens"], "out": r["output_tokens"], "thoughts": r["thoughts_tokens"],
-            "latency_ms": r["latency_ms"], "ok": r["ok"],
+            "latency_ms": r["latency_ms"], "ok": r["ok"], "error_type": r.get("error_type"),
         })
     return calls
+
+
+def p90(values):
+    if not values:
+        return float("nan")
+    v = sorted(values)
+    return v[min(len(v) - 1, int(0.9 * len(v)))] / 1000
 
 
 def print_by_action(calls, pricing, to_month):
     """Détail demandé : pour chaque modèle ET chaque action, tokens d'entrée/sortie et coût."""
     agg = defaultdict(lambda: {"calls": 0, "images": 0, "in": 0, "cached": 0, "out": 0, "thoughts": 0,
-                               "cost": 0.0, "lat": [], "errors": 0})
+                               "cost": 0.0, "lat": [], "errors": 0, "ok_calls": 0,
+                               "err_types": Counter()})
     for c in calls:
         a = agg[(c["model"], c.get("action", "?"))]
         a["calls"] += 1
@@ -172,16 +184,23 @@ def print_by_action(calls, pricing, to_month):
             a["lat"].append(c["latency_ms"])
         if c.get("ok") is False:
             a["errors"] += 1
+            a["err_types"][c.get("error_type") or "?"] += 1
+        else:
+            a["ok_calls"] += 1
     print("\n" + "=" * 118)
     print("DÉTAIL PAR MODÈLE × ACTION")
     print("=" * 118)
     print(f"{'modèle':26s}{'action':34s}{'appels':>7s}{'in tot':>11s}{'dont cache':>11s}{'out tot':>10s}"
-          f"{'raison.':>10s}{'in/app':>8s}{'out/app':>8s}{'/mois':>10s}")
+          f"{'raison.':>10s}{'in/app':>8s}{'out/app':>8s}{'échecs':>8s}{'P90 s':>7s}{'/mois':>10s}")
     for (model, action), a in sorted(agg.items(), key=lambda kv: -kv[1]["cost"]):
         n = a["calls"]
+        n_ok = a["ok_calls"] or 1  # moyennes sur les appels réussis : un échec (0 token) les diluerait
         print(f"{model[:25]:26s}{action[:33]:34s}{n:7d}{a['in']:11d}{a['cached']:11d}{a['out']:10d}"
-              f"{a['thoughts']:10d}{a['in'] / n:8.0f}{(a['out'] + a['thoughts']) / n:8.0f}"
+              f"{a['thoughts']:10d}{a['in'] / n_ok:8.0f}{(a['out'] + a['thoughts']) / n_ok:8.0f}"
+              f"{100 * a['errors'] / n:7.1f}%{p90(a['lat']):7.1f}"
               f"{fmt_money(a['cost'] * to_month):>10s}")
+        if a["errors"]:
+            print(f"{'':60s}↳ échecs : " + ", ".join(f"{k} {v}" for k, v in a["err_types"].most_common()))
     return agg
 
 
@@ -281,13 +300,16 @@ def main():
     span_days = max(1, (last_day - first_day).days + 1)
 
     per_model = defaultdict(lambda: {"calls": 0, "images": 0, "in": 0, "cached": 0, "out": 0,
-                                     "thoughts": 0, "cost": 0.0, "cost_2027": 0.0, "unpriced": 0})
+                                     "thoughts": 0, "cost": 0.0, "cost_2027": 0.0, "unpriced": 0,
+                                     "ok_calls": 0})
     per_day = defaultdict(float)
     for c in calls:
         agg = per_model[c["model"]]
         for k in ("images", "in", "cached", "out", "thoughts"):
             agg[k] += c[k]
         agg["calls"] += 1
+        if c.get("ok") is not False:
+            agg["ok_calls"] += 1
         cost = cost_of(c, pricing)
         cost_2027 = cost_of(c, pricing, as_of=date(2027, 1, 1))
         if cost is None:
@@ -314,10 +336,11 @@ def main():
     for model, a in sorted(per_model.items(), key=lambda kv: -kv[1]["cost"]):
         label = ROLE.get(model, model)
         n = a["calls"]
+        n_ok = a["ok_calls"] or 1  # moyennes sur les appels réussis (un échec compte 0 token/image)
         cache_pct = 100 * a["cached"] / a["in"] if a["in"] else 0
         out_total = a["out"] + a["thoughts"]
         think_pct = 100 * a["thoughts"] / out_total if out_total else 0
-        print(f"{label[:33]:34s}{n:8d}{a['images'] / n:8.1f}{a['in'] / n:9.0f}{cache_pct:6.0f}%{think_pct:8.0f}%"
+        print(f"{label[:33]:34s}{n:8d}{a['images'] / n_ok:8.1f}{a['in'] / n_ok:9.0f}{cache_pct:6.0f}%{think_pct:8.0f}%"
               f"{fmt_money(a['cost'] if not a['unpriced'] else None):>10s}{fmt_money(a['cost'] * to_month):>10s}")
         if a["unpriced"]:
             print(f" ↳ ⚠️ modèle absent de PRICING ({a['unpriced']} appels non chiffrés) : {model}")
