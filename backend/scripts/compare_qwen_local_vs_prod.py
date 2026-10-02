@@ -53,6 +53,7 @@ from psycopg.rows import dict_row
 
 sys.path.insert(0, os.getcwd())
 
+from backend import guitar_knowledge
 from backend.t1_prompt import build_t1_gatekeeper_prompt
 
 from config import (
@@ -97,7 +98,11 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
 # ici plutôt qu'importés (candidates.py tire anthropic/google.generativeai au chargement, inutile
 # ici, même philosophie d'imports légers que le reste de ce fichier).
 QWEN_LOCAL_BASE_URL = os.getenv("QWEN_LOCAL_BASE_URL", "http://100.94.33.54:11434/v1")
-QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b")
+# Défaut = le modèle réellement utilisé en prod (`config.py::T1_LOCAL_MODEL`, qwen3-vl:8b-instruct). L'ancien défaut
+# « qwen3-vl:8b » est la variante THINKING : elle écrit son raisonnement dans `reasoning` et laisse `content` vide
+# (« réponse vide », latence > 100 s) — constaté le 2026-10-01 sur un rejeu lancé sans --model. Ne plus jamais
+# rejouer un lot avec ce tag par défaut.
+QWEN_LOCAL_MODEL = os.getenv("QWEN_LOCAL_MODEL", "qwen3-vl:8b-instruct")
 QWEN_LOCAL_API_KEY = os.getenv("QWEN_LOCAL_API_KEY", "ollama")
 # Endpoint natif Ollama (pas /v1, l'API compatible OpenAI n'expose pas /api/ps) — même host/port,
 # utilisé uniquement pour lire la VRAM des modèles chargés (Chantier I-0, marge VRAM sur le 8B).
@@ -190,7 +195,19 @@ def _construct_base_user_prompt(listing_data, main_prompt_template, taxonomy_dat
     )
 
 
-def _call_qwen_local_json(prompt, images, model):
+def _sampling_options(temperature, seed):
+    """Options d'échantillonnage Ollama ajoutées à `options` : vides (réglages par défaut du modèle, comme la prod
+    aujourd'hui) tant que ni température ni graine ne sont demandées. `temperature=0` + `seed` fixe rend le rejeu
+    reproductible : l'écart entre deux rejeux ne peut alors plus venir de l'aléa d'échantillonnage."""
+    opts = {}
+    if temperature is not None:
+        opts["temperature"] = temperature
+    if seed is not None:
+        opts["seed"] = seed
+    return opts
+
+
+def _call_qwen_local_json(prompt, images, model, temperature=None, seed=None):
     """Appelle qwen_local (Ollama, Dell) avec le contrat JSON strict du Portier. Ne lève jamais :
     renvoie toujours (dict|None, erreur|None, json_valide: bool), comme
     _call_openai_compatible_json (analyzer.py) pour les deux premiers éléments. `num_ctx` fixé
@@ -214,7 +231,8 @@ def _call_qwen_local_json(prompt, images, model):
             model=model,
             messages=[{"role": "user", "content": content}],
             response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
-            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS}},
+            extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
+                                    **_sampling_options(temperature, seed)}},
         )
         choice = response.choices[0]
         text = choice.message.content.strip()
@@ -265,7 +283,7 @@ def _call_qwen_local_json(prompt, images, model):
                 False, completion_tokens, reasoning_tokens, raw_debug)
 
 
-def _call_qwen_local_json_native(prompt, images, model):
+def _call_qwen_local_json_native(prompt, images, model, temperature=None, seed=None):
     """Variante API NATIVE Ollama (`/api/chat`, pas le SDK OpenAI-compat) — utilisée uniquement
     pour `--no-think` (2026-09-27). `think` est un champ de premier niveau documenté et garanti
     supporté par l'API native ; côté SDK OpenAI-compat, `extra_body["think"] = False` n'avait
@@ -286,7 +304,8 @@ def _call_qwen_local_json_native(prompt, images, model):
             "model": model,
             "messages": [{"role": "user", "content": prompt, "images": images_b64}],
             "format": T1_GATEKEEPER_OPENAI_JSON_SCHEMA["json_schema"]["schema"],
-            "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS},
+            "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
+                        **_sampling_options(temperature, seed)},
             "think": False,
             "stream": False,
         }
@@ -388,13 +407,20 @@ def _get_user_analysis_config(conn, user_id, cache):
     return analysis_config
 
 
+def knowledge_for(conn, row, limit=3):
+    """Fiches de la base de connaissances pour une annonce rejouée : `(bloc_prompt, fiches)` — exactement ce que le
+    Portier de prod injecterait (`DealAnalyzer._t1_knowledge`) : titre et description, `limit` fiches au plus."""
+    fiches = guitar_knowledge.lookup(conn, row.get("title"), row.get("description"), limit=limit)
+    return guitar_knowledge.format_for_prompt(fiches), fiches
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Compare qwen_local (Dell) au verdict Portier déjà en base (Postgres, Chantier A)."
     )
     parser.add_argument("--limit", type=int, default=15, help="Nombre d'annonces à rejouer (défaut : 15).")
     parser.add_argument("--model", default=QWEN_LOCAL_MODEL,
-                         help="Modèle Ollama à interroger (défaut : qwen3-vl:8b). "
+                         help="Modèle Ollama à interroger (défaut : qwen3-vl:8b-instruct, celui de la prod). "
                               "Repli si le 8B étouffe : qwen3-vl:4b.")
     parser.add_argument("--simplified-prompt", action="store_true",
                          help="EST le prompt de prod depuis le 2026-09-29 (instruction Portier + "
@@ -402,6 +428,28 @@ def main():
                               "reconstruit l'ANCIEN prompt fidèle (comparaison historique). Le "
                               "verdict cloud comparé reste inchangé (toujours celui réellement "
                               "stocké en base).")
+    parser.add_argument("--with-knowledge", action="store_true",
+                         help="Rejoue AVEC la base de connaissances injectée dans le prompt (comme le Portier de prod avec "
+                              "T1_KNOWLEDGE_ENABLED). Exige --simplified-prompt. Comparer à un rejeu SANS ce drapeau avec "
+                              "compare_knowledge_effect.py.")
+    parser.add_argument("--kb-version", default="latest",
+                         help="Version de la base pour --with-knowledge : latest (défaut : la version à valider), validated "
+                              "ou un numéro.")
+    parser.add_argument("--out", default="compare_qwen_local_vs_prod.json",
+                         help="Nom du fichier de résultats dans backend/benchmark/results/ (à changer pour garder les "
+                              "rejeux sans/avec base côte à côte).")
+    parser.add_argument("--temperature", type=float, default=0.0,
+                         help="Température d'échantillonnage envoyée à Ollama (défaut 0 : rejeu reproductible, pour que l'écart "
+                              "sans/avec la base ne vienne que de la base). La PROD n'impose aucune température aujourd'hui "
+                              "(réglage par défaut du modèle) : --temperature -1 rejoue dans ces conditions, avec leur bruit.")
+    parser.add_argument("--seed", type=int, default=42, help="Graine d'échantillonnage (défaut 42), ignorée si --temperature -1.")
+    parser.add_argument("--reclassified", action="store_true",
+                         help="Ne rejoue QUE les annonces rejetées à l'origine (initial_verdict) puis reclassées en non-rejet "
+                              "(analyse forcée, ré-analyse) : faux rejets présumés du Portier, la seule vérité terrain "
+                              "disponible sur les rejets. Le verdict d'origine sert de « cloud ». ATTENTION : un BAD_DEAL "
+                              "d'origine peut venir de l'ancien pré-filtre de prix (avant 2026-07-27), pas du Portier.")
+    parser.add_argument("--exclude-ids", default="",
+                         help="Identifiants à ignorer, séparés par des virgules (ex : étuis et amplis rejetés à juste titre).")
     parser.add_argument("--no-think", action="store_true",
                          help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
@@ -413,6 +461,12 @@ def main():
                               "(ancien Portier T1, avant la bascule Qwen cloud du 2026-09-20) "
                               "plutôt que les annonces récentes (décidées par Qwen cloud depuis).")
     args = parser.parse_args()
+    if args.with_knowledge and not args.simplified_prompt:
+        parser.error("--with-knowledge exige --simplified-prompt (le prompt de prod du Portier)")
+    temperature = None if args.temperature < 0 else args.temperature     # -1 = réglages par défaut du modèle (comme la prod)
+    seed = None if temperature is None else args.seed
+    if args.with_knowledge:
+        guitar_knowledge.configure_version(args.kb_version)
 
     est_minutes = round(args.limit * 20 / 60, 1)
     before_info = f" (antérieures à {args.before} — ère Gemini Flash-Lite)" if args.before else ""
@@ -423,20 +477,37 @@ def main():
     with psycopg.connect(DATABASE_URL, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
             date_filter = 'AND gd."timestamp" < %s' if args.before else ""
-            params = (args.before, args.limit) if args.before else (args.limit,)
+            params = [args.before] if args.before else []
+            excluded = [x.strip() for x in args.exclude_ids.split(",") if x.strip()]
+            exclude_filter = "AND gd.id <> ALL(%s)" if excluded else ""
+            if excluded:
+                params.append(excluded)
+            if args.reclassified:
+                # rejeté à l'origine, non rejeté aujourd'hui : gatekeeperVerdict n'est PAS fiable ici (une analyse
+                # forcée le remplace par MANUAL_RETRY) ; la trace du rejet d'origine est initial_verdict
+                # Le verdict actuel doit JUGER l'annonce : NOT_PROMOTED (filtre de recherche active), MANUAL*, ERROR* ne
+                # sont pas une reclassification.
+                selection = ("gd.initial_verdict = ANY(%s) AND gd.verdict <> ALL(%s) "
+                             "AND gd.verdict NOT LIKE 'NOT_PROMOTED%%' AND gd.verdict NOT LIKE 'MANUAL%%' "
+                             "AND gd.verdict NOT LIKE 'ERROR%%'")
+                params = [list(T1_REJECTION_VERDICTS | {"REJECTED"}), list(T1_REJECTION_VERDICTS | {"REJECTED"})] + params
+            else:
+                selection = "gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL"
+            params.append(args.limit)
             cur.execute(
                 f"""
                 SELECT gd.id, udm.user_id, gd.title, gd.price, gd.description, gd.location,
                        gd.image_urls, gd.storage_image_urls, gd.ai_analysis_raw, gd.link,
-                       gd."timestamp"
+                       gd.initial_verdict, gd.verdict AS final_verdict, gd."timestamp"
                 FROM guitar_deals gd
                 LEFT JOIN LATERAL (
                     SELECT user_id FROM user_deal_matches
                     WHERE deal_id = gd.id
                     LIMIT 1
                 ) udm ON true
-                WHERE gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL
+                WHERE {selection}
                 {date_filter}
+                {exclude_filter}
                 ORDER BY gd."timestamp" DESC
                 LIMIT %s
                 """,
@@ -444,7 +515,12 @@ def main():
             )
             rows = cur.fetchall()
 
-        print(f"📦 {len(rows)} annonce(s) avec un gatekeeperVerdict déjà en base (les plus récentes).\n")
+        kb_version_number = guitar_knowledge.effective_version(conn) if args.with_knowledge else None
+        if args.with_knowledge:
+            print(f"📚 Base de connaissances : version {kb_version_number} ({args.kb_version}).")
+        what = ("rejetée(s) à l'origine puis reclassée(s) en non-rejet (faux rejets présumés)" if args.reclassified
+                else "avec un gatekeeperVerdict déjà en base (les plus récentes)")
+        print(f"📦 {len(rows)} annonce(s) {what}.\n")
         if not rows:
             print("Rien à comparer — l'export Chantier A a-t-il bien tourné sur cette base ?")
             return
@@ -462,11 +538,14 @@ def main():
         prompt_tokens_est_list = []
         vram_gb_list = []
         failed_calls = []
+        per_listing = []      # un verdict local par annonce, pour comparer deux rejeux (compare_knowledge_effect.py)
 
         for i, row in enumerate(rows, 1):
             ai = row["ai_analysis_raw"]
             ai = json.loads(ai) if isinstance(ai, str) else (ai or {})
-            cloud_verdict = ai.get("gatekeeperVerdict")
+            # --reclassified : le verdict d'origine (initial_verdict) tient lieu de « cloud » — gatekeeperVerdict vaut
+            # alors MANUAL_RETRY (analyse forcée), qui n'est pas un verdict du Portier.
+            cloud_verdict = row.get("initial_verdict") if args.reclassified else ai.get("gatekeeperVerdict")
             if cloud_verdict not in T1_VALID_STATUSES:
                 n_excluded_invalid += 1
                 continue
@@ -481,8 +560,15 @@ def main():
                 gatekeeper_instruction = "\n".join(gatekeeper_instruction)
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
+            kb_fiches = []
             if args.simplified_prompt:
-                full_prompt_t1 = build_t1_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction)
+                knowledge_block = ""
+                if args.with_knowledge:
+                    knowledge_block, kb_fiches = knowledge_for(conn, row)
+                    if kb_fiches:
+                        print(f"  📚 base de connaissances : {', '.join(f['name'] for f in kb_fiches)}")
+                full_prompt_t1 = build_t1_gatekeeper_prompt(row, taxonomy, gatekeeper_instruction,
+                                                            knowledge_block=knowledge_block)
             else:
                 base_prompt = _construct_base_user_prompt(row, main_prompt, taxonomy, few_shot)
                 full_prompt_t1 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE PORTIER ---\n{gatekeeper_instruction}"
@@ -507,7 +593,7 @@ def main():
             t0 = time.monotonic()
             call_fn = _call_qwen_local_json_native if args.no_think else _call_qwen_local_json
             result, err, json_valid, completion_tokens, reasoning_tokens, raw_debug = call_fn(
-                full_prompt_t1, images, args.model
+                full_prompt_t1, images, args.model, temperature=temperature, seed=seed
             )
             latency_s = round(time.monotonic() - t0, 1)
             latencies_s.append(latency_s)
@@ -539,6 +625,12 @@ def main():
                 continue
 
             local_verdict = (result.get("status") or "UNKNOWN").upper()
+            per_listing.append({"id": row["id"], "title": row.get("title"), "link": row.get("link"),
+                                "cloud_verdict": cloud_verdict, "local_verdict": local_verdict,
+                                "initial_verdict": row.get("initial_verdict"), "final_verdict": row.get("final_verdict"),
+                                "reclassified": bool(args.reclassified),
+                                "local_reasoning": result.get("reasoning"),
+                                "kb_ids": [f["id"] for f in kb_fiches], "kb_names": [f["name"] for f in kb_fiches]})
             print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s{tok_info})")
             if local_verdict not in T1_VALID_STATUSES:
                 n_status_out_of_enum += 1
@@ -603,13 +695,19 @@ def main():
                     print(f"    raisonnement local : {str(reasoning)[:300]}")
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    out_path = os.path.join(RESULTS_DIR, "compare_qwen_local_vs_prod.json")
+    out_path = os.path.join(RESULTS_DIR, args.out)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({
             "model": args.model,
             "simplified_prompt": args.simplified_prompt,
+            "with_knowledge": args.with_knowledge,
+            "kb_version": kb_version_number,
             "no_think": args.no_think,
             "before": args.before,
+            "reclassified": args.reclassified,
+            "temperature": temperature,
+            "seed": seed,
+            "excluded_ids": excluded,
             "n_total": n,
             "agree_accept": agree_accept,
             "agree_reject": agree_reject,
@@ -633,6 +731,7 @@ def main():
             ],
             "cloud_reject_local_accept_count": len(cloud_reject_local_accept),
             "failed_calls": failed_calls,
+            "per_listing": per_listing,
         }, f, ensure_ascii=False, indent=2)
     print(f"\nRésultats détaillés sauvegardés dans : {out_path}")
 

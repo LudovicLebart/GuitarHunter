@@ -220,5 +220,83 @@ class TestClassifyError(unittest.TestCase):
         self.assertEqual(llm_usage.classify_error(type("APIStatusError", (Exception,), {})("x")), "http")
 
 
+class TestT1Knowledge(unittest.TestCase):
+    """Branchement de la base de connaissances au Portier : interrupteur, ordre du prompt, traçabilité, échec ouvert."""
+    FICHE = {"id": "manual:vantage", "name": "Vantage", "kind": "brand", "description": "Marque construite par Matsumoku.",
+             "matched_on": "vantage", "curated": True, "source": "manual"}
+
+    def setUp(self):
+        self.analyzer = _make_analyzer()
+        t1_circuit_breaker.reset()
+        self.addCleanup(t1_circuit_breaker.reset)
+        for target, value in (("backend.analyzer.llm_usage.record", None), ("backend.analyzer.GEMINI_API_KEY", "dummy")):
+            patcher = patch(target, value) if value else patch(target)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.analyzer._run_t1_shadow_observation = MagicMock(return_value={})
+
+    def _enabled(self, fiches=None, version=5):
+        stack = [
+            patch("backend.analyzer.T1_KNOWLEDGE_ENABLED", True),
+            patch("backend.pg_db.get_pool", return_value=MagicMock()),
+            patch("backend.analyzer.guitar_knowledge.lookup", return_value=[self.FICHE] if fiches is None else fiches),
+            patch("backend.analyzer.guitar_knowledge.effective_version", return_value=version),
+            patch("backend.analyzer.guitar_knowledge.configure_version"),
+        ]
+        for p in stack:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_disabled_by_default_touches_no_database_and_leaves_the_prompt_unchanged(self):
+        with patch("backend.pg_db.get_pool", side_effect=AssertionError("aucun accès base attendu")):
+            self.assertEqual(self.analyzer._t1_knowledge(_listing()), ("", {}))
+        self.assertEqual(
+            self.analyzer._construct_t1_gatekeeper_prompt(_listing(), {}, "INSTRUCTION"),
+            build_t1_gatekeeper_prompt(_listing(), {}, "INSTRUCTION"))
+
+    def test_enabled_returns_block_and_trace_without_sources(self):
+        self._enabled()
+        block, trace = self.analyzer._t1_knowledge(_listing())
+        self.assertIn("Vantage (brand)", block)
+        self.assertNotIn("http", block)
+        self.assertEqual(trace, {"gatekeeperKnowledge": {"version": 5, "fiches": ["manual:vantage"], "matched": ["vantage"]}})
+
+    def test_no_match_means_no_block_and_no_trace(self):
+        self._enabled(fiches=[])
+        self.assertEqual(self.analyzer._t1_knowledge(_listing()), ("", {}))
+
+    def test_fail_open_when_the_database_is_unavailable(self):
+        with patch("backend.analyzer.T1_KNOWLEDGE_ENABLED", True), \
+                patch("backend.pg_db.get_pool", side_effect=RuntimeError("pool non initialisé")):
+            self.assertEqual(self.analyzer._t1_knowledge(_listing()), ("", {}))
+        self.analyzer.logger.warning.assert_called()
+
+    def test_prompt_order_knowledge_before_correction_and_annonce_stays_last(self):
+        block = "CONNAISSANCES SUR LES MARQUES DÉTECTÉES : - Vantage"
+        prompt = build_t1_gatekeeper_prompt(_listing(), {}, "INSTRUCTION", user_comment="CORR", knowledge_block=block)
+        self.assertLess(prompt.index("INSTRUCTION"), prompt.index("CONNAISSANCES"))
+        self.assertLess(prompt.index("CONNAISSANCES"), prompt.index("CORRECTION UTILISATEUR"))
+        self.assertLess(prompt.index("CORRECTION UTILISATEUR"), prompt.index("<annonce>"))
+        self.assertTrue(prompt.rstrip().endswith("</annonce>"))
+        self.assertEqual(build_t1_gatekeeper_prompt(_listing(), {}, "I", knowledge_block="   "),
+                         build_t1_gatekeeper_prompt(_listing(), {}, "I"))       # bloc vide = prompt inchangé
+
+    def test_full_analysis_injects_into_the_real_prompt_and_stores_the_trace(self):
+        self._enabled()
+        self.analyzer._call_t1_provider = MagicMock(return_value=({"status": "REJECTED", "reason": "Pas une guitare."}, None))
+        result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
+        sent_prompt = self.analyzer._call_t1_provider.call_args[0][1]
+        self.assertIn("Vantage (brand)", sent_prompt)
+        self.assertTrue(sent_prompt.rstrip().endswith("</annonce>"))
+        self.assertEqual(result["gatekeeperKnowledge"]["fiches"], ["manual:vantage"])
+        self.assertEqual(result["gatekeeperKnowledge"]["version"], 5)
+
+    def test_full_analysis_without_the_switch_stores_no_trace(self):
+        self.analyzer._call_t1_provider = MagicMock(return_value=({"status": "REJECTED", "reason": "x"}, None))
+        result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
+        self.assertNotIn("gatekeeperKnowledge", result)
+        self.assertNotIn("CONNAISSANCES", self.analyzer._call_t1_provider.call_args[0][1])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,63 @@
+{
+  "entries": [
+    {
+      "patch": "Vox",
+      "relevance_override": "guitars",
+      "hunt_notes": "Constructeur britannique (1957) d'amplis ET de guitares (Phantom, Teardrop/Mark VI). Guitares des années 1960 faites au Royaume-Uni puis, dès 1965, chez EKO (Italie) ; certains modèles chez Matsumoku (Japon).",
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Vox_(musical_equipment)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Vox (musical equipment)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "originally made in England but soon after made by EKO of Italy … produced in Japan, where the Standard & Custom 24 & 25 guitars and basses were built by Matsumoku"
+        },
+        {
+          "url": "https://www.voxshowroom.com/us/guitar/mark6.html",
+          "publisher": "Vox (Korg)",
+          "kind": "manufacturer",
+          "title": "Vox Mark VI Teardrop Guitar V222",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "by 1965, the popularity and world wide demand for Vox guitars caused JMI to supplement UK production at Eko in Italy."
+        }
+      ]
+    },
+    {
+      "patch": "Supro",
+      "relevance_override": "guitars",
+      "hunt_notes": "Marque américaine (1935), gamme économique de National puis de Valco : guitares électriques (Ozark, Dual Tone…), basses et amplis. Inactive après la faillite de Valco, relancée en 2014.",
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Supro",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Supro",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "[résumé] Marque américaine fondée en 1935 : guitares électriques, basses et amplis ; dormante après la fermeture de Valco, relancée en 2014"
+        },
+        {
+          "url": "https://uniqueguitar.blogspot.com/2019/05/supro-solidbody-guitars-1952-through.html",
+          "publisher": "The Unique Guitar Blog",
+          "kind": "collector",
+          "title": "Supro Solidbody Guitars - 1952 through 1967",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "By 1952 Valco began manufacturing solid body electric guitars under the National and Supro brand names."
+        },
+        {
+          "url": "https://www.vintageguitarandbass.com/supro/",
+          "publisher": "Vintage Guitar and Bass",
+          "kind": "collector",
+          "title": "List of Vintage Supro Guitars, Basses and Amplifiers",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Supro guitars were first produced in the 1930s by the National Dobro Corporation (rebranding as Valco in the 1940s)"
+        }
+      ]
+    }
+  ]
+}

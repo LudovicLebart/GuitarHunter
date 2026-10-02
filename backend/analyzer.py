@@ -39,10 +39,14 @@ from config import (
     T1_LOCAL_API_KEY,
     T1_LOCAL_MAX_CONCURRENCY,
     T1_LOCAL_TIMEOUT_SECONDS,
+    T1_KNOWLEDGE_ENABLED,
+    T1_KNOWLEDGE_VERSION,
+    T1_KNOWLEDGE_MAX_FICHES,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
 )
 from backend import t1_circuit_breaker
+from backend import guitar_knowledge
 
 # Un seul Dell pour tous les threads utilisateurs : sémaphore au niveau du module (voir config.py).
 _T1_LOCAL_SEMAPHORE = threading.BoundedSemaphore(T1_LOCAL_MAX_CONCURRENCY)
@@ -235,13 +239,41 @@ class DealAnalyzer:
         le prompt T1 et `base_prompt` T2/T3 — les deux appelants le PLACENT différemment)."""
         return format_user_correction(user_comment)
 
-    def _construct_t1_gatekeeper_prompt(self, listing_data, taxonomy_data, gatekeeper_instruction, user_comment=None):
+    def _t1_knowledge(self, listing_data):
+        """Base de connaissances « univers des guitares » pour le Portier : renvoie `(bloc_prompt, trace)`.
+        `("", {})` si l'interrupteur `T1_KNOWLEDGE_ENABLED` est éteint (défaut : AUCUN accès base, prompt inchangé),
+        si aucune fiche ne correspond, ou si quoi que ce soit échoue — ÉCHEC OUVERT : la base ne doit jamais
+        empêcher une analyse (le Portier tourne alors comme avant). `trace` (`gatekeeperKnowledge` : version de la
+        base, ids et alias trouvés) est stockée avec la décision (`ai_analysis_raw`) pour attribuer un changement
+        de comportement à une version de la base. Les sources (URL) ne sont jamais injectées."""
+        if not T1_KNOWLEDGE_ENABLED:
+            return "", {}
+        try:
+            from backend import pg_db
+            guitar_knowledge.configure_version(T1_KNOWLEDGE_VERSION)      # idempotent
+            with pg_db.get_pool().connection(timeout=1.0) as conn:
+                fiches = guitar_knowledge.lookup(conn, listing_data.get("title"), listing_data.get("description"),
+                                                 limit=T1_KNOWLEDGE_MAX_FICHES)
+                version = guitar_knowledge.effective_version(conn)
+            if not fiches:
+                return "", {}
+            trace = {"gatekeeperKnowledge": {"version": version,
+                                             "fiches": [f["id"] for f in fiches],
+                                             "matched": [f["matched_on"] for f in fiches]}}
+            return guitar_knowledge.format_for_prompt(fiches), trace
+        except Exception as e:  # jamais bloquant
+            self.logger.warning(f"⚠️ [Portier] base de connaissances indisponible, analyse sans elle : {e}")
+            return "", {}
+
+    def _construct_t1_gatekeeper_prompt(self, listing_data, taxonomy_data, gatekeeper_instruction, user_comment=None,
+                                        knowledge_block=""):
         """Prompt du Portier (T1) — délibérément séparé de `_construct_base_user_prompt` (celui-ci
         reste réservé à T2/T3). Décision utilisateur du 2026-09-29 : bascule en prod du "prompt
         simplifié" validé sur 665 annonces (JOURNAL.md, Chantier I). Implémentation et historique
         de conception dans `backend/t1_prompt.py` (source unique, aussi utilisée par
         `backend/scripts/compare_qwen_local_vs_prod.py`)."""
-        return build_t1_gatekeeper_prompt(listing_data, taxonomy_data, gatekeeper_instruction, user_comment)
+        return build_t1_gatekeeper_prompt(listing_data, taxonomy_data, gatekeeper_instruction, user_comment,
+                                          knowledge_block)
 
     def _is_model_unavailable_error(self, error_text):
         """Détecte si une erreur Gemini correspond à un modèle introuvable/retiré/non supporté."""
@@ -680,7 +712,9 @@ class DealAnalyzer:
             # n'est PLUS basé sur base_prompt (réservé à T2/T3 ci-dessus) — la correction utilisateur
             # (flux "Ré-analyser" sans Force Expert, rare mais possible, voir bot.py::analyze_single_deal)
             # est passée directement pour être placée AVANT `<annonce>`, jamais après (voir docstring).
-            full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment)
+            knowledge_block, knowledge_trace = self._t1_knowledge(listing_data)
+            full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment,
+                                                                  knowledge_block)
 
             # Observation miroir Chantier H (Qwen vs Gemini) : conservée telle quelle, ORTHOGONALE
             # à la chaîne T1_PROVIDER_CHAIN — toujours sur l'opposé de T1_GATEKEEPER_PROVIDER, quel
@@ -746,7 +780,7 @@ class DealAnalyzer:
             model_chain.append(t1_real_model_name)
 
             shadow_thread.join()
-            qwen_observation = shadow_result_holder[0]
+            qwen_observation = {**shadow_result_holder[0], **knowledge_trace}   # + traçabilité de la base de connaissances
 
             if not result_t1:
                 # Skip (2026-09-24, chaîne Chantier I depuis le 2026-09-29) : un échec de TOUTE la

@@ -1,0 +1,318 @@
+{
+  "entries": [
+    {
+      "slug": "godin-seagull",
+      "kind": "brand",
+      "name": "Seagull",
+      "description": "Marque de guitares acoustiques du groupe Godin (Québec, Canada).",
+      "parent": "Godin",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Seagull Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Seagull_(company)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Seagull (company)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "Seagull is a Canadian company and sub-brand of Godin Guitars"
+        },
+        {
+          "url": "https://en.wikipedia.org/wiki/Godin_(guitar_manufacturer)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Godin (guitar manufacturer)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "solid wood entry- to professional-range acoustic guitars"
+        },
+        {
+          "url": "https://www.premierguitar.com/gear/builder-profile-godin-guitars",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Builder Profile: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Seagull - Acoustic guitars known for satin finishes and a distinctive narrow headstock"
+        },
+        {
+          "url": "https://godinguitars.com/a-canadian-story-where-craftsmanship-and-innovation-come-together/",
+          "publisher": "Godin Guitars",
+          "kind": "manufacturer",
+          "title": "A Canadian story where craftsmanship and innovation come together",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Seagull is listed among the Godin brands (acoustic guitars)"
+        }
+      ]
+    },
+    {
+      "slug": "godin-norman",
+      "kind": "brand",
+      "name": "Norman",
+      "description": "Première marque du groupe Godin (Québec) : guitares acoustiques, nées de l'usine Norman (fenêtres) reprise par Robert Godin en 1972.",
+      "parent": "Godin",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Norman Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://www.premierguitar.com/gear/builder-profile-godin-guitars",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Builder Profile: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "On a hunting trip in 1972, Godin came across the factory for Norman Windows… To this day, the Norman guitar line still honors the window-manufacturing facility where it all started."
+        },
+        {
+          "url": "https://www.chicagomusicexchange.com/blogs/news/inside-godin-guitars",
+          "publisher": "Chicago Music Exchange",
+          "kind": "other",
+          "title": "Inside: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Norman Guitars: early '70s; hand-crafting guitars from wood well over 600 years old"
+        },
+        {
+          "url": "https://en.wikipedia.org/wiki/Godin_(guitar_manufacturer)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Godin (guitar manufacturer)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "entry- to pro-level acoustic guitars"
+        }
+      ]
+    },
+    {
+      "slug": "godin-simon-patrick",
+      "kind": "brand",
+      "name": "Simon & Patrick",
+      "description": "Marque de guitares acoustiques à cordes acier du groupe Godin (Québec), du milieu au haut de gamme.",
+      "parent": "Godin",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Simon and Patrick",
+        "Simon Patrick",
+        "Simon & Patrick Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Godin_(guitar_manufacturer)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Godin (guitar manufacturer)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "mid- to high-range steel-string acoustics"
+        },
+        {
+          "url": "https://www.chicagomusicexchange.com/blogs/news/inside-godin-guitars",
+          "publisher": "Chicago Music Exchange",
+          "kind": "other",
+          "title": "Inside: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "some of the finest in North America, hand-crafted with 'Select Pressure Tested Solid Tops'"
+        },
+        {
+          "url": "https://www.premierguitar.com/gear/builder-profile-godin-guitars",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Builder Profile: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Simon & Patrick is mentioned among the six Godin guitar brands"
+        }
+      ]
+    },
+    {
+      "slug": "godin-art-lutherie",
+      "kind": "brand",
+      "name": "Art & Lutherie",
+      "description": "Marque de guitares acoustiques d'entrée de gamme du groupe Godin (Québec).",
+      "parent": "Godin",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "tier": "entry",
+      "aliases": [
+        "Art and Lutherie",
+        "Art Lutherie",
+        "Art & Lutherie Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Godin_(guitar_manufacturer)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Godin (guitar manufacturer)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "entry-level budget acoustic guitars"
+        },
+        {
+          "url": "https://www.chicagomusicexchange.com/blogs/news/inside-godin-guitars",
+          "publisher": "Chicago Music Exchange",
+          "kind": "other",
+          "title": "Inside: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Evoking the inexpensive but well-made catalog guitars popular in the American South"
+        },
+        {
+          "url": "https://www.premierguitar.com/gear/builder-profile-godin-guitars",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Builder Profile: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Art & Lutherie is mentioned among the six Godin guitar brands"
+        }
+      ]
+    },
+    {
+      "slug": "godin-la-patrie",
+      "kind": "brand",
+      "name": "La Patrie",
+      "description": "Marque de guitares classiques (cordes nylon) du groupe Godin (Québec).",
+      "parent": "Godin",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "La Patrie Guitars",
+        "LaPatrie"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Godin_(guitar_manufacturer)",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Godin (guitar manufacturer)",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "classical guitars"
+        },
+        {
+          "url": "https://www.chicagomusicexchange.com/blogs/news/inside-godin-guitars",
+          "publisher": "Chicago Music Exchange",
+          "kind": "other",
+          "title": "Inside: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "handcrafting classical nylon string acoustic guitars"
+        },
+        {
+          "url": "https://www.premierguitar.com/gear/builder-profile-godin-guitars",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Builder Profile: Godin Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] La Patrie is mentioned among the six Godin guitar brands"
+        }
+      ]
+    },
+    {
+      "slug": "vantage",
+      "kind": "brand",
+      "name": "Vantage",
+      "description": "Marque de guitares dont les modèles électriques ont été construits par l'usine japonaise Matsumoku à partir de la fin des années 1970.",
+      "made_by": [
+        "Matsumoku"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Vantage Guitars"
+      ],
+      "sources": [
+        {
+          "url": "http://www.vantage-guitars.com/timeframe/",
+          "publisher": "vantage-guitars.com",
+          "kind": "collector",
+          "title": "The Vantage Timeframe",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "All Vantage electrics made by Matsumoku/JAP (1978-1984)"
+        },
+        {
+          "url": "https://en.wikipedia.org/wiki/Matsumoku",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Matsumoku",
+          "lang": "en",
+          "license": "CC BY-SA 4.0",
+          "excerpt": "Vantage production began in 1979"
+        },
+        {
+          "url": "https://vintagejapanguitars.com/matsumoku-gakki-en/",
+          "publisher": "Vintage Japan Guitars",
+          "kind": "collector",
+          "title": "Matsumoku Industrial Co.",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Matsumoku was responsible for production in the '70s and '80s for many brands of electric guitars such as Aria, Electra, Epiphone, Fantom, Greco, Ibanez, Skylark, Vantage, Washburn, Westone and Univox."
+        }
+      ]
+    },
+    {
+      "slug": "profile-guitars",
+      "kind": "brand",
+      "name": "Profile",
+      "description": "Guitares électriques construites au Japon dans les années 1980, copies de Stratocaster et de Telecaster (série Silhouette) ; existe aussi en basses.",
+      "relevance": "guitars",
+      "name_as_alias": false,
+      "aliases": [
+        "Profile Guitars",
+        "Profile Silhouette",
+        "Profile Bass"
+      ],
+      "sources": [
+        {
+          "url": "https://jedistar.com/profile/",
+          "publisher": "Jedistar",
+          "kind": "collector",
+          "title": "Profile guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Stratocaster copies, Precision Bass copies and Telecaster copies (Silhouette Series); produced in Japan, early-mid eighties"
+        },
+        {
+          "url": "https://vero-p2p.blogspot.com/2023/03/profile-silhouette-telecaster-1980s.html",
+          "publisher": "Guitar Related Ramblings",
+          "kind": "collector",
+          "title": "GUITAR: Profile Silhouette Telecaster - 1980s Japan",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Profile Silhouette Telecaster; made in Japan, 'Sometime in the 1980s'"
+        },
+        {
+          "url": "https://reverb.com/ca/item/7032238-profile-bass-japanese-made-cream-white-30-yrs-old",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Profile Bass Japanese Made. Cream white. 30+ YRS old.",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "Profile Bass Japanese Made. Cream white. 30+ YRS old."
+        }
+      ]
+    }
+  ]
+}
