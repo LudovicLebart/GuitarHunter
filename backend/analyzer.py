@@ -5,6 +5,7 @@ import threading
 import time
 import requests
 import logging
+from typing import NamedTuple
 from io import BytesIO
 from PIL import Image
 import google.generativeai as genai
@@ -76,6 +77,17 @@ T1_FILTER_BYPASS_VERDICTS = frozenset({"PEPITE"})
 # historique vers l'Analyste (Chantier H, porté depuis dev le 2026-09-22) — provisoire, en
 # attendant un vrai mécanisme de repli (ex: second appel Gemini).
 T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
+
+class _T1Outcome(NamedTuple):
+    """Résultat de `DealAnalyzer._run_t1_phase`. `early_result` non None = sortie anticipée de la cascade
+    (rejet T1, NOT_PROMOTED ou GATEKEEPER_FAILED_SKIP) ; sinon la cascade continue vers le Tier 2."""
+    status: str
+    reason: str
+    brand: object
+    classification: object
+    observation: dict
+    early_result: object
+
 
 def expert_trigger_reason(config, result_t2, numeric_price, force_expert=False):
     """Motif de déclenchement de l'Expert Pro (Tier 3) d'après le résultat de l'Analyste (Tier 2),
@@ -402,7 +414,11 @@ class DealAnalyzer(LLMClientsMixin):
         """Corps de la cascade 3-Tiers — chaque point de sortie retourne
         `(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)`,
         jamais un dict déjà attaché (voir `_run_analysis_cascade`, seul appelant, qui fait
-        l'attache une fois pour tous les chemins)."""
+        l'attache une fois pour tous les chemins).
+
+        Découpée le 2026-10-02 (sans changement de comportement, voir `TestCascadeCharacterization`) :
+        `_run_t1_phase` (Portier + routage), `_run_t2_phase` (Analyste), `_run_t3_phase` (Expert),
+        `expert_trigger_reason` (décision du Tier 3)."""
         config = firestore_config.get('analysisConfig', {})
         # Défauts alignés sur GEMINI_MODELS (config.py) — gemini-2.5-* est retiré par Google en
         # octobre 2026, ces fallbacks codés en dur sont ce qui est réellement utilisé si un compte
@@ -414,7 +430,6 @@ class DealAnalyzer(LLMClientsMixin):
 
         taxonomy = config.get('taxonomy', DEFAULT_TAXONOMY)
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
-        rejection_verdicts = config.get('rejectionVerdicts', DEFAULT_REJECTION_VERDICTS)
 
         self.logger.info(f"🤖 Analyse Cascade pour : {listing_data.get('title', 'Inconnu')} (Force Expert: {force_expert})")
 
@@ -438,211 +453,21 @@ class DealAnalyzer(LLMClientsMixin):
         # gatekeeperClassification/gatekeeperVerdict.
         qwen_observation = {}
 
-        # ==========================================
-        # PHASE 1 : TIER 1 - PORTIER (Chantier I, 2026-09-29 : chaîne T1_PROVIDER_CHAIN — local Dell
-        # primaire / Qwen cloud secours par défaut, voir config.py)
-        # ==========================================
+        # PHASE 1 : TIER 1 - PORTIER
         if not force_expert:
-            self.logger.info(f"   🛡️ Étape 1 : Portier (chaîne {' -> '.join(T1_PROVIDER_CHAIN)})")
-            gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
-            if isinstance(gatekeeper_instruction, list):
-                gatekeeper_instruction = "\n".join(gatekeeper_instruction)
-            # Prompt simplifié (2026-09-29, décision utilisateur — voir _construct_t1_gatekeeper_prompt) :
-            # n'est PLUS basé sur base_prompt (réservé à T2/T3 ci-dessus) — la correction utilisateur
-            # (flux "Ré-analyser" sans Force Expert, rare mais possible, voir bot.py::analyze_single_deal)
-            # est passée directement pour être placée AVANT `<annonce>`, jamais après (voir docstring).
-            knowledge_block, knowledge_trace = self._t1_knowledge(listing_data)
-            full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment,
-                                                                  knowledge_block)
-
-            # Observation miroir Chantier H (Qwen vs Gemini) : conservée telle quelle, ORTHOGONALE
-            # à la chaîne T1_PROVIDER_CHAIN — toujours sur l'opposé de T1_GATEKEEPER_PROVIDER, quel
-            # que soit le fournisseur qui décidera réellement ci-dessous (y compris "local"), pour
-            # continuer à accumuler la comparaison historique Qwen/Gemini sans dépendre du résultat
-            # de la chaîne. Lancée en parallèle pour ne pas cumuler les latences sur chaque annonce.
-            shadow_provider = "gemini" if T1_GATEKEEPER_PROVIDER == "qwen" else "qwen"
-
-            shadow_result_holder = [{}]
-
-            def _observe_shadow():
-                shadow_result_holder[0] = self._run_t1_shadow_observation(
-                    full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email
-                )
-
-            shadow_thread = threading.Thread(target=contextvars.copy_context().run, args=(_observe_shadow,), daemon=True)
-            shadow_thread.start()
-
-            # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
-            # fournisseur en pause (coupe-circuit, voir t1_circuit_breaker.py) est sauté sans être
-            # appelé. Deux échecs distincts :
-            # - ERREUR RÉELLE (candidate_err) : appel raté (réseau, auth, JSON invalide...) — DÉJÀ
-            #   enregistré dans `llm_usage` (ok=False, error_type) par l'appelé
-            #   (`_call_openai_compatible_json`/`_call_gemini_json`), ne PAS le ré-enregistrer ici
-            #   (double comptage) ; compte seulement pour le coupe-circuit.
-            # - RÉPONSE VIDE SANS ERREUR (`{}`, ex: JSON normalisé depuis un tableau vide) : l'appel
-            #   a réussi et est DÉJÀ enregistré ok=True par l'appelé (tokens réels facturés) — ne
-            #   pas ré-enregistrer ok=False dessus (double comptage) ni compter comme panne pour le
-            #   coupe-circuit (le fournisseur a bien répondu, c'est un problème de qualité de
-            #   réponse, pas de disponibilité) : on essaie juste le candidat suivant.
-            # L'annonce n'est sautée (retentée au prochain cycle) que si TOUTE la chaîne échoue.
-            result_t1, primary_provider = None, None
-            tried, chain_errors = [], []
-            for candidate in T1_PROVIDER_CHAIN:
-                if t1_circuit_breaker.is_open(candidate):
-                    self.logger.warning(f"   ⏸️ [Portier/{candidate}] en pause (coupe-circuit) — passage au suivant.")
-                    continue
-                tried.append(candidate)
-                candidate_result, candidate_err = self._call_t1_provider(
-                    candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
-                )
-                if candidate_err:
-                    t1_circuit_breaker.record_failure(
-                        candidate, T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS
-                    )
-                    # L'échec est déjà enregistré dans `llm_usage` (ok=False + error_type) par l'appelé
-                    # (`_call_openai_compatible_json`/`_call_gemini_json`), une ligne par tentative.
-                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err}")
-                    chain_errors.append(f"{candidate}: {candidate_err}")
-                    continue
-                if not candidate_result:
-                    self.logger.warning(f"   ⚠️ [Portier/{candidate}] réponse vide — passage au suivant.")
-                    chain_errors.append(f"{candidate}: réponse vide")
-                    continue
-                t1_circuit_breaker.record_success(candidate)
-                result_t1, primary_provider = candidate_result, candidate
-                break
-
-            t1_real_model_name = (
-                self._t1_model_name_for(primary_provider, gatekeeper_model_name) if primary_provider
-                else "/".join(self._t1_model_name_for(p, gatekeeper_model_name) for p in (tried or T1_PROVIDER_CHAIN))
-            )
-            model_chain.append(t1_real_model_name)
-
-            shadow_thread.join()
-            qwen_observation = {**shadow_result_holder[0], **knowledge_trace}   # + traçabilité de la base de connaissances
-
-            if not result_t1:
-                # Skip (2026-09-24, chaîne Chantier I depuis le 2026-09-29) : un échec de TOUTE la
-                # chaîne T1_PROVIDER_CHAIN ne fait plus fail-open vers l'Analyste (ce qui revenait à
-                # ne plus filtrer AUCUNE annonce tant que ça persistait) — l'annonce est sautée sans
-                # être stockée ni marquée traitée, elle sera retentée au prochain cycle de scan
-                # (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
-                gatekeeper_status = "ERROR_GATEKEEPER"
-                if chain_errors:
-                    gatekeeper_reason = " | ".join(chain_errors)
-                elif not T1_PROVIDER_CHAIN:
-                    gatekeeper_reason = "T1_PROVIDER_CHAIN est vide — configuration invalide."
-                else:
-                    gatekeeper_reason = "Toute la chaîne T1_PROVIDER_CHAIN est en pause (coupe-circuit)."
-                chain_label = "T1-chain(" + ",".join(tried or T1_PROVIDER_CHAIN) + ")"
-                self.logger.error(f"   ❌ [Portier réel/{chain_label}] échec sur toute la chaîne — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
-                # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
-                # ressemble vraiment (_is_model_unavailable_error) — sinon (image tronquée, panne
-                # réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne présume pas la
-                # cause. Les deux sont throttlées séparément (clé distincte).
-                if self._is_model_unavailable_error(gatekeeper_reason):
-                    self._notify_model_unavailable(chain_label, gatekeeper_reason, user_email)
-                else:
-                    self._notify_gatekeeper_failure(chain_label, gatekeeper_reason, user_email)
-            else:
-                gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
-                gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
-                gatekeeper_brand = result_t1.get('brand')
-                gatekeeper_classification = result_t1.get('classification')
-
-                if gatekeeper_status == 'UNKNOWN':
-                    gatekeeper_status = 'ERROR'
-                    gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
-
-                self.logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
-
-                legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
-                if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
-                    return (
-                        {
-                            "verdict": gatekeeper_status, "reasoning": gatekeeper_reason,
-                            "classification": gatekeeper_classification,
-                            "model_used": " -> ".join(model_chain),
-                        },
-                        gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
-                    )
-
-                # ==========================================
-                # RATTRAPAGE CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
-                # ==========================================
-                # Le mode par défaut ("tout analyser, filtrer après") reste inchangé tant
-                # qu'aucune recherche active n'est configurée (`activeSearchFamilies` vide/absent).
-                # Quand une recherche est active, seule une correspondance sur la FAMILLE de forme
-                # (`gatekeeper_classification`, déjà produite par le Portier — aucun nouvel appel
-                # ni champ de prompt) promeut vers T2/T3 ; le scraping et le Portier lui-même
-                # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
-                # Garde-fou non négociable, restreint le 2026-09-29 : SEUL un verdict PEPITE
-                # littéral (T1_FILTER_BYPASS_VERDICTS) passe TOUJOURS, correspondance ou non — ne
-                # jamais cacher une vraie pépite hors-filtre. Les 4 autres verdicts d'opportunité
-                # (FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION) sont désormais soumis au filtre
-                # comme n'importe quel verdict ordinaire — un utilisateur qui exclut une catégorie
-                # (ex: amplis) ne veut pas la voir malgré un potentiel de revente, et le catalogue
-                # partagé couvre déjà cette catégorie pour un autre utilisateur dont le filtre
-                # l'inclut.
-                # Second garde-fou (Chantier H) : un verdict d'erreur (T1_ERROR_STATUSES — Portier
-                # planté ou réponse malformée) n'a par définition aucune classification fiable ;
-                # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
-                # vide ⇒ aucune correspondance) au lieu du skip dédié juste après ce bloc.
-                active_search_families = config.get('activeSearchFamilies') or []
-                if (
-                    active_search_families
-                    and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
-                    and gatekeeper_status not in T1_ERROR_STATUSES
-                ):
-                    matches_active_search = matches_active_search_family(gatekeeper_classification, active_search_families)
-                    if not matches_active_search:
-                        self.logger.info(
-                            f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
-                            f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
-                        )
-                        return (
-                            {
-                                "verdict": "NOT_PROMOTED",
-                                "reasoning": (
-                                    f"Ne correspond à aucune recherche active "
-                                    f"({', '.join(active_search_families)}) et n'est pas jugée "
-                                    f"pépite potentielle par le Portier."
-                                ),
-                                "classification": gatekeeper_classification,
-                                "model_used": " -> ".join(model_chain),
-                            },
-                            gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
-                        )
-
-            # Skip (2026-09-24, provisoire) : un Portier qui n'a produit aucun verdict fiable
-            # (échec d'appel OU réponse malformée, T1_ERROR_STATUSES) ne fait plus fail-open vers
-            # l'Analyste — `bot.py::handle_deal_found` reconnaît ce verdict et n'écrit rien en
-            # base, l'annonce sera donc re-scrapée et retentée au prochain cycle plutôt que
-            # figée avec une analyse T2 jamais filtrée par le Portier.
-            if gatekeeper_status in T1_ERROR_STATUSES:
-                return (
-                    {
-                        "verdict": "GATEKEEPER_FAILED_SKIP", "reasoning": gatekeeper_reason,
-                        "classification": gatekeeper_classification,
-                        "model_used": " -> ".join(model_chain),
-                    },
-                    gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
-                )
+            t1 = self._run_t1_phase(listing_data, config, taxonomy, images, user_comment, user_email,
+                                    gatekeeper_model_name, model_chain)
+            gatekeeper_status, gatekeeper_reason = t1.status, t1.reason
+            gatekeeper_brand, gatekeeper_classification = t1.brand, t1.classification
+            qwen_observation = t1.observation
+            if t1.early_result is not None:
+                return (t1.early_result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
         else:
             self.logger.info("   ⏩ Portier sauté (Force Expert).")
 
-        # ==========================================
         # PHASE 2 : TIER 2 - ANALYSTE (Flash)
-        # ==========================================
-        self.logger.info(f"   🔍 Étape 2 : Analyste ({analyst_model_name}) - Structuration & Scores...")
-        model_chain.append(analyst_model_name)
-        analyst_instruction = config.get('analystVerbosityInstruction', DEFAULT_ANALYST_INSTRUCTION)
-        if isinstance(analyst_instruction, list):
-            analyst_instruction = "\n".join(analyst_instruction)
-        full_prompt_t2 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE ANALYSTE ---\n{analyst_instruction}"
+        result_t2, err_t2 = self._run_t2_phase(base_prompt, images, config, analyst_model_name, user_email, model_chain)
 
-        result_t2, err_t2 = self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email, action="t2_analyst")
-        
         if err_t2 or not result_t2:
             return (
                 {
@@ -652,71 +477,284 @@ class DealAnalyzer(LLMClientsMixin):
                 gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation,
             )
 
-        # Formatage des variables pour la logique conditionnelle
-        deal_score = result_t2.get('deal_score', 0)
-        auth_score = result_t2.get('authenticity_score', 10) # 10 par défaut pour pas trigger fausement
-        resto_score = result_t2.get('restoration_interest_score', 0)
-        confidence = result_t2.get('confidence', 1.0)
-        verdict = result_t2.get('verdict', '')
-        
         # Extraction du prix
         numeric_price = ListingParser.extract_price_from_text(str(listing_data.get('price', '') or ''))
-        
-        self.logger.info(f"   📊 Scores T2 -> Deal: {deal_score} | Auth: {auth_score} | Resto: {resto_score} | Conf: {confidence} | Prix: {numeric_price}")
+
+        self.logger.info(
+            f"   📊 Scores T2 -> Deal: {result_t2.get('deal_score', 0)} | Auth: {result_t2.get('authenticity_score', 10)} | "
+            f"Resto: {result_t2.get('restoration_interest_score', 0)} | Conf: {result_t2.get('confidence', 1.0)} | Prix: {numeric_price}"
+        )
 
         trigger_reason = expert_trigger_reason(config, result_t2, numeric_price, force_expert)
 
-        # ==========================================
         # PHASE 3 : TIER 3 - EXPERT PRO (Conditionnel)
-        # ==========================================
         if trigger_reason:
-            self.logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
-            model_chain.append(expert_pro_model_name)
-            
-            expert_context_raw = config.get('expertProContextInstruction', DEFAULT_EXPERT_CONTEXT)
-            if isinstance(expert_context_raw, list):
-                expert_context_raw = "\n".join(expert_context_raw)
-            
-            # Contextualisation de l'expert pro avec le json T2
-            context_t3 = expert_context_raw.format(
-                status=verdict,
-                reasoning=result_t2.get('summary', 'Analyse rapide T2 terminée.')
-            )
-            
-            # base_prompt avant context_t3 (et non l'inverse) : aligne T3 sur le pattern déjà
-            # correct de T1/T2 (bloc statique taxonomie/prompt de base en tête, addendum
-            # spécifique au Tier après) pour laisser le cache implicite Gemini matcher le
-            # préfixe statique commun — l'ordre précédent plaçait le contexte T2 (dynamique,
-            # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
-            full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
-
-            result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
-            
-            if err_t3 or not result_t3:
-                # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite
-                # utilisateur) : un Tier 3 déclenché (auto ou Analyse Expert manuelle) doit soit
-                # réussir en tant que tel, soit échouer visiblement — l'ancien repli produisait un
-                # résultat quasi identique à l'analyse déjà en base (le T2 avait déjà tourné juste
-                # avant), donnant l'impression trompeuse qu'une "Analyse Expert" n'avait servi à
-                # rien. `_call_gemini_json` a déjà notifié _notify_model_unavailable si l'erreur y
-                # ressemble (voir plus haut dans ce fichier) — pas de second appel ici.
-                # L'exception remonte jusqu'à `analyze_deal()` (aucun try/except entre les deux) :
-                # chaque appelant (bot.py::analyze_single_deal/process_retry_queue/
-                # reevaluate_not_promoted, et _dispatch_analysis_batch pour le scan automatique) la
-                # traite déjà comme un échec d'analyse (statut 'analysis_failed' / commande en
-                # erreur / annonce non stockée), sans qu'aucun de ces sites n'ait besoin d'être
-                # modifié pour ce changement.
-                error_msg = f"Échec de l'analyse Expert Pro (Tier 3, {expert_pro_model_name}) : {err_t3 or 'réponse vide'}"
-                self.logger.error(f"❌ {error_msg}")
-                raise RuntimeError(error_msg)
-
-            # L'Expert Pro écrase le T2
-            result_t3["model_used"] = " -> ".join(model_chain)
-            result_t3["tier3_trigger"] = trigger_reason
-            self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
+            result_t3 = self._run_t3_phase(base_prompt, images, config, expert_pro_model_name, user_email,
+                                           model_chain, result_t2, trigger_reason)
             return (result_t3, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
 
+        self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
+        result_t2["model_used"] = " -> ".join(model_chain)
+        return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
+
+    @staticmethod
+    def _t1_early_result(verdict, reasoning, classification, model_chain):
+        """Résultat d'une sortie anticipée du Portier (rejet T1, NOT_PROMOTED, GATEKEEPER_FAILED_SKIP)."""
+        return {
+            "verdict": verdict, "reasoning": reasoning,
+            "classification": classification,
+            "model_used": " -> ".join(model_chain),
+        }
+
+    def _t1_call_chain(self, full_prompt_t1, images, gatekeeper_model_name, user_email):
+        """Essaie chaque fournisseur de `T1_PROVIDER_CHAIN` dans l'ordre. Retourne
+        `(result_t1, primary_provider, tried, chain_errors)` ; `result_t1` est None si TOUTE la chaîne échoue."""
+        # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
+        # fournisseur en pause (coupe-circuit, voir t1_circuit_breaker.py) est sauté sans être
+        # appelé. Deux échecs distincts :
+        # - ERREUR RÉELLE (candidate_err) : appel raté (réseau, auth, JSON invalide...) — DÉJÀ
+        #   enregistré dans `llm_usage` (ok=False, error_type) par l'appelé
+        #   (`_call_openai_compatible_json`/`_call_gemini_json`), ne PAS le ré-enregistrer ici
+        #   (double comptage) ; compte seulement pour le coupe-circuit.
+        # - RÉPONSE VIDE SANS ERREUR (`{}`, ex: JSON normalisé depuis un tableau vide) : l'appel
+        #   a réussi et est DÉJÀ enregistré ok=True par l'appelé (tokens réels facturés) — ne
+        #   pas ré-enregistrer ok=False dessus (double comptage) ni compter comme panne pour le
+        #   coupe-circuit (le fournisseur a bien répondu, c'est un problème de qualité de
+        #   réponse, pas de disponibilité) : on essaie juste le candidat suivant.
+        # L'annonce n'est sautée (retentée au prochain cycle) que si TOUTE la chaîne échoue.
+        result_t1, primary_provider = None, None
+        tried, chain_errors = [], []
+        for candidate in T1_PROVIDER_CHAIN:
+            if t1_circuit_breaker.is_open(candidate):
+                self.logger.warning(f"   ⏸️ [Portier/{candidate}] en pause (coupe-circuit) — passage au suivant.")
+                continue
+            tried.append(candidate)
+            candidate_result, candidate_err = self._call_t1_provider(
+                candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
+            )
+            if candidate_err:
+                t1_circuit_breaker.record_failure(
+                    candidate, T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS
+                )
+                # L'échec est déjà enregistré dans `llm_usage` (ok=False + error_type) par l'appelé
+                # (`_call_openai_compatible_json`/`_call_gemini_json`), une ligne par tentative.
+                self.logger.warning(f"   ⚠️ [Portier/{candidate}] échec — {candidate_err}")
+                chain_errors.append(f"{candidate}: {candidate_err}")
+                continue
+            if not candidate_result:
+                self.logger.warning(f"   ⚠️ [Portier/{candidate}] réponse vide — passage au suivant.")
+                chain_errors.append(f"{candidate}: réponse vide")
+                continue
+            t1_circuit_breaker.record_success(candidate)
+            result_t1, primary_provider = candidate_result, candidate
+            break
+        return result_t1, primary_provider, tried, chain_errors
+
+    def _run_t1_phase(self, listing_data, config, taxonomy, images, user_comment, user_email,
+                      gatekeeper_model_name, model_chain):
+        """PHASE 1 : TIER 1 - PORTIER (Chantier I, 2026-09-29 : chaîne T1_PROVIDER_CHAIN — local Dell
+        primaire / Qwen cloud secours par défaut, voir config.py). Retourne un `_T1Outcome` ;
+        `early_result` non None = sortie anticipée de la cascade (rejet T1, NOT_PROMOTED ou
+        GATEKEEPER_FAILED_SKIP). Ajoute le modèle T1 à `model_chain` (en place)."""
+        rejection_verdicts = config.get('rejectionVerdicts', DEFAULT_REJECTION_VERDICTS)
+        gatekeeper_brand = None
+        gatekeeper_classification = None
+
+        self.logger.info(f"   🛡️ Étape 1 : Portier (chaîne {' -> '.join(T1_PROVIDER_CHAIN)})")
+        gatekeeper_instruction = config.get('gatekeeperVerbosityInstruction', DEFAULT_GATEKEEPER_INSTRUCTION)
+        if isinstance(gatekeeper_instruction, list):
+            gatekeeper_instruction = "\n".join(gatekeeper_instruction)
+        # Prompt simplifié (2026-09-29, décision utilisateur — voir _construct_t1_gatekeeper_prompt) :
+        # n'est PLUS basé sur base_prompt (réservé à T2/T3) — la correction utilisateur
+        # (flux "Ré-analyser" sans Force Expert, rare mais possible, voir bot.py::analyze_single_deal)
+        # est passée directement pour être placée AVANT `<annonce>`, jamais après (voir docstring).
+        knowledge_block, knowledge_trace = self._t1_knowledge(listing_data)
+        full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment,
+                                                              knowledge_block)
+
+        # Observation miroir Chantier H (Qwen vs Gemini) : conservée telle quelle, ORTHOGONALE
+        # à la chaîne T1_PROVIDER_CHAIN — toujours sur l'opposé de T1_GATEKEEPER_PROVIDER, quel
+        # que soit le fournisseur qui décidera réellement ci-dessous (y compris "local"), pour
+        # continuer à accumuler la comparaison historique Qwen/Gemini sans dépendre du résultat
+        # de la chaîne. Lancée en parallèle pour ne pas cumuler les latences sur chaque annonce.
+        shadow_provider = "gemini" if T1_GATEKEEPER_PROVIDER == "qwen" else "qwen"
+
+        shadow_result_holder = [{}]
+
+        def _observe_shadow():
+            shadow_result_holder[0] = self._run_t1_shadow_observation(
+                full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email
+            )
+
+        shadow_thread = threading.Thread(target=contextvars.copy_context().run, args=(_observe_shadow,), daemon=True)
+        shadow_thread.start()
+
+        result_t1, primary_provider, tried, chain_errors = self._t1_call_chain(
+            full_prompt_t1, images, gatekeeper_model_name, user_email
+        )
+
+        t1_real_model_name = (
+            self._t1_model_name_for(primary_provider, gatekeeper_model_name) if primary_provider
+            else "/".join(self._t1_model_name_for(p, gatekeeper_model_name) for p in (tried or T1_PROVIDER_CHAIN))
+        )
+        model_chain.append(t1_real_model_name)
+
+        shadow_thread.join()
+        qwen_observation = {**shadow_result_holder[0], **knowledge_trace}   # + traçabilité de la base de connaissances
+
+        if not result_t1:
+            # Skip (2026-09-24, chaîne Chantier I depuis le 2026-09-29) : un échec de TOUTE la
+            # chaîne T1_PROVIDER_CHAIN ne fait plus fail-open vers l'Analyste (ce qui revenait à
+            # ne plus filtrer AUCUNE annonce tant que ça persistait) — l'annonce est sautée sans
+            # être stockée ni marquée traitée, elle sera retentée au prochain cycle de scan
+            # (voir GATEKEEPER_FAILED_SKIP plus bas, et bot.py::handle_deal_found).
+            gatekeeper_status = "ERROR_GATEKEEPER"
+            if chain_errors:
+                gatekeeper_reason = " | ".join(chain_errors)
+            elif not T1_PROVIDER_CHAIN:
+                gatekeeper_reason = "T1_PROVIDER_CHAIN est vide — configuration invalide."
+            else:
+                gatekeeper_reason = "Toute la chaîne T1_PROVIDER_CHAIN est en pause (coupe-circuit)."
+            chain_label = "T1-chain(" + ",".join(tried or T1_PROVIDER_CHAIN) + ")"
+            self.logger.error(f"   ❌ [Portier réel/{chain_label}] échec sur toute la chaîne — annonce sautée, sera retentée au prochain cycle : {gatekeeper_reason}")
+            # Deux alertes distinctes : ne prétendre "modèle retiré" que si l'erreur y
+            # ressemble vraiment (_is_model_unavailable_error) — sinon (image tronquée, panne
+            # réseau/TokenRouter transitoire, etc.), une alerte honnête qui ne présume pas la
+            # cause. Les deux sont throttlées séparément (clé distincte).
+            if self._is_model_unavailable_error(gatekeeper_reason):
+                self._notify_model_unavailable(chain_label, gatekeeper_reason, user_email)
+            else:
+                self._notify_gatekeeper_failure(chain_label, gatekeeper_reason, user_email)
         else:
-            self.logger.info("   ✋ Fin de l'analyse (Tier 3 non déclenché).")
-            result_t2["model_used"] = " -> ".join(model_chain)
-            return (result_t2, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)
+            gatekeeper_status = (result_t1.get('status') or result_t1.get('verdict') or 'UNKNOWN').upper()
+            gatekeeper_reason = result_t1.get('reason') or result_t1.get('reasoning') or 'Pas de raison fournie.'
+            gatekeeper_brand = result_t1.get('brand')
+            gatekeeper_classification = result_t1.get('classification')
+
+            if gatekeeper_status == 'UNKNOWN':
+                gatekeeper_status = 'ERROR'
+                gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
+
+            self.logger.info(f"   👉 Verdict Portier : {gatekeeper_status} ({gatekeeper_reason})")
+
+            def _outcome(early_result=None):
+                return _T1Outcome(gatekeeper_status, gatekeeper_reason, gatekeeper_brand,
+                                  gatekeeper_classification, qwen_observation, early_result)
+
+            legacy_rejection = ['REJECTED', 'REJECTED (SERVICE)']
+            if gatekeeper_status in rejection_verdicts or gatekeeper_status in legacy_rejection or gatekeeper_status.startswith('REJECTED'):
+                return _outcome(self._t1_early_result(gatekeeper_status, gatekeeper_reason, gatekeeper_classification, model_chain))
+
+            # ==========================================
+            # RATTRAPAGE CHANTIER G : ROUTAGE PAR RECHERCHE ACTIVE (promotion large)
+            # ==========================================
+            # Le mode par défaut ("tout analyser, filtrer après") reste inchangé tant
+            # qu'aucune recherche active n'est configurée (`activeSearchFamilies` vide/absent).
+            # Quand une recherche est active, seule une correspondance sur la FAMILLE de forme
+            # (`gatekeeper_classification`, déjà produite par le Portier — aucun nouvel appel
+            # ni champ de prompt) promeut vers T2/T3 ; le scraping et le Portier lui-même
+            # continuent de tourner sur 100% des annonces, seul ce routage post-T1 change.
+            # Garde-fou non négociable, restreint le 2026-09-29 : SEUL un verdict PEPITE
+            # littéral (T1_FILTER_BYPASS_VERDICTS) passe TOUJOURS, correspondance ou non — ne
+            # jamais cacher une vraie pépite hors-filtre. Les 4 autres verdicts d'opportunité
+            # (FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION) sont désormais soumis au filtre
+            # comme n'importe quel verdict ordinaire — un utilisateur qui exclut une catégorie
+            # (ex: amplis) ne veut pas la voir malgré un potentiel de revente, et le catalogue
+            # partagé couvre déjà cette catégorie pour un autre utilisateur dont le filtre
+            # l'inclut.
+            # Second garde-fou (Chantier H) : un verdict d'erreur (T1_ERROR_STATUSES — Portier
+            # planté ou réponse malformée) n'a par définition aucune classification fiable ;
+            # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
+            # vide ⇒ aucune correspondance) au lieu du skip dédié juste après ce bloc.
+            active_search_families = config.get('activeSearchFamilies') or []
+            if (
+                active_search_families
+                and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
+                and gatekeeper_status not in T1_ERROR_STATUSES
+            ):
+                matches_active_search = matches_active_search_family(gatekeeper_classification, active_search_families)
+                if not matches_active_search:
+                    self.logger.info(
+                        f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "
+                        f"et pas une pépite ({gatekeeper_status}) — non promue vers T2/T3."
+                    )
+                    return _outcome(self._t1_early_result(
+                        "NOT_PROMOTED",
+                        f"Ne correspond à aucune recherche active "
+                        f"({', '.join(active_search_families)}) et n'est pas jugée "
+                        f"pépite potentielle par le Portier.",
+                        gatekeeper_classification, model_chain,
+                    ))
+
+        # Skip (2026-09-24, provisoire) : un Portier qui n'a produit aucun verdict fiable
+        # (échec d'appel OU réponse malformée, T1_ERROR_STATUSES) ne fait plus fail-open vers
+        # l'Analyste — `bot.py::handle_deal_found` reconnaît ce verdict et n'écrit rien en
+        # base, l'annonce sera donc re-scrapée et retentée au prochain cycle plutôt que
+        # figée avec une analyse T2 jamais filtrée par le Portier.
+        early_result = None
+        if gatekeeper_status in T1_ERROR_STATUSES:
+            early_result = self._t1_early_result("GATEKEEPER_FAILED_SKIP", gatekeeper_reason,
+                                                 gatekeeper_classification, model_chain)
+        return _T1Outcome(gatekeeper_status, gatekeeper_reason, gatekeeper_brand,
+                          gatekeeper_classification, qwen_observation, early_result)
+
+    def _run_t2_phase(self, base_prompt, images, config, analyst_model_name, user_email, model_chain):
+        """PHASE 2 : TIER 2 - ANALYSTE (Flash). Retourne `(result_t2, err_t2)` ; ajoute le modèle à `model_chain`."""
+        self.logger.info(f"   🔍 Étape 2 : Analyste ({analyst_model_name}) - Structuration & Scores...")
+        model_chain.append(analyst_model_name)
+        analyst_instruction = config.get('analystVerbosityInstruction', DEFAULT_ANALYST_INSTRUCTION)
+        if isinstance(analyst_instruction, list):
+            analyst_instruction = "\n".join(analyst_instruction)
+        full_prompt_t2 = f"{base_prompt}\n\n--- INSTRUCTION SPÉCIALE ANALYSTE ---\n{analyst_instruction}"
+
+        return self._call_gemini_json(analyst_model_name, [full_prompt_t2] + images, user_email, action="t2_analyst")
+
+    def _run_t3_phase(self, base_prompt, images, config, expert_pro_model_name, user_email, model_chain,
+                      result_t2, trigger_reason):
+        """PHASE 3 : TIER 3 - EXPERT PRO (déjà décidé par `expert_trigger_reason`). Retourne le résultat T3
+        (qui écrase celui du T2) ; LÈVE `RuntimeError` si l'appel échoue (voir commentaire ci-dessous)."""
+        self.logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
+        model_chain.append(expert_pro_model_name)
+
+        expert_context_raw = config.get('expertProContextInstruction', DEFAULT_EXPERT_CONTEXT)
+        if isinstance(expert_context_raw, list):
+            expert_context_raw = "\n".join(expert_context_raw)
+
+        # Contextualisation de l'expert pro avec le json T2
+        context_t3 = expert_context_raw.format(
+            status=result_t2.get('verdict', ''),
+            reasoning=result_t2.get('summary', 'Analyse rapide T2 terminée.')
+        )
+
+        # base_prompt avant context_t3 (et non l'inverse) : aligne T3 sur le pattern déjà
+        # correct de T1/T2 (bloc statique taxonomie/prompt de base en tête, addendum
+        # spécifique au Tier après) pour laisser le cache implicite Gemini matcher le
+        # préfixe statique commun — l'ordre précédent plaçait le contexte T2 (dynamique,
+        # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
+        full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
+
+        result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
+
+        if err_t3 or not result_t3:
+            # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite
+            # utilisateur) : un Tier 3 déclenché (auto ou Analyse Expert manuelle) doit soit
+            # réussir en tant que tel, soit échouer visiblement — l'ancien repli produisait un
+            # résultat quasi identique à l'analyse déjà en base (le T2 avait déjà tourné juste
+            # avant), donnant l'impression trompeuse qu'une "Analyse Expert" n'avait servi à
+            # rien. `_call_gemini_json` a déjà notifié _notify_model_unavailable si l'erreur y
+            # ressemble (voir llm_clients.py) — pas de second appel ici.
+            # L'exception remonte jusqu'à `analyze_deal()` (aucun try/except entre les deux) :
+            # chaque appelant (bot.py::analyze_single_deal/process_retry_queue/
+            # reevaluate_not_promoted, et _dispatch_analysis_batch pour le scan automatique) la
+            # traite déjà comme un échec d'analyse (statut 'analysis_failed' / commande en
+            # erreur / annonce non stockée), sans qu'aucun de ces sites n'ait besoin d'être
+            # modifié pour ce changement.
+            error_msg = f"Échec de l'analyse Expert Pro (Tier 3, {expert_pro_model_name}) : {err_t3 or 'réponse vide'}"
+            self.logger.error(f"❌ {error_msg}")
+            raise RuntimeError(error_msg)
+
+        # L'Expert Pro écrase le T2
+        result_t3["model_used"] = " -> ".join(model_chain)
+        result_t3["tier3_trigger"] = trigger_reason
+        self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
+        return result_t3

@@ -1,5 +1,14 @@
 # Journal de Bord - Guitar Hunter AI
 
+[2026-10-02] [PRO] Refactoring `analyzer.py`, étape 2 : cascade découpée en phases T1/T2/T3 (`_run_analysis_cascade_body` 337 → 86 lignes), verrouillée par 13 tests de caractérisation écrits AVANT → aucun changement de comportement.
+- **Filet de sécurité d'abord (commit `1e23d65`)** : `TestCascadeCharacterization` (13 tests sur l'API publique `analyze_deal`, réseau mocké) : rejet T1 (T2 jamais appelé), T2 seul, Expert déclenché (chaîne `model_used`, `tier3_trigger`), échec T3 (`RuntimeError`), échec T2 (verdict du Portier conservé, `(Error)`), `force_expert` (T1 sauté, `MANUAL_RETRY`), Recherche Active (NOT_PROMOTED / correspondance / bypass PEPITE), échec du Portier (`GATEKEEPER_FAILED_SKIP`), modèle T1 dans `model_used`, correction utilisateur dans T1 et T2, modèles lus de la config. Passent sur le code d'avant ET d'après.
+- **Découpage** : `_run_t1_phase` (Portier, observation miroir, base de connaissances, routage ; retourne un `_T1Outcome` NamedTuple dont `early_result` non None = sortie anticipée) + `_t1_call_chain` (chaîne `T1_PROVIDER_CHAIN` + coupe-circuit) + `_t1_early_result` + `_run_t2_phase` + `_run_t3_phase` (Expert, lève `RuntimeError` inchangé). Le code et les commentaires de décision ont été déplacés, pas réécrits.
+- **Tests** : serveur **84 réussis, 6 échecs** (les 6 de `test_bot.py` Kijiji/AddCity, antérieurs et sans rapport) ; local Windows 41 réussis + 5 `TestT1Knowledge` bloqués par `libpq` (comme avant).
+- **Bilan taille** : `analyzer.py` 1 013 → 760 lignes (+ `llm_clients.py` 330), plus longue méthode 337 → 147 lignes (`_run_t1_phase`, dont ~30 lignes de commentaires de décision). Le fichier a peu diminué au total : les docstrings et NamedTuple ajoutés compensent en partie ; le gain est la lisibilité et la testabilité par phase.
+- **Reste (facultatif)** : sortir de `_run_t1_phase` la gestion d'échec de chaîne et le routage Recherche Active en méthodes dédiées ; alléger les commentaires d'historique. Non poussé.
+
+---
+
 [2026-10-02] [PRO] Refactoring `analyzer.py` (étapes 3 puis 1) : 1 013 → 735 lignes, clients LLM extraits dans `backend/llm_clients.py`, décision de l'Expert en fonction pure testée → aucun changement de comportement.
 - **Constat** : `analyzer.py` à ~1 000 lignes (822 trente commits plus tôt), une seule classe, `_run_analysis_cascade_body` de 337 lignes (T1 ~190, décision Expert ~15, T2 ~50, T3 ~50).
 - **Étape 3 (commit `4036bf8`)** : `expert_trigger_reason(config, result_t2, numeric_price, force_expert)` — fonction pure de module, mêmes seuils/ordre/messages que la suite de `elif` d'origine ; 12 tests (`TestExpertTriggerReason` : chaque seuil et ses bornes, ordre de priorité, seuils lus dans la config, valeurs manquantes).
