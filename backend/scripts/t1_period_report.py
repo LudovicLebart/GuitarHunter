@@ -2,8 +2,8 @@
 
 Compare des périodes séparées par des instants de changement (contexte Ollama, prompt…) :
   - T1 : fournisseur, volume, échecs, latence (médiane / P90), tokens d'entrée ;
-  - T2 / T1 : proxy du taux d'acceptation du Portier (et du coût en aval) ;
-  - verdicts initiaux par annonce (`guitar_deals.initial_verdict`) : rejets, FAIR, BAD_DEAL, opportunités.
+  - décisions par annonce, rattachées à la période de leur PREMIER appel T1 (jamais à `guitar_deals.timestamp`, qui
+    est la date de dernière modification) : rejets, non promues, FAIR, BAD_DEAL, opportunités, part passée en T2.
 
 La base est en UTC ; les instants sont donnés en UTC (ISO, ex. 2026-10-02T13:00Z). Le serveur est en heure de
 Montréal (EDT, UTC-4) : 17:17 EDT = 21:17Z.
@@ -77,25 +77,27 @@ def t1_by_period(conn, since, boundaries, labels):
         GROUP BY 1, 2 ORDER BY 1, 2""", p + [since])
 
 
-def t2_over_t1(conn, since, boundaries, labels):
-    case, p = _case("created_at", boundaries, labels)
-    return fetch(conn, f"""
-        SELECT {case} AS periode,
-               count(*) FILTER (WHERE action = 't1_gatekeeper' AND ok) AS t1_ok,
-               count(*) FILTER (WHERE action = 't2_analyst') AS t2
-        FROM llm_usage WHERE created_at >= %s GROUP BY 1 ORDER BY 1""", p + [since])
+def deals_by_period(conn, since, boundaries, labels):
+    """Une ligne par annonce, rattachée à la période de son PREMIER appel T1 réussi (`llm_usage`).
 
-
-def verdicts_by_period(conn, since, boundaries, labels):
-    case, p = _case('"timestamp"', boundaries, labels)
+    `guitar_deals.timestamp` n'est PAS la date de scan : c'est la date de dernière modification (annonce passée en
+    « vendue », ré-analyse…), donc inutilisable pour dater une décision du Portier. Le T2 est cherché par annonce
+    (`deal_id`), pas par date d'appel : un T2 peut tomber dans une autre période que son T1."""
+    case, p = _case("f.t", boundaries, labels)
     return fetch(conn, f"""
+        WITH f AS (SELECT deal_id, min(created_at) AS t FROM llm_usage
+                   WHERE action = 't1_gatekeeper' AND ok AND deal_id IS NOT NULL AND created_at >= %s
+                   GROUP BY deal_id)
         SELECT {case} AS periode, count(*) AS n,
-               count(*) FILTER (WHERE initial_verdict LIKE 'REJECTED%%') AS rejets,
-               count(*) FILTER (WHERE initial_verdict = 'FAIR') AS fair,
-               count(*) FILTER (WHERE initial_verdict = 'BAD_DEAL') AS bad_deal,
-               count(*) FILTER (WHERE initial_verdict = ANY(%s)) AS opportunite
-        FROM guitar_deals WHERE "timestamp" >= %s AND initial_verdict IS NOT NULL
-        GROUP BY 1 ORDER BY 1""", p + [list(OPPORTUNITY), since])
+               count(*) FILTER (WHERE g.initial_verdict LIKE 'REJECTED%%') AS rejets,
+               count(*) FILTER (WHERE g.initial_verdict = 'NOT_PROMOTED') AS non_promues,
+               count(*) FILTER (WHERE g.initial_verdict = 'FAIR') AS fair,
+               count(*) FILTER (WHERE g.initial_verdict = 'BAD_DEAL') AS bad_deal,
+               count(*) FILTER (WHERE g.initial_verdict = ANY(%s)) AS opportunite,
+               count(*) FILTER (WHERE EXISTS (SELECT 1 FROM llm_usage u
+                                              WHERE u.deal_id = f.deal_id AND u.action = 't2_analyst')) AS avec_t2
+        FROM f JOIN guitar_deals g ON g.id = f.deal_id
+        GROUP BY 1 ORDER BY 1""", [since] + p + [list(OPPORTUNITY)])
 
 
 def pct(part, whole):
@@ -127,17 +129,16 @@ def main(argv=None):
     with psycopg.connect(url) as conn:
         conn.read_only = True
         t1 = t1_by_period(conn, since, boundaries, labels)
-        ratio = t2_over_t1(conn, since, boundaries, labels)
-        verdicts = verdicts_by_period(conn, since, boundaries, labels)
+        deals = deals_by_period(conn, since, boundaries, labels)
 
     print(f"Périodes (UTC) : " + " | ".join(f"{labels[i]} < {boundaries[i]:%m-%d %H:%M}" for i in range(len(boundaries))) + f" | {labels[-1]}")
     print_table("T1 par fournisseur", ["période", "fournisseur", "n", "échecs", "méd. ms", "P90 ms", "tokens entrée"],
                 [(r["periode"], r["provider"], r["n"], r["ko"], r["med_ms"], r["p90_ms"], r["tok_in"]) for r in t1])
-    print_table("T2 sur T1 (proxy du taux d'acceptation et du coût en aval)", ["période", "T1 ok", "T2", "T2 / T1"],
-                [(r["periode"], r["t1_ok"], r["t2"], pct(r["t2"], r["t1_ok"])) for r in ratio])
-    print_table("Verdicts initiaux du Portier, par annonce", ["période", "annonces", "rejets", "% rejets", "FAIR", "BAD_DEAL", "opportunité"],
-                [(r["periode"], r["n"], r["rejets"], pct(r["rejets"], r["n"]), r["fair"], r["bad_deal"], r["opportunite"]) for r in verdicts])
-    small = [r["periode"] for r in verdicts if r["n"] < MIN_DEALS_SIGNIFICANT]
+    print_table("Décisions du Portier, par annonce (période du 1er appel T1)",
+                ["période", "annonces", "rejets", "% rejets", "non promues", "FAIR", "BAD_DEAL", "opportunité", "avec T2", "% T2"],
+                [(r["periode"], r["n"], r["rejets"], pct(r["rejets"], r["n"]), r["non_promues"], r["fair"], r["bad_deal"],
+                  r["opportunite"], r["avec_t2"], pct(r["avec_t2"], r["n"])) for r in deals])
+    small = [r["periode"] for r in deals if r["n"] < MIN_DEALS_SIGNIFICANT]
     if small:
         print(f"\nATTENTION : moins de {MIN_DEALS_SIGNIFICANT} annonces dans {small} — écarts non significatifs.")
 
