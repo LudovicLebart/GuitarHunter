@@ -242,6 +242,16 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ---
 
+## 🏠 Auto-hébergement du site et des photos (priorité basse — décision utilisateur 2026-10-02)
+
+*Plan complet, relu par Opus : [`plans/SELF_HOSTING_SITE_AND_PHOTOS_PLAN.md`](plans/SELF_HOSTING_SITE_AND_PHOTOS_PLAN.md). Objectif : dépôt GitHub privé (donc plus de GitHub Pages), Firebase réduit à l'authentification. Deux chantiers indépendants ; rien n'est implémenté.*
+
+- [ ] **Chantier S — héberger le site sur le serveur** (`https://serveur.tail16b52e.ts.net/app/`, nginx local derrière le Funnel existant) : S0 vérifier domaines autorisés Firebase Auth + restrictions de la clé d'API ; S1 nginx (`/srv/guitarhunter/`, port local dédié) ; S2 `base` Vite paramétrable ; S3 déploiement CI par rsync + lien atomique ; S4 CORS ; S5 recette en parallèle de Pages ; **S5 bis tester l'accès git de chaque machine avant de passer le dépôt en privé** ; S6 bascule (retirer Pages, dépôt privé).
+- [ ] **Chantier P — photos sur le serveur** (16 949 photos / 4 198 annonces, ≈ 850 Mo estimés) : P0 inventaire exact du bucket ; P1 stockage + nginx `/photos` ; **P8 sauvegarde quotidienne vers le Dell (avant la bascule)** ; P2 endpoint d'envoi (règles de `storage.rules` reprises) ; P3 bot en double écriture (`PHOTOS_BACKEND`) ; P4 copie vérifiée par MD5 ; P5 vérification + audit des consommateurs dans le code ; P6 résolution des URLs à la sortie de l'API (interrupteur `PHOTOS_BASE_URL`) ; P7 observation 2-4 semaines puis nettoyage Firebase Storage (bucket vidé seulement après copie vérifiée **et accord explicite**).
+- [ ] **Questions ouvertes** : quelle branche publie le site ; nom de domaine personnalisé ou `.ts.net` ; `/` (API de test) à déplacer ; minutes GitHub Actions consommées ; taille réelle du bucket.
+
+---
+
 ## 🔍 Vision IA — Détection "besoin de neck reset" (Exploration — 2026-08-14, avancée 2026-08-19)
 
 *Projet satellite, pas encore intégré au pipeline Guitar Hunter. Réflexion R&D complète : [`docs/management/plans/NECK_RESET_VISION_PLAN.md`](plans/NECK_RESET_VISION_PLAN.md). Dataset A collecté à l'échelle (1066 annonces/5974 photos), accès GPU (Dell de MoneyBot) opérationnel, première validation d'inférence réussie (OWLv2, 8/8 détections, VRAM largement suffisante) — détail §7 du plan. Reste à faire, dans l'ordre :*
