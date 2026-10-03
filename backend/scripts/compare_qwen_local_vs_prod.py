@@ -55,6 +55,7 @@ sys.path.insert(0, os.getcwd())
 
 from backend import guitar_knowledge
 from backend.t1_prompt import build_t1_gatekeeper_prompt
+from backend.scripts.crop_manifest import images_for_deal, load_manifest
 
 from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_MAIN_PROMPT, DEFAULT_TAXONOMY,
@@ -93,6 +94,37 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
         },
     },
 }
+
+# Variantes de contrat T1 à comparer (« pistes gratuites d'Opus », TODO.md). L'ordre des propriétés compte : la
+# génération contrainte par schéma (Ollama `format`) produit les champs dans cet ordre, donc `reasoning` placé AVANT
+# `status` laisse le modèle raisonner avant de trancher. `baseline` = contrat de prod, inchangé.
+T1_MOTIFS_REJET = ["aucun", "accessoire_seul", "service_ou_arnaque", "pas_un_instrument", "deja_vendu", "hors_perimetre"]
+SCHEMA_VARIANTS = ("baseline", "reasoning_first", "reasoning_motif")
+_VARIANT_PROMPT_ADDENDUM = {
+    "baseline": "",
+    "reasoning_first": "\nRédige d'abord `reasoning` (2 à 3 phrases), puis donne `status`, `brand` et `classification`.",
+    "reasoning_motif": "\nRédige d'abord `reasoning` (2 à 3 phrases), puis `motif_rejet` : la raison du rejet parmi la liste "
+                       "fermée, ou \"aucun\" si l'annonce est acceptée ; puis `status`, `brand` et `classification`.",
+}
+
+
+def build_t1_schema(variant):
+    """Enveloppe `json_schema` OpenAI-compatible de la variante demandée."""
+    if variant not in SCHEMA_VARIANTS:
+        raise ValueError(f"variante inconnue : {variant} (attendues : {SCHEMA_VARIANTS})")
+    status = {"type": "string", "enum": sorted(T1_VALID_STATUSES)}
+    if variant == "baseline":
+        return T1_GATEKEEPER_OPENAI_JSON_SCHEMA
+    props = {"reasoning": {"type": "string"}}
+    if variant == "reasoning_motif":
+        props["motif_rejet"] = {"type": "string", "enum": T1_MOTIFS_REJET}
+    props.update({"status": status, "brand": {"type": "string"}, "classification": {"type": "string"}})
+    return {"type": "json_schema", "json_schema": {
+        "name": "t1_gatekeeper_verdict", "strict": True,
+        "schema": {"type": "object", "properties": props, "required": list(props), "additionalProperties": False}}}
+
+
+ACTIVE_T1_SCHEMA = T1_GATEKEEPER_OPENAI_JSON_SCHEMA     # remplacé dans main() selon --schema-variant
 
 # Mêmes défauts que backend/benchmark/candidates.py::call_qwen_local (Chantier I) — dupliqués
 # ici plutôt qu'importés (candidates.py tire anthropic/google.generativeai au chargement, inutile
@@ -230,7 +262,7 @@ def _call_qwen_local_json(prompt, images, model, temperature=None, seed=None):
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": content}],
-            response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA,
+            response_format=ACTIVE_T1_SCHEMA,
             extra_body={"options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
                                     **_sampling_options(temperature, seed)}},
         )
@@ -303,7 +335,7 @@ def _call_qwen_local_json_native(prompt, images, model, temperature=None, seed=N
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": prompt, "images": images_b64}],
-            "format": T1_GATEKEEPER_OPENAI_JSON_SCHEMA["json_schema"]["schema"],
+            "format": ACTIVE_T1_SCHEMA["json_schema"]["schema"],
             "options": {"num_ctx": QWEN_LOCAL_NUM_CTX, "num_predict": QWEN_LOCAL_MAX_OUTPUT_TOKENS,
                         **_sampling_options(temperature, seed)},
             "think": False,
@@ -464,9 +496,24 @@ def main():
                               "à cette date. Permet de comparer contre l'ère Gemini Flash-Lite "
                               "(ancien Portier T1, avant la bascule Qwen cloud du 2026-09-20) "
                               "plutôt que les annonces récentes (décidées par Qwen cloud depuis).")
+    parser.add_argument("--crops-manifest", default=None,
+                         help="JSON {id_annonce: [crops]} (voir backend/scripts/crop_manifest.py) : pour les annonces du "
+                              "manifeste, le Portier reçoit ces crops à la place des photos entières (banc « photos "
+                              "entières contre crops », PARTS_DETECTOR_AND_CROPS_PLAN.md étape 6). Les autres annonces "
+                              "gardent leurs photos entières. Rejouer deux fois (avec et sans) puis comparer les sorties.")
+    parser.add_argument("--schema-variant", choices=SCHEMA_VARIANTS, default="baseline",
+                         help="Variante du contrat JSON du Portier (baseline = prod). reasoning_first : `reasoning` avant "
+                              "`status` ; reasoning_motif : + `motif_rejet` à liste fermée. Ajoute une phrase au prompt "
+                              "décrivant l'ordre/le champ.")
+    parser.add_argument("--max-crops", type=int, default=8,
+                         help="Nombre maximal de crops envoyés par annonce avec --crops-manifest (défaut 8).")
     args = parser.parse_args()
     if args.with_knowledge and not args.simplified_prompt:
         parser.error("--with-knowledge exige --simplified-prompt (le prompt de prod du Portier)")
+    global ACTIVE_T1_SCHEMA
+    ACTIVE_T1_SCHEMA = build_t1_schema(args.schema_variant)
+    crops_manifest = load_manifest(args.crops_manifest) if args.crops_manifest else {}
+    crops_base_dir = os.path.dirname(os.path.abspath(args.crops_manifest)) if args.crops_manifest else "."
     temperature = None if args.temperature < 0 else args.temperature     # -1 = réglages par défaut du modèle (comme la prod)
     seed = None if temperature is None else args.seed
     if args.with_knowledge:
@@ -565,6 +612,7 @@ def main():
             if args.instruction_file:
                 with open(args.instruction_file, encoding="utf-8") as f:
                     gatekeeper_instruction = f.read().strip()
+            gatekeeper_instruction += _VARIANT_PROMPT_ADDENDUM[args.schema_variant]
             main_prompt = analysis_config.get("mainAnalysisPrompt", DEFAULT_MAIN_PROMPT)
 
             kb_fiches = []
@@ -585,6 +633,12 @@ def main():
             image_urls = row.get("storage_image_urls") or row.get("image_urls") or []
             image_urls = json.loads(image_urls) if isinstance(image_urls, str) else image_urls
             images = [img for url in image_urls[:MAX_IMAGES] if (img := _download_and_optimize_image(url))]
+            images_mode = "full"
+            if crops_manifest:
+                images_mode, crop_images = images_for_deal(row["id"], crops_manifest, crops_base_dir, args.max_crops,
+                                                           download=_download_and_optimize_image)
+                if crop_images:
+                    images = crop_images
 
             # Diagnostic (2026-09-27) : la fenêtre réellement disponible sur le Dell s'est révélée
             # être 4096 tokens, pas les 8192 demandés (voir QWEN_LOCAL_NUM_CTX ci-dessus) — cette
@@ -636,6 +690,8 @@ def main():
                                 "cloud_verdict": cloud_verdict, "local_verdict": local_verdict,
                                 "initial_verdict": row.get("initial_verdict"), "final_verdict": row.get("final_verdict"),
                                 "reclassified": bool(args.reclassified),
+                                "images_mode": images_mode, "n_images": len(images),
+                                "schema_variant": args.schema_variant, "motif_rejet": result.get("motif_rejet"),
                                 "local_reasoning": result.get("reasoning"),
                                 "kb_ids": [f["id"] for f in kb_fiches], "kb_names": [f["name"] for f in kb_fiches]})
             print(f"  Cloud (prod) = {cloud_verdict} | Local (Dell) = {local_verdict} ({latency_s}s{tok_info})")
@@ -738,6 +794,8 @@ def main():
             ],
             "cloud_reject_local_accept_count": len(cloud_reject_local_accept),
             "failed_calls": failed_calls,
+            "schema_variant": args.schema_variant,
+            "crops_manifest": args.crops_manifest, "max_crops": args.max_crops if args.crops_manifest else None,
             "per_listing": per_listing,
         }, f, ensure_ascii=False, indent=2)
     print(f"\nRésultats détaillés sauvegardés dans : {out_path}")
