@@ -1,6 +1,8 @@
 # Runbook de bascule — Phase B.5 (Firestore → Postgres)
 
-> Statut : **préparation seulement**. Aucune fenêtre de coupure réelle planifiée. Ce document
+> **Mise à jour 2026-10-03 : la bascule a eu lieu** (étapes 3 à 5 du merge `dev`/`master`, les 2026-09-22 et 2026-09-23 : le bot et le frontend utilisent `guitarhunter_pg_prod` ; voir `journal/2026-W39.md`). Ce document reste utile comme historique et comme guide de retour arrière ; la suite (`/prod`, redondance Dell) est dans `DB_REDUNDANCY_DELL_PLAN.md`.
+>
+> *Statut d'origine (2026-09-21) : **préparation seulement**. Aucune fenêtre de coupure réelle planifiée.* Ce document
 > transforme la fenêtre de bascule en une exécution mécanique plutôt qu'une improvisation — il ne
 > remplace pas la décision de déclencher B.5, qui reste entièrement à l'utilisateur (voir
 > `TODO.md`, `JOURNAL.md` [2026-09-21] "On bascule ?" → "Préparer d'abord").

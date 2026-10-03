@@ -33,7 +33,7 @@ Tout ce qui est zéro-shot a été essayé et n'est pas fiable (détail : `NECK_
 
 `headstock`, `neck`, `heel`, `body`, `bridge`, `saddle`, `nut`, `soundhole`, `pickups`, `plate` (étiquette / plaque de série).
 
-Le template Label Studio actuel (6 classes : headstock, neck, body, bridge, pickups, soundhole) et le `dataset.yaml` des essais (5 classes : neck, headstock, heel, soundhole, saddle) divergent ; ni l'un ni l'autre ne couvre les besoins du neck reset (`heel`, `saddle`, `nut`) ni celui du Portier (`plate`). **Mettre à jour le template avec la liste ci-dessus, puis régénérer `dataset.yaml`.**
+**Avant le 2026-10-02**, le template Label Studio (6 classes : headstock, neck, body, bridge, pickups, soundhole) et le `dataset.yaml` des essais (5 classes : neck, headstock, heel, soundhole, saddle) divergeaient ; ni l'un ni l'autre ne couvrait les besoins du neck reset (`heel`, `saddle`, `nut`) ni celui du Portier (`plate`). **Fait le 2026-10-02** : template mis à jour et versionné dans `backend/auto_annotation/label_studio_template_obb.xml` (+ `classes.txt`) ; `CLASS_NAMES` aligné ; `dataset.yaml` est désormais généré par `labelstudio_export.py export`.
 
 ### 3.2 Règles d'annotation
 
@@ -67,7 +67,7 @@ La TODO prévoit un « sprint d'annotation manuelle sur Dataset A » (100-200 ph
 
 | # | Étape | Qui | Critère de sortie |
 |---|---|---|---|
-| 1 | Figer la taxonomie, mettre à jour le template Label Studio et `dataset.yaml` | agent | template importé sans erreur |
+| 1 | Figer la taxonomie, mettre à jour le template Label Studio et `dataset.yaml` — **fait le 2026-10-02** | agent | template importé sans erreur |
 | 2 | Annoter les 150 images | utilisateur | 150 images traitées, `scratch/verify_yolo_labels.py` OK |
 | 3 | Fine-tuning Phase 0 (`yolov8n-obb`, 50 epochs, `imgsz=640`), Dell hors heures de scan | agent | **mAP50-OBB ≥ 0,50** sur 20 % de validation |
 | 4 | Inférence de masse + filtres (Phases 2-4 corrigées) | agent | dataset V2 ≥ 500 images validées |

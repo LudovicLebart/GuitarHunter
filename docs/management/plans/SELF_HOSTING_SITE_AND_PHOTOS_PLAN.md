@@ -4,6 +4,8 @@ _Rédigé le 2026-10-02, **relu par Opus le même jour** (corrections intégrée
 
 ## 1. Pourquoi
 
+_Idée d'origine : `FIRESTORE_MIGRATION_PLAN.md` §4 (« fin de GitHub Pages »), jamais réalisée ; ce plan la remplace avec les faits vérifiés le 2026-10-02._
+
 - **Dépôt GitHub privé.** Il est public aujourd'hui parce que GitHub Pages l'exige sur le plan gratuit (Pages sur dépôt privé : plan Pro, Team ou Enterprise ; et le site reste public même avec un dépôt privé). Des données personnelles ont déjà été poussées (voir `TODO.md`, « Données personnelles dans un dépôt public »).
 - **Sortir du payant et des dépendances Google** : la base est déjà sur le serveur (Postgres) ; il reste le site (Pages) et les photos (Firebase Storage). **Seule l'authentification doit rester sur Firebase** (décision utilisateur).
 

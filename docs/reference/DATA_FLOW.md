@@ -1,6 +1,8 @@
 # Flux de Données - Guitar Hunter
 
-Ce document décrit l'architecture événementielle et le cycle de vie des données entre le Frontend (React/JS) et le Backend (Python) via Firebase Firestore.
+> ⚠️ **Document en partie historique (2026-10-03)** : depuis la bascule de septembre 2026, **la base n'est plus Firestore mais Postgres** (serveur du projet). Le Frontend appelle l'API FastAPI (`src/services/apiService.js` → `backend/api/`), qui lit et écrit Postgres ; les commandes (`REFRESH`, `ANALYZE_DEAL`…) sont des lignes de la table `commands`, exécutées par le bot ; un canal WebSocket signale au Frontend qu'il doit relire par REST (il n'y a plus d'`onSnapshot`). Les **noms de champs et de collections ont été conservés** (`guitar_deals`, `commands`, `botStatus`, `analysisConfig`…). Restent sur Firebase : **Auth** (connexion) et **Storage** (photos). Le Portier T1 tourne en local sur le Dell (Qwen3-VL) avec Qwen cloud en secours. Les sections ci-dessous décrivent le mécanisme **Firestore d'origine** ; elles restent valables pour la logique métier et les noms de champs, mais pas pour la couche de transport. **Réécriture à faire** (voir `TODO.md`, « Aligner `DATA_FLOW.md` et `ARCHITECTURE.md` sur Postgres/API »).
+
+Ce document décrit l'architecture événementielle et le cycle de vie des données entre le Frontend (React/JS) et le Backend (Python) via Firebase Firestore (modèle d'origine).
 
 ## 1. Déclenchement de l'action depuis le Frontend
 L'utilisateur interagit avec l'interface (ex: bouton "Refresh", ajout de ville, analyse forcée).

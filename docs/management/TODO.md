@@ -41,7 +41,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🎯 Priorité Immédiate — Chantiers C/I/V/M (2026-09-24)
 
-*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
+*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](../explanation/plan/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
 
 **Objectif primaire : la facture.** Chaque chantier classé par ce qu'il rapporte en dollars. Chantiers sans gain économique direct (I — Qwen local, M — Mentor RAG) justifiés comme coût de plaisir/apprentissage, **jamais comme économies**.
 
@@ -247,6 +247,14 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 - [x] **Plan 1 — Réduction de la consommation de tokens** *(codé et validé par l'utilisateur, 2026-08-23, commits `6f703ea` + correctifs de revue `1167b79`)* : Lot A (consigne de concision + `maxOutputTokens`) → Lot B (photos d'annonce non dupliquées en base64 dans Firestore, correctif `toolsUnsupportedRef` collant, instrumentation `usageMetadata`) → Lot C (refs photo + élision non-mutante de l'historique) → Lot D (fonction `request_photo_review`, plafonds, persistance du rappel, badge UI). **Lot E toujours différé** (photos d'annonce chargées à la demande au premier message) — à ne considérer qu'après mesure des gains réels via les logs `[tokens]` (`usageMetadata`) en usage courant.
 - [x] **Plan 2 — Persona IA "luthier/vendeur référent"** *(codé et validé, 2026-08-23, commits `0bb9781` + correctif de revue `8560e43`)* : addendum système étendu en un vrai bloc d'identité/posture (actif pour tout message sur une annonce achetée, bouton ou saisie libre — confirmé avec l'utilisateur avant implémentation), proactivité encadrée (une suggestion courte en fin de réponse, jamais un tour dédié), nouveau bouton "Conseil d'atelier sur l'étape en cours" dans le panneau restauration.
 - [ ] **Plan 3 — Pages "histoire de la guitare"** *(backlog, après Plan 1 et 2)* : sous-collection `story/{chapterId}`, génération incrémentale par chapitre (jamais de régénération complète), éditable par l'utilisateur (un chapitre édité n'est jamais régénéré automatiquement), publication via extension du snapshot `shared_deals` existant avec flag privé/public par chapitre — design de la publication à retrancher avec l'utilisateur avant de planifier ce lot en détail.
+
+---
+
+## 📚 Dérive documentaire connue (constatée par `/deepdocument`, 2026-10-03)
+
+- [ ] **Aligner `docs/reference/DATA_FLOW.md` et `docs/reference/ARCHITECTURE.md` sur Postgres/API** : ils décrivent encore Firestore (24 et 89 mentions, contre 2 et 5 pour Postgres) ; un bandeau d'avertissement a été ajouté en tête de chacun, mais la couche de transport (règles Firestore, `FirestoreRepository`, `onSnapshot`, commandes, TTL des journaux) reste à réécrire d'après `backend/pg_repository.py`, `backend/api/` et `src/services/apiService.js`. Gros chantier de rédaction, aucun impact sur le code.
+- [ ] **Tenir `STATE_MODELS.md` à jour** des autres verdicts et statuts apparus depuis l'écriture initiale (vérifier `INCOMPLETE_DATA`, `GATEKEEPER_FAILED_SKIP`, statut `sold` ; `FAIR` et `NOT_PROMOTED` ajoutés le 2026-10-03).
+- [x] Journal découpé par semaine (`docs/management/journal/`, index dans `JOURNAL.md`), `CLAUDE.md`, `AI_BRIEFING.md`, `PROJECT_OVERVIEW.md` alignés sur la base Postgres et le Portier local (2026-10-03).
 
 ---
 

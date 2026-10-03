@@ -6,9 +6,10 @@
 - **Stack Technique complète :**
   - **Backend :** Python, Playwright (Scraping), Google GenAI/Gemini (Analyse IA), Schedule (Planification)
   - **Frontend :** React 18, Vite, TailwindCSS
-  - **Base de données / Services Cloud :** Firebase (Firestore pour Base de Données, Admin SDK côté Backend Python, Client SDK côté Frontend React)
+  - **Base de données :** Postgres sur le serveur du projet (depuis septembre 2026), exposée par l'API FastAPI `backend/api/` ; le bot y accède par `backend/pg_repository.py`
+  - **Services Cloud :** Firebase **Auth** (connexion, Client SDK côté Frontend, vérification du jeton par l'API) et **Firebase Storage** (photos des annonces, pour l'instant)
   - **Notifications :** ntfy.sh
-- **Flux de données synthétisé :** Le bot Backend (Python) scrape les données d'annonces sur Facebook via Playwright. Les annonces brutes sont traitées et évaluées par Google Gemini pour l'extraction de métadonnées et la détection d'opportunités. Les résultats sont synchronisés sur Firebase Firestore. Le Frontend (React/Vite) récupère et affiche les annonces depuis Firestore et peut émettre des commandes (ex: REFRESH, CLEANUP, SCAN_URL) traitées de manière asynchrone par la boucle de monitoring du bot. Des notifications push sont envoyées via ntfy.
+- **Flux de données synthétisé :** Le bot Backend (Python) scrape les données d'annonces sur Facebook via Playwright. Les annonces brutes passent par une cascade IA à 3 niveaux : le Portier (Qwen3-VL en local sur le Dell, Qwen cloud en secours) filtre, l'Analyste puis l'Expert (Google Gemini) évaluent les opportunités. Les résultats sont écrits dans Postgres. Le Frontend (React/Vite) récupère et affiche les annonces par l'API et peut émettre des commandes (ex: REFRESH, CLEANUP, SCAN_URL) traitées de manière asynchrone par la boucle de monitoring du bot. Des notifications push sont envoyées via ntfy.
 
 ⚠️ Obligation ABSOLUE : 
 Lecture de tous les fichiers contenus dans `docs/`
@@ -19,7 +20,7 @@ La résolution d'une tâche doit IMPÉRATIVEMENT suivre cet ordre. Tu ne peux pa
 
 - **Étape 1 (Le Plan) :** Analyse la demande et propose un plan d'action technique étape par étape (quels fichiers, quelles fonctions, quelle logique). NE CODE RIEN. Attends l'accord de l'utilisateur.
 - **Étape 2 (Le Code) :** Une fois le plan validé, génère les diffs de code. Attends que l'utilisateur teste. NE METS PAS À JOUR LA DOC.
-- **Étape 3 (La Documentation) :** UNIQUEMENT APRÈS validation du fonctionnement par l'utilisateur ("C'est bon", "Validé"), mets à jour `docs/management/JOURNAL.md`, `docs/management/TODO.md`, `docs/reference/ARCHITECTURE.md`, `docs/reference/DATA_FLOW.md`, et tout autre document nécessaire (arborescence Diataxis : `docs/reference/`, `docs/explanation/`, `docs/management/`).
+- **Étape 3 (La Documentation) :** UNIQUEMENT APRÈS validation du fonctionnement par l'utilisateur ("C'est bon", "Validé"), mets à jour le journal hebdomadaire (`docs/management/journal/AAAA-Wss.md` ; `docs/management/JOURNAL.md` est l'index), `docs/management/TODO.md`, `docs/reference/ARCHITECTURE.md`, `docs/reference/DATA_FLOW.md`, et tout autre document nécessaire (arborescence Diataxis : `docs/reference/`, `docs/explanation/`, `docs/management/`).
 Format du journal : `[DATE] [MODÈLE] Action effectuée → Résultat`.
 ⚠️ INTERDICTION ABSOLUE : N'utilise jamais de commandes Terminal/CLI (comme `echo`, `sed` ou `cat`) pour mettre à jour la documentation. Tu dois modifier le fichier directement avec tes outils d'édition.
 
@@ -41,6 +42,8 @@ Fournir uniquement les blocs modifiés :
 [CHANGEMENT ICI]
 // ... existing code ...
 ```
+
+> **Assouplissement du 2026-10-02 (décision utilisateur, voir `CLAUDE.md`, « Proportionnalité »)** : le bloc d'aiguillage n'est plus exigé pour chaque mini-étape ; il reste obligatoire pour les tâches significatives (comportement du système, plusieurs fichiers, effet en production ou sur les coûts). Les actions à effet externe (push, déploiement, suppression, écriture en production) exigent toujours une confirmation explicite. En cas de conflit avec ce qui suit, `CLAUDE.md` prévaut.
 
 ## Section 6 — L'Aiguillage Systématique (RÈGLE D'ENGAGEMENT PERMANENTE)
 Cette règle s'applique à CHAQUE NOUVELLE DEMANDE de l'utilisateur, tout au long de la session. 

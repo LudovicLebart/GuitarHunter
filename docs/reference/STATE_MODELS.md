@@ -73,8 +73,13 @@ interface Deal {
   aiAnalysis: {
     /** Verdict final court */
     verdict: 'PEPITE' | 'FAST_FLIP' | 'LUTHIER_PROJ' | 'CASE_WIN' | 'COLLECTION' | 
-             'BAD_DEAL' | 'REJECTED_ITEM' | 'REJECTED_SERVICE' | 'INCOMPLETE_DATA' | 
-             'ERROR' | 'PENDING';
+             'FAIR' | 'BAD_DEAL' | 'REJECTED_ITEM' | 'REJECTED_SERVICE' | 'INCOMPLETE_DATA' | 
+             'NOT_PROMOTED' | 'ERROR' | 'PENDING';
+    // FAIR (« Prix Correct ») : prix conforme au marché sans opportunité claire ; n'est PAS un rejet, l'annonce continue
+    //   vers l'Analyste. Verdict du Portier (T1), absent des anciens enregistrements.
+    // NOT_PROMOTED (« Hors Recherche ») : l'annonce a passé le Portier mais sa famille n'est pas dans la Recherche Active
+    //   de l'utilisateur ; arrêtée avant l'Analyste (seul un verdict PEPITE contourne ce filtre), conservée pour pouvoir
+    //   être repromue si la Recherche Active change. Appartient à ARCHIVE_GROUP (masquée de la vue par défaut).
     
     /** Argumentaire détaillé de l'IA */
     reasoning: string; // Obligatoire si verdict !== 'PENDING'

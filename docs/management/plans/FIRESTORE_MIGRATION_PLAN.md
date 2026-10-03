@@ -47,6 +47,8 @@ Service Python (FastAPI + `websockets`) sur le même serveur :
 
 ## 4. Déploiement (fin de GitHub Pages)
 
+> **Note 2026-10-03** : cette idée (servir `dist/` depuis le serveur) n'a pas été réalisée à la bascule de septembre ; GitHub Pages reste en service. Elle est reprise et détaillée, avec les pièges vérifiés (le Funnel retire le préfixe de chemin, permissions de `/home`, dépôt privé), dans [`SELF_HOSTING_SITE_AND_PHOTOS_PLAN.md`](SELF_HOSTING_SITE_AND_PHOTOS_PLAN.md) — priorité basse.
+
 - nginx (ou Caddy) devant le serveur : sert `dist/` (build frontend) en statique + reverse-proxy vers le service API/WS.
 - TLS via Let's Encrypt/Caddy automatique.
 - `deploy.yml` : le job `deploy-frontend` (actuellement build + push `gh-pages`) devient un `scp`/`rsync` de `dist/` vers le serveur, dans le même job SSH que `deploy` (backend).
