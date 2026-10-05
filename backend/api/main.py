@@ -149,6 +149,10 @@ class CommandOut(BaseModel):
     type: str
     payload: Optional[Any] = None
     status: str
+    # Message d'échec renseigné par le bot (`commands.error_message`) — le frontend
+    # (useCities.js) l'affiche tel quel dans le bandeau d'erreur ; sans ce champ, tout échec
+    # d'ADD_CITY retombait sur un message générique sans cause.
+    error: Optional[str] = None
 
 
 @app.post("/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)
@@ -165,7 +169,8 @@ async def get_command(command_id: int, uid: str = Depends(get_current_uid)):
     row = await commands_repo.get_command(pool, uid, command_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable.")
-    return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"])
+    return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"],
+                      error=row["error_message"])
 
 
 class UsageIn(BaseModel):
