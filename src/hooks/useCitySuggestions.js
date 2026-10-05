@@ -56,6 +56,11 @@ export const useCitySuggestions = (query, existingCities) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({ q: trimmed, limit: '8', lang: 'fr' });
+        // `osm_tag=place` : uniquement des lieux habités (ville, village, quartier). Sans ça Photon
+        // renvoie aussi stations de métro, adresses et frontières administratives de même nom
+        // (ex: « Sherbrooke » → ville + station de Montréal + limite administrative), d'où les
+        // « doublons » et des coordonnées fausses (2026-10-05).
+        params.set('osm_tag', 'place');
         // Biais géographique demandé à Photon lui-même (paramètres `lat`/`lon` de son API) plutôt
         // que de se contenter de retrier les 8 résultats déjà choisis par SON classement par
         // pertinence globale (population/notoriété) — sans ça, une ville proche mais peu connue
