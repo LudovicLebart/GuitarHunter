@@ -810,6 +810,10 @@ class SharedDealCreate(BaseModel):
     scores: dict = {}
     analysis: Optional[str] = None
     tier3_summary: Optional[str] = None
+    # Analyse IA complète (résumé, fiche technique, raisonnement détaillé, valeur estimée…) :
+    # la page partagée affiche le même rapport que la modale de l'app.
+    aiAnalysis: dict = {}
+    priceDropAmount: Optional[float] = None
     sharedAt: Optional[str] = None
 
 

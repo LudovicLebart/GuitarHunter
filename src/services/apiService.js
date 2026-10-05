@@ -364,6 +364,8 @@ export const createSharedDeal = async (deal) => {
       scores,
       analysis: ai.reasoning || ai.analysis || deal.analysis || null,
       tier3_summary: deal.tier3_summary || null,
+      aiAnalysis: ai,
+      priceDropAmount: deal.price_drop_amount ?? null,
       sharedAt: new Date().toISOString(),
     },
   });
