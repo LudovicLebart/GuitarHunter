@@ -87,7 +87,10 @@ export const useCitySuggestions = (query, existingCities) => {
               displayLabel: [props.name, props.state, props.country].filter(Boolean).join(', '),
             };
           })
-          .filter(c => c.name && c.latitude != null && c.longitude != null);
+          .filter(c => c.name && c.latitude != null && c.longitude != null)
+          // Photon renvoie souvent la même ville en double (nœud + relation OSM) : même libellé,
+          // coordonnées légèrement différentes — on n'en garde qu'une.
+          .filter((c, i, all) => all.findIndex(o => o.displayLabel === c.displayLabel) === i);
 
         const distanceTo = (c) => {
           const pos = userPositionRef.current;

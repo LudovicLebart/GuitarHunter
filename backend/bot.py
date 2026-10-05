@@ -1474,7 +1474,7 @@ class GuitarHunterBot:
                 self.repo.add_city_to_catalog(target_id, city_data)
             else:
                 self.logger.info(f"Nouvelle ville {city_name} (id={city_id_str}). Ajout au catalogue partagé...")
-                city_data.update({'createdAt': firestore.SERVER_TIMESTAMP, 'createdBy': self._user_id})
+                city_data['createdBy'] = self._user_id  # created_at : défaut SQL now()
                 self.repo.add_city_to_catalog(city_id_str, city_data)
 
             self.repo.set_city_user_pref(target_id, True)
