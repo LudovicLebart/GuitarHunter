@@ -29,6 +29,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
+import config  # noqa: F401 -- charge .env (DATABASE_URL) via load_dotenv() à l'import
 import requests
 
 from backend.cities import normalize_city_key
