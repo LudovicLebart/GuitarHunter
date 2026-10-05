@@ -429,7 +429,7 @@ Le frontend est une Single Page Application (SPA) conçue pour être très réac
 
 - **`src/components/HelpOverlay.jsx`**: Guide utilisateur interactif détaillant le fonctionnement de l'IA (Gemini), les scores, les verdicts et les notifications (Email/Ntfy). Accessible via le bouton d'aide dans la Navbar.
 
-- **`src/components/SharedDealPage.jsx`**: Page publique rendue par `App.jsx` quand `?shareId=` est détecté dans l'URL, avant le mur d'auth. Affiche titre, prix, localisation, images, scores IA, analyse et lien FB. Lit depuis la collection Firestore publique `shared_deals/{shareId}`.
+- **`src/components/SharedDealPage.jsx`**: Page publique rendue par `App.jsx` quand `?shareId=` est détecté dans l'URL, avant le mur d'auth. Depuis le 2026-10-05, affiche le **rapport d'expertise complet** (même contenu que la modale : résumé, fiche technique, prix/valeur estimée/marge/confiance, scores, analyse détaillée via `DealCard/ReasoningText.jsx`, description entière, lien FB) et **aucun appel à l'inscription**. Lit `GET /shared-deals/{shareId}` (table Postgres `shared_deals`, snapshot JSONB). Le snapshot embarque l'objet `aiAnalysis` complet et `priceDropAmount` (`createSharedDeal` dans `apiService.js`, modèle `SharedDealCreate` dans `backend/api/main.py`) ; les partages antérieurs au 2026-10-05 gardent l'ancien extrait tant que l'annonce n'est pas repartagée.
 
 ### `src/components/MapView.jsx`
 - **Cartographie Google Maps :** Intègre### 1. Logique de Scraping et de Détection (`backend/scraping/`)
