@@ -25,7 +25,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 ## 🐛 Ajout de ville impossible (Sherbrooke) + villes sans coordonnées (2026-10-05)
 
 - [x] `add_city_auto` plantait (`NameError: firestore`) sur toute nouvelle ville ; suggestion Facebook « QC » non reconnue pour l'indice « Québec » (Sherbrooke, AB → id `edmonton`) ; message d'erreur des commandes non remonté (`error`) ; suggestions Photon en double.
-- [ ] **Correction des villes sans coordonnées** (`fix_cities_missing_coords.py`, armé dans `run_once.py`) : à vérifier dans les logs du déploiement, puis désarmer.
+- [x] **Correction des villes sans coordonnées** : run #595, 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable ; `run_once.py` désarmé.
 - [ ] **À décider** : faire échouer l'ajout quand la suggestion Facebook ne correspond pas à la région (au lieu d'enregistrer la ville au mauvais id avec `needsReview`).
 
 ---

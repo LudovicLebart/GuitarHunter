@@ -25,7 +25,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -135,6 +135,7 @@ def run():
 
     2026-10-05 : villes du catalogue sans coordonnées (Chambly, McMasterville…, scan ignoré /
     ancrage Kijiji impossible) — voir `backend/scripts/fix_cities_missing_coords.py`. Idempotent.
+    EXÉCUTÉ (run #595, dev) : 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable. Désarmé.
     """
     from backend.scripts.fix_cities_missing_coords import run as fix_cities_missing_coords
     fix_cities_missing_coords()
