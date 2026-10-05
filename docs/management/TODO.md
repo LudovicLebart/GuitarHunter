@@ -11,6 +11,25 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🧹 Sortie de Firestore : liens morts restants (2026-10-05)
+
+*Audit du 2026-10-05 : le code Firestore résiduel. Étapes 1 et 3 faites (migration à la connexion, `repository.py` + 10 scripts historiques, `firestoreService.js` supprimés, commentaires corrigés) ; le reste dépend du chantier admin.*
+
+- [ ] **Chantier à part — migrer la page admin vers Postgres/API** (décision utilisateur : on garde la page). `AdminDashboard.jsx` lit/écrit encore Firestore (`collectionGroup('users')`, `admin_stats/latest`, `botStatus`, `scanConfig.frequency`, suppression d'utilisateur) alors que les données vivent dans Postgres : probablement vide ou cassée. À faire : endpoints admin dans `backend/api/` (claim admin), `backend/admin_stats.py` (job de 03:00, écrit encore dans Firestore) réécrit vers Postgres, page reliée à l'API.
+- [ ] **Après le chantier admin** : retirer `getFirestore`/`db` de `src/services/firebase.js`, `useAuth.js` (document utilisateur Firestore à la connexion — vérifier d'abord que le bot découvre bien les utilisateurs via la table `users`), `firebase.json` + règles/index Firestore ; réduire `backend/database.py::DatabaseService` à Firebase Storage (il ouvre encore un client Firestore et teste ses permissions au démarrage).
+- [ ] **À décider** : bail de leadership HA (`backend/ha/lease.py`, `watchdog.py`) — Firestore sert d'arbitre Lenovo/Dell ; code vivant, pas mort.
+- [ ] **À trier** : scripts `backend/scripts/` mentionnant encore Firestore (export/comparaison de migration, `migrate_firestore_prompts`, `list_users`, etc.) ; commentaires périmés restants (`useDealChat.js`, `useRestorationPlan.js`, `DealChatPanel.jsx`, `backend/pg_db.py`, `backend/api/`).
+
+---
+
+## 🐛 Ajout de ville impossible (Sherbrooke) + villes sans coordonnées (2026-10-05)
+
+- [x] `add_city_auto` plantait (`NameError: firestore`) sur toute nouvelle ville ; suggestion Facebook « QC » non reconnue pour l'indice « Québec » (Sherbrooke, AB → id `edmonton`) ; message d'erreur des commandes non remonté (`error`) ; suggestions Photon en double.
+- [ ] **Correction des villes sans coordonnées** (`fix_cities_missing_coords.py`, armé dans `run_once.py`) : à vérifier dans les logs du déploiement, puis désarmer.
+- [ ] **À décider** : faire échouer l'ajout quand la suggestion Facebook ne correspond pas à la région (au lieu d'enregistrer la ville au mauvais id avec `needsReview`).
+
+---
+
 ## 🐛 Réanalyse (Standard/Expert) sans effet visible + SCAN_URL/Tier 3 (2026-09-27, codé)
 
 *Signalé par l'utilisateur : "Les demandes d'analyse expert ne semblent plus fonctionner. De même que les demandes d'analyse d'URL spécifiques."*

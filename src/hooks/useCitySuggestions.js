@@ -4,7 +4,7 @@ import { calculateDistanceKm, minDistanceToCities } from '../utils/geo';
 // Photon (photon.komoot.io, basé sur OpenStreetMap) plutôt que Nominatim directement depuis le
 // navigateur : la politique d'usage de Nominatim interdit explicitement l'autocomplete
 // (recherche à chaque frappe) sans self-hosting, et ce projet n'a pas de serveur HTTP pour faire
-// proxy (main.py est un worker qui lit des commandes Firestore, pas une API) — voir discussion
+// proxy (main.py est un worker qui lit des commandes en base, pas une API) — voir discussion
 // 2026-08-26 (JOURNAL.md) pour le détail du choix.
 const PHOTON_URL = 'https://photon.komoot.io/api/';
 const DEBOUNCE_MS = 400;

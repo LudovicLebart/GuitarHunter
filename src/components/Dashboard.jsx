@@ -516,7 +516,7 @@ const Dashboard = ({ onClose }) => {
                 {loading ? (
                     <div className="py-20 flex flex-col items-center justify-center bg-slate-900 rounded-2xl border border-slate-800">
                         <RefreshCw className="text-blue-500 animate-spin mb-4" size={36} />
-                        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation Firestore...</p>
+                        <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
                     <StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} />

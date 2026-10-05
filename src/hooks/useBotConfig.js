@@ -9,9 +9,6 @@ import {
   triggerScanSpecificUrl,
   resetBotConfigToDefaults,
 } from '../services/apiService';
-// Migration ponctuelle Firestore -> Firestore (ancienne transition mono- vers multi-utilisateur),
-// sans équivalent Postgres — reste sur l'ancien fichier, voir apiService.js (en-tête).
-import { migrateOldDataToNewUser } from '../services/firestoreService';
 import promptsData from '../../prompts.json';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
@@ -85,24 +82,9 @@ export const useBotConfig = (user) => {
   useEffect(() => {
     if (!user) return;
     const uid = user.uid;
-    const email = user.email;
-
-    const initConfig = async () => {
-      try {
-        const migrated = await migrateOldDataToNewUser(uid, email);
-        if (migrated) {
-          console.log("🔄 Données migrées avec succès vers le compte administrateur !");
-        }
-      } catch (err) {
-        console.error("Erreur inattendue lors de la vérification de la migration", err);
-      }
-    };
-
-    // Lance la migration asynchrone avant d'écouter les mises à jour
-    initConfig();
 
     const handleUpdate = (data) => {
-      console.log("🔄 useBotConfig: Received update from Firestore", data);
+      console.log("🔄 useBotConfig: Received update", data);
       setConfigStatus({ status: 'success', msg: 'Dossier Python trouvé' });
 
       if (!data.scanConfig) {
