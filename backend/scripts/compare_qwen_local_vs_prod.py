@@ -176,7 +176,10 @@ def _is_rejected(verdict):
     return verdict in T1_REJECTION_VERDICTS
 
 
-def _download_and_optimize_image(url, max_size=2048):
+QWEN_LOCAL_IMAGE_MAX_SIZE = int(os.getenv("QWEN_LOCAL_IMAGE_MAX_SIZE", "2048"))   # plus grand côté, px (prod : 2048)
+
+
+def _download_and_optimize_image(url, max_size=QWEN_LOCAL_IMAGE_MAX_SIZE):
     """Copie fidèle de DealAnalyzer._download_and_optimize_image (backend/analyzer.py).
 
     Résolution volontairement PAS réduite (2026-09-27, décision utilisateur) : consultation Opus
