@@ -3,6 +3,16 @@ import re
 import urllib.parse
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
+# Variantes d'écriture d'une région (clé en minuscules) pour reconnaître la suggestion Facebook.
+_REGION_ALIASES = {
+    "québec": ("quebec", "qc"), "quebec": ("québec", "qc"),
+    "ontario": ("on",), "british columbia": ("bc", "colombie-britannique"),
+    "colombie-britannique": ("bc", "british columbia"), "alberta": ("ab",),
+    "nouveau-brunswick": ("nb", "new brunswick"), "new brunswick": ("nb", "nouveau-brunswick"),
+    "nouvelle-écosse": ("ns", "nova scotia"), "nova scotia": ("ns", "nouvelle-écosse"),
+    "manitoba": ("mb",), "saskatchewan": ("sk",),
+}
+
 class CityFinder:
     @staticmethod
     def find_city_id_and_coords(scraper, city_name, region_hint=None):
@@ -72,10 +82,15 @@ class CityFinder:
                 chosen = suggestions[0]
                 matched_label = chosen.inner_text()
                 if region_hint:
+                    # Facebook affiche l'abréviation ("Sherbrooke, QC"), Photon le nom complet
+                    # ("Québec") : sans ces variantes, la bonne suggestion n'était jamais reconnue
+                    # et on retombait sur la 1re (ex: "Sherbrooke, AB" -> id "edmonton", 2026-10-05).
                     hint_norm = region_hint.strip().lower()
+                    hint_variants = {hint_norm, *_REGION_ALIASES.get(hint_norm, ())}
                     for suggestion in suggestions:
                         text = suggestion.inner_text()
-                        if hint_norm in text.strip().lower():
+                        text_norm = text.strip().lower()
+                        if any(re.search(rf"(?<![a-zà-ÿ]){re.escape(v)}(?![a-zà-ÿ])", text_norm) for v in hint_variants):
                             chosen = suggestion
                             matched_label = text
                             matched_confidently = True
