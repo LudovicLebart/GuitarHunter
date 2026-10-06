@@ -198,7 +198,7 @@ const CHAT_USAGE_ACTIONS = {
 const countImageParts = (parts) =>
     Array.isArray(parts) ? parts.filter((p) => p?.inlineData || p?.fileData).length : 0;
 
-const logTokenUsage = (label, response, { modelName, dealId, sentParts } = {}) => {
+const logTokenUsage = (label, response, { modelName, dealId, sentParts, latencyMs } = {}) => {
     const u = response?.usageMetadata;
     if (!u) return;
     console.log(`[tokens] ${label} — prompt=${u.promptTokenCount ?? '?'} cached=${u.cachedContentTokenCount ?? 0} réponse=${u.candidatesTokenCount ?? '?'} total=${u.totalTokenCount ?? '?'}`);
@@ -215,6 +215,37 @@ const logTokenUsage = (label, response, { modelName, dealId, sentParts } = {}) =
         output_tokens: output,
         // thoughtsTokenCount absent sur certains modèles/SDK : déduit du total dans ce cas.
         thoughts_tokens: u.thoughtsTokenCount ?? Math.max(0, (u.totalTokenCount ?? 0) - input - output),
+        latency_ms: latencyMs ?? null,
+    });
+};
+
+// Type d'échec d'un appel Gemini du chat (2026-10-06, lot 1 du chantier d'optimisation du chat) —
+// mêmes valeurs que `llm_usage.classify_error` côté backend, avec le code HTTP en plus quand le SDK
+// le fournit (`customErrorData.status`) : `http_503` et `http_429` n'appellent pas la même réponse.
+const classifyChatError = (error) => {
+    const text = `${error?.name || ''} ${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+    if (error?.name === 'AbortError' || text.includes('timeout') || text.includes('timed out')) return 'timeout';
+    if (looksLikeToolsUnsupportedError(error)) return 'tools_rejected';
+    const status = error?.customErrorData?.status;
+    if (status) return `http_${status}`;
+    if (text.includes('failed to fetch') || text.includes('network')) return 'connection';
+    return 'other';
+};
+
+// Journalise un appel du chat ÉCHOUÉ : jusqu'ici seuls les succès écrivaient dans `llm_usage`
+// (`ok` toujours vrai, `error_type` toujours NULL pour le chat) — impossible de savoir pourquoi le
+// repli sans tools se déclenchait. Aucun token connu (l'API n'a rien renvoyé), mais la ligne donne
+// le taux, le type et la latence de l'échec.
+const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs } = {}) => {
+    if (!modelName) return;
+    recordLlmUsage({
+        model: modelName,
+        action: CHAT_USAGE_ACTIONS[label] || 'chat_other',
+        deal_id: dealId || null,
+        images: countImageParts(sentParts),
+        latency_ms: latencyMs ?? null,
+        ok: false,
+        error_type: classifyChatError(error),
     });
 };
 
@@ -305,11 +336,26 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // d'en créer un nouveau — deux tours 'model' consécutifs casseraient l'alternance stricte
     // qu'exige `sanitizeHistory` sur tout envoi suivant.
     const executeTurn = useCallback(async (chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages, replaceMessageId }) => {
+        // Envoie un message sur une session ET journalise l'appel dans `llm_usage` (succès : tokens,
+        // latence ; échec : `ok=false` + type d'erreur, puis l'erreur est relancée telle quelle).
+        // Point d'entrée UNIQUE des appels Gemini de ce tour — avant ce lot, les 4 tours de suite
+        // n'étaient jamais enregistrés (pas de `modelName`) et aucun échec ne l'était.
+        const sendLogged = async (session, payload, label, sentParts = null) => {
+            const startedAt = performance.now();
+            const ctx = { modelName, dealId: deal?.id, sentParts };
+            try {
+                const response = await session.sendMessage(payload);
+                logTokenUsage(label, response.response, { ...ctx, latencyMs: Math.round(performance.now() - startedAt) });
+                return response;
+            } catch (error) {
+                logChatFailure(label, error, { ...ctx, latencyMs: Math.round(performance.now() - startedAt) });
+                throw error;
+            }
+        };
         try {
             let result;
             try {
-                result = await chat.sendMessage(parts);
-                logTokenUsage('tour principal', result.response, { modelName, dealId: deal?.id, sentParts: parts });
+                result = await sendLogged(chat, parts, 'tour principal', parts);
             } catch (sendError) {
                 // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
                 // la construction du modèle) — on retente une fois sans tools depuis le même
@@ -330,8 +376,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         .startChat({ history: buildApiHistory(historyMessages, { elide: false, photoRefIndex }) });
                     chatRef.current = chat;
                     chatToolsRef.current = toolsSignature(false, false, false);
-                    result = await chat.sendMessage(parts);
-                    logTokenUsage('tour principal (repli sans tools)', result.response, { modelName, dealId: deal?.id, sentParts: parts });
+                    result = await sendLogged(chat, parts, 'tour principal (repli sans tools)', parts);
                 } else {
                     throw sendError;
                 }
@@ -375,8 +420,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     const noteLines = [noteSegments.join('')];
                     const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false, withRequalification })
                         .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
-                    const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
-                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response, { modelName, dealId: deal?.id, sentParts: null });
+                    const replayResult = await sendLogged(
+                        replaySession, [...parts, { text: noteLines.join('\n') }, ...photoParts],
+                        'tour rejoué (photos rappelées)', [...parts, ...photoParts]
+                    );
                     chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
                     chatToolsRef.current = toolsSignature(false, withRestorationTools, withRequalification);
                     photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };
@@ -391,8 +438,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         const functionResponseParts2 = replayCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
-                        const followUp2 = await replaySession.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après rappel photo)', followUp2.response);
+                        const followUp2 = await sendLogged(replaySession, functionResponseParts2, 'tour de suite (après rappel photo)');
                         responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
                     } else {
                         responseText = replayResult.response.text()?.trim() || "…";
@@ -412,8 +458,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                                 : { status: 'proposal_shown_to_user_pending_confirmation' },
                         },
                     }));
-                    const followUp = await chat.sendMessage(functionResponseParts);
-                    logTokenUsage('tour de suite (rappel photo invalide)', followUp.response);
+                    const followUp = await sendLogged(chat, functionResponseParts, 'tour de suite (rappel photo invalide)');
                     // Le modèle peut réagir à l'erreur en proposant une étape/un réordonnancement
                     // dans ce même tour de suite (bug trouvé en revue — ce chemin ignorait
                     // silencieusement ce cas, contrairement au chemin "rappel réussi" ci-dessus qui
@@ -426,8 +471,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         const functionResponseParts2 = followUpCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
-                        const followUp2 = await chat.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après erreur rappel photo)', followUp2.response);
+                        const followUp2 = await sendLogged(chat, functionResponseParts2, 'tour de suite (après erreur rappel photo)');
                         responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
                     } else {
                         responseText = followUp.response.text()?.trim() || "…";
@@ -445,8 +489,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                 }));
-                const followUp = await chat.sendMessage(functionResponseParts);
-                logTokenUsage('tour de suite (functionResponse)', followUp.response);
+                const followUp = await sendLogged(chat, functionResponseParts, 'tour de suite (functionResponse)');
                 responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
             } else {
                 responseText = result.response.text()?.trim() || "…";

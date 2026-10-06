@@ -181,6 +181,7 @@ class UsageIn(BaseModel):
     thoughts_tokens: int = 0
     latency_ms: Optional[int] = None
     ok: bool = True
+    error_type: Optional[str] = None
 
 
 @app.post("/usage", status_code=status.HTTP_204_NO_CONTENT)
@@ -191,8 +192,8 @@ async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
     for k in ("images", "input_tokens", "cached_tokens", "output_tokens", "thoughts_tokens"):
         if not 0 <= row[k] <= 5_000_000:
             raise HTTPException(status_code=422, detail=f"{k} hors bornes")
-    if len(row["model"]) > 100 or len(row["action"]) > 60:
-        raise HTTPException(status_code=422, detail="model/action trop longs")
+    if len(row["model"]) > 100 or len(row["action"]) > 60 or len(row["error_type"] or "") > 40:
+        raise HTTPException(status_code=422, detail="model/action/error_type trop longs")
     await usage_repo.add_usage(get_pool(), uid, row)
 
 
