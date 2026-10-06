@@ -38,6 +38,7 @@ avant/après le run, `--model` pour basculer sur le repli `qwen3-vl:4b`, métriq
 valide / latence P90 / taux de statuts hors enum en fin de résumé.
 """
 import argparse
+from collections import Counter
 import base64
 import json
 import os
@@ -486,6 +487,14 @@ def main():
                               "d'origine peut venir de l'ancien pré-filtre de prix (avant 2026-07-27), pas du Portier.")
     parser.add_argument("--exclude-ids", default="",
                          help="Identifiants à ignorer, séparés par des virgules (ex : étuis et amplis rejetés à juste titre).")
+    parser.add_argument("--ids", default="",
+                         help="Identifiants d'annonces à rejouer, séparés par des virgules (ex : kijiji_1744378028) : ne rejoue "
+                              "QUE celles-ci (elles doivent avoir un gatekeeperVerdict en base, ou satisfaire --reclassified). "
+                              "Ignore l'ordre par date ; --limit reste un plafond.")
+    parser.add_argument("--repeat", type=int, default=1,
+                         help="Rejoue chaque annonce N fois (défaut 1) et affiche la distribution des verdicts locaux par "
+                              "annonce — mesure la variabilité du Portier, surtout avec --temperature -1 (réglage de la prod). "
+                              "Prévu pour --ids ; sans effet sur compare_knowledge_effect.py (ids dupliqués).")
     parser.add_argument("--no-think", action="store_true",
                          help="Expérimental (2026-09-27) : désactive la réflexion étendue de "
                               "Qwen3-VL (think:false) — trouvé que le modèle termine parfois sa "
@@ -533,6 +542,10 @@ def main():
             exclude_filter = "AND gd.id <> ALL(%s)" if excluded else ""
             if excluded:
                 params.append(excluded)
+            only_ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+            ids_filter = "AND gd.id = ANY(%s)" if only_ids else ""
+            if only_ids:
+                params.append(only_ids)
             if args.reclassified:
                 # rejeté à l'origine, non rejeté aujourd'hui : gatekeeperVerdict n'est PAS fiable ici (une analyse
                 # forcée le remplace par MANUAL_RETRY) ; la trace du rejet d'origine est initial_verdict
@@ -559,6 +572,7 @@ def main():
                 WHERE {selection}
                 {date_filter}
                 {exclude_filter}
+                {ids_filter}
                 ORDER BY gd."timestamp" DESC
                 LIMIT %s
                 """,
@@ -576,6 +590,9 @@ def main():
             print("Rien à comparer — l'export Chantier A a-t-il bien tourné sur cette base ?")
             return
 
+        if args.repeat > 1:
+            rows = [r for r in rows for _ in range(args.repeat)]
+            print(f"🔁 Chaque annonce rejouée {args.repeat} fois ({len(rows)} appels).\n")
         config_cache = {}
         agree_accept = agree_reject = 0
         cloud_accept_local_reject = []
@@ -710,6 +727,14 @@ def main():
                 cloud_reject_local_accept.append((row, cloud_verdict, local_verdict, result.get("reasoning")))
 
         _log_ollama_vram("après le run")
+        if args.repeat > 1:
+            by_id = {}
+            for e in per_listing:
+                by_id.setdefault(e["id"], []).append(e["local_verdict"])
+            print("\n== Distribution des verdicts locaux par annonce (--repeat) ==")
+            for deal_id, verdicts in by_id.items():
+                counts = ", ".join(f"{v} ×{n}" for v, n in sorted(Counter(verdicts).items(), key=lambda kv: -kv[1]))
+                print(f"  {deal_id} : {counts}")
 
         n = agree_accept + agree_reject + len(cloud_accept_local_reject) + len(cloud_reject_local_accept)
         n_attempted = n + n_failed_call
