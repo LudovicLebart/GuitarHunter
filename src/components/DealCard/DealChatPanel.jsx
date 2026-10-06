@@ -254,7 +254,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
     const {
-        messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, cancelSending, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
         applyRequalificationProposal, dismissRequalificationProposal,
     } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
@@ -454,9 +454,15 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
     // chinois, japonais, coréen...), qui utilise elle aussi la touche Entrée.
     const handleSend = () => {
         if ((!input.trim() && !imageFiles.length) || sending) return;
-        sendMessage(input, imageFiles);
-        setInput('');
-        clearImages();
+        // Le champ n'est vidé qu'une fois le message accepté (persisté) par le hook — avant, un échec
+        // précoce (session absente, écriture refusée) faisait disparaître le texte tapé sans signal.
+        const sentText = input;
+        sendMessage(sentText, imageFiles, {
+            onAccepted: () => {
+                setInput(prev => (prev === sentText ? '' : prev));
+                clearImages();
+            },
+        });
     };
 
     return (
@@ -549,8 +555,15 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                         <div className="w-7 h-7 shrink-0 rounded-full flex items-center justify-center bg-purple-600">
                             <Bot size={14} className="text-white" />
                         </div>
-                        <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-2.5">
+                        <div className="bg-slate-800 rounded-2xl rounded-tl-sm px-4 py-2.5 flex items-center gap-3">
                             <Loader2 size={16} className="animate-spin text-slate-400" />
+                            <button
+                                onClick={cancelSending}
+                                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-white transition-colors"
+                                title="Annuler la réponse en cours"
+                            >
+                                <X size={12} /> Annuler
+                            </button>
                         </div>
                     </div>
                 )}
