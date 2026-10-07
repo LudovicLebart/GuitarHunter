@@ -10,7 +10,7 @@ import {
   toggleDealPurchased,
   setDealClassification
 } from '../services/apiService';
-import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
+import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore, isOffSearchPepite } from '../constants';
 // Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
 import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
 
@@ -367,7 +367,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
     // Double appartenance : une annonce FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION qui
     // remplit aussi les critères Pépite doit apparaître dans le filtre Pépites également.
-    if (currentFilterType === 'PEPITE' && analysis.also_qualifies_pepite) return true;
+    if (currentFilterType === 'PEPITE' && (analysis.also_qualifies_pepite || isOffSearchPepite(analysis))) return true;
 
     // Si le filtre est ALL (ou un filtre implicite via les types), on applique le nettoyage
     if (currentFilterType === 'ALL') {
@@ -573,7 +573,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
         }
 
         // Double appartenance : compte aussi dans PEPITE sans dupliquer le total ALL.
-        if (verdict !== 'PEPITE' && deal.aiAnalysis?.also_qualifies_pepite) {
+        if (verdict !== 'PEPITE' && (deal.aiAnalysis?.also_qualifies_pepite || isOffSearchPepite(deal.aiAnalysis))) {
           c.PEPITE++;
         }
       }

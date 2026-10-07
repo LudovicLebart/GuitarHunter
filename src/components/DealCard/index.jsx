@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { MapPin, FileText, RefreshCw, Facebook } from 'lucide-react';
-import { computeInterestScore } from '../../constants';
+import { computeInterestScore, isOffSearchPepite } from '../../constants';
 import { formatClassificationLabel } from '../../utils/taxonomy';
 import { VERDICT_CONFIG, toTitleCase, formatRelativeDate } from './utils';
 import DealCardImage from './DealCardImage';
@@ -52,7 +52,10 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
     const pubDate = formatRelativeDate(deal.publishTimestamp);
     const images = deal.storageImageUrls?.length > 0 ? deal.storageImageUrls : (deal.imageUrls || []);
 
-    const vc = VERDICT_CONFIG[verdict] || VERDICT_CONFIG.DEFAULT;
+    // Pépite mise de côté par le filtre de recherche active : le badge principal reste « Pépite »
+    // (la classification), « Hors recherche » devient un tag secondaire.
+    const offSearch = isOffSearchPepite(ai);
+    const vc = VERDICT_CONFIG[offSearch ? 'PEPITE' : verdict] || VERDICT_CONFIG.DEFAULT;
     const interestScore = computeInterestScore(ai);
     const alsoPepite = verdict !== 'PEPITE' && !!ai.also_qualifies_pepite;
 
@@ -74,6 +77,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 vc={vc}
                 isAnalyzing={isAnalyzing}
                 alsoPepite={alsoPepite}
+                offSearch={offSearch}
                 interestScore={interestScore}
                 price={price}
                 priceDrop={priceDrop}

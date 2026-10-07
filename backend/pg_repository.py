@@ -286,6 +286,22 @@ class PostgresRepository:
         (`bot.py::handle_deal_found`, chemin `is_update`) a déjà enregistré le match dès que
         `get_deal_by_id` a retrouvé l'annonce existante — l'appeler ici aussi serait redondant
         (même round-trip idempotent à chaque mise à jour de prix)."""
+        if analysis_data is None:
+            # Mise à jour des données seules (prix...) : l'analyse existante est conservée telle
+            # quelle (voir bot.py::handle_deal_found, garde-fou « ne pas déclasser une pépite »).
+            row, _ = map_deal(deal_id, deal_data)
+            columns = [DEAL_FIELD_TO_COLUMN[k] for k in deal_data if k in DEAL_FIELD_TO_COLUMN]
+            if columns:
+                set_parts = [f"{c} = %s" for c in columns] + ['"timestamp" = %s']
+                values = [_to_pg_param(row[c]) for c in columns] + [datetime.now(timezone.utc)]
+                with self.pool.connection() as conn:
+                    conn.execute(
+                        f"UPDATE guitar_deals SET {', '.join(set_parts)} WHERE id = %s",
+                        [*values, deal_id],
+                    )
+            self.logger.info(f"Updated data only (analysis kept) for deal '{deal_id}'.")
+            return
+
         manual_overrides = self._get_manual_analysis_overrides(deal_id)
         if manual_overrides:
             analysis_data = {**analysis_data, **manual_overrides}

@@ -530,7 +530,24 @@ class GuitarHunterBot:
             self.logger.warning(f"⏩ [{source}] Portier T1 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
             return "gatekeeper_failed"
 
+        # Garde-fou : une ré-analyse (mise à jour de prix) ne doit jamais déclasser une PEPITE en
+        # NOT_PROMOTED — le Portier local n'est pas déterministe, et le routage par recherche
+        # active ne doit jamais cacher une pépite. On garde l'analyse existante, seul le prix bouge.
+        keep_existing_analysis = (
+            is_update and existing_deal
+            and existing_deal.get('verdict') == 'PEPITE'
+            and analysis.get('verdict') == 'NOT_PROMOTED'
+        )
+        if keep_existing_analysis:
+            self.logger.warning(
+                f"🛡️ [{source}] Ré-analyse NOT_PROMOTED ignorée pour la pépite {listing_data.get('id')} — analyse existante conservée."
+            )
+
         deal_id = listing_data.get('id')
+        if keep_existing_analysis:
+            if not self.offline_mode:
+                self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, None)
+            return "processed"
         NotificationService.notify_deal(
             deal_id, listing_data, analysis,
             is_update=is_update,

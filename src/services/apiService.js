@@ -255,6 +255,9 @@ function dealFromRow(row) {
   // l'ancien `firestoreService.js::rejectDeal`, qui écrivait les deux) pour que
   // `useDealsManager.js`/`DealsExplorer.jsx` continuent de filtrer sans modification.
   if (row.is_rejected) aiAnalysis.verdict = 'REJECTED';
+  // Verdict brut du Portier (colonne présente dans l'index léger) : permet d'afficher/retrouver
+  // une annonce NOT_PROMOTED que le Portier avait jugée pépite.
+  if (row.gatekeeper_verdict) aiAnalysis.gatekeeperVerdict = row.gatekeeper_verdict;
   return {
     id: row.id,
     title: row.title,

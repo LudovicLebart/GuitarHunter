@@ -1,5 +1,5 @@
 import React from 'react';
-import { Ban, Gem, ShoppingBag } from 'lucide-react';
+import { Ban, Gem, ShoppingBag, Filter } from 'lucide-react';
 import ImageGallery from '../ImageGallery';
 
 const DealCardImage = ({
@@ -10,6 +10,7 @@ const DealCardImage = ({
     vc,
     isAnalyzing,
     alsoPepite,
+    offSearch,
     interestScore,
     price,
     priceDrop
@@ -44,6 +45,12 @@ const DealCardImage = ({
                     <div className="bg-yellow-500 text-yellow-900 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider flex items-center gap-1 shadow-lg">
                         <Gem size={10} />
                         Aussi Pépite
+                    </div>
+                )}
+                {offSearch && (
+                    <div className="bg-amber-700 text-amber-100 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wider flex items-center gap-1 shadow-lg">
+                        <Filter size={10} />
+                        Hors recherche
                     </div>
                 )}
                 {interestScore != null && (
