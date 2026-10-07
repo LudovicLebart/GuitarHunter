@@ -55,6 +55,7 @@ from psycopg.rows import dict_row
 sys.path.insert(0, os.getcwd())
 
 from backend import guitar_knowledge
+from backend.t1_image_budget import fit_images_to_budget
 from backend.t1_prompt import build_t1_gatekeeper_prompt
 from backend.scripts.crop_manifest import images_for_deal, load_manifest
 
@@ -176,6 +177,9 @@ def _is_rejected(verdict):
     return verdict in T1_REJECTION_VERDICTS
 
 
+# QWEN_LOCAL_FIT_BUDGET=1 : applique le MÊME budget de photos que la prod (backend/t1_image_budget.py, contexte =
+# QWEN_LOCAL_NUM_CTX, marge T1_LOCAL_RESPONSE_MARGIN_TOKENS) — rejouer « la prod corrigée » à 8 photos.
+QWEN_LOCAL_FIT_BUDGET = os.getenv("QWEN_LOCAL_FIT_BUDGET", "0") == "1"
 QWEN_LOCAL_IMAGE_MAX_SIZE = int(os.getenv("QWEN_LOCAL_IMAGE_MAX_SIZE", "2048"))   # plus grand côté, px (prod : 2048)
 
 
@@ -659,6 +663,13 @@ def main():
                                                            download=_download_and_optimize_image)
                 if crop_images:
                     images = crop_images
+
+            if QWEN_LOCAL_FIT_BUDGET and images:
+                images, fit_info = fit_images_to_budget(images, full_prompt_t1, QWEN_LOCAL_NUM_CTX,
+                                                        int(os.getenv("T1_LOCAL_RESPONSE_MARGIN_TOKENS", "600")))
+                if fit_info["applied"]:
+                    print(f"  🖼️ budget photos : {fit_info['before']} → {fit_info['after']} tokens estimés "
+                          f"(budget {fit_info['budget']}), coefficient {fit_info['scale']}, {fit_info['dropped']} retirée(s)")
 
             # Diagnostic (2026-09-27) : la fenêtre réellement disponible sur le Dell s'est révélée
             # être 4096 tokens, pas les 8192 demandés (voir QWEN_LOCAL_NUM_CTX ci-dessus) — cette
