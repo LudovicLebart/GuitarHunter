@@ -1,0 +1,368 @@
+{
+  "entries": [
+    {
+      "slug": "univox",
+      "kind": "brand",
+      "name": "Univox",
+      "description": "Marque d'Unicord (États-Unis) : guitares, basses et amplis importés du Japon, fabriqués surtout par Matsumoku dès 1968 ; réputée pour ses copies de Fender, Gibson, Rickenbacker (Hi-Flier, Les Paul, etc.). Remplacée par Westbury (1978-82) ; marque abandonnée après le rachat d'Unicord par Korg en 1985. Guitares vintage recherchées par les collectionneurs.",
+      "countries": [
+        "United States",
+        "Japan"
+      ],
+      "relevance": "guitars",
+      "active_from": 1968,
+      "active_to": 1985,
+      "tier": "entry",
+      "aliases": [
+        "Univox Hi-Flier",
+        "Unicord Univox"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Univox_Hi-Flier",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Univox Hi-Flier",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Univox-branded fretted instruments imported from Matsumoku starting in 1968; late models shipped to Canada with a raised plastic Unicord logo"
+        },
+        {
+          "url": "https://vintagesilvertones.com/forsale_gtr-univox_ltd_ed.html",
+          "publisher": "Vintage Silvertones",
+          "kind": "collector",
+          "title": "Univox",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Univox best known for copies of Fender, Gibson, Rickenbacker; Westbury brand 1978-1982; Korg bought Unicord in 1985"
+        }
+      ]
+    },
+    {
+      "slug": "oscar-schmidt",
+      "kind": "brand",
+      "name": "Oscar Schmidt",
+      "description": "Maison américaine de Jersey City (NJ) fondée en 1871 (Stella, Sovereign, LaScala), autoharpes, guitares, mandolines, banjos. Marques rachetées par Harmony en 1939 ; nom ressuscité à la fin des années 1970 par Washburn International, qui l'exploite aujourd'hui pour des guitares acoustiques/électriques d'entrée et milieu de gamme (12 cordes courantes).",
+      "countries": [
+        "United States"
+      ],
+      "relevance": "guitars",
+      "active_from": 1871,
+      "tier": "entry",
+      "aliases": [
+        "Oscar Schmidt Inc.",
+        "Oscar Schmidt by Washburn"
+      ],
+      "sources": [
+        {
+          "url": "https://en.wikipedia.org/wiki/Oscar_Schmidt_Inc.",
+          "publisher": "Wikipedia",
+          "kind": "wikipedia",
+          "title": "Oscar Schmidt Inc.",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Founded 1871 in Jersey City; trade names Stella, Sovereign, LaScala; Harmony bought the trademarks in 1939; revived in late 1970s by Washburn International"
+        },
+        {
+          "url": "https://bluebookofguitarvalues.com/acoustic-guitars/manufacturers/oscar-schmidt",
+          "publisher": "Blue Book of Guitar Values",
+          "kind": "other",
+          "title": "Oscar Schmidt",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Fiche de marque Oscar Schmidt, guitares acoustiques"
+        }
+      ]
+    },
+    {
+      "slug": "jasmine",
+      "kind": "brand",
+      "name": "Jasmine",
+      "description": "Guitares acoustiques d'entrée de gamme lancées au début des années 1990 comme ligne économique de Takamine (« Jasmine by Takamine »), puis marque distribuée seule par KMC Music (série S : S35, etc.). Instruments pour débutants, valeur de revente faible.",
+      "countries": [
+        "Japan"
+      ],
+      "relevance": "guitars",
+      "active_from": 1990,
+      "tier": "entry",
+      "aliases": [
+        "Jasmine by Takamine",
+        "Takamine Jasmine"
+      ],
+      "sources": [
+        {
+          "url": "https://jamplay.com/articles/7-reviews/36-takamine-jasmine-es-33c-six-string-guitar-review",
+          "publisher": "JamPlay",
+          "kind": "press",
+          "title": "Takamine Jasmine ES 33C review",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Entry-level acoustic line from Takamine, S-series beginner guitars"
+        },
+        {
+          "url": "https://equipboard.com/brands/jasmine",
+          "publisher": "Equipboard",
+          "kind": "other",
+          "title": "Jasmine",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Introduced in the early 1990s by Takamine as lower-cost sibling line; later standalone brand distributed by KMC Music"
+        }
+      ]
+    },
+    {
+      "slug": "mansfield",
+      "kind": "brand",
+      "name": "Mansfield",
+      "description": "Marque maison de Peate Musical Supplies (Montréal), distribuée au Canada depuis les années 1950 : guitares OEM, souvent des Ibanez (Hoshino Gakki, Japon) dans les années 1970, puis des Hondo (Samick) vers 1975-82. Marque canadienne de distributeur, pas un fabricant.",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "active_from": 1950,
+      "tier": "entry",
+      "aliases": [
+        "Mansfield Guitars",
+        "Peate Mansfield"
+      ],
+      "sources": [
+        {
+          "url": "https://www.guitar-list.com/brands/peate",
+          "publisher": "Guitar List",
+          "kind": "other",
+          "title": "Peate",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] In the 1950s Peate began using the Mansfield brand; Mansfield distributed by Peate Musical Supplies for the Canadian market; 1970s built by Hoshino Gakki; later Samick/Hondo"
+        },
+        {
+          "url": "https://reverb.com/item/92026649-ibanez-mansfield-deluxe-59er-les-paul-1976-gibson-lawsuit-era-lp-fujigen-maxon-super-70-pickups-original-case",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Ibanez Mansfield Deluxe 59er 1976",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [annonce] Ibanez-built Mansfield Les Paul copies for Canada, 1970s Japan"
+        }
+      ]
+    },
+    {
+      "slug": "antonio-aparicio",
+      "kind": "brand",
+      "name": "Antonio Aparicio",
+      "description": "Luthier et marque espagnols (Valence) : guitares classiques et flamenco, de séries standard à signature ; plus de quarante ans d'activité, gamme allant de modèles d'étude à des instruments faits main de concert.",
+      "countries": [
+        "Spain"
+      ],
+      "relevance": "guitars",
+      "aliases": [
+        "Antonio Aparicio Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://bluebookofguitarvalues.com/acoustic-guitars/manufacturers/antonio-aparicio-guitars",
+          "publisher": "Blue Book of Guitar Values",
+          "kind": "other",
+          "title": "Antonio Aparicio Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Spanish classical and flamenco guitars, Valencia; Standard, Craftsman, Stage and Signature series"
+        },
+        {
+          "url": "https://guitars.de/en/produkt/antonio-aparicio-cuban-tres/",
+          "publisher": "Guitars.de",
+          "kind": "marketplace",
+          "title": "Antonio Aparicio Cuban Tres",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [résumé] Antonio Aparicio guitar maker for over forty years, workshop in Valencia, Spain"
+        }
+      ]
+    },
+    {
+      "slug": "kingston-guitars",
+      "kind": "brand",
+      "name": "Kingston",
+      "description": "Marque d'importation japonaise des années 1960 (Jack Westheimer, États-Unis) : acoustiques puis électriques, basses, banjos ; construites au Japon, probablement par Kawai, Teisco ou Guyatone. Environ 150 000 guitares vendues aux États-Unis dans les années 1960 ; guitares d'entrée de gamme vintage, valeur surtout de collection.",
+      "countries": [
+        "Japan",
+        "United States"
+      ],
+      "relevance": "guitars",
+      "active_from": 1960,
+      "tier": "entry",
+      "aliases": [
+        "Kingston Guitars",
+        "Kingston MIJ"
+      ],
+      "sources": [
+        {
+          "url": "https://www.premierguitar.com/articles/26125-trash-or-treasure-kingston-s-style-model",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "Trash or Treasure: Kingston S-Style Model",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Kingston guitars built in Japan and imported by Jack Westheimer in the 1960s; maybe Kawai, Teisco or Guyatone"
+        },
+        {
+          "url": "https://vintageandrare.com/product/Kingston-Ca-1970s-Electric-MIJ-1970-91498",
+          "publisher": "Vintage & Rare",
+          "kind": "marketplace",
+          "title": "Kingston Ca 1970s Electric MIJ",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [annonce] Kingston electric, made in Japan, circa 1970s"
+        }
+      ]
+    },
+    {
+      "slug": "beavercreek",
+      "kind": "brand",
+      "name": "BeaverCreek",
+      "description": "Marque de guitares d'entrée de gamme (surtout classiques, formats 1/2 et 3/4) lancée en 2001 pour le marché canadien, vendue chez Long & McQuade, Nantel Musique, etc.",
+      "countries": [
+        "Canada"
+      ],
+      "relevance": "guitars",
+      "active_from": 2001,
+      "tier": "entry",
+      "aliases": [
+        "Beaver Creek",
+        "Beaver Creek Guitars"
+      ],
+      "sources": [
+        {
+          "url": "https://www.long-mcquade.com/211896/Guitars/Classical-Guitars/D-Addario/901-Series-Nylon-String-Classical-Acoustic.htm",
+          "publisher": "Long & McQuade",
+          "kind": "marketplace",
+          "title": "BeaverCreek 901 Series",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [résumé] BeaverCreek guitar brand born in 2001, targeted at the Canadian market; 901 Series classical model"
+        },
+        {
+          "url": "https://www.nantelmusique.ca/product/beavercreek-bctc901-4-4-classic-guitar-natural/",
+          "publisher": "Nantel Musique",
+          "kind": "marketplace",
+          "title": "BeaverCreek BCTC901 4/4 Classical",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [résumé] BeaverCreek classical guitars sold in Canadian music stores"
+        }
+      ]
+    },
+    {
+      "slug": "agile",
+      "kind": "brand",
+      "name": "Agile",
+      "description": "Marque maison de Rondo Music (New Jersey, détaillant fondé en 1959) : guitares et basses importées depuis 1999, construites en Corée du Sud, souvent à 7-10 cordes, gauchères ou headless, à prix bas. Rapport qualité/prix reconnu.",
+      "countries": [
+        "United States",
+        "South Korea"
+      ],
+      "relevance": "guitars",
+      "active_from": 1999,
+      "tier": "entry",
+      "aliases": [
+        "Agile Guitars",
+        "Rondo Agile"
+      ],
+      "sources": [
+        {
+          "url": "https://equipboard.com/brands/agile",
+          "publisher": "Equipboard",
+          "kind": "other",
+          "title": "Agile",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Agile is a house brand of Rondo Music, New Jersey, imported since 1999, built in South Korea"
+        },
+        {
+          "url": "https://bluebookofguitarvalues.com/electric-guitars/manufacturers/agile",
+          "publisher": "Blue Book of Guitar Values",
+          "kind": "other",
+          "title": "Agile",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Fiche de marque Agile, guitares électriques Rondo Music"
+        }
+      ]
+    },
+    {
+      "slug": "sx-guitars",
+      "kind": "brand",
+      "name": "SX",
+      "description": "Marque lancée en 1998 par Team International Music (Taïwan), construite à Guangzhou (Chine), distribuée aux États-Unis par Rondo Music : copies de Stratocaster, Telecaster, Les Paul, P/J Bass à prix d'entrée, appréciées comme base à modifier.",
+      "countries": [
+        "Taiwan",
+        "China"
+      ],
+      "relevance": "guitars",
+      "active_from": 1998,
+      "tier": "entry",
+      "name_as_alias": false,
+      "aliases": [
+        "SX Guitars",
+        "SX Essex",
+        "Rondo SX"
+      ],
+      "sources": [
+        {
+          "url": "https://equipboard.com/brands/sx-guitars",
+          "publisher": "Equipboard",
+          "kind": "other",
+          "title": "SX Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] SX launched in 1998 by Team International Music (Taiwan); Starsun factory in Guangzhou; distributed by Rondo Music"
+        },
+        {
+          "url": "https://www.premierguitar.com/gear/sx-callisto-jr",
+          "publisher": "Premier Guitar",
+          "kind": "press",
+          "title": "SX Callisto Jr",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [résumé] SX Callisto Jr, budget Les Paul Special-style guitar, good value"
+        }
+      ]
+    },
+    {
+      "slug": "traveler-guitar",
+      "kind": "brand",
+      "name": "Traveler Guitar",
+      "description": "Entreprise de Redlands (Californie), fondée par Leon Cox en 1992 : guitares de voyage à taille réelle (série Ultra-Light, corps très réduit). Plus de 85 000 instruments vendus dans 30 pays.",
+      "countries": [
+        "United States"
+      ],
+      "relevance": "guitars",
+      "active_from": 1992,
+      "tier": "mid",
+      "aliases": [
+        "Traveler Guitars",
+        "Traveler Ultra-Light"
+      ],
+      "sources": [
+        {
+          "url": "https://travelerguitar.com/pages/aboutus",
+          "publisher": "Traveler Guitar",
+          "kind": "manufacturer",
+          "title": "The History of Traveler Guitar",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Leon Cox built the first Traveler Guitar in Redlands, California in October 1992; more than 85,000 instruments in 30 countries"
+        },
+        {
+          "url": "https://equipboard.com/brands/traveler-guitar",
+          "publisher": "Equipboard",
+          "kind": "other",
+          "title": "Traveler Guitar",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] [résumé] Traveler Guitar, full-scale travel guitars"
+        }
+      ]
+    }
+  ]
+}

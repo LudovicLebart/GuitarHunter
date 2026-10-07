@@ -11,6 +11,20 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
+
+*Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
+
+- [x] **Correction écrite et testée** : `backend/t1_image_budget.py`, branchée dans `LLMClientsMixin._call_t1_provider` (fournisseur local seulement, échec ouvert), `T1_LOCAL_CONTEXT_TOKENS` / `T1_LOCAL_RESPONSE_MARGIN_TOKENS` dans `config.py`, 15 tests.
+- [ ] **Valider au rejeu sur le Dell** : `QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 python -u -m backend.scripts.compare_qwen_local_vs_prod --simplified-prompt --temperature -1 --ids kijiji_1744378028 --repeat 20 --out catania_fit_budget.json` — attendu : ligne « budget photos » à chaque appel et distribution proche de PEPITE ×18-20 (référence à 1024 px).
+- [ ] **Déployer** (`dev`/`master`, au choix de l'utilisateur), puis relancer la requête `llm_usage` (appels du Portier local à ≥ 8100 tokens) : **doit tomber à 0** ; chercher la ligne « photos réduites pour tenir dans le contexte » dans le LogViewer.
+- [ ] **Récupérer le lot « Fender Squier + stand + accessoires » (`kijiji_1744427856`, 300 $)** rejeté à tort par un appel tronqué : `ANALYZE_DEAL` si l'annonce est encore en ligne (le verdict d'origine reste dans `initial_verdict`, `gatekeeperVerdict` devient `MANUAL_RETRY`).
+- [ ] **Mettre à jour `CLAUDE.md`** (piège « contexte Ollama = 8192 ») avec la règle du budget de photos — non fait, `CLAUDE.md` n'est pas dans la liste de l'étape 3 : à la demande de l'utilisateur.
+- [ ] **Si un jour l'injection de la base de connaissances est activée** : corriger d'abord le matching (une fiche de type `line` ne doit pas être injectée si sa marque mère n'est pas dans le titre — cas « Precision Bass » sur une basse Tone) ; le budget tient déjà compte du texte réel du prompt.
+- [ ] **Piste non retenue, à ne pas refaire** : instruction du Portier en XML (français ou anglais) — biais systématique vers FAIR (0 PEPITE sur 40 appels). Si l'instruction doit changer, tester sur un échantillon stratifié apparié (pépites, rejets, BAD_DEAL, FAIR confirmés, ≥ 3 appels par annonce).
+
+---
+
 ## 🧹 Sortie de Firestore : liens morts restants (2026-10-05)
 
 *Audit du 2026-10-05 : le code Firestore résiduel. Étapes 1 et 3 faites (migration à la connexion, `repository.py` + 10 scripts historiques, `firestoreService.js` supprimés, commentaires corrigés) ; le reste dépend du chantier admin.*

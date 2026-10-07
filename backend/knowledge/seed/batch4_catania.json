@@ -1,0 +1,46 @@
+{
+  "entries": [
+    {
+      "slug": "carmelo-catania",
+      "kind": "brand",
+      "name": "Carmelo Catania",
+      "description": "Marque italienne (Sicile) fondée par le luthier Carmelo Catania (1908-1970) : guitares acoustiques, archtops, mandolines et violons ; grande usine à Mascalucia (~50 employés, ~12 000 instruments/an), production très exportée dans les années 1950-60, surtout des guitares acoustiques d'entrée de gamme. Marque réelle et reconnue chez les collectionneurs, pas une marque obscure ; l'étiquette est souvent écrite « Catania Carmelo ».",
+      "countries": ["Italy"],
+      "active_from": 1928,
+      "active_to": 1970,
+      "relevance": "guitars",
+      "tier": "entry",
+      "name_as_alias": false,
+      "aliases": ["Catania Carmelo", "Carmelo Catania Luthier", "Carmelo Catania Mascalucia"],
+      "sources": [
+        {
+          "url": "https://www.fetishguitars.com/sicily-southern-italy/",
+          "publisher": "Fetish Guitars",
+          "kind": "collector",
+          "title": "Sicily & southern Italy",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Carmelo Catania (1908-1970), Sicilian luthier; acoustic guitars, archtops and bowl-back mandolins, peak production in the 1950s; produced much of the Italian entry-level acoustic guitars of the 1960s"
+        },
+        {
+          "url": "https://www.harpguitars.net/2013/04/14/carmelo-catania-from-iconography-to-reality/",
+          "publisher": "Harp Guitar Foundation",
+          "kind": "collector",
+          "title": "Carmelo Catania: from iconography to reality",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Born in 1908 in Catania, built his first harp guitar at 17; late-1950s factory at Mascalucia on Mount Etna, about fifty workers, ~12,000 instruments a year"
+        },
+        {
+          "url": "https://www.guitar-list.com/brands/carmelo-catania",
+          "publisher": "Guitar List",
+          "kind": "other",
+          "title": "Carmelo Catania",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Fiche de marque Carmelo Catania (guitares italiennes)"
+        }
+      ]
+    }
+  ]
+}

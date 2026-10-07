@@ -163,6 +163,12 @@ T1_LOCAL_MAX_CONCURRENCY = max(1, int(os.getenv("T1_LOCAL_MAX_CONCURRENCY", 1)))
 # silencieux par défaut : 3 × 60 s = jusqu'à 180 s par appel (pic 181 s observé) — désormais 0
 # retry, l'échec remonte au coupe-circuit/chaîne qui bascule sur Qwen cloud.
 T1_LOCAL_TIMEOUT_SECONDS = int(os.getenv("T1_LOCAL_TIMEOUT_SECONDS", 60))
+# Budget de contexte du Portier local (voir backend/t1_image_budget.py) : le Dell sert un contexte de 8192 tokens
+# (OLLAMA_CONTEXT_LENGTH côté serveur, l'endpoint /v1 ignore `options.num_ctx`). Photos + texte + réponse DOIVENT y
+# tenir, sinon Ollama tronque silencieusement le prompt et le Portier répond n'importe quoi (diagnostic 2026-10-07).
+# Les photos sont réduites (jamais retirées) seulement si elles dépassent le budget. 0 = correction désactivée.
+T1_LOCAL_CONTEXT_TOKENS = int(os.getenv("T1_LOCAL_CONTEXT_TOKENS", 8192))
+T1_LOCAL_RESPONSE_MARGIN_TOKENS = int(os.getenv("T1_LOCAL_RESPONSE_MARGIN_TOKENS", 600))
 
 # Coupe-circuit T1 : nombre d'échecs CONSÉCUTIFS avant de mettre un fournisseur en pause, et durée
 # de cette pause. Volontairement simple (pas de sondes dédiées) — voir t1_circuit_breaker.py.

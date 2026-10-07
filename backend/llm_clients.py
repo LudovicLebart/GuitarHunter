@@ -19,6 +19,7 @@ from openai import OpenAI
 from PIL import Image
 
 from backend import llm_usage
+from backend.t1_image_budget import fit_images_to_budget
 from backend.notifications import NotificationService
 from config import (
     TOKENROUTER_API_KEY,
@@ -29,6 +30,8 @@ from config import (
     T1_LOCAL_API_KEY,
     T1_LOCAL_MAX_CONCURRENCY,
     T1_LOCAL_TIMEOUT_SECONDS,
+    T1_LOCAL_CONTEXT_TOKENS,
+    T1_LOCAL_RESPONSE_MARGIN_TOKENS,
 )
 import re
 
@@ -290,6 +293,23 @@ class LLMClientsMixin:
             llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
             return None, str(e)
 
+    def _fit_t1_local_images(self, full_prompt_t1, images):
+        """Photos du Portier LOCAL ramenées dans le budget de contexte du Dell (voir `backend/t1_image_budget.py`) :
+        inchangées si elles tiennent, sinon réduites d'un même coefficient (aucune retirée sauf cas extrême).
+        ÉCHEC OUVERT : toute erreur de la correction laisse les photos d'origine — ne jamais bloquer une analyse."""
+        try:
+            fitted, info = fit_images_to_budget(images, full_prompt_t1, T1_LOCAL_CONTEXT_TOKENS,
+                                                T1_LOCAL_RESPONSE_MARGIN_TOKENS)
+        except Exception as e:
+            self.logger.warning(f"   ⚠️ [Portier/local] budget de photos non appliqué ({e}) — photos d'origine envoyées.")
+            return images
+        if info["applied"]:
+            self.logger.info(
+                f"   🖼️ [Portier/local] photos réduites pour tenir dans le contexte : "
+                f"{info['before']} → {info['after']} tokens estimés (budget {info['budget']}), "
+                f"coefficient {info['scale']}, {info['dropped']} photo(s) retirée(s) sur {len(images)}.")
+        return fitted
+
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
         """Chantier H/I : point d'appel UNIQUE pour n'importe lequel des fournisseurs T1 ("local"
         Dell/Ollama, "qwen" via TokenRouter, ou "gemini" Flash-Lite), avec exactement le même
@@ -298,6 +318,7 @@ class LLMClientsMixin:
         changement de l'appel (timeout, retry, format) ne puisse plus être fait dans un seul
         endroit sans désynchroniser décision et observation."""
         if provider == "local":
+            images = self._fit_t1_local_images(full_prompt_t1, images)
             # Sérialise les appels vers le Dell (voir T1_LOCAL_MAX_CONCURRENCY) : la file d'attente
             # se fait ici, hors timeout HTTP, et non dans Ollama où elle gonflait la latence et
             # déclenchait des timeouts/retries. 0 retry : la chaîne T1 gère déjà le repli.
