@@ -10,6 +10,7 @@ from playwright.sync_api import sync_playwright, Page
 from .config import KijijiScraperConfig
 from .parser import KijijiListingParser
 from .locations import (
+    DEFAULT_SEARCH_RADIUS_KM,
     load_location_lookup, load_city_coordinates, build_resolvable_hubs,
     resolve_location, nearest_resolvable_hub, build_search_url,
 )
@@ -78,7 +79,7 @@ class KijijiScraper:
     # Brossard, Sainte-Julie) est par construction une petite municipalité satellite ->
     # rayon modeste suffisant. Proxy imparfait (Longueuil n'est pas Montréal) mais ne
     # nécessite aucune nouvelle donnée à maintenir (2026-07-27).
-    DEFAULT_RADIUS_KM_RESOLVED = 15
+    DEFAULT_RADIUS_KM_RESOLVED = DEFAULT_SEARCH_RADIUS_KM
     DEFAULT_RADIUS_KM_HUB_FALLBACK = 5
 
     def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None,

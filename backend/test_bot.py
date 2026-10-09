@@ -70,8 +70,79 @@ class TestRunKijijiScan(unittest.TestCase):
         self.bot.handle_deal_found.assert_called_once()
         (processed_deal,), _ = self.bot.handle_deal_found.call_args
         self.assertEqual(processed_deal["id"], "kijiji_123")
-        self.assertEqual(processed_deal["location"], "longueuil")
+        self.assertEqual(processed_deal["location"], "Longueuil")
         mock_scraper.close_session.assert_called_once()
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_rejects_listing_outside_city_list(self, mock_scraper_cls, _sleep):
+        """Régression : à `distance=0`, une annonce de Laval était rattachée par GPS à la ville
+        configurée la plus proche (« Sherbrooke »). Mode strict : nom hors liste -> rejetée."""
+        mock_scraper = mock_scraper_cls.return_value
+        laval = {**_deal("456", lat=45.6066, lng=-73.7124), "location": "Laval, QC"}
+        mock_scraper.scan_city.return_value = [laval]
+        sherbrooke = {"name": "Sherbrooke", "latitude": 45.5179, "longitude": -73.5672}
+
+        self.bot._run_kijiji_scan(self.scan_config, [sherbrooke])
+
+        self.bot.handle_deal_found.assert_not_called()
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_rejects_name_match_with_far_gps(self, mock_scraper_cls, _sleep):
+        """Nom reconnu (« Longueuil ») mais GPS à Sherbrooke : la position prime, rejetée."""
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = [_deal("1", lat=45.404, lng=-71.893)]
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+
+        self.bot.handle_deal_found.assert_not_called()
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_accepts_regional_name_when_gps_is_in_a_listed_city(self, mock_scraper_cls, _sleep):
+        mock_scraper = mock_scraper_cls.return_value
+        deal = {**_deal("2", lat=LONGUEUIL["latitude"], lng=LONGUEUIL["longitude"]), "location": "Rive-Sud"}
+        mock_scraper.scan_city.return_value = [deal]
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+
+        self.bot.handle_deal_found.assert_called_once()
+        (processed_deal,), _ = self.bot.handle_deal_found.call_args
+        self.assertEqual(processed_deal["location"], "Longueuil")
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_per_city_radius_widens_acceptance(self, mock_scraper_cls, _sleep):
+        """`kijijiRadiusKm` d'une ville élargit la borne GPS du mode strict."""
+        mock_scraper = mock_scraper_cls.return_value
+        deal = {**_deal("3", lat=45.404, lng=-71.893 + 0.2), "location": "Un village"}  # ~15-16 km
+        mock_scraper.scan_city.return_value = [deal]
+        sherbrooke = {"name": "Sherbrooke", "latitude": 45.404, "longitude": -71.893, "kijijiRadiusKm": 30}
+
+        self.bot._run_kijiji_scan(self.scan_config, [sherbrooke])
+
+        self.bot.handle_deal_found.assert_called_once()
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_rejects_listing_without_name_or_gps_match(self, mock_scraper_cls, _sleep):
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = [{**_deal("4"), "location": None}]
+
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+
+        self.bot.handle_deal_found.assert_not_called()
+
+    def test_match_allowed_city_uses_whole_words(self, _sleep):
+        match = self.bot._match_allowed_city
+        self.assertEqual(match("Longueuil / South Shore", ["longueuil"]), "longueuil")
+        self.assertIsNone(match("Parisville", ["paris"]))
+
+    @patch("backend.bot.KijijiScraper")
+    def test_strict_mode_accepts_name_match_for_listed_city_without_coordinates(self, mock_scraper_cls, _sleep):
+        mock_scraper = mock_scraper_cls.return_value
+        mock_scraper.scan_city.return_value = [_deal("5", lat=45.5369, lng=-73.5105)]  # « Longueuil / South Shore »
+        no_coords = {"name": "Longueuil", "latitude": None, "longitude": None}
+
+        self.bot._run_kijiji_scan(self.scan_config, [no_coords])
+
+        self.bot.handle_deal_found.assert_called_once()
 
     @patch("backend.bot.KijijiScraper")
     def test_scan_city_called_per_configured_city(self, mock_scraper_cls, _sleep):
@@ -157,7 +228,7 @@ class TestRunKijijiScan(unittest.TestCase):
 
         self.bot.handle_deal_found.assert_called_once()
         (processed_deal,), _ = self.bot.handle_deal_found.call_args
-        self.assertEqual(processed_deal["location"], "Longueuil / South Shore")
+        self.assertEqual(processed_deal["location"], "Longueuil")
 
     @patch("backend.bot.KijijiScraper")
     def test_one_city_failure_does_not_abort_the_others(self, mock_scraper_cls, _sleep):
@@ -293,6 +364,7 @@ class TestAddCityAuto(unittest.TestCase):
         city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
         self.assertEqual(city_data["latitude"], 45.53)
         self.assertEqual(city_data["longitude"], -73.5)
+        self.assertNotIn("createdAt", city_data)  # created_at : défaut SQL (régression NameError firestore)
 
     def test_needs_review_when_suggestion_does_not_match_region_hint(self, mock_city_finder, _mock_fb_scraper):
         mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert, Orne, France", False)
@@ -481,6 +553,26 @@ class TestScanSpecificUrl(unittest.TestCase):
 
     @patch("backend.bot.NotificationService")
     @patch("backend.bot.KijijiScraper")
+    def test_kijiji_manual_scan_keeps_raw_location_when_outside_city_list(self, mock_kj_cls, _mock_notif):
+        """Une annonce de Laval scannée par URL ne doit pas être rattachée à une ville lointaine."""
+        mock_kj = mock_kj_cls.return_value
+
+        def fake_scan(url, on_deal_found):
+            on_deal_found({"id": "1744497585", "title": "Guitare", "latitude": 45.61, "longitude": -73.75, "location": "Laval, QC"})
+        mock_kj.scan_specific_url.side_effect = fake_scan
+
+        self.bot.offline_mode = False
+        self.bot.set_status = MagicMock()
+        self.bot.repo = MagicMock()
+        self.bot.repo.get_cities.return_value = [{"name": "Sherbrooke", "latitude": 45.4042, "longitude": -71.8929}]
+
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/laval/guitare/1744497585")
+
+        (listing_data,), _ = self.bot.handle_deal_found.call_args
+        self.assertEqual(listing_data["location"], "Laval, QC")
+
+    @patch("backend.bot.NotificationService")
+    @patch("backend.bot.KijijiScraper")
     def test_kijiji_manual_scan_corrects_location_via_gps(self, mock_kj_cls, _mock_notif):
         """Régression : le scan manuel Kijiji ne corrigeait pas `location` (imprécis par
         nature, ex: "Longueuil / South Shore") via GPS, contrairement au scan automatique
@@ -503,7 +595,7 @@ class TestScanSpecificUrl(unittest.TestCase):
         self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/longueuil-rive-sud/guitare-electrique/1740804650")
 
         (listing_data,), _ = self.bot.handle_deal_found.call_args
-        self.assertEqual(listing_data["location"], "sainte julie")  # nearest_configured_city() retourne un nom normalisé
+        self.assertEqual(listing_data["location"], "Sainte-Julie")
 
 
 class TestFindCrossPlatformDuplicate(unittest.TestCase):

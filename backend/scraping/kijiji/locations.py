@@ -43,6 +43,10 @@ _DEFAULT_CITY_COORDINATES_PATH = os.path.abspath(
 # Richmond, BC — pas garanti exhaustif, à enrichir si d'autres collisions sont trouvées.
 _HUB_CANDIDATE_EXCLUSIONS = {"richmond"}
 
+# Rayon de recherche par défaut quand le nom de la ville existe chez Kijiji ; partagé avec le mode
+# strict de `bot.py` (tolérance GPS d'une annonce dont le nom est reconnu).
+DEFAULT_SEARCH_RADIUS_KM = 15
+
 
 def parse_locations_response(raw_text: str) -> Dict[str, Any]:
     """`j-locations.json` renvoie du JavaScript (`var locationsTree = {...};`), pas du
