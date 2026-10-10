@@ -558,7 +558,7 @@ class TestScanSpecificUrl(unittest.TestCase):
         mock_kj = mock_kj_cls.return_value
 
         def fake_scan(url, on_deal_found):
-            on_deal_found({"id": "1744497585", "title": "Guitare", "latitude": 45.61, "longitude": -73.75, "location": "Laval, QC"})
+            on_deal_found({"id": "1700000001", "title": "Guitare", "latitude": 45.61, "longitude": -73.75, "location": "Laval, QC"})
         mock_kj.scan_specific_url.side_effect = fake_scan
 
         self.bot.offline_mode = False
@@ -566,7 +566,7 @@ class TestScanSpecificUrl(unittest.TestCase):
         self.bot.repo = MagicMock()
         self.bot.repo.get_cities.return_value = [{"name": "Sherbrooke", "latitude": 45.4042, "longitude": -71.8929}]
 
-        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/laval/guitare/1744497585")
+        self.bot.scan_specific_url("https://www.kijiji.ca/v-guitar/laval/guitare/1700000001")
 
         (listing_data,), _ = self.bot.handle_deal_found.call_args
         self.assertEqual(listing_data["location"], "Laval, QC")
