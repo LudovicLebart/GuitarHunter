@@ -11,6 +11,39 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
+
+*Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
+
+- [x] **Correction écrite et testée** : `backend/t1_image_budget.py`, branchée dans `LLMClientsMixin._call_t1_provider` (fournisseur local seulement, échec ouvert), `T1_LOCAL_CONTEXT_TOKENS` / `T1_LOCAL_RESPONSE_MARGIN_TOKENS` dans `config.py`, 15 tests.
+- [ ] **Valider au rejeu sur le Dell** : `QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 python -u -m backend.scripts.compare_qwen_local_vs_prod --simplified-prompt --temperature -1 --ids kijiji_1744378028 --repeat 20 --out catania_fit_budget.json` — attendu : ligne « budget photos » à chaque appel et distribution proche de PEPITE ×18-20 (référence à 1024 px).
+- [ ] **Déployer** (`dev`/`master`, au choix de l'utilisateur), puis relancer la requête `llm_usage` (appels du Portier local à ≥ 8100 tokens) : **doit tomber à 0** ; chercher la ligne « photos réduites pour tenir dans le contexte » dans le LogViewer.
+- [ ] **Récupérer le lot « Fender Squier + stand + accessoires » (`kijiji_1744427856`, 300 $)** rejeté à tort par un appel tronqué : `ANALYZE_DEAL` si l'annonce est encore en ligne (le verdict d'origine reste dans `initial_verdict`, `gatekeeperVerdict` devient `MANUAL_RETRY`).
+- [ ] **Mettre à jour `CLAUDE.md`** (piège « contexte Ollama = 8192 ») avec la règle du budget de photos — non fait, `CLAUDE.md` n'est pas dans la liste de l'étape 3 : à la demande de l'utilisateur.
+- [ ] **Si un jour l'injection de la base de connaissances est activée** : corriger d'abord le matching (une fiche de type `line` ne doit pas être injectée si sa marque mère n'est pas dans le titre — cas « Precision Bass » sur une basse Tone) ; le budget tient déjà compte du texte réel du prompt.
+- [ ] **Piste non retenue, à ne pas refaire** : instruction du Portier en XML (français ou anglais) — biais systématique vers FAIR (0 PEPITE sur 40 appels). Si l'instruction doit changer, tester sur un échantillon stratifié apparié (pépites, rejets, BAD_DEAL, FAIR confirmés, ≥ 3 appels par annonce).
+
+---
+
+## 🧹 Sortie de Firestore : liens morts restants (2026-10-05)
+
+*Audit du 2026-10-05 : le code Firestore résiduel. Étapes 1 et 3 faites (migration à la connexion, `repository.py` + 10 scripts historiques, `firestoreService.js` supprimés, commentaires corrigés) ; le reste dépend du chantier admin.*
+
+- [ ] **Chantier à part — migrer la page admin vers Postgres/API** (décision utilisateur : on garde la page). `AdminDashboard.jsx` lit/écrit encore Firestore (`collectionGroup('users')`, `admin_stats/latest`, `botStatus`, `scanConfig.frequency`, suppression d'utilisateur) alors que les données vivent dans Postgres : probablement vide ou cassée. À faire : endpoints admin dans `backend/api/` (claim admin), `backend/admin_stats.py` (job de 03:00, écrit encore dans Firestore) réécrit vers Postgres, page reliée à l'API.
+- [ ] **Après le chantier admin** : retirer `getFirestore`/`db` de `src/services/firebase.js`, `useAuth.js` (document utilisateur Firestore à la connexion — vérifier d'abord que le bot découvre bien les utilisateurs via la table `users`), `firebase.json` + règles/index Firestore ; réduire `backend/database.py::DatabaseService` à Firebase Storage (il ouvre encore un client Firestore et teste ses permissions au démarrage).
+- [ ] **À décider** : bail de leadership HA (`backend/ha/lease.py`, `watchdog.py`) — Firestore sert d'arbitre Lenovo/Dell ; code vivant, pas mort.
+- [ ] **À trier** : scripts `backend/scripts/` mentionnant encore Firestore (export/comparaison de migration, `migrate_firestore_prompts`, `list_users`, etc.) ; commentaires périmés restants (`useDealChat.js`, `useRestorationPlan.js`, `DealChatPanel.jsx`, `backend/pg_db.py`, `backend/api/`).
+
+---
+
+## 🐛 Ajout de ville impossible (Sherbrooke) + villes sans coordonnées (2026-10-05)
+
+- [x] `add_city_auto` plantait (`NameError: firestore`) sur toute nouvelle ville ; suggestion Facebook « QC » non reconnue pour l'indice « Québec » (Sherbrooke, AB → id `edmonton`) ; message d'erreur des commandes non remonté (`error`) ; suggestions Photon en double.
+- [x] **Correction des villes sans coordonnées** : run #595, 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable ; `run_once.py` désarmé.
+- [ ] **À décider** : faire échouer l'ajout quand la suggestion Facebook ne correspond pas à la région (au lieu d'enregistrer la ville au mauvais id avec `needsReview`).
+
+---
+
 ## 🐛 Réanalyse (Standard/Expert) sans effet visible + SCAN_URL/Tier 3 (2026-09-27, codé)
 
 *Signalé par l'utilisateur : "Les demandes d'analyse expert ne semblent plus fonctionner. De même que les demandes d'analyse d'URL spécifiques."*

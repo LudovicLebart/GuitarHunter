@@ -25,7 +25,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True
+ACTIVE = False
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -131,10 +131,14 @@ def run():
     Facebook numérique, réassigner `user_city_prefs`, supprimer l'autre) et sa garde-fou (un
     groupe qui ne suit pas exactement ce schéma est laissé de côté, jamais fusionné à
     l'aveugle). Validé en local contre un vrai Postgres (schéma réel, jeu de données
-    reproduisant les 20 cas + un cas volontairement invalide) avant armement ici.
+    reproduisant les 20 cas + un cas volontairement invalide) avant armement ici. Exécuté, désarmé.
+
+    2026-10-05 : villes du catalogue sans coordonnées (Chambly, McMasterville…, scan ignoré /
+    ancrage Kijiji impossible) — voir `backend/scripts/fix_cities_missing_coords.py`. Idempotent.
+    EXÉCUTÉ (run #595, dev) : 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable. Désarmé.
     """
-    from backend.scripts.merge_city_catalog_duplicates import run as merge_city_catalog_duplicates
-    merge_city_catalog_duplicates()
+    from backend.scripts.fix_cities_missing_coords import run as fix_cities_missing_coords
+    fix_cities_missing_coords()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Ban, Gem, ChevronDown, ShoppingBag, Wrench } from 'lucide-react';
 import { toTitleCase, formatRelativeDate } from './utils';
 import { ManagementActions, ShareActions } from './DealCardActions';
+import ReasoningText from './ReasoningText';
 import DealChatPanel from './DealChatPanel';
 import ClassificationEditor from './ClassificationEditor';
 import RestorationPlanPanel from './RestorationPlanPanel';
@@ -294,47 +295,8 @@ const DealAnalysisModal = ({
                             </button>
 
                             {showDetailedAnalysis && reasoning && (
-                                <div className="mt-6 text-[13px] sm:text-[15px] text-slate-300 font-mono leading-relaxed whitespace-pre-wrap animate-in fade-in slide-in-from-top-2">
-                                    {reasoning.split('\n').map((line, i) => {
-                                        if (line.trim() === '') return <div key={i} className="h-4"></div>;
-
-                                        const isHeader = line.startsWith('#');
-                                        const isList = line.trim().startsWith('-') || line.trim().startsWith('* ');
-
-                                        // Parse bold text **like this**
-                                        const formattedLine = line.split(/(\*\*.*?\*\*)/g).map((part, index) => {
-                                            if (part.startsWith('**') && part.endsWith('**')) {
-                                                return <strong key={index} className="text-blue-400 font-bold tracking-wide">{part.slice(2, -2)}</strong>;
-                                            }
-                                            return part;
-                                        });
-
-                                        if (isHeader) {
-                                            // Strip # and render as header
-                                            const text = line.replace(/^#+\s*/, '');
-                                            return <h3 key={i} className="text-blue-400 font-black text-sm uppercase tracking-widest mt-6 mb-2 border-b border-slate-800 pb-2">{text}</h3>;
-                                        }
-
-                                        if (isList) {
-                                            // Strip list marker and render with indent
-                                            const text = line.replace(/^[-*]\s*/, '');
-                                            const listParts = text.split(/(\*\*.*?\*\*)/g).map((part, index) => {
-                                                if (part.startsWith('**') && part.endsWith('**')) {
-                                                    return <strong key={index} className="text-white font-bold tracking-wide">{part.slice(2, -2)}</strong>;
-                                                }
-                                                return part;
-                                            });
-
-                                            return (
-                                                <div key={i} className="flex gap-3 mb-2 items-start pl-2">
-                                                    <span className="text-blue-500 shrink-0 mt-0.5">•</span>
-                                                    <span className="text-slate-300">{listParts}</span>
-                                                </div>
-                                            );
-                                        }
-
-                                        return <div key={i} className="mb-3">{formattedLine}</div>;
-                                    })}
+                                <div className="mt-6 animate-in fade-in slide-in-from-top-2">
+                                    <ReasoningText text={reasoning} />
                                 </div>
                             )}
                         </div>

@@ -40,14 +40,20 @@ export const getRequalificationProposalState = (message) => message.requalificat
 // timestamps trop proches pour que `orderBy('createdAt')` reflète l'ordre réel). Ne garde que les
 // paires strictement consécutives (user suivi immédiatement de model) ; tout tour 'user' isolé,
 // où qu'il soit dans la liste, est ignoré plutôt que de casser l'appel à l'API.
+// Une paire dont un message n'a AUCUNE part (ex. photos seules, toutes illisibles) est ignorée :
+// le SDK rejette un `Content` sans part ("Each Content should have at least one part") et ce rejet
+// se reproduirait à chaque reconstruction de session, bloquant définitivement la conversation.
+const hasParts = (msg) => Array.isArray(msg.parts) && msg.parts.length > 0;
 const sanitizeHistory = (msgs) => {
     const history = [];
     for (let i = 0; i < msgs.length; i++) {
         if (msgs[i].role !== 'user') continue;
         const next = msgs[i + 1];
         if (next && next.role === 'model') {
-            history.push({ role: 'user', parts: msgs[i].parts });
-            history.push({ role: 'model', parts: next.parts });
+            if (hasParts(msgs[i]) && hasParts(next)) {
+                history.push({ role: 'user', parts: msgs[i].parts });
+                history.push({ role: 'model', parts: next.parts });
+            }
             i++; // le tour 'model' vient d'être consommé
         }
     }
@@ -170,7 +176,9 @@ const toolsSignature = (withPhotoRecall, withRestorationTools, withRequalificati
 const looksLikeToolsUnsupportedError = (error) => {
     const haystack = `${error?.message || ''} ${error?.code || ''}`.toLowerCase();
     const mentionsTools = haystack.includes('function') || haystack.includes('tool');
-    const mentionsRejection = haystack.includes('support') || haystack.includes('invalid') || haystack.includes('not allowed');
+    // Pas 'invalid' ni 'not allowed' (2026-10-06) : toute erreur de schéma de tool ou de signature de
+    // réflexion les contient, sans que le modèle soit pour autant incapable de function calling.
+    const mentionsRejection = haystack.includes('not support') || haystack.includes('unsupported') || haystack.includes('not enabled');
     return mentionsTools && mentionsRejection;
 };
 
@@ -188,6 +196,7 @@ const looksLikeToolsUnsupportedError = (error) => {
 const CHAT_USAGE_ACTIONS = {
     'tour principal': 'chat_turn',
     'tour principal (repli sans tools)': 'chat_turn_fallback_no_tools',
+    'tour principal (nouvelle tentative)': 'chat_turn_retry',
     'tour rejoué (photos rappelées)': 'chat_photo_recall_replay',
     'tour de suite (après rappel photo)': 'chat_followup_after_photo_recall',
     'tour de suite (rappel photo invalide)': 'chat_followup_invalid_photo_recall',
@@ -198,7 +207,7 @@ const CHAT_USAGE_ACTIONS = {
 const countImageParts = (parts) =>
     Array.isArray(parts) ? parts.filter((p) => p?.inlineData || p?.fileData).length : 0;
 
-const logTokenUsage = (label, response, { modelName, dealId, sentParts } = {}) => {
+const logTokenUsage = (label, response, { modelName, dealId, sentParts, latencyMs } = {}) => {
     const u = response?.usageMetadata;
     if (!u) return;
     console.log(`[tokens] ${label} — prompt=${u.promptTokenCount ?? '?'} cached=${u.cachedContentTokenCount ?? 0} réponse=${u.candidatesTokenCount ?? '?'} total=${u.totalTokenCount ?? '?'}`);
@@ -215,8 +224,53 @@ const logTokenUsage = (label, response, { modelName, dealId, sentParts } = {}) =
         output_tokens: output,
         // thoughtsTokenCount absent sur certains modèles/SDK : déduit du total dans ce cas.
         thoughts_tokens: u.thoughtsTokenCount ?? Math.max(0, (u.totalTokenCount ?? 0) - input - output),
+        latency_ms: latencyMs ?? null,
     });
 };
+
+// Type d'échec d'un appel Gemini du chat (2026-10-06, lot 1 du chantier d'optimisation du chat) —
+// mêmes valeurs que `llm_usage.classify_error` côté backend, avec le code HTTP en plus quand le SDK
+// le fournit (`customErrorData.status`) : `http_503` et `http_429` n'appellent pas la même réponse.
+const classifyChatError = (error) => {
+    const text = `${error?.name || ''} ${error?.code || ''} ${error?.message || ''}`.toLowerCase();
+    if (error?.name === 'AbortError' || text.includes('timeout') || text.includes('timed out')) return 'timeout';
+    if (looksLikeToolsUnsupportedError(error)) return 'tools_rejected';
+    const status = error?.customErrorData?.status;
+    if (status) return `http_${status}`;
+    if (text.includes('failed to fetch') || text.includes('network')) return 'connection';
+    return 'other';
+};
+
+// Journalise un appel du chat ÉCHOUÉ : jusqu'ici seuls les succès écrivaient dans `llm_usage`
+// (`ok` toujours vrai, `error_type` toujours NULL pour le chat) — impossible de savoir pourquoi le
+// repli sans tools se déclenchait. Aucun token connu (l'API n'a rien renvoyé), mais la ligne donne
+// le taux, le type et la latence de l'échec.
+const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs, errorType } = {}) => {
+    if (!modelName) return;
+    recordLlmUsage({
+        model: modelName,
+        action: CHAT_USAGE_ACTIONS[label] || 'chat_other',
+        deal_id: dealId || null,
+        images: countImageParts(sentParts),
+        latency_ms: latencyMs ?? null,
+        ok: false,
+        error_type: errorType || classifyChatError(error),
+    });
+};
+
+// Délai maximal d'un appel Gemini du chat (le SDK attend 180 s par défaut, sans rien afficher) — Pro
+// avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
+const CHAT_REQUEST_TIMEOUT_MS = 120_000;
+// Attente avant l'unique nouvelle tentative sur une erreur transitoire (429, 5xx, réseau).
+const CHAT_RETRY_DELAY_MS = 2_000;
+
+const isTransientChatError = (kind) => kind === 'connection' || kind === 'http_429' || /^http_5\d\d$/.test(kind);
+
+const abortableDelay = (ms, signal) => new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException('Annulé', 'AbortError')); return; }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Annulé', 'AbortError')); }, { once: true });
+});
 
 // Filet de sécurité Firestore (2026-08-23, Plan 1 tokens, Lot B) — limite dure de 1 Mo/document,
 // jamais vérifiée jusqu'ici. Purement diagnostique (ne bloque rien) : le vrai correctif est de ne
@@ -272,6 +326,23 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // correction plus tard dans le fil. Jamais un tour orphelin (sanitizeHistory exige une
     // alternance stricte user/model) — la note est toujours accrochée à un vrai tour utilisateur.
     const pendingRequalificationNoteRef = useRef(null);
+    // Garde anti-double-envoi SYNCHRONE (2026-10-06) : l'état React `sending` est lu dans une
+    // closure, donc deux clics dans le même cycle de rendu passaient tous les deux — deux tours
+    // 'user' consécutifs, dont `sanitizeHistory` jette le premier.
+    const sendingRef = useRef(false);
+    // Annulation d'un tour en cours (bouton "Annuler") : contrôleur du tour courant + drapeau qui
+    // distingue une annulation voulue d'un délai dépassé (même `AbortError` côté SDK).
+    const abortRef = useRef(null);
+    const userCancelledRef = useRef(false);
+    const setSendingState = useCallback((value) => {
+        sendingRef.current = value;
+        setSending(value);
+    }, []);
+    const cancelSending = useCallback(() => {
+        if (!abortRef.current) return;
+        userCancelledRef.current = true;
+        abortRef.current.abort();
+    }, []);
 
     useEffect(() => {
         if (!deal?.id || !user) return;
@@ -305,24 +376,62 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // d'en créer un nouveau — deux tours 'model' consécutifs casseraient l'alternance stricte
     // qu'exige `sanitizeHistory` sur tout envoi suivant.
     const executeTurn = useCallback(async (chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages, replaceMessageId }) => {
+        // Un contrôleur par tour : l'annulation (bouton) et le délai maximal s'appliquent à CHAQUE
+        // appel du tour (principal, rejeu, tours de suite). L'annulation n'arrête pas la facturation
+        // côté Google (la génération continue en backend), elle libère seulement l'interface.
+        const controller = new AbortController();
+        abortRef.current = controller;
+        userCancelledRef.current = false;
+        let truncated = false;
+        // Envoie un message sur une session ET journalise l'appel dans `llm_usage` (succès : tokens,
+        // latence ; échec : `ok=false` + type d'erreur, puis l'erreur est relancée telle quelle).
+        // Point d'entrée UNIQUE des appels Gemini de ce tour — avant ce lot, les 4 tours de suite
+        // n'étaient jamais enregistrés (pas de `modelName`) et aucun échec ne l'était.
+        const sendLogged = async (session, payload, label, sentParts = null) => {
+            const startedAt = performance.now();
+            const ctx = { modelName, dealId: deal?.id, sentParts };
+            try {
+                const response = await session.sendMessage(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                logTokenUsage(label, response.response, { ...ctx, latencyMs: Math.round(performance.now() - startedAt) });
+                // Réponse coupée par `maxOutputTokens` (qui peut inclure la réflexion) : jamais
+                // persistée comme une réponse normale, voir la note ajoutée avant l'écriture.
+                if (response.response?.candidates?.[0]?.finishReason === 'MAX_TOKENS') truncated = true;
+                return response;
+            } catch (error) {
+                const cancelled = controller.signal.aborted && userCancelledRef.current;
+                logChatFailure(label, error, { ...ctx, latencyMs: Math.round(performance.now() - startedAt), errorType: cancelled ? 'cancelled' : undefined });
+                throw error;
+            }
+        };
+        // Session neuve (jamais la session précédente : après un échec le SDK garde la promesse
+        // rejetée, tout envoi suivant sur la même session relance la même erreur).
+        const startFreshSession = (tools) => getDealChatModel(modelName, tools)
+            .startChat({ history: buildApiHistory(historyMessages, { elide: tools.withPhotoRecall, photoRefIndex }) });
         try {
             let result;
             try {
-                result = await chat.sendMessage(parts);
-                logTokenUsage('tour principal', result.response, { modelName, dealId: deal?.id, sentParts: parts });
+                result = await sendLogged(chat, parts, 'tour principal', parts);
             } catch (sendError) {
-                // Le rejet d'un modèle qui ne supporte pas le function calling arrive ICI (pas à
-                // la construction du modèle) — on retente une fois sans tools depuis le même
-                // historique assaini, sans re-persister le tour utilisateur déjà écrit ci-dessus
-                // (sinon doublon cassant l'alternance user/model requise par sanitizeHistory).
-                // Désactivation DURABLE (`toolsUnsupportedRef`, désactive withRestorationTools ET
-                // withPhotoRecall pour le reste de la session) seulement si l'erreur ressemble
-                // vraiment à un rejet du function calling (voir looksLikeToolsUnsupportedError) —
-                // toute autre erreur (réseau, 503, timeout) ne fait un repli que pour CE tour, les
-                // tools restent actifs pour les suivants (bug trouvé en revue : avant ce correctif,
-                // n'importe quelle erreur transitoire éteignait les tools pour le reste de la
-                // session, sans aucun signal).
-                if (withRestorationTools || withPhotoRecall || withRequalification) {
+                // Trois familles d'échec, traitées différemment (2026-10-06 — avant, TOUTE erreur
+                // déclenchait le repli sans tools, le chemin le plus cher : toutes les photos jointes
+                // renvoyées sans élision, persona et tools perdus pour le tour) :
+                // 1. annulation / délai dépassé : aucune nouvelle tentative (un délai a peut-être déjà
+                //    été facturé, un retry le doublerait) ;
+                // 2. erreur transitoire (429, 5xx, réseau) : UNE nouvelle tentative à l'identique
+                //    (mêmes tools, même élision) sur une session neuve ;
+                // 3. le reste (ex. rejet d'un schéma de tool, 400) : repli sans tools pour CE tour, et
+                //    désactivation DURABLE (`toolsUnsupportedRef`) seulement si l'erreur ressemble
+                //    vraiment à un rejet du function calling (looksLikeToolsUnsupportedError).
+                const kind = classifyChatError(sendError);
+                if (controller.signal.aborted || kind === 'timeout') throw sendError;
+                if (isTransientChatError(kind)) {
+                    console.warn(`Erreur transitoire (${kind}), nouvelle tentative à l'identique dans ${CHAT_RETRY_DELAY_MS / 1000}s:`, sendError);
+                    await abortableDelay(CHAT_RETRY_DELAY_MS, controller.signal);
+                    chat = startFreshSession({ withRestorationTools, withPhotoRecall, withRequalification });
+                    chatRef.current = chat;
+                    chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
+                    result = await sendLogged(chat, parts, 'tour principal (nouvelle tentative)', parts);
+                } else if (withRestorationTools || withPhotoRecall || withRequalification) {
                     const sticky = looksLikeToolsUnsupportedError(sendError);
                     console.error(`Échec avec function calling actif, repli sans tools ${sticky ? '(désactivés durablement — modèle sans support détecté)' : '(ponctuel, tools restent actifs pour les prochains tours)'}:`, sendError);
                     if (sticky) toolsUnsupportedRef.current = true;
@@ -330,8 +439,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         .startChat({ history: buildApiHistory(historyMessages, { elide: false, photoRefIndex }) });
                     chatRef.current = chat;
                     chatToolsRef.current = toolsSignature(false, false, false);
-                    result = await chat.sendMessage(parts);
-                    logTokenUsage('tour principal (repli sans tools)', result.response, { modelName, dealId: deal?.id, sentParts: parts });
+                    result = await sendLogged(chat, parts, 'tour principal (repli sans tools)', parts);
                 } else {
                     throw sendError;
                 }
@@ -375,8 +483,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     const noteLines = [noteSegments.join('')];
                     const replaySession = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall: false, withRequalification })
                         .startChat({ history: buildApiHistory(historyMessages, { elide: withPhotoRecall, photoRefIndex }) });
-                    const replayResult = await replaySession.sendMessage([...parts, { text: noteLines.join('\n') }, ...photoParts]);
-                    logTokenUsage('tour rejoué (photos rappelées)', replayResult.response, { modelName, dealId: deal?.id, sentParts: null });
+                    const replayResult = await sendLogged(
+                        replaySession, [...parts, { text: noteLines.join('\n') }, ...photoParts],
+                        'tour rejoué (photos rappelées)', [...parts, ...photoParts]
+                    );
                     chatRef.current = replaySession; // la session polluée par le functionCall orphelin est abandonnée
                     chatToolsRef.current = toolsSignature(false, withRestorationTools, withRequalification);
                     photoRecall = { refs: cappedRefs.filter(r => !missing.includes(r)), missing };
@@ -391,8 +501,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         const functionResponseParts2 = replayCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
-                        const followUp2 = await replaySession.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après rappel photo)', followUp2.response);
+                        const followUp2 = await sendLogged(replaySession, functionResponseParts2, 'tour de suite (après rappel photo)');
                         responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
                     } else {
                         responseText = replayResult.response.text()?.trim() || "…";
@@ -412,8 +521,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                                 : { status: 'proposal_shown_to_user_pending_confirmation' },
                         },
                     }));
-                    const followUp = await chat.sendMessage(functionResponseParts);
-                    logTokenUsage('tour de suite (rappel photo invalide)', followUp.response);
+                    const followUp = await sendLogged(chat, functionResponseParts, 'tour de suite (rappel photo invalide)');
                     // Le modèle peut réagir à l'erreur en proposant une étape/un réordonnancement
                     // dans ce même tour de suite (bug trouvé en revue — ce chemin ignorait
                     // silencieusement ce cas, contrairement au chemin "rappel réussi" ci-dessus qui
@@ -426,8 +534,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         const functionResponseParts2 = followUpCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                         }));
-                        const followUp2 = await chat.sendMessage(functionResponseParts2);
-                        logTokenUsage('tour de suite (après erreur rappel photo)', followUp2.response);
+                        const followUp2 = await sendLogged(chat, functionResponseParts2, 'tour de suite (après erreur rappel photo)');
                         responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
                     } else {
                         responseText = followUp.response.text()?.trim() || "…";
@@ -445,12 +552,28 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                 }));
-                const followUp = await chat.sendMessage(functionResponseParts);
-                logTokenUsage('tour de suite (functionResponse)', followUp.response);
-                responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                const followUp = await sendLogged(chat, functionResponseParts, 'tour de suite (functionResponse)');
+                // Le modèle peut répondre à la functionResponse par de NOUVEAUX appels (2026-10-06,
+                // même filet que les chemins de rappel de photo) : sans ce traitement la proposition
+                // était perdue et seul le texte générique s'affichait.
+                const followUpCalls = followUp.response.functionCalls?.() || [];
+                if (followUpCalls.length) {
+                    restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                    requalificationProposal = requalificationProposal || buildRequalificationProposalFromCalls(followUpCalls);
+                    const followUp2 = await sendLogged(chat, followUpCalls.map(call => ({
+                        functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
+                    })), 'tour de suite (functionResponse)');
+                    responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                } else {
+                    responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                }
             } else {
                 responseText = result.response.text()?.trim() || "…";
             }
+
+            // Réponse coupée par la limite de longueur : signalée à l'utilisateur ET au modèle (le
+            // texte persisté est rejoué), jamais présentée comme une réponse complète.
+            if (truncated) responseText += '\n\n⚠️ [Réponse tronquée : limite de longueur atteinte. Demande-moi de continuer.]';
 
             if (replaceMessageId) {
                 await replaceDealChatMessage(deal.id, replaceMessageId, {
@@ -467,14 +590,18 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             lastFailedTurnRef.current = null;
         } catch (e) {
             console.error('Erreur chat Gemini:', e);
-            setError(e.message || "Erreur lors de l'envoi du message.");
+            const cancelled = userCancelledRef.current && controller.signal.aborted;
+            const timedOut = !cancelled && classifyChatError(e) === 'timeout';
+            if (!cancelled) setError(e.message || "Erreur lors de l'envoi du message.");
             // Toujours apparier une réponse (même un placeholder d'erreur) au tour utilisateur
             // déjà sauvegardé — sinon l'alternance user/model requise par l'API casse tous les
             // envois suivants sur cette conversation (voir note d'auto-réparation ci-dessus).
             // Détail technique de l'erreur inclus dans le texte (2026-08-24) : rend la bulle
             // auto-suffisante pour diagnostiquer une prochaine occurrence (copiable via le bouton
             // "Copier"), sans avoir à retrouver/retaper l'erreur brute de la console.
-            const errorText = `⚠️ Erreur lors de la génération de la réponse.\n[détail technique : ${e.message || 'erreur inconnue'}]`;
+            const errorText = cancelled
+                ? '⛔ Réponse annulée.'
+                : `${timedOut ? `⏱️ Délai dépassé (${CHAT_REQUEST_TIMEOUT_MS / 1000} s) sans réponse de Gemini.` : '⚠️ Erreur lors de la génération de la réponse.'}\n[détail technique : ${e.message || 'erreur inconnue'}]`;
             try {
                 if (replaceMessageId) {
                     await replaceDealChatMessage(deal.id, replaceMessageId, {
@@ -489,126 +616,153 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 console.error("Erreur sauvegarde du message d'erreur:", e2);
             }
         } finally {
-            setSending(false);
+            if (abortRef.current === controller) abortRef.current = null;
+            setSendingState(false);
         }
-    }, [deal, user, modelName]);
+    }, [deal, user, modelName, setSendingState]);
 
     // `imageFiles` (optionnel, 2026-08-01, tableau depuis 2026-08-22) : photo(s) jointe(s) depuis
     // le chat (prises sur place ou choisies dans la galerie) — envoyer un message avec des images
     // seules (sans texte) est permis.
-    const sendMessage = useCallback(async (text, imageFiles) => {
+    // Retourne `true` si le message a été accepté (persisté), `false` sinon — l'appelant ne vide son
+    // champ de saisie que sur acceptation (`onAccepted`), jamais avant : un échec laissait le texte
+    // perdu sans aucun signal.
+    const sendMessage = useCallback(async (text, imageFiles, { onAccepted } = {}) => {
         const trimmed = (text || '').trim();
         const files = imageFiles?.length ? imageFiles : null;
-        if ((!trimmed && !files) || !deal?.id || !user || sending || !chatRef.current) return;
-
-        const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
-        const withPhotoRecall = !toolsUnsupportedRef.current;
-        const withRequalification = !toolsUnsupportedRef.current;
-        // Index de refs construit une seule fois pour ce tour, réutilisé pour l'élision de
-        // l'historique ET pour résoudre un éventuel appel `request_photo_review` plus bas — toujours
-        // depuis l'état COURANT (`deal`/`messages`), jamais mis en cache entre deux tours.
-        const photoRefIndex = buildPhotoRefIndex(deal, messages);
-        if (chatToolsRef.current !== toolsSignature(withPhotoRecall, withRestorationTools, withRequalification)) {
-            try {
-                chatRef.current = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification })
-                    .startChat({ history: buildApiHistory(messages, { elide: withPhotoRecall, photoRefIndex }) });
-                chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
-            } catch (e) {
-                console.error('Erreur reconstruction de session Gemini (tools):', e);
-            }
+        if ((!trimmed && !files) || !deal?.id || !user || sendingRef.current) return false;
+        if (!chatRef.current) {
+            setError("La session de chat n'est pas encore prête. Réessaie dans un instant.");
+            return false;
         }
-        const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
-        setSending(true);
+        setSendingState(true);
         setError(null);
-
-        const isFirstMessage = messages.length === 0;
-
-        // filesToInlineParts() peut échouer (fichier corrompu/non décodable) — contrairement à
-        // buildDealImageParts() qui avale déjà ses propres erreurs par image. Sans ce try/catch,
-        // une exception ici court-circuite le reste de la fonction et laisse `sending` bloqué à
-        // `true` pour toujours (le seul `setSending(false)` atteignable est plus bas).
-        let uploadedParts, dealImages;
+        // Tout ce qui précède l'appel à Gemini (contexte, photos, sérialisation) est protégé : une
+        // exception ici laissait `sending` bloqué à `true` jusqu'au démontage du panneau (c'est ce
+        // qui est arrivé avec le crash `.slice is not a function`).
         try {
-            [uploadedParts, dealImages] = await Promise.all([
-                files ? filesToInlineParts(files) : Promise.resolve([]),
-                isFirstMessage ? buildDealImageParts(deal) : Promise.resolve({ parts: [], urls: [] }),
-            ]);
+            const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+            const withPhotoRecall = !toolsUnsupportedRef.current;
+            const withRequalification = !toolsUnsupportedRef.current;
+            // Index de refs construit une seule fois pour ce tour, réutilisé pour l'élision de
+            // l'historique ET pour résoudre un éventuel appel `request_photo_review` plus bas — toujours
+            // depuis l'état COURANT (`deal`/`messages`), jamais mis en cache entre deux tours.
+            const photoRefIndex = buildPhotoRefIndex(deal, messages);
+            if (chatToolsRef.current !== toolsSignature(withPhotoRecall, withRestorationTools, withRequalification)) {
+                try {
+                    chatRef.current = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification })
+                        .startChat({ history: buildApiHistory(messages, { elide: withPhotoRecall, photoRefIndex }) });
+                    chatToolsRef.current = toolsSignature(withPhotoRecall, withRestorationTools, withRequalification);
+                } catch (e) {
+                    console.error('Erreur reconstruction de session Gemini (tools):', e);
+                }
+            }
+            const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
+            const isFirstMessage = messages.length === 0;
+
+            // filesToInlineParts() peut échouer (fichier corrompu/non décodable) — contrairement à
+            // buildDealImageParts() qui avale déjà ses propres erreurs par image. Sans ce try/catch,
+            // une exception ici court-circuite le reste de la fonction et laisse `sending` bloqué à
+            // `true` pour toujours (le seul `setSending(false)` atteignable est plus bas).
+            let uploadedParts, dealImages;
+            try {
+                [uploadedParts, dealImages] = await Promise.all([
+                    files ? filesToInlineParts(files) : Promise.resolve([]),
+                    isFirstMessage ? buildDealImageParts(deal) : Promise.resolve({ parts: [], urls: [] }),
+                ]);
+            } catch (e) {
+                console.error('Erreur préparation des photos jointes:', e);
+                setError("Impossible de préparer les photos jointes. Réessaie ou envoie sans photo.");
+                setSendingState(false);
+                return false;
+            }
+
+            // Contexte invisible (dans `parts`, jamais `displayText`) injecté à CHAQUE tour tant que
+            // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
+            // évolue au fil des sessions (voir buildRestorationPlanContextText).
+            const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
+            const contextBlocks = [
+                isFirstMessage ? buildDealContextText(deal) : null,
+                restorationContextText,
+                pendingRequalificationNoteRef.current,
+            ].filter(Boolean);
+            pendingRequalificationNoteRef.current = null;
+
+            const firstMessageText = contextBlocks.length
+                ? [...contextBlocks, trimmed].filter(Boolean).join('\n\n')
+                : trimmed;
+            const dealImageParts = dealImages.parts;
+            const parts = [
+                ...(firstMessageText ? [{ text: firstMessageText }] : []),
+                ...dealImageParts,
+                ...uploadedParts,
+            ];
+
+            // Rien d'envoyable (ex. photos seules, toutes illisibles) : un message sans part serait
+            // persisté puis rejeté par l'API, et bloquerait ensuite la conversation (voir hasParts).
+            if (!parts.length) {
+                setError("Rien à envoyer : la ou les photos sont illisibles. Réessaie avec une autre photo ou ajoute du texte.");
+                setSendingState(false);
+                return false;
+            }
+
+            // Référence les index des photos jointes dans `parts` plutôt que de dupliquer leur base64
+            // (uploadedParts, quand présentes, sont toujours ajoutées en dernier ci-dessus) — évite de
+            // stocker/retransmettre deux fois les mêmes données image par message.
+            const attachedImagePartIndices = uploadedParts.length
+                ? Array.from({ length: uploadedParts.length }, (_, i) => parts.length - uploadedParts.length + i)
+                : undefined;
+
+            // Variante PERSISTÉE (2026-08-23, Plan 1 tokens, Lot B, étendue Lot D) — les photos de
+            // l'annonce (dealImageParts, non vides seulement au premier message) ne sont jamais
+            // dupliquées en base64 dans Firestore : reconstructibles à tout moment depuis
+            // `deal.storageImageUrls`. Sans ce correctif, une annonce à beaucoup de photos (8-10 en
+            // 1024px/JPEG 80%, encodées en base64) peut dépasser la limite Firestore de 1 Mo/document et
+            // faire échouer l'écriture du tout premier message. L'appel à l'API ci-dessous continue
+            // d'utiliser `parts` (les vraies images) — ce correctif ne change QUE ce qui est écrit en
+            // base. Le placeholder porte le `ref` (`d-<hash>`, voir buildPhotoRefIndex) de chaque photo
+            // — sans lui, un historique reconstruit plus tard n'aurait aucun moyen de dire à Gemini
+            // quoi demander pour la revoir via `request_photo_review`. `dealImages.urls` reste ALIGNÉ
+            // index-à-index avec `dealImageParts` même si une photo a échoué au chargement (filtrées
+            // ensemble dans buildDealImageParts) — jamais un recalcul d'index séparé qui risquerait de
+            // poser le ref de la mauvaise photo.
+            const dealImageStart = firstMessageText ? 1 : 0;
+            const persistedParts = dealImageParts.length
+                ? parts.map((part, i) => {
+                    if (i < dealImageStart || i >= dealImageStart + dealImageParts.length) return part;
+                    const url = dealImages.urls[i - dealImageStart];
+                    const ref = photoRefIndex.locationToRef.get(`deal:${url}`);
+                    return {
+                        text: `[Photo ${i - dealImageStart + 1}/${dealImageParts.length} de l'annonce d'origine — non dupliquée ici.${ref ? ` ref: ${ref} — rappelle-la avec request_photo_review si besoin.` : ' Déjà disponible dans la galerie de l\'annonce.'}]`,
+                    };
+                })
+                : parts;
+
+            const persistedSize = JSON.stringify(persistedParts).length;
+            if (persistedSize > FIRESTORE_DOC_SIZE_WARNING_BYTES) {
+                console.warn(`Message de chat volumineux (${(persistedSize / 1024).toFixed(0)} Ko) — risque de dépassement de la limite Firestore (1 Mo/document).`);
+            }
+
+            try {
+                await addDealChatMessage(deal.id, 'user', persistedParts, trimmed, user.uid, attachedImagePartIndices);
+            } catch (e) {
+                console.error('Erreur sauvegarde message utilisateur:', e);
+                setError("Impossible d'envoyer le message.");
+                setSendingState(false);
+                return false;
+            }
+            // Message persisté : le champ de saisie peut être vidé (voir DealChatPanel.handleSend).
+            onAccepted?.();
+
+            await executeTurn(chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages: messages });
+            return true;
         } catch (e) {
-            console.error('Erreur préparation des photos jointes:', e);
-            setError("Impossible de préparer les photos jointes. Réessaie ou envoie sans photo.");
-            setSending(false);
-            return;
+            console.error("Erreur préparation de l'envoi:", e);
+            setError(e.message || "Impossible d'envoyer le message.");
+            setSendingState(false);
+            return false;
         }
-
-        // Contexte invisible (dans `parts`, jamais `displayText`) injecté à CHAQUE tour tant que
-        // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
-        // évolue au fil des sessions (voir buildRestorationPlanContextText).
-        const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
-        const contextBlocks = [
-            isFirstMessage ? buildDealContextText(deal) : null,
-            restorationContextText,
-            pendingRequalificationNoteRef.current,
-        ].filter(Boolean);
-        pendingRequalificationNoteRef.current = null;
-
-        const firstMessageText = contextBlocks.length
-            ? [...contextBlocks, trimmed].filter(Boolean).join('\n\n')
-            : trimmed;
-        const dealImageParts = dealImages.parts;
-        const parts = [
-            ...(firstMessageText ? [{ text: firstMessageText }] : []),
-            ...dealImageParts,
-            ...uploadedParts,
-        ];
-
-        // Référence les index des photos jointes dans `parts` plutôt que de dupliquer leur base64
-        // (uploadedParts, quand présentes, sont toujours ajoutées en dernier ci-dessus) — évite de
-        // stocker/retransmettre deux fois les mêmes données image par message.
-        const attachedImagePartIndices = uploadedParts.length
-            ? Array.from({ length: uploadedParts.length }, (_, i) => parts.length - uploadedParts.length + i)
-            : undefined;
-
-        // Variante PERSISTÉE (2026-08-23, Plan 1 tokens, Lot B, étendue Lot D) — les photos de
-        // l'annonce (dealImageParts, non vides seulement au premier message) ne sont jamais
-        // dupliquées en base64 dans Firestore : reconstructibles à tout moment depuis
-        // `deal.storageImageUrls`. Sans ce correctif, une annonce à beaucoup de photos (8-10 en
-        // 1024px/JPEG 80%, encodées en base64) peut dépasser la limite Firestore de 1 Mo/document et
-        // faire échouer l'écriture du tout premier message. L'appel à l'API ci-dessous continue
-        // d'utiliser `parts` (les vraies images) — ce correctif ne change QUE ce qui est écrit en
-        // base. Le placeholder porte le `ref` (`d-<hash>`, voir buildPhotoRefIndex) de chaque photo
-        // — sans lui, un historique reconstruit plus tard n'aurait aucun moyen de dire à Gemini
-        // quoi demander pour la revoir via `request_photo_review`. `dealImages.urls` reste ALIGNÉ
-        // index-à-index avec `dealImageParts` même si une photo a échoué au chargement (filtrées
-        // ensemble dans buildDealImageParts) — jamais un recalcul d'index séparé qui risquerait de
-        // poser le ref de la mauvaise photo.
-        const dealImageStart = firstMessageText ? 1 : 0;
-        const persistedParts = dealImageParts.length
-            ? parts.map((part, i) => {
-                if (i < dealImageStart || i >= dealImageStart + dealImageParts.length) return part;
-                const url = dealImages.urls[i - dealImageStart];
-                const ref = photoRefIndex.locationToRef.get(`deal:${url}`);
-                return {
-                    text: `[Photo ${i - dealImageStart + 1}/${dealImageParts.length} de l'annonce d'origine — non dupliquée ici.${ref ? ` ref: ${ref} — rappelle-la avec request_photo_review si besoin.` : ' Déjà disponible dans la galerie de l\'annonce.'}]`,
-                };
-            })
-            : parts;
-
-        const persistedSize = JSON.stringify(persistedParts).length;
-        if (persistedSize > FIRESTORE_DOC_SIZE_WARNING_BYTES) {
-            console.warn(`Message de chat volumineux (${(persistedSize / 1024).toFixed(0)} Ko) — risque de dépassement de la limite Firestore (1 Mo/document).`);
-        }
-
-        try {
-            await addDealChatMessage(deal.id, 'user', persistedParts, trimmed, user.uid, attachedImagePartIndices);
-        } catch (e) {
-            console.error('Erreur sauvegarde message utilisateur:', e);
-            setError("Impossible d'envoyer le message.");
-            setSending(false);
-            return;
-        }
-
-        await executeTurn(chat, parts, { withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages: messages });
-    }, [deal, user, messages, sending, restorationItems, modelName, executeTurn]);
+    }, [deal, user, messages, restorationItems, modelName, executeTurn, setSendingState]);
 
     // Bouton "Réessayer" sur une bulle d'erreur (2026-08-24) — ne fonctionne que pour le DERNIER
     // échec de cette session (voir lastFailedTurnRef) : les vraies `parts` envoyées à l'API
@@ -620,12 +774,12 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // historique périmé si d'autres messages ont été échangés entretemps sur un onglet différent.
     const retryMessage = useCallback(async (messageId) => {
         const cached = lastFailedTurnRef.current;
-        if (!cached || cached.errorMessageId !== messageId || sending || !deal?.id || !user) return;
+        if (!cached || cached.errorMessageId !== messageId || sendingRef.current || !deal?.id || !user) return;
         const errorIndex = messages.findIndex(m => m.id === messageId);
         if (errorIndex < 1 || messages[errorIndex - 1]?.role !== 'user') return;
         const historyMessages = messages.slice(0, errorIndex - 1);
 
-        setSending(true);
+        setSendingState(true);
         setError(null);
         const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
         const withPhotoRecall = !toolsUnsupportedRef.current;
@@ -640,14 +794,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         } catch (e) {
             console.error('Erreur reconstruction de session Gemini (retry):', e);
             setError(e.message);
-            setSending(false);
+            setSendingState(false);
             return;
         }
 
         await executeTurn(chat, cached.parts, {
             withRestorationTools, withPhotoRecall, withRequalification, photoRefIndex, historyMessages, replaceMessageId: messageId,
         });
-    }, [deal, user, messages, sending, modelName, executeTurn]);
+    }, [deal, user, messages, modelName, executeTurn, setSendingState]);
 
     // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
     // envoyé (2026-08-21, étendu 2026-08-22 pour cibler une photo précise parmi plusieurs par
@@ -734,7 +888,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     }, [deal, user]);
 
     return {
-        messages, loading, sending, error, sendMessage, retryMessage, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, cancelSending, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
         applyRequalificationProposal, dismissRequalificationProposal,
     };

@@ -95,6 +95,12 @@ Preuve supplémentaire (rejeux du 2026-10-01) : la Jay Turser (logo Fender) et l
 
 Avec deux fournisseurs aux modes de panne complémentaires (le cloud échoue souvent un peu, le local rarement mais d'un bloc), le taux d'échec combiné devrait tomber sous 1 %.
 
+### 2.5 Budget de contexte des photos du Portier local (2026-10-07)
+- **Constat** : le Dell sert un contexte de 8192 tokens (texte + photos + réponse). Une photo coûte (largeur ÷ 32) × (hauteur ÷ 32) tokens, soit 867 pour 640×1386 px ; le texte du Portier ≈ 2080. Huit photos hautes dépassent le contexte (8336) : Ollama tronque silencieusement le prompt et le Portier répond n'importe quoi (REJECTED_ITEM aléatoires, raisonnement en chinois). Sur 801 appels de prod, **3 sont saturés, tous à 8 photos** (0 à ≤ 7), et **tous les 3 ont donné un mauvais verdict** (dont un lot Fender Squier rejeté à tort et la Catania notée BAD_DEAL).
+- **Ce n'était ni la base de connaissances, ni la température, ni la langue de l'instruction** : mesures sur l'annonce Catania (photos réduites à 1024 px : PEPITE ×20 sur 20 ; 8 photos d'origine : verdicts dispersés même à température 0 ; instruction XML ou anglaise : FAIR ×20 sans lien avec le contenu).
+- **Correction retenue (écrite, non déployée)** : `backend/t1_image_budget.py` — photos inchangées si elles tiennent, sinon réduites d'un même coefficient (jamais retirées sauf cas extrême), fournisseur local seulement, `T1_LOCAL_CONTEXT_TOKENS` (0 = désactivé). Mesures et détail : `JOURNAL.md` [2026-10-07].
+- **À retenir pour toute mesure du Portier** : rejouer avec le même nombre de photos et la même taille que la prod (`QWEN_LOCAL_MAX_IMAGES=8`, `--temperature -1`), sinon on mesure un Portier qui n'existe pas. Les mesures de la §3.8 bis ont été faites à 4 photos.
+
 ---
 
 ## 3. La base de connaissances « univers des guitares »
@@ -165,6 +171,8 @@ Coût : 0 $, seulement du temps de calcul sur le Dell.
 - **Limite de la mesure** : on ne peut pas mesurer les faux rejets du Portier en général (une annonce rejetée ne passe pas au palier suivant) ; seuls les cas reclassés après analyse forcée ou chat servent de vérité terrain, et ils sont peu nombreux (26 au départ, 18 après retrait des étuis/amplis). Un `BAD_DEAL` d'origine peut provenir de l'ancien pré-filtre de prix.
 - **Rejeu à température 0 + graine 42 (exécuté, même jour)** : bruit entre deux rejeux sans base 4/18 → **1/18** (l'échantillonnage causait l'essentiel du bruit ; Ollama/GPU reste non parfaitement reproductible). Sur 18 comparables / 16 injectés : 2 rejets nuisibles (Olympia by Tacoma — biais du logo ; Yamaha ERG121 — sortie absurde, fiche Yamaha vide) pour 2 vrais gains, accord 81,2 % → 81,2 %, seuil toléré 0 → **critère non tenu**. La mesure est désormais lisible mais ne montre toujours rien en faveur de la base : elle reste un outil d'audit, pas un composant du Portier.
 - **Suite** : pistes plus prometteuses pour le Portier : §2.3 (consigne « incohérence de marque → accepter avec signalement », qui vise directement Olympia et Jay Turser, encore rejetés dans ce rejeu), second avis sur les rejets absurdes, fixer la température en prod, `gatekeeperProvider`. Toute nouvelle mesure doit se faire à température 0 + graine fixe.
+
+- **Mise à jour 2026-10-06** : 11 fiches ajoutées (Carmelo Catania, Univox, Oscar Schmidt, Jasmine, Mansfield, Antonio Aparicio, Kingston, BeaverCreek, Agile, SX, Traveler ; 891 → 900 fiches, versions 2 et 3 **non validées**). Couverture 36,3 % → 38,5 % des annonces, pépites 68,5 % → 72,7 %. Rejeu 300 annonces avec la version 3 (4 photos, température 0) : 110 annonces avec fiches, 2 rejets nuisibles (fiches Epiphone/Gibson Brands ; fiche « Fender Precision Bass » injectée à tort sur une basse Tone — faux positif de matching sur un nom générique de copie) contre 1 gain (Univox), accord 80,0 % → 78,2 % → **critère non tenu, toujours aucun gain**. L'échec de la Catania qui avait motivé le travail venait d'un appel tronqué (§2.5), pas de la base. La base reste un outil d'audit ; ne pas valider les versions ni activer l'interrupteur.
 
 ### 3.9 Risques
 | Risque | Parade |

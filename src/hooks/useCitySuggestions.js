@@ -4,7 +4,7 @@ import { calculateDistanceKm, minDistanceToCities } from '../utils/geo';
 // Photon (photon.komoot.io, basé sur OpenStreetMap) plutôt que Nominatim directement depuis le
 // navigateur : la politique d'usage de Nominatim interdit explicitement l'autocomplete
 // (recherche à chaque frappe) sans self-hosting, et ce projet n'a pas de serveur HTTP pour faire
-// proxy (main.py est un worker qui lit des commandes Firestore, pas une API) — voir discussion
+// proxy (main.py est un worker qui lit des commandes en base, pas une API) — voir discussion
 // 2026-08-26 (JOURNAL.md) pour le détail du choix.
 const PHOTON_URL = 'https://photon.komoot.io/api/';
 const DEBOUNCE_MS = 400;
@@ -56,6 +56,11 @@ export const useCitySuggestions = (query, existingCities) => {
       setLoading(true);
       try {
         const params = new URLSearchParams({ q: trimmed, limit: '8', lang: 'fr' });
+        // `osm_tag=place` : uniquement des lieux habités (ville, village, quartier). Sans ça Photon
+        // renvoie aussi stations de métro, adresses et frontières administratives de même nom
+        // (ex: « Sherbrooke » → ville + station de Montréal + limite administrative), d'où les
+        // « doublons » et des coordonnées fausses (2026-10-05).
+        params.set('osm_tag', 'place');
         // Biais géographique demandé à Photon lui-même (paramètres `lat`/`lon` de son API) plutôt
         // que de se contenter de retrier les 8 résultats déjà choisis par SON classement par
         // pertinence globale (population/notoriété) — sans ça, une ville proche mais peu connue
@@ -87,7 +92,10 @@ export const useCitySuggestions = (query, existingCities) => {
               displayLabel: [props.name, props.state, props.country].filter(Boolean).join(', '),
             };
           })
-          .filter(c => c.name && c.latitude != null && c.longitude != null);
+          .filter(c => c.name && c.latitude != null && c.longitude != null)
+          // Photon renvoie souvent la même ville en double (nœud + relation OSM) : même libellé,
+          // coordonnées légèrement différentes — on n'en garde qu'une.
+          .filter((c, i, all) => all.findIndex(o => o.displayLabel === c.displayLabel) === i);
 
         const distanceTo = (c) => {
           const pos = userPositionRef.current;

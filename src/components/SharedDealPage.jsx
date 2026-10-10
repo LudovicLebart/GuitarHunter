@@ -3,6 +3,7 @@ import { ExternalLink, MapPin, Guitar } from 'lucide-react';
 import { getSharedDeal } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
+import ReasoningText from './DealCard/ReasoningText';
 
 const SCORE_LABELS = {
     price_score: 'Prix',
@@ -52,6 +53,24 @@ const SharedDealPage = ({ shareId }) => {
     const images = deal.storageImageUrls?.length ? deal.storageImageUrls : (deal.imageUrls || []);
     const scores = deal.scores || {};
     const scoreEntries = Object.entries(SCORE_LABELS).filter(([k]) => scores[k] != null);
+    const ai = deal.aiAnalysis || {};
+    const reasoning = ai.analysis || ai.reasoning || deal.analysis || null;
+    const summary = ai.summary || deal.tier3_summary || null;
+    const estValue = ai.estimated_value ?? ai.estimated_guitar_value ?? null;
+    const computedMargin = (estValue != null && deal.price != null) ? Math.round(estValue - deal.price) : null;
+    const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;
+    const dealScore = ai.deal_score ?? null;
+    const confidence = dealScore != null ? dealScore * 10 : null;
+    const specs = [
+        { label: 'Marque', value: ai.brand },
+        { label: 'Modèle', value: ai.model_name },
+        { label: 'Année', value: ai.production_year },
+        { label: 'Pays', value: ai.country_of_origin },
+        { label: 'Couleur', value: ai.color },
+        { label: 'Finition', value: ai.finish_application },
+        { label: 'Brillance', value: ai.finish_texture },
+        { label: 'Longueur manche', value: ai.neck_scale_length },
+    ].filter(spec => spec.value && !/^inconnu(e)?$/i.test(String(spec.value).trim()));
 
     return (
         <div className="min-h-screen bg-slate-950 text-white">
@@ -59,7 +78,7 @@ const SharedDealPage = ({ shareId }) => {
             <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3">
                 <Guitar size={22} className="text-blue-400 shrink-0" />
                 <span className="font-black text-sm text-white tracking-tight">Guitar Hunter <span className="text-blue-400">AI</span></span>
-                <span className="ml-auto text-xs text-slate-500">Annonce partagée</span>
+                <span className="ml-auto text-xs text-slate-500">Rapport d'expertise partagé</span>
             </div>
 
             <div className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
@@ -78,7 +97,18 @@ const SharedDealPage = ({ shareId }) => {
                     </div>
                     <div className="flex items-center gap-4 text-sm">
                         {deal.price != null && (
-                            <span className="text-2xl font-black text-white">{deal.price} €</span>
+                            <span className="text-2xl font-black text-white">{deal.price}$</span>
+                        )}
+                        {estValue != null && (
+                            <span className="text-sm text-slate-400">Val. est. <span className="line-through">{estValue}$</span></span>
+                        )}
+                        {margin != null && (
+                            <span className={`text-sm font-black ${margin > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                Marge {margin > 0 ? '+' : ''}{margin}$
+                            </span>
+                        )}
+                        {confidence != null && (
+                            <span className="text-sm text-slate-400">Confiance IA <span className="font-black text-blue-400">{Math.round(confidence)}%</span></span>
                         )}
                         {deal.location && (
                             <span className="flex items-center gap-1 text-slate-400">
@@ -111,13 +141,31 @@ const SharedDealPage = ({ shareId }) => {
                     </div>
                 )}
 
-                {/* Analyse IA */}
-                {(deal.tier3_summary || deal.analysis) && (
-                    <div className="bg-slate-900 rounded-2xl p-4 flex flex-col gap-2">
+                {/* Résumé + fiche technique */}
+                {(summary || specs.length > 0) && (
+                    <div className="bg-slate-900 rounded-2xl p-4 flex flex-col gap-3">
                         <p className="text-xs font-black uppercase tracking-widest text-slate-500">Analyse IA</p>
-                        <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
-                            {deal.tier3_summary || deal.analysis}
-                        </p>
+                        {summary && (
+                            <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap">{summary}</p>
+                        )}
+                        {specs.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {specs.map(spec => (
+                                    <div key={spec.label} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5">
+                                        <span className="text-[10px] text-slate-500 font-bold uppercase mr-1.5">{spec.label} :</span>
+                                        <span className="text-xs text-slate-200 font-semibold">{spec.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Analyse détaillée complète */}
+                {reasoning && (
+                    <div className="bg-slate-900 rounded-2xl p-4 flex flex-col gap-2">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Analyse détaillée</p>
+                        <ReasoningText text={reasoning} />
                     </div>
                 )}
 
@@ -125,7 +173,7 @@ const SharedDealPage = ({ shareId }) => {
                 {deal.description && (
                     <div className="bg-slate-900 rounded-2xl p-4 flex flex-col gap-2">
                         <p className="text-xs font-black uppercase tracking-widest text-slate-500">Description</p>
-                        <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-wrap line-clamp-6">
+                        <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-wrap">
                             {deal.description}
                         </p>
                     </div>
@@ -143,12 +191,6 @@ const SharedDealPage = ({ shareId }) => {
                             <ExternalLink size={16} /> Voir l'annonce originale
                         </a>
                     )}
-                    <a
-                        href={`${window.location.origin}${window.location.pathname}`}
-                        className="flex items-center justify-center gap-2 px-5 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold rounded-xl transition-colors"
-                    >
-                        <Guitar size={16} /> Essayer Guitar Hunter AI
-                    </a>
                 </div>
             </div>
         </div>

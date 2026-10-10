@@ -1,6 +1,6 @@
 /**
  * Client REST/WebSocket vers `backend/api/*` (Postgres) — Phase A.2 du Chantier A. Mêmes noms de
- * fonctions et mêmes signatures que `firestoreService.js` pour permettre un remplacement de
+ * fonctions et mêmes signatures que `firestoreService.js (supprimé le 2026-10-05, voir l'historique git)` pour permettre un remplacement de
  * l'import sans toucher aux hooks/composants consommateurs, une fois la bascule décidée
  * (voir docs/management/plans/FIRESTORE_MIGRATION_PLAN.md §5.3).
  *
@@ -18,7 +18,7 @@
  * Firebase que Firestore utilisait déjà en interne — porté explicitement ici (en-tête
  * `Authorization`, ou `?token=` pour les WebSockets qui ne peuvent pas poser d'en-tête custom).
  *
- * Différences assumées avec firestoreService.js (le contrat externe des fonctions ne change pas,
+ * Différences assumées avec firestoreService.js (supprimé le 2026-10-05, voir l'historique git) (le contrat externe des fonctions ne change pas,
  * sauf mention explicite ci-dessous) :
  * - `deals_index` (sharding Firestore, 20 chunks) n'a pas d'équivalent Postgres (colonnes
  *   indexées nativement, voir schema.sql) : `onDealsIndexUpdate` livre désormais des annonces
@@ -30,10 +30,6 @@
  * - Les ids de message de chat / d'étape de restauration sont des entiers (BIGSERIAL Postgres),
  *   pas des chaînes Firestore — transparent pour un appelant qui se contente de les
  *   round-tripper (comparaison, clé React, segment d'URL), jamais d'en parser le format.
- * - `migrateOldDataToNewUser` (copie ponctuelle Firestore -> Firestore d'un ancien compte admin
- *   vers un nouveau, propre à la précédente transition mono- vers multi-utilisateur) reste
- *   IMPORTÉE DEPUIS `firestoreService.js` par `useBotConfig.js` — aucun équivalent Postgres,
- *   opération historique sans rapport avec cette bascule.
  * - Notifications temps réel : le canal WebSocket ne pousse qu'un signal "quelque chose a
  *   changé" (canal partagé, filtré côté serveur par la VISIBILITÉ de l'utilisateur sur ce
  *   deal_id — `user_deal_matches`, voir main.py::ws_deals::_push_if_visible —, pas par un
@@ -364,6 +360,8 @@ export const createSharedDeal = async (deal) => {
       scores,
       analysis: ai.reasoning || ai.analysis || deal.analysis || null,
       tier3_summary: deal.tier3_summary || null,
+      aiAnalysis: ai,
+      priceDropAmount: deal.price_drop_amount ?? null,
       sharedAt: new Date().toISOString(),
     },
   });

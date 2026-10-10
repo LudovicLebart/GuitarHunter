@@ -149,6 +149,10 @@ class CommandOut(BaseModel):
     type: str
     payload: Optional[Any] = None
     status: str
+    # Message d'échec renseigné par le bot (`commands.error_message`) — le frontend
+    # (useCities.js) l'affiche tel quel dans le bandeau d'erreur ; sans ce champ, tout échec
+    # d'ADD_CITY retombait sur un message générique sans cause.
+    error: Optional[str] = None
 
 
 @app.post("/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)
@@ -165,7 +169,8 @@ async def get_command(command_id: int, uid: str = Depends(get_current_uid)):
     row = await commands_repo.get_command(pool, uid, command_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Commande introuvable.")
-    return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"])
+    return CommandOut(id=row["id"], type=row["type"], payload=row["payload"], status=row["status"],
+                      error=row["error_message"])
 
 
 class UsageIn(BaseModel):
@@ -181,6 +186,7 @@ class UsageIn(BaseModel):
     thoughts_tokens: int = 0
     latency_ms: Optional[int] = None
     ok: bool = True
+    error_type: Optional[str] = None
 
 
 @app.post("/usage", status_code=status.HTTP_204_NO_CONTENT)
@@ -191,8 +197,8 @@ async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
     for k in ("images", "input_tokens", "cached_tokens", "output_tokens", "thoughts_tokens"):
         if not 0 <= row[k] <= 5_000_000:
             raise HTTPException(status_code=422, detail=f"{k} hors bornes")
-    if len(row["model"]) > 100 or len(row["action"]) > 60:
-        raise HTTPException(status_code=422, detail="model/action trop longs")
+    if len(row["model"]) > 100 or len(row["action"]) > 60 or len(row["error_type"] or "") > 40:
+        raise HTTPException(status_code=422, detail="model/action/error_type trop longs")
     await usage_repo.add_usage(get_pool(), uid, row)
 
 
@@ -810,6 +816,10 @@ class SharedDealCreate(BaseModel):
     scores: dict = {}
     analysis: Optional[str] = None
     tier3_summary: Optional[str] = None
+    # Analyse IA complète (résumé, fiche technique, raisonnement détaillé, valeur estimée…) :
+    # la page partagée affiche le même rapport que la modale de l'app.
+    aiAnalysis: dict = {}
+    priceDropAmount: Optional[float] = None
     sharedAt: Optional[str] = None
 
 
