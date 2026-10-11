@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Optional
 
 import asyncpg
@@ -280,6 +281,25 @@ async def patch_purchased(deal_id: str, body: PurchasedBody, uid: str = Depends(
         # Achat GLOBAL (2026-09-19) : un autre utilisateur a déjà acheté cette annonce partagée.
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette annonce a déjà été achetée par un autre utilisateur.")
     return {"isPurchased": new_value}
+
+
+class UserSaleBody(BaseModel):
+    salePrice: Optional[float] = None
+    soldAt: Optional[datetime] = None
+
+
+@app.patch("/deals/{deal_id}/user-sale")
+async def patch_user_sale(deal_id: str, body: UserSaleBody, uid: str = Depends(get_current_uid)):
+    """Revente par l'acheteur (2026-10-10) : `salePrice` absent/null annule la revente."""
+    if body.salePrice is not None and body.salePrice < 0:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le prix de vente doit être positif.")
+    pool = get_pool()
+    result = await deals_repo.set_user_sale(pool, uid, deal_id, body.salePrice, body.soldAt)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    if result == "not_purchaser":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Seul l'acheteur peut déclarer la revente.")
+    return {"userSalePrice": body.salePrice}
 
 
 class ClassificationBody(BaseModel):

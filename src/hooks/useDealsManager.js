@@ -8,6 +8,7 @@ import {
   forceExpertAnalysis,
   toggleDealFavorite,
   toggleDealPurchased,
+  setDealUserSale,
   setDealClassification
 } from '../services/apiService';
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore } from '../constants';
@@ -306,6 +307,24 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
           isPurchased: !currentStatus,
           purchasedAt: !currentStatus ? new Date() : undefined,
           purchasePrice: !currentStatus ? (purchasePrice ?? undefined) : undefined,
+        };
+        return next;
+      });
+    } catch (e) { setError(e.message); }
+  }, [user, setError]);
+
+  // Revente par l'acheteur : même raison de patch explicite de loadedDeals que handleTogglePurchased.
+  const handleSetUserSale = useCallback(async (dealId, salePrice, soldAt) => {
+    if (!user) return;
+    try {
+      await setDealUserSale(dealId, salePrice, soldAt);
+      setLoadedDeals(prev => {
+        if (!prev[dealId]) return prev;
+        const next = { ...prev };
+        next[dealId] = {
+          ...next[dealId],
+          userSalePrice: salePrice ?? undefined,
+          userSoldAt: salePrice != null ? (soldAt ? new Date(soldAt) : new Date()) : undefined,
         };
         return next;
       });
@@ -755,6 +774,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       handleForceExpertAnalysis,
       handleToggleFavorite,
       handleTogglePurchased,
+      handleSetUserSale,
       handleSetClassification,
       handleGalleryImageAdded,
       handleAnalysisOverridesApplied,

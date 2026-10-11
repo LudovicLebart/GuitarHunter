@@ -326,6 +326,12 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ---
 
+## 💰 Revente par l'acheteur (2026-10-10)
+
+- [ ] **Déployer puis essayer** : modal « Annuler l'achat ? », bouton `$` (revente), badge « Revendue N$ », carte « Marge Réalisée ». Les colonnes `user_sale_price`/`user_sold_at` se créent au redémarrage de l'API.
+- [ ] **Faire tourner `backend/api/test_deals_api.py` contre un Postgres** (2 nouveaux tests : revente refusée si non acheteur, effacée au désachat) — aucun poste de dev n'en avait.
+- [ ] **Saisir la revente de la Yamaha ERG121** (achat 75 $, revente 220 $) une fois le bouton déployé ; sa date d'achat d'origine est perdue (restauration manuelle du 2026-10-10).
+
 ## 🛒 Multi-plateforme — Scraper Kijiji
 
 *Scraper autonome intégré au pipeline et validé de bout en bout (2026-07-27) — voir l'archive pour le détail. Reste à faire :*

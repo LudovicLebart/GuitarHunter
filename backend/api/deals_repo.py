@@ -40,6 +40,15 @@ _LIGHT_THUMBNAIL_SQL = """
           THEN jsonb_build_array(gd.image_urls -> 0) ELSE '[]'::jsonb END) AS image_urls
 """
 
+# Frais de restauration réellement engagés (étapes `done` : coût réel, sinon estimé) — même règle
+# que `useRestorationPlan.js::totals.spentCost`. Sert à la marge réalisée d'une guitare revendue.
+_RESTORATION_SPENT_SQL = (
+    "(CASE WHEN gd.is_purchased THEN (SELECT COALESCE(SUM(COALESCE(r.actual_cost, r.estimated_cost, 0)), 0) "
+    "FROM restoration_plan_items r WHERE r.deal_id = gd.id AND r.status = 'done') ELSE 0 END) AS restoration_spent"
+)
+# Revente (colonnes hors `DEAL_COLUMNS`, donc ajoutées explicitement à l'index léger).
+_USER_SALE_SQL = "gd.user_sale_price, gd.user_sold_at"
+
 # Colonnes préférence (`user_deal_state`) exposées sous leur ancien nom de colonne
 # `guitar_deals` pour ne rien changer côté frontend (`apiService.js` mappe déjà ces clés).
 _PREFERENCE_SELECT = (
@@ -59,7 +68,7 @@ async def _is_visible(pool: asyncpg.Pool, user_id: str, deal_id: str) -> bool:
 
 async def list_deals(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False):
     query = f"""
-        SELECT gd.*, {_PREFERENCE_SELECT}
+        SELECT gd.*, {_RESTORATION_SPENT_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
         JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $1
         LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $1
@@ -82,7 +91,7 @@ async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None 
     vignette unique via `_LIGHT_THUMBNAIL_SQL`) — même filtrage/tri, pour peupler la liste sans
     le poids des documents complets."""
     query = f"""
-        SELECT {_LIGHT_DEAL_COLUMNS_SQL}, {_LIGHT_THUMBNAIL_SQL}, {_PREFERENCE_SELECT}
+        SELECT {_LIGHT_DEAL_COLUMNS_SQL}, {_USER_SALE_SQL}, {_RESTORATION_SPENT_SQL}, {_LIGHT_THUMBNAIL_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
         JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $1
         LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $1
@@ -103,7 +112,7 @@ async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None 
 async def get_deal(pool: asyncpg.Pool, user_id: str, deal_id: str):
     return await pool.fetchrow(
         f"""
-        SELECT gd.*, {_PREFERENCE_SELECT}
+        SELECT gd.*, {_RESTORATION_SPENT_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
         JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $2
         LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $2
@@ -116,7 +125,7 @@ async def get_deal(pool: asyncpg.Pool, user_id: str, deal_id: str):
 async def get_deals_by_ids(pool: asyncpg.Pool, user_id: str, ids: list[str]):
     return await pool.fetch(
         f"""
-        SELECT gd.*, {_PREFERENCE_SELECT}
+        SELECT gd.*, {_RESTORATION_SPENT_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
         JOIN user_deal_matches udm ON udm.deal_id = gd.id AND udm.user_id = $1
         LEFT JOIN user_deal_state uds ON uds.deal_id = gd.id AND uds.user_id = $1
@@ -163,7 +172,9 @@ async def toggle_purchased(pool: asyncpg.Pool, user_id: str, deal_id: str, purch
         SET is_purchased = NOT is_purchased,
             purchased_by_user_id = CASE WHEN NOT is_purchased THEN $2 ELSE NULL END,
             purchase_price = CASE WHEN NOT is_purchased THEN $3::numeric ELSE NULL END,
-            purchased_at = CASE WHEN NOT is_purchased THEN now() ELSE NULL END
+            purchased_at = CASE WHEN NOT is_purchased THEN now() ELSE NULL END,
+            user_sale_price = NULL,  -- (dés)achat repart d'une revente vierge
+            user_sold_at = NULL
         WHERE id = $1 AND (NOT is_purchased OR purchased_by_user_id = $2)
         RETURNING is_purchased
         """,
@@ -174,6 +185,26 @@ async def toggle_purchased(pool: asyncpg.Pool, user_id: str, deal_id: str, purch
     # Visible mais l'UPDATE n'a rien affecté : forcément "déjà achetée par un AUTRE utilisateur"
     # (le cas "id inexistant" a déjà été écarté par _is_visible ci-dessus).
     return "locked_by_other_user"
+
+
+async def set_user_sale(pool: asyncpg.Pool, user_id: str, deal_id: str,
+                        sale_price: float | None, sold_at=None):
+    """Marque (ou démarque, `sale_price=None`) la guitare comme revendue par son ACHETEUR.
+    Retourne `True` (écrit), `None` (annonce invisible) ou `"not_purchaser"` (visible mais pas
+    achetée par cet utilisateur : la revente n'a de sens que pour l'acheteur)."""
+    if not await _is_visible(pool, user_id, deal_id):
+        return None
+    row = await pool.fetchrow(
+        """
+        UPDATE guitar_deals
+        SET user_sale_price = $3::numeric,
+            user_sold_at = CASE WHEN $3::numeric IS NULL THEN NULL ELSE COALESCE($4::timestamptz, now()) END
+        WHERE id = $1 AND is_purchased AND purchased_by_user_id = $2
+        RETURNING id
+        """,
+        deal_id, user_id, sale_price, sold_at,
+    )
+    return True if row is not None else "not_purchaser"
 
 
 async def set_classification(pool: asyncpg.Pool, user_id: str, deal_id: str, classification_path: str | None) -> bool:

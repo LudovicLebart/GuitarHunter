@@ -199,6 +199,12 @@ END $$;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_at   TIMESTAMPTZ;
 
+-- Revente par l'ACHETEUR (2026-10-10) : distincte de `sold_at`/`status = 'sold'`, qui disent que
+-- l'annonce d'origine n'est plus disponible. Posée sur la ligne partagée comme l'achat (même
+-- propriétaire : `purchased_by_user_id`), effacée si l'achat est annulé.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS user_sale_price NUMERIC;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS user_sold_at    TIMESTAMPTZ;
+
 -- `description` : présente dans `listing_data` du scraper (parser.py, jusqu'à 3000 caractères)
 -- et spread dans le document Firestore par `create_new_deal`/`update_deal_data_and_analysis`,
 -- mais jamais promue en colonne ici — trouvé en traçant le vrai besoin de lecture du bot

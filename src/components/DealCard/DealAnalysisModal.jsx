@@ -32,6 +32,7 @@ const DealAnalysisModal = ({
     onReject,
     onToggleFavorite,
     onTogglePurchased,
+    onSetUserSale,
     onDelete,
     isAnalyzing,
     onSetClassification,
@@ -131,6 +132,7 @@ const DealAnalysisModal = ({
                             isAnalyzing={isAnalyzing}
                             onToggleFavorite={onToggleFavorite}
                             onTogglePurchased={onTogglePurchased}
+                            onSetUserSale={onSetUserSale}
                             onReject={onReject}
                             onDelete={onDelete}
                             onRetry={onRetry}

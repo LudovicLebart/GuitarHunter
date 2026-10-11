@@ -364,6 +364,7 @@ const Dashboard = ({ onClose }) => {
             onReject={() => dealActions?.handleRejectDeal(d.id)}
             onToggleFavorite={() => dealActions?.handleToggleFavorite(d.id, d.isFavorite)}
             onTogglePurchased={(purchasePrice) => dealActions?.handleTogglePurchased(d.id, d.isPurchased, purchasePrice)}
+            onSetUserSale={(salePrice, soldAt) => dealActions?.handleSetUserSale(d.id, salePrice, soldAt)}
             onDelete={() => dealActions?.handleDeleteDeal(d.id)}
             onSetClassification={dealActions?.handleSetClassification}
             onGalleryImageAdded={dealActions?.handleGalleryImageAdded}
