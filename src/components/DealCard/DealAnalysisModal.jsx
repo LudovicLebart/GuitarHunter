@@ -50,6 +50,9 @@ const DealAnalysisModal = ({
     const [chatDraftRequest, setChatDraftRequest] = useState(null);
     const { user } = useAuth();
     const restorationPlan = useRestorationPlan(deal, user);
+    // Plan de restauration personnel (2026-10-11) : disponible pour une guitare ACHETÉE ou AIMÉE
+    // (préparation avant achat / négociation) ; le plan préparé devient le plan réel à l'achat.
+    const canPlanRestoration = !!(isPurchased || deal?.isFavorite);
 
     useEffect(() => {
         if (activeView === 'chat') setHasOpenedChat(true);
@@ -60,8 +63,8 @@ const DealAnalysisModal = ({
     // (voir plus bas) : sans ce filet, aucune des 3 vues ne correspondrait plus et le corps de la
     // modale resterait vide.
     useEffect(() => {
-        if (!isPurchased && activeView === 'restoration') setActiveView('analysis');
-    }, [isPurchased, activeView]);
+        if (!canPlanRestoration && activeView === 'restoration') setActiveView('analysis');
+    }, [canPlanRestoration, activeView]);
 
     const askInChat = (item) => {
         setChatDraftRequest({ text: `Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`, autoSend: false });
@@ -161,7 +164,7 @@ const DealAnalysisModal = ({
                         />
                     </div>
                 )}
-                {isPurchased && (
+                {canPlanRestoration && (
                     <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'restoration' ? '' : 'hidden'}`}>
                         <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} onQuickPrompt={sendQuickPrompt} />
                     </div>
@@ -239,7 +242,7 @@ const DealAnalysisModal = ({
                                 <div className="text-[10px] text-slate-500 font-bold uppercase">Confiance IA</div>
                                 <div className="text-lg font-black text-blue-400">{Math.round(confidence || 0)}%</div>
                             </div>
-                            {isPurchased && (
+                            {canPlanRestoration && (
                                 <div className="bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20">
                                     <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
                                         <ShoppingBag size={11} /> Achetée

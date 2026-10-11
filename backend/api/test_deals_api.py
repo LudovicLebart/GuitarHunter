@@ -183,9 +183,22 @@ class TestDealsAPI(unittest.TestCase):
         self.assertTrue(first.json()["isPurchased"])
         self.assertEqual(float(self.client.get("/deals/deal-1").json()["purchase_price"]), 450.0)
 
-        second = self.client.patch("/deals/deal-1/purchased", json={})
+        second = self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})
         self.assertFalse(second.json()["isPurchased"])
         self.assertIsNone(self.client.get("/deals/deal-1").json()["purchase_price"])  # effacé au retour à False
+
+    def test_unpurchase_requires_confirmation_server_side(self):
+        """Garde serveur (2026-10-11) : un client sans confirmation (ancien bundle en cache) ne
+        peut pas désacheter — prix, date et revente restent intacts."""
+        self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 75})
+        self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+
+        refused = self.client.patch("/deals/deal-1/purchased", json={})
+        self.assertEqual(refused.status_code, 428)
+        body = self.client.get("/deals/deal-1").json()
+        self.assertTrue(body["is_purchased"])
+        self.assertEqual(float(body["purchase_price"]), 75.0)
+        self.assertEqual(float(body["user_sale_price"]), 220.0)
 
     def test_toggle_purchased_by_another_user_returns_409(self):
         """Achat GLOBAL (2026-09-19) : une fois achetée par un utilisateur, un AUTRE utilisateur
@@ -226,7 +239,7 @@ class TestDealsAPI(unittest.TestCase):
         self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
 
         self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
-        self.client.patch("/deals/deal-1/purchased", json={})  # désachat
+        self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})  # désachat
         self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
 
     def test_user_sale_negative_price_rejected(self):

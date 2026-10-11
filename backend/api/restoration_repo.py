@@ -1,8 +1,8 @@
 """Accès SQL à `restoration_plan_items` — tranche 4 du Chantier A.
 
-`deal_id` est la seule FK (pas de `user_id` propre, comme `deal_chat` — la propriété se
-vérifie via `chat_repo.get_deal_owner`, réutilisé tel quel ici, aucune raison de dupliquer
-cette requête pour une deuxième table qui pointe vers `guitar_deals` de la même façon).
+Plan PERSONNEL (2026-10-11) : chaque étape porte un `user_id` ; toutes les lectures/écritures
+filtrent dessus EN PLUS de `deal_id`. L'accès à l'annonce (acheteur, ou guitare aimée) se vérifie
+en amont via `has_plan_access()` ci-dessous.
 
 Toute mutation par `item_id` filtre AUSSI sur `deal_id` (`WHERE id = ... AND deal_id = ...`),
 même raison que `chat_repo.py` : `id` est un BIGSERIAL global (partagé entre toutes les
@@ -29,31 +29,52 @@ _PATCHABLE_FIELDS = {
 }
 
 
-async def list_items(pool: asyncpg.Pool, deal_id: str):
+async def has_plan_access(pool: asyncpg.Pool, deal_id: str, user_id: str) -> bool:
+    """Le plan est ouvert à l'ACHETEUR de l'annonce, ou à un utilisateur qui la voit ET l'a
+    ajoutée à ses favoris (préparation avant achat / négociation)."""
+    row = await pool.fetchrow(
+        """
+        SELECT 1 FROM guitar_deals gd
+        WHERE gd.id = $1 AND (
+            gd.purchased_by_user_id = $2
+            OR EXISTS (
+                SELECT 1 FROM user_deal_matches m
+                JOIN user_deal_state s ON s.user_id = m.user_id AND s.deal_id = m.deal_id
+                WHERE m.user_id = $2 AND m.deal_id = gd.id AND s.is_favorite
+            )
+        )
+        """,
+        deal_id, user_id,
+    )
+    return row is not None
+
+
+async def list_items(pool: asyncpg.Pool, deal_id: str, user_id: str):
     return await pool.fetch(
-        "SELECT * FROM restoration_plan_items WHERE deal_id = $1 ORDER BY item_order NULLS LAST, created_at ASC",
-        deal_id,
+        "SELECT * FROM restoration_plan_items WHERE deal_id = $1 AND user_id = $2 "
+        "ORDER BY item_order NULLS LAST, created_at ASC",
+        deal_id, user_id,
     )
 
 
 async def add_item(
-    pool: asyncpg.Pool, deal_id: str, label: str, category: str | None = None,
+    pool: asyncpg.Pool, deal_id: str, user_id: str, label: str, category: str | None = None,
     estimated_cost: float | None = None, notes: str | None = None, source: str = "user",
     proposed_by_message_id: int | None = None, order: int | None = None,
 ) -> int:
     row = await pool.fetchrow(
         """
         INSERT INTO restoration_plan_items
-            (deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, item_order)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (deal_id, user_id, label, category, estimated_cost, notes, source, proposed_by_message_id, item_order)
+        VALUES ($1, $9, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id
         """,
-        deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, order,
+        deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, order, user_id,
     )
     return row["id"]
 
 
-async def update_item(pool: asyncpg.Pool, deal_id: str, item_id: int, patch: dict) -> bool:
+async def update_item(pool: asyncpg.Pool, deal_id: str, user_id: str, item_id: int, patch: dict) -> bool:
     """Mise à jour champ par champ (jamais l'objet entier) — même principe que
     `updateRestorationItem` côté Firestore : une valeur `None` explicitement présente dans
     `patch` efface le champ (colonne nullable), une clé absente ne le touche pas.
@@ -62,10 +83,11 @@ async def update_item(pool: asyncpg.Pool, deal_id: str, item_id: int, patch: dic
     n'appartient pas à `deal_id` (patch vide compris — vérifié par une lecture dans ce cas)."""
     if not patch:
         row = await pool.fetchrow(
-            "SELECT 1 FROM restoration_plan_items WHERE id = $1 AND deal_id = $2", item_id, deal_id,
+            "SELECT 1 FROM restoration_plan_items WHERE id = $1 AND deal_id = $2 AND user_id = $3",
+            item_id, deal_id, user_id,
         )
         return row is not None
-    values = [item_id, deal_id]
+    values = [item_id, deal_id, user_id]
     set_parts = []
     for key, value in patch.items():
         column = _PATCHABLE_FIELDS[key]
@@ -75,20 +97,21 @@ async def update_item(pool: asyncpg.Pool, deal_id: str, item_id: int, patch: dic
         set_parts.append("completed_at = now()" if patch["status"] == "done" else "completed_at = NULL")
     set_parts.append("updated_at = now()")
     result = await pool.execute(
-        f"UPDATE restoration_plan_items SET {', '.join(set_parts)} WHERE id = $1 AND deal_id = $2",
+        f"UPDATE restoration_plan_items SET {', '.join(set_parts)} WHERE id = $1 AND deal_id = $2 AND user_id = $3",
         *values,
     )
     return result.endswith("1")  # "UPDATE 0" ou "UPDATE 1" — id est la clé primaire
 
 
-async def delete_item(pool: asyncpg.Pool, deal_id: str, item_id: int) -> bool:
+async def delete_item(pool: asyncpg.Pool, deal_id: str, user_id: str, item_id: int) -> bool:
     result = await pool.execute(
-        "DELETE FROM restoration_plan_items WHERE id = $1 AND deal_id = $2", item_id, deal_id,
+        "DELETE FROM restoration_plan_items WHERE id = $1 AND deal_id = $2 AND user_id = $3",
+        item_id, deal_id, user_id,
     )
     return result.endswith("1")
 
 
-async def reorder_items(pool: asyncpg.Pool, deal_id: str, ordered_item_ids: list[int]) -> None:
+async def reorder_items(pool: asyncpg.Pool, deal_id: str, user_id: str, ordered_item_ids: list[int]) -> None:
     """Réordonnancement complet en un seul aller-retour SQL (glisser-déposer manuel, proposition
     IA appliquée, ou rattrapage silencieux `backfillRestorationOrder`) — même fonction pour les
     3 cas côté Firestore actuel, réutilisée ici à l'identique plutôt que dupliquée. Un id qui
@@ -101,13 +124,13 @@ async def reorder_items(pool: asyncpg.Pool, deal_id: str, ordered_item_ids: list
         UPDATE restoration_plan_items AS r
         SET item_order = v.ord, updated_at = now()
         FROM (SELECT * FROM unnest($2::bigint[], $3::int[]) AS t(id, ord)) AS v
-        WHERE r.id = v.id AND r.deal_id = $1
+        WHERE r.id = v.id AND r.deal_id = $1 AND r.user_id = $4
         """,
-        deal_id, ordered_item_ids, list(range(len(ordered_item_ids))),
+        deal_id, ordered_item_ids, list(range(len(ordered_item_ids))), user_id,
     )
 
 
-async def add_photo(pool: asyncpg.Pool, deal_id: str, item_id: int, url: str) -> bool:
+async def add_photo(pool: asyncpg.Pool, deal_id: str, user_id: str, item_id: int, url: str) -> bool:
     """Équivalent `arrayUnion` (pas de doublon) sur un tableau JSONB de chaînes."""
     result = await pool.execute(
         """
@@ -117,18 +140,18 @@ async def add_photo(pool: asyncpg.Pool, deal_id: str, item_id: int, url: str) ->
                 ELSE COALESCE(photo_urls, '[]'::jsonb) || jsonb_build_array($3::text)
             END,
             updated_at = now()
-        WHERE id = $1 AND deal_id = $2
+        WHERE id = $1 AND deal_id = $2 AND user_id = $4
         """,
-        item_id, deal_id, url,
+        item_id, deal_id, url, user_id,
     )
     return result.endswith("1")
 
 
-async def remove_photo(pool: asyncpg.Pool, deal_id: str, item_id: int, url: str) -> bool:
+async def remove_photo(pool: asyncpg.Pool, deal_id: str, user_id: str, item_id: int, url: str) -> bool:
     """Équivalent `arrayRemove` — l'opérateur `jsonb - text` retire les éléments de tableau
     correspondants (pas seulement les clés d'objet, malgré le nom)."""
     result = await pool.execute(
-        "UPDATE restoration_plan_items SET photo_urls = COALESCE(photo_urls, '[]'::jsonb) - $3::text, updated_at = now() WHERE id = $1 AND deal_id = $2",
-        item_id, deal_id, url,
+        "UPDATE restoration_plan_items SET photo_urls = COALESCE(photo_urls, '[]'::jsonb) - $3::text, updated_at = now() WHERE id = $1 AND deal_id = $2 AND user_id = $4",
+        item_id, deal_id, url, user_id,
     )
     return result.endswith("1")

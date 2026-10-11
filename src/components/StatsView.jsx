@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 import { RADAR_GROUP } from '../constants';
+import { useAuth } from '../hooks/useAuth';
 import { normalizeCityKey, pickBestLabel } from '../utils/cities';
 import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
 import DealsExplorer from './DealsExplorer';
@@ -85,6 +86,7 @@ const resolveCategoryLabel = (classification) => {
 };
 
 const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
+    const { user } = useAuth();
 
     // ─── Jeu de données unique : l'inventaire complet, jamais l'onglet actif ──
     // Les stats sont des statistiques générales de marché — elles ne doivent pas dépendre du
@@ -143,7 +145,8 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
     // Marge RÉALISÉE (2026-10-10) : guitares achetées puis revendues par l'utilisateur.
     // revente − achat − frais de restauration engagés (étapes terminées, coût réel sinon estimé).
-    const resoldDeals = analysisDeals.filter(d => d.isPurchased && d.userSalePrice != null);
+    // Achat et revente sont globaux (catalogue partagé) : on ne compte que MES guitares.
+    const resoldDeals = analysisDeals.filter(d => d.isPurchased && d.userSalePrice != null && d.purchasedByUserId === user?.uid);
     const realizedMargin = resoldDeals.reduce(
         (acc, d) => acc + (Number(d.userSalePrice) - (Number(d.purchasePrice) || 0) - (Number(d.restorationSpent) || 0)), 0
     );

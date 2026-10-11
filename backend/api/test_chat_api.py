@@ -18,9 +18,10 @@ from backend.api.test_deals_api import _pg_reachable, _RealServer  # réutilisé
 
 
 async def _seed_deal_and_user(deal_id, user_id):
-    """2026-09-19 (catalogue partagé) : le chat reste réservé à l'ACHETEUR
-    (`purchased_by_user_id`, voir chat_repo.py::get_deal_owner) — plus de `user_id` propre sur
-    `guitar_deals`."""
+    """Catalogue partagé : plus de `user_id` propre sur `guitar_deals`. Depuis le 2026-09-27 le chat
+    est ouvert à tout utilisateur qui VOIT l'annonce (`user_deal_matches`, voir
+    chat_repo.py::is_deal_visible) — le seed crée donc aussi ce match (les tests supposaient encore
+    le chat réservé à l'acheteur et échouaient tous, jamais exécutés faute de base)."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
@@ -28,6 +29,9 @@ async def _seed_deal_and_user(deal_id, user_id):
             "INSERT INTO guitar_deals (id, title, is_purchased, purchased_by_user_id) "
             "VALUES ($1, 'x', true, $2) ON CONFLICT (id) DO NOTHING",
             deal_id, user_id,
+        )
+        await conn.execute(
+            "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", user_id, deal_id,
         )
     finally:
         await conn.close()
@@ -37,6 +41,7 @@ async def _cleanup(*, deal_ids, user_ids):
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("DELETE FROM deal_chat WHERE deal_id = ANY($1::text[])", list(deal_ids))
+        await conn.execute("DELETE FROM user_deal_matches WHERE deal_id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM guitar_deals WHERE id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM users WHERE uid = ANY($1::text[])", list(user_ids))
     finally:

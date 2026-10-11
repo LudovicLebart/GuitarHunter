@@ -5,6 +5,9 @@ import { createSharedDeal } from '../../services/apiService';
 // Actions de gestion de l'annonce (Favori, Acheté, Ré-analyser, Rejeter, Supprimer).
 // Extrait de l'ancien DealCardActions monolithique (2026-08-22) pour permettre à la modale
 // de les afficher sur une ligne séparée de ShareActions — voir DealAnalysisModal.jsx.
+// Date locale AAAA-MM-JJ pour <input type="date"> (toISOString donnerait la date UTC).
+const toLocalDateInput = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export const ManagementActions = ({
     deal,
     isAnalyzing,
@@ -28,14 +31,16 @@ export const ManagementActions = ({
 
     const openSaleModal = () => {
         setSalePriceInput(deal.userSalePrice != null ? String(deal.userSalePrice) : '');
-        setSaleDateInput(deal.userSoldAt?.toDate ? deal.userSoldAt.toDate().toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10));
+        setSaleDateInput(deal.userSoldAt?.toDate ? toLocalDateInput(deal.userSoldAt.toDate()) : toLocalDateInput(new Date()));
         setShowSaleModal(true);
     };
     const confirmSale = () => {
         const parsed = parseFloat(salePriceInput);
         if (!Number.isFinite(parsed) || parsed < 0) return;
-        // Midi UTC : évite qu'un fuseau négatif ne recule la date choisie d'un jour.
-        onSetUserSale(parsed, saleDateInput ? `${saleDateInput}T12:00:00Z` : null);
+        // Aujourd'hui (ou date vide) : null -> `now()` côté serveur, jamais une heure future.
+        // Autre jour : midi UTC, pour qu'un fuseau négatif ne recule pas la date d'un jour.
+        const isToday = !saleDateInput || saleDateInput === toLocalDateInput(new Date());
+        onSetUserSale(parsed, isToday ? null : `${saleDateInput}T12:00:00Z`);
         setShowSaleModal(false);
     };
     const cancelSale = () => {
@@ -290,6 +295,7 @@ export const ManagementActions = ({
                             Cette annonce ne sera plus marquée comme achetée : le prix et la date d'achat{deal.purchasePrice != null ? ` (${deal.purchasePrice}$)` : ''} seront effacés
                             {deal.userSalePrice != null ? `, ainsi que la revente à ${deal.userSalePrice}$` : ''},
                             et si l'annonce d'origine est vendue elle disparaîtra de la liste.
+                            {!deal.isFavorite && ' Son plan de restauration sera masqué (conservé) tant qu\'elle n\'est pas en favori.'}
                         </p>
                         <div className="flex justify-end gap-2 mt-4">
                             <button

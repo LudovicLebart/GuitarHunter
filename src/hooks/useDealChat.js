@@ -352,7 +352,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             setLoading(false);
             setError(null); // efface un bandeau laissé par une coupure désormais résolue
             try {
-                const withRestorationTools = !!dealRef.current?.isPurchased && !toolsUnsupportedRef.current;
+                const withRestorationTools = !!(dealRef.current?.isPurchased || dealRef.current?.isFavorite) && !toolsUnsupportedRef.current;
                 const withPhotoRecall = !toolsUnsupportedRef.current;
                 const withRequalification = !toolsUnsupportedRef.current;
                 const model = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification });
@@ -641,7 +641,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         // exception ici laissait `sending` bloqué à `true` jusqu'au démontage du panneau (c'est ce
         // qui est arrivé avec le crash `.slice is not a function`).
         try {
-            const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+            const withRestorationTools = !!(deal.isPurchased || deal.isFavorite) && !toolsUnsupportedRef.current;
             const withPhotoRecall = !toolsUnsupportedRef.current;
             const withRequalification = !toolsUnsupportedRef.current;
             // Index de refs construit une seule fois pour ce tour, réutilisé pour l'élision de
@@ -680,7 +680,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             // Contexte invisible (dans `parts`, jamais `displayText`) injecté à CHAQUE tour tant que
             // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
             // évolue au fil des sessions (voir buildRestorationPlanContextText).
-            const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
+            const restorationContextText = (deal.isPurchased || deal.isFavorite) ? buildRestorationPlanContextText(restorationItems) : null;
             const contextBlocks = [
                 isFirstMessage ? buildDealContextText(deal) : null,
                 restorationContextText,
@@ -781,7 +781,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
 
         setSendingState(true);
         setError(null);
-        const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+        const withRestorationTools = !!(deal.isPurchased || deal.isFavorite) && !toolsUnsupportedRef.current;
         const withPhotoRecall = !toolsUnsupportedRef.current;
         const withRequalification = !toolsUnsupportedRef.current;
         const photoRefIndex = buildPhotoRefIndex(deal, messages);

@@ -329,7 +329,8 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 ## 💰 Revente par l'acheteur (2026-10-10)
 
 - [ ] **Déployer puis essayer** : modal « Annuler l'achat ? », bouton `$` (revente), badge « Revendue N$ », carte « Marge Réalisée ». Les colonnes `user_sale_price`/`user_sold_at` se créent au redémarrage de l'API.
-- [ ] **Faire tourner `backend/api/test_deals_api.py` contre un Postgres** (2 nouveaux tests : revente refusée si non acheteur, effacée au désachat) — aucun poste de dev n'en avait.
+- [x] **Tests de l'API exécutés contre un Postgres local** *(2026-10-11)* : `pip install pixeltable-pgserver`, serveur lancé via `pixeltable_pgserver.get_server(<dossier>)` (URI affichée par `get_uri()`), puis `DATABASE_URL=<uri> python -m pytest backend/api` → 64 tests verts.
+- [ ] **Plan de restauration personnel (2026-10-11) — à essayer après déploiement** : plan sur une guitare aimée non achetée, bascule à l'achat, retrait du favori. Non fait : marge potentielle avant achat (valeur estimée − prix − plan) dans le panneau.
 - [ ] **Saisir la revente de la Yamaha ERG121** (achat 75 $, revente 220 $) une fois le bouton déployé ; sa date d'achat d'origine est perdue (restauration manuelle du 2026-10-10).
 
 ## 🛒 Multi-plateforme — Scraper Kijiji

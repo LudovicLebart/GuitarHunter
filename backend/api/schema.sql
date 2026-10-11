@@ -355,6 +355,23 @@ ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS completed_at        
 
 CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_items(deal_id, item_order);
 
+-- Plan de restauration PERSONNEL (2026-10-11) : un plan peut être préparé avant l'achat (guitare
+-- aimée) pour évaluer l'affaire et négocier ; il devient le plan réel à l'achat. Chaque étape
+-- appartient donc à un utilisateur (avant : plan unique de l'acheteur). Rattrapage des lignes
+-- existantes : l'acheteur de l'annonce, sinon le PREMIER utilisateur qui l'a vue (les plans étaient
+-- réservés à l'acheteur, donc cet utilisateur est le plus probable) ; sans aucun match, user_id reste
+-- NULL (ligne invisible, jamais supprimée).
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS user_id TEXT;
+UPDATE restoration_plan_items r
+SET user_id = COALESCE(
+    g.purchased_by_user_id,
+    (SELECT m.user_id FROM user_deal_matches m WHERE m.deal_id = r.deal_id
+       ORDER BY m.matched_at ASC, m.user_id ASC LIMIT 1)
+)
+FROM guitar_deals g
+WHERE g.id = r.deal_id AND r.user_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_restoration_plan_user_deal ON restoration_plan_items(user_id, deal_id);
+
 -- Temps réel (remplace onRestorationPlanUpdate) : canal séparé, filtré par deal_id comme
 -- chat_changes. Couvre aussi DELETE (contrairement à deal_changes/chat_changes, qui n'en ont
 -- pas besoin dans leurs flux actuels) car la suppression d'étape est une action réelle exposée
@@ -363,10 +380,10 @@ CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_item
 CREATE OR REPLACE FUNCTION notify_restoration_plan_change() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', OLD.deal_id, 'id', OLD.id, 'deleted', true)::text);
+        PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', OLD.deal_id, 'user_id', OLD.user_id, 'id', OLD.id, 'deleted', true)::text);
         RETURN OLD;
     END IF;
-    PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id)::text);
+    PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', NEW.deal_id, 'user_id', NEW.user_id, 'id', NEW.id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

@@ -264,6 +264,7 @@ function dealFromRow(row) {
     status: row.is_rejected ? 'rejected' : row.status,
     isFavorite: row.is_favorite,
     isPurchased: row.is_purchased,
+    purchasedByUserId: row.purchased_by_user_id,
     manualClassification: row.manual_classification,
     manualAnalysisOverrides: row.manual_analysis_overrides,
     link: row.link,
@@ -545,7 +546,7 @@ export const toggleDealPurchased = async (dealId, currentStatus, _chunkId, _user
   try {
     await apiFetch(`/deals/${dealId}/purchased`, {
       method: 'PATCH',
-      body: !currentStatus ? { purchasePrice } : {},
+      body: !currentStatus ? { purchasePrice } : { confirmUnpurchase: true },
     });
   } catch (error) {
     console.error(`Error toggling purchased for deal ${dealId}:`, error);
