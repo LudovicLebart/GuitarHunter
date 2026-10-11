@@ -244,16 +244,22 @@ const DealAnalysisModal = ({
                             </div>
                             {canPlanRestoration && (
                                 <div className="bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20">
-                                    <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
-                                        <ShoppingBag size={11} /> Achetée
-                                    </div>
-                                    <div className="text-sm font-black text-emerald-400">
-                                        {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
-                                        {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
-                                    </div>
+                                    {/* « Achetée » seulement si elle l'est : le plan de restauration s'ouvre aussi aux favoris. */}
+                                    {isPurchased && (
+                                        <>
+                                            <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
+                                                <ShoppingBag size={11} /> Achetée
+                                            </div>
+                                            <div className="text-sm font-black text-emerald-400">
+                                                {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
+                                                {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
+                                                {deal.userSalePrice != null && <span className="text-amber-400 font-bold ml-1.5">· revendue {deal.userSalePrice}$</span>}
+                                            </div>
+                                        </>
+                                    )}
                                     <button
                                         onClick={() => setActiveView('restoration')}
-                                        className="flex items-center gap-1 text-xs font-bold text-emerald-300/80 hover:text-emerald-200 mt-1 pt-1 border-t border-emerald-500/20 transition-colors"
+                                        className={`flex items-center gap-1 text-xs font-bold text-emerald-300/80 hover:text-emerald-200 transition-colors ${isPurchased ? 'mt-1 pt-1 border-t border-emerald-500/20' : ''}`}
                                     >
                                         <Wrench size={11} />
                                         Restauration {restorationPlan.totals.doneCount}/{restorationPlan.totals.itemCount}

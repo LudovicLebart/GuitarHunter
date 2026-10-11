@@ -126,6 +126,24 @@ class TestChatAPI(unittest.TestCase):
         self.assertEqual(proposal["itemId"], "item-1")
         self.assertEqual(proposal["label"], "Refret")  # champs existants préservés
 
+    def test_mark_restoration_proposal_status_accepts_integer_item_id(self):
+        """Régression : le front envoie l'id Postgres (entier) renvoyé par POST /restoration-plan ;
+        `itemId: Optional[str]` répondait 422 -> « Erreur lors de la mise à jour de la proposition »."""
+        create = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={
+            "role": "model", "parts": [{"text": "..."}],
+            "restorationProposals": [{"label": "Refret", "status": "pending"}],
+        })
+        message_id = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/deals/{self.DEAL_ID}/chat/{message_id}/restoration-proposal",
+            json={"proposalIndex": 0, "status": "applied", "itemId": 42},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        proposal = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()[0]["restoration_proposals"][0]
+        self.assertEqual(proposal["status"], "applied")
+        self.assertEqual(proposal["itemId"], 42)
+
     def test_mark_restoration_proposal_status_out_of_range_index_leaves_column_unchanged(self):
         """`jsonb_set`/`||` sont STRICT : sans garde, un index hors bornes rendrait tout le
         tableau NULL au lieu de laisser la ligne inchangée (bug de revue de code)."""

@@ -12,7 +12,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
@@ -518,7 +518,10 @@ async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid
 class RestorationProposalStatusBody(BaseModel):
     proposalIndex: int
     status: str
-    itemId: Optional[str] = None
+    # L'id d'étape est un ENTIER depuis Postgres (BIGSERIAL, renvoyé tel quel par POST /restoration-plan) ;
+    # `Optional[str]` rejetait ce que le front envoie (422) : l'étape était créée puis la proposition
+    # restait « non appliquée » (erreur affichée, doublon à chaque nouveau clic).
+    itemId: Optional[Union[int, str]] = None
 
 
 @app.patch("/deals/{deal_id}/chat/{message_id}/restoration-proposal")
