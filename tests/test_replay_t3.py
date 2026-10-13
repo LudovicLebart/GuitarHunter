@@ -57,3 +57,19 @@ def test_stored_result_merges_columns_over_raw_and_flags_edits():
 def test_owner_block_dedups_nothing_but_limits_and_flattens():
     assert rp.owner_block([]).startswith("(aucun")
     assert "a b" in rp.owner_block(["a\n b"])
+
+
+def test_stored_gemini_only_when_raw_expert_answer():
+    raw = {"tier3_trigger": "Prix élevé"}
+    assert rp.use_stored_gemini(raw)
+    assert not rp.use_stored_gemini(raw, fresh_gemini=True)
+    assert not rp.use_stored_gemini({})                                          # pas de réponse Expert stockée
+    assert not rp.use_stored_gemini({**raw, "requal_applied": True})             # requalification acceptée : réponse corrigée
+    assert not rp.use_stored_gemini({**raw, "manual_analysis_overrides": {"brand": "X"}})
+
+
+def test_image_url_lists_order_and_cap():
+    deal = {"storage_image_urls": ["s%d" % i for i in range(12)], "image_urls": ["f1"]}
+    lists = rp.image_url_lists(deal)
+    assert len(lists) == 2 and len(lists[0]) == 8 and lists[1] == ["f1"] and lists[0][0] == "s0"
+    assert rp.image_url_lists({"storage_image_urls": [], "image_urls": None}) == []

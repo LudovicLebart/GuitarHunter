@@ -13,12 +13,13 @@ Question posée : « Sonnet 5.5 fait-il au moins aussi bien que Gemini comme Exp
      désaccords entre juges sont signalés, à regarder à la main — aucune annotation par annonce n'est demandée.
   3. COÛT et LATENCE réels, relevés sur chaque appel.
 
-MODE PAR DÉFAUT (léger) : la réponse « Gemini » est celle DÉJÀ STOCKÉE en production (aucun nouvel appel Gemini Expert) ;
-seul Sonnet 5.5 est lancé. On perd la mesure de cohérence de Gemini (une seule réponse stockée) ; `--fresh-gemini` relance
-aussi Gemini (coût et mesure de cohérence en plus). Limite : une réponse stockée a pu être retouchée par l'utilisateur
-(correction manuelle, requalification acceptée) — ces annonces sont marquées « retouchée » et à lire avec prudence.
+RÉPONSE GEMINI : réutilisée telle que STOCKÉE en production (aucun nouvel appel Gemini Expert) uniquement si elle est
+brute, c'est-à-dire si l'annonce est passée par l'Expert ET que l'utilisateur n'y a rien retouché. Dès qu'il a corrigé la
+fiche à la main ou accepté une requalification du chat, la réponse stockée contient SA correction : la comparer à une
+analyse repartie de zéro serait truqué en faveur de Gemini. Ces annonces-là (et celles sans réponse Expert stockée)
+relancent donc Gemini, ce qui donne en plus sa cohérence avec lui-même. `--fresh-gemini` force le rejeu pour toutes.
 
-Entrée identique pour les deux modèles (mode `--fresh-gemini`) : même prompt de base (config réelle de l'utilisateur), mêmes photos, même
+Entrée identique pour les deux modèles quand Gemini est relancé : même prompt de base (config réelle de l'utilisateur), mêmes photos, même
 contexte T2 (l'Analyste Gemini tourne UNE fois par annonce). La correction écrite par l'utilisateur n'est PAS injectée
 dans le prompt (on rejoue l'analyse d'origine) ; elle ne sert qu'au juge.
 
@@ -171,7 +172,13 @@ def stored_result(deal):
 
 
 def was_edited_by_user(deal):
-    return bool(deal.get("manual_analysis_overrides") or deal.get("manual_classification"))
+    """Fiche retouchée par l'utilisateur : correction manuelle OU requalification du chat acceptée."""
+    return bool(deal.get("manual_analysis_overrides") or deal.get("manual_classification") or deal.get("requal_applied"))
+
+
+def use_stored_gemini(deal, fresh_gemini=False):
+    """Vrai si la réponse Expert stockée est une sortie brute de Gemini, donc réutilisable telle quelle."""
+    return bool(not fresh_gemini and deal.get("tier3_trigger") and not was_edited_by_user(deal))
 
 
 def judged_view(result):
@@ -200,6 +207,9 @@ def fetch_inputs(conn, deal_id, user_id):
     deal = conn.execute("SELECT * FROM guitar_deals WHERE id = %s", (deal_id,)).fetchone()
     if not deal:
         return None, []
+    deal["requal_applied"] = bool(conn.execute(
+        "SELECT bool_or(requalification_proposal->>'status' = 'applied') AS r FROM deal_chat WHERE deal_id = %s",
+        (deal_id,)).fetchone()["r"])
     msgs = conn.execute(
         "SELECT display_text FROM deal_chat WHERE deal_id = %s AND role = 'user' AND NOT is_error "
         "AND COALESCE(display_text, '') <> '' ORDER BY created_at", (deal_id,)).fetchall()
@@ -212,13 +222,17 @@ def fetch_inputs(conn, deal_id, user_id):
     return deal, owner
 
 
-def image_urls_of(deal):
-    # Les URLs Facebook d'origine expirent : on préfère les copies Storage faites à l'analyse.
+def image_url_lists(deal):
+    """Listes d'URLs à essayer, dans l'ordre de la production (copies Storage d'abord : les URLs Facebook d'origine
+    expirent), 8 photos au plus."""
+    lists = []
     for key in ("storage_image_urls", "image_urls"):
         urls = deal.get(key)
-        if isinstance(urls, list) and urls:
-            return [u for u in urls if isinstance(u, str)][:8]
-    return []
+        if isinstance(urls, list):
+            urls = [u for u in urls if isinstance(u, str)][:8]
+            if urls:
+                lists.append(urls)
+    return lists
 
 
 def main(argv=None):
@@ -255,18 +269,24 @@ def main(argv=None):
         config = (users[0]["config"] or {}).get("analysisConfig", {})
         inputs = {i: fetch_inputs(conn, i, users[0]["uid"]) for i in ids}
 
-    plan = [i for i in ids if inputs[i][0] and (args.fresh_gemini or inputs[i][0].get("tier3_trigger"))]
-    skipped = [i for i in ids if i not in plan]
-    models = MODELS if args.fresh_gemini else ("claude",)
-    if skipped:
-        print(f"({len(skipped)} annonces ignorées : absentes, ou sans réponse Expert Gemini stockée)")
-    print(f"{len(plan)} annonces à rejouer × {len(models)} modèle(s) × {args.repeats} passages "
-          f"= {len(plan) * len(models) * args.repeats} appels Expert"
+    plan = [i for i in ids if inputs[i][0]]
+    stored = [i for i in plan if use_stored_gemini(inputs[i][0], args.fresh_gemini)]
+    n_expert = sum(args.repeats * (1 if i in stored else len(MODELS)) for i in plan)
+    print(f"{len(plan)} annonces à rejouer, {args.repeats} passages par modèle = {n_expert} appels Expert "
+          f"({len(stored)} annonces avec réponse Gemini stockée réutilisée, {len(plan) - len(stored)} avec Gemini relancé)"
           + ("" if args.no_judge else f" + {len(plan) * 2 * 2} jugements (2 juges × 2 ordres)") + ".")
     for i in ids:
         deal, owner = inputs[i]
-        print(f"  {i}  photos={len(image_urls_of(deal)) if deal else '-'}  messages propriétaire={len(owner)}"
-              if deal else f"  {i}  ABSENTE de la base (ignorée)")
+        if not deal:
+            print(f"  {i}  ABSENTE de la base (ignorée)")
+            continue
+        why = "stockée" if i in stored else ("Gemini relancé : fiche retouchée par toi" if was_edited_by_user(deal)
+                                             else "Gemini relancé : pas de réponse Expert stockée")
+        print(f"  {i}  photos={len((image_url_lists(deal) or [[]])[0])}  messages propriétaire={len(owner)}  [{why}]")
+        if i in stored:
+            absent = [f for f in JUDGED_FIELDS if stored_result(deal).get(f) in (None, "")]
+            if absent:  # une réponse stockée plus maigre fausserait le jugement : à voir AVANT de payer
+                print(f"       ⚠ champs absents de la réponse stockée : {', '.join(absent)}")
     if args.dry_run:
         return
 
@@ -277,6 +297,11 @@ def main(argv=None):
     from backend import analyzer as analyzer_mod, llm_usage
     from backend.scripts.cost_dashboard import PRICING, price_for
     import config as cfg
+
+    # Échouer AVANT de dépenser : une clé manquante fait échouer chaque appel de ce côté, sans bruit.
+    missing = [n for n, v in (("GEMINI_API_KEY", cfg.GEMINI_API_KEY), ("ANTHROPIC_API_KEY", cfg.ANTHROPIC_API_KEY)) if not v]
+    if missing:
+        sys.exit(f"Clé(s) absente(s) : {', '.join(missing)} (GEMINI_API_KEY dans .env, ANTHROPIC_API_KEY exportée).")
 
     captured = []
     llm_usage.record = lambda **kw: captured.append(kw)  # rien n'est écrit dans llm_usage
@@ -292,6 +317,8 @@ def main(argv=None):
         t0 = time.monotonic()
         try:
             res = an._run_t3_phase(base_prompt, images, config, gemini_model, None, [], result_t2, "replay")
+            # Même normalisation de la classification que la production (`analyze_deal`), pour comparer à armes égales.
+            res = an._canonicalize_classification(res, config.get("taxonomy", cfg.DEFAULT_TAXONOMY))
             err = None
         except RuntimeError as e:
             res, err = None, str(e)
@@ -299,13 +326,19 @@ def main(argv=None):
                 "usage": [dict(r) for r in captured[before:]]}
 
     out_rows = []
+    os.makedirs(os.path.dirname(args.out), exist_ok=True)
+    open(args.out, "w", encoding="utf-8").close()
     try:
         for n, deal_id in enumerate(plan, 1):
             deal, owner = inputs[deal_id]
             print(f"\n[{n}/{len(plan)}] {deal_id}")
             listing = {"title": deal.get("title"), "price": deal.get("price"), "description": deal.get("description"),
                        "location": deal.get("location")}
-            images = [im for u in image_urls_of(deal) if (im := an._download_and_optimize_image(u))]
+            images = []
+            for urls in image_url_lists(deal):  # repli sur la liste suivante si aucune photo ne se télécharge
+                images = [im for u in urls if (im := an._download_and_optimize_image(u))]
+                if images:
+                    break
             if not images:
                 print("   ✗ aucune photo téléchargeable — ignorée")
                 continue
@@ -320,17 +353,19 @@ def main(argv=None):
                 print(f"   ✗ T2 en échec ({err_t2}) — ignorée")
                 continue
             runs = {m: [] for m in MODELS}
-            if not args.fresh_gemini:
+            models = MODELS
+            if deal_id in stored:
+                models = ("claude",)
                 runs["gemini"].append({"result": stored_result(deal), "error": None, "seconds": 0, "usage": [],
-                                       "stored": True, "edited_by_user": was_edited_by_user(deal)})
+                                       "stored": True})
             for r in range(args.repeats):
-                for m in models:
+                for m in sorted(models, reverse=True):  # Claude d'abord : un échec Claude se voit avant la dépense Gemini
                     run = run_t3(m, base_prompt, images, result_t2)
                     runs[m].append(run)
                     ok = "ok" if run["result"] else f"ÉCHEC {run['error']}"
                     print(f"   {m:<6} #{r + 1}  {run['seconds']:>5}s  {ok}")
             row = {"id": deal_id, "title": deal.get("title"), "runs": runs, "judgments": {},
-                   "edited_by_user": was_edited_by_user(deal)}
+                   "judge_usage": [], "gemini_stored": deal_id in stored, "edited_by_user": was_edited_by_user(deal)}
             if not args.no_judge:
                 first = {m: next((x["result"] for x in runs[m] if x["result"]), None) for m in MODELS}
                 if all(first.values()):
@@ -342,17 +377,17 @@ def main(argv=None):
                             b_is = "claude" if a_is == "gemini" else "gemini"
                             prompt = JUDGE_PROMPT.format(listing=listing_txt, owner=owner_block(owner),
                                                          answer_a=judged_view(first[a_is]), answer_b=judged_view(first[b_is]))
+                            before = len(captured)
                             raw, err = jcall([prompt] + images)
+                            row["judge_usage"].extend(dict(u) for u in captured[before:])
                             if raw:
                                 row["judgments"][jname].append(unblind(raw, a_is))
                             else:
                                 print(f"   ✗ juge {jname} en échec : {err}")
             out_rows.append(row)
-    finally:  # un arrêt (Ctrl-C, panne réseau) ne perd pas ce qui est déjà payé
-        os.makedirs(os.path.dirname(args.out), exist_ok=True)
-        with open(args.out, "w", encoding="utf-8") as fh:
-            for r in out_rows:
-                fh.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+            with open(args.out, "a", encoding="utf-8") as fh:  # écrit au fil de l'eau : un arrêt ne perd rien de payé
+                fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+    finally:
         print(f"\nÉcrit : {args.out}  (local, dans .gitignore — ne jamais versionner)")
 
     report(out_rows, PRICING, price_for, date.today())
@@ -404,10 +439,8 @@ def report(rows, pricing, price_for, today):
         print(f"\nÀ REGARDER À LA MAIN ({len(contested)} annonces où les juges ou les deux ordres se contredisent) :")
         for r in contested:
             print(f"  {r['id']}  {r['title']}")
-    edited = [r for r in rows if r.get("edited_by_user")]
-    if edited:
-        print(f"\n⚠ {len(edited)} annonces dont la réponse stockée a été retouchée par toi (correction manuelle) — le côté « gemini » "
-              "n'est plus sa sortie brute : " + ", ".join(r["id"] for r in edited))
+    judge_cost = cost_usd([u for r in rows for u in r.get("judge_usage", [])], pricing, price_for, today)
+    print(f"\nCoût des jugements (non inclus ci-dessus) : ${judge_cost:.2f}")
     print("\nLecture : un juge favorise souvent son propre style ; ne retiens un avantage que s'il apparaît chez LES DEUX juges.")
 
 
