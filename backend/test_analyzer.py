@@ -492,5 +492,137 @@ class TestExpertTriggerReason(unittest.TestCase):
         self.assertIsNone(self._reason(deal_score=8, config={"proTriggerDealScoreThreshold": 9}))
 
 
+def _claude_response(text, stop_reason="end_turn", usage=(100, 0, 0, 200)):
+    """Réponse Anthropic factice : un bloc de raisonnement (ignoré) puis un bloc texte."""
+    response = MagicMock()
+    response.content = [MagicMock(type="thinking", text="(ne doit pas être lu)"), MagicMock(type="text", text=text)]
+    response.stop_reason = stop_reason
+    inp, read, write, out = usage
+    response.usage = MagicMock(input_tokens=inp, cache_read_input_tokens=read,
+                               cache_creation_input_tokens=write, output_tokens=out)
+    return response
+
+
+class TestClaudeExpertProvider(unittest.TestCase):
+    """Expert T3 via l'API Anthropic (`T3_PROVIDER=claude`, 2026-10-13) : appels réseau mockés."""
+
+    def setUp(self):
+        self.a = _make_analyzer()
+        self.client = MagicMock()
+        for p in (patch("backend.llm_clients._get_claude_client", return_value=self.client),
+                  patch("backend.llm_clients.ANTHROPIC_API_KEY", "cle-test"),
+                  patch("backend.llm_clients.llm_usage.record")):
+            started = p.start()
+            self.addCleanup(p.stop)
+            if p.attribute == "record":
+                self.record = started
+
+    def test_content_blocks_label_images_first_and_leave_originals_untouched(self):
+        from PIL import Image
+        big, small = Image.new("RGB", (3000, 2000)), Image.new("RGBA", (400, 300))
+        with patch("backend.llm_clients.T3_CLAUDE_MAX_IMAGE_EDGE", 1568):
+            blocks, count = self.a._claude_content_blocks(["PROMPT", big, small])
+        self.assertEqual(count, 2)
+        self.assertEqual([b["type"] for b in blocks], ["text", "image", "text", "image", "text"])
+        self.assertEqual(blocks[0]["text"], "Image 1 :")
+        self.assertEqual(blocks[1]["source"]["media_type"], "image/jpeg")
+        self.assertIn("PROMPT", blocks[-1]["text"])
+        self.assertIn("JSON", blocks[-1]["text"])
+        # Les objets PIL partagés avec les autres tiers ne sont jamais modifiés en place.
+        self.assertEqual(big.size, (3000, 2000))
+        self.assertEqual(small.mode, "RGBA")
+        import base64, io
+        sent = Image.open(io.BytesIO(base64.b64decode(blocks[1]["source"]["data"])))
+        self.assertEqual(max(sent.size), 1568)
+
+    def test_success_parses_json_ignores_thinking_and_records_usage(self):
+        self.client.messages.create.return_value = _claude_response('```json\n{"verdict": "PEPITE"}\n```',
+                                                                   usage=(100, 50, 10, 200))
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], action="t3_expert")
+        self.assertIsNone(err)
+        self.assertEqual(result, {"verdict": "PEPITE"})
+        kwargs = self.client.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["model"], "claude-sonnet-5-5")
+        self.assertEqual(kwargs["extra_body"], {"output_config": {"effort": "high"}})
+        self.assertNotIn("temperature", kwargs)
+        self.assertNotIn("thinking", kwargs)
+        row = self.record.call_args.kwargs
+        self.assertEqual(row["provider"], "anthropic")
+        self.assertEqual(row["action"], "t3_expert")
+        # Entrée = neuve + lecture cache + écriture cache (convention de la table), raisonnement déjà dans la sortie.
+        self.assertEqual((row["input_tokens"], row["cached_tokens"], row["output_tokens"], row["thoughts_tokens"]),
+                         (160, 50, 200, 0))
+        self.assertNotIn("ok", row)
+
+    def test_truncated_response_is_an_error_and_is_not_retried(self):
+        self.client.messages.create.return_value = _claude_response('{"verdict": "PEP', stop_reason="max_tokens")
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], max_retries=2)
+        self.assertIsNone(result)
+        self.assertIn("T3_CLAUDE_MAX_TOKENS", err)
+        self.assertEqual(self.client.messages.create.call_count, 1)
+        self.assertFalse(self.record.call_args.kwargs["ok"])
+        self.assertEqual(self.record.call_args.kwargs["error_type"], "json")
+
+    def test_invalid_json_retries_once_with_a_warning(self):
+        self.client.messages.create.side_effect = [_claude_response("pas du json"), _claude_response('{"a": 1}')]
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], max_retries=1)
+        self.assertEqual((result, err), ({"a": 1}, None))
+        self.assertEqual(self.client.messages.create.call_count, 2)
+        first, second = [c.kwargs["messages"][0]["content"] for c in self.client.messages.create.call_args_list]
+        self.assertEqual(len(second), len(first) + 1)
+        self.assertIn("CRITICAL", second[-1]["text"])
+        self.assertEqual([c.kwargs.get("ok", True) for c in self.record.call_args_list], [False, True])
+
+    def test_object_is_extracted_from_surrounding_prose(self):
+        self.client.messages.create.return_value = _claude_response('Voici le résultat : {"a": 1} Bonne journée.')
+        self.assertEqual(self.a._call_claude_json("claude-sonnet-5-5", ["p"]), ({"a": 1}, None))
+
+    def test_missing_api_key_fails_without_touching_the_network(self):
+        with patch("backend.llm_clients.ANTHROPIC_API_KEY", None):
+            result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"])
+        self.assertIsNone(result)
+        self.assertIn("ANTHROPIC_API_KEY", err)
+        self.client.messages.create.assert_not_called()
+
+    def test_api_error_is_returned_and_classified(self):
+        class APITimeoutError(Exception):
+            pass
+        self.client.messages.create.side_effect = APITimeoutError("Request timed out.")
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"])
+        self.assertIsNone(result)
+        self.assertIn("timed out", err)
+        self.assertEqual(self.record.call_args.kwargs["error_type"], "timeout")
+
+    def _t3(self, provider, claude=None, gemini=None):
+        self.a._call_claude_json = claude or MagicMock(return_value=({"verdict": "PEPITE"}, None))
+        self.a._call_gemini_json = gemini or MagicMock(return_value=({"verdict": "FAIR"}, None))
+        chain = ["gemini-3.7-flash"]
+        with patch("backend.analyzer.T3_PROVIDER", provider), patch("backend.analyzer.T3_CLAUDE_MODEL", "claude-sonnet-5-5"):
+            result = self.a._run_t3_phase("base", [], {}, "gemini-3.1-pro-preview", None, chain,
+                                          {"verdict": "FAIR", "summary": "RAS"}, "motif")
+        return result
+
+    def test_t3_uses_claude_when_provider_is_claude(self):
+        result = self._t3("claude")
+        self.a._call_claude_json.assert_called_once()
+        self.assertEqual(self.a._call_claude_json.call_args.args[0], "claude-sonnet-5-5")
+        self.assertEqual(self.a._call_claude_json.call_args.kwargs["action"], "t3_expert")
+        self.a._call_gemini_json.assert_not_called()
+        self.assertEqual(result["model_used"], "gemini-3.7-flash -> claude-sonnet-5-5")
+
+    def test_t3_stays_on_gemini_by_default(self):
+        result = self._t3("gemini")
+        self.a._call_gemini_json.assert_called_once()
+        self.assertEqual(self.a._call_gemini_json.call_args.args[0], "gemini-3.1-pro-preview")
+        self.a._call_claude_json.assert_not_called()
+        self.assertEqual(result["model_used"], "gemini-3.7-flash -> gemini-3.1-pro-preview")
+
+    def test_t3_claude_failure_raises_without_falling_back_to_gemini(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._t3("claude", claude=MagicMock(return_value=(None, "boom")))
+        self.assertIn("claude-sonnet-5-5", str(ctx.exception))
+        self.a._call_gemini_json.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

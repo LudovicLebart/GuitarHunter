@@ -22,6 +22,11 @@ from backend import llm_usage
 from backend.t1_image_budget import fit_images_to_budget
 from backend.notifications import NotificationService
 from config import (
+    ANTHROPIC_API_KEY,
+    T3_CLAUDE_EFFORT,
+    T3_CLAUDE_MAX_TOKENS,
+    T3_CLAUDE_TIMEOUT_SECONDS,
+    T3_CLAUDE_MAX_IMAGE_EDGE,
     TOKENROUTER_API_KEY,
     TOKENROUTER_BASE_URL,
     T1_OBSERVATION_QWEN_MODEL,
@@ -37,6 +42,26 @@ import re
 
 # Un seul Dell pour tous les threads utilisateurs : sémaphore au niveau du module (voir config.py).
 _T1_LOCAL_SEMAPHORE = threading.BoundedSemaphore(T1_LOCAL_MAX_CONCURRENCY)
+
+# Client Anthropic partagé par tous les threads utilisateurs (le SDK est thread-safe). Créé ET importé à la
+# demande : tant que `T3_PROVIDER="gemini"`, le paquet `anthropic` n'est jamais chargé (prod inchangée).
+_claude_client = None
+_claude_client_lock = threading.Lock()
+
+# Gemini est forcé en JSON par `response_mime_type` ; l'API Anthropic n'a pas ce réglage ici, la consigne
+# passe donc par le prompt (le prompt de prod décrit déjà le format, voir prompts.json).
+_CLAUDE_JSON_SUFFIX = (
+    "\n\nRéponds UNIQUEMENT avec l'objet JSON demandé : aucun texte avant ou après, aucune balise markdown."
+)
+
+
+def _get_claude_client():
+    global _claude_client
+    with _claude_client_lock:
+        if _claude_client is None:
+            import anthropic
+            _claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=T3_CLAUDE_TIMEOUT_SECONDS)
+        return _claude_client
 
 # Chantier H (porté depuis dev le 2026-09-22) : les 9 verdicts que `gatekeeper_verbosity_instruction`
 # (prompts.json) autorise explicitement pour le champ `status` du Portier — seule liste fermée du
@@ -213,6 +238,118 @@ class LLMClientsMixin:
                     current_parts[0] = current_parts[0] + "\n\n" + retry_warning
                 else:
                     current_parts.insert(0, retry_warning)
+            except Exception as e:
+                if usage_row.get("latency_ms") is None:
+                    usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
+                self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+                if self._is_model_unavailable_error(e):
+                    self._notify_model_unavailable(model_name, str(e), user_email)
+                return None, str(e)
+
+    @staticmethod
+    def _claude_content_blocks(content_parts):
+        """Convertit `[prompt, PIL.Image, ...]` (format de `_call_gemini_json`) en blocs de contenu Anthropic :
+        photos d'abord, chacune étiquetée « Image N : », texte ensuite (ordre recommandé par la doc). Les photos
+        sont réduites sur une COPIE — les mêmes objets PIL servent aux autres tiers et threads, ne jamais les
+        modifier en place — puis envoyées en JPEG. Retourne `(blocs, nombre_de_photos)`."""
+        texts = [p for p in content_parts if isinstance(p, str)]
+        blocks, count = [], 0
+        for part in content_parts:
+            if not isinstance(part, Image.Image):
+                continue
+            img = part.convert("RGB")  # `convert` renvoie une copie, même si le mode est déjà RGB
+            if max(img.size) > T3_CLAUDE_MAX_IMAGE_EDGE:
+                img.thumbnail((T3_CLAUDE_MAX_IMAGE_EDGE, T3_CLAUDE_MAX_IMAGE_EDGE), Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            count += 1
+            blocks.append({"type": "text", "text": f"Image {count} :"})
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg",
+                "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+            }})
+        blocks.append({"type": "text", "text": "\n\n".join(texts) + _CLAUDE_JSON_SUFFIX})
+        return blocks, count
+
+    def _call_claude_json(self, model_name, content_parts, user_email=None, max_retries=1, action=None):
+        """Équivalent de `_call_gemini_json` pour l'API Anthropic (Expert T3 si `T3_PROVIDER="claude"`) : même
+        signature, même contrat de retour `(dict, None)` ou `(None, message)`, même ligne `llm_usage` par TENTATIVE.
+
+        Particularités : (1) raisonnement adaptatif actif par défaut, piloté par `output_config.effort` — passé
+        par `extra_body` pour ne pas dépendre de la version du SDK ; (2) `max_tokens` borne raisonnement ET réponse :
+        une réponse coupée (`stop_reason="max_tokens"`) est une erreur franche, sans nouvel essai payant ;
+        (3) `output_tokens` inclut déjà le raisonnement, donc `thoughts_tokens=0` (sinon `cost_dashboard` le compterait
+        deux fois) ; (4) `input_tokens` est enregistré SANS le cache chez Anthropic, on le ré-additionne pour suivre la
+        convention de la table (cache inclus dans l'entrée)."""
+        if not ANTHROPIC_API_KEY:
+            llm_usage.record(provider="anthropic", model=model_name, action=action, ok=False, error_type="other")
+            return None, "ANTHROPIC_API_KEY n'est pas configurée."
+        client = _get_claude_client()
+        blocks, image_count = self._claude_content_blocks(content_parts)
+
+        for attempt in range(max_retries + 1):
+            usage_row = {"provider": "anthropic", "model": model_name, "action": action, "latency_ms": None,
+                         "images": image_count}
+            t_call = time.monotonic()
+            response = None
+            try:
+                response = client.messages.create(
+                    model=model_name,
+                    max_tokens=T3_CLAUDE_MAX_TOKENS,
+                    messages=[{"role": "user", "content": blocks}],
+                    extra_body={"output_config": {"effort": T3_CLAUDE_EFFORT}},
+                )
+                usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                usage = getattr(response, "usage", None)
+                if usage:
+                    _fresh = getattr(usage, "input_tokens", 0) or 0
+                    _read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                    _write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                    _out = getattr(usage, "output_tokens", 0) or 0
+                    self.logger.info(
+                        f"[tokens] model={model_name} images={image_count} in={_fresh + _read + _write} "
+                        f"out={_out} cached={_read} total={_fresh + _read + _write + _out}"
+                    )
+                    usage_row.update(input_tokens=_fresh + _read + _write, cached_tokens=_read,
+                                     output_tokens=_out, thoughts_tokens=0)
+
+                text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text").strip()
+                if getattr(response, "stop_reason", None) == "max_tokens":
+                    llm_usage.record(**usage_row, ok=False, error_type="json")
+                    msg = (f"Réponse tronquée : max_tokens={T3_CLAUDE_MAX_TOKENS} atteint (le raisonnement compte dans "
+                           f"cette limite) — augmenter T3_CLAUDE_MAX_TOKENS ou baisser T3_CLAUDE_EFFORT.")
+                    self.logger.error(f"❌ {msg}")
+                    return None, msg
+                if not text:
+                    llm_usage.record(**usage_row, ok=False, error_type="other")
+                    msg = f"Aucun texte dans la réponse de {model_name} (stop_reason={getattr(response, 'stop_reason', '?')})."
+                    self.logger.error(f"❌ {msg}")
+                    return None, msg
+
+                cleaned = self._clean_json_response(text)
+                try:
+                    result = json.loads(cleaned)
+                except json.decoder.JSONDecodeError:
+                    # Claude ajoute parfois une phrase autour de l'objet : on retente sur l'objet englobant.
+                    start, end = cleaned.find("{"), cleaned.rfind("}")
+                    if start == -1 or end <= start:
+                        raise
+                    result = json.loads(cleaned[start:end + 1])
+                if isinstance(result, list):
+                    result = result[0] if result and isinstance(result[0], dict) else {}
+                llm_usage.record(**usage_row)  # succès : enregistré APRÈS le parse, comme pour Gemini
+                return result, None
+            except json.decoder.JSONDecodeError as e:
+                llm_usage.record(**usage_row, ok=False, error_type="json")
+                self.logger.warning(f"⚠️ JSON invalide généré par {model_name} (tentative {attempt+1}/{max_retries+1}) : {e}")
+                if attempt == max_retries:
+                    raw = "".join(getattr(b, "text", "") for b in getattr(response, "content", []) or [])
+                    self.logger.error(f"❌ Impossible de parser le JSON après {max_retries+1} tentatives. Réponse brute: {raw[:500]}...")
+                    return None, f"Erreur de format JSON: {e}"
+                blocks = blocks + [{"type": "text", "text": (
+                    "CRITICAL: The previous JSON output was invalid. Ensure ALL strings are properly escaped "
+                    "(use \\\" for quotes inside strings) and NO trailing commas exist. Output ONLY valid JSON.")}]
             except Exception as e:
                 if usage_row.get("latency_ms") is None:
                     usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)

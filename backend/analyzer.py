@@ -33,6 +33,8 @@ from config import (
     T1_KNOWLEDGE_MAX_FICHES,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+    T3_PROVIDER,
+    T3_CLAUDE_MODEL,
 )
 from backend import t1_circuit_breaker
 from backend import guitar_knowledge
@@ -713,6 +715,11 @@ class DealAnalyzer(LLMClientsMixin):
                       result_t2, trigger_reason):
         """PHASE 3 : TIER 3 - EXPERT PRO (déjà décidé par `expert_trigger_reason`). Retourne le résultat T3
         (qui écrase celui du T2) ; LÈVE `RuntimeError` si l'appel échoue (voir commentaire ci-dessous)."""
+        use_claude = T3_PROVIDER == "claude"
+        if use_claude:
+            # Le modèle Gemini de la config utilisateur (`proModel`/`expertModel`) est ignoré pour le T3 ;
+            # le nom réel apparaît ainsi dans les logs, `model_chain` et le message d'erreur.
+            expert_pro_model_name = T3_CLAUDE_MODEL
         self.logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
         model_chain.append(expert_pro_model_name)
 
@@ -733,7 +740,8 @@ class DealAnalyzer(LLMClientsMixin):
         # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
         full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
 
-        result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
+        call_t3 = self._call_claude_json if use_claude else self._call_gemini_json
+        result_t3, err_t3 = call_t3(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
 
         if err_t3 or not result_t3:
             # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite

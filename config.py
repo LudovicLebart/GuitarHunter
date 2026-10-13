@@ -10,6 +10,7 @@ load_dotenv()
 
 # --- CLÉS API ET IDENTIFIANTS ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # Expert T3 si T3_PROVIDER=claude (voir plus bas)
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 
@@ -194,6 +195,24 @@ T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in
 T1_KNOWLEDGE_ENABLED = os.getenv("T1_KNOWLEDGE_ENABLED", "false").lower() in ("1", "true", "yes")
 T1_KNOWLEDGE_VERSION = os.getenv("T1_KNOWLEDGE_VERSION", "validated")
 T1_KNOWLEDGE_MAX_FICHES = int(os.getenv("T1_KNOWLEDGE_MAX_FICHES", 3))
+
+# --- FOURNISSEUR DE L'EXPERT PRO (TIER 3) ---
+# "gemini" (défaut) : comportement historique, modèle lu dans la config utilisateur (`proModel`).
+# "claude" : l'Expert est appelé via l'API Anthropic (`backend/llm_clients.py::_call_claude_json`) ;
+# `proModel`/`expertModel` de la config utilisateur sont alors ignorés pour le Tier 3. Retour à Gemini =
+# repasser la variable à "gemini" (aucun repli automatique : un Expert qui échoue échoue visiblement,
+# décision du 2026-09-27, voir `analyzer.py::_run_t3_phase`). Ne PAS basculer en prod sans rejeu
+# concluant (voir `COST_OPTIMIZATION_CHANTIERS.md`, Chantier F : le choix du modèle T3 est une décision de qualité).
+T3_PROVIDER = os.getenv("T3_PROVIDER", "gemini").strip().lower()
+T3_CLAUDE_MODEL = os.getenv("T3_CLAUDE_MODEL", "claude-sonnet-5-5")
+# Niveau d'effort Anthropic (`output_config.effort`) : low | medium | high | xhigh | max. `high` = défaut
+# de l'API pour Sonnet 5.5. Le raisonnement adaptatif est actif par défaut et COMPTE dans `max_tokens`.
+T3_CLAUDE_EFFORT = os.getenv("T3_CLAUDE_EFFORT", "high").strip().lower()
+T3_CLAUDE_MAX_TOKENS = int(os.getenv("T3_CLAUDE_MAX_TOKENS", 16000))
+T3_CLAUDE_TIMEOUT_SECONDS = int(os.getenv("T3_CLAUDE_TIMEOUT_SECONDS", 300))
+# Plus grand côté (px) des photos envoyées à Claude : une photo coûte ⌈largeur/28⌉ × ⌈hauteur/28⌉ tokens
+# (jusqu'à ~4 800 à 2048 px), bien plus qu'une photo Gemini — le plafond borne la facture.
+T3_CLAUDE_MAX_IMAGE_EDGE = int(os.getenv("T3_CLAUDE_MAX_IMAGE_EDGE", 1568))
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
