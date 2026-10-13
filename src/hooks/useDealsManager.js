@@ -140,10 +140,12 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (!user) return;
     const uid = user.uid;
     const unsubscribe = onDealsIndexUpdate(
-      (indexMap, count) => {
+      (indexMap, count, perf) => {
         setDealsIndexMap(indexMap);
         setLoading(false);
-        setDbStatus({ status: 'success', msg: `${count} annonces` });
+        // Durée de la dernière lecture de l'index (2026-10-13, mesure) : visible sans console sur mobile.
+        const took = perf ? ` · ${((perf.fetchAndParseMs + perf.mapMs) / 1000).toFixed(1)} s` : '';
+        setDbStatus({ status: 'success', msg: `${count} annonces${took}` });
         setError(null); // efface un bandeau d'erreur laissé par une coupure désormais résolue
 
         // Réanalyse terminée (voir handleRetryAnalysis/handleForceExpertAnalysis) : l'index

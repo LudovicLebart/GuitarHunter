@@ -86,7 +86,7 @@ async function getIdToken() {
   return user.getIdToken();
 }
 
-async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
+async function apiFetch(path, { method = 'GET', body, skipAuth = false, onResponse } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!skipAuth) headers.Authorization = `Bearer ${await getIdToken()}`;
@@ -118,6 +118,7 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
     error.status = resp.status; // permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
     throw error;
   }
+  onResponse?.(resp);
   if (resp.status === 204) return null;
   const contentType = resp.headers.get('content-type') || '';
   return contentType.includes('application/json') ? resp.json() : null;
@@ -533,11 +534,30 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
     if (inFlight) { queued = true; return; }
     inFlight = true;
     try {
-      const rows = await apiFetch('/deals/index');
-      if (destroyed) return;
+      // Mesure de la lecture (2026-10-13) : où passe le temps ? attente du serveur (SQL +
+      // sérialisation, voir `Server-Timing`), téléchargement, parse JSON, reconstruction des
+      // objets. Console + dernier relevé sur `window.__dealsIndexPerf` ; le résumé court part
+      // aussi dans le 3e argument d'`onUpdate` (affiché dans le statut de la base).
+      const t0 = performance.now();
+      let serverTiming = null;
+      const rows = await apiFetch('/deals/index', { onResponse: (resp) => { serverTiming = resp.headers.get('server-timing'); } });
+      const t1 = performance.now();
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
-      onUpdate(merged, rows.length);
+      const t2 = performance.now();
+      const perf = { rows: rows.length, fetchAndParseMs: Math.round(t1 - t0), mapMs: Math.round(t2 - t1), serverTiming };
+      try {
+        const entry = performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/deals/index')).pop();
+        if (entry) Object.assign(perf, {
+          ttfbMs: Math.round(entry.responseStart - entry.requestStart),
+          downloadMs: Math.round(entry.responseEnd - entry.responseStart),
+          encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
+        });
+      } catch { /* API Performance indisponible : mesure partielle */ }
+      if (typeof window !== 'undefined') window.__dealsIndexPerf = perf;
+      console.info('[perf] /deals/index', perf);
+      if (destroyed) return;
+      onUpdate(merged, rows.length, perf);
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);

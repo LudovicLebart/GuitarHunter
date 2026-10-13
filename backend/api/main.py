@@ -10,6 +10,7 @@ Lancement local : uvicorn backend.api.main:app --reload
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Optional, Union
@@ -17,6 +18,7 @@ from typing import Any, Optional, Union
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.gzip import GZipMiddleware
@@ -53,6 +55,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Server-Timing"],  # lisible par fetch() cross-origin (mesure de /deals/index)
 )
 
 # Compression des réponses HTTP (2026-09-27) : aucune n'était activée — le JSON de /deals/index
@@ -249,8 +252,20 @@ async def list_deals_index(status_filter: Optional[str] = Query(None, alias="sta
     restent chargés à la demande via `POST /deals/by-ids`, seulement pour les annonces visibles
     (mécanisme déjà existant côté frontend, `useDealsManager.js::loadedDeals`)."""
     pool = get_pool()
+    # Mesure (2026-10-13) : avant de décider d'une synchronisation incrémentale, savoir où passe
+    # le temps — SQL, mise en forme + sérialisation JSON (tout cela bloque l'unique boucle
+    # d'événements), taille brute avant gzip. Exposé en `Server-Timing` (lu par le client) et
+    # journalisé.
+    t0 = time.perf_counter()
     rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
-    return [dict(r) for r in rows]
+    t_sql = time.perf_counter()
+    response = JSONResponse(content=jsonable_encoder([dict(r) for r in rows]))
+    t_ser = time.perf_counter()
+    sql_ms, ser_ms, raw_bytes = (t_sql - t0) * 1000, (t_ser - t_sql) * 1000, len(response.body)
+    response.headers["Server-Timing"] = f'sql;dur={sql_ms:.0f}, ser;dur={ser_ms:.0f}, raw;desc="{raw_bytes}", rows;desc="{len(rows)}"'
+    response.headers["Timing-Allow-Origin"] = "*"  # permet au client de lire encodedBodySize / responseStart
+    logger.info("GET /deals/index: %d annonces, sql=%.0f ms, sérialisation=%.0f ms, brut=%.1f Mo", len(rows), sql_ms, ser_ms, raw_bytes / 1e6)
+    return response
 
 
 @app.get("/deals/{deal_id}")
