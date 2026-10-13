@@ -264,6 +264,16 @@ def main(argv=None):
         users = conn.execute("SELECT uid, config FROM users").fetchall()
         if args.user:
             users = [u for u in users if u["uid"] == args.user]
+        elif len(users) > 1:
+            # Le chat est partagé (pas d'uid) : on devine l'utilisateur par ses favoris et ses achats sur ces annonces.
+            guess = conn.execute(
+                "SELECT uid, count(*) AS n FROM (SELECT user_id AS uid FROM user_deal_state "
+                "WHERE deal_id = ANY(%(ids)s) AND is_favorite UNION ALL SELECT purchased_by_user_id FROM guitar_deals "
+                "WHERE id = ANY(%(ids)s) AND purchased_by_user_id IS NOT NULL) t GROUP BY uid ORDER BY n DESC",
+                {"ids": ids}).fetchall()
+            if guess and (len(guess) == 1 or guess[0]["n"] > guess[1]["n"]):
+                users = [u for u in users if u["uid"] == guess[0]["uid"]]
+                print(f"Config de l'utilisateur {guess[0]['uid']} ({guess[0]['n']} favoris/achats sur ces annonces).")
         if len(users) != 1:
             sys.exit(f"{len(users)} utilisateurs possibles : précise --user <uid> ({[u['uid'] for u in users]}).")
         config = (users[0]["config"] or {}).get("analysisConfig", {})

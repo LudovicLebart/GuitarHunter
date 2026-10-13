@@ -6,7 +6,7 @@ Signaux, du plus fort au plus faible (le score est la somme des poids) :
   override    la fiche a été corrigée À LA MAIN (`manual_analysis_overrides` ou `manual_classification`)        5
   requal      une requalification proposée par le chat a été ACCEPTÉE (`requalification_proposal.status`)      4
   purchased   guitare achetée                                                                                  3
-  rescued     rejetée par le Portier puis analyse FORCÉE (`gatekeeperVerdict` = MANUAL_RETRY) : le Portier avait tort  2
+  rescued     rejetée par le Portier puis analyse FORCÉE (`gatekeeper_verdict` = MANUAL_RETRY) : le Portier avait tort  2
   chat        au moins 3 messages de l'utilisateur dans le chat de l'annonce (1 ou 2 : poids 1)               2
   favorite    mise en favori                                                                                   1
 Un signal ne dit PAS que l'IA avait tort : il dit que l'utilisateur sait quelque chose sur cette annonce. C'est à lui
@@ -32,7 +32,7 @@ EXCERPTS_PER_DEAL = 3
 # Poids des signaux ; l'ordre est celui de l'affichage.
 WEIGHTS = {"override": 5, "requal": 4, "purchased": 3, "rescued": 2, "chat": 2, "favorite": 1}
 T1_REJECTED = ("REJECTED_ITEM", "REJECTED_SERVICE")
-FORCED_ANALYSIS = "MANUAL_RETRY"  # écrase `ai_analysis_raw.gatekeeperVerdict` quand l'utilisateur force l'analyse
+FORCED_ANALYSIS = "MANUAL_RETRY"  # écrase `gatekeeper_verdict` quand l'utilisateur force l'analyse
 # Hors sujet pour juger un expert en guitares : étuis et amplis (racines de la taxonomie), sauf `--with-accessories`.
 ACCESSORY_ROOTS = ("etui_housse", "amplificateur")
 
@@ -47,7 +47,7 @@ WITH chat AS (
     SELECT deal_id, bool_or(is_favorite) AS favorite FROM user_deal_state GROUP BY deal_id
 )
 SELECT d.id, d.title, d.link, d.status, d.verdict, d.initial_verdict, d.model_used, d.tier3_trigger,
-       d.classification, d.manual_classification, d.ai_analysis_raw->>'gatekeeperVerdict' AS gatekeeper_final, d.manual_analysis_overrides, d.is_purchased,
+       d.classification, d.manual_classification, d.gatekeeper_verdict AS gatekeeper_final, d.manual_analysis_overrides, d.is_purchased,
        COALESCE(c.user_msgs, 0) AS user_msgs, COALESCE(c.msgs, 0) AS msgs,
        COALESCE(c.requal_applied, false) AS requal_applied, COALESCE(f.favorite, false) AS favorite,
        CASE WHEN jsonb_typeof(d.image_urls) = 'array' THEN jsonb_array_length(d.image_urls) ELSE 0 END AS image_count,
