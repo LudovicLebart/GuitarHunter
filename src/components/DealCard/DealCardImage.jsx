@@ -1,5 +1,5 @@
 import React from 'react';
-import { Ban, Gem, ShoppingBag } from 'lucide-react';
+import { Ban, DollarSign, Gem, ShoppingBag } from 'lucide-react';
 import ImageGallery from '../ImageGallery';
 
 const DealCardImage = ({
@@ -7,6 +7,7 @@ const DealCardImage = ({
     title,
     isSold,
     isPurchased,
+    userSalePrice,
     vc,
     isAnalyzing,
     alsoPepite,
@@ -34,6 +35,12 @@ const DealCardImage = ({
                     <div className="bg-emerald-950 border border-emerald-600 text-emerald-300 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg">
                         <ShoppingBag size={12} />
                         Acheté
+                    </div>
+                )}
+                {isPurchased && userSalePrice != null && (
+                    <div className="bg-amber-950 border border-amber-600 text-amber-300 px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg">
+                        <DollarSign size={12} />
+                        Revendue {userSalePrice}$
                     </div>
                 )}
                 <div className={`${vc.bg} px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider flex items-center gap-1.5 shadow-lg ${vc.text}`}>

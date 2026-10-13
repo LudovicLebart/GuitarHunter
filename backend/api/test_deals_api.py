@@ -183,9 +183,22 @@ class TestDealsAPI(unittest.TestCase):
         self.assertTrue(first.json()["isPurchased"])
         self.assertEqual(float(self.client.get("/deals/deal-1").json()["purchase_price"]), 450.0)
 
-        second = self.client.patch("/deals/deal-1/purchased", json={})
+        second = self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})
         self.assertFalse(second.json()["isPurchased"])
         self.assertIsNone(self.client.get("/deals/deal-1").json()["purchase_price"])  # effacé au retour à False
+
+    def test_unpurchase_requires_confirmation_server_side(self):
+        """Garde serveur (2026-10-11) : un client sans confirmation (ancien bundle en cache) ne
+        peut pas désacheter — prix, date et revente restent intacts."""
+        self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 75})
+        self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+
+        refused = self.client.patch("/deals/deal-1/purchased", json={})
+        self.assertEqual(refused.status_code, 428)
+        body = self.client.get("/deals/deal-1").json()
+        self.assertTrue(body["is_purchased"])
+        self.assertEqual(float(body["purchase_price"]), 75.0)
+        self.assertEqual(float(body["user_sale_price"]), 220.0)
 
     def test_toggle_purchased_by_another_user_returns_409(self):
         """Achat GLOBAL (2026-09-19) : une fois achetée par un utilisateur, un AUTRE utilisateur
@@ -207,6 +220,32 @@ class TestDealsAPI(unittest.TestCase):
         finally:
             app.dependency_overrides[get_current_uid] = lambda: self.UID
             asyncio.run(_cleanup(deal_ids=[], user_ids=[third_uid]))
+
+    def test_user_sale_requires_purchase_and_cleared_on_unpurchase(self):
+        """Revente par l'acheteur (2026-10-10) : refusée tant que la guitare n'est pas achetée
+        par cet utilisateur ; posée avec son prix ; effacée si l'achat est annulé."""
+        refused = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.assertEqual(refused.status_code, 409)
+
+        self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 75})
+        ok = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.assertEqual(ok.status_code, 200)
+        body = self.client.get("/deals/deal-1").json()
+        self.assertEqual(float(body["user_sale_price"]), 220.0)
+        self.assertIsNotNone(body["user_sold_at"])
+
+        cleared = self.client.patch("/deals/deal-1/user-sale", json={})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
+
+        self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})  # désachat
+        self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
+
+    def test_user_sale_negative_price_rejected(self):
+        self.client.patch("/deals/deal-1/purchased", json={})
+        resp = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": -5})
+        self.assertEqual(resp.status_code, 422)
 
     def test_set_and_clear_manual_classification(self):
         set_resp = self.client.patch("/deals/deal-1/classification", json={"classificationPath": "acoustique_acier.parlor"})

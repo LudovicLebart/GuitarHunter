@@ -264,6 +264,7 @@ function dealFromRow(row) {
     status: row.is_rejected ? 'rejected' : row.status,
     isFavorite: row.is_favorite,
     isPurchased: row.is_purchased,
+    purchasedByUserId: row.purchased_by_user_id,
     manualClassification: row.manual_classification,
     manualAnalysisOverrides: row.manual_analysis_overrides,
     link: row.link,
@@ -279,6 +280,9 @@ function dealFromRow(row) {
     publishTimestamp: toFirestoreLikeTimestamp(row.published_at_ts),
     purchasePrice: row.purchase_price,
     purchasedAt: toFirestoreLikeTimestamp(row.purchased_at),
+    userSalePrice: row.user_sale_price != null ? Number(row.user_sale_price) : undefined,
+    userSoldAt: toFirestoreLikeTimestamp(row.user_sold_at),
+    restorationSpent: row.restoration_spent != null ? Number(row.restoration_spent) : 0,
     description: row.description,
     soldNotes: row.sold_notes,
     initialVerdict: row.initial_verdict,
@@ -521,11 +525,28 @@ export const toggleDealFavorite = async (dealId, _currentStatus, _chunkId, _user
   }
 };
 
+/**
+ * Revente par l'acheteur (2026-10-10) : `salePrice` null annule la revente. 409 si l'utilisateur
+ * n'est pas l'acheteur (voir main.py::patch_user_sale).
+ */
+export const setDealUserSale = async (dealId, salePrice, soldAt = null) => {
+  try {
+    await apiFetch(`/deals/${dealId}/user-sale`, {
+      method: 'PATCH',
+      body: salePrice == null ? {} : { salePrice, ...(soldAt ? { soldAt } : {}) },
+    });
+  } catch (error) {
+    console.error(`Error setting user sale for deal ${dealId}:`, error);
+    if (error.status === 409) throw new Error("Seul l'acheteur peut déclarer la revente.");
+    throw new Error("Erreur lors de l'enregistrement de la revente.");
+  }
+};
+
 export const toggleDealPurchased = async (dealId, currentStatus, _chunkId, _userId, purchasePrice = null) => {
   try {
     await apiFetch(`/deals/${dealId}/purchased`, {
       method: 'PATCH',
-      body: !currentStatus ? { purchasePrice } : {},
+      body: !currentStatus ? { purchasePrice } : { confirmUnpurchase: true },
     });
   } catch (error) {
     console.error(`Error toggling purchased for deal ${dealId}:`, error);

@@ -11,24 +11,13 @@ automatiquement — un `json.dumps()` manuel en plus double-encoderait la valeur
 Toute mutation par `message_id` filtre AUSSI sur `deal_id` (`WHERE id = $1 AND deal_id = $2`),
 pas seulement sur la clé primaire : `id` est un BIGSERIAL global (partagé entre toutes les
 annonces/utilisateurs, trivialement énumérable), donc filtrer uniquement dessus permettrait à
-un utilisateur propriétaire d'UNE annonce (vérifié par `_require_deal_owner` côté main.py sur
+un utilisateur propriétaire d'UNE annonce (vérifié côté main.py sur
 le `deal_id` de l'URL) de modifier le message d'une AUTRE annonce en devinant son id — un IDOR
 réel, trouvé en revue de code. Chaque fonction renvoie donc `True`/`False` (ligne trouvée ET
 appartenant à ce deal, ou non) pour que l'appelant puisse répondre 404 plutôt que de laisser
 croire à un succès silencieux sur un message qui n'a en réalité subi aucune modification.
 """
 import asyncpg
-
-
-async def get_deal_owner(pool: asyncpg.Pool, deal_id: str) -> str | None:
-    """Utilisé pour vérifier la propriété d'une annonce avant d'exposer son PLAN DE RESTAURATION
-    (REST et WS) — `guitar_deals` est un catalogue partagé (2026-09-19, plus de `user_id` propre),
-    le "propriétaire" du plan de restauration est l'ACHETEUR (`purchased_by_user_id`), décision
-    explicite de l'utilisateur : la réparation reste un privilège d'achat.
-    **Ne plus utiliser pour le chat** (voir `is_deal_visible` ci-dessous) — corrigé le 2026-09-27,
-    la restriction à l'acheteur avait été appliquée par erreur au chat aussi."""
-    row = await pool.fetchrow("SELECT purchased_by_user_id FROM guitar_deals WHERE id = $1", deal_id)
-    return row["purchased_by_user_id"] if row else None
 
 
 async def is_deal_visible(pool: asyncpg.Pool, deal_id: str, user_id: str) -> bool:

@@ -23,7 +23,8 @@ export const useRestorationPlan = (deal, user) => {
     // de retour synchrone à attendre autrement).
     const backfillingRef = useRef(false);
 
-    const active = !!(deal?.id && user && deal.isPurchased);
+    // Plan personnel : guitare achetée ou aimée (préparation avant achat), voir backend/api/restoration_repo.py::has_plan_access.
+    const active = !!(deal?.id && user && (deal.isPurchased || deal.isFavorite));
 
     useEffect(() => {
         if (!active) {
@@ -107,7 +108,7 @@ export const useRestorationPlan = (deal, user) => {
 
     // Sémantique figée avec le plan : totalEstimatedCost exclut `skipped` ; remainingCost ne
     // compte que les statuts non terminaux ; spentCost (coût réel, sinon estimé) ne porte que sur
-    // les étapes `done`.
+    // les étapes `done`. (Même règle côté SQL : backend/api/deals_repo.py::_restoration_spent_sql.)
     const totals = useMemo(() => {
         let totalEstimatedCost = 0;
         let remainingCost = 0;

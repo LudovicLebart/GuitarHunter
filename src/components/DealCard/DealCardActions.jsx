@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
-import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle, ShoppingBag } from 'lucide-react';
+import { Heart, RefreshCw, XCircle, Trash2, Facebook, Sparkles, Gem, MessageSquarePlus, Share2, MessageCircle, ShoppingBag, DollarSign } from 'lucide-react';
 import { createSharedDeal } from '../../services/apiService';
 
 // Actions de gestion de l'annonce (Favori, Acheté, Ré-analyser, Rejeter, Supprimer).
 // Extrait de l'ancien DealCardActions monolithique (2026-08-22) pour permettre à la modale
 // de les afficher sur une ligne séparée de ShareActions — voir DealAnalysisModal.jsx.
+// Date locale AAAA-MM-JJ pour <input type="date"> (toISOString donnerait la date UTC).
+const toLocalDateInput = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export const ManagementActions = ({
     deal,
     isAnalyzing,
     onToggleFavorite,
     onTogglePurchased,
+    onSetUserSale,
     onReject,
     onDelete,
     onRetry,
@@ -20,16 +24,49 @@ export const ManagementActions = ({
     const [showCommentModal, setShowCommentModal] = useState(false);
     const [commentText, setCommentText] = useState('');
     const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+    const [showUnpurchaseModal, setShowUnpurchaseModal] = useState(false);
+    const [showSaleModal, setShowSaleModal] = useState(false);
+    const [salePriceInput, setSalePriceInput] = useState('');
+    const [saleDateInput, setSaleDateInput] = useState('');
+
+    const openSaleModal = () => {
+        setSalePriceInput(deal.userSalePrice != null ? String(deal.userSalePrice) : '');
+        setSaleDateInput(deal.userSoldAt?.toDate ? toLocalDateInput(deal.userSoldAt.toDate()) : toLocalDateInput(new Date()));
+        setShowSaleModal(true);
+    };
+    const confirmSale = () => {
+        const parsed = parseFloat(salePriceInput);
+        if (!Number.isFinite(parsed) || parsed < 0) return;
+        // Aujourd'hui (ou date vide) : null -> `now()` côté serveur, jamais une heure future.
+        // Autre jour : midi UTC, pour qu'un fuseau négatif ne recule pas la date d'un jour.
+        const isToday = !saleDateInput || saleDateInput === toLocalDateInput(new Date());
+        onSetUserSale(parsed, isToday ? null : `${saleDateInput}T12:00:00Z`);
+        setShowSaleModal(false);
+    };
+    const cancelSale = () => {
+        onSetUserSale(null, null);
+        setShowSaleModal(false);
+    };
+    // Marge réalisée = revente − achat − frais de restauration engagés (étapes terminées).
+    const salePreview = parseFloat(salePriceInput);
+    const realizedMargin = Number.isFinite(salePreview)
+        ? salePreview - (Number(deal.purchasePrice) || 0) - (Number(deal.restorationSpent) || 0)
+        : null;
     const [purchasePriceInput, setPurchasePriceInput] = useState('');
 
     const handlePurchaseClick = () => {
         if (deal.isPurchased) {
-            // Désactivation directe : pas besoin de reconfirmer un prix pour annuler.
-            onTogglePurchased(null);
+            // Confirmation requise : annuler efface le prix et la date d'achat, et une annonce
+            // « vendue » non achetée disparaît de la liste (perte d'une guitare le 2026-10-10).
+            setShowUnpurchaseModal(true);
         } else {
             setPurchasePriceInput('');
             setShowPurchaseModal(true);
         }
+    };
+    const confirmUnpurchase = () => {
+        onTogglePurchased(null);
+        setShowUnpurchaseModal(false);
     };
     const confirmPurchase = () => {
         const parsed = parseFloat(purchasePriceInput);
@@ -63,6 +100,16 @@ export const ManagementActions = ({
                 >
                     <ShoppingBag size={18} className="sm:w-4 sm:h-4" />
                 </button>
+                {/* Revendue (seulement pour une guitare achetée) */}
+                {deal.isPurchased && (
+                    <button
+                        onClick={openSaleModal}
+                        className={`w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center rounded-xl border transition-all ${deal.userSalePrice != null ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-slate-800/50 text-slate-500 border-slate-700/50 hover:text-amber-400 hover:bg-amber-500/10'}`}
+                        title={deal.userSalePrice != null ? `Revendue ${deal.userSalePrice}$ (cliquer pour modifier)` : "Marquer comme revendue"}
+                    >
+                        <DollarSign size={18} className="sm:w-4 sm:h-4" />
+                    </button>
+                )}
                 {/* Ré-analyser Dropdown */}
                 <div
                     className="relative group"
@@ -160,6 +207,108 @@ export const ManagementActions = ({
                                 className="px-4 py-2 rounded-xl text-sm font-bold text-amber-900 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                             >
                                 Lancer l'analyse Expert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modale Revente */}
+            {showSaleModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                    onClick={(e) => { e.stopPropagation(); setShowSaleModal(false); }}
+                >
+                    <div
+                        className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-150"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 mb-3">
+                            <DollarSign size={18} className="text-amber-400" />
+                            <h3 className="text-sm font-black text-slate-100 uppercase tracking-wide">Guitare revendue</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-3">
+                            Prix de revente et date. La guitare reste dans tes achats, avec la marge réalisée.
+                        </p>
+                        <input
+                            type="number"
+                            value={salePriceInput}
+                            onChange={(e) => setSalePriceInput(e.target.value)}
+                            placeholder="Prix de vente ($)"
+                            autoFocus
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all"
+                        />
+                        <input
+                            type="date"
+                            value={saleDateInput}
+                            onChange={(e) => setSaleDateInput(e.target.value)}
+                            className="w-full mt-2 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500 transition-all"
+                        />
+                        {realizedMargin != null && (
+                            <p className="text-xs mt-3 text-slate-300">
+                                Marge réalisée : <span className={`font-black ${realizedMargin >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{Math.round(realizedMargin)}$</span>
+                                <span className="text-slate-500"> (vente {salePreview}$ − achat {Number(deal.purchasePrice) || 0}$ − restauration {Math.round(Number(deal.restorationSpent) || 0)}$)</span>
+                            </p>
+                        )}
+                        <div className="flex justify-end gap-2 mt-4">
+                            {deal.userSalePrice != null && (
+                                <button
+                                    onClick={cancelSale}
+                                    className="mr-auto px-4 py-2 rounded-xl text-sm font-bold text-red-400 hover:bg-slate-800 transition-colors"
+                                >
+                                    Annuler la revente
+                                </button>
+                            )}
+                            <button
+                                onClick={() => setShowSaleModal(false)}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                                Fermer
+                            </button>
+                            <button
+                                onClick={confirmSale}
+                                disabled={!Number.isFinite(salePreview) || salePreview < 0}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-amber-950 bg-amber-400 hover:bg-amber-300 disabled:opacity-40 transition-colors"
+                            >
+                                Enregistrer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modale Annuler l'achat */}
+            {showUnpurchaseModal && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+                    onClick={(e) => { e.stopPropagation(); setShowUnpurchaseModal(false); }}
+                >
+                    <div
+                        className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-5 animate-in fade-in zoom-in-95 duration-150"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 mb-3">
+                            <ShoppingBag size={18} className="text-red-400" />
+                            <h3 className="text-sm font-black text-slate-100 uppercase tracking-wide">Annuler l'achat ?</h3>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-3">
+                            Cette annonce ne sera plus marquée comme achetée : le prix et la date d'achat{deal.purchasePrice != null ? ` (${deal.purchasePrice}$)` : ''} seront effacés
+                            {deal.userSalePrice != null ? `, ainsi que la revente à ${deal.userSalePrice}$` : ''},
+                            et si l'annonce d'origine est vendue elle disparaîtra de la liste.
+                            {!deal.isFavorite && ' Son plan de restauration sera masqué (conservé) tant qu\'elle n\'est pas en favori.'}
+                        </p>
+                        <div className="flex justify-end gap-2 mt-4">
+                            <button
+                                onClick={() => setShowUnpurchaseModal(false)}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+                            >
+                                Garder l'achat
+                            </button>
+                            <button
+                                onClick={confirmUnpurchase}
+                                className="px-4 py-2 rounded-xl text-sm font-bold text-red-950 bg-red-400 hover:bg-red-300 transition-colors"
+                            >
+                                Annuler l'achat
                             </button>
                         </div>
                     </div>

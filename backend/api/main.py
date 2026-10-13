@@ -11,7 +11,8 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any, Optional, Union
 
 import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
@@ -268,18 +269,40 @@ async def patch_favorite(deal_id: str, uid: str = Depends(get_current_uid)):
 
 class PurchasedBody(BaseModel):
     purchasePrice: Optional[float] = None
+    confirmUnpurchase: bool = False  # exigé pour DÉSACHETER (efface prix, date et revente)
 
 
 @app.patch("/deals/{deal_id}/purchased")
 async def patch_purchased(deal_id: str, body: PurchasedBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    new_value = await deals_repo.toggle_purchased(pool, uid, deal_id, body.purchasePrice)
+    new_value = await deals_repo.toggle_purchased(pool, uid, deal_id, body.purchasePrice, body.confirmUnpurchase)
     if new_value is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    if new_value == "confirmation_required":
+        raise HTTPException(status.HTTP_428_PRECONDITION_REQUIRED, "Annuler un achat efface le prix, la date et la revente : confirmation requise.")
     if new_value == "locked_by_other_user":
         # Achat GLOBAL (2026-09-19) : un autre utilisateur a déjà acheté cette annonce partagée.
         raise HTTPException(status.HTTP_409_CONFLICT, "Cette annonce a déjà été achetée par un autre utilisateur.")
     return {"isPurchased": new_value}
+
+
+class UserSaleBody(BaseModel):
+    salePrice: Optional[float] = None
+    soldAt: Optional[datetime] = None
+
+
+@app.patch("/deals/{deal_id}/user-sale")
+async def patch_user_sale(deal_id: str, body: UserSaleBody, uid: str = Depends(get_current_uid)):
+    """Revente par l'acheteur (2026-10-10) : `salePrice` absent/null annule la revente."""
+    if body.salePrice is not None and body.salePrice < 0:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le prix de vente doit être positif.")
+    pool = get_pool()
+    result = await deals_repo.set_user_sale(pool, uid, deal_id, body.salePrice, body.soldAt)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    if result == "not_purchaser":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Seul l'acheteur peut déclarer la revente.")
+    return {"userSalePrice": body.salePrice}
 
 
 class ClassificationBody(BaseModel):
@@ -407,11 +430,12 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
 # (firestoreService.js). `deal_chat` n'a pas de user_id propre (FK vers guitar_deals) : chaque
 # route vérifie la VISIBILITÉ du deal parent (pas la propriété/achat — corrigé 2026-09-27, le
 # chat avait été réservé à l'acheteur par erreur en même temps que le plan de restauration, qui
-# lui doit le rester : voir `_require_deal_owner` plus bas, toujours utilisé pour la restauration).
+# lui reste réservé à l'acheteur ou aux favoris : voir `_require_plan_access` plus bas).
 
-async def _require_deal_owner(pool, deal_id: str, uid: str) -> None:
-    owner = await chat_repo.get_deal_owner(pool, deal_id)
-    if owner is None or owner != uid:
+async def _require_plan_access(pool, deal_id: str, uid: str) -> None:
+    """Plan de restauration personnel (2026-10-11) : acheteur de l'annonce, ou utilisateur qui la
+    voit et l'a mise en favori (préparation avant achat)."""
+    if not await restoration_repo.has_plan_access(pool, deal_id, uid):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
 
 
@@ -494,7 +518,10 @@ async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid
 class RestorationProposalStatusBody(BaseModel):
     proposalIndex: int
     status: str
-    itemId: Optional[str] = None
+    # L'id d'étape est un ENTIER depuis Postgres (BIGSERIAL, renvoyé tel quel par POST /restoration-plan) ;
+    # `Optional[str]` rejetait ce que le front envoie (422) : l'étape était créée puis la proposition
+    # restait « non appliquée » (erreur affichée, doublon à chaque nouveau clic).
+    itemId: Optional[Union[int, str]] = None
 
 
 @app.patch("/deals/{deal_id}/chat/{message_id}/restoration-proposal")
@@ -566,13 +593,13 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
 # Remplace onRestorationPlanUpdate/addRestorationItem/updateRestorationItem/deleteRestorationItem/
 # reorderRestorationItems/backfillRestorationOrder/addRestorationItemPhoto/removeRestorationItemPhoto
 # (firestoreService.js). Même absence de user_id propre que deal_chat -> même vérification via
-# _require_deal_owner (chat_repo.get_deal_owner, générique sur guitar_deals).
+# _require_plan_access (acheteur ou favori, plan personnel par utilisateur — 2026-10-11).
 
 @app.get("/deals/{deal_id}/restoration-plan")
 async def list_restoration_plan(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    rows = await restoration_repo.list_items(pool, deal_id)
+    await _require_plan_access(pool, deal_id, uid)
+    rows = await restoration_repo.list_items(pool, deal_id, uid)
     return [dict(r) for r in rows]
 
 
@@ -589,9 +616,9 @@ class RestorationItemCreate(BaseModel):
 @app.post("/deals/{deal_id}/restoration-plan", status_code=status.HTTP_201_CREATED)
 async def create_restoration_item(deal_id: str, body: RestorationItemCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
+    await _require_plan_access(pool, deal_id, uid)
     item_id = await restoration_repo.add_item(
-        pool, deal_id, body.label, body.category, body.estimatedCost, body.notes,
+        pool, deal_id, uid, body.label, body.category, body.estimatedCost, body.notes,
         body.source, body.proposedByMessageId, body.order,
     )
     return {"id": item_id}
@@ -607,8 +634,8 @@ class RestorationReorderBody(BaseModel):
 @app.patch("/deals/{deal_id}/restoration-plan/order")
 async def reorder_restoration_items(deal_id: str, body: RestorationReorderBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    await restoration_repo.reorder_items(pool, deal_id, body.orderedItemIds)
+    await _require_plan_access(pool, deal_id, uid)
+    await restoration_repo.reorder_items(pool, deal_id, uid, body.orderedItemIds)
     return {"status": "ok"}
 
 
@@ -629,8 +656,8 @@ async def _require_restoration_item_found(found: bool) -> None:
 @app.patch("/deals/{deal_id}/restoration-plan/{item_id}")
 async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationItemPatch, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    found = await restoration_repo.update_item(pool, deal_id, item_id, body.model_dump(exclude_unset=True))
+    await _require_plan_access(pool, deal_id, uid)
+    found = await restoration_repo.update_item(pool, deal_id, uid, item_id, body.model_dump(exclude_unset=True))
     await _require_restoration_item_found(found)
     return {"status": "ok"}
 
@@ -638,8 +665,8 @@ async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationIt
 @app.delete("/deals/{deal_id}/restoration-plan/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_restoration_item(deal_id: str, item_id: int, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    found = await restoration_repo.delete_item(pool, deal_id, item_id)
+    await _require_plan_access(pool, deal_id, uid)
+    found = await restoration_repo.delete_item(pool, deal_id, uid, item_id)
     await _require_restoration_item_found(found)
 
 
@@ -650,8 +677,8 @@ class RestorationPhotoBody(BaseModel):
 @app.post("/deals/{deal_id}/restoration-plan/{item_id}/photos")
 async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    found = await restoration_repo.add_photo(pool, deal_id, item_id, body.url)
+    await _require_plan_access(pool, deal_id, uid)
+    found = await restoration_repo.add_photo(pool, deal_id, uid, item_id, body.url)
     await _require_restoration_item_found(found)
     return {"status": "ok"}
 
@@ -659,8 +686,8 @@ async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPho
 @app.delete("/deals/{deal_id}/restoration-plan/{item_id}/photos")
 async def remove_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await _require_deal_owner(pool, deal_id, uid)
-    found = await restoration_repo.remove_photo(pool, deal_id, item_id, body.url)
+    await _require_plan_access(pool, deal_id, uid)
+    found = await restoration_repo.remove_photo(pool, deal_id, uid, item_id, body.url)
     await _require_restoration_item_found(found)
     return {"status": "ok"}
 
@@ -674,8 +701,7 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
         return
 
     pool = get_pool()
-    owner = await chat_repo.get_deal_owner(pool, deal_id)
-    if owner != uid:
+    if not await restoration_repo.has_plan_access(pool, deal_id, uid):
         await websocket.close(code=1008)
         return
 
@@ -688,8 +714,8 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
 
         def _on_notify(connection, pid, channel, payload):
             data = json.loads(payload)
-            if data.get("deal_id") != deal_id:
-                return  # canal partagé entre toutes les annonces, filtré ici
+            if data.get("deal_id") != deal_id or data.get("user_id") != uid:
+                return  # canal partagé entre toutes les annonces et tous les utilisateurs, filtré ici
             loop.create_task(websocket.send_json(data))
 
         await listen_conn.add_listener("restoration_plan_changes", _on_notify)
