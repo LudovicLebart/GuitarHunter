@@ -5,7 +5,7 @@ from backend.scripts import truth_candidates as tc
 
 
 def row(**kw):
-    base = {"id": "d1", "status": "analyzed", "verdict": "FAIR", "initial_verdict": "FAIR", "tier3_trigger": None,
+    base = {"id": "d1", "status": "analyzed", "verdict": "FAIR", "initial_verdict": "FAIR", "gatekeeper_final": None, "classification": "guitare.acoustique", "tier3_trigger": None,
             "manual_analysis_overrides": None, "manual_classification": None, "is_purchased": False,
             "user_msgs": 0, "requal_applied": False, "favorite": False,
             "timestamp": datetime(2026, 10, 1, tzinfo=timezone.utc)}
@@ -29,11 +29,13 @@ class TestScore:
         assert signals == ["requal", "purchased", "favorite"]
         assert score == 4 + 3 + 1
 
-    def test_rescued_means_rejected_by_gatekeeper_but_analyzed_anyway(self):
-        assert tc.score_signals(row(initial_verdict="REJECTED_ITEM", status="analyzed"))[1] == ["rescued"]
-        assert tc.score_signals(row(initial_verdict="REJECTED_ITEM", status="rejected")) == (0, [])
+    def test_rescued_means_rejected_by_gatekeeper_then_forced_analysis(self):
+        forced = dict(initial_verdict="REJECTED_ITEM", gatekeeper_final="MANUAL_RETRY")
+        assert tc.score_signals(row(**forced))[1] == ["rescued"]
+        # Rejet T1 puis analyse normale (pas de trace d'analyse forcée) : pas un sauvetage humain.
+        assert tc.score_signals(row(initial_verdict="REJECTED_ITEM", gatekeeper_final="REJECTED_ITEM")) == (0, [])
         # BAD_DEAL n'est pas un vrai rejet de fond (voir CLAUDE.md) : ne compte pas.
-        assert tc.score_signals(row(initial_verdict="BAD_DEAL", status="analyzed")) == (0, [])
+        assert tc.score_signals(row(initial_verdict="BAD_DEAL", gatekeeper_final="MANUAL_RETRY")) == (0, [])
 
     def test_chat_weight_grows_with_the_number_of_user_messages(self):
         assert tc.score_signals(row(user_msgs=1)) == (1, ["chat"])
@@ -66,3 +68,14 @@ class TestRank:
         counts, with_t3 = tc.summarize([row(is_purchased=True, tier3_trigger="x"), row(is_purchased=True), row()])
         assert counts["purchased"] == 2
         assert with_t3["purchased"] == 1
+
+    def test_accessories_excluded_by_default(self):
+        rows = [row(id="etui", manual_classification="etui_housse.Etui_Rigide", is_purchased=True),
+                row(id="ampli", classification="amplificateur.Combo", is_purchased=True),
+                row(id="guitare", is_purchased=True)]
+        assert [r["id"] for r in tc.rank(rows, limit=10)] == ["guitare"]
+        assert {r["id"] for r in tc.rank(rows, limit=10, with_accessories=True)} == {"etui", "ampli", "guitare"}
+
+    def test_manual_classification_wins_over_ai_for_accessory_check(self):
+        r = row(classification="etui_housse.x", manual_classification="guitare.acoustique", is_purchased=True)
+        assert [x["id"] for x in tc.rank([r], limit=5)] == ["d1"]

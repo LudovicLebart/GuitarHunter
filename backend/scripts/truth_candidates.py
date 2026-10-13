@@ -6,7 +6,7 @@ Signaux, du plus fort au plus faible (le score est la somme des poids) :
   override    la fiche a été corrigée À LA MAIN (`manual_analysis_overrides` ou `manual_classification`)        5
   requal      une requalification proposée par le chat a été ACCEPTÉE (`requalification_proposal.status`)      4
   purchased   guitare achetée                                                                                  3
-  rescued     rejetée par le Portier puis analysée quand même (analyse forcée / chat) : le Portier avait tort  2
+  rescued     rejetée par le Portier puis analyse FORCÉE (`gatekeeperVerdict` = MANUAL_RETRY) : le Portier avait tort  2
   chat        au moins 3 messages de l'utilisateur dans le chat de l'annonce (1 ou 2 : poids 1)               2
   favorite    mise en favori                                                                                   1
 Un signal ne dit PAS que l'IA avait tort : il dit que l'utilisateur sait quelque chose sur cette annonce. C'est à lui
@@ -32,6 +32,9 @@ EXCERPTS_PER_DEAL = 3
 # Poids des signaux ; l'ordre est celui de l'affichage.
 WEIGHTS = {"override": 5, "requal": 4, "purchased": 3, "rescued": 2, "chat": 2, "favorite": 1}
 T1_REJECTED = ("REJECTED_ITEM", "REJECTED_SERVICE")
+FORCED_ANALYSIS = "MANUAL_RETRY"  # écrase `ai_analysis_raw.gatekeeperVerdict` quand l'utilisateur force l'analyse
+# Hors sujet pour juger un expert en guitares : étuis et amplis (racines de la taxonomie), sauf `--with-accessories`.
+ACCESSORY_ROOTS = ("etui_housse", "amplificateur")
 
 _CANDIDATES_SQL = """
 WITH chat AS (
@@ -44,7 +47,7 @@ WITH chat AS (
     SELECT deal_id, bool_or(is_favorite) AS favorite FROM user_deal_state GROUP BY deal_id
 )
 SELECT d.id, d.title, d.link, d.status, d.verdict, d.initial_verdict, d.model_used, d.tier3_trigger,
-       d.classification, d.manual_classification, d.manual_analysis_overrides, d.is_purchased,
+       d.classification, d.manual_classification, d.ai_analysis_raw->>'gatekeeperVerdict' AS gatekeeper_final, d.manual_analysis_overrides, d.is_purchased,
        COALESCE(c.user_msgs, 0) AS user_msgs, COALESCE(c.msgs, 0) AS msgs,
        COALESCE(c.requal_applied, false) AS requal_applied, COALESCE(f.favorite, false) AS favorite,
        CASE WHEN jsonb_typeof(d.image_urls) = 'array' THEN jsonb_array_length(d.image_urls) ELSE 0 END AS image_count,
@@ -74,7 +77,7 @@ def score_signals(row):
         signals.append("requal")
     if row.get("is_purchased"):
         signals.append("purchased")
-    if row.get("initial_verdict") in T1_REJECTED and row.get("status") == "analyzed":
+    if row.get("initial_verdict") in T1_REJECTED and row.get("gatekeeper_final") == FORCED_ANALYSIS:
         signals.append("rescued")
     user_msgs = row.get("user_msgs") or 0
     if user_msgs >= 1:
@@ -87,12 +90,21 @@ def score_signals(row):
     return score, sorted(signals, key=list(WEIGHTS).index)
 
 
-def rank(rows, limit, t3_only=False):
-    """Candidates triées (score décroissant, puis passage par l'Expert, puis récence), sans les annonces sans signal."""
+def is_accessory(row):
+    """Étui ou ampli (classification manuelle prioritaire sur celle de l'IA)."""
+    cls = row.get("manual_classification") or row.get("classification") or ""
+    return cls.split(".")[0] in ACCESSORY_ROOTS
+
+
+def rank(rows, limit, t3_only=False, with_accessories=False):
+    """Candidates triées (score décroissant, puis passage par l'Expert, puis récence), sans les annonces sans signal
+    ni (par défaut) les étuis/amplis."""
     scored = []
     for row in rows:
         score, signals = score_signals(row)
         if score <= 0 or (t3_only and not row.get("tier3_trigger")):
+            continue
+        if not with_accessories and is_accessory(row):
             continue
         scored.append({**row, "score": score, "signals": signals, "has_t3": bool(row.get("tier3_trigger"))})
     scored.sort(key=lambda r: (-r["score"], not r["has_t3"], -(r["timestamp"].timestamp() if r.get("timestamp") else 0)))
@@ -135,6 +147,7 @@ def main(argv=None):
     ap.add_argument("--limit", type=int, default=15, help="nombre d'annonces candidates à garder (défaut 15)")
     ap.add_argument("--since", default=None, help="ne regarder que les annonces modifiées depuis cette date (ISO)")
     ap.add_argument("--t3-only", action="store_true", help="seulement les annonces déjà passées par l'Expert (T3)")
+    ap.add_argument("--with-accessories", action="store_true", help="garder aussi les étuis et amplis (exclus par défaut)")
     ap.add_argument("--out", default=DEFAULT_OUT, help="fichier JSONL de sortie (local, non versionné)")
     args = ap.parse_args(argv)
 
@@ -148,7 +161,7 @@ def main(argv=None):
         conn.read_only = True
         rows = fetch_candidates(conn, args.since)
         counts, with_t3 = summarize(rows)
-        picked = rank(rows, args.limit, args.t3_only)
+        picked = rank(rows, args.limit, args.t3_only, args.with_accessories)
         excerpts = fetch_excerpts(conn, [r["id"] for r in picked])
 
     print(f"{len(rows)} annonces en base. Signaux humains trouvés (dont déjà passées par l'Expert T3) :")
