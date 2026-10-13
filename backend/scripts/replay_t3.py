@@ -313,6 +313,17 @@ def main(argv=None):
     if missing:
         sys.exit(f"Clé(s) absente(s) : {', '.join(missing)} (GEMINI_API_KEY dans .env, ANTHROPIC_API_KEY exportée).")
 
+    # Une clé présente mais FAUSSE (mal collée, révoquée) passerait le test ci-dessus : un vrai mini-appel (quelques
+    # tokens) la refuse tout de suite, avant que Gemini ne dépense pour rien.
+    from backend import llm_clients
+    try:
+        llm_clients._get_claude_client().messages.create(
+            model=cfg.T3_CLAUDE_MODEL, max_tokens=64, messages=[{"role": "user", "content": "ok"}])
+    except Exception as e:
+        if getattr(e, "status_code", None) in (401, 403):
+            sys.exit(f"Clé Anthropic refusée ({e}). Refais : read -rsp 'Clé : ' ANTHROPIC_API_KEY; export ANTHROPIC_API_KEY")
+        print(f"⚠ Test de la clé Anthropic non concluant, on continue : {e}")
+
     captured = []
     llm_usage.record = lambda **kw: captured.append(kw)  # rien n'est écrit dans llm_usage
     an = analyzer_mod.DealAnalyzer()
