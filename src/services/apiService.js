@@ -158,32 +158,50 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
  */
 function openChangeSocket(path, onChange, onError) {
   const ERROR_REPORT_THRESHOLD = 3;
+  // Au-delà de ce temps en arrière-plan, on rattrape par un rafraîchissement au retour même si le
+  // socket paraît ouvert (un navigateur mobile peut le laisser "ouvert" alors qu'il est mort).
+  const STALE_AFTER_HIDDEN_MS = 30000;
   let closed = false;
   let ws = null;
   let retryDelay = WS_RETRY_DELAY_MS;
+  let retryTimer = null;
+  let connecting = false;
   let hasConnectedOnce = false;
   let consecutiveFailures = 0;
+  let hiddenSince = null;
 
   const scheduleRetry = () => {
     if (closed) return;
+    clearTimeout(retryTimer);
     const delay = retryDelay;
     retryDelay = Math.min(retryDelay * 2, WS_RETRY_DELAY_MAX_MS);
-    setTimeout(connect, delay);
+    retryTimer = setTimeout(connect, delay);
   };
 
+  // Page en arrière-plan (onglet quitté sur mobile) : les tentatives échouent normalement, ce
+  // n'est pas une panne à afficher à l'utilisateur — la reconnexion se fait au retour (voir
+  // `reconnectNow`).
   const reportError = (error) => {
+    if (typeof document !== 'undefined' && document.hidden) return;
     consecutiveFailures += 1;
     if (consecutiveFailures >= ERROR_REPORT_THRESHOLD) onError?.(error);
   };
 
   const connect = async () => {
-    if (closed) return;
+    if (closed || connecting) return;
+    connecting = true; // verrou : `getIdToken()` peut être lent, jamais deux connexions en parallèle
     try {
       const token = await getIdToken();
       if (closed) return;
-      ws = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      const sock = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
+      ws = sock;
+      // Chaque handler ignore un socket qui n'est plus le courant (remplacé par une reconnexion
+      // immédiate) : sans ça, l'`onclose` tardif de l'ancien socket planifierait une connexion de
+      // trop, et chaque socket vivant tient une connexion Postgres LISTEN côté serveur.
+      sock.onmessage = (event) => {
+        if (sock !== ws) return;
+        let data;
+        try { data = JSON.parse(event.data); } catch { return; }
         if (data.type === 'ready') {
           retryDelay = WS_RETRY_DELAY_MS;
           consecutiveFailures = 0;
@@ -193,9 +211,8 @@ function openChangeSocket(path, onChange, onError) {
         }
         onChange();
       };
-      ws.onerror = () => reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
-      ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
-      if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
+      sock.onerror = () => { if (sock === ws) reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`)); };
+      sock.onclose = () => { if (sock === ws) scheduleRetry(); }; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
     } catch (error) {
       // `closed` peut être passé à true PENDANT le `await getIdToken()` ci-dessus (composant
       // démonté en cours de route) — sans ce check, un rejet tardif de `getIdToken()` appellerait
@@ -204,13 +221,49 @@ function openChangeSocket(path, onChange, onError) {
       if (closed) return;
       reportError(error);
       scheduleRetry();
+    } finally {
+      connecting = false;
     }
   };
+
+  // Retour au premier plan / réseau rétabli / restauration depuis le bfcache (iOS n'émet pas
+  // toujours `visibilitychange`) : un navigateur mobile gèle ou bride les timers d'un onglet caché,
+  // la reconnexion planifiée (jusqu'à 30 s de backoff) n'a alors pas eu lieu à l'heure.
+  const reconnectNow = () => {
+    if (closed) return;
+    const isLive = ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+    if (isLive) return;
+    clearTimeout(retryTimer);
+    retryDelay = WS_RETRY_DELAY_MS;
+    connect();
+  };
+  const onVisibilityChange = () => {
+    if (document.hidden) { hiddenSince = Date.now(); return; }
+    const wasHiddenLong = hiddenSince !== null && Date.now() - hiddenSince > STALE_AFTER_HIDDEN_MS;
+    hiddenSince = null;
+    const wasLive = ws && ws.readyState === WebSocket.OPEN;
+    reconnectNow();
+    if (wasLive && wasHiddenLong) onChange(); // socket "ouvert" mais possiblement mort : rattrapage
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', reconnectNow);
+    window.addEventListener('pageshow', reconnectNow);
+  }
+
   connect();
 
   return () => {
     closed = true;
-    ws?.close();
+    clearTimeout(retryTimer);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', reconnectNow);
+      window.removeEventListener('pageshow', reconnectNow);
+    }
+    const sock = ws;
+    ws = null;
+    sock?.close();
   };
 }
 
@@ -463,19 +516,49 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // à chaque chargement de page et, depuis la reconnexion WebSocket, à chaque reconnexion.
   // Les documents complets restent chargés à la demande via fetchDealsByIds() (déjà utilisé par
   // useDealsManager.js::loadedDeals pour les annonces réellement visibles à l'écran).
+  // Une seule lecture à la fois, au plus une en attente (2026-10-13) : chaque notification WS
+  // relançait jusqu'ici un GET complet, sans limite ni ordre garanti (une réponse ancienne pouvait
+  // écraser une plus récente et les requêtes s'empilaient sur l'unique worker du serveur). Les
+  // notifications reçues pendant une lecture sont fusionnées en UNE relecture ensuite, et une
+  // rafale est lissée par un délai de regroupement (`REFRESH_BATCH_DELAY_MS`, sans réarmement :
+  // un flux continu ne retarde pas indéfiniment la lecture).
+  const REFRESH_BATCH_DELAY_MS = 300;
+  let destroyed = false;
+  let inFlight = false;
+  let queued = false;
+  let batchTimer = null;
+
   const fetchAndEmit = async () => {
+    if (destroyed) return;
+    if (inFlight) { queued = true; return; }
+    inFlight = true;
     try {
       const rows = await apiFetch('/deals/index');
+      if (destroyed) return;
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
       onUpdate(merged, rows.length);
     } catch (error) {
+      if (destroyed) return;
       console.error("Error listening to deals index:", error);
       onError(error);
+    } finally {
+      inFlight = false;
+      if (queued && !destroyed) { queued = false; fetchAndEmit(); }
     }
   };
+  const scheduleFetch = () => {
+    if (destroyed || batchTimer !== null) return;
+    batchTimer = setTimeout(() => { batchTimer = null; fetchAndEmit(); }, REFRESH_BATCH_DELAY_MS);
+  };
+
   fetchAndEmit();
-  return openChangeSocket('/ws/deals', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/deals', scheduleFetch, onError);
+  return () => {
+    destroyed = true;
+    clearTimeout(batchTimer);
+    closeSocket();
+  };
 };
 
 export const fetchDealsByIds = async (ids, _userId) => {

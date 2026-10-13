@@ -372,6 +372,32 @@ class TestDealsWebSocket(unittest.TestCase):
                     second = ws_other.recv(timeout=5)
                     self.assertEqual(json.loads(second)["id"], "deal-ws-1")
 
+    def test_websocket_pushes_when_deal_enters_user_feed(self):
+        """2026-10-13 : une annonce neuve n'était jamais poussée — l'upsert `guitar_deals`
+        notifie AVANT que `record_deal_match` n'écrive le lien utilisateur-annonce (autre
+        transaction), donc `_push_if_visible` ne trouvait aucune visibilité. Le trigger sur
+        `user_deal_matches` notifie désormais à l'insertion du lien lui-même."""
+        asyncio.run(_seed_deal("deal-ws-2", self.UID, visible_to=[], title="Annonce neuve"))
+        try:
+            with patch("backend.api.main.verify_token", return_value=self.UID), _RealServer(app) as srv:
+                with ws_sync_client.connect(f"{srv.ws_url}/ws/deals?token=fake-mine") as ws_mine:
+                    self.assertEqual(json.loads(ws_mine.recv(timeout=5))["type"], "ready")
+
+                    async def _record_match():
+                        conn = await asyncpg.connect(DATABASE_URL)
+                        try:
+                            await conn.execute(
+                                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2)",
+                                self.UID, "deal-ws-2",
+                            )
+                        finally:
+                            await conn.close()
+
+                    asyncio.run(_record_match())
+                    self.assertEqual(json.loads(ws_mine.recv(timeout=5))["id"], "deal-ws-2")
+        finally:
+            asyncio.run(_cleanup(deal_ids=["deal-ws-2"], user_ids=[]))
+
 
 if __name__ == "__main__":
     unittest.main()

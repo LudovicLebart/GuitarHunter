@@ -37,6 +37,10 @@ app = FastAPI(title="Guitar Hunter API", lifespan=lifespan)
 
 logger = logging.getLogger(__name__)
 
+# Regroupement des notifications `deal_changes` par socket (voir `ws_deals`).
+_NOTIFY_BATCH_DELAY_S = 0.25
+_NOTIFY_BULK_THRESHOLD = 50
+
 # Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
 # du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
 # cookies) — allow_credentials=False, pas besoin d'assouplir vers "*".
@@ -387,25 +391,67 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
     # — fuite de connexion Postgres réelle trouvée en revue de code, hors du pool borné
     # (max_size=10), qui finit par épuiser les connexions disponibles côté serveur.
     listener_added = False
+    pending_ids: set = set()
+    flush_handle = None
     try:
         loop = asyncio.get_running_loop()
         pool = get_pool()
 
-        async def _push_if_visible(data: dict):
-            # 2026-09-19 (catalogue partagé) : le trigger ne pousse plus `user_id` (une annonce
-            # peut concerner PLUSIEURS utilisateurs) — c'est ici, pas dans le trigger, que se
-            # décide qui est concerné : uniquement les utilisateurs dont le scan a matché ce
-            # deal_id (voir `deals_repo._is_visible`, même requête).
-            row = await pool.fetchrow(
-                "SELECT 1 FROM user_deal_matches WHERE user_id = $1 AND deal_id = $2", uid, data.get("id"),
-            )
-            if row is not None:
-                await websocket.send_json(data)
+        # Regroupement des notifications (2026-10-13) : le trigger émet UN NOTIFY par ligne
+        # écrite (un UPDATE de milliers de lignes = des milliers de messages), et chacun coûtait
+        # une requête de visibilité au pool (max 10) — qui affamait aussi `/deals/index`. On
+        # accumule les ids pendant `_NOTIFY_BATCH_DELAY_S`, puis UNE requête `ANY($2)` et un
+        # message par id visible ; au-delà de `_NOTIFY_BULK_THRESHOLD` ids visibles, un seul
+        # message `{"type": "bulk"}` (le client relit de toute façon l'index complet).
+        async def _flush_pending():
+            nonlocal flush_handle
+            flush_handle = None
+            ids = list(pending_ids)
+            pending_ids.clear()
+            if not ids:
+                return
+            try:
+                # 2026-09-19 (catalogue partagé) : le trigger ne pousse plus `user_id` (une annonce
+                # peut concerner PLUSIEURS utilisateurs) — c'est ici, pas dans le trigger, que se
+                # décide qui est concerné : uniquement les utilisateurs dont le scan a matché ce
+                # deal_id (voir `deals_repo._is_visible`, même logique).
+                rows = await pool.fetch(
+                    "SELECT deal_id FROM user_deal_matches WHERE user_id = $1 AND deal_id = ANY($2::text[])",
+                    uid, ids,
+                )
+                visible = [r["deal_id"] for r in rows]
+                if len(visible) > _NOTIFY_BULK_THRESHOLD:
+                    await websocket.send_json({"type": "bulk"})
+                else:
+                    for deal_id in visible:
+                        await websocket.send_json({"id": deal_id})
+            except Exception:
+                # Socket fermé entre-temps ou pool indisponible : le client rattrape de toute
+                # façon (reconnexion + relecture complète au "ready").
+                logger.debug("ws_deals: envoi groupé abandonné", exc_info=True)
 
         def _on_notify(connection, pid, channel, payload):
-            data = json.loads(payload)
-            loop.create_task(_push_if_visible(data))
+            nonlocal flush_handle
+            deal_id = json.loads(payload).get("id")
+            if deal_id is None:
+                return
+            pending_ids.add(deal_id)
+            if flush_handle is None:
+                flush_handle = loop.call_later(_NOTIFY_BATCH_DELAY_S, lambda: loop.create_task(_flush_pending()))
 
+        # Si Postgres coupe cette connexion LISTEN (redémarrage, timeout), le WebSocket resterait
+        # ouvert mais muet : le client se croirait à jour sans l'être. On ferme le socket pour
+        # qu'il se reconnecte (le "ready" suivant déclenche une relecture complète).
+        async def _close_ws_after_pg_loss():
+            try:
+                await websocket.close(code=1011)
+            except Exception:
+                pass  # déjà fermé côté client
+
+        def _on_pg_terminated(connection):
+            loop.create_task(_close_ws_after_pg_loss())
+
+        listen_conn.add_termination_listener(_on_pg_terminated)
         await listen_conn.add_listener("deal_changes", _on_notify)
         listener_added = True
         # Accusé de réception explicite : entre l'établissement de la connexion WS (accept())
@@ -417,11 +463,18 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
         try:
             while True:
                 await websocket.receive_text()  # ne sert qu'à détecter la déconnexion du client
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, RuntimeError):
+            # RuntimeError : socket déjà fermé côté serveur (connexion LISTEN coupée, voir
+            # `_on_pg_terminated`) — Starlette lève alors au lieu de WebSocketDisconnect.
             pass
     finally:
+        if flush_handle is not None:
+            flush_handle.cancel()
         if listener_added:
             await listen_conn.remove_listener("deal_changes", _on_notify)
+            # Retiré AVANT close() : fermer nous-mêmes la connexion déclencherait sinon le
+            # listener de terminaison (fermeture inutile d'un socket déjà parti).
+            listen_conn.remove_termination_listener(_on_pg_terminated)
         await listen_conn.close()
 
 

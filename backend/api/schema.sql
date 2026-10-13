@@ -131,6 +131,17 @@ CREATE TRIGGER user_deal_state_notify
     AFTER INSERT OR UPDATE ON user_deal_state
     FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
 
+-- 2026-10-13 : une annonce NEUVE n'était jamais poussée au client. `create_new_deal` commit
+-- l'upsert `guitar_deals` (donc le NOTIFY) AVANT que `record_deal_match` n'écrive le lien
+-- utilisateur-annonce, dans une autre transaction : `ws_deals::_push_if_visible` ne trouvait alors
+-- aucune ligne `user_deal_matches` et ne poussait rien. Même chose pour une annonce déjà connue
+-- qui entre dans le fil d'un autre utilisateur (aucune écriture sur `guitar_deals`). Notifier à
+-- l'INSERT du lien lui-même ferme les deux cas (même fonction/canal que `user_deal_state`).
+DROP TRIGGER IF EXISTS user_deal_matches_notify ON user_deal_matches;
+CREATE TRIGGER user_deal_matches_notify
+    AFTER INSERT ON user_deal_matches
+    FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
+
 -- `purchased_by_user_id` : absente d'une base déjà initialisée avant le 2026-09-19 (comme
 -- toute colonne ajoutée après la création initiale, voir l'avertissement plus bas) — ajoutée ici
 -- en ALTER explicite avant les index qui la référencent.
