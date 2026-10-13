@@ -86,6 +86,14 @@ async function getIdToken() {
   return user.getIdToken();
 }
 
+const isPerfEnabled = () => {
+  try {
+    if (typeof window === 'undefined') return false;
+    if (new URLSearchParams(window.location.search).get('perf') === '1') return true;
+    return window.localStorage.getItem('gh_perf') === '1';
+  } catch { return false; }
+};
+
 async function apiFetch(path, { method = 'GET', body, skipAuth = false, onResponse } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
@@ -534,30 +542,40 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
     if (inFlight) { queued = true; return; }
     inFlight = true;
     try {
-      // Mesure de la lecture (2026-10-13) : où passe le temps ? attente du serveur (SQL +
-      // sérialisation, voir `Server-Timing`), téléchargement, parse JSON, reconstruction des
-      // objets. Console + dernier relevé sur `window.__dealsIndexPerf` ; le résumé court part
-      // aussi dans le 3e argument d'`onUpdate` (affiché dans le statut de la base).
+      // Diagnostic opt-in (2026-10-13) : `?perf=1` dans l'URL de la page, ou
+      // `localStorage.gh_perf = '1'` — sans cela, aucune mesure ni en-tête supplémentaire.
+      const perfOn = isPerfEnabled();
       const t0 = performance.now();
+      let tHeaders = t0;
       let serverTiming = null;
-      const rows = await apiFetch('/deals/index', { onResponse: (resp) => { serverTiming = resp.headers.get('server-timing'); } });
+      const rows = await apiFetch(perfOn ? '/deals/index?perf=1' : '/deals/index', {
+        onResponse: perfOn ? (resp) => { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); } : undefined,
+      });
+      if (destroyed) return;
       const t1 = performance.now();
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
-      const t2 = performance.now();
-      const perf = { rows: rows.length, fetchAndParseMs: Math.round(t1 - t0), mapMs: Math.round(t2 - t1), serverTiming };
-      try {
-        const entry = performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/deals/index')).pop();
-        if (entry) Object.assign(perf, {
-          ttfbMs: Math.round(entry.responseStart - entry.requestStart),
-          downloadMs: Math.round(entry.responseEnd - entry.responseStart),
-          encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
-        });
-      } catch { /* API Performance indisponible : mesure partielle */ }
-      if (typeof window !== 'undefined') window.__dealsIndexPerf = perf;
-      console.info('[perf] /deals/index', perf);
-      if (destroyed) return;
-      onUpdate(merged, rows.length, perf);
+      if (perfOn) {
+        const perf = {
+          rows: rows.length,
+          toHeadersMs: Math.round(tHeaders - t0), // jeton Firebase + attente du serveur (SQL + sérialisation)
+          bodyAndParseMs: Math.round(t1 - tHeaders), // téléchargement du corps + parse JSON
+          mapMs: Math.round(performance.now() - t1), // reconstruction des objets (`dealFromRow`)
+          serverTiming,
+        };
+        try {
+          const entry = performance.getEntriesByType('resource').filter((e) => e.startTime >= t0 && e.name.includes('/deals/index')).pop();
+          if (entry) Object.assign(perf, {
+            ttfbMs: Math.round(entry.responseStart - entry.requestStart),
+            downloadMs: Math.round(entry.responseEnd - entry.responseStart),
+            encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
+          });
+          performance.clearResourceTimings(); // le tampon (≈250 entrées) se remplit sinon et ne renvoie plus l'entrée courante
+        } catch { /* API Performance indisponible : mesure partielle */ }
+        window.__dealsIndexPerf = perf;
+        console.info('[perf] /deals/index', perf);
+      }
+      onUpdate(merged, rows.length);
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);
