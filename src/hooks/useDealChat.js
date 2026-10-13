@@ -262,7 +262,8 @@ const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs,
 // avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
 const CHAT_REQUEST_TIMEOUT_MS = 120_000;
 // Attente avant l'unique nouvelle tentative sur une erreur transitoire (429, 5xx, réseau).
-const CHAT_RETRY_DELAY_MS = 2_000;
+// 8 s (avant : 2 s, 2026-10-13) : une coupure réseau dure plus que 2 s (reprise à 95 ms en échec).
+const CHAT_RETRY_DELAY_MS = 8_000;
 
 const isTransientChatError = (kind) => kind === 'connection' || kind === 'http_429' || /^http_5\d\d$/.test(kind);
 
@@ -391,7 +392,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             const startedAt = performance.now();
             const ctx = { modelName, dealId: deal?.id, sentParts };
             try {
-                const response = await session.sendMessage(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                // Streaming (2026-10-13) : la connexion reste active pendant la génération (Pro avec
+                // réflexion, jusqu'à ~2 min sans aucun octet en mode non-streamé, coupée par le réseau
+                // — voir llm_usage `connection`). On draine le flux, puis `stream.response` donne la
+                // même réponse agrégée qu'avant : le reste de la cascade est inchangé.
+                const stream = await session.sendMessageStream(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                // eslint-disable-next-line no-unused-vars
+                for await (const _chunk of stream.stream) { /* drainage */ }
+                const response = { response: await stream.response };
                 logTokenUsage(label, response.response, { ...ctx, latencyMs: Math.round(performance.now() - startedAt) });
                 // Réponse coupée par `maxOutputTokens` (qui peut inclure la réflexion) : jamais
                 // persistée comme une réponse normale, voir la note ajoutée avant l'écriture.
