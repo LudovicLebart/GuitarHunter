@@ -35,6 +35,7 @@ from config import (
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
     T3_PROVIDER,
     T3_CLAUDE_MODEL,
+    T3_CLAUDE_CACHE,
 )
 from backend import t1_circuit_breaker
 from backend import guitar_knowledge
@@ -79,6 +80,11 @@ T1_FILTER_BYPASS_VERDICTS = frozenset({"PEPITE"})
 # historique vers l'Analyste (Chantier H, porté depuis dev le 2026-09-22) — provisoire, en
 # attendant un vrai mécanisme de repli (ex: second appel Gemini).
 T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
+
+# Frontière entre la partie STATIQUE du prompt T2/T3 (consigne, taxonomie, exemples — identique d'une annonce à
+# l'autre) et la partie propre à l'annonce. Partagée par `_construct_base_user_prompt` (qui l'écrit) et
+# `_run_t3_phase` (qui coupe dessus pour le cache de prompt Anthropic) : ne jamais dupliquer la chaîne.
+LISTING_DETAILS_MARKER = "Détails de l'annonce :\n"
 
 class _T1Outcome(NamedTuple):
     """Résultat de `DealAnalyzer._run_t1_phase`. `early_result` non None = sortie anticipée de la cascade
@@ -186,7 +192,7 @@ class DealAnalyzer(LLMClientsMixin):
             f"### TAXONOMIE DE RÉFÉRENCE\n"
             f"{taxonomy_str}\n\n"
             f"{examples_str}"
-            f"Détails de l'annonce :\n"
+            f"{LISTING_DETAILS_MARKER}"
             f"- Titre : {listing_data.get('title', 'N/A')}\n"
             f"- Prix : {listing_data.get('price', 'N/A')}\n"
             f"- Description : {listing_data.get('description', 'N/A')}\n"
@@ -741,7 +747,16 @@ class DealAnalyzer(LLMClientsMixin):
         full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
 
         call_t3 = self._call_claude_json if use_claude else self._call_gemini_json
-        result_t3, err_t3 = call_t3(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
+        t3_kwargs = {}
+        if use_claude and T3_CLAUDE_CACHE:
+            # Préfixe statique = tout ce qui précède le premier marqueur, écrit par `_construct_base_user_prompt`.
+            # La description d'une annonce (texte du vendeur) vient toujours APRÈS lui et ne peut pas le déplacer.
+            # Marqueur absent (prompt de config personnalisé) : pas de cache, comportement inchangé.
+            head, marker, _ = full_prompt_t3.partition(LISTING_DETAILS_MARKER)
+            if marker and head:
+                t3_kwargs["cached_prefix"] = head
+        result_t3, err_t3 = call_t3(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert",
+                                    **t3_kwargs)
 
         if err_t3 or not result_t3:
             # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite

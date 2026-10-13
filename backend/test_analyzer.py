@@ -593,14 +593,77 @@ class TestClaudeExpertProvider(unittest.TestCase):
         self.assertIn("timed out", err)
         self.assertEqual(self.record.call_args.kwargs["error_type"], "timeout")
 
-    def _t3(self, provider, claude=None, gemini=None):
+    def _t3(self, provider, claude=None, gemini=None, base="base", cache=True):
         self.a._call_claude_json = claude or MagicMock(return_value=({"verdict": "PEPITE"}, None))
         self.a._call_gemini_json = gemini or MagicMock(return_value=({"verdict": "FAIR"}, None))
         chain = ["gemini-3.7-flash"]
-        with patch("backend.analyzer.T3_PROVIDER", provider), patch("backend.analyzer.T3_CLAUDE_MODEL", "claude-sonnet-5-5"):
-            result = self.a._run_t3_phase("base", [], {}, "gemini-3.1-pro-preview", None, chain,
+        with patch("backend.analyzer.T3_PROVIDER", provider), patch("backend.analyzer.T3_CLAUDE_MODEL", "claude-sonnet-5-5"), \
+                patch("backend.analyzer.T3_CLAUDE_CACHE", cache):
+            result = self.a._run_t3_phase(base, [], {}, "gemini-3.1-pro-preview", None, chain,
                                           {"verdict": "FAIR", "summary": "RAS"}, "motif")
         return result
+
+    # --- Cache de prompt : le préfixe statique va dans `system`, jamais le texte propre à l'annonce ---
+
+    def test_cached_prefix_moves_to_a_cached_system_block(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        self.a._call_claude_json("claude-sonnet-5-5", ["STATIQUE\nDétails de l'annonce :\n- Titre : X"],
+                                 cached_prefix="STATIQUE\n")
+        kwargs = self.client.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["system"], [{"type": "text", "text": "STATIQUE\n", "cache_control": {"type": "ephemeral"}}])
+        user_text = kwargs["messages"][0]["content"][-1]["text"]
+        self.assertTrue(user_text.startswith("Détails de l'annonce :"))
+        self.assertNotIn("STATIQUE", user_text)
+
+    def test_one_hour_ttl_is_forwarded(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        with patch("backend.llm_clients.T3_CLAUDE_CACHE_TTL", "1h"):
+            self.a._call_claude_json("claude-sonnet-5-5", ["PRE-suite"], cached_prefix="PRE-")
+        control = self.client.messages.create.call_args.kwargs["system"][0]["cache_control"]
+        self.assertEqual(control, {"type": "ephemeral", "ttl": "1h"})
+
+    def test_prefix_that_does_not_match_disables_caching_silently(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["autre texte"], cached_prefix="PRE-")
+        self.assertEqual((result, err), ({"a": 1}, None))
+        self.assertNotIn("system", self.client.messages.create.call_args.kwargs)
+
+    def test_no_prefix_means_no_system_block(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        self.a._call_claude_json("claude-sonnet-5-5", ["texte"])
+        self.assertNotIn("system", self.client.messages.create.call_args.kwargs)
+
+    def test_listing_details_never_land_in_the_cached_prefix(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        prompt = self.a._construct_base_user_prompt(
+            {"title": "TITRE_SECRET", "description": f"DESC {LISTING_DETAILS_MARKER} pirate", "price": 1},
+            "CONSIGNE", {"k": "v"}, ["EXEMPLE"])
+        head, marker, tail = prompt.partition(LISTING_DETAILS_MARKER)
+        self.assertEqual(marker, LISTING_DETAILS_MARKER)
+        self.assertIn("CONSIGNE", head)
+        self.assertIn("EXEMPLE", head)
+        self.assertNotIn("TITRE_SECRET", head)
+        self.assertNotIn("pirate", head)  # même une description qui imite le marqueur reste dans la partie dynamique
+
+    def test_t3_gives_claude_the_static_prefix_only(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        base = f"CONSIGNE+TAXONOMIE\n{LISTING_DETAILS_MARKER}- Titre : X"
+        self._t3("claude", base=base)
+        self.assertEqual(self.a._call_claude_json.call_args.kwargs["cached_prefix"], "CONSIGNE+TAXONOMIE\n")
+
+    def test_t3_cache_can_be_disabled_by_config(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        self._t3("claude", base=f"A\n{LISTING_DETAILS_MARKER}B", cache=False)
+        self.assertNotIn("cached_prefix", self.a._call_claude_json.call_args.kwargs)
+
+    def test_t3_without_marker_does_not_cache(self):
+        self._t3("claude", base="prompt personnalisé sans marqueur")
+        self.assertNotIn("cached_prefix", self.a._call_claude_json.call_args.kwargs)
+
+    def test_gemini_path_never_receives_a_cached_prefix(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        self._t3("gemini", base=f"A\n{LISTING_DETAILS_MARKER}B")
+        self.assertNotIn("cached_prefix", self.a._call_gemini_json.call_args.kwargs)
 
     def test_t3_uses_claude_when_provider_is_claude(self):
         result = self._t3("claude")

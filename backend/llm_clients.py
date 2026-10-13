@@ -27,6 +27,7 @@ from config import (
     T3_CLAUDE_MAX_TOKENS,
     T3_CLAUDE_TIMEOUT_SECONDS,
     T3_CLAUDE_MAX_IMAGE_EDGE,
+    T3_CLAUDE_CACHE_TTL,
     TOKENROUTER_API_KEY,
     TOKENROUTER_BASE_URL,
     T1_OBSERVATION_QWEN_MODEL,
@@ -272,7 +273,23 @@ class LLMClientsMixin:
         blocks.append({"type": "text", "text": "\n\n".join(texts) + _CLAUDE_JSON_SUFFIX})
         return blocks, count
 
-    def _call_claude_json(self, model_name, content_parts, user_email=None, max_retries=1, action=None):
+    @staticmethod
+    def _claude_system_with_cache(content_parts, cached_prefix):
+        """Cache de prompt : si `content_parts[0]` commence par `cached_prefix`, ce préfixe statique devient le bloc
+        `system` (avec `cache_control`) et il est retiré du texte du message. Le `system` passe AVANT les photos dans
+        l'ordre de cache d'Anthropic (outils, system, messages) : les photos, différentes à chaque annonce, n'invalident
+        donc pas le préfixe. Retourne `(system | None, content_parts)` ; sans préfixe valable, aucun cache (silencieux)."""
+        first = content_parts[0] if content_parts else None
+        if not cached_prefix or not isinstance(first, str) or not first.startswith(cached_prefix):
+            return None, content_parts
+        control = {"type": "ephemeral"}
+        if T3_CLAUDE_CACHE_TTL == "1h":
+            control["ttl"] = "1h"
+        system = [{"type": "text", "text": cached_prefix, "cache_control": control}]
+        return system, [first[len(cached_prefix):]] + list(content_parts[1:])
+
+    def _call_claude_json(self, model_name, content_parts, user_email=None, max_retries=1, action=None,
+                          cached_prefix=None):
         """Équivalent de `_call_gemini_json` pour l'API Anthropic (Expert T3 si `T3_PROVIDER="claude"`) : même
         signature, même contrat de retour `(dict, None)` ou `(None, message)`, même ligne `llm_usage` par TENTATIVE.
 
@@ -281,11 +298,15 @@ class LLMClientsMixin:
         une réponse coupée (`stop_reason="max_tokens"`) est une erreur franche, sans nouvel essai payant ;
         (3) `output_tokens` inclut déjà le raisonnement, donc `thoughts_tokens=0` (sinon `cost_dashboard` le compterait
         deux fois) ; (4) `input_tokens` est enregistré SANS le cache chez Anthropic, on le ré-additionne pour suivre la
-        convention de la table (cache inclus dans l'entrée)."""
+        convention de la table (cache inclus dans l'entrée) — limite connue : les tokens ÉCRITS au cache coûtent 125 %
+        (5 min) ou 200 % (1 h) du prix d'entrée, mais `cost_dashboard` les compte à 100 % (la table n'a pas de colonne
+        d'écriture de cache) ; l'écart se chiffre en centimes, ne pas en déduire un coût réel exact.
+        `cached_prefix` : partie statique du prompt à mettre en cache (voir `_claude_system_with_cache`)."""
         if not ANTHROPIC_API_KEY:
             llm_usage.record(provider="anthropic", model=model_name, action=action, ok=False, error_type="other")
             return None, "ANTHROPIC_API_KEY n'est pas configurée."
         client = _get_claude_client()
+        system, content_parts = self._claude_system_with_cache(content_parts, cached_prefix)
         blocks, image_count = self._claude_content_blocks(content_parts)
 
         for attempt in range(max_retries + 1):
@@ -299,6 +320,7 @@ class LLMClientsMixin:
                     max_tokens=T3_CLAUDE_MAX_TOKENS,
                     messages=[{"role": "user", "content": blocks}],
                     extra_body={"output_config": {"effort": T3_CLAUDE_EFFORT}},
+                    **({"system": system} if system else {}),
                 )
                 usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
                 usage = getattr(response, "usage", None)

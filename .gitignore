@@ -26,3 +26,5 @@ backend/scripts/data/dataset_a_*.jsonl
 backend/scripts/experiments/yolo_annotation/dataset_a_*.jsonl
 /dataset_a_*.jsonl
 /dataset_test.jsonl
+# Candidates de vérité terrain (backend/scripts/truth_candidates.py) : titres, liens et extraits de chat — locales uniquement.
+backend/scripts/data/truth_candidates*.jsonl

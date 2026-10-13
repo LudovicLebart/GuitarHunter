@@ -213,6 +213,12 @@ T3_CLAUDE_TIMEOUT_SECONDS = int(os.getenv("T3_CLAUDE_TIMEOUT_SECONDS", 300))
 # Plus grand côté (px) des photos envoyées à Claude : une photo coûte ⌈largeur/28⌉ × ⌈hauteur/28⌉ tokens
 # (jusqu'à ~4 800 à 2048 px), bien plus qu'une photo Gemini — le plafond borne la facture.
 T3_CLAUDE_MAX_IMAGE_EDGE = int(os.getenv("T3_CLAUDE_MAX_IMAGE_EDGE", 1568))
+# Cache de prompt Anthropic : la partie statique du prompt (consigne, taxonomie, exemples) va dans `system` avec
+# `cache_control` ; lecture à 5 % du prix d'entrée, écriture à 125 % (TTL "5m") ou 200 % ("1h"). Rentable quand
+# plusieurs appels tombent dans le TTL (rejeu, chat, rafales) ; l'Expert ne concernant que ~5 % des annonces, ses
+# lectures de cache seront rares en prod et la prime d'écriture ne pèse que quelques centimes par mois.
+T3_CLAUDE_CACHE = os.getenv("T3_CLAUDE_CACHE", "true").strip().lower() in ("1", "true", "yes", "on")
+T3_CLAUDE_CACHE_TTL = os.getenv("T3_CLAUDE_CACHE_TTL", "5m").strip().lower()  # "5m" ou "1h"
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000
