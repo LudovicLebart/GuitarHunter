@@ -36,9 +36,11 @@ from config import (
     T3_PROVIDER,
     T3_CLAUDE_MODEL,
     T3_CLAUDE_CACHE,
+    T3_KNOWLEDGE_ENABLED,
 )
 from backend import t1_circuit_breaker
 from backend import guitar_knowledge
+from backend.t3_claude_tools import CLAUDE_T3_ADDENDUM, LOOKUP_BRAND_TOOL, make_brand_tool
 from backend.llm_clients import (  # noqa: F401  (T1_* ré-exportées pour les scripts/tests existants)
     LLMClientsMixin,
     T1_VALID_STATUSES,
@@ -748,6 +750,13 @@ class DealAnalyzer(LLMClientsMixin):
 
         call_t3 = self._call_claude_json if use_claude else self._call_gemini_json
         t3_kwargs = {}
+        brand_trace = []
+        if use_claude and T3_KNOWLEDGE_ENABLED:
+            # Outil `lookup_brand` + consignes OCR / « marque inconnue ≠ faible valeur » (voir `t3_claude_tools.py`).
+            # Ajoutées APRÈS l'annonce : la partie statique mise en cache (avant le marqueur) ne change pas.
+            full_prompt_t3 += CLAUDE_T3_ADDENDUM
+            t3_kwargs["tools"] = [LOOKUP_BRAND_TOOL]
+            t3_kwargs["tool_handler"] = make_brand_tool(self.logger, brand_trace)
         if use_claude and T3_CLAUDE_CACHE:
             # Préfixe statique = tout ce qui précède le premier marqueur, écrit par `_construct_base_user_prompt`.
             # La description d'une annonce (texte du vendeur) vient toujours APRÈS lui et ne peut pas le déplacer.
@@ -779,5 +788,7 @@ class DealAnalyzer(LLMClientsMixin):
         # L'Expert Pro écrase le T2
         result_t3["model_used"] = " -> ".join(model_chain)
         result_t3["tier3_trigger"] = trigger_reason
+        if brand_trace:
+            result_t3["brand_lookups"] = brand_trace  # ce que l'Expert a demandé à la base (audit, rejeu)
         self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
         return result_t3

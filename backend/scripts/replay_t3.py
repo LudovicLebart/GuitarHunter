@@ -254,6 +254,10 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true", help="n'appelle aucun modèle, liste le plan et le coût attendu")
     ap.add_argument("--seed", type=int, default=7, help="graine de l'ordre A/B (reproductible)")
     ap.add_argument("--out", default=DEFAULT_OUT)
+    ap.add_argument("--knowledge", action="store_true",
+                    help="active l'outil lookup_brand et l'addendum de prompt pour Claude (T3_KNOWLEDGE_ENABLED) ; "
+                         "écrit par défaut dans un fichier SÉPARÉ (t3_replay_knowledge.jsonl) pour ne pas écraser "
+                         "le premier rejeu")
     args = ap.parse_args(argv)
 
     import psycopg
@@ -332,6 +336,11 @@ def main(argv=None):
 
     captured = []
     llm_usage.record = lambda **kw: captured.append(kw)  # rien n'est écrit dans llm_usage
+    if args.knowledge:
+        analyzer_mod.T3_KNOWLEDGE_ENABLED = True   # sans effet sur Gemini : l'outil n'est câblé que pour Claude
+        if args.out == DEFAULT_OUT:
+            args.out = os.path.join(os.path.dirname(DEFAULT_OUT), "t3_replay_knowledge.jsonl")
+        print(f"Outil lookup_brand ACTIVÉ pour Claude — résultats dans {args.out}")
     an = analyzer_mod.DealAnalyzer()
     rng = random.Random(args.seed)
     gemini_model = config.get("proModel") or config.get("expertModel", "gemini-3.1-pro-preview")

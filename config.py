@@ -219,6 +219,12 @@ T3_CLAUDE_MAX_IMAGE_EDGE = int(os.getenv("T3_CLAUDE_MAX_IMAGE_EDGE", 1568))
 # lectures de cache seront rares en prod et la prime d'écriture ne pèse que quelques centimes par mois.
 T3_CLAUDE_CACHE = os.getenv("T3_CLAUDE_CACHE", "true").strip().lower() in ("1", "true", "yes", "on")
 T3_CLAUDE_CACHE_TTL = os.getenv("T3_CLAUDE_CACHE_TTL", "5m").strip().lower()  # "5m" ou "1h"
+# Base de marques pour l'Expert Claude, sous forme d'OUTIL `lookup_brand` que le modèle appelle avec ce qu'il lit sur
+# la photo (tête de manche, étiquette) — et non injectée à partir du titre, où une marque absente ou mal écrite
+# n'est jamais trouvée. ÉTEINT par défaut ; sans effet si T3_PROVIDER n'est pas "claude". Les fiches non validées
+# sont renvoyées mais étiquetées « non vérifiée ». `T3_KNOWLEDGE_MAX_TOOL_ROUNDS` borne les allers-retours outil.
+T3_KNOWLEDGE_ENABLED = os.getenv("T3_KNOWLEDGE_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+T3_KNOWLEDGE_MAX_TOOL_ROUNDS = int(os.getenv("T3_KNOWLEDGE_MAX_TOOL_ROUNDS", 3))
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000

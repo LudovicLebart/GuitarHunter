@@ -28,6 +28,7 @@ from config import (
     T3_CLAUDE_TIMEOUT_SECONDS,
     T3_CLAUDE_MAX_IMAGE_EDGE,
     T3_CLAUDE_CACHE_TTL,
+    T3_KNOWLEDGE_MAX_TOOL_ROUNDS,
     TOKENROUTER_API_KEY,
     TOKENROUTER_BASE_URL,
     T1_OBSERVATION_QWEN_MODEL,
@@ -289,7 +290,7 @@ class LLMClientsMixin:
         return system, [first[len(cached_prefix):]] + list(content_parts[1:])
 
     def _call_claude_json(self, model_name, content_parts, user_email=None, max_retries=1, action=None,
-                          cached_prefix=None):
+                          cached_prefix=None, tools=None, tool_handler=None):
         """Équivalent de `_call_gemini_json` pour l'API Anthropic (Expert T3 si `T3_PROVIDER="claude"`) : même
         signature, même contrat de retour `(dict, None)` ou `(None, message)`, même ligne `llm_usage` par TENTATIVE.
 
@@ -301,7 +302,11 @@ class LLMClientsMixin:
         convention de la table (cache inclus dans l'entrée) — limite connue : les tokens ÉCRITS au cache coûtent 125 %
         (5 min) ou 200 % (1 h) du prix d'entrée, mais `cost_dashboard` les compte à 100 % (la table n'a pas de colonne
         d'écriture de cache) ; l'écart se chiffre en centimes, ne pas en déduire un coût réel exact.
-        `cached_prefix` : partie statique du prompt à mettre en cache (voir `_claude_system_with_cache`)."""
+        `cached_prefix` : partie statique du prompt à mettre en cache (voir `_claude_system_with_cache`).
+        `tools` / `tool_handler` (2026-10-14) : outils que le modèle peut appeler (ex. `lookup_brand`) ;
+        `tool_handler(nom, arguments) -> str` répond à chaque `tool_use`. Au plus `T3_KNOWLEDGE_MAX_TOOL_ROUNDS`
+        allers-retours, puis un dernier appel avec `tool_choice=none` qui force la réponse JSON. Chaque appel API
+        a SA ligne `llm_usage` ; une exception du gestionnaire est renvoyée au modèle comme `is_error`, jamais levée."""
         if not ANTHROPIC_API_KEY:
             llm_usage.record(provider="anthropic", model=model_name, action=action, ok=False, error_type="other")
             return None, "ANTHROPIC_API_KEY n'est pas configurée."
@@ -314,27 +319,57 @@ class LLMClientsMixin:
                          "images": image_count}
             t_call = time.monotonic()
             response = None
+            messages = [{"role": "user", "content": blocks}]
             try:
-                response = client.messages.create(
-                    model=model_name,
-                    max_tokens=T3_CLAUDE_MAX_TOKENS,
-                    messages=[{"role": "user", "content": blocks}],
-                    extra_body={"output_config": {"effort": T3_CLAUDE_EFFORT}},
-                    **({"system": system} if system else {}),
-                )
-                usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
-                usage = getattr(response, "usage", None)
-                if usage:
-                    _fresh = getattr(usage, "input_tokens", 0) or 0
-                    _read = getattr(usage, "cache_read_input_tokens", 0) or 0
-                    _write = getattr(usage, "cache_creation_input_tokens", 0) or 0
-                    _out = getattr(usage, "output_tokens", 0) or 0
-                    self.logger.info(
-                        f"[tokens] model={model_name} images={image_count} in={_fresh + _read + _write} "
-                        f"out={_out} cached={_read} total={_fresh + _read + _write + _out}"
+                for tool_round in range(T3_KNOWLEDGE_MAX_TOOL_ROUNDS + 1):
+                    last_round = tool_round == T3_KNOWLEDGE_MAX_TOOL_ROUNDS
+                    extra_args = {}
+                    if tools and tool_handler:
+                        extra_args["tools"] = tools
+                        if last_round:  # budget d'outils épuisé : on force la réponse finale
+                            extra_args["tool_choice"] = {"type": "none"}
+                    response = client.messages.create(
+                        model=model_name,
+                        max_tokens=T3_CLAUDE_MAX_TOKENS,
+                        messages=messages,
+                        extra_body={"output_config": {"effort": T3_CLAUDE_EFFORT}},
+                        **({"system": system} if system else {}),
+                        **extra_args,
                     )
-                    usage_row.update(input_tokens=_fresh + _read + _write, cached_tokens=_read,
-                                     output_tokens=_out, thoughts_tokens=0)
+                    usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                    usage = getattr(response, "usage", None)
+                    if usage:
+                        _fresh = getattr(usage, "input_tokens", 0) or 0
+                        _read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                        _write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                        _out = getattr(usage, "output_tokens", 0) or 0
+                        self.logger.info(
+                            f"[tokens] model={model_name} images={image_count} in={_fresh + _read + _write} "
+                            f"out={_out} cached={_read} total={_fresh + _read + _write + _out}"
+                        )
+                        usage_row.update(input_tokens=_fresh + _read + _write, cached_tokens=_read,
+                                         output_tokens=_out, thoughts_tokens=0)
+                    if not (tools and tool_handler and not last_round
+                            and getattr(response, "stop_reason", None) == "tool_use"):
+                        break
+                    # Appel intermédiaire : ligne d'usage enregistrée tout de suite, puis réponses aux outils.
+                    llm_usage.record(**usage_row)
+                    results = []
+                    for block in response.content:
+                        if getattr(block, "type", None) != "tool_use":
+                            continue
+                        try:
+                            out, is_error = str(tool_handler(block.name, block.input))[:6000], False
+                        except Exception as tool_err:  # le modèle doit pouvoir continuer sans l'outil
+                            self.logger.warning(f"⚠️ Outil {block.name} en échec : {tool_err}")
+                            out, is_error = f"Outil indisponible : {tool_err}", True
+                        results.append({"type": "tool_result", "tool_use_id": block.id, "content": out,
+                                        **({"is_error": True} if is_error else {})})
+                    messages = messages + [{"role": "assistant", "content": response.content},
+                                           {"role": "user", "content": results}]
+                    usage_row = {"provider": "anthropic", "model": model_name, "action": action, "latency_ms": None,
+                                 "images": image_count}
+                    t_call = time.monotonic()
 
                 text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text").strip()
                 if getattr(response, "stop_reason", None) == "max_tokens":
