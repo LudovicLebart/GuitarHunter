@@ -31,6 +31,17 @@ class TestMatchAliases(unittest.TestCase):
         self.assertIn("guerrilla", alias)
         self.assertGreaterEqual(score, 0.8)
 
+    def test_a_shared_generic_word_does_not_hide_unrelated_names(self):
+        # Constaté sur données réelles : « guerilla guitars » → « Gurian Guitars » (0,87), « 7 string electric guitar »
+        # → « Yamaha electric guitar models ». Les mots communs ne doivent pas faire le rapprochement.
+        aliases = {"gurian guitars": {"k5"}, "gurian": {"k5"}, "yamaha electric guitar models": {"k6"}}
+        self.assertEqual(gk.match_aliases("guerilla guitars", aliases), {})
+        self.assertEqual(gk.match_aliases("7 string electric guitar", aliases), {})
+
+    def test_typo_in_a_multiword_name_still_matches(self):
+        found = gk.match_aliases("carmelo catenia", {"carmelo catania": {"k1"}})
+        self.assertEqual(found["k1"][1], "fuzzy")
+
     def test_word_of_a_longer_alias_is_only_a_partial_match(self):
         found = gk.match_aliases("catania", {"carmelo catania": {"k1"}})
         self.assertEqual(found["k1"][1:], ("partiel", gk._TOOL_PARTIAL_SCORE))

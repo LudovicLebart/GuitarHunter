@@ -365,6 +365,25 @@ def _all_aliases(conn):
     return aliases
 
 
+def _words_fuzzy_equal(gram_tokens, alias_tokens):
+    """Faute de frappe MOT À MOT : même nombre de mots ; chaque mot est identique ou, s'il diffère, est une vraie faute
+    (≥ 5 lettres, ratio ≥ 0,80, ni préfixe ni extension de l'autre) ET n'est pas un mot générique. Un ratio global sur
+    la phrase entière laissait un mot commun (« guitars », « electric guitar ») masquer des noms sans rapport
+    (constaté le 2026-10-14 : « guerilla guitars » → « Gurian Guitars » à 0,87)."""
+    if len(gram_tokens) != len(alias_tokens):
+        return False
+    differs = False
+    for g, a in zip(gram_tokens, alias_tokens):
+        if g == a:
+            continue
+        if (g in _GENERIC or a in _GENERIC or len(g) < _TOOL_MIN_FUZZY_LEN or len(a) < _TOOL_MIN_FUZZY_LEN
+                or g.startswith(a) or a.startswith(g)
+                or difflib.SequenceMatcher(None, g, a).ratio() < _TOOL_FUZZY_RATIO):
+            return False
+        differs = True
+    return differs
+
+
 def match_aliases(query, aliases, max_ngram=4):
     """Pure (testable sans base) : `{knowledge_id: (alias, type, score)}` pour une requête libre.
     `type` : « exact » (alias entier trouvé tel quel), « fuzzy » (faute de frappe, ratio ≥ 0,80, jamais un simple
@@ -383,13 +402,16 @@ def match_aliases(query, aliases, max_ngram=4):
     for gram in grams:
         for kid in aliases.get(gram, ()):
             keep(kid, gram, "exact", 1.0)
+    by_count = {}
+    for alias in aliases:
+        by_count.setdefault(alias.count(" ") + 1, []).append(alias)
     for gram in grams:
         if gram in aliases or len(gram) < _TOOL_MIN_FUZZY_LEN or gram in _STOP or not alias_usable(gram):
             continue
-        candidates = [a for a in aliases
-                      if abs(len(a) - len(gram)) <= 2 and (a[0] == gram[0] or a[-1] == gram[-1])
-                      and not gram.startswith(a) and not a.startswith(gram)]
-        for alias in difflib.get_close_matches(gram, candidates, n=3, cutoff=_TOOL_FUZZY_RATIO):
+        gram_tokens = gram.split()
+        for alias in by_count.get(len(gram_tokens), ()):
+            if abs(len(alias) - len(gram)) > 3 or not _words_fuzzy_equal(gram_tokens, alias.split()):
+                continue
             ratio = round(difflib.SequenceMatcher(None, gram, alias).ratio(), 2)
             for kid in aliases[alias]:
                 keep(kid, f"{gram}→{alias}", "fuzzy", ratio)
