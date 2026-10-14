@@ -181,6 +181,12 @@ def use_stored_gemini(deal, fresh_gemini=False):
     return bool(not fresh_gemini and deal.get("tier3_trigger") and not was_edited_by_user(deal))
 
 
+def is_contested(row):
+    """Annonce où les deux juges se contredisent, ou où un même juge change d'avis selon l'ordre A/B."""
+    verdicts = {j: {x["overall"] for x in js} for j, js in row.get("judgments", {}).items() if js}
+    return len({frozenset(v) for v in verdicts.values()}) > 1 or any(len(v) > 1 for v in verdicts.values())
+
+
 def judged_view(result):
     return json.dumps({k: result.get(k) for k in JUDGED_FIELDS if result.get(k) not in (None, "")},
                       ensure_ascii=False, indent=1)
@@ -442,7 +448,6 @@ def report(rows, pricing, price_for, today):
         print(f"  {m:<7} échecs {fails}/{len(calls)} | latence médiane {p50}s | coût moyen "
               f"${cost / max(len(calls), 1):.3f} (total ${cost:.2f})")
     print("\nQUALITÉ — victoires par axe (juge à l'aveugle, 2 ordres A/B par annonce)")
-    contested = []
     for jname in MODELS:
         js = [j for r in rows for j in r["judgments"].get(jname, [])]
         if not js:
@@ -452,10 +457,7 @@ def report(rows, pricing, price_for, today):
         for k in (*AXES, "overall"):
             v = c[k]
             print(f"     {k:<15} gemini {v['gemini']:>2} | claude {v['claude']:>2} | égalité {v['tie']:>2}")
-    for r in rows:
-        verdicts = {j: {x["overall"] for x in js} for j, js in r["judgments"].items() if js}
-        if len({frozenset(v) for v in verdicts.values()}) > 1 or any(len(v) > 1 for v in verdicts.values()):
-            contested.append(r)
+    contested = [r for r in rows if is_contested(r)]
     if contested:
         print(f"\nÀ REGARDER À LA MAIN ({len(contested)} annonces où les juges ou les deux ordres se contredisent) :")
         for r in contested:

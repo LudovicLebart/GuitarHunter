@@ -73,3 +73,16 @@ def test_image_url_lists_order_and_cap():
     lists = rp.image_url_lists(deal)
     assert len(lists) == 2 and len(lists[0]) == 8 and lists[1] == ["f1"] and lists[0][0] == "s0"
     assert rp.image_url_lists({"storage_image_urls": [], "image_urls": None}) == []
+
+
+def test_is_contested_and_digest_text():
+    from backend.scripts import replay_t3_digest as dg
+    agree = {"judgments": {"gemini": [{"overall": "claude"}, {"overall": "claude"}], "claude": [{"overall": "claude"}]}}
+    order_flip = {"judgments": {"gemini": [{"overall": "claude"}, {"overall": "gemini"}]}}
+    split = {"judgments": {"gemini": [{"overall": "gemini"}], "claude": [{"overall": "claude"}]}}
+    assert not rp.is_contested(agree) and rp.is_contested(order_flip) and rp.is_contested(split)
+    row = {"id": "x", "title": "T", "gemini_stored": True, **split,
+           "runs": {"gemini": [{"result": {"brand": "Aria", "verdict": "FAIR"}}], "claude": [{"result": None}]}}
+    row["judgments"]["claude"][0].update(errors={"gemini": ["a inventé une fissure"], "claude": []}, explanation="e")
+    txt = dg.digest_row(row)
+    assert "[LITIGIEUSE]" in txt and "(échec)" in txt and "déjà stockée" in txt and "a inventé une fissure" in txt
