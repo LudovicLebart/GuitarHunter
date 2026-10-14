@@ -60,14 +60,22 @@ class TestMatchAliases(unittest.TestCase):
 
 
 class TestVerificationLabels(unittest.TestCase):
-    def test_verified_fiche_has_no_reason(self):
-        self.assertEqual(gk.unverified_reasons({"in_validated_version": True, "kind": "brand"}), [])
+    def test_sourced_fiche_has_no_reason_even_if_the_kb_version_is_not_validated(self):
+        # Le drapeau « version validée » (porte du Portier) n'entre plus dans l'étiquette.
+        self.assertEqual(gk.unverified_reasons({"kind": "brand", "in_validated_version": False,
+                                                "relevance": "guitars"}), [])
 
     def test_each_rule_gives_its_reason(self):
-        reasons = gk.unverified_reasons({"in_validated_version": False, "confidence": "single_source",
-                                         "kind": "luthier", "curated": False})
+        reasons = gk.unverified_reasons({"confidence": "single_source", "kind": "luthier", "curated": False,
+                                         "relevance": "unknown", "source": "wikidata"})
         self.assertEqual(len(reasons), 3)
-        self.assertEqual(gk.unverified_reasons({"in_validated_version": True, "kind": "luthier", "curated": True}), [])
+
+    def test_curated_manual_or_maker_category_fiches_are_trusted(self):
+        base = {"kind": "luthier", "relevance": "unknown"}
+        self.assertEqual(gk.unverified_reasons({**base, "curated": True}), [])
+        self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "unknown", "source": "manual"}), [])
+        self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "unknown",
+                                                "from_maker_category": True}), [])
 
 
 class TestFormatting(unittest.TestCase):

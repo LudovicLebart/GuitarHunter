@@ -427,14 +427,18 @@ def match_aliases(query, aliases, max_ngram=4):
 
 
 def unverified_reasons(row):
-    """Pourquoi une fiche ne passerait pas les règles d'injection du Portier (liste vide = fiche vérifiée)."""
+    """Pourquoi une fiche est un simple indice pour l'Expert (liste vide = fiche fiable). Reprend les règles
+    d'éligibilité du Portier SAUF le drapeau `validated` de la version : celui-ci est la porte du test de non-régression
+    du Portier (STRATEGIE_IA §3.6), pas un jugement sur la qualité d'une fiche ; l'afficher sur toutes les fiches
+    n'informerait pas le modèle (constaté le 2026-10-14). Seul compte ce qui distingue vraiment une fiche d'une autre."""
     reasons = []
-    if not row.get("in_validated_version"):
-        reasons.append("version de la base non validée")
     if row.get("confidence") == "single_source":
         reasons.append("source unique")
     if row.get("kind") == "luthier" and not row.get("curated"):
         reasons.append("luthier, fiche non curée")
+    if (row.get("relevance") == "unknown" and not row.get("curated") and row.get("source") != "manual"
+            and not row.get("from_maker_category")):
+        reasons.append("import brut, nature de l'entité non confirmée")
     return reasons
 
 
@@ -448,8 +452,8 @@ def search_brand(conn, query, limit=5):
         """SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
                   k.tier, k.hunt_notes, k.made_by, k.curated, k.source, k.confidence,
                   COALESCE(k.relevance_override, k.relevance) AS relevance,
-                  k.kb_version <= (SELECT COALESCE(MAX(version), 0) FROM guitar_knowledge_versions
-                                   WHERE validated) AS in_validated_version,
+                  EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.raw->'origin', '[]'::jsonb)) o
+                          WHERE o LIKE 'category%%') AS from_maker_category,
                   p.name AS parent_name
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
            WHERE k.id = ANY(%s)""",
@@ -478,7 +482,7 @@ def format_brand_results(query, results):
         if f["unverified_reasons"]:
             parts.append("FICHE NON VÉRIFIÉE (" + " ; ".join(f["unverified_reasons"]) + ") — indice, pas un fait")
         else:
-            parts.append("fiche vérifiée")
+            parts.append("fiche sourcée")
         if f.get("relevance") == "accessories":
             parts.append("classée accessoires (amplis, cordes, pédales…)")
         if f.get("parent_name"):
