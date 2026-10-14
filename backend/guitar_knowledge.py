@@ -339,6 +339,7 @@ def format_for_prompt(fiches):
 _TOOL_FUZZY_RATIO = 0.80
 _TOOL_MIN_FUZZY_LEN = 5
 _TOOL_PARTIAL_SCORE = 0.7
+_TOOL_TEXT_CHARS = 900   # l'outil montre les prix constatés en entier ; le Portier garde MAX_TEXT_CHARS
 _TOOL_RANK = {"exact": 0, "fuzzy": 1, "partiel": 2}
 _cache_all = {"at": None, "aliases": {}}
 
@@ -490,6 +491,6 @@ def format_brand_results(query, results):
             parts.append(f"gamme : {f['tier']}")
         text = f.get("hunt_notes") or f.get("description")
         if text:
-            parts.append(("à savoir : " if f.get("hunt_notes") else "") + _one_line(text, MAX_TEXT_CHARS))
+            parts.append(("à savoir : " if f.get("hunt_notes") else "") + _one_line(text, _TOOL_TEXT_CHARS))
         lines.append(" ; ".join(parts))
     return "\n".join(lines)

@@ -1,0 +1,115 @@
+{
+  "entries": [
+    {
+      "slug": "guerilla-guitars",
+      "kind": "brand",
+      "name": "Guerilla Guitars",
+      "description": "Atelier québécois de guitares électriques sur mesure à 6, 7 et 8 cordes, orientées metal, peintes à la main (nom courant mal orthographié « Guerrilla »). Siège et atelier actuels à Saint-Eustache (QC) ; Gus K, maître luthier et président, annonce 17 à 20 ans de métier ; deux témoignages (2011, 2014) situent le début de la marque vers 2006-2007, d'abord avec des guitares coréennes contrôlées au Québec. Séries M-SR6/7/8 (manche traversant en érable 3 pièces, touche ébène, Floyd Rose ou fixe, micros Seymour Duncan, EMG ou DiMarzio), TR-7 multi-échelle, CK. Marque peu connue hors des communautés 7/8 cordes : le nom est souvent absent du titre d'une annonce. PRIX CONSTATÉS sur Reverb (affichés en USD, devise d'origine incertaine ; 5 annonces, 2015-2022) : VENDUES 954 $ (M-SR7FR 2021, état neuf, 2022) et 1 688 $ (M-SR7FR 2020, neuve, 2020) ; terminées sans vente confirmée 660 $ (MSR-7 EMG, 2018 ; le vendeur l'estimait à 2 500 $ CAD), 917 $ (M-SR7 2020, 2022) et 1 130 $ (M-SR7 2014, 2015). Un acheteur européen a payé environ 1 700 € (M-SR8, étui, port et douane compris, 2014). En 2011, un forum cite 2 000 $ pour un modèle Custom Shop neuf, avec des critiques sur le réglage d'usine.",
+      "countries": ["Canada"],
+      "relevance": "guitars",
+      "tier": "boutique",
+      "aliases": [
+        "Guerilla",
+        "Guerrilla",
+        "Guerrilla Guitars",
+        "Guerilla Guitars Custom",
+        "Guerilla M-SR7",
+        "M-SR7",
+        "MSR7",
+        "M-SR8"
+      ],
+      "sources": [
+        {
+          "url": "https://www.guerillaguitars.com/pages/canadian-m-series",
+          "publisher": "Guerilla Guitars",
+          "kind": "manufacturer",
+          "title": "Canadian M-Series Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Chaque guitare est conçue, fabriquée, finie et réglée à Saint-Eustache (QC) ; Gus K, maître luthier et président, plus de 20 ans d'expérience ; « not imported bodies with Canadian stickers »"
+        },
+        {
+          "url": "https://www.guerillaguitars.com/pages/headquarters-1",
+          "publisher": "Guerilla Guitars",
+          "kind": "manufacturer",
+          "title": "Guerilla Guitars Headquarters",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Adresse : 29-218 rue Poirier, Saint-Eustache (QC) ; « For over 17 years, Gus K has been meticulously crafting guitars » ; nouvelle usine acquise après 17 ans"
+        },
+        {
+          "url": "https://reverb.com/item/62730814-guerilla-m-sr7fr-smoke-2021-smoke",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Guerilla M-SR7FR SMOKE 2021",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] VENDUE : 953,97 USD (de 1 320,14 USD), mise en ligne vers le 30 octobre 2022, état mint, manche traversant, Seymour Duncan Black Winter, Floyd Rose, étui d'origine"
+        },
+        {
+          "url": "https://reverb.com/item/36817336-guerilla-m-sr7fr-2020-subdivision",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Guerilla M-SR7FR 2020 Subdivision",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] VENDUE : 1 687,78 USD, neuve, mise en ligne vers le 5 novembre 2020, corps en acajou, touche ébène, micros Sentient/Nazgul, Floyd Rose"
+        },
+        {
+          "url": "https://reverb.com/item/62416133-2020-guerilla-guitars-custom-m-sr7-7-string",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "2020 Guerilla Guitars Custom M-SR7 7 String",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Terminée (vente non confirmée) : 916,89 USD (de 1 393,66 USD), vers le 21 octobre 2022, très bon état, table en érable spalté, micro Seymour Duncan Sentient"
+        },
+        {
+          "url": "https://reverb.com/item/13071748-guerilla-msr-7-custom-7-string-guitar",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Guerilla MSR-7 custom 7 string guitar",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Terminée (vente non confirmée) : 660,44 USD (de 1 329,85 USD), 8 juin 2018, quasi neuve, EMG 81-7/85-7, le vendeur estime sa valeur à environ 2 500 $ CAD"
+        },
+        {
+          "url": "https://reverb.com/item/615746-guerilla-guitars-m-sr7-2014-shadow-black-satin",
+          "publisher": "Reverb",
+          "kind": "marketplace",
+          "title": "Guerilla Guitars M-SR7 2014 Shadow Black Satin",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Terminée (vente non confirmée) : 1 130 USD, vers le 10 avril 2015, état mint, frêne et érable flammé, Floyd Rose, étui d'origine"
+        },
+        {
+          "url": "https://www.rig-talk.com/forum/threads/guerilla-guitars.101171/",
+          "publisher": "Rig-Talk",
+          "kind": "forum",
+          "title": "Guerilla Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Fil de septembre 2011 : marque née en 2006 avec des guitares coréennes contrôlées au Québec, désormais « hand built in Quebec » ; modèles autour de 2 000 $ ; avis partagés sur le réglage d'usine"
+        },
+        {
+          "url": "https://en.audiofanzine.com/electric-solidbody-guitar-with-7-8-scale-or-bariton-guitar/guerilla-guitars/m-sr8-hs-plasma-fade/",
+          "publisher": "Audiofanzine",
+          "kind": "other",
+          "title": "Guerilla Guitars M-SR8 HS Plasma Fade",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Avis de janvier 2014 : luthier canadien à Montréal, marque d'environ sept ans, instrument à environ 1 700 € rendu (étui, port, douane), manche traversant, 27 po, EMG-808X"
+        },
+        {
+          "url": "https://www.guitar-list.com/brands/guerilla-guitars",
+          "publisher": "Guitar List",
+          "kind": "other",
+          "title": "Guerilla Guitars",
+          "lang": "en",
+          "license": "copyright",
+          "excerpt": "[résumé] Guitares metal à 6, 7 et 8 cordes, faites à la main, chaque guitare peinte par le président ; Canada ; options de personnalisation"
+        }
+      ]
+    }
+  ]
+}
