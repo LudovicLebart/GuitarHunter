@@ -11,6 +11,23 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🎸 Remplacer Gemini par Claude Sonnet 5.5 pour l'Expert (T3) et le chat tuteur (2026-10-13)
+
+*Motif : l'utilisateur ne fait plus confiance à Gemini 3.1 Pro. Critère de bascule : Sonnet fait au moins aussi bien. Code sur `feat/t3-claude-provider` (poussé, **pas** sur `dev`/`master`), interrupteur `T3_PROVIDER` (défaut `gemini`). Détail et chiffres : `JOURNAL.md` 2026-10-13 et 2026-10-14.*
+
+- [x] **Interrupteur `T3_PROVIDER`, cache de prompt Anthropic, tarifs `cost_dashboard.py`** (2026-10-13).
+- [x] **Outils de mesure** : `truth_candidates.py`, `replay_t3.py`, `replay_t3_digest.py`, `replay_t3_links.py` (2026-10-13/14).
+- [x] **Premier rejeu (11 annonces, 2 passages)** : Sonnet 0,054 $/appel contre 0,061 $, verdict stable 82 % contre 57 % ; mais valeur de la 7 cordes sous-évaluée (marque absente du titre) et cassure du talon manquée par les deux modèles. Pas de conclusion de bascule.
+- [ ] **Obtenir le « Go » de l'utilisateur sur le plan révisé** (étape 1 du protocole, avant tout code) : A) Expert (diagnostic de la base sur les 11, outil `lookup_brand` derrière `T3_KNOWLEDGE_ENABLED` éteint, addendum de prompt OCR propre à Claude, fiche de la marque manquante rédigée avec l'utilisateur, validation sur les 11 + ~20 annonces gelées, coût ≈ 3–4 $) ; B) chat et tuteur (rejeu aveugle d'~15 tours corrigés par l'utilisateur, banc du tuteur avec outil de calcul déterministe, coût ≈ 3–5 $).
+- [ ] **Critère de décision à respecter, fixé d'avance** : médiane de l'erreur relative de valeur de Sonnet pas pire que celle de Gemini ; taux de sous-évaluation < 40 % ; accord de verdict avec le jugement de l'utilisateur (pas de juge modèle sur la valeur : prouvé peu fiable).
+- [ ] **Réunir 8 à 10 vraies questions de tuteur** où Gemini s'est contredit (banc B) ; cas fondateur : angle du manche, 14 messages avec Sonnet contre 20 sans résultat avec Gemini.
+- [ ] **Portage du chat en production** (proxy FastAPI, streaming, boucle d'outils, historique) : plan séparé, seulement si A et B sont concluants (le chat tourne aujourd'hui côté navigateur, `geminiChatService.js`).
+- [ ] **Rôle Postgres en lecture seule** pour les scripts de test (le fichier d'accès actuel donne l'écriture sur la production).
+- [ ] **Signal `rescued` de `truth_candidates.py` toujours à 0** sur les vraies données (basse priorité).
+- [ ] **Ne rien activer en production** (`T3_PROVIDER` reste `gemini`) tant que le critère n'est pas atteint.
+
+---
+
 ## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
 
 *Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
