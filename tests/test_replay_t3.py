@@ -86,3 +86,10 @@ def test_is_contested_and_digest_text():
     row["judgments"]["claude"][0].update(errors={"gemini": ["a inventé une fissure"], "claude": []}, explanation="e")
     txt = dg.digest_row(row)
     assert "[LITIGIEUSE]" in txt and "(échec)" in txt and "déjà stockée" in txt and "a inventé une fissure" in txt
+
+
+def test_links_file_text_keeps_order_and_flags_missing():
+    from backend.scripts import replay_t3_links as lk
+    rows = [{"id": "a", "title": "A"}, {"id": "b", "title": "B"}]
+    txt = lk.format_links(rows, {"a": ("Titre A", "https://x/a")})
+    assert txt.index("Titre A") < txt.index("B") and "https://x/a" in txt and "introuvable" in txt
