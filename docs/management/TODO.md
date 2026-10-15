@@ -11,6 +11,18 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 📘 Fiches techniques de restauration (2026-10-15)
+
+*Bibliothèque de fiches Markdown dans `docs/fiches/` (voir son `README.md`) ; créées au fil des sessions de chat. Journal : `journal/2026-W42.md`.*
+
+- [x] **Phase 1 : contenu** : gabarit, index, fiches « Ajuster l'action » et « Ajuster le truss rod » (brouillons).
+- [ ] **Faire relire les fiches par l'atelier** : valeurs de relief et d'action, procédure de déblocage du truss rod ; passer le statut à `validee`.
+- [ ] **Fiches suivantes** : décoller une touche, neck reset ; ajouter des vidéos de luthiers jugées fiables (aucune pour l'instant).
+- [ ] **Phase 2 : site** : page « Fiches » (liste + affichage Markdown par adresse `#/fiches/<slug>`) ; ajoute une librairie Markdown, à valider avant. Plan dédié nécessaire.
+- [ ] **Phase 3 : liens** : champ « fiche liée » sur les étapes du plan de restauration (`RestorationPlanPanel.jsx`, schéma API/Postgres) avec lien cliquable ; le chat d'une annonce pourrait proposer la fiche pertinente. Plan dédié nécessaire.
+
+---
+
 ## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
 
 *Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
