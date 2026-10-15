@@ -137,6 +137,18 @@ class TestPostgres(unittest.TestCase):
         self.assertNotIn("texte privé", blob)
         self.assertNotIn("très secret", blob)
 
+    def test_export_still_lists_approved_fiches_that_are_hollow_so_they_can_be_filled(self):
+        sparse_done = fiche("a", "Marquea", state="approved", flags=["fiche creuse"])
+        full_done = fiche("b", "Marqueb", state="approved")
+        rejected = fiche("c", "Marquec", state="rejected", flags=["fiche creuse"])
+        rows = [(sparse_done, kt.DONE, []), (full_done, kt.DONE, []), (rejected, kt.DONE, [])]
+
+        class NoSources:
+            def execute(self, *_):
+                return []
+        data = kt.export_rows(NoSources(), rows, Counter({"a": 4, "b": 4, "c": 4}))
+        self.assertEqual([(x["id"], x["category"]) for x in data], [("a", "approuvée")])
+
 
 if __name__ == "__main__":
     unittest.main()

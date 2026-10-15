@@ -148,9 +148,13 @@ def export_rows(conn, rows, hits, min_hits=1):
         sources.setdefault(r["knowledge_id"], []).append({k: r[k] for k in ("url", "title", "publisher")})
     out = []
     for f, cat, reasons in rows:
-        if cat not in (SAFE, CHECK) or hits.get(f["id"], 0) < min_hits:
+        if hits.get(f["id"], 0) < min_hits:
             continue
-        if cat == SAFE and not is_sparse(f):
+        if cat == DONE and f["state"] in ("approved", "stale") and is_sparse(f):
+            cat = "approuvée"                    # saine, déjà approuvée, mais creuse : à remplir
+        if cat not in (SAFE, CHECK, "approuvée"):
+            continue
+        if cat in (SAFE, "approuvée") and not is_sparse(f):
             continue
         out.append({"id": f["id"], "category": cat, "reasons": reasons, "creuse": is_sparse(f), "n_hits": hits[f["id"]],
                     "name": f["name"], "kind": f["kind"], "description": f.get("description"),
