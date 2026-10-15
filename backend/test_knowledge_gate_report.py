@@ -67,6 +67,15 @@ class TestSheetBuilding(unittest.TestCase):
         for excluded in ("wd:t", "wd:r", "wd:x", "wd:n"):
             self.assertNotIn(f"  {excluded}  |", text)
 
+    def test_giant_brands_found_everywhere_are_left_out_of_the_review(self):
+        fiches = [_f("wd:g", "Géante"), _f("wd:o", "Obscure"), _f("wd:m", "Moyenne")]
+        hits = Counter({"wd:g": 535, "wd:o": 3, "wd:m": 100})
+        self.assertEqual([f["id"] for f in rep.review_pool(fiches, hits)], ["wd:m", "wd:o"])
+        self.assertEqual(len(rep.review_pool(fiches, hits, max_hits=0)), 3)
+        text, pool = rep.build_sheet(fiches, hits, top=10)
+        self.assertEqual(pool, 2)
+        self.assertNotIn("wd:g", text)
+
     def test_block_carries_what_is_needed_to_judge_and_round_trips_through_the_parser(self):
         f = _f("wd:a", "Alpha", flags=["source unique"], parent_name="Maison", active_from=1960, active_to=1975)
         block = rep.sheet_block(7, f, 12)

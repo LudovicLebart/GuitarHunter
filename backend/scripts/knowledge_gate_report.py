@@ -23,6 +23,9 @@ from collections import Counter
 from backend import guitar_knowledge as gk
 
 DEFAULT_TOP = 100
+# Au-delà, la marque est si répandue (Fender, Yamaha…) que le Portier la connaît déjà : une fiche n'y change rien, et la
+# relire ferait perdre du temps sur des fiches « géantes ». Les fiches utiles sont celles des marques OBSCURES.
+DEFAULT_MAX_HITS = 100
 
 FICHE_SQL = """
 SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to, k.tier, k.hunt_notes, k.made_by,
@@ -125,11 +128,18 @@ courant, description utile pour reconnaître une guitare. En cas de doute : « ?
 """
 
 
-def build_sheet(fiches, hits, top=DEFAULT_TOP):
-    """Texte de la feuille : fiches non relues et sans erreur évidente, importées, classées par nombre d'annonces."""
+def review_pool(fiches, hits, max_hits=DEFAULT_MAX_HITS):
+    """Fiches à relire : importées, non relues, sans erreur évidente, trouvées dans au moins une annonce mais pas dans
+    plus de `max_hits` (les marques géantes, déjà connues du Portier, sont écartées), les plus trouvées d'abord."""
     pool = [f for f in fiches if not f["trusted"] and f["state"] is None and f["relevance"] != "accessories"
-            and hits.get(f["id"])]
+            and hits.get(f["id"]) and (not max_hits or hits[f["id"]] <= max_hits)]
     pool.sort(key=lambda f: (-hits[f["id"]], f["name"].lower(), f["id"]))
+    return pool
+
+
+def build_sheet(fiches, hits, top=DEFAULT_TOP, max_hits=DEFAULT_MAX_HITS):
+    """Texte de la feuille : voir `review_pool`."""
+    pool = review_pool(fiches, hits, max_hits)
     chosen = pool[:top]
     body = "".join(sheet_block(i, f, hits[f["id"]]) for i, f in enumerate(chosen, 1))
     return SHEET_HEAD.format(n=len(chosen)) + body, len(pool)
@@ -155,6 +165,8 @@ def main(argv=None):
     ap.add_argument("--sheet", default=None, help="écrit la feuille de relecture dans ce fichier")
     ap.add_argument("--top", type=int, default=DEFAULT_TOP, help="nombre de fiches de la feuille")
     ap.add_argument("--days", type=int, default=None, help="annonces des N derniers jours seulement")
+    ap.add_argument("--max-hits", type=int, default=DEFAULT_MAX_HITS,
+                    help="écarte les fiches trouvées dans plus de N annonces (marques géantes) ; 0 = aucune limite")
     args = ap.parse_args(argv)
 
     import psycopg
@@ -168,7 +180,7 @@ def main(argv=None):
         hits, n_deals = hit_counts(conn, args.days) if args.sheet else (None, 0)
         print_report(summarize(fiches), n_deals, hits)
         if args.sheet:
-            text, pool = build_sheet(fiches, hits, args.top)
+            text, pool = build_sheet(fiches, hits, args.top, args.max_hits)
             path = os.path.expanduser(args.sheet)
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(text)

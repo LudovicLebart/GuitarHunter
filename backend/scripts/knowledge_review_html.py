@@ -204,6 +204,8 @@ def main(argv=None):
     ap.add_argument("--out", default="~/kb_relecture.html")
     ap.add_argument("--top", type=int, default=rep.DEFAULT_TOP)
     ap.add_argument("--days", type=int, default=None, help="annonces des N derniers jours seulement")
+    ap.add_argument("--max-hits", type=int, default=rep.DEFAULT_MAX_HITS,
+                    help="écarte les fiches trouvées dans plus de N annonces (marques géantes) ; 0 = aucune limite")
     args = ap.parse_args(argv)
 
     import psycopg
@@ -216,9 +218,7 @@ def main(argv=None):
         fiches, _ = rep.fetch_fiches(conn)
         examples = {}
         hits, n_deals = rep.hit_counts(conn, args.days, examples=examples)
-        pool = [f for f in fiches if not f["trusted"] and f["state"] is None and f["relevance"] != "accessories"
-                and hits.get(f["id"])]
-        pool.sort(key=lambda f: (-hits[f["id"]], f["name"].lower(), f["id"]))
+        pool = rep.review_pool(fiches, hits, args.max_hits)
         chosen = pool[:args.top]
         cards = build_cards(chosen, hits, examples, fetch_sources(conn, [f["id"] for f in chosen]))
     path = os.path.expanduser(args.out)
