@@ -18,8 +18,13 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [x] **Phase 1 : contenu** : gabarit, index, fiches « Ajuster l'action » et « Ajuster le truss rod » (brouillons).
 - [ ] **Faire relire les fiches par l'atelier** : valeurs de relief et d'action, procédure de déblocage du truss rod ; passer le statut à `validee`.
 - [ ] **Fiches suivantes** : décoller une touche, neck reset ; ajouter des vidéos de luthiers jugées fiables (aucune pour l'instant).
-- [ ] **Phase 2 : site** : page « Fiches » (liste + affichage Markdown par adresse `#/fiches/<slug>`) ; ajoute une librairie Markdown, à valider avant. Plan dédié nécessaire.
-- [ ] **Phase 3 : liens** : champ « fiche liée » sur les étapes du plan de restauration (`RestorationPlanPanel.jsx`, schéma API/Postgres) avec lien cliquable ; le chat d'une annonce pourrait proposer la fiche pertinente. Plan dédié nécessaire.
+- [x] **Lot A : base commune marques/fiches** (2026-10-15, non déployé) : liste blanche de types, code de sources partagé, schéma `guitar_knowledge_fiche` / `guitar_knowledge_link` / `fiche_slug`, test de garde ; slugs en double de l'amorçage corrigés. Journal `2026-W42`.
+- [ ] **Lot B : chargeur** `backend/scripts/seed_guitar_fiches.py` (lit `docs/fiches/*.md` ; en-tête `alias:` et `concerne:` à ajouter aux fiches ; sources extraites de « Sources et liens » ; `--dry-run`, `content_hash`, jamais de version créée ; liste d'exclusion de mots génériques propre aux fiches : « action », « frettes »…). `DATABASE_URL` à exporter (le script ne lit pas `.env`).
+- [ ] **Lot C : API** `GET /fiches`, `GET /fiches/{slug}`, `GET /deals/{id}/fiches` (`backend/api/fiches_repo.py`) ; `fiche_slug` dans `restoration_repo.add_item/update_item`, validé contre la base. Tests API à lancer avec les dépendances installées.
+- [ ] **Lot D : site** : `SimpleMarkdown.jsx` étendu (liens, images, tableaux, cases à cocher), navigation `#fiche/<slug>` / `#fiches`, page `FichePage.jsx`, images copiées de `docs/fiches/img` vers `dist/fiches/img` au build. Fiches `brouillon` / `single_source` visibles avec bandeau.
+- [ ] **Lot E : étapes et chat** : lien sur l'étape (`RestorationPlanPanel.jsx`), liste des fiches pertinentes dans le contexte du chat avec leur statut visible (pas de filtre strict `sourced`), `fiche_slug` optionnel de `propose_restoration_step` validé contre la liste reçue. Vérification manuelle (pas de tests front).
+- [ ] **Décisions prises** : chargement des fiches manuel sur le serveur (pas au déploiement) ; le chat ne lit pas le corps d'une fiche (liste + lien seulement) ; relation marque → fiche déclarée par la fiche (`concerne:`), stockée dans `guitar_knowledge_link`.
+- [ ] **Retestable à la main** : `test_restoration_api` et `test_analyzer` n'ont pas tourné dans l'environnement du lot A (dépendances manquantes) — à lancer avant tout déploiement.
 
 ---
 
