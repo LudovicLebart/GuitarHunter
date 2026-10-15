@@ -1,0 +1,188 @@
+# Décisions de relecture, lot 1 : fiches « à vérifier » trouvées dans les annonces (relues par Claude, 2026-10-15).
+# Format lu par knowledge_review_apply.py. Les fiches laissées sans décision (alias trop courant : Kent, Diamond, Wal ; série sans marque) ne sont pas listées.
+
+#1  wd:Q124996309  |  Fender  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#2  wd:Q188454  |  Yamaha  (company)
+DECISION: R années 1987 fausses : Yamaha Corporation s'appelait Nippon Gakki depuis 1887 ; la fiche induit en erreur
+
+#3  wd:Q901268  |  Squier  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#4  wd:Q584991  |  Boss Corporation  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#5  wd:Q11309411  |  James Tyler Guitars  (company)
+DECISION: R alias « Jay Turser » erroné : c'est une autre marque (fiche wd:Q6167278), la fiche se déclencherait à tort
+
+#6  wd:Q6167278  |  Jay Turser  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#7  wd:Q623103  |  Fender Telecaster  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#8  wd:Q5452251  |  First Act Inc.  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#9  wd:Q562280  |  Cort Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#10  wd:Q1339598  |  Peavey Electronics  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#11  wd:Q97366750  |  Norman  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#12  wd:Q489208  |  Samick  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#13  wd:Q2073765  |  Behringer  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#14  wd:Q848490  |  Roland Corporation  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#15  wd:Q2864509  |  Art & lutherie  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#16  wd:Q3111496  |  Gotoh  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#17  wd:Q2373470  |  Stagg Music  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#18  wd:Q12059567  |  Harmony Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#19  wd:Q7683039  |  Tanglewood Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#20  wd:Q386773  |  Korg  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#21  wd:Q5351114  |  El Degas guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#22  wd:Q7961469  |  Walden Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#23  wd:Q1834836  |  Seagull Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#24  wd:Q1702457  |  Johnson Musical Instruments  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#25  wd:Q9297579  |  Crafter  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#26  wd:Q1737385  |  Kay Musical Instrument Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#27  wd:Q6729355  |  Maestro Guitars  (company)
+DECISION: R « Maestro » est ambigu (pédales Gibson Maestro) : la fiche singapourienne induirait en erreur
+
+#28  wd:Q1207857  |  DiMarzio  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#29  wd:Q2170931  |  Harley Benton  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#30  wd:Q4737902  |  Alvarez Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#32  wd:Q3447824  |  Fender Custom Shop  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#33  wd:Q775605  |  Fender Jaguar  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#34  wd:Q1496414  |  Höfner  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#35  wd:Q2861149  |  Aria Pro II  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#36  wd:Q16992348  |  Electrical Guitar Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#37  wd:Q677705  |  Hohner  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#38  wd:Q85782663  |  Luna Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#39  wd:Q6788132  |  Matsumoku  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#41  wd:Q3437141  |  Fender Telecaster Thinline  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#42  wd:Q5558216  |  Giannini  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#43  wd:Q1568749  |  Hagström  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#44  wd:Q65229016  |  Kala Brand Music Co.  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#45  wd:Q6436025  |  Kramer Focus  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#46  wd:Q7512321  |  Sigma Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#47  wd:Q1412106  |  Steinberger  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#48  wd:Q2399241  |  Admira  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#49  wd:Q1302504  |  Hamer Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#50  wd:Q4380966  |  Silvertone  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#51  wd:Q17107712  |  Tacoma Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#52  wd:Q562576  |  Vester Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#54  wd:Q4698746  |  Airline  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#55  wd:Q118663  |  Baldwin Piano Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#56  wd:Q4923691  |  Blade Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#57  wd:Q3069420  |  Burny  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#58  wd:Q5047572  |  Carvin Corporation  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#59  wd:Q999749  |  Fender Japan  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#60  wd:Q1474834  |  Furch Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#61  wd:Q115632993  |  Gibson Barney Kessel  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#62  wd:Q10518750  |  Heartfield  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#64  wd:Q137638526  |  Strandberg Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#65  wd:Q24871205  |  Strandberg Guitars  (company)
+DECISION: R doublon de wd:Q137638526 (même marque Strandberg)
+
+#66  wd:Q18337424  |  Terada Musical Instruments  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents

@@ -1,0 +1,788 @@
+# Décisions de relecture, lot 2 : fiches « à vérifier » non trouvées dans les annonces (relues par Claude, 2026-10-15).
+# Format lu par knowledge_review_apply.py. Les fiches douteuses ou inconnues de moi ne sont pas listées : elles restent non servies.
+
+#3  wd:Q4669223  |  Abraham Wechter  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#4  wd:Q2528351  |  Alembic Inc  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#5  wd:Q540093  |  Antonio de Torres Jurado  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#6  wd:Q11618401  |  Arai & Co.  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#7  wd:Q119296099  |  Audiovox Manufacturing Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#8  wd:Q4837856  |  Babicz Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#9  wd:Q87409544  |  Bartell  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#10  wd:Q4876395  |  Bear Creek Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#11  wd:Q4884784  |  Beltona Resonator Instruments  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#12  wd:Q2898936  |  Bernardo Chavez Rico  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#13  wd:Q85747155  |  Bigsby Electric Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#14  wd:Q90239  |  Bill Lawrence  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#15  wd:Q20714594  |  Blackbird Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#16  wd:Q16952567  |  Bohemian Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#17  wd:Q4941279  |  Bond Electraglide  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#18  wd:Q4960296  |  Breedlove Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#19  wd:Q16533686  |  Brian May Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#20  wd:Q3663096  |  Castley  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#21  wd:Q5142631  |  Cole Clark  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#22  wd:Q5147275  |  Collings Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#23  wd:Q2701657  |  Conde Hermanos  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#24  wd:Q5203052  |  D'Alegria  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#25  wd:Q5209766  |  Daisy Rock Girl Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#26  wd:Q8355210  |  Di Giorgio  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#27  wd:Q5278283  |  Dingwall Designer Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#28  wd:Q5287072  |  Doc Kauffman  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#29  wd:Q5327329  |  Earthwood  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#30  wd:Q3046594  |  Eastwood Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#31  wd:Q24196273  |  Echopark Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#32  wd:Q5383146  |  Epiphone Crestwood  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#33  wd:Q5383148  |  Epiphone Demon V  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#34  wd:Q5383150  |  Epiphone Genesis  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#35  wd:Q5383152  |  Epiphone Joe Pass Emperor II  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#36  wd:Q5324312  |  ESP Kamikaze  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#37  wd:Q5324326  |  ESP LTD SC-600  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#38  wd:Q5324339  |  ESP M-II  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#39  wd:Q3059060  |  Estruch  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#40  wd:Q104859270  |  EVH Wolfgang  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#41  wd:Q17984508  |  Farida Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#42  wd:Q17984512  |  Favilla Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#43  wd:Q599105  |  Fender Cyclone  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#44  wd:Q999758  |  Fender Katana  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#45  wd:Q5458300  |  Flaxwood Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#46  wd:Q5458322  |  Fleabass  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#47  wd:Q5503068  |  Freshman Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#48  wd:Q3087568  |  Fret-King  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#49  wd:Q3087713  |  Friedrich Gretsch  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#50  wd:Q5511216  |  Fylde Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#51  wd:Q5524040  |  Garrison Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#52  wd:Q5541843  |  George Lowden  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#53  wd:Q3761636  |  Gherson  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#54  wd:Q5559301  |  Gibson Citation  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#55  wd:Q115804603  |  Gibson ES-295  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#56  wd:Q5559340  |  Gibson GK-55  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#57  wd:Q5559344  |  Gibson Gospel  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#58  wd:Q16998067  |  Gibson Kalamazoo Electric Guitar  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#59  wd:Q5559365  |  Gibson L5S  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#60  wd:Q3105383  |  Gibson SG Standard  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#61  wd:Q60764048  |  Gibson Southern Jumbo  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#62  wd:Q5559406  |  Gibson The Paul  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#63  wd:Q125481204  |  Gibson Theodore Standard  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#64  wd:Q17049229  |  GL-1 Guitalele  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#65  wd:Q115824291  |  Grimshaw Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#66  wd:Q24196793  |  Gurian Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#67  wd:Q5622806  |  Guyatone  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#68  wd:Q5638816  |  Hagström Jimmy  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#69  wd:Q5638817  |  Hagström Viking  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#70  wd:Q5643026  |  Hallmark Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#71  wd:Q1444149  |  Hanika Gitarren  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#72  wd:Q28441380  |  Hora (company)  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#73  wd:Q1630376  |  Hoshino Gakki  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#74  wd:Q5921502  |  Howe-Orme  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#75  wd:Q1632125  |  Hoyer guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#76  wd:Q16996183  |  Huss & Dalton  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#77  wd:Q1095589  |  Ibanez MTM  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#78  wd:Q17128827  |  Ibanez RG2228  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#79  wd:Q4356284  |  Ibanez Universe  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#80  wd:Q6117321  |  Jackson Phil Demmel Demmelition V  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#81  wd:Q544437  |  Jackson Rhoads  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#82  wd:Q3157612  |  Jacobacci (brand)  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#83  wd:Q17630712  |  James Trussart  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#84  wd:Q6179814  |  Jens Ritter Instruments  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#85  wd:Q6212792  |  Joe Veillette  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#86  wd:Q17092911  |  Jon Kammerer Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#87  wd:Q3192312  |  Kamaka Ukulele  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#88  wd:Q6388003  |  Ken Lawrence Instruments  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#89  wd:Q11297662  |  Killer Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#90  wd:Q130746996  |  Klein Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#91  wd:Q832373  |  Klira  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#92  wd:Q1381832  |  KMCMusicorp  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#93  wd:Q16256019  |  Kona Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#94  wd:Q6436021  |  Kramer Baretta  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#95  wd:Q6469775  |  Lado Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#96  wd:Q1413813  |  Lakewood Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#97  wd:Q4042566  |  Lakland  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#98  wd:Q6485761  |  Langcaster Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#99  wd:Q24899210  |  Legator  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#100  wd:Q297469  |  Leo Fender  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#101  wd:Q16728529  |  Lester DeVoe  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#102  wd:Q6543381  |  Lichty Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#103  wd:Q6552438  |  Lindert Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#104  wd:Q16661424  |  Loïc Le Pape  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#105  wd:Q3206166  |  LTD  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#106  wd:Q5961755  |  LTD by ESP  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#107  wd:Q25143903  |  M.V. Pedulla Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#108  wd:Q6731323  |  Magnatone  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#109  wd:Q97012615  |  Manufacturas Alhambra S.L.  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#110  wd:Q6757023  |  Marchione Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#111  wd:Q6775245  |  Martin D-45  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#112  wd:Q1908904  |  Maton  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#113  wd:Q115803588  |  Matsuoka Guitar  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#114  wd:Q25409683  |  Meazzi  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#115  wd:Q6815830  |  Memphis Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#116  wd:Q1551986  |  Michael Kelly Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#117  wd:Q6834905  |  Michael Tobias Design  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#118  wd:Q28232854  |  Micro-Frets  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#119  wd:Q1942315  |  Modulus Graphite  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#120  wd:Q17109762  |  Motor Ave  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#121  wd:Q6935159  |  Multivox  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#122  wd:Q48781095  |  Music Man Sabre  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#123  wd:Q4044667  |  Musima  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#124  wd:Q3068339  |  Nocaster  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#125  wd:Q194633  |  Orville by Gibson  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#126  wd:Q983557  |  Orville Gibson  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#127  wd:Q7102552  |  Original Musical Instrument Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#128  wd:Q7113266  |  Ovation Breadwinner  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#129  wd:Q7162347  |  Penco Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#130  wd:Q7179075  |  Petros Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#131  wd:Q130244181  |  PRS Silver Sky  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#132  wd:Q65247609  |  Raimundo Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#133  wd:Q7290423  |  Ramírez Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#134  wd:Q7302913  |  Recording King  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#135  wd:Q7307922  |  Regal Musical Instrument Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#136  wd:Q7318141  |  Reverend Musical Instruments  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#137  wd:Q7331900  |  Rickenbacker 300 Series  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#138  wd:Q27926621  |  Riversong Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#139  wd:Q11350593  |  Robert Benedetto  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#140  wd:Q7387420  |  S. D. Curlee  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#141  wd:Q107411957  |  S.Yairi  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#142  wd:Q1430235  |  Sadowsky  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#143  wd:Q468974  |  Salvador Ibáñez  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#144  wd:Q2474021  |  Santa Cruz Guitar Company  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#145  wd:Q7494833  |  Shergold  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#146  wd:Q7494834  |  Shergold Marathon  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#147  wd:Q7499684  |  Sho-Bud  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#148  wd:Q17239240  |  SIT Strings  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#149  wd:Q7575022  |  Specimen Products  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#150  wd:Q3967461  |  Squier '51  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#151  wd:Q1130756  |  Squier Jagmaster  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#152  wd:Q11311528  |  Squier Super-Sonic  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#153  wd:Q4049994  |  Squier Venus  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#154  wd:Q4042895  |  Strunal  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#155  wd:Q324025  |  Ted McCarty  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#156  wd:Q27220602  |  Teton Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#157  wd:Q7811598  |  Tobias  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#158  wd:Q11524154  |  Tokyo Sound Co., Ltd.  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#159  wd:Q453026  |  Travis Bean  (luthier)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#160  wd:Q7672352  |  TV Jones  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#161  wd:Q7672603  |  TYM Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#162  wd:Q4052413  |  Univox Hi-Flier  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#163  wd:Q7909333  |  Valco  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#164  wd:Q7911973  |  Valley Arts Guitar  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#165  wd:Q2189156  |  Venlonia  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#166  wd:Q3120695  |  Vigier Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#167  wd:Q2661834  |  Vox Mark III  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#168  wd:Q17067991  |  Vox Ultrasonic  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#169  wd:Q7967292  |  Wandre Guitars  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#170  wd:Q7969649  |  Warmoth Guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#171  wd:Q7971452  |  Washburn N4  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#172  wd:Q7971456  |  Washburn RR-V Tour Series  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#173  wd:Q705008  |  Weissenborn  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#174  wd:Q2113543  |  Welson  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#175  wd:Q1717889  |  Westone  (brand)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#176  wd:Q30687292  |  Weymann guitars  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#177  wd:Q109916304  |  Yamaha Music Manufacturing Indonesia  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#178  wd:Q8047754  |  Yamaha SA2200  (line)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#179  wd:Q16826202  |  Československé hudební nástroje  (company)
+DECISION: A relue par Claude (connaissances, 2026-10-15) : entité réelle, faits cohérents
+
+#180  wd:Q319610  |  Ace Frehley  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#181  wd:Q165634  |  Al Di Meola  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#182  wd:Q44809  |  Albert King  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#183  wd:Q46132  |  Alvin Lee  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#184  wd:Q43932  |  Angus Young  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#185  wd:Q188969  |  B. B. King  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#186  wd:Q3635227  |  Barry Goudreau  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#187  wd:Q712592  |  Billie Joe Armstrong  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#188  wd:Q311382  |  Billy Corgan  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#189  wd:Q369898  |  Billy Gibbons  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#190  wd:Q392  |  Bob Dylan  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#191  wd:Q409  |  Bob Marley  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#192  wd:Q1056320  |  Brad Whitford  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#193  wd:Q265252  |  Buckethead  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#194  wd:Q819016  |  Carlos Santana  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#195  wd:Q356490  |  Charlie Christian  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#196  wd:Q72096  |  Chet Atkins  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#197  wd:Q270935  |  Chris Cornell  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#198  wd:Q5921  |  Chuck Berry  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#199  wd:Q1099841  |  Clem Clempson  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#200  wd:Q486786  |  Daron Malakian  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#201  wd:Q717568  |  Dean DeLeo  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#202  wd:Q121423115  |  Dege Legg  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#203  wd:Q455818  |  Duane Eddy  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#204  wd:Q48187  |  Eric Clapton  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#205  wd:Q723430  |  Frank Iero  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#206  wd:Q185147  |  Gary Moore  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#207  wd:Q445448  |  Gary Rossington  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#208  wd:Q2643  |  George Harrison  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#209  wd:Q134435395  |  Grace Bowers  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#210  wd:Q601427  |  Grant Green  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#211  wd:Q1544975  |  Greg Ridley  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#212  wd:Q313683  |  Jack Bruce  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#213  wd:Q484302  |  James Hetfield  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#214  wd:Q349101  |  Jason White  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#215  wd:Q192474  |  Jeff Beck  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#216  wd:Q312870  |  Jerry Garcia  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#217  wd:Q3178849  |  Jim Jones  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#218  wd:Q350570  |  Jimmy Gourley  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#219  wd:Q165467  |  Jimmy Page  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#220  wd:Q724132  |  Jimmy Raney  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#221  wd:Q347717  |  Joe Bonamassa  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#222  wd:Q313378  |  Joe Perry  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#223  wd:Q189599  |  Keith Richards  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#224  wd:Q255355  |  Kenny Burrell  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#225  wd:Q464619  |  Kim Thayil  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#226  wd:Q484030  |  Kirk Hammett  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#227  wd:Q452227  |  Larry Carlton  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#228  wd:Q3261244  |  Louis Bertignac  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#229  wd:Q44653  |  Malcolm Young  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#230  wd:Q185343  |  Mark Knopfler  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#231  wd:Q361677  |  Mick Ronson  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#232  wd:Q919156  |  Mike Bloomfield  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#233  wd:Q633  |  Neil Young  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#234  wd:Q955635  |  Nick Valensi  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#235  wd:Q193459  |  Noel Gallagher  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#236  wd:Q557207  |  Pata  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#237  wd:Q165644  |  Paul Landers  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#238  wd:Q26933  |  Pete Townshend  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#239  wd:Q337089  |  Peter Frampton  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#240  wd:Q315408  |  Peter Green  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#241  wd:Q7304787  |  Red Rhodes  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#242  wd:Q728722  |  René Thomas  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#243  wd:Q7323763  |  Richard Archer  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#244  wd:Q192183  |  Ritchie Blackmore  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#245  wd:Q311900  |  Robby Krieger  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#246  wd:Q192133  |  Robert Johnson  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#247  wd:Q3441795  |  Ronnie Singer  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#248  wd:Q1383979  |  Rune Gustafsson  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#249  wd:Q34166  |  Slash  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#250  wd:Q312691  |  Steve Howe  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#251  wd:Q3529208  |  Tinsley Ellis  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#252  wd:Q984353  |  Tom Scholz  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#253  wd:Q202733  |  Tony Iommi  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#254  wd:Q298601  |  Wes Montgomery  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#255  wd:Q144746  |  Zakk Wylde  (luthier)
+DECISION: R personne (musicien), pas un fabricant ni un luthier : type erroné, la fiche n'apprend rien au Portier
+
+#256  wd:Q262399  |  Les Paul  (luthier)
+DECISION: R personne (guitariste et inventeur) : l'alias « Les Paul » se déclencherait sur chaque guitare Gibson Les Paul, la fiche n'a pas sa place
+
+#257  wd:Q5360522  |  Elias Howe Company  (company)
+DECISION: R maison d'édition de partitions, sans rapport avec les guitares
+
+#258  wd:Q5446394  |  Fibes Drums  (company)
+DECISION: R fabricant de batteries, hors sujet
+
+#259  wd:Q5616833  |  guitar manufacturing  (company)
+DECISION: R concept générique, pas une marque
+
+#260  wd:Q6404955  |  Kids Rock Free  (company)
+DECISION: R association à but non lucratif, hors sujet
+
+#261  wd:Q7242442  |  Prewar Gibson banjo  (company)
+DECISION: R banjo, hors sujet
+
+#262  wd:Q7896846  |  UNIVOX spol.  (company)
+DECISION: R société tchèque sans lien avec la marque Univox : alias partagé trompeur
+
+#263  wd:Q123439900  |  Kala  (company)
+DECISION: R doublon de « Kala Brand Music » (déjà approuvée)
+
+#264  wd:Q459040  |  Framus  (brand)
+DECISION: R années 1946–1981 fausses : Framus existe toujours (relancée en 1996)
