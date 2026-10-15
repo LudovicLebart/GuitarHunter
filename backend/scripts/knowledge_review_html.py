@@ -122,6 +122,7 @@ main{max-width:980px;margin:0 auto;padding:12px 16px 80px}
 h2{margin:0 0 4px;font-size:18px}.mut{color:var(--mut);font-size:13px}
 .flags span{display:inline-block;background:#b3261e22;color:var(--ko);border-radius:4px;padding:1px 6px;margin:2px 4px 2px 0;font-size:12px}
 .desc{margin:8px 0}.src a{color:var(--acc)}.src li{margin:3px 0}.ex{color:var(--mut);font-style:italic}
+.ai{border:1px solid var(--line);border-left:5px solid var(--mut);border-radius:8px;padding:8px 10px;margin:8px 0;background:#2a5db011}.ai.fausse{border-left-color:var(--ko)}.ai.douteuse{border-left-color:#c98a00}.ai.ok{border-left-color:var(--ok)}.ai ul{margin:4px 0;padding-left:20px}
 .ls{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;margin-top:10px}
 .l{border:1px solid var(--line);border-radius:8px;padding:8px;display:flex;gap:8px}
 .l img{width:84px;height:84px;object-fit:cover;border-radius:6px;flex:none;background:var(--line)}
@@ -167,6 +168,15 @@ function card(f, i) {
   if (f.flags.length) c.append(el('div', {class: 'flags'}, f.flags.map(x => el('span', {}, x))));
   c.append(el('div', {class: 'desc'}, f.description || '(aucune description)'),
     el('div', {class: 'mut'}, 'alias : ' + (f.aliases.join(', ') || '(aucun)')));
+  if (f.ai) {
+    const a = f.ai, corr = Object.entries(a.corrections || {}).map(([k, v]) => k + ' → ' + (Array.isArray(v) ? v.join(', ') : v));
+    c.append(el('div', {class: 'ai ' + a.verdict}, el('b', {}, 'Vérification Claude : ' + a.verdict + ' (confiance ' + a.confidence + ')'),
+      (a.problems || []).length ? el('ul', {}, a.problems.map(p => el('li', {}, p))) : '',
+      corr.length ? el('div', {}, 'Correction proposée : ' + corr.join(' ; ')) : '',
+      (a.sourced_facts || []).length ? el('ul', {}, a.sourced_facts.map(x => el('li', {}, x.fact + ' ',
+        el('a', {href: x.url, target: '_blank', rel: 'noopener noreferrer'}, 'source')))) : '',
+      a.notes ? el('div', {class: 'mut'}, a.notes) : ''));
+  }
   if (f.sources.length) c.append(el('ul', {class: 'src'}, f.sources.map(s => el('li', {},
     el('a', {href: s.url, target: '_blank', rel: 'noopener noreferrer'}, s.title || s.url), ' ',
     el('span', {class: 'mut'}, '(' + (s.publisher || s.kind) + ')'), s.excerpt ? el('div', {class: 'ex'}, '« ' + s.excerpt + ' »') : ''))));
