@@ -60,22 +60,43 @@ class TestMatchAliases(unittest.TestCase):
 
 
 class TestVerificationLabels(unittest.TestCase):
-    def test_sourced_fiche_has_no_reason_even_if_the_kb_version_is_not_validated(self):
-        # Le drapeau « version validée » (porte du Portier) n'entre plus dans l'étiquette.
-        self.assertEqual(gk.unverified_reasons({"kind": "brand", "in_validated_version": False,
-                                                "relevance": "guitars"}), [])
+    def test_unreviewed_import_is_only_a_hint(self):
+        self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "guitars", "source": "wikidata",
+                                                "description": "Fabricant de guitares électriques américaines, actif depuis les années 1950."}),
+                         ["import Wikidata non relu"])
 
-    def test_each_rule_gives_its_reason(self):
+    def test_curated_or_manual_fiche_with_detail_has_no_reason(self):
+        text = "Fabricant de guitares électriques et de basses installé au Québec depuis 2006."
+        for extra in ({"curated": True}, {"source": "manual"}):
+            self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "guitars", "description": text,
+                                                    **extra}), [], extra)
+
+    def test_approved_review_wins_over_flags_but_a_stale_one_does_not(self):
+        base = {"kind": "luthier", "confidence": "single_source", "relevance": "unknown", "description": "x",
+                "review_status": "approved", "reviewed_digest": "d1"}
+        self.assertEqual(gk.unverified_reasons({**base, "content_digest": "d1"}), [])
+        self.assertIn("fiche modifiée depuis sa relecture", gk.unverified_reasons({**base, "content_digest": "d2"}))
+
+    def test_each_soft_flag_gives_its_reason(self):
         reasons = gk.unverified_reasons({"confidence": "single_source", "kind": "luthier", "curated": False,
-                                         "relevance": "unknown", "source": "wikidata"})
-        self.assertEqual(len(reasons), 3)
+                                         "relevance": "unknown", "source": "wikidata", "description": "x"})
+        for expected in ("source unique", "luthier, fiche non curée", "import brut, nature de l'entité non confirmée",
+                         "fiche creuse", "import Wikidata non relu"):
+            self.assertIn(expected, reasons)
 
-    def test_curated_manual_or_maker_category_fiches_are_trusted(self):
-        base = {"kind": "luthier", "relevance": "unknown"}
-        self.assertEqual(gk.unverified_reasons({**base, "curated": True}), [])
-        self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "unknown", "source": "manual"}), [])
-        self.assertEqual(gk.unverified_reasons({"kind": "brand", "relevance": "unknown",
-                                                "from_maker_category": True}), [])
+    def test_maker_category_import_is_not_flagged_as_raw(self):
+        self.assertNotIn("import brut, nature de l'entité non confirmée",
+                         gk.unverified_reasons({"kind": "brand", "relevance": "unknown", "from_maker_category": True,
+                                                "description": "Fabricant de guitares électriques américaines, actif depuis les années 1950."}))
+
+    def test_hard_failures(self):
+        self.assertEqual(gk.hard_failures({"active_from": 1850, "active_to": 1900, "description": "Luthier."}), [])
+        self.assertTrue(gk.hard_failures({"active_from": 1700}))
+        self.assertTrue(gk.hard_failures({"active_from": 1990, "active_to": 1960}))
+        self.assertTrue(gk.hard_failures({"active_to": 2999}))
+        self.assertTrue(gk.hard_failures({"description": "Fabricant suisse de montres."}))
+        self.assertEqual(gk.hard_failures({"description": "Fabricant de montres et de guitares."}), [])
+        self.assertTrue(gk.hard_failures({"review_status": "rejected"}))
 
 
 class TestFormatting(unittest.TestCase):

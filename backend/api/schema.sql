@@ -634,3 +634,12 @@ ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS confidence TEXT;
 -- dans la carte des trous ; l'import n'y touche JAMAIS. À poser via seed_guitar_knowledge.py (entrée « patch »
 -- avec au moins 2 sources), pas à la main.
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS relevance_override TEXT;
+
+-- Porte de qualité des fiches (2026-10-14) : relecture HUMAINE d'une fiche. Colonnes CURÉES (l'import ne les touche
+-- jamais). `review_status` : NULL (non relue) | 'approved' | 'rejected'. `reviewed_digest` = empreinte du contenu au moment
+-- de la relecture (nom, description, années, parent, type) : si un réimport change la fiche, l'approbation ne vaut plus
+-- (voir `guitar_knowledge.py::review_state`). Posées par `backend/scripts/knowledge_review_apply.py`.
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_status TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_note TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_digest TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;

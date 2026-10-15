@@ -30,6 +30,7 @@ from config import (
     T1_PROVIDER_CHAIN,
     T1_KNOWLEDGE_ENABLED,
     T1_KNOWLEDGE_VERSION,
+    T1_KNOWLEDGE_REQUIRE_REVIEW,
     T1_KNOWLEDGE_MAX_FICHES,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
@@ -219,6 +220,7 @@ class DealAnalyzer(LLMClientsMixin):
         try:
             from backend import pg_db
             guitar_knowledge.configure_version(T1_KNOWLEDGE_VERSION)      # idempotent
+            guitar_knowledge.configure_review_gate(T1_KNOWLEDGE_REQUIRE_REVIEW)   # idempotent
             with pg_db.get_pool().connection(timeout=1.0) as conn:
                 fiches = guitar_knowledge.lookup(conn, listing_data.get("title"), listing_data.get("description"),
                                                  limit=T1_KNOWLEDGE_MAX_FICHES)

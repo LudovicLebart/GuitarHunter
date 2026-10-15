@@ -195,6 +195,9 @@ T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in
 T1_KNOWLEDGE_ENABLED = os.getenv("T1_KNOWLEDGE_ENABLED", "false").lower() in ("1", "true", "yes")
 T1_KNOWLEDGE_VERSION = os.getenv("T1_KNOWLEDGE_VERSION", "validated")
 T1_KNOWLEDGE_MAX_FICHES = int(os.getenv("T1_KNOWLEDGE_MAX_FICHES", 3))
+# Porte de qualité (2026-10-14) : le Portier ne reçoit que des fiches DE CONFIANCE (relues et approuvées, curées ou écrites à
+# la main) — jamais une fiche importée de Wikidata non relue. "false" = comportement d'avant (audits, rejeux de comparaison).
+T1_KNOWLEDGE_REQUIRE_REVIEW = os.getenv("T1_KNOWLEDGE_REQUIRE_REVIEW", "true").lower() in ("1", "true", "yes")
 
 # --- FOURNISSEUR DE L'EXPERT PRO (TIER 3) ---
 # "gemini" (défaut) : comportement historique, modèle lu dans la config utilisateur (`proModel`).

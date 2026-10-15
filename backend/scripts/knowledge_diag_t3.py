@@ -26,9 +26,11 @@ def portier_view(conn, title, description):
     out = {}
     for mode in ("validated", "latest"):
         gk.configure_version(mode)
+        gk.configure_review_gate(mode == "validated")     # « validated » = la prod (porte active) ; « latest » = toute la base
         found = gk.lookup(conn, title, (description or "")[:MAX_DESC], limit=3)
         out[mode] = [(f["name"], f["matched_on"], f["match_type"]) for f in found]
     gk.configure_version("validated")
+    gk.configure_review_gate(True)
     return out
 
 
@@ -39,7 +41,7 @@ def tool_view(conn, text):
 def report_listing(conn, deal, reads):
     lines = [f"== {deal['id']}  {deal['title']}"]
     pv = portier_view(conn, deal["title"], deal.get("description"))
-    for mode, label in (("validated", "Portier, version validée"), ("latest", "Portier, toute la base")):
+    for mode, label in (("validated", "Portier, version validée + porte"), ("latest", "Portier, toute la base")):
         shown = ", ".join(f"{n} [{a}, {t}]" for n, a, t in pv[mode]) or "aucune fiche"
         lines.append(f"  {label:<26}: {shown}")
     queries = {"titre": deal["title"] or ""}

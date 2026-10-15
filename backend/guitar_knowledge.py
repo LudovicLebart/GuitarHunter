@@ -98,6 +98,28 @@ def configure_version(mode):
     invalidate_cache()
 
 
+_cols_cache = {"at": None, "has": False}
+
+
+def _review_columns(conn):
+    """Fragment SELECT des colonnes de relecture. Elles sont créées par `schema.sql` au démarrage du bot/de l'API : un
+    script lancé AVANT ce redémarrage ne doit pas planter, il voit simplement toutes les fiches comme non relues."""
+    with _lock:
+        fresh = _cols_cache["at"] is not None and time.monotonic() - _cols_cache["at"] <= _CACHE_TTL_S
+        has = _cols_cache["has"]
+    if not fresh:
+        row = conn.execute("SELECT 1 AS v FROM information_schema.columns WHERE table_name = 'guitar_knowledge' "
+                           "AND column_name = 'reviewed_digest'").fetchone()
+        has = row is not None
+        with _lock:
+            _cols_cache.update(at=time.monotonic(), has=has)
+    if has:
+        return ("k.review_status, k.review_note, k.reviewed_digest, "
+                "md5(concat_ws('|', k.name, k.description, k.active_from::text, k.active_to::text, k.parent_id, k.kind)) "
+                "AS content_digest")
+    return "NULL::text AS review_status, NULL::text AS review_note, NULL::text AS reviewed_digest, NULL::text AS content_digest"
+
+
 def _first(row):
     return row["v"] if isinstance(row, dict) else row[0]
 
@@ -112,6 +134,78 @@ def effective_version(conn):
         return _first(conn.execute("SELECT MAX(version) AS v FROM guitar_knowledge_versions").fetchone())
     return _first(conn.execute(
         "SELECT COALESCE(MAX(version), 0) AS v FROM guitar_knowledge_versions WHERE validated").fetchone())
+
+
+# ───────────────────────── Porte de qualité des fiches (2026-10-14) ─────────────────────────
+# Une fiche fausse dans le prompt est pire que pas de fiche. Constat (revue Opus du 2026-10-14) : une fiche importée de
+# Wikidata sans confiance déclarée était servie d'office. Trois niveaux :
+#  - ÉCHECS DURS (`hard_failures`) : erreur évidente ou rejet à la relecture → jamais servie, nulle part ;
+#  - CONFIANCE (`is_trusted`) : approuvée à la relecture, curée ou écrite à la main → servie au Portier ; une fiche
+#    importée NON relue n'est servie qu'à l'outil de l'Expert, étiquetée « non relue » ;
+#  - DRAPEAUX (`soft_flags`) : creuse, source unique, luthier non curé, import brut, série sans sa marque mère.
+_REQUIRE_REVIEW = True
+_NON_GUITAR = re.compile(r"\b(watch(?:es)?|montres?|software|logiciels?|motorcycles?|motorbikes?|motos?|automobiles?|"
+                         r"car manufacturer|bank|banque|restaurants?|clothing|v[eê]tements)\b", re.I)
+_INSTRUMENT = re.compile(r"guitar|guitare|bass|basse|luthier|instrument|ukulele|banjo|mandolin|violin|violon|"
+                         r"amplifi|ampli|pedal|p[eé]dale", re.I)
+_MIN_YEAR = 1830
+
+
+def configure_review_gate(require_review):
+    """True (défaut) : `lookup` (Portier) ne renvoie que des fiches de confiance. False : audits et rejeux de comparaison."""
+    global _REQUIRE_REVIEW
+    _REQUIRE_REVIEW = bool(require_review)
+
+
+def review_state(row):
+    """'approved' (relue ET contenu inchangé depuis), 'stale' (approuvée, mais la fiche a changé depuis),
+    'rejected', ou None (non relue)."""
+    status = row.get("review_status")
+    if status == "rejected":
+        return "rejected"
+    if status == "approved":
+        digest = row.get("reviewed_digest")
+        return "approved" if digest and digest == row.get("content_digest") else "stale"
+    return None
+
+
+def hard_failures(row, this_year=None):
+    """Erreurs évidentes : la fiche n'est servie nulle part avant correction."""
+    this_year = this_year or time.gmtime().tm_year
+    out = []
+    if review_state(row) == "rejected":
+        out.append("rejetée à la relecture")
+    af, at = row.get("active_from"), row.get("active_to")
+    if af and (af < _MIN_YEAR or af > this_year + 1):
+        out.append(f"année de début incohérente ({af})")
+    if at and at > this_year + 1:
+        out.append(f"année de fin incohérente ({at})")
+    if af and at and af > at:
+        out.append(f"début ({af}) après la fin ({at})")
+    desc = row.get("description") or ""
+    if _NON_GUITAR.search(desc) and not _INSTRUMENT.search(desc):
+        out.append("description sans rapport avec les guitares")
+    return out
+
+
+def is_trusted(row):
+    return review_state(row) == "approved" or bool(row.get("curated")) or row.get("source") == "manual"
+
+
+def soft_flags(row):
+    flags = []
+    if row.get("confidence") == "single_source":
+        flags.append("source unique")
+    if row.get("kind") == "luthier" and not row.get("curated"):
+        flags.append("luthier, fiche non curée")
+    if (row.get("relevance") == "unknown" and not row.get("curated") and row.get("source") != "manual"
+            and not row.get("from_maker_category")):
+        flags.append("import brut, nature de l'entité non confirmée")
+    if row.get("kind") == "line" and row.get("parent_id") and not row.get("parent_matched", True):
+        flags.append("série trouvée sans sa marque mère")
+    if _is_sparse(row):
+        flags.append("fiche creuse")
+    return flags
 
 
 def _load_aliases(conn):
@@ -159,6 +253,8 @@ def _aliases(conn):
 def invalidate_cache():
     with _lock:
         _cache["at"] = None
+        _cache_all["at"] = None
+        _cols_cache["at"] = None
 
 
 def _fuzzy_match(tok, aliases, by_len):
@@ -235,15 +331,25 @@ def lookup(conn, *texts, limit=3):
     if not found:
         return []
     rows = conn.execute(
-        """SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
-                  k.tier, k.hunt_notes, k.made_by, k.curated, k.source, COALESCE(k.relevance_override, k.relevance) AS relevance,
-                  p.name AS parent_name, p.tier AS parent_tier
+        f"""SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
+                  k.tier, k.hunt_notes, k.made_by, k.curated, k.source, k.parent_id, k.confidence,
+                  COALESCE(k.relevance_override, k.relevance) AS relevance,
+                  p.name AS parent_name, p.tier AS parent_tier, {_review_columns(conn)}
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
            WHERE k.id = ANY(%s)""",
         (list(found),),
     ).fetchall()
     kind_rank = {"line": 0, "factory": 1, "brand": 2, "company": 3}
     rows = [dict(r) if not isinstance(r, dict) else r for r in rows]
+    # Porte de qualité : erreurs évidentes jamais servies ; fiche non relue servie seulement si le réglage l'autorise ;
+    # une série n'est servie que si sa marque mère est AUSSI reconnue dans le texte (« Precision Bass » pour une basse
+    # d'une autre marque, constaté sur le rejeu du 2026-10-01).
+    rows = [r for r in rows
+            if not hard_failures(r)
+            and (not _REQUIRE_REVIEW or is_trusted(r))
+            and not (r["kind"] == "line" and r.get("parent_id") and r["parent_id"] not in found)]
+    if not rows:
+        return []
     # Ordre DÉTERMINISTE (un rejeu doit injecter les mêmes fiches) : exactes d'abord, séries avant marques, fiches
     # curées d'abord, puis alias trouvé le plus LONG (le plus spécifique), puis l'id.
     rows.sort(key=lambda r: (found[r["id"]][1] != "exact", kind_rank.get(r["kind"], 9), not r["curated"],
@@ -427,42 +533,44 @@ def match_aliases(query, aliases, max_ngram=4):
 
 
 def unverified_reasons(row):
-    """Pourquoi une fiche est un simple indice pour l'Expert (liste vide = fiche fiable). Reprend les règles
-    d'éligibilité du Portier SAUF le drapeau `validated` de la version : celui-ci est la porte du test de non-régression
-    du Portier (STRATEGIE_IA §3.6), pas un jugement sur la qualité d'une fiche ; l'afficher sur toutes les fiches
-    n'informerait pas le modèle (constaté le 2026-10-14). Seul compte ce qui distingue vraiment une fiche d'une autre."""
-    reasons = []
-    if row.get("confidence") == "single_source":
-        reasons.append("source unique")
-    if row.get("kind") == "luthier" and not row.get("curated"):
-        reasons.append("luthier, fiche non curée")
-    if (row.get("relevance") == "unknown" and not row.get("curated") and row.get("source") != "manual"
-            and not row.get("from_maker_category")):
-        reasons.append("import brut, nature de l'entité non confirmée")
+    """Pourquoi une fiche reste un simple INDICE pour l'Expert (liste vide = fiche fiable). Le drapeau « version validée »
+    du Portier n'y entre pas (porte du test de non-régression, pas un jugement de qualité). Une fiche approuvée à la
+    relecture (contenu inchangé) est fiable quels que soient ses drapeaux ; une fiche importée non relue ne l'est jamais."""
+    if review_state(row) == "approved":
+        return []
+    reasons = soft_flags(row)
+    if review_state(row) == "stale":
+        reasons.append("fiche modifiée depuis sa relecture")
+    elif not is_trusted(row):
+        reasons.append("import Wikidata non relu")
     return reasons
 
 
 def search_brand(conn, query, limit=5):
     """Fiches pour une requête libre (outil `lookup_brand`) : triées exact > fuzzy > partiel, puis score, fiches
-    vérifiées d'abord. Chaque fiche porte `match_type`, `matched_on`, `score`, `unverified_reasons`."""
+    fiables d'abord. Les erreurs évidentes (`hard_failures`) ne sont jamais renvoyées. Chaque fiche porte `match_type`,
+    `matched_on`, `score`, `unverified_reasons`."""
     found = match_aliases(query, _all_aliases(conn))
     if not found:
         return []
     rows = conn.execute(
-        """SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
-                  k.tier, k.hunt_notes, k.made_by, k.curated, k.source, k.confidence,
+        f"""SELECT k.id, k.kind, k.name, k.description, k.countries, k.active_from, k.active_to,
+                  k.tier, k.hunt_notes, k.made_by, k.curated, k.source, k.confidence, k.parent_id,
                   COALESCE(k.relevance_override, k.relevance) AS relevance,
                   EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.raw->'origin', '[]'::jsonb)) o
                           WHERE o LIKE 'category%%') AS from_maker_category,
-                  p.name AS parent_name
+                  p.name AS parent_name, {_review_columns(conn)}
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
            WHERE k.id = ANY(%s)""",
         (list(found),),
     ).fetchall()
     rows = [dict(r) if not isinstance(r, dict) else r for r in rows]
+    rows = [r for r in rows if not hard_failures(r)]
     for r in rows:
         r["matched_on"], r["match_type"], r["score"] = found[r["id"]]
+        r["parent_matched"] = r.get("parent_id") in found
         r["unverified_reasons"] = unverified_reasons(r)
+        r["review_state"] = review_state(r)
     rows.sort(key=lambda r: (_TOOL_RANK[r["match_type"]], -r["score"], bool(r["unverified_reasons"]),
                              not r["curated"], r["id"]))
     return rows[:limit]
@@ -482,7 +590,7 @@ def format_brand_results(query, results):
         if f["unverified_reasons"]:
             parts.append("FICHE NON VÉRIFIÉE (" + " ; ".join(f["unverified_reasons"]) + ") — indice, pas un fait")
         else:
-            parts.append("fiche sourcée")
+            parts.append("fiche relue" if f.get("review_state") == "approved" else "fiche sourcée")
         if f.get("relevance") == "accessories":
             parts.append("classée accessoires (amplis, cordes, pédales…)")
         if f.get("parent_name"):
