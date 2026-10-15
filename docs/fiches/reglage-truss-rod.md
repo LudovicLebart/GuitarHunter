@@ -69,6 +69,28 @@ Répéter les étapes 3 et 4 jusqu'à la valeur visée.
 Contrôler les bourdonnements sur les premières frettes, la hauteur des cordes et le jeu. Poursuivre
 avec le sillet et le chevalet (voir [Ajuster l'action](reglage-action.md)).
 
+## Débloquer un truss rod coincé
+
+Un truss rod « coincé » est un écrou qui ne tourne pas, ou une tige qui résiste fortement. Avant de
+conclure à un blocage, vérifier que la clé est exacte et bien enfoncée, que le sens de rotation
+tenté est le bon, et que les cordes sont accordées (ou légèrement détendues, voir étape 2).
+
+À essayer **dans cet ordre**, en s'arrêtant dès que ça tourne :
+
+1. **Détendre franchement les cordes** : la tige ne lutte plus contre la tension.
+2. **Nettoyer et lubrifier l'écrou** : un peu d'huile fine ou de lubrifiant adapté sur le filetage,
+   sans en mettre dans le bois ni sur la touche. Laisser agir quelques minutes à quelques heures.
+3. **Chauffer très doucement** : de la chaleur douce (sèche-cheveux, jamais de flamme), sur la zone
+   de l'écrou, pour dilater le métal et dégripper. Ne pas surchauffer le vernis ni le bois.
+4. **Tourner en va-et-vient** : de minuscules mouvements dans les deux sens (une fraction de quart de
+   tour), en gagnant un peu à chaque passage, plutôt qu'un effort continu dans un seul sens.
+5. **Soulager la tige** : en soutenant le manche, exercer une légère flexion du manche à la main
+   dans le sens qui diminue l'effort sur la tige pendant qu'on tourne, avec précaution.
+
+**S'arrêter et confier l'instrument à un luthier** si la tige reste bloquée après ces essais, si
+l'écrou commence à s'arrondir, si on entend ou sent un craquement, ou si le manche semble sous
+contrainte. Insister risque de casser la tige ou de fendre le manche.
+
 ## Pièges et erreurs courantes
 
 - Tourner de plusieurs tours d'un coup.
@@ -93,3 +115,4 @@ avec le sillet et le chevalet (voir [Ajuster l'action](reglage-action.md)).
 | Date | Changement |
 |------|------------|
 | 2026-10-15 | Création du brouillon, extraite de la fiche « Ajuster l'action » |
+| 2026-10-15 | Ajout de la section « Débloquer un truss rod coincé » |

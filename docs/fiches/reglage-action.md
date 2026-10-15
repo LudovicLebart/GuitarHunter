@@ -40,15 +40,30 @@ revision: 2026-10-15
 Mettre les cordes à leur tension normale et accorder. Régler un instrument avec des cordes
 détendues ou usées fausse toutes les mesures. Laisser reposer quelques minutes.
 
-### 2. Mesurer le relief du manche
+### 2. Mesurer le relief du manche (diagnostic : faut-il toucher au truss rod ?)
 
-Poser un capo sur la 1re frette. Appuyer la corde de mi grave à la dernière frette (au niveau de la
-jonction manche/corps). Mesurer l'espace entre la corde et le dessus de la 8e frette (zone du
-milieu du manche).
+Le relief est la légère courbure du manche vers l'avant, sous la tension des cordes. C'est elle qui
+dit si le truss rod doit être ajusté : on la mesure avant toute autre retouche.
 
-- Valeur de départ indicative : environ 0,2 à 0,3 mm.
-- Trop de relief (corde loin de la frette) : action haute, jeu mou.
-- Pas assez, ou relief inversé : bourdonnements dans les premières frettes.
+**Mesure (cordes accordées, instrument à plat ou en position de jeu) :**
+
+1. Poser un capo sur la 1re frette.
+2. Appuyer la corde de mi grave à la dernière frette (au niveau de la jonction manche/corps) : la
+   corde devient une règle droite entre ces deux points.
+3. Au milieu du manche (autour de la 8e frette), mesurer l'espace entre le dessous de la corde et le
+   dessus de la frette, avec une jauge d'épaisseur ou la règle.
+
+**Lecture du résultat** (valeurs de départ indicatives) :
+
+| Espace mesuré | Diagnostic | Action |
+|---------------|------------|--------|
+| environ 0,2 à 0,3 mm | Relief correct | Ne pas toucher au truss rod, passer au sillet |
+| nettement plus (corde loin de la frette) | Trop de relief : action haute, jeu mou | Serrer le truss rod |
+| presque nul, ou la corde touche la frette | Pas assez de relief, ou manche en arrière : bourdonnements dans les premières frettes | Desserrer le truss rod |
+
+**Avant de conclure sur le truss rod**, écarter deux autres causes d'action haute ou de
+bourdonnements : un sillet mal taillé (étape 4) et une frette haute ou un manche tordu. Un relief
+correct avec une action toujours trop haute ou une corde qui bourdonne ne se règle pas au truss rod.
 
 ### 3. Corriger le relief au truss rod
 
@@ -117,3 +132,4 @@ la corriger si besoin au chevalet.
 |------|------------|
 | 2026-10-15 | Création du brouillon : trame générale et valeurs indicatives, à confirmer |
 | 2026-10-15 | Truss rod déplacé dans sa propre fiche ; l'étape 3 ne garde que le sens de rotation et un lien |
+| 2026-10-15 | Étape 2 : méthode de mesure détaillée et tableau de diagnostic pour décider d'ajuster ou non le truss rod |
