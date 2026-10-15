@@ -32,6 +32,7 @@ from config import (
     T1_KNOWLEDGE_VERSION,
     T1_KNOWLEDGE_REQUIRE_REVIEW,
     T1_KNOWLEDGE_MAX_FICHES,
+    T1_KNOWLEDGE_PHOTO_TEXT,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
     T3_PROVIDER,
@@ -208,28 +209,50 @@ class DealAnalyzer(LLMClientsMixin):
         le prompt T1 et `base_prompt` T2/T3 — les deux appelants le PLACENT différemment)."""
         return format_user_correction(user_comment)
 
-    def _t1_knowledge(self, listing_data):
+    def _t1_knowledge(self, listing_data, images=None):
         """Base de connaissances « univers des guitares » pour le Portier : renvoie `(bloc_prompt, trace)`.
         `("", {})` si l'interrupteur `T1_KNOWLEDGE_ENABLED` est éteint (défaut : AUCUN accès base, prompt inchangé),
         si aucune fiche ne correspond, ou si quoi que ce soit échoue — ÉCHEC OUVERT : la base ne doit jamais
         empêcher une analyse (le Portier tourne alors comme avant). `trace` (`gatekeeperKnowledge` : version de la
         base, ids et alias trouvés) est stockée avec la décision (`ai_analysis_raw`) pour attribuer un changement
-        de comportement à une version de la base. Les sources (URL) ne sont jamais injectées."""
+        de comportement à une version de la base. Les sources (URL) ne sont jamais injectées.
+
+        Avec `T1_KNOWLEDGE_PHOTO_TEXT` (éteint par défaut) et des photos, une passe courte du modèle local lit d'abord
+        le texte visible (marque, modèle, numéro de série) et ce texte s'ajoute au titre et à la description pour
+        CHERCHER les fiches (tolérance aux fautes de lecture). Il n'est jamais injecté tel quel dans le prompt ; la
+        trace garde `photoText` et `viaPhoto` (fiches trouvées grâce aux photos seules)."""
         if not T1_KNOWLEDGE_ENABLED:
             return "", {}
         try:
             from backend import pg_db
             guitar_knowledge.configure_version(T1_KNOWLEDGE_VERSION)      # idempotent
             guitar_knowledge.configure_review_gate(T1_KNOWLEDGE_REQUIRE_REVIEW)   # idempotent
+            title, description = listing_data.get("title"), listing_data.get("description")
+            photo_text = ""
+            # Lecture AVANT d'ouvrir la connexion base (elle peut durer jusqu'au délai du Dell) ; sautée si le
+            # Dell est en pause (coupe-circuit) : inutile d'attendre un fournisseur déjà en échec.
+            if T1_KNOWLEDGE_PHOTO_TEXT and images and not t1_circuit_breaker.is_open("local"):
+                photo_text = self._t1_read_photo_text(images)
+            via_photo = []
             with pg_db.get_pool().connection(timeout=1.0) as conn:
-                fiches = guitar_knowledge.lookup(conn, listing_data.get("title"), listing_data.get("description"),
-                                                 limit=T1_KNOWLEDGE_MAX_FICHES)
+                if photo_text:
+                    fiches = guitar_knowledge.lookup(conn, title, description, photo_text,
+                                                     limit=T1_KNOWLEDGE_MAX_FICHES, fuzzy_texts=(0, 2))
+                    from_text = {f["id"] for f in guitar_knowledge.lookup(conn, title, description,
+                                                                          limit=T1_KNOWLEDGE_MAX_FICHES)}
+                    via_photo = [f["id"] for f in fiches if f["id"] not in from_text]
+                else:
+                    fiches = guitar_knowledge.lookup(conn, title, description, limit=T1_KNOWLEDGE_MAX_FICHES)
                 version = guitar_knowledge.effective_version(conn)
             if not fiches:
-                return "", {}
+                return "", ({"gatekeeperKnowledge": {"version": version, "fiches": [], "matched": [],
+                                                     "photoText": photo_text[:300], "viaPhoto": []}}
+                            if photo_text else {})
             trace = {"gatekeeperKnowledge": {"version": version,
                                              "fiches": [f["id"] for f in fiches],
                                              "matched": [f["matched_on"] for f in fiches]}}
+            if photo_text:
+                trace["gatekeeperKnowledge"].update(photoText=photo_text[:300], viaPhoto=via_photo)
             return guitar_knowledge.format_for_prompt(fiches), trace
         except Exception as e:  # jamais bloquant
             self.logger.warning(f"⚠️ [Portier] base de connaissances indisponible, analyse sans elle : {e}")
@@ -580,7 +603,7 @@ class DealAnalyzer(LLMClientsMixin):
         # n'est PLUS basé sur base_prompt (réservé à T2/T3) — la correction utilisateur
         # (flux "Ré-analyser" sans Force Expert, rare mais possible, voir bot.py::analyze_single_deal)
         # est passée directement pour être placée AVANT `<annonce>`, jamais après (voir docstring).
-        knowledge_block, knowledge_trace = self._t1_knowledge(listing_data)
+        knowledge_block, knowledge_trace = self._t1_knowledge(listing_data, images)
         full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment,
                                                               knowledge_block)
 

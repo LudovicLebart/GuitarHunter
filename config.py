@@ -195,6 +195,11 @@ T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in
 T1_KNOWLEDGE_ENABLED = os.getenv("T1_KNOWLEDGE_ENABLED", "false").lower() in ("1", "true", "yes")
 T1_KNOWLEDGE_VERSION = os.getenv("T1_KNOWLEDGE_VERSION", "validated")
 T1_KNOWLEDGE_MAX_FICHES = int(os.getenv("T1_KNOWLEDGE_MAX_FICHES", 3))
+# Lecture des photos par le Portier avant la recherche de fiches (2026-10-15, voir backend/t1_photo_text.py) : une passe
+# courte du modèle LOCAL recopie le texte visible (marque, modèle, numéro de série) et ce texte s'ajoute au titre et à la
+# description pour chercher les fiches. Éteint par défaut ; sans effet si T1_KNOWLEDGE_ENABLED est éteint. Coût : un
+# second appel au Dell par annonce. Échec ouvert : si la lecture échoue, la recherche se fait comme avant.
+T1_KNOWLEDGE_PHOTO_TEXT = os.getenv("T1_KNOWLEDGE_PHOTO_TEXT", "false").lower() in ("1", "true", "yes")
 # Porte de qualité (2026-10-14) : le Portier ne reçoit que des fiches DE CONFIANCE (relues et approuvées, curées ou écrites à
 # la main) — jamais une fiche importée de Wikidata non relue. "false" = comportement d'avant (audits, rejeux de comparaison).
 T1_KNOWLEDGE_REQUIRE_REVIEW = os.getenv("T1_KNOWLEDGE_REQUIRE_REVIEW", "true").lower() in ("1", "true", "yes")

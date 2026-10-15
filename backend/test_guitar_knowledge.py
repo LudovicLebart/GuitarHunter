@@ -471,6 +471,19 @@ class TestFuzzyGuards(unittest.TestCase):
     def test_exact_match_still_works_in_the_description(self):
         self.assertIn("wd:0", gk.find_ids(self.conn, "guitare électrique", "fabriquée par martin en 1975"))
 
+    def test_text_read_on_photos_can_opt_in_to_typo_tolerance(self):
+        # Lecture ratée d'un logo (« stratocster ») dans le texte des photos : tolérée seulement si l'appelant le demande.
+        self.assertEqual(gk.find_ids(self.conn, "guitare électrique", "vend bien", "stratocster"), {})
+        found = gk.find_ids(self.conn, "guitare électrique", "vend bien", "stratocster", fuzzy_texts=(0, 2))
+        self.assertEqual(found["wd:3"][1], "fuzzy")
+
+    def test_photo_typo_tolerance_keeps_the_same_guards_as_the_title(self):
+        for photo in ("martine", "carving", "hammer", "matin"):
+            self.assertEqual(gk.find_ids(self.conn, "guitare", "", photo, fuzzy_texts=(0, 2)), {}, photo)
+
+    def test_default_fuzzy_positions_are_unchanged(self):
+        self.assertEqual(gk.find_ids(self.conn, "fender stratocster"), gk.find_ids(self.conn, "fender stratocster", fuzzy_texts=(0,)))
+
 
 class TestDerivedAliases(unittest.TestCase):
     def test_generic_ambiguous_and_colliding_aliases_are_dropped(self):

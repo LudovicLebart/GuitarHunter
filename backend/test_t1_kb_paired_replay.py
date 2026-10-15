@@ -201,5 +201,61 @@ class TestBuildPlanPostgres(unittest.TestCase):
         self.assertEqual(len(rp.build_plan(self.conn, "latest", False, 150, 80, 1)["listings"]), 1)
 
 
+class TestPortierArmAndOcrCheck(unittest.TestCase):
+    def _plan(self, n_targets):
+        ls = [{"id": f"a{i}", "stratum": "A", "kb_with": ["k1"], "kb_photo": ["k1", "k2"]} for i in range(n_targets)]
+        ls.append({"id": "n1", "stratum": "A", "kb_with": ["k1"], "kb_photo": ["k1"]})
+        return {"listings": ls}
+
+    def _read(self, lid, kb, err=None, text="Gibson"):
+        return {"id": lid, "photo_text": text, "kb_portier": kb, "error": err, "latency_s": 10}
+
+    def test_portier_arm_needs_a_reading_that_changes_the_fiches(self):
+        plan = self._plan(2)
+        screen = _rows("screen", "without", "A", [l["id"] for l in plan["listings"]], 1.0, 5)
+        ocr = {"a0": self._read("a0", ["k1", "k2"]), "a1": self._read("a1", ["k1"])}
+        arms = {(j[0], j[2]) for j in rp.jobs_for(plan, screen, "eval", 5, 2, 2, ocr=ocr)}
+        self.assertIn(("a0", "portier"), arms)
+        self.assertNotIn(("a1", "portier"), arms)        # mêmes fiches que « avec »
+        self.assertNotIn(("n1", "portier"), arms)        # aucune lecture
+        no_ocr = {(j[0], j[2]) for j in rp.jobs_for(plan, screen, "eval", 5, 2, 2)}
+        self.assertFalse(any(a == "portier" for _, a in no_ocr))
+
+    def test_load_ocr_ignores_failures(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "o.jsonl")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(self._read("a0", [], err="boom")) + "\n")
+                fh.write(json.dumps(self._read("a1", ["k1"])) + "\n")
+            self.assertEqual(set(rp.load_ocr(path)), {"a1"})
+
+    def test_ocr_check_sufficient(self):
+        plan = self._plan(20)
+        lines = [self._read(f"a{i}", ["k1", "k2"] if i < 16 else ["k1"]) for i in range(20)] + [self._read("n1", ["k1"])]
+        rep = rp.analyze_ocr(plan, lines)
+        self.assertEqual(rep["n_targets"], 20)
+        self.assertAlmostEqual(rep["recovery"], 0.8)
+        self.assertEqual(rep["verdict"], "LECTURE SUFFISANTE")
+        self.assertEqual(len(rep["missed_ids"]), 4)
+
+    def test_ocr_check_insufficient_incomplete_and_inconclusive(self):
+        plan = self._plan(20)
+        weak = [self._read(f"a{i}", ["k1", "k2"] if i < 5 else ["k1"]) for i in range(20)] + [self._read("n1", ["k1"])]
+        self.assertEqual(rp.analyze_ocr(plan, weak)["verdict"], "LECTURE INSUFFISANTE")
+        self.assertEqual(rp.analyze_ocr(plan, weak[:10])["verdict"], "INCOMPLET")
+        few = self._plan(5)
+        lines = [self._read(f"a{i}", ["k1", "k2"]) for i in range(5)] + [self._read("n1", ["k1"])]
+        self.assertTrue(rp.analyze_ocr(few, lines)["verdict"].startswith("NON CONCLUANT"))
+        failing = [self._read(f"a{i}", [], err="x") for i in range(20)] + [self._read("n1", ["k1"])]
+        self.assertTrue(rp.analyze_ocr(plan, failing)["verdict"].startswith("NON CONCLUANT (trop"))
+
+    def test_ocr_check_retry_overrides_earlier_failure(self):
+        plan = self._plan(20)
+        lines = [self._read(f"a{i}", [], err="x") for i in range(20)]
+        lines += [self._read(f"a{i}", ["k1", "k2"]) for i in range(20)] + [self._read("n1", ["k1"])]
+        self.assertEqual(rp.analyze_ocr(plan, lines)["verdict"], "LECTURE SUFFISANTE")
+
+
 if __name__ == "__main__":
     unittest.main()

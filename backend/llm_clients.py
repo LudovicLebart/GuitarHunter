@@ -20,6 +20,7 @@ from PIL import Image
 
 from backend import llm_usage
 from backend.t1_image_budget import fit_images_to_budget
+from backend.t1_photo_text import PHOTO_TEXT_PROMPT, PHOTO_TEXT_JSON_SCHEMA, parse_photo_text
 from backend.notifications import NotificationService
 from config import (
     ANTHROPIC_API_KEY,
@@ -503,6 +504,27 @@ class LLMClientsMixin:
                 f"{info['before']} → {info['after']} tokens estimés (budget {info['budget']}), "
                 f"coefficient {info['scale']}, {info['dropped']} photo(s) retirée(s) sur {len(images)}.")
         return fitted
+
+    def _t1_read_photo_text(self, images):
+        """Texte lisible sur les photos (marque, modèle, numéro de série), lu par le modèle LOCAL du Portier : sert à
+        chercher des fiches dans la base de connaissances (voir `backend/t1_photo_text.py`). Renvoie une chaîne, vide
+        si rien n'est lisible ou si quoi que ce soit échoue — ÉCHEC OUVERT : ne bloque jamais une analyse. Le dernier
+        appel est enregistré dans `llm_usage` sous l'action `t1_photo_text` (coût et latence mesurables à part)."""
+        if not images:
+            return ""
+        try:
+            fitted = self._fit_t1_local_images(PHOTO_TEXT_PROMPT, images)
+            with _T1_LOCAL_SEMAPHORE:
+                result, err = self._call_openai_compatible_json(
+                    PHOTO_TEXT_PROMPT, fitted, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
+                    response_format=PHOTO_TEXT_JSON_SCHEMA, action="t1_photo_text", provider_label="local",
+                    timeout=T1_LOCAL_TIMEOUT_SECONDS, max_retries=0)
+            if err or not result:
+                return ""
+            return parse_photo_text(result)
+        except Exception as e:
+            self.logger.warning(f"   ⚠️ [Portier] lecture des photos indisponible : {e}")
+            return ""
 
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
         """Chantier H/I : point d'appel UNIQUE pour n'importe lequel des fournisseurs T1 ("local"

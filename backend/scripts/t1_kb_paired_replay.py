@@ -10,21 +10,28 @@ terrain circulaire, critère asymétrique, rejeu non fidèle à la prod. Ici :
     une correction) où la base trouve une fiche et où le Portier d'aujourd'hui rejette encore (sélection faite sur des
     répétitions SÉPARÉES de celles qui mesurent l'effet : pas de régression vers la moyenne) ; B = annonces acceptées
     où la base trouve une fiche (test de non-régression) ;
-  * TROIS BRAS : « sans » (prompt de prod), « avec » (fiches trouvées dans titre + description, comme le Portier de
-    prod), « photo » (en plus, le texte que l'Expert a lu sur les photos, `visual_inspection` : borne haute de ce que
-    donnerait un Portier qui lit la marque sur la tête de manche) ;
+  * QUATRE BRAS : « sans » (prompt de prod), « avec » (fiches trouvées dans titre + description, comme le Portier de
+    prod AVANT la lecture des photos), « photo » (en plus, le texte que l'EXPERT a lu sur les photos,
+    `visual_inspection` : borne haute de ce que donnerait un Portier qui lit la marque sur la tête de manche),
+    « portier » (en plus, le texte que le PORTIER lui-même lit sur les photos, passe `backend/t1_photo_text.py` : le
+    vrai cas qu'on déploierait, interrupteur `T1_KNOWLEDGE_PHOTO_TEXT`). Le texte du Portier est lu UNE fois par
+    annonce (étape `ocr`) puis réutilisé à chaque répétition : le bras mesure l'effet des fiches trouvées grâce à
+    cette lecture, pas sa variabilité (la qualité de la lecture se mesure à part avec `ocr-check`) ;
   * FIDÉLITÉ : 8 photos, budget de contexte 8192 (réduction des photos), température par défaut du modèle, même
     prompt que la prod (`backend/t1_prompt.py`). Le script REFUSE de tourner sinon (`--allow-nonprod` pour passer outre,
     consigné dans le fichier de méta) ;
   * CRITÈRES FIXÉS D'AVANCE (constantes ci-dessous) : on ne les ajuste pas après avoir vu les résultats.
 
-Trois sous-commandes (sur le serveur, `export DATABASE_URL=...`, Dell allumé ; ces scripts ne lisent pas .env) :
+Sous-commandes (sur le serveur, `export DATABASE_URL=...`, Dell allumé ; ces scripts ne lisent pas .env) :
 
   python -m backend.scripts.t1_kb_paired_replay plan   --out kb_plan.json
+  QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 python -u -m backend.scripts.t1_kb_paired_replay ocr \\
+        --plan kb_plan.json --ocr kb_ocr.jsonl          # le Portier lit les photos (reprenable, ~15 s par annonce)
+  python -m backend.scripts.t1_kb_paired_replay ocr-check --plan kb_plan.json --ocr kb_ocr.jsonl   # seuil 70 %
   QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 nohup python -u -m backend.scripts.t1_kb_paired_replay run \\
-        --plan kb_plan.json --results kb_paired.jsonl --stage screen  > kb_screen.log 2>&1 &
+        --plan kb_plan.json --results kb_paired.jsonl --ocr kb_ocr.jsonl --stage screen  > kb_screen.log 2>&1 &
   QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 nohup python -u -m backend.scripts.t1_kb_paired_replay run \\
-        --plan kb_plan.json --results kb_paired.jsonl --stage eval    > kb_eval.log 2>&1 &
+        --plan kb_plan.json --results kb_paired.jsonl --ocr kb_ocr.jsonl --stage eval    > kb_eval.log 2>&1 &
   python -m backend.scripts.t1_kb_paired_replay report --plan kb_plan.json --results kb_paired.jsonl
 
 `run` est REPRENABLE (relancer la même commande après une coupure : les appels déjà faits sont sautés). 0 $ (Dell).
@@ -48,8 +55,11 @@ MIN_A_LISTINGS = 25             # A : en dessous, le test n'a pas la puissance d
 MAX_FAILURE_RATE = 0.10         # part d'appels en échec tolérée par bras
 SCREEN_MIN_REJECT_RATE = 0.30   # A : taux de rejet SANS base, sur les répétitions de sélection, pour entrer dans l'étude
 DEFAULTS = {"screen_reps": 5, "reps_a": 10, "reps_b": 5, "n_b": 150, "max_a": 80, "seed": 42}
-ARMS_A = ("without", "with", "photo")
-ARMS_B = ("without", "with")
+OCR_MIN_RECOVERY = 0.70         # lecture des photos : part des fiches trouvables grâce à l'Expert que le Portier retrouve
+OCR_MIN_TARGETS = 15            # en dessous de ce nombre d'annonces-cibles, `ocr-check` ne conclut pas
+OCR_MAX_FAILURE_RATE = 0.10     # lectures en échec tolérées
+ARMS_A = ("without", "with", "photo", "portier")
+ARMS_B = ("without", "with", "portier")
 
 
 def is_rejected(verdict):
@@ -143,10 +153,14 @@ def analyze(plan, results):
                "min_gain_pts": MIN_GAIN_POINTS, "max_rise_pts": MAX_RISE_POINTS, "min_a": MIN_A_LISTINGS}}
     a_with = paired_diffs(rates, a_ids, "without", "with")
     a_photo = paired_diffs(rates, a_ids, "without", "photo")
+    a_portier = paired_diffs(rates, a_ids, "without", "portier")
     b_with = paired_diffs(rates, b_ids, "without", "with")
+    b_portier = paired_diffs(rates, b_ids, "without", "portier")
     out["A_with"] = summarize_diffs([-d for d in a_with])        # gain = baisse du taux de rejet (positif = bien)
     out["A_photo"] = summarize_diffs([-d for d in a_photo])
+    out["A_portier"] = summarize_diffs([-d for d in a_portier])
     out["B_with"] = summarize_diffs(b_with)                      # hausse du taux de rejet (négatif/nul = bien)
+    out["B_portier"] = summarize_diffs(b_portier)
     out["A_without_rate_pts"] = 100 * mean([rates[(i, "without")] for i in a_ids if (i, "without") in rates]) if a_ids else None
     out["placebo_A"] = summarize_diffs(placebo(ev, set(a_ids)))
     out["placebo_B"] = summarize_diffs(placebo(ev, set(b_ids)))
@@ -156,21 +170,29 @@ def analyze(plan, results):
                 for arm, f in out["failure_rates"].items() if f > MAX_FAILURE_RATE]
     if len(a_ids) < MIN_A_LISTINGS:
         problems.append(f"strate A : {len(a_ids)} annonce(s) retenue(s) < {MIN_A_LISTINGS} (puissance insuffisante)")
-    a, b = out["A_with"], out["B_with"]
-    out["A_met"] = bool(a and a["mean_pts"] >= MIN_GAIN_POINTS and a["ci_pts"][0] > 0)
-    out["B_met"] = bool(b and b["ci_pts"][1] <= MAX_RISE_POINTS)
-    if problems:
-        out["verdict"] = "NON CONCLUANT"
-    elif out["A_met"] and out["B_met"]:
-        out["verdict"] = "GAIN DÉMONTRÉ ET SANS RÉGRESSION"
-    elif a and a["ci_pts"][1] < MIN_GAIN_POINTS:
-        out["verdict"] = "GAIN D'AU MOINS 15 POINTS EXCLU" if (b and out["B_met"]) else "AUCUN GAIN ET RÉGRESSION POSSIBLE"
-    elif out["A_met"] and not out["B_met"]:
-        out["verdict"] = "GAIN MAIS RÉGRESSION POSSIBLE EN B"
-    else:
-        out["verdict"] = "NON CONCLUANT"
+    # Deux verdicts, mêmes critères : « avec » = recherche par titre + description seuls ; « portier » = en plus le
+    # texte lu par le Portier sur les photos (le cas qu'on déploierait avec T1_KNOWLEDGE_PHOTO_TEXT).
+    out["verdict"], out["A_met"], out["B_met"] = _verdict(out["A_with"], out["B_with"], problems)
+    out["verdict_portier"], out["A_portier_met"], out["B_portier_met"] = _verdict(out["A_portier"], out["B_portier"], problems)
     out["problems"] = problems
     return out
+
+
+def _verdict(a, b, problems):
+    """(verdict, critère A atteint, critère B atteint) selon les critères fixés d'avance."""
+    a_met = bool(a and a["mean_pts"] >= MIN_GAIN_POINTS and a["ci_pts"][0] > 0)
+    b_met = bool(b and b["ci_pts"][1] <= MAX_RISE_POINTS)
+    if problems:
+        verdict = "NON CONCLUANT"
+    elif a_met and b_met:
+        verdict = "GAIN DÉMONTRÉ ET SANS RÉGRESSION"
+    elif a and a["ci_pts"][1] < MIN_GAIN_POINTS:
+        verdict = "GAIN D'AU MOINS 15 POINTS EXCLU" if (b and b_met) else "AUCUN GAIN ET RÉGRESSION POSSIBLE"
+    elif a_met and not b_met:
+        verdict = "GAIN MAIS RÉGRESSION POSSIBLE EN B"
+    else:
+        verdict = "NON CONCLUANT"
+    return verdict, a_met, b_met
 
 
 def _fmt(s, unit="points"):
@@ -186,9 +208,11 @@ def print_report(rep):
         print(f"Taux de rejet SANS base en A (répétitions d'évaluation) : {rep['A_without_rate_pts']:.0f} %")
     print("\nGAIN en A — baisse du taux de rejet par annonce (critère : ≥ %.0f points ET borne basse de l'IC > 0)" % MIN_GAIN_POINTS)
     print(f"  avec fiches (titre + description) : {_fmt(rep['A_with'])}")
-    print(f"  avec fiches + texte lu sur photo  : {_fmt(rep['A_photo'])}   ← borne haute d'un Portier qui lirait la marque")
+    print(f"  avec fiches + texte lu sur photo par l'EXPERT  : {_fmt(rep['A_photo'])}   ← borne haute d'un Portier qui lirait la marque")
+    print(f"  avec fiches + texte lu sur photo par le PORTIER : {_fmt(rep['A_portier'])}   ← le cas qu'on déploierait")
     print("\nRÉGRESSION en B — hausse du taux de rejet par annonce (critère : borne HAUTE de l'IC ≤ +%.0f points)" % MAX_RISE_POINTS)
-    print(f"  avec fiches : {_fmt(rep['B_with'])}")
+    print(f"  avec fiches (titre + description) : {_fmt(rep['B_with'])}")
+    print(f"  avec fiches + photos lues par le Portier : {_fmt(rep['B_portier'])}")
     print("\nHasard du modèle (placebo : répétitions paires contre impaires du bras « sans », devrait être ≈ 0) :")
     print(f"  A : {_fmt(rep['placebo_A'])}")
     print(f"  B : {_fmt(rep['placebo_B'])}")
@@ -196,14 +220,20 @@ def print_report(rep):
     for p in rep["problems"]:
         print(f"  ⚠️ {p}")
     print("\n" + "=" * 70)
-    print(f"VERDICT : {rep['verdict']}")
-    print({"GAIN DÉMONTRÉ ET SANS RÉGRESSION": "  → la base apporte un gain mesuré sans nuire : on peut discuter de valider la version "
-                                                "(décision de Ludovic, après relecture des cas).",
-           "GAIN D'AU MOINS 15 POINTS EXCLU": "  → avec ces fiches, un gain de cette taille est exclu par les données : la base n'aide pas le Portier "
-                                              "(elle reste utile à l'Expert via lookup_brand).",
-           "GAIN MAIS RÉGRESSION POSSIBLE EN B": "  → la base aide en A mais la non-infériorité en B n'est pas démontrée : relire les rejets de B.",
-           "AUCUN GAIN ET RÉGRESSION POSSIBLE": "  → pas de gain et une régression ne peut pas être exclue : ne pas activer.",
-           "NON CONCLUANT": "  → le test ne permet pas de trancher (voir les avertissements) : ne rien conclure, ni dans un sens ni dans l'autre."}[rep["verdict"]])
+    print(f"VERDICT (recherche par titre + description)          : {rep['verdict']}")
+    print(f"VERDICT (+ photos lues par le Portier, à déployer)    : {rep['verdict_portier']}")
+    print(VERDICT_TEXT[rep["verdict_portier"] if rep["A_portier"] else rep["verdict"]])
+
+
+VERDICT_TEXT = {
+    "GAIN DÉMONTRÉ ET SANS RÉGRESSION": "  → la base apporte un gain mesuré sans nuire : on peut discuter de valider la version "
+                                        "(décision de Ludovic, après relecture des cas).",
+    "GAIN D'AU MOINS 15 POINTS EXCLU": "  → avec ces fiches, un gain de cette taille est exclu par les données : la base n'aide pas le Portier "
+                                       "(elle reste utile à l'Expert via lookup_brand).",
+    "GAIN MAIS RÉGRESSION POSSIBLE EN B": "  → la base aide en A mais la non-infériorité en B n'est pas démontrée : relire les rejets de B.",
+    "AUCUN GAIN ET RÉGRESSION POSSIBLE": "  → pas de gain et une régression ne peut pas être exclue : ne pas activer.",
+    "NON CONCLUANT": "  → le test ne permet pas de trancher (voir les avertissements) : ne rien conclure, ni dans un sens ni dans l'autre.",
+}
 
 
 # ── Plan : choix des annonces ────────────────────────────────────────────────────────────────────────────────────────
@@ -272,8 +302,18 @@ def load_results(path):
         return [json.loads(line) for line in fh if line.strip()]
 
 
-def jobs_for(plan, results, stage, reps_screen, reps_a, reps_b):
-    """Liste ordonnée de (id, stratum, arm, rep, stage) restant à faire. Les bras alternent à chaque répétition."""
+def load_ocr(path):
+    """{id: dernière lecture RÉUSSIE du Portier} (une lecture en échec n'est jamais utilisée : elle sera refaite)."""
+    out = {}
+    for line in load_results(path):
+        if not line.get("error") and "photo_text" in line:
+            out[line["id"]] = line
+    return out
+
+
+def jobs_for(plan, results, stage, reps_screen, reps_a, reps_b, ocr=None):
+    """Liste ordonnée de (id, stratum, arm, rep, stage) restant à faire. Les bras alternent à chaque répétition.
+    `ocr` : {id: lecture du Portier} (voir `load_ocr`) ; sans lecture d'une annonce, pas de bras « portier » pour elle."""
     done = {(r["id"], r["arm"], r["rep"], r["stage"]) for r in results if r.get("verdict")}
     listings = {l["id"]: l for l in plan["listings"]}
     jobs = []
@@ -295,6 +335,10 @@ def jobs_for(plan, results, stage, reps_screen, reps_a, reps_b):
                         continue                                    # même prompt que « avec » : rien à mesurer
                     if arm == "with" and not l["kb_with"]:
                         continue                                    # aucune fiche par le texte : prompt identique à « sans »
+                    if arm == "portier":
+                        read = (ocr or {}).get(lid)
+                        if not read or not read["kb_portier"] or read["kb_portier"] == l["kb_with"]:
+                            continue                                # pas de lecture, ou même fiches que « avec » : rien à mesurer
                     jobs.append((lid, l["stratum"], arm, rep, "eval"))
     return [j for j in jobs if (j[0], j[2], j[3], j[4]) not in done]
 
@@ -317,7 +361,10 @@ def run(args):
     gk.configure_version(meta["kb_version_mode"])
     gk.configure_review_gate(meta["review_gate"])
     cq.ACTIVE_T1_SCHEMA = cq.build_t1_schema("baseline")
-    jobs = jobs_for(plan, results, args.stage, args.screen_reps, args.reps_a, args.reps_b)
+    ocr = load_ocr(os.path.join(cq.RESULTS_DIR, args.ocr))
+    if not ocr:
+        print("Aucune lecture de photos du Portier (étape `ocr` non faite) : le bras « portier » est sauté.", flush=True)
+    jobs = jobs_for(plan, results, args.stage, args.screen_reps, args.reps_a, args.reps_b, ocr=ocr)
     if args.limit:
         jobs = jobs[:args.limit]
     print(f"{len(jobs)} appel(s) à faire (étape {args.stage}) ; ~{len(jobs) * 20 / 3600:.1f} h à ~20 s/appel. "
@@ -357,9 +404,12 @@ def run(args):
 
             row = cache["row"]
             kb_block, fiches = "", []
-            if arm in ("with", "photo"):
-                texts = [row["title"], row["description"]] + ([cache["photo_text"]] if arm == "photo" else [])
-                fiches = gk.lookup(conn, *texts, limit=T1_KNOWLEDGE_MAX_FICHES)
+            if arm in ("with", "photo", "portier"):
+                extra = {"photo": cache["photo_text"], "portier": (ocr.get(lid) or {}).get("photo_text", "")}.get(arm)
+                texts = [row["title"], row["description"]] + ([extra] if extra is not None else [])
+                # « portier » : EXACTEMENT la recherche de la prod (tolérance aux fautes de lecture sur le texte des photos).
+                fiches = gk.lookup(conn, *texts, limit=T1_KNOWLEDGE_MAX_FICHES,
+                                   fuzzy_texts=(0, 2) if arm == "portier" else (0,))
                 kb_block = gk.format_for_prompt(fiches)
             prompt = build_t1_gatekeeper_prompt(row, cache["taxonomy"], cache["instruction"], knowledge_block=kb_block)
             images, _info = fit_images_to_budget(cache["images"], prompt, cq.QWEN_LOCAL_NUM_CTX,
@@ -380,6 +430,124 @@ def run(args):
                 raise SystemExit("8 échecs de suite : le Dell répond-il ? (ollama ps) Relancer la même commande pour reprendre.")
 
 
+# ── Lecture des photos par le Portier : exécution et contrôle ─────────────────────────────────────────────────────────
+def analyze_ocr(plan, ocr_lines):
+    """Contrôle de la lecture des photos (fonction pure, testée). Référence = ce que l'EXPERT a lu sur les photos :
+    pour les annonces où ce texte apporte des fiches que le titre et la description n'apportent pas (`kb_photo` ⊋
+    `kb_with`), on regarde si le texte lu par le PORTIER retrouve ces fiches. Ce n'est pas une vérité terrain (l'Expert
+    peut se tromper) mais la meilleure référence disponible sans étiqueter à la main."""
+    last = {}
+    for line in ocr_lines:                       # dernière tentative par annonce
+        last[line["id"]] = line
+    listings = {l["id"]: l for l in plan["listings"]}
+    attempted = [i for i in last if i in listings]
+    failed = [i for i in attempted if last[i].get("error")]
+    ok = [i for i in attempted if i not in set(failed)]
+    targets = [i for i in ok if set(listings[i]["kb_photo"]) - set(listings[i]["kb_with"])]
+    recovered = [i for i in targets if (set(listings[i]["kb_photo"]) - set(listings[i]["kb_with"])) <= set(last[i]["kb_portier"])]
+    extra = [i for i in ok if set(last[i]["kb_portier"]) - set(listings[i]["kb_photo"]) - set(listings[i]["kb_with"])]
+    out = {"n_planned": len(listings), "n_attempted": len(attempted), "n_failed": len(failed), "n_ok": len(ok),
+           "n_empty_text": sum(1 for i in ok if not last[i]["photo_text"]), "n_targets": len(targets),
+           "n_recovered": len(recovered), "missed_ids": sorted(set(targets) - set(recovered)),
+           "n_extra": len(extra), "extra_ids": sorted(extra),
+           "recovery": (len(recovered) / len(targets)) if targets else None,
+           "failure_rate": (len(failed) / len(attempted)) if attempted else None,
+           "median_latency_s": sorted(last[i].get("latency_s") or 0 for i in ok)[len(ok) // 2] if ok else None}
+    if len(attempted) < len(listings):
+        verdict = "INCOMPLET"
+    elif out["failure_rate"] > OCR_MAX_FAILURE_RATE:
+        verdict = "NON CONCLUANT (trop de lectures en échec)"
+    elif len(targets) < OCR_MIN_TARGETS:
+        verdict = "NON CONCLUANT (pas assez d'annonces-cibles)"
+    elif out["recovery"] >= OCR_MIN_RECOVERY:
+        verdict = "LECTURE SUFFISANTE"
+    else:
+        verdict = "LECTURE INSUFFISANTE"
+    out["verdict"] = verdict
+    return out
+
+
+def print_ocr_report(rep):
+    print(f"Lectures faites : {rep['n_attempted']}/{rep['n_planned']} ({rep['n_failed']} en échec, "
+          f"{rep['n_empty_text']} sans aucun texte lisible)")
+    if rep["median_latency_s"] is not None:
+        print(f"Durée médiane d'une lecture : {rep['median_latency_s']} s (s'ajoute à l'appel du Portier)")
+    if rep["recovery"] is not None:
+        print(f"Annonces-cibles (le texte lu par l'Expert apporte une fiche absente du titre/de la description) : {rep['n_targets']}")
+        print(f"  fiches retrouvées par le Portier : {rep['n_recovered']}/{rep['n_targets']} = {100 * rep['recovery']:.0f} % "
+              f"(seuil fixé d'avance : {100 * OCR_MIN_RECOVERY:.0f} %)")
+        if rep["missed_ids"]:
+            print(f"  ids manqués (à relire à la main) : {', '.join(rep['missed_ids'][:15])}{' …' if len(rep['missed_ids']) > 15 else ''}")
+    print(f"Annonces où le Portier trouve une fiche que ni le titre ni l'Expert n'apportent : {rep['n_extra']} "
+          f"(à relire : vrai gain ou fausse lecture)")
+    if rep["extra_ids"]:
+        print(f"  ids : {', '.join(rep['extra_ids'][:15])}{' …' if len(rep['extra_ids']) > 15 else ''}")
+    print("\n" + "=" * 70)
+    print(f"VERDICT LECTURE : {rep['verdict']}")
+    print({"LECTURE SUFFISANTE": "  → on peut lancer le rejeu complet avec le bras « portier ».",
+           "LECTURE INSUFFISANTE": "  → le Portier lit trop mal les photos : corriger la lecture (prompt, taille des photos) AVANT d'investir "
+                                   "des heures de Dell dans le rejeu.",
+           "INCOMPLET": "  → relancer la même commande `ocr` pour terminer les lectures.",
+           }.get(rep["verdict"], "  → ne rien conclure (voir les chiffres ci-dessus)."))
+
+
+def run_ocr(args):
+    """Étape `ocr` : le Portier lit les photos de chaque annonce du plan (une fois, reprenable) et on enregistre le texte
+    lu et les fiches qu'il permet de trouver. Même prompt, même schéma et mêmes photos que la prod."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from backend import guitar_knowledge as gk
+    from backend.scripts import compare_qwen_local_vs_prod as cq
+    from backend.t1_image_budget import fit_images_to_budget
+    from backend.t1_photo_text import PHOTO_TEXT_JSON_SCHEMA, PHOTO_TEXT_PROMPT, parse_photo_text
+    from config import T1_KNOWLEDGE_MAX_FICHES
+
+    nonprod = check_fidelity(cq, args.allow_nonprod)
+    with open(os.path.join(cq.RESULTS_DIR, args.plan), encoding="utf-8") as fh:
+        plan = json.load(fh)
+    path = os.path.join(cq.RESULTS_DIR, args.ocr)
+    done = set(load_ocr(path))
+    meta = plan["meta"]
+    gk.configure_version(meta["kb_version_mode"])
+    gk.configure_review_gate(meta["review_gate"])
+    cq.ACTIVE_T1_SCHEMA = PHOTO_TEXT_JSON_SCHEMA
+    todo = [l for l in plan["listings"] if l["id"] not in done]
+    if args.limit:
+        todo = todo[:args.limit]
+    print(f"{len(todo)} lecture(s) à faire ; ~{len(todo) * 15 / 60:.0f} min. Écart avec la prod : {nonprod or 'aucun'}", flush=True)
+    os.makedirs(cq.RESULTS_DIR, exist_ok=True)
+    failures = 0
+    with psycopg.connect(cq.DATABASE_URL, row_factory=dict_row) as conn, open(path, "a", encoding="utf-8") as out:
+        for n, l in enumerate(todo, 1):
+            row = conn.execute("SELECT id, title, description, image_urls, storage_image_urls FROM guitar_deals WHERE id = %s",
+                               (l["id"],)).fetchone()
+            if not row:
+                print(f"  ⚠️ {l['id']} introuvable, sautée", flush=True)
+                continue
+            urls = row.get("storage_image_urls") or row.get("image_urls") or []
+            urls = json.loads(urls) if isinstance(urls, str) else urls
+            images = [img for u in urls[:cq.MAX_IMAGES] if (img := cq._download_and_optimize_image(u))]
+            images, _info = fit_images_to_budget(images, PHOTO_TEXT_PROMPT, cq.QWEN_LOCAL_NUM_CTX,
+                                                 int(os.getenv("T1_LOCAL_RESPONSE_MARGIN_TOKENS", "600")))
+            t0 = time.monotonic()
+            result, err, *_rest = cq._call_qwen_local_json(PHOTO_TEXT_PROMPT, images, cq.QWEN_LOCAL_MODEL,
+                                                           temperature=None, seed=None)
+            latency = round(time.monotonic() - t0, 1)
+            text = parse_photo_text(result) if (result and not err) else ""
+            err = err or (None if result else "réponse vide")
+            fiches = gk.lookup(conn, row["title"], row["description"], text, limit=T1_KNOWLEDGE_MAX_FICHES,
+                               fuzzy_texts=(0, 2)) if text else gk.lookup(conn, row["title"], row["description"],
+                                                                          limit=T1_KNOWLEDGE_MAX_FICHES)
+            out.write(json.dumps({"id": l["id"], "stratum": l["stratum"], "photo_text": text,
+                                  "kb_portier": [f["id"] for f in fiches], "error": err, "n_images": len(images),
+                                  "latency_s": latency}, ensure_ascii=False) + "\n")
+            out.flush()
+            failures = failures + 1 if err else 0
+            print(f"[{n}/{len(todo)}] {l['id']} → {'ÉCHEC' if err else (str(len(text)) + ' car.')} ({latency}s)", flush=True)
+            if failures >= 8:
+                raise SystemExit("8 échecs de suite : le Dell répond-il ? (ollama ps) Relancer la même commande pour reprendre.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -395,12 +563,21 @@ def main(argv=None):
     r = sub.add_parser("run", help="rejoue les annonces du plan (reprenable)")
     r.add_argument("--plan", default="kb_plan.json")
     r.add_argument("--results", default="kb_paired.jsonl")
+    r.add_argument("--ocr", default="kb_ocr.jsonl", help="lectures du Portier (bras « portier ») ; absent = bras sauté")
     r.add_argument("--stage", choices=("screen", "eval"), required=True)
     r.add_argument("--screen-reps", type=int, default=DEFAULTS["screen_reps"])
     r.add_argument("--reps-a", type=int, default=DEFAULTS["reps_a"])
     r.add_argument("--reps-b", type=int, default=DEFAULTS["reps_b"])
     r.add_argument("--limit", type=int, default=0, help="n'exécute que N appels (essai)")
     r.add_argument("--allow-nonprod", action="store_true")
+    o = sub.add_parser("ocr", help="le Portier lit les photos des annonces du plan (reprenable)")
+    o.add_argument("--plan", default="kb_plan.json")
+    o.add_argument("--ocr", default="kb_ocr.jsonl")
+    o.add_argument("--limit", type=int, default=0, help="ne fait que N lectures (essai)")
+    o.add_argument("--allow-nonprod", action="store_true")
+    c = sub.add_parser("ocr-check", help="contrôle de la lecture (seuil fixé d'avance), aucun appel IA")
+    c.add_argument("--plan", default="kb_plan.json")
+    c.add_argument("--ocr", default="kb_ocr.jsonl")
     q = sub.add_parser("report", help="analyse (aucun appel IA)")
     q.add_argument("--plan", default="kb_plan.json")
     q.add_argument("--results", default="kb_paired.jsonl")
@@ -428,6 +605,12 @@ def main(argv=None):
                   f"Relire plus de fiches (knowledge_gate_report) ou essayer --gate none.")
     elif args.cmd == "run":
         run(args)
+    elif args.cmd == "ocr":
+        run_ocr(args)
+    elif args.cmd == "ocr-check":
+        with open(os.path.join(results_dir, args.plan), encoding="utf-8") as fh:
+            plan = json.load(fh)
+        print_ocr_report(analyze_ocr(plan, load_results(os.path.join(results_dir, args.ocr))))
     else:
         with open(os.path.join(results_dir, args.plan), encoding="utf-8") as fh:
             plan = json.load(fh)

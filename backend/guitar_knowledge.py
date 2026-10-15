@@ -275,8 +275,9 @@ def _fuzzy_match(tok, aliases, by_len):
     return match
 
 
-def find_ids(conn, *texts, max_ngram=4):
-    """Renvoie {knowledge_id: (alias_trouvé, 'exact'|'fuzzy')} pour les textes donnés."""
+def find_ids(conn, *texts, max_ngram=4, fuzzy_texts=(0,)):
+    """Renvoie {knowledge_id: (alias_trouvé, 'exact'|'fuzzy')} pour les textes donnés.
+    `fuzzy_texts` : positions des textes où une faute de frappe est tolérée (défaut : le titre seul)."""
     aliases, by_len = _aliases(conn)
     tokens = normalize(" ".join(t for t in texts if t)).split()
     found = {}
@@ -286,9 +287,11 @@ def find_ids(conn, *texts, max_ngram=4):
             for kid in aliases.get(gram, ()):
                 found.setdefault(kid, (gram, "exact"))
     # Fuzzy seulement sur le PREMIER texte (le titre) : la description, longue et bavarde, multiplie les
-    # faux rapprochements sur du français courant.
-    title_tokens = normalize(texts[0]).split() if texts and texts[0] else []
-    for tok in set(title_tokens):
+    # faux rapprochements sur du français courant. Le texte lu sur les photos (court, fait de marques et de
+    # modèles recopiés, souvent mal lus) peut s'y ajouter via `fuzzy_texts` ; mêmes seuils que le titre.
+    title_tokens = [t for idx in fuzzy_texts if idx < len(texts) and texts[idx]
+                    for t in normalize(texts[idx]).split()]
+    for tok in dict.fromkeys(title_tokens):
         if len(tok) < _MIN_FUZZY_LEN or tok in aliases or tok in _STOP:
             continue
         match = _fuzzy_match(tok, aliases, by_len)
@@ -324,10 +327,11 @@ def _prefer_name_owners(rows, found):
     return kept
 
 
-def lookup(conn, *texts, limit=3):
+def lookup(conn, *texts, limit=3, fuzzy_texts=(0,)):
     """Fiches correspondant aux textes, avec leur parent (maison mère / fabricant), triées :
-    correspondances exactes d'abord, séries avant marques (plus spécifiques), fiches curées d'abord."""
-    found = find_ids(conn, *texts)
+    correspondances exactes d'abord, séries avant marques (plus spécifiques), fiches curées d'abord.
+    `fuzzy_texts` : voir `find_ids` (le texte lu sur les photos y est ajouté par l'appelant)."""
+    found = find_ids(conn, *texts, fuzzy_texts=fuzzy_texts)
     if not found:
         return []
     rows = conn.execute(

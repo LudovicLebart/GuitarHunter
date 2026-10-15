@@ -291,6 +291,85 @@ class TestT1Knowledge(unittest.TestCase):
         self.assertEqual(result["gatekeeperKnowledge"]["fiches"], ["manual:vantage"])
         self.assertEqual(result["gatekeeperKnowledge"]["version"], 5)
 
+    # ── Lecture des photos par le Portier (2026-10-15) ──
+    def _photo_lookup(self, from_text_only, with_photo):
+        """lookup factice : sans texte photo -> `from_text_only` ; avec texte photo (3e argument) -> `with_photo`."""
+        def fake(conn, *texts, limit=3, fuzzy_texts=(0,)):
+            fake.calls.append((texts, fuzzy_texts))
+            return with_photo if len(texts) > 2 else from_text_only
+        fake.calls = []
+        return fake
+
+    def test_photo_text_is_ignored_while_its_switch_is_off(self):
+        self._enabled()
+        self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone")
+        self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.analyzer._t1_read_photo_text.assert_not_called()
+
+    def test_photo_text_adds_fiches_found_only_on_the_photos_and_is_traced(self):
+        self._enabled()
+        other = {**self.FICHE, "id": "wd:epiphone", "name": "Epiphone", "matched_on": "epiphone"}
+        fake = self._photo_lookup([self.FICHE], [self.FICHE, other])
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True), \
+                patch("backend.analyzer.guitar_knowledge.lookup", fake):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone ; Casino")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertIn("Epiphone (brand)", block)
+        self.assertNotIn("Casino", block)                      # le texte lu n'est JAMAIS injecté tel quel
+        info = trace["gatekeeperKnowledge"]
+        self.assertEqual(info["fiches"], ["manual:vantage", "wd:epiphone"])
+        self.assertEqual(info["viaPhoto"], ["wd:epiphone"])
+        self.assertEqual(info["photoText"], "Epiphone ; Casino")
+        texts, fuzzy = fake.calls[0]
+        self.assertEqual(texts[2], "Epiphone ; Casino")
+        self.assertEqual(fuzzy, (0, 2))                         # fautes de lecture tolérées sur le texte des photos
+
+    def test_photo_text_is_traced_even_when_no_fiche_matches(self):
+        self._enabled(fiches=[])
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Zzzz")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertEqual(block, "")
+        self.assertEqual(trace["gatekeeperKnowledge"]["photoText"], "Zzzz")
+        self.assertEqual(trace["gatekeeperKnowledge"]["fiches"], [])
+
+    def test_photo_read_is_skipped_without_photos_or_when_the_local_provider_is_paused(self):
+        self._enabled()
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone")
+            self.analyzer._t1_knowledge(_listing(), images=[])
+            self.analyzer._t1_knowledge(_listing())
+            self.analyzer._t1_read_photo_text.assert_not_called()
+            for _ in range(3):
+                t1_circuit_breaker.record_failure("local", 3, 600)
+            self.analyzer._t1_knowledge(_listing(), images=["img"])
+            self.analyzer._t1_read_photo_text.assert_not_called()
+
+    def test_failed_photo_read_falls_back_to_the_title_and_description_search(self):
+        self._enabled()
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertIn("Vantage (brand)", block)
+        self.assertEqual(trace, {"gatekeeperKnowledge": {"version": 5, "fiches": ["manual:vantage"], "matched": ["vantage"]}})
+
+    def test_photo_read_never_raises_and_returns_empty_on_error(self):
+        self.analyzer._call_openai_compatible_json = MagicMock(return_value=(None, "timeout"))
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "")
+        self.analyzer._call_openai_compatible_json = MagicMock(side_effect=RuntimeError("boom"))
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "")
+        self.assertEqual(self.analyzer._t1_read_photo_text([]), "")
+
+    def test_photo_read_calls_the_local_model_with_the_strict_schema_and_cleans_the_answer(self):
+        self.analyzer._call_openai_compatible_json = MagicMock(
+            return_value=({"visible_text": ["Epiphone", " epiphone ", "N/A", "Casino"]}, None))
+        self.analyzer._fit_t1_local_images = MagicMock(side_effect=lambda prompt, images: images)
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "Epiphone ; Casino")
+        kwargs = self.analyzer._call_openai_compatible_json.call_args.kwargs
+        self.assertEqual(kwargs["action"], "t1_photo_text")
+        self.assertEqual(kwargs["provider_label"], "local")
+        self.assertEqual(kwargs["response_format"]["json_schema"]["name"], "t1_photo_text")
+
     def test_full_analysis_without_the_switch_stores_no_trace(self):
         self.analyzer._call_t1_provider = MagicMock(return_value=({"status": "REJECTED", "reason": "x"}, None))
         result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
