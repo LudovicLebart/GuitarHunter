@@ -257,5 +257,28 @@ class TestPortierArmAndOcrCheck(unittest.TestCase):
         self.assertEqual(rp.analyze_ocr(plan, lines)["verdict"], "LECTURE SUFFISANTE")
 
 
+class TestCaseMode(unittest.TestCase):
+    def test_case_stage_runs_every_arm_without_screening(self):
+        plan = {"listings": [{"id": "g1", "stratum": "A", "kb_with": ["k1"], "kb_photo": ["k1", "k2"]}]}
+        ocr = {"g1": {"photo_text": "x", "kb_portier": ["k1", "k2"], "error": None}}
+        jobs = rp.jobs_for(plan, [], "case", 5, 3, 3, ocr=ocr)
+        self.assertEqual({j[2] for j in jobs}, {"without", "with", "photo", "portier"})
+        self.assertEqual(len(jobs), 12)
+        self.assertTrue(all(j[4] == "case" for j in jobs))
+
+    def test_case_stage_skips_arms_identical_to_without(self):
+        plan = {"listings": [{"id": "g1", "stratum": "A", "kb_with": [], "kb_photo": []}]}
+        jobs = rp.jobs_for(plan, [], "case", 5, 2, 2)
+        self.assertEqual({j[2] for j in jobs}, {"without"})
+
+    def test_case_report_counts_rejections_per_arm(self):
+        rows = [{"id": "g1", "arm": "without", "stage": "case", "verdict": "REJECTED", "rejected": True, "kb_ids": []}] * 4 + \
+               [{"id": "g1", "arm": "without", "stage": "case", "verdict": "GOOD_DEAL", "rejected": False, "kb_ids": []}] + \
+               [{"id": "g1", "arm": "with", "stage": "case", "verdict": "GOOD_DEAL", "rejected": False, "kb_ids": ["k1"]}] * 5
+        rep = rp.case_report(rows)["g1"]
+        self.assertEqual((rep["without"]["rejected"], rep["without"]["n"]), (4, 5))
+        self.assertEqual((rep["with"]["rejected"], rep["with"]["n"]), (0, 5))
+
+
 if __name__ == "__main__":
     unittest.main()

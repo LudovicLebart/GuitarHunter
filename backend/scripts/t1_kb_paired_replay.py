@@ -34,6 +34,16 @@ Sous-commandes (sur le serveur, `export DATABASE_URL=...`, Dell allumé ; ces sc
         --plan kb_plan.json --results kb_paired.jsonl --ocr kb_ocr.jsonl --stage eval    > kb_eval.log 2>&1 &
   python -m backend.scripts.t1_kb_paired_replay report --plan kb_plan.json --results kb_paired.jsonl
 
+Mode « cas précis » (2026-10-15 : vérifier qu'une annonce connue, ex. la Guerilla 7 cordes, n'est plus rejetée à tort) :
+
+  python -m backend.scripts.t1_kb_paired_replay plan --only-ids ID --out kb_case.json
+  QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 python -u -m backend.scripts.t1_kb_paired_replay ocr --plan kb_case.json --ocr kb_case_ocr.jsonl
+  QWEN_LOCAL_MAX_IMAGES=8 QWEN_LOCAL_FIT_BUDGET=1 python -u -m backend.scripts.t1_kb_paired_replay run --stage case --reps-a 10 \\
+        --plan kb_case.json --results kb_case.jsonl --ocr kb_case_ocr.jsonl
+  python -m backend.scripts.t1_kb_paired_replay case-report --results kb_case.jsonl
+
+Un cas montre que la fiche CORRIGE une erreur ; il ne mesure pas les dégâts ailleurs (strate B).
+
 `run` est REPRENABLE (relancer la même commande après une coupure : les appels déjà faits sont sautés). 0 $ (Dell).
 Les fichiers sont dans backend/benchmark/results/ (ignoré par git : le dépôt est public, ils contiennent des ids
 d'annonces) ; ne contiennent ni titres ni liens.
@@ -237,7 +247,7 @@ VERDICT_TEXT = {
 
 
 # ── Plan : choix des annonces ────────────────────────────────────────────────────────────────────────────────────────
-def build_plan(conn, kb_version, gate, n_b, max_a, seed, exclude_ids=()):
+def build_plan(conn, kb_version, gate, n_b, max_a, seed, exclude_ids=(), only_ids=()):
     from backend import guitar_knowledge as gk
     from backend.scripts.compare_knowledge_effect import reference_rejected
     from config import T1_KNOWLEDGE_MAX_FICHES
@@ -247,8 +257,9 @@ def build_plan(conn, kb_version, gate, n_b, max_a, seed, exclude_ids=()):
         SELECT gd.id, gd.title, gd.description, gd.ai_analysis_raw, gd.initial_verdict, gd.verdict AS final_verdict
         FROM guitar_deals gd
         WHERE gd.id <> ALL(%s)
-          AND (gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL OR gd.initial_verdict IS NOT NULL)
-        ORDER BY gd.id""", (list(exclude_ids),)).fetchall()
+          AND (%s OR gd.id = ANY(%s) OR gd.ai_analysis_raw ->> 'gatekeeperVerdict' IS NOT NULL OR gd.initial_verdict IS NOT NULL)
+          AND (NOT %s OR gd.id = ANY(%s))
+        ORDER BY gd.id""", (list(exclude_ids), bool(only_ids), list(only_ids), bool(only_ids), list(only_ids))).fetchall()
     a, b = [], []
     for r in rows:
         ai = r["ai_analysis_raw"]
@@ -262,7 +273,9 @@ def build_plan(conn, kb_version, gate, n_b, max_a, seed, exclude_ids=()):
         item = {"id": r["id"], "kb_with": [f["id"] for f in with_fiches], "kb_photo": [f["id"] for f in photo_fiches]}
         # A : une fiche par le texte OU par la photo (la marque n'est souvent que sur la tête de manche) ;
         # B : une fiche par le texte (seul bras comparé, sinon le prompt est identique et il n'y a rien à mesurer).
-        if is_rejected(r["initial_verdict"]) and final_ok and (with_fiches or photo_fiches):
+        if only_ids:                                   # mode « cas précis » : annonces demandées, sans condition de strate
+            a.append({**item, "stratum": "A"})
+        elif is_rejected(r["initial_verdict"]) and final_ok and (with_fiches or photo_fiches):
             a.append({**item, "stratum": "A"})
         elif (with_fiches and ai.get("gatekeeperVerdict") and not is_rejected(ai.get("gatekeeperVerdict")) and final_ok
               and not is_rejected(r["initial_verdict"])):
@@ -322,6 +335,21 @@ def jobs_for(plan, results, stage, reps_screen, reps_a, reps_b, ocr=None):
             if l["stratum"] == "A":
                 for rep in range(reps_screen):
                     jobs.append((l["id"], "A", "without", rep, "screen"))
+    elif stage == "case":
+        for l in plan["listings"]:
+            for rep in range(reps_a):
+                order = list(ARMS_A)
+                random.Random(f"{l['id']}:{rep}").shuffle(order)
+                for arm in order:
+                    if arm == "photo" and l["kb_photo"] == l["kb_with"]:
+                        continue
+                    if arm == "with" and not l["kb_with"]:
+                        continue
+                    if arm == "portier":
+                        read = (ocr or {}).get(l["id"])
+                        if not read or not read["kb_portier"] or read["kb_portier"] == l["kb_with"]:
+                            continue
+                    jobs.append((l["id"], l["stratum"], arm, rep, "case"))
     else:
         a_ids = select_screened(results, [i for i, l in listings.items() if l["stratum"] == "A"])
         for lid in a_ids + [i for i, l in listings.items() if l["stratum"] == "B"]:
@@ -428,6 +456,38 @@ def run(args):
             print(f"[{n}/{len(jobs)}] {lid} {arm} #{rep} → {verdict or 'ÉCHEC'} ({latency}s)", flush=True)
             if consecutive_failures >= 8:
                 raise SystemExit("8 échecs de suite : le Dell répond-il ? (ollama ps) Relancer la même commande pour reprendre.")
+
+
+def case_report(results):
+    """Taux de rejet par annonce et par bras pour les appels de l'étape `case` (fonction pure, testée)."""
+    by = defaultdict(lambda: defaultdict(list))
+    for r in results:
+        if r.get("stage") == "case" and r.get("verdict"):
+            by[r["id"]][r["arm"]].append(r)
+    out = {}
+    for lid, arms in by.items():
+        out[lid] = {arm: {"n": len(rows), "rejected": sum(1 for x in rows if x["rejected"]),
+                          "verdicts": dict(sorted(_count(x["verdict"] for x in rows).items())),
+                          "kb_ids": rows[-1].get("kb_ids", [])} for arm, rows in arms.items()}
+    return out
+
+
+def _count(items):
+    c = defaultdict(int)
+    for i in items:
+        c[i] += 1
+    return c
+
+
+def print_case_report(rep):
+    for lid, arms in rep.items():
+        print(f"\nAnnonce {lid}")
+        for arm in ("without", "with", "photo", "portier"):
+            if arm in arms:
+                a = arms[arm]
+                print(f"  {arm:8s}: rejetée {a['rejected']}/{a['n']} fois   verdicts {a['verdicts']}   fiches {len(a['kb_ids'])}")
+    print("\n(Lecture : si « without » rejette souvent et que « with »/« portier » rejettent peu, la fiche corrige l'erreur. "
+          "Un cas ne mesure pas les dégâts ailleurs : voir la strate B.)")
 
 
 # ── Lecture des photos par le Portier : exécution et contrôle ─────────────────────────────────────────────────────────
@@ -560,11 +620,12 @@ def main(argv=None):
     p.add_argument("--max-a", type=int, default=DEFAULTS["max_a"])
     p.add_argument("--seed", type=int, default=DEFAULTS["seed"])
     p.add_argument("--exclude-ids", default="")
+    p.add_argument("--only-ids", default="", help="mode « cas précis » : ids séparés par des virgules (plan = ces annonces seulement)")
     r = sub.add_parser("run", help="rejoue les annonces du plan (reprenable)")
     r.add_argument("--plan", default="kb_plan.json")
     r.add_argument("--results", default="kb_paired.jsonl")
     r.add_argument("--ocr", default="kb_ocr.jsonl", help="lectures du Portier (bras « portier ») ; absent = bras sauté")
-    r.add_argument("--stage", choices=("screen", "eval"), required=True)
+    r.add_argument("--stage", choices=("screen", "eval", "case"), required=True)
     r.add_argument("--screen-reps", type=int, default=DEFAULTS["screen_reps"])
     r.add_argument("--reps-a", type=int, default=DEFAULTS["reps_a"])
     r.add_argument("--reps-b", type=int, default=DEFAULTS["reps_b"])
@@ -578,6 +639,8 @@ def main(argv=None):
     c = sub.add_parser("ocr-check", help="contrôle de la lecture (seuil fixé d'avance), aucun appel IA")
     c.add_argument("--plan", default="kb_plan.json")
     c.add_argument("--ocr", default="kb_ocr.jsonl")
+    k = sub.add_parser("case-report", help="taux de rejet par bras pour l'étape `case` (aucun appel IA)")
+    k.add_argument("--results", default="kb_paired.jsonl")
     q = sub.add_parser("report", help="analyse (aucun appel IA)")
     q.add_argument("--plan", default="kb_plan.json")
     q.add_argument("--results", default="kb_paired.jsonl")
@@ -593,11 +656,19 @@ def main(argv=None):
         with psycopg.connect(dsn, row_factory=dict_row) as conn:
             conn.read_only = True
             plan = build_plan(conn, args.kb_version, args.gate == "strict", args.n_b, args.max_a, args.seed,
-                              [x for x in args.exclude_ids.split(",") if x.strip()])
+                              [x for x in args.exclude_ids.split(",") if x.strip()],
+                              [x.strip() for x in args.only_ids.split(",") if x.strip()])
         os.makedirs(results_dir, exist_ok=True)
         with open(os.path.join(results_dir, args.out), "w", encoding="utf-8") as fh:
             json.dump(plan, fh, indent=1)
         n_a = sum(1 for l in plan["listings"] if l["stratum"] == "A")
+        if args.only_ids:
+            found = {l["id"] for l in plan["listings"]}
+            missing = [x.strip() for x in args.only_ids.split(",") if x.strip() and x.strip() not in found]
+            print(f"Plan « cas précis » écrit : {len(found)} annonce(s)" + (f" ; INTROUVABLE(S) : {missing}" if missing else "") + ".")
+            for l in plan["listings"]:
+                print(f"  {l['id']} : fiches par titre+description {len(l['kb_with'])}, avec le texte lu par l'Expert {len(l['kb_photo'])}")
+            return
         print(f"Plan écrit : {n_a} annonce(s) en A, {len(plan['listings']) - n_a} en B ; base v{plan['meta']['kb_version']}, "
               f"porte {'active' if plan['meta']['review_gate'] else 'éteinte'}.")
         if n_a < MIN_A_LISTINGS:
@@ -605,6 +676,8 @@ def main(argv=None):
                   f"Relire plus de fiches (knowledge_gate_report) ou essayer --gate none.")
     elif args.cmd == "run":
         run(args)
+    elif args.cmd == "case-report":
+        print_case_report(case_report(load_results(os.path.join(results_dir, args.results))))
     elif args.cmd == "ocr":
         run_ocr(args)
     elif args.cmd == "ocr-check":
