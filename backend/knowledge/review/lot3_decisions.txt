@@ -1,0 +1,241 @@
+# Lot 3 : 80 fiches vérifiées sur le web (2026-10-15). A = approuver, R = rejeter, ? = douteuse (ignorée à l'application).
+
+#1  wd:Q99902121  |  Kent (guitar)  (brand)
+DECISION: A Kent : marque de guitares (distributeur new-yorkais Buegeleisen & Jacobson, années 1960-70, fabriquée par Hagström/Teisco/Guyatone/Kawai/Matsumoku) ; web 2026-10-15 (Wikipédia, Premier Guitar). Nom commun : surveiller les homonymes
+
+#2  wd:Q5204433  |  Diamond Guitars  (company)
+DECISION: A Diamond Guitars : fabricant américain (Muncie, Indiana, Dean Zelinsky) ; web 2026-10-15 (Wikipédia, diamondguitars.com). Ne pas confondre avec les acoustiques néerlandaises Diamond Guitars
+
+#3  wd:Q3565278  |  Wal  (company)
+DECISION: A Wal : basses électriques britanniques (Ian Waller, Pete Stevens, 1974, High Wycombe) ; web 2026-10-15 (Wikipédia, Vintage Guitar)
+
+#4  wd:Q7582266  |  Squier Telecaster Custom  (line)
+DECISION: R modèle Squier sans marque mère ; l'alias « Telecaster Custom » risque d'attacher cette fiche à la Fender Telecaster Custom ; web 2026-10-15
+
+#5  wd:Q16155942  |  1930 Gibson Marshall Special  (line)
+DECISION: R instrument historique unique (Gibson 1930), pas une marque ni un modèle courant
+
+#6  wd:Q111939881  |  America Sejung Corporation  (company)
+DECISION: A America Sejung : distributeur américain (Californie, 2002-2013) des guitares S101 et Canvas, filiale du coréen Sejung ; web 2026-10-15 (Wikipédia)
+
+#7  wd:Q3615495  |  Andrea Ballarin  (luthier)
+DECISION: A Andrea Ballarin : luthier italien, atelier Manne Guitars ; web 2026-10-15 (Reverb, The Guitar Channel)
+
+#8  wd:Q4867891  |  BassLab  (company)
+DECISION: A BassLab : basses et guitares en matériau composite, Kassel (Allemagne), Heiko Hoepfinger ; web 2026-10-15 (Wikipédia, No Treble)
+
+#9  wd:Q4887529  |  Beneteau Guitars  (company)
+DECISION: A Beneteau Guitars : guitares acoustiques de Marc Beneteau, Ontario (Canada), depuis 1974 ; web 2026-10-15 (Wikipédia, Fretboard Journal)
+
+#10  wd:Q4974352  |  Brook Mays  (company)
+DECISION: R détaillant d'instruments (Dallas), pas un fabricant de guitares
+
+#11  wd:Q140523766  |  Brun Guitars  (company)
+DECISION: R entreprise française de 2023 (lutherie et formation en ligne), introuvable hors Wikidata ; homonyme possible de J.M. Brun (jazz manouche) ; web 2026-10-15
+
+#12  wd:Q3645948  |  Bruno Traverso  (luthier)
+DECISION: ? aucune source trouvée sur ce luthier ; web 2026-10-15
+
+#13  wd:Q65091136  |  Bunker Touch Guitar  (line)
+DECISION: A Bunker Touch Guitar : guitare « touch » à double manche de Dave Bunker (Duo'Lectar 1955, États-Unis) ; web 2026-10-15 (Wikipédia, HistoryLink)
+
+#14  wd:Q5027989  |  Campbell American Guitars  (company)
+DECISION: A Campbell American Guitars : guitares électriques (Transitone, Space Biscuit), Massachusetts / Rhode Island, depuis 2002 ; web 2026-10-15 (Wikipédia, Premier Guitar)
+
+#15  wd:Q27031830  |  Chesbro Music Company  (company)
+DECISION: R grossiste/fabricant d'instruments divers (Idaho), hors périmètre guitares ; web 2026-10-15
+
+#16  wd:Q2966345  |  Christophe Leduc  (luthier)
+DECISION: ? une marque « Leduc » existe (modèles D2/D3, Audiofanzine) mais rien ne relie clairement Christophe Leduc ; web 2026-10-15
+
+#17  wd:Q48767805  |  Claas Guitars  (line)
+DECISION: A Claas Guitars : guitares et basses allemandes (NAMM 2018, Musikmesse 2015) ; web 2026-10-15 (Bonedo, The Music Zoo)
+
+#18  wd:Q1102717  |  Clover  (brand)
+DECISION: R marque générique sans description ni source, nom commun risqué ; web 2026-10-15
+
+#19  wd:Q5184612  |  Creston Electric Instruments  (company)
+DECISION: A Creston Electric Instruments : guitares et basses électriques, Burlington (Vermont, États-Unis), Creston Lea, 2004 ; web 2026-10-15 (Wikipédia, Fretboard Journal)
+
+#20  wd:Q3698746  |  Crucianelli  (company)
+DECISION: R fabricant d'accordéons (Italie), pas de guitares
+
+#21  wd:Q5215871  |  Danelectro Amp-in-case  (company)
+DECISION: A Danelectro Amp-in-case : guitare Danelectro livrée avec ampli dans l'étui (années 1960) ; produit de la marque Danelectro
+
+#22  wd:Q5215872  |  Danelectro C  (company)
+DECISION: R alias « C » trop court et ambigu ; premiers instruments Danelectro, pas une fiche utile
+
+#23  wd:Q3014123  |  Daniel Groleau  (luthier)
+DECISION: A Daniel Groleau : luthier québécois (Gaspésie, L'Anse-à-Beaufils), guitares électriques Groleau ; web 2026-10-15 (Wikipédia FR)
+
+#24  wd:Q5246520  |  Dean VMNT  (company)
+DECISION: A Dean VMNT (Vengeance) : guitare signature Dave Mustaine chez Dean, depuis 2007, dérivée de la King V ; web 2026-10-15 (Wikipédia)
+
+#25  wd:Q3713642  |  Donald Randall  (luthier)
+DECISION: R Don Randall était dirigeant commercial de Fender, pas luthier ; web 2026-10-15 (Wikipédia, NAMM)
+
+#26  wd:Q15806909  |  Dynacord  (brand)
+DECISION: R Dynacord : sonorisation et amplis allemands, pas fabricant de guitares
+
+#27  wd:Q5358125  |  Electromuse  (company)
+DECISION: A Electromuse : fabricant américain (années 1940-50) de lap steels et guitares ; web 2026-10-15 (Wikipédia, Retrofret)
+
+#28  wd:Q5383142  |  Epiphone 5102T / EA-250  (company)
+DECISION: A Epiphone 5102T / EA-250 : archtop électrique Epiphone fabriquée au Japon par Matsumoku (1970-1975) ; web 2026-10-15 (Wikipédia, Reverb)
+
+#29  wd:Q5324399  |  ES Guitars  (company)
+DECISION: A ES Guitars : guitares et basses métal américaines (New York / Connecticut), 2003-2015, Giuseppe Coppola ; web 2026-10-15 (Wikipédia)
+
+#30  wd:Q17089695  |  Fibenare Guitars Co.  (company)
+DECISION: A Fibenare Guitars : luthier de Budapest (Hongrie), guitares depuis 1998 ; web 2026-10-15 (Wikipédia, Premier Guitar)
+
+#31  wd:Q390953  |  Frankenstrat  (line)
+DECISION: A Frankenstrat : guitare d'Eddie Van Halen (1977-1981), nom aussi utilisé pour les copies/assemblages de ce style ; web 2026-10-15 (Wikipédia)
+
+#32  wd:Q1271817  |  Fresher  (brand)
+DECISION: A Fresher : guitares japonaises (Kyowa, Nagoya, 1973-1985, fabriquées par Matsumoku/Chushin Gakki), effets intégrés ; web 2026-10-15 (Vintage Guitar, Wikipédia)
+
+#33  wd:Q5517950  |  Galanti  (company)
+DECISION: A Galanti : fabricant italien (Mondaino), guitares électriques années 1959-1968 ; web 2026-10-15 (Wikipédia, Retrofret)
+
+#34  wd:Q26254219  |  Gennaro Fabbricatore  (luthier)
+DECISION: A Gennaro Fabbricatore : luthier napolitain (guitares vers 1812-1830) ; web 2026-10-15 (Bromptons, 12th Fret)
+
+#35  wd:Q5616819  |  Guitar and Lute Workshop  (company)
+DECISION: A Guitar and Lute Workshop : atelier de Honolulu (Hawaï), guitares, ukulélés et luths, 1970-1976 ; web 2026-10-15 (Wikipédia)
+
+#36  wd:Q140574331  |  Hartwood  (brand)
+DECISION: A Hartwood : marque maison britannique de Gear4music (guitares, basses, amplis), lancée en 2018 ; web 2026-10-15 (Wikipédia)
+
+#37  wd:Q11548340  |  Hiroshi Mizuhara  (luthier)
+DECISION: ? aucune source trouvée (les résultats sont d'autres luthiers japonais, Komori/Tamura) ; web 2026-10-15
+
+#38  wd:Q3142276  |  Hugh Manson  (luthier)
+DECISION: A Hugh Manson : luthier britannique, Manson Guitar Works (Exeter), guitares de Muse ; web 2026-10-15 (MusicRadar, site Manson)
+
+#39  wd:Q17193809  |  InnerWood  (company)
+DECISION: A InnerWood : atelier de basses de Chōfu (Tokyo), 1985, fabrication arrêtée en 2020 ; web 2026-10-15 (Weblio)
+
+#40  wd:Q113168134  |  Instruments of Africa  (company)
+DECISION: A Instruments of Africa : fabricant de guitares électriques africaines (Ghana) ; web 2026-10-15 (Wikipédia, Starr FM)
+
+#41  wd:Q3808375  |  Jim Reed  (luthier)
+DECISION: A Jim Reed Guitars : luthier/fabricant italien de guitares, basses et amplis (Fuzzycaster) ; web 2026-10-15 (Audiofanzine, Equipboard)
+
+#42  wd:Q84761149  |  Joachim Schneider & Söhne  (line)
+DECISION: A Joachim Schneider & Söhne : luthiers allemands de guitares classiques (Markneukirchen) ; web 2026-10-15 (Siccas Guitars)
+
+#43  wd:Q17092917  |  Joseph Lukes Guitars  (company)
+DECISION: A Joseph Lukes Guitars : luthier britannique (South Croydon), guitares acoustiques, depuis 2011 ; web 2026-10-15 (Wikipédia, Inside Croydon)
+
+#44  wd:Q6330356  |  KHS Musical Instruments  (company)
+DECISION: R KHS (Taïwan) : surtout instruments à vent Jupiter, cœur de métier hors guitares ; web 2026-10-15 (Wikipédia)
+
+#45  wd:Q6332177  |  KKV guitar  (line)
+DECISION: A KKV : guitare V signature Kerry King (B.C. Rich) ; web 2026-10-15 (Wikipédia, Reverb)
+
+#46  wd:Q61951452  |  KODAIRA  (company)
+DECISION: A Kodaira (Eichi Kodaira) : guitares classiques japonaises, marque Asturias ; web 2026-10-15 (Reverb, Vintage and Rare)
+
+#47  wd:Q110129781  |  Lava Music  (company)
+DECISION: A Lava Music : guitares intelligentes en fibre de carbone (Lava Me), Chine ; web 2026-10-15 (Wikipédia, MusicTech, Guitar World)
+
+#48  wd:Q66439845  |  Musik-Klein  (company)
+DECISION: R Musikhaus Klein (Allemagne) : commerce d'instruments, pas de fabricant de guitares établi ; web 2026-10-15
+
+#49  wd:Q107412067  |  NAMBUギター工房tupli  (company)
+DECISION: ? atelier japonais (tupli) introuvable en dehors de Wikidata ; web 2026-10-15
+
+#50  wd:Q12331215  |  Peders  (company)
+DECISION: ? Peders : marque finlandaise annoncée par Wikidata, aucune source indépendante trouvée ; web 2026-10-15
+
+#51  wd:Q3379766  |  Philippe Dubreuille  (luthier)
+DECISION: A Philippe Dubreuille : luthier né à Paris et installé à Londres (Denmark Street), guitares sur mesure (Philgood) ; web 2026-10-15 (Vintage and Rare)
+
+#52  wd:Q7352440  |  Robin Guitars  (company)
+DECISION: A Robin Guitars : fabricant texan de guitares et basses (1982-2001), PAS une marque de micros comme le dit la description Wikidata ; web 2026-10-15 (Wikipédia, Vintage Guitar)
+
+#53  wd:Q72011988  |  Sacha Dunable  (luthier)
+DECISION: A Sacha Dunable : luthier américain, fondateur de Dunable Guitars ; web 2026-10-15 (Guitar World, Andertons)
+
+#54  wd:Q50349243  |  Schagerl Music  (company)
+DECISION: R Schagerl : instruments à vent en cuivre (Autriche), pas de guitares
+
+#55  wd:Q130731436  |  Scipio Guitars  (company)
+DECISION: A Scipio Guitars : guitares de Flip Scipio, luthier néerlandais installé à Martha's Vineyard ; web 2026-10-15 (Wikipédia, Fretboard Journal)
+
+#56  wd:Q658492  |  Slingerland Drum Company  (company)
+DECISION: R Slingerland : batteries, pas de guitares
+
+#57  wd:Q7545121  |  Smith Custom Amplifiers  (company)
+DECISION: R Smith Custom Amplifiers : amplis, pas de guitares
+
+#58  wd:Q7576342  |  Speranski  (company)
+DECISION: R marque de mandolines, hors périmètre
+
+#59  wd:Q17062865  |  Staccato  (company)
+DECISION: R entreprise d'instruments non identifiée, aucune source ; web 2026-10-15
+
+#60  wd:Q7602224  |  Starr Labs  (company)
+DECISION: A Starr Labs : contrôleurs MIDI en forme de guitare (Ztar), États-Unis, 1986 ; cas marginal ; web 2026-10-15 (Wikipédia, Starr Labs)
+
+#61  wd:Q3504123  |  Super Champ XD  (company)
+DECISION: R Fender Super Champ XD : ampli, pas une guitare
+
+#62  wd:Q16259070  |  Supersound Guitars  (company)
+DECISION: R Supersound = amplis et guitares britanniques de Jim Burns (années 1960), nom trop générique et ambigu ; web 2026-10-15 (Wikipédia)
+
+#63  wd:Q11648468  |  Suzuki Violin  (company)
+DECISION: A Suzuki Violin : fabricant japonais (1930) qui a aussi produit des guitares (Takeharu, Suzuki folk, années 1970) ; web 2026-10-15 (Equipboard, Catawiki)
+
+#64  wd:Q3460308  |  SWR Sound Corporation  (company)
+DECISION: R SWR : amplis de basse, pas des guitares
+
+#65  wd:Q3513712  |  Tadeo Gomez  (luthier)
+DECISION: A Tadeo Gomez (1902-1986) : artisan Fender des années 1950 (Fullerton, Californie), il signait ses manches ; web 2026-10-15 (Wikipédia, Guitar.com)
+
+#66  wd:Q11248073  |  TAKEHARU GUITAR  (company)
+DECISION: A Takeharu : guitares japonaises des années 1970 fabriquées par Suzuki Violin ; web 2026-10-15 (Vintage and Rare, Equipboard)
+
+#67  wd:Q17217957  |  Terry's Terry  (line)
+DECISION: A Terry's Terry : guitares du concepteur japonais Terry Nakamoto (TC Gakki) ; web 2026-10-15 (TC Gakki, Shimamura)
+
+#68  wd:Q28691746  |  Thaki  (company)
+DECISION: ? Thaki : marque canadienne annoncée par Wikidata, rien trouvé ; web 2026-10-15
+
+#69  wd:Q17216924  |  TMC  (company)
+DECISION: R TMC : sigle trop court et ambigu, société de négoce japonaise
+
+#70  wd:Q132156664  |  Tom Murphy  (luthier)
+DECISION: A Tom Murphy : luthier américain, Gibson Custom Shop et Murphy Lab (guitares vieillies) ; web 2026-10-15 (Wikipédia, Guitar World)
+
+#71  wd:Q7820731  |  Tonante  (company)
+DECISION: A Tonante : fabricant brésilien (1954) de guitares, banjos et cavaquinhos ; web 2026-10-15 (Wikipédia)
+
+#72  wd:Q39087471  |  Tone-Lok  (company)
+DECISION: R Tone-Lok est une gamme de pédales d'effets Ibanez (1999), pas un fabricant de guitares ; web 2026-10-15 (Wikipédia)
+
+#73  wd:Q7831085  |  Traben Bass Company  (company)
+DECISION: A Traben Bass Company : fabricant de basses électriques (Chaos, Element) ; web 2026-10-15 (Wikipédia, Audiofanzine)
+
+#74  wd:Q11250240  |  Tune Guitar Maniac  (company)
+DECISION: A Tune Guitar Maniac : marque japonaise de basses et guitares Tune (Tune Guitar Technology) ; web 2026-10-15 (Equipboard, Ishibashi)
+
+#75  wd:Q2748923  |  Vestax  (company)
+DECISION: R Vestax : matériel DJ, pas de guitares
+
+#76  wd:Q65236730  |  アストリアスギター製造  (company)
+DECISION: A Asturias : fabricant japonais de guitares classiques et acoustiques, marque Asturias/Kodaira ; web 2026-10-15 (Shimamura, Delcamp). Alias non latin : ne sera servie que par un alias latin
+
+#77  wd:Q109364598  |  ギター工房S&C  (company)
+DECISION: ? atelier japonais (S&C) introuvable ; web 2026-10-15
+
+#78  wd:Q11315592  |  ゾディアック・ワークス  (company)
+DECISION: A Zodiac Works : fabricant japonais de guitares électriques (Zodiac, TC Hotei, Re-viv) ; web 2026-10-15 (Ikebe, Guitar List). Alias non latin
+
+#79  wd:Q11320268  |  デイズコーポレーション  (company)
+DECISION: ? Days Corporation : entreprise japonaise non identifiée, aucune source ; web 2026-10-15
+
+#80  wd:Q24869923  |  モリダイラ楽器  (company)
+DECISION: A Moridaira : fabricant japonais (Morris, 1965) ; web 2026-10-15 (Reverb, Blue Book). Alias non latin
