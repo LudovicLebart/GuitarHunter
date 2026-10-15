@@ -52,12 +52,10 @@ milieu du manche).
 
 ### 3. Corriger le relief au truss rod
 
-- Serrer (sens horaire, vu depuis l'écrou) : redresse le manche, diminue le relief.
+- Serrer (sens horaire) : diminue le relief.
 - Desserrer (sens antihoraire) : augmente le relief.
 
-Procéder par **quart de tour**, laisser le manche se stabiliser quelques minutes (idéalement
-quelques heures pour un gros changement), puis remesurer. Ne pas dépasser un tour complet sans
-raison.
+Procédure complète, précautions et pièges : fiche [Ajuster le truss rod](reglage-truss-rod.md).
 
 ### 4. Vérifier le sillet
 
@@ -118,3 +116,4 @@ la corriger si besoin au chevalet.
 | Date | Changement |
 |------|------------|
 | 2026-10-15 | Création du brouillon : trame générale et valeurs indicatives, à confirmer |
+| 2026-10-15 | Truss rod déplacé dans sa propre fiche ; l'étape 3 ne garde que le sens de rotation et un lien |
