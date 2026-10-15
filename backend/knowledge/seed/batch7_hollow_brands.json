@@ -1,0 +1,246 @@
+{
+ "entries": [
+  {
+   "patch": "wd:Q901268",
+   "tier": "entry",
+   "hunt_notes": "Squier = marque économique de Fender. Le nom vient de V.C. Squier (cordes, Battle Creek, 1890), racheté par Fender en 1965. Les guitares Squier datent de 1982 (août) : d'abord fabriquées au Japon (FujiGen), puis déplacées vers la Corée, la Chine, l'Indonésie et l'Inde. Marque de gamme inférieure à Fender (prix plus bas).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Squier",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Squier",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Squier est la marque à bas prix de Fender, relancée en 1982 ; premiers modèles faits au Japon, puis Corée, Chine, Indonésie ; la Squier Company a été rachetée par Fender début 1965."
+    },
+    {
+     "url": "https://guitarinsite.nl/squier-history/",
+     "publisher": "Guitar in Site",
+     "kind": "collector",
+     "title": "Squier History",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Production has also been relocated from Japan to various other Asian countries such as Korea, China, Indonesia, and India."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q562280",
+   "hunt_notes": "Cort (Corée du Sud, Séoul) : a commencé comme importateur de pianos (1960), fabrique des guitares depuis 1973 et vend sous son nom depuis 1982. Surtout sous-traitant : elle a produit pour Ibanez, PRS (série SE), Squier, G&L (Tribute), Hohner et Kramer. Usines en Corée, Indonésie et Chine. Séries M et MMP (petites séries de 25 à 50 exemplaires par modèle) ; Parkwood est une marque distincte (grandes surfaces).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Cort_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Cort Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Siège à Séoul ; usines en Corée du Sud, Indonésie et Chine ; sous-traitance pour Ibanez, PRS SE, Squier, G&L, Hohner et Kramer ; séries M et MMP ; Parkwood marque séparée depuis 2006."
+    },
+    {
+     "url": "https://neaera.com/korea/",
+     "publisher": "Neaera",
+     "kind": "other",
+     "title": "History of Guitar Making In Korea",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "This got the attention of other big names in the industry and they started contracting Cort to make guitars for them."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q1339598",
+   "hunt_notes": "Peavey Electronics : fondée en 1965 par Hartley Peavey à Meridian (Mississippi, États-Unis). Guitares électriques dont la T-60 (une des premières guitares usinées par commande numérique) et la Wolfgang (Eddie Van Halen, arrêtée en 2004, relancée en 2017 sous le nom HP2). Les guitares américaines précèdent le milieu des années 2000 ; ensuite une partie de la production passe en Asie (Chine). Peavey fait aussi des amplis (Bandit) : vérifier que l'annonce est bien une guitare.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Peavey_Electronics",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Peavey Electronics",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1965 par Hartley Peavey à Meridian (Mississippi) ; Wolfgang conçue avec Eddie Van Halen, arrêtée en 2004, relancée en 2017 (HP2) ; production majoritairement à l'étranger dès 2004."
+    },
+    {
+     "url": "https://www.bonedo.de/artikel/60-jahre-peavey-electronics-von-einer-werkstattidee-zum-weltkonzern/",
+     "publisher": "Bonedo",
+     "kind": "press",
+     "title": "60 Jahre Peavey Electronics",
+     "lang": "de",
+     "license": "copyright",
+     "excerpt": "Die erste Gitarre, die T-60, gilt als eine der ersten industriell per CNC-Technik gefertigten E-Gitarren"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q753863",
+   "hunt_notes": "Epiphone (fondée en 1873 à Smyrne, installée à New York) est la marque économique de Gibson depuis 1957. Fabrication par époque : États-Unis (Kalamazoo) 1957-1969, puis Japon dès 1970 (Matsumoku, FujiGen, Terada ; les Matsumoku sont recherchées), Corée à partir de la fin des années 1970-80, puis Chine et Indonésie. Modèles recherchés : Casino, Texan, Sheraton, Riviera. Le préfixe du numéro de série indique l'usine (ex. SI = Samick Indonésie) ; vernis nitro = fabrication américaine, polyuréthane = hors États-Unis.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Epiphone",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Epiphone",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1873 ; Gibson l'acquiert en 1957 ; Kalamazoo 1957-69, Japon (Matsumoku) début 1970s, Corée fin 1970s-80s, Chine/Indonésie depuis 1997 ; modèles Casino, Texan, Sheraton, Riviera."
+    },
+    {
+     "url": "https://guitarinsite.nl/epiphone-factories/",
+     "publisher": "Guitar in Site",
+     "kind": "collector",
+     "title": "Epiphone Factories",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Epiphone production moved to Japan in 1970."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q320458",
+   "hunt_notes": "Ibanez (Hoshino Gakki, Nagoya, Japon) : la plupart des guitares des années 1970 à la fin des années 1980 sont faites au Japon par FujiGen ; copies de Gibson/Fender avant le procès de 1977 (« lawsuit era »), réglé à l'amiable début 1978, puis modèles originaux (Iceman, Roadstar, RG, S). Production ensuite aussi en Corée, Chine, Indonésie. Gamme : Gio (économique), Premium (Indonésie), Prestige et J Custom (Japon, haut de gamme). Le numéro de série permet de dater (format selon l'époque et l'usine).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Ibanez",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Ibanez",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] FujiGen fabrique l'essentiel des Ibanez des années 1970-80 ; procès Norlin/Gibson de 1977 réglé début 1978 ; Gio (Chine), Premium (Indonésie), Prestige (Japon), J Custom."
+    },
+    {
+     "url": "https://guitarinsite.nl/ibanez-history/",
+     "publisher": "Guitar in Site",
+     "kind": "collector",
+     "title": "Ibanez history",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "For over 50 years, Fujigen has been a partner of Hoshino, building Ibanez electric guitars."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q654180",
+   "hunt_notes": "Aria (Arai & Co., Nagoya, Japon, fondée en 1956). Guitares fabriquées par Matsumoku (Nagano) dès 1964 ; le nom Aria Pro II apparaît à la fin de 1975 (surtout électriques et basses) et partage matériel avec Westone, Electra et certains Washburn. Tout est japonais jusqu'à la fermeture de Matsumoku en 1987, puis production en Corée (Samick). Modèles notables : PE (1977), RS et TS (1979), CS (1981).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Aria_(guitar_company)",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Aria (guitar company)",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1956 par Shiro Arai ; Matsumoku fabrique dès 1964 ; Aria Pro II fin 1975 ; fermeture de Matsumoku en février 1987, puis Samick en Corée."
+    },
+    {
+     "url": "https://tcgakki.com/en/pages/ariaproii-history",
+     "publisher": "TC Gakki",
+     "kind": "other",
+     "title": "Aria ProII history",
+     "lang": "ja",
+     "license": "copyright",
+     "excerpt": "[résumé] En 1975, Aria présente des guitares fabriquées par Matsumoku sous le nom Aria Pro II ; modèles PE (1977), RS et TS (1979), CS (1981)."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q1750599",
+   "hunt_notes": "Takamine (Sakashita/Nakatsugawa, Gifu, Japon), fondée en 1959. Années 1970 : copies de Martin, Guild et Gallagher (« lawsuit era »), vendues « environ un tiers du prix » d'une Martin ; Martin a envoyé une mise en demeure (pas de procès). Exemple : la F-450S de 1978. Palathetic (micro) dès 1978 ; des modèles plus abordables (série G) sont faits hors du Japon.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Takamine_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Takamine Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en décembre 1959 ; têtes carrées inspirées de Martin, mise en demeure sans procès ; micro Palathetic en 1978 ; séries G abordables hors Japon."
+    },
+    {
+     "url": "https://www.premierguitar.com/pro-advice/vintage-vault/takamines-martin-inspired-acoustic",
+     "publisher": "Premier Guitar",
+     "kind": "press",
+     "title": "Takamine's Martin-Inspired Acoustic",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "[résumé] Takamine F-450S 1978 copie de la Martin D-41 ; catalogue 1976 : le son voulu pour environ un tiers du prix ; Martin a envoyé une mise en demeure, aucun procès."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q12059567",
+   "hunt_notes": "Harmony (Chicago, 1892-1975) : très gros fabricant américain de guitares populaires (environ 10 millions entre 1945 et 1975, pic de 350 000 instruments en 1964-65), qui vendait aussi sous d'autres noms de catalogue (ex. Silvertone pour Sears). Modèles recherchés : Stratotone (H44, H47, H49 Jupiter), Rocket (H53), Sovereign, H78, Meteor. Le nom a ensuite servi à des guitares importées et à des relances récentes : à distinguer des Harmony de Chicago d'avant 1975. Valeur généralement bien inférieure aux Gibson/Fender de la même époque.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Harmony_Company",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Harmony Company",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1892 ; vers 10 millions de guitares de 1945 à 1975 ; pic 1964-65 ; cessation en 1975 ; modèles Sovereign, Stratotone, Rocket ; nom relancé plus tard."
+    },
+    {
+     "url": "https://chasingguitars.com/harmony-history/",
+     "publisher": "Chasing Guitars",
+     "kind": "collector",
+     "title": "Harmony history",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "In 1975, the Harmony Guitar Co. in Chicago ceased operations"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q5452251",
+   "tier": "entry",
+   "hunt_notes": "First Act (Boston, États-Unis, fondée en 1995) : guitares d'entrée de gamme vendues en grandes surfaces (Target), plus une petite gamme artisanale (atelier de luthier de Boston depuis 2002 : modèles Lola, Sheena, Delia, Delgada, Adam Levine). Rachetée par Jazwares en 2016. Les guitares de grande surface valent peu ; les modèles de l'atelier (séries limitées) sont beaucoup plus rares et chères.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/First_Act",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "First Act",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1995 à Boston ; guitares d'entrée de gamme en grandes surfaces ; Studio for Artists (modèles Lola, Sheena, Delia) ; acquise par Jazwares en 2016."
+    },
+    {
+     "url": "https://www.premierguitar.com/gear/builder-profile-first-act-custom-shop",
+     "publisher": "Premier Guitar",
+     "kind": "press",
+     "title": "Builder Profile: First Act Custom Shop",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "[résumé] Atelier de luthiers à Boston depuis 2002 ; modèles limités Lola, Sheena, Delia, Delia LS, Delgada ; 6 semaines à 4 mois par guitare."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q2864509",
+   "hunt_notes": "Art & Lutherie : gamme de guitares acoustiques abordables de Godin (Robert Godin, LaSiDo), assemblées au Québec (Princeville) ; tables massives en cèdre ou épinette, fond et éclisses en merisier (cerisier) laminé, vernis semi-brillant. Prix neuf bas (entre 300 et 370 $ pour la Folk Cedar). Marque de la famille Godin, comme Seagull, Simon & Patrick et Norman.",
+   "sources": [
+    {
+     "url": "https://www.referenceforbusiness.com/history2/71/LaSiDo-Inc.html",
+     "publisher": "Reference for Business",
+     "kind": "other",
+     "title": "LaSiDo Inc.",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "On the second floor, Art & Lutherie guitars are assembled."
+    },
+    {
+     "url": "https://jamplay.com/articles/7-reviews/37-the-art-and-lutherie-folk-cedar-black-six-string-guitar",
+     "publisher": "JamPlay",
+     "kind": "press",
+     "title": "The Art and Lutherie Folk Cedar Black Six-String Guitar",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "[résumé] Table en cèdre massif, fond et éclisses en merisier laminé, manche en érable argenté ; prix entre 300 et 370 $ ; fabriquée au Canada."
+    }
+   ]
+  }
+ ]
+}
