@@ -124,7 +124,14 @@ la corriger si besoin au chevalet.
 
 ## Sources et liens
 
-- À compléter avec les références retenues par l'atelier (vidéos, fabricants, fournisseurs).
+- [StewMac : How to adjust the action on an electric guitar](https://stewmac.com/video-and-ideas/online-resources/learn-about-string-action-and-setup/how-to-adjust-action-on-an-electric-guitar) : ordre des réglages et vérification des bourdonnements plutôt qu'un chiffre fixe.
+- [StewMac : How to measure neck relief on a guitar](https://stewmac.com/video-and-ideas/online-resources/neck-building-and-repair-and-setup/neck-relief-gauge-instructions) : mesure du relief au comparateur.
+- [Premier Guitar : Guitar neck relief](https://www.premierguitar.com/diy/guitar-shop-101/guitar-neck-relief) : mesure du relief à la jauge d'épaisseur et valeurs selon le style de jeu.
+- [Martin Guitar : SC13E setup adjustment (PDF)](https://www.martinguitar.com/on/demandware.static/-/Library-Sites-MartinSharedLibrary/default/pdf/sc13e-setup-adjustment.pdf) : spécifications de réglage d'un constructeur d'acoustiques (relief mesuré à la 5e frette).
+
+> Les sources ne donnent pas les mêmes valeurs ni les mêmes points de mesure (relief à la 7e, 8e ou
+> 5e frette selon l'auteur). Se fier d'abord aux spécifications du constructeur de l'instrument.
+> Aucune vidéo n'est encore référencée : à ajouter quand une référence est choisie.
 
 ## Historique des révisions
 
@@ -133,3 +140,4 @@ la corriger si besoin au chevalet.
 | 2026-10-15 | Création du brouillon : trame générale et valeurs indicatives, à confirmer |
 | 2026-10-15 | Truss rod déplacé dans sa propre fiche ; l'étape 3 ne garde que le sens de rotation et un lien |
 | 2026-10-15 | Étape 2 : méthode de mesure détaillée et tableau de diagnostic pour décider d'ajuster ou non le truss rod |
+| 2026-10-15 | Ajout des sources (sites de luthiers et constructeurs) |

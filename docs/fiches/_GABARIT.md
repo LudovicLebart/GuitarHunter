@@ -41,7 +41,7 @@ Description.
 
 ## Sources et liens
 
-- [Titre](https://exemple.com)
+- [Titre](https://exemple.com) : ce que la source explique (au moins un lien de luthier : site ou vidéo)
 
 ## Historique des révisions
 

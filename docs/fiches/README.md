@@ -10,6 +10,8 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 - **En-tête YAML obligatoire** (slug, titre, catégorie, difficulté, durée, statut, révision) : c'est ce
   que le site lira pour lister et lier les fiches.
 - **Images** dans `docs/fiches/img/<slug>/`, nommées `NN-description.jpg`, référencées en chemin relatif.
+- **Sources obligatoires** : chaque fiche cite un ou plusieurs liens (sites ou vidéos de luthiers)
+  expliquant le problème et la marche à suivre ; signaler quand les sources divergent.
 - **Renvois entre fiches** : un sujet qui mérite sa propre procédure devient une fiche à part, citée par
   lien relatif (`[titre](autre-fiche.md)`) ; la fiche appelante ne garde qu'un résumé minimal.
 - **Évolution** : on modifie par petits blocs, on met à jour `revision` et on ajoute une ligne à
