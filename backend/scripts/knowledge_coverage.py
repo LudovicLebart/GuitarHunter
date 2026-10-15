@@ -201,13 +201,15 @@ def load_rows(conn, days=None):
 
 
 def load_kinds(conn):
-    return {r["id"]: r["kind"] for r in conn.execute("SELECT id, kind FROM guitar_knowledge").fetchall()}
+    return {r["id"]: r["kind"] for r in conn.execute(
+        "SELECT id, kind FROM guitar_knowledge WHERE kind = ANY(%s)", (list(gk.BRAND_KINDS),)).fetchall()}
 
 
 def load_accessory_aliases(conn):
     return {r["alias_norm"] for r in conn.execute(
         """SELECT a.alias_norm FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
-           WHERE COALESCE(k.relevance_override, k.relevance) = 'accessories'""").fetchall()}
+           WHERE COALESCE(k.relevance_override, k.relevance) = 'accessories' AND k.kind = ANY(%s)""",
+        (list(gk.BRAND_KINDS),)).fetchall()}
 
 
 def run_analysis(conn, days=None, min_count=2):

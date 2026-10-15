@@ -17,6 +17,7 @@ import re
 import threading
 import time
 import unicodedata
+from urllib.parse import urlparse
 
 _STOP = {  # alias trop génériques pour déclencher une fiche à eux seuls
     "guitar", "guitars", "guitare", "guitares", "bass", "basse", "acoustic", "electric", "music",
@@ -49,12 +50,24 @@ _MIN_FUZZY_LEN = 6          # pas de fuzzy sous 6 caractères (« matin » ≠ �
 _FUZZY_RATIO = 0.88
 _CACHE_TTL_S = 600
 
+# Types de fiches. La base est COMMUNE aux marques et aux fiches techniques de restauration (même alias,
+# mêmes sources, même calcul de confiance) mais chaque lecture ne voit que les types qu'elle demande :
+# une LISTE BLANCHE, pour qu'un oubli ne puisse jamais laisser une fiche de réparation entrer dans le prompt
+# du Portier. `BRAND_KINDS` est la valeur par défaut de toute recherche.
+BRAND_KINDS = ("company", "brand", "line", "factory", "luthier")
+FICHE_KINDS = ("fiche",)
+
+# Un cache PAR jeu de types (la recherche des marques et celle des fiches ont des alias différents).
 # `at` = None tant que rien n'est chargé (ou après `invalidate_cache`) : un cache VIDE mais chargé
 # reste valable jusqu'au TTL (avant : rechargé à chaque appel tant que la table d'alias était vide).
 # `fuzzy` mémorise le résultat de la recherche floue par mot (positif ET négatif) : les mots
 # courants d'une annonce reviennent d'une annonce à l'autre, seul le premier passage coûte.
-_cache = {"at": None, "aliases": {}, "by_len": {}, "fuzzy": {}}
+_caches = {}
 _lock = threading.Lock()
+
+
+def _kinds_key(kinds):
+    return tuple(sorted(kinds or BRAND_KINDS))
 
 
 def normalize(text):
@@ -114,7 +127,10 @@ def effective_version(conn):
         "SELECT COALESCE(MAX(version), 0) AS v FROM guitar_knowledge_versions WHERE validated").fetchone())
 
 
-def _load_aliases(conn):
+def _load_aliases(conn, kinds=BRAND_KINDS):
+    # Seuls les types demandés sont lus (liste blanche, voir BRAND_KINDS). Les règles d'éligibilité ci-dessous
+    # sont celles des MARQUES ; une fiche technique (FICHE_KINDS) n'est pas soumise à la version de la base ni
+    # à la confiance : elle est recherchée telle quelle, son statut et sa confiance étant affichés à l'usage.
     # Éligibilité à l'INJECTION (revue Opus, 2026-09-29) : ni accessoire, ni fiche à source unique, ni personne
     # (luthier) sauf curée, ni entité « unknown » qui ne vient pas d'une catégorie de fabricants (modèles non-guitare,
     # produits Wikidata) sauf curée / écrite à la main, et seulement dans la version choisie.
@@ -122,14 +138,16 @@ def _load_aliases(conn):
     rows = conn.execute(
         """SELECT a.alias_norm, a.knowledge_id
            FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
-           WHERE COALESCE(k.relevance_override, k.relevance) <> 'accessories'
+           WHERE k.kind = ANY(%s)
+             AND (k.kind = ANY(%s) OR (
+                 COALESCE(k.relevance_override, k.relevance) <> 'accessories'
              AND (k.confidence IS NULL OR k.confidence = 'sourced')
              AND (k.kind <> 'luthier' OR k.curated)
              AND (COALESCE(k.relevance_override, k.relevance) <> 'unknown' OR k.curated OR k.source = 'manual'
                   OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(k.raw->'origin', '[]'::jsonb)) o
                              WHERE o LIKE 'category%%'))
-             AND (%s::int IS NULL OR k.kb_version <= %s::int)""",
-        (limit, limit),
+             AND (%s::int IS NULL OR k.kb_version <= %s::int)))""",
+        (list(kinds), list(FICHE_KINDS), limit, limit),
     ).fetchall()
     aliases = {}
     for row in rows:
@@ -144,30 +162,33 @@ def _load_aliases(conn):
     return aliases, by_len
 
 
-def _aliases(conn):
+def _aliases(conn, kinds=BRAND_KINDS):
+    key = _kinds_key(kinds)
     with _lock:
-        if _cache["at"] is not None and time.monotonic() - _cache["at"] <= _CACHE_TTL_S:
-            return _cache["aliases"], _cache["by_len"]
+        cache = _caches.get(key)
+        if cache and cache["at"] is not None and time.monotonic() - cache["at"] <= _CACHE_TTL_S:
+            return cache["aliases"], cache["by_len"]
     # Requête HORS verrou : un chargement lent ne doit pas bloquer les autres threads (au pire deux
     # threads rechargent en même temps, le dernier écrit gagne — sans conséquence).
-    aliases, by_len = _load_aliases(conn)
+    aliases, by_len = _load_aliases(conn, key)
     with _lock:
-        _cache.update(at=time.monotonic(), aliases=aliases, by_len=by_len, fuzzy={})
+        _caches[key] = {"at": time.monotonic(), "aliases": aliases, "by_len": by_len, "fuzzy": {}}
         return aliases, by_len
 
 
 def invalidate_cache():
     with _lock:
-        _cache["at"] = None
+        _caches.clear()
 
 
-def _fuzzy_match(tok, aliases, by_len):
+def _fuzzy_match(tok, aliases, by_len, kinds=BRAND_KINDS):
     """Alias unique le plus proche de `tok` (ratio ≥ _FUZZY_RATIO), ou None. Une seule faute de frappe
     ne change pas à la fois la première ET la dernière lettre : on n'évalue que les candidats qui
     partagent l'une des deux, ce qui écarte l'essentiel avant le calcul (coûteux) du ratio."""
+    key = _kinds_key(kinds)
     with _lock:
-        if tok in _cache["fuzzy"]:
-            return _cache["fuzzy"][tok]
+        if tok in _caches.get(key, {}).get("fuzzy", ()):
+            return _caches[key]["fuzzy"][tok]
     # Une vraie faute de frappe est INTERNE : un mot qui n'est que l'alias + un suffixe (« martine »,
     # « carving », pluriels, féminins) ou un préfixe de lui n'est pas une faute, c'est un autre mot.
     candidates = [c for n in (len(tok) - 1, len(tok), len(tok) + 1) for c in by_len.get(n, ())
@@ -175,13 +196,15 @@ def _fuzzy_match(tok, aliases, by_len):
     matches = difflib.get_close_matches(tok, candidates, n=1, cutoff=_FUZZY_RATIO)
     match = matches[0] if matches else None
     with _lock:
-        _cache["fuzzy"][tok] = match
+        if key in _caches:
+            _caches[key]["fuzzy"][tok] = match
     return match
 
 
-def find_ids(conn, *texts, max_ngram=4):
-    """Renvoie {knowledge_id: (alias_trouvé, 'exact'|'fuzzy')} pour les textes donnés."""
-    aliases, by_len = _aliases(conn)
+def find_ids(conn, *texts, max_ngram=4, kinds=BRAND_KINDS):
+    """Renvoie {knowledge_id: (alias_trouvé, 'exact'|'fuzzy')} pour les textes donnés. `kinds` : types de
+    fiches recherchés (marques par défaut ; jamais les fiches techniques sans le demander)."""
+    aliases, by_len = _aliases(conn, kinds)
     tokens = normalize(" ".join(t for t in texts if t)).split()
     found = {}
     for n in range(max_ngram, 0, -1):
@@ -195,7 +218,7 @@ def find_ids(conn, *texts, max_ngram=4):
     for tok in set(title_tokens):
         if len(tok) < _MIN_FUZZY_LEN or tok in aliases or tok in _STOP:
             continue
-        match = _fuzzy_match(tok, aliases, by_len)
+        match = _fuzzy_match(tok, aliases, by_len, kinds)
         if match:
             for kid in aliases.get(match, ()):  # .get : l'alias a pu disparaître si le cache a été rechargé entre-temps
                 found.setdefault(kid, (f"{tok}→{match}", "fuzzy"))
@@ -228,10 +251,10 @@ def _prefer_name_owners(rows, found):
     return kept
 
 
-def lookup(conn, *texts, limit=3):
+def lookup(conn, *texts, limit=3, kinds=BRAND_KINDS):
     """Fiches correspondant aux textes, avec leur parent (maison mère / fabricant), triées :
     correspondances exactes d'abord, séries avant marques (plus spécifiques), fiches curées d'abord."""
-    found = find_ids(conn, *texts)
+    found = find_ids(conn, *texts, kinds=kinds)
     if not found:
         return []
     rows = conn.execute(
@@ -239,8 +262,8 @@ def lookup(conn, *texts, limit=3):
                   k.tier, k.hunt_notes, k.made_by, k.curated, k.source, COALESCE(k.relevance_override, k.relevance) AS relevance,
                   p.name AS parent_name, p.tier AS parent_tier
            FROM guitar_knowledge k LEFT JOIN guitar_knowledge p ON p.id = k.parent_id
-           WHERE k.id = ANY(%s)""",
-        (list(found),),
+           WHERE k.id = ANY(%s) AND k.kind = ANY(%s)""",
+        (list(found), list(kinds)),
     ).fetchall()
     kind_rank = {"line": 0, "factory": 1, "brand": 2, "company": 3}
     rows = [dict(r) if not isinstance(r, dict) else r for r in rows]
@@ -262,6 +285,59 @@ def lookup(conn, *texts, limit=3):
     for r in rows:
         r["sources"] = [dict(x) for x in sources if x["knowledge_id"] == r["id"]]
     return rows
+
+
+# --- Sources et confiance : partagées par TOUS les chargeurs (marques, fiches techniques) --------------------
+# Une fiche sans source est refusée ; la confiance est CALCULÉE, jamais déclarée.
+SOURCE_KINDS = {"wikidata", "wikipedia", "wikipedia_list", "collector", "manufacturer", "forum", "marketplace",
+                "press", "other"}
+MAX_EXCERPT = 300
+
+
+def domain(url):
+    host = (urlparse(url).netloc or "").lower()
+    return host[4:] if host.startswith("www.") else host
+
+
+# Hébergeurs où chaque sous-domaine est un éditeur DIFFÉRENT (un blog n'est pas l'autre).
+SHARED_HOSTS = {"blogspot.com", "wordpress.com", "fandom.com", "github.io", "substack.com", "medium.com",
+                "tumblr.com", "wixsite.com", "weebly.com"}
+
+
+def publisher_key(url):
+    """Éditeur indépendant d'une URL : le domaine « racine » (en.wikipedia.org et fr.wikipedia.org = UN éditeur,
+    Wikipédia), sauf sur les hébergeurs de blogs où chaque sous-domaine est un auteur distinct."""
+    labels = domain(url).split(".")
+    root = ".".join(labels[-2:])
+    return ".".join(labels[-3:]) if root in SHARED_HOSTS and len(labels) >= 3 else root
+
+
+def confidence_of(sources):
+    """`sourced` si au moins 2 éditeurs indépendants (voir `publisher_key`), sinon `single_source`."""
+    return "sourced" if len({publisher_key(s["url"]) for s in sources}) >= 2 else "single_source"
+
+
+def validate_sources(label, sources):
+    """Problèmes des sources d'une fiche (liste vide = valides) : URL http(s), éditeur, type connu, citation
+    courte qui dit ce que la source appuie, pas d'URL en double."""
+    problems = []
+    for i, src in enumerate(sources, 1):
+        where = f"{label} source #{i}"
+        if not str(src.get("url", "")).startswith(("http://", "https://")):
+            problems.append(f"{where} : url http(s) manquante")
+        if not src.get("publisher"):
+            problems.append(f"{where} : éditeur (publisher) manquant")
+        if src.get("kind") and src["kind"] not in SOURCE_KINDS:
+            problems.append(f"{where} : kind « {src['kind']} » inconnu")
+        excerpt = src.get("excerpt") or ""
+        if not excerpt:
+            problems.append(f"{where} : citation (excerpt) manquante — dire ce que cette source appuie")
+        elif len(excerpt) > MAX_EXCERPT:
+            problems.append(f"{where} : citation trop longue ({len(excerpt)} > {MAX_EXCERPT}) — une citation courte, pas l'article")
+    urls = [s.get("url") for s in sources]
+    if len(urls) != len(set(urls)):
+        problems.append(f"{label} : URL de source en double")
+    return problems
 
 
 MAX_NAME_CHARS = 60

@@ -634,3 +634,42 @@ ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS confidence TEXT;
 -- dans la carte des trous ; l'import n'y touche JAMAIS. À poser via seed_guitar_knowledge.py (entrée « patch »
 -- avec au moins 2 sources), pas à la main.
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS relevance_override TEXT;
+
+-- ============================================================================================
+-- Fiches techniques de restauration (2026-10-15) : MÊME base que les marques (une fiche = une ligne
+-- `guitar_knowledge` de kind 'fiche', id 'fiche:<slug>'), pour partager alias, sources et calcul de
+-- confiance sans dupliquer le code. Deux protections, voir guitar_knowledge.py (BRAND_KINDS) :
+--   * toute lecture ne voit que les types qu'elle demande (liste blanche) : le Portier ne lit JAMAIS
+--     une fiche technique ;
+--   * une fiche prend kb_version = 0 et ne crée AUCUNE ligne de `guitar_knowledge_versions` (sinon une
+--     version « validée » pourrait faire entrer au Portier une amorce de marques non rejouée) ; son
+--     historique est dans git et dans `revision` / `content_hash`.
+-- Les colonnes propres aux fiches sont dans une table satellite pour ne pas élargir celle des marques.
+-- ============================================================================================
+CREATE TABLE IF NOT EXISTS guitar_knowledge_fiche (
+    knowledge_id    TEXT PRIMARY KEY REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
+    body_md         TEXT NOT NULL,
+    categorie       TEXT NOT NULL,             -- catégories du plan de restauration (RESTORATION_CATEGORIES)
+    difficulte      SMALLINT,
+    duree           TEXT,
+    statut          TEXT NOT NULL DEFAULT 'brouillon',   -- 'brouillon' | 'en_revision' | 'validee'
+    revision        DATE,
+    content_hash    TEXT NOT NULL              -- saute les fiches inchangées au rechargement
+);
+
+-- Relation générique entre deux fiches de la base (marque ou série → fiche technique : « ce modèle a
+-- souvent besoin de cette intervention »). `origin='fiche'` : déclarée par l'en-tête d'une fiche et
+-- réécrite à chaque chargement de celle-ci ; `origin='manual'` n'est jamais touchée.
+CREATE TABLE IF NOT EXISTS guitar_knowledge_link (
+    from_id         TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
+    to_id           TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
+    rel             TEXT NOT NULL,             -- 'fiche_pour' (from = marque/série, to = fiche)
+    origin          TEXT NOT NULL DEFAULT 'manual',
+    PRIMARY KEY (from_id, to_id, rel)
+);
+CREATE INDEX IF NOT EXISTS guitar_knowledge_link_to_idx ON guitar_knowledge_link (to_id);
+
+-- Lien entre une étape du plan de restauration et sa fiche technique (slug sans le préfixe 'fiche:').
+-- Pas de clé étrangère : une fiche retirée de la base ne doit pas bloquer l'étape ; l'API valide le slug
+-- à l'écriture et l'interface ignore un slug devenu inconnu.
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS fiche_slug TEXT;

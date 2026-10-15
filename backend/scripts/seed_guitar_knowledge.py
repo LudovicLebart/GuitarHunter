@@ -40,70 +40,23 @@ import glob
 import json
 import os
 import sys
-from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.guitar_knowledge import alias_usable, normalize  # noqa: E402
+from backend.guitar_knowledge import (BRAND_KINDS, MAX_EXCERPT, SOURCE_KINDS, alias_usable,  # noqa: E402,F401
+                                      confidence_of, domain, normalize, publisher_key, validate_sources)
 
 SEED_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "knowledge", "seed")
-KINDS = {"company", "brand", "line", "factory", "luthier"}
+KINDS = set(BRAND_KINDS)
 RELEVANCES = {"guitars", "accessories", "unknown"}
 TIERS = {"entry", "mid", "high", "boutique"}
-SOURCE_KINDS = {"wikidata", "wikipedia", "wikipedia_list", "collector", "manufacturer", "forum", "marketplace",
-                "press", "other"}
-MAX_EXCERPT = 300
 
 
 class SeedError(ValueError):
     pass
 
 
-def domain(url):
-    host = (urlparse(url).netloc or "").lower()
-    return host[4:] if host.startswith("www.") else host
-
-
-# Hébergeurs où chaque sous-domaine est un éditeur DIFFÉRENT (un blog n'est pas l'autre).
-SHARED_HOSTS = {"blogspot.com", "wordpress.com", "fandom.com", "github.io", "substack.com", "medium.com",
-                "tumblr.com", "wixsite.com", "weebly.com"}
-
-
-def publisher_key(url):
-    """Éditeur indépendant d'une URL : le domaine « racine » (en.wikipedia.org et fr.wikipedia.org = UN éditeur,
-    Wikipédia), sauf sur les hébergeurs de blogs où chaque sous-domaine est un auteur distinct."""
-    labels = domain(url).split(".")
-    root = ".".join(labels[-2:])
-    return ".".join(labels[-3:]) if root in SHARED_HOSTS and len(labels) >= 3 else root
-
-
-def confidence_of(sources):
-    """`sourced` si au moins 2 éditeurs indépendants (voir `publisher_key`), sinon `single_source`."""
-    return "sourced" if len({publisher_key(s["url"]) for s in sources}) >= 2 else "single_source"
-
-
 PATCH_KEYS = {"patch", "relevance_override", "hunt_notes", "tier", "made_by", "aliases", "sources", "_file"}
-
-
-def _validate_sources(label, sources):
-    problems = []
-    for i, src in enumerate(sources, 1):
-        where = f"{label} source #{i}"
-        if not str(src.get("url", "")).startswith(("http://", "https://")):
-            problems.append(f"{where} : url http(s) manquante")
-        if not src.get("publisher"):
-            problems.append(f"{where} : éditeur (publisher) manquant")
-        if src.get("kind") and src["kind"] not in SOURCE_KINDS:
-            problems.append(f"{where} : kind « {src['kind']} » inconnu")
-        excerpt = src.get("excerpt") or ""
-        if not excerpt:
-            problems.append(f"{where} : citation (excerpt) manquante — dire ce que cette source appuie")
-        elif len(excerpt) > MAX_EXCERPT:
-            problems.append(f"{where} : citation trop longue ({len(excerpt)} > {MAX_EXCERPT}) — une citation courte, pas l'article")
-    urls = [s.get("url") for s in sources]
-    if len(urls) != len(set(urls)):
-        problems.append(f"{label} : URL de source en double")
-    return problems
 
 
 def validate_patch(entry):
@@ -120,7 +73,7 @@ def validate_patch(entry):
     if entry.get("tier") and entry["tier"] not in TIERS:
         problems.append(f"{label} : tier invalide")
     sources = entry.get("sources") or []
-    problems += _validate_sources(label, sources)
+    problems += validate_sources(label, sources)
     if len({publisher_key(s.get("url", "")) for s in sources}) < 2:
         problems.append(f"{label} : une correction exige AU MOINS 2 sources de sites distincts")
     for alias in entry.get("aliases") or []:
@@ -153,7 +106,7 @@ def validate_entry(entry):
     sources = entry.get("sources") or []
     if not sources:
         problems.append(f"{label} : AUCUNE source — une fiche sans source est refusée")
-    problems += _validate_sources(label, sources)
+    problems += validate_sources(label, sources)
     for alias in entry.get("aliases") or []:
         if not alias_usable(normalize(alias)):
             problems.append(f"{label} : alias « {alias} » inexploitable (trop court, numérique ou générique)")
@@ -184,9 +137,10 @@ def resolve_ref(conn, ref, entry_ids, include_accessories=False):
         return ref
     if f"manual:{ref}" in entry_ids:
         return f"manual:{ref}"
+    # Seules les fiches de MARQUES sont des cibles valides : une fiche technique ne peut être ni parent ni usine.
     rows = conn.execute(f"""SELECT id, kind, name FROM guitar_knowledge
-                            WHERE lower(name) = lower(%s){'' if include_accessories else " AND relevance <> 'accessories'"}""",
-                        (ref,)).fetchall()
+                            WHERE lower(name) = lower(%s) AND kind = ANY(%s){'' if include_accessories else " AND relevance <> 'accessories'"}""",
+                        (ref, list(BRAND_KINDS))).fetchall()
     if len(rows) > 1:
         preferred = [r for r in rows if r["kind"] in ("company", "brand", "factory")]
         rows = preferred if len(preferred) == 1 else rows
