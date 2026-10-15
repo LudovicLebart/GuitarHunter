@@ -101,7 +101,8 @@ class FacebookScraper:
             timezone_id=self.config.timezone,
             geolocation=self.config.geolocation,
             permissions=["geolocation"],
-            extra_http_headers={"Referer": "https://www.google.com/"}
+            extra_http_headers={"Referer": "https://www.google.com/"},
+            storage_state=self.config.storage_state_path  # None = anonyme
         )
 
     def get_city_id_and_coords(self, city_name: str):

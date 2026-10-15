@@ -19,6 +19,9 @@ class ScraperConfig:
     locale: str = "fr-CA"
     timezone: str = "America/Montreal"
     geolocation: Dict[str, float] = None
+    # Chemin d'un `storage_state` Playwright (session Facebook connectée). None = anonyme (production).
+    # Utilisé uniquement par backend/scripts/compare_fb_anon_vs_auth.py.
+    storage_state_path: str = None
 
     def __post_init__(self):
         if self.geolocation is None:
