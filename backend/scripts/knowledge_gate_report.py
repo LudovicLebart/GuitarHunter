@@ -67,8 +67,10 @@ def summarize(fiches):
             "by_source": Counter(f["source"] for f in fiches)}
 
 
-def hit_counts(conn, days=None):
-    """Combien d'annonces chaque fiche est trouvée dans (titre + description, recherche du Portier sur toute la base)."""
+def hit_counts(conn, days=None, examples=None, per=4):
+    """Combien d'annonces chaque fiche est trouvée dans (titre + description, recherche du Portier sur toute la base).
+    `examples` (dict, optionnel) reçoit pour chaque fiche jusqu'à `per` annonces récentes où elle a été trouvée, avec
+    l'alias qui a déclenché la correspondance : de quoi juger la fiche sur pièces (knowledge_review_html.py)."""
     gk.configure_version("latest")
     gk.configure_review_gate(False)
     where, params = "", ()
@@ -76,10 +78,14 @@ def hit_counts(conn, days=None):
         where, params = "WHERE timestamp >= now() - (%s || ' days')::interval", (str(int(days)),)
     hits = Counter()
     n = 0
-    for d in conn.execute(f"SELECT title, description FROM guitar_deals {where}", params):
+    for d in conn.execute(
+            "SELECT id, title, description, link, price, storage_image_urls, image_urls FROM guitar_deals "
+            f"{where} ORDER BY timestamp DESC", params):
         n += 1
-        for kid in gk.find_ids(conn, d["title"], (d["description"] or "")[:3000]):
+        for kid, (alias, how) in gk.find_ids(conn, d["title"], (d["description"] or "")[:3000]).items():
             hits[kid] += 1
+            if examples is not None and len(examples.setdefault(kid, [])) < per:
+                examples[kid].append({"deal": d, "alias": alias, "how": how})
     return hits, n
 
 
