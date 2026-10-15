@@ -89,6 +89,23 @@ def alias_usable(alias_norm):
     return not all(t in _GENERIC for t in tokens)
 
 
+# Mots trop courants pour déclencher une FICHE TECHNIQUE à eux seuls (« action », « manche » reviennent dans
+# presque toute annonce) : propres à la recherche des fiches, en plus des mots génériques ci-dessus. Une fiche
+# se reconnaît par une expression précise (« action haute », « truss rod coincé »), jamais par un de ces mots.
+_FICHE_STOP = frozenset({
+    "action", "actions", "frette", "frettes", "fret", "frets", "manche", "neck", "corde", "cordes", "string",
+    "strings", "touche", "fingerboard", "sillet", "nut", "chevalet", "bridge", "reglage", "reglages", "setup",
+    "relief", "probleme", "problemes", "reparation", "restauration", "restoration", "repair", "entretien",
+    "guitare", "guitares", "tete", "headstock", "corps", "body", "micro", "micros", "bois", "colle",
+})
+
+
+def fiche_alias_usable(alias_norm):
+    """Alias exploitable pour une fiche technique : les règles des marques (`alias_usable`) plus la liste
+    `_FICHE_STOP`. Même règle à l'écriture (chargeur) et à la lecture (recherche)."""
+    return alias_usable(alias_norm) and alias_norm not in _FICHE_STOP
+
+
 # Version de la base utilisée par la recherche (STRATEGIE_IA.md §3.6 : « seule une version VALIDÉE est utilisée en
 # prod »). "validated" (défaut, celui du Portier) = dernière version marquée `validated` ; "latest" = tout le
 # contenu actuel, validé ou non (outils d'audit, carte des trous, rejeu de non-régression qui valide justement la
@@ -149,10 +166,11 @@ def _load_aliases(conn, kinds=BRAND_KINDS):
              AND (%s::int IS NULL OR k.kb_version <= %s::int)))""",
         (list(kinds), list(FICHE_KINDS), limit, limit),
     ).fetchall()
+    usable = fiche_alias_usable if set(kinds) <= set(FICHE_KINDS) else alias_usable
     aliases = {}
     for row in rows:
         alias_norm, kid = (row["alias_norm"], row["knowledge_id"]) if isinstance(row, dict) else row
-        if not alias_usable(alias_norm):
+        if not usable(alias_norm):
             continue
         aliases.setdefault(alias_norm, set()).add(kid)
     by_len = {}

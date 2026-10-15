@@ -6,6 +6,7 @@ difficulte: 2
 duree: 20 à 40 min (hors temps de stabilisation)
 statut: brouillon
 revision: 2026-10-15
+alias: truss rod, truss rod coincé, truss rod bloqué, tige de réglage du manche, courbure du manche, manche trop courbé, manche creux
 ---
 
 # Ajuster le truss rod

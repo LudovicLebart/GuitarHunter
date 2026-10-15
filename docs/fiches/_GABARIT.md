@@ -6,6 +6,8 @@ difficulte: 1                    # 1 (débutant) à 5 (luthier confirmé)
 duree: 30 min
 statut: brouillon                # brouillon | en_revision | validee
 revision: AAAA-MM-JJ
+alias: expression précise, autre expression   # expressions qui retrouvent la fiche (pas de mot seul trop courant : « action », « manche »…)
+concerne: Marque, Série             # facultatif : marques ou séries concernées (noms EXACTS de la base de marques) ; absent = fiche générale
 ---
 
 # Titre de la fiche
