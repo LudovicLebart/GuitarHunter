@@ -87,6 +87,18 @@ tenté est le bon, et que les cordes sont accordées (ou légèrement détendues
 5. **Soulager la tige** : en soutenant le manche, exercer une légère flexion du manche à la main
    dans le sens qui diminue l'effort sur la tige pendant qu'on tourne, avec précaution.
 
+**Une fois le truss rod libéré**, ne pas le laisser tel quel : le blocage reviendra.
+
+1. Mesurer le relief sous tension, puis cordes détendues, et noter les deux valeurs.
+2. Dévisser complètement l'écrou, sans forcer, et le retirer de la tige.
+3. Essuyer le filetage (tige et écrou) et déposer une très petite quantité de graisse, par exemple de
+   la vaseline, sur la tige.
+4. Remettre l'écrou et le serrer jusqu'à retrouver le relief noté à l'étape 1, par quarts de tour,
+   en remesurant (voir *Étapes*).
+
+Sur certains modèles, l'écrou n'est pas démontable sans retirer d'autres pièces (cache, rosace,
+pickguard) : dans ce cas, ne démonter que si on sait comment l'instrument se remonte.
+
 **S'arrêter et confier l'instrument à un luthier** si la tige reste bloquée après ces essais, si
 l'écrou commence à s'arrondir, si on entend ou sent un craquement, ou si le manche semble sous
 contrainte. Insister risque de casser la tige ou de fendre le manche.
@@ -115,7 +127,7 @@ contrainte. Insister risque de casser la tige ou de fendre le manche.
 
 > Pour le déblocage d'un truss rod coincé, la section ci-dessus s'appuie surtout sur des échanges de
 > forums de luthiers et d'amateurs (huile pénétrante, va-et-vient, chaleur douce, retrait de l'écrou
-> une fois libéré) : à confirmer avec la pratique de l'atelier. Aucune vidéo n'est encore référencée.
+> une fois libéré, graissage du filetage) : à confirmer avec la pratique de l'atelier. Aucune vidéo n'est encore référencée.
 
 ## Historique des révisions
 
@@ -124,3 +136,4 @@ contrainte. Insister risque de casser la tige ou de fendre le manche.
 | 2026-10-15 | Création du brouillon, extraite de la fiche « Ajuster l'action » |
 | 2026-10-15 | Ajout de la section « Débloquer un truss rod coincé » |
 | 2026-10-15 | Ajout des sources (sites de luthiers et constructeurs) |
+| 2026-10-15 | Déblocage : retrait de l'écrou, graissage du filetage et retour au relief mesuré |
