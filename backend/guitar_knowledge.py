@@ -92,7 +92,7 @@ def alias_usable(alias_norm):
 # Mots trop courants pour déclencher une FICHE TECHNIQUE à eux seuls (« action », « manche » reviennent dans
 # presque toute annonce) : propres à la recherche des fiches, en plus des mots génériques ci-dessus. Une fiche
 # se reconnaît par une expression précise (« action haute », « truss rod coincé »), jamais par un de ces mots.
-_FICHE_STOP = frozenset({
+FICHE_STOP = frozenset({
     "action", "actions", "frette", "frettes", "fret", "frets", "manche", "neck", "corde", "cordes", "string",
     "strings", "touche", "fingerboard", "sillet", "nut", "chevalet", "bridge", "reglage", "reglages", "setup",
     "relief", "probleme", "problemes", "reparation", "restauration", "restoration", "repair", "entretien",
@@ -100,10 +100,19 @@ _FICHE_STOP = frozenset({
 })
 
 
+# Petits mots qui ne portent aucun sens : ignorés pour juger si un alias est composé UNIQUEMENT de mots trop courants.
+_FICHE_FUNCTION_WORDS = frozenset({"le", "la", "les", "un", "une", "des", "du", "de", "d", "l", "et", "ou", "a", "au",
+                                   "aux", "en", "sur", "the", "of", "and", "to", "on"})
+
+
 def fiche_alias_usable(alias_norm):
-    """Alias exploitable pour une fiche technique : les règles des marques (`alias_usable`) plus la liste
-    `_FICHE_STOP`. Même règle à l'écriture (chargeur) et à la lecture (recherche)."""
-    return alias_usable(alias_norm) and alias_norm not in _FICHE_STOP
+    """Alias exploitable pour une fiche technique : les règles des marques (`alias_usable`), et au moins un mot qui
+    ne soit ni dans `FICHE_STOP` ni générique (« manche », « cordes frettes », « neck relief » sont refusés ;
+    « action haute », « truss rod coincé » passent). Même règle à l'écriture (chargeur) et à la lecture (recherche)."""
+    if not alias_usable(alias_norm):
+        return False
+    meaningful = [t for t in alias_norm.split() if t not in _FICHE_FUNCTION_WORDS]
+    return any(t not in FICHE_STOP and t not in _GENERIC for t in meaningful)
 
 
 # Version de la base utilisée par la recherche (STRATEGIE_IA.md §3.6 : « seule une version VALIDÉE est utilisée en
@@ -153,7 +162,7 @@ def _load_aliases(conn, kinds=BRAND_KINDS):
     # produits Wikidata) sauf curée / écrite à la main, et seulement dans la version choisie.
     limit = None if _VERSION_MODE == "latest" else effective_version(conn)
     rows = conn.execute(
-        """SELECT a.alias_norm, a.knowledge_id
+        """SELECT a.alias_norm, a.knowledge_id, k.kind
            FROM guitar_knowledge_alias a JOIN guitar_knowledge k ON k.id = a.knowledge_id
            WHERE k.kind = ANY(%s)
              AND (k.kind = ANY(%s) OR (
@@ -166,11 +175,13 @@ def _load_aliases(conn, kinds=BRAND_KINDS):
              AND (%s::int IS NULL OR k.kb_version <= %s::int)))""",
         (list(kinds), list(FICHE_KINDS), limit, limit),
     ).fetchall()
-    usable = fiche_alias_usable if set(kinds) <= set(FICHE_KINDS) else alias_usable
     aliases = {}
     for row in rows:
-        alias_norm, kid = (row["alias_norm"], row["knowledge_id"]) if isinstance(row, dict) else row
-        if not usable(alias_norm):
+        alias_norm, kid, kind = ((row["alias_norm"], row["knowledge_id"], row.get("kind")) if isinstance(row, dict)
+                                 else (tuple(row) + (None,))[:3])
+        # Règle d'alias choisie PAR FICHE selon son type (jamais selon la requête) : un mélange marques + fiches
+        # ne peut pas faire passer l'alias « action » d'une fiche technique avec la règle, plus lâche, des marques.
+        if not (fiche_alias_usable if kind in FICHE_KINDS else alias_usable)(alias_norm):
             continue
         aliases.setdefault(alias_norm, set()).add(kid)
     by_len = {}
@@ -222,6 +233,7 @@ def _fuzzy_match(tok, aliases, by_len, kinds=BRAND_KINDS):
 def find_ids(conn, *texts, max_ngram=4, kinds=BRAND_KINDS):
     """Renvoie {knowledge_id: (alias_trouvé, 'exact'|'fuzzy')} pour les textes donnés. `kinds` : types de
     fiches recherchés (marques par défaut ; jamais les fiches techniques sans le demander)."""
+    kinds = _kinds_key(kinds)          # vide ou None : marques seulement, jamais « tout »
     aliases, by_len = _aliases(conn, kinds)
     tokens = normalize(" ".join(t for t in texts if t)).split()
     found = {}
@@ -232,7 +244,10 @@ def find_ids(conn, *texts, max_ngram=4, kinds=BRAND_KINDS):
                 found.setdefault(kid, (gram, "exact"))
     # Fuzzy seulement sur le PREMIER texte (le titre) : la description, longue et bavarde, multiplie les
     # faux rapprochements sur du français courant.
-    title_tokens = normalize(texts[0]).split() if texts and texts[0] else []
+    # Pas de recherche floue hors des marques : un alias de fiche (« bourdonnement ») est un mot courant du français,
+    # le ratio de 0,88 le ferait déclencher sur des quasi-homonymes sans rapport.
+    fuzzy = set(kinds) <= set(BRAND_KINDS)
+    title_tokens = normalize(texts[0]).split() if fuzzy and texts and texts[0] else []
     for tok in set(title_tokens):
         if len(tok) < _MIN_FUZZY_LEN or tok in aliases or tok in _STOP:
             continue
@@ -272,6 +287,7 @@ def _prefer_name_owners(rows, found):
 def lookup(conn, *texts, limit=3, kinds=BRAND_KINDS):
     """Fiches correspondant aux textes, avec leur parent (maison mère / fabricant), triées :
     correspondances exactes d'abord, séries avant marques (plus spécifiques), fiches curées d'abord."""
+    kinds = _kinds_key(kinds)
     found = find_ids(conn, *texts, kinds=kinds)
     if not found:
         return []

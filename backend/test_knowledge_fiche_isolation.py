@@ -109,6 +109,26 @@ class TestFicheIsolationPostgres(unittest.TestCase):
         self.assertEqual(set(gk.find_ids(self.conn, "gibson")), {"manual:gibson"})
         self.assertEqual(set(gk.find_ids(self.conn, "gibson", kinds=gk.FICHE_KINDS)), {"fiche:truss-rod"})
 
+    def test_a_mixed_query_applies_each_kind_s_own_alias_rule(self):
+        # alias « action » ajouté À LA MAIN sur une fiche (le chargeur n'y touche jamais) : refusé à la lecture,
+        # même quand la requête mélange marques et fiches.
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('action','fiche:truss-rod','action','manual')")
+        gk.invalidate_cache()
+        mixed = gk.BRAND_KINDS + gk.FICHE_KINDS
+        self.assertNotIn("fiche:truss-rod", gk.find_ids(self.conn, "belle action sur cette guitare", kinds=mixed))
+        self.assertIn("fiche:truss-rod", gk.find_ids(self.conn, "reglage du truss rod", kinds=mixed))
+        self.assertIn("manual:gibson", gk.find_ids(self.conn, "Gibson", kinds=mixed))
+
+    def test_an_empty_kinds_means_brands_only_never_everything(self):
+        self.assertEqual(set(gk.find_ids(self.conn, "gibson truss rod", kinds=())), {"manual:gibson"})
+        self.assertEqual([r["id"] for r in gk.lookup(self.conn, "gibson truss rod", kinds=())], ["manual:gibson"])
+
+    def test_fiche_search_has_no_fuzzy_matching(self):
+        self._row("fiche:bourdon", "fiche", "Bourdonnement des cordes", "manual", 0, aliases=("bourdonnement",))
+        gk.invalidate_cache()
+        self.assertIn("fiche:bourdon", gk.find_ids(self.conn, "un bourdonnement", kinds=gk.FICHE_KINDS))
+        self.assertNotIn("fiche:bourdon", gk.find_ids(self.conn, "un bourdonement", kinds=gk.FICHE_KINDS))   # faute de frappe
+
     def test_a_seed_reference_never_resolves_to_a_fiche(self):
         with self.assertRaises(sk.SeedError):
             sk.resolve_ref(self.conn, "Neck reset", set())

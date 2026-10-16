@@ -3,6 +3,7 @@ réel tourne contre un Postgres JETABLE (`KB_TEST_DATABASE_URL`), comme les autr
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("APP_ID_TARGET", "test")
 os.environ.setdefault("USER_IDS_TARGET", "test_user")
@@ -63,6 +64,40 @@ class TestParsing(unittest.TestCase):
         self.assertTrue(f["sources"][0]["excerpt"].startswith("[résumé] mesure"))
         self.assertEqual(gk.confidence_of(f["sources"]), "sourced")
 
+    def test_source_url_with_balanced_parentheses_is_kept(self):
+        f = make(doc(sources="- [Wikipédia : Les Paul](https://fr.wikipedia.org/wiki/Les_Paul_(guitare)) : modèle\n"
+                             "- [StewMac : A](https://stewmac.com/a) : x\n"))
+        self.assertEqual(f["sources"][0]["url"], "https://fr.wikipedia.org/wiki/Les_Paul_(guitare)")
+        self.assertEqual(len(f["sources"]), 2)
+
+    def test_an_unreadable_source_bullet_is_reported_not_ignored(self):
+        f = make(doc(sources=TWO_SOURCES + "- https://exemple.com/sans-lien-markdown\n"))
+        problems = sf.validate_fiche(f, {"demo", "autre"})
+        self.assertTrue(any("puce de source illisible" in p for p in problems))
+        only_bad = make(doc(sources="- pas une source\n"))
+        self.assertFalse(any("AUCUNE source" in p for p in sf.validate_fiche(only_bad, {"demo", "autre"})))
+
+    def test_sources_section_variants_are_found(self):
+        for heading in ("## Sources et liens utiles", "### Sources et liens"):
+            f = make(doc().replace("## Sources et liens", heading))
+            self.assertEqual(len(f["sources"]), 2, heading)
+
+    def test_missing_section_and_empty_section_have_different_messages(self):
+        no_section = make(doc().replace("## Sources et liens", "## Autre"))
+        self.assertTrue(any("introuvable" in p for p in sf.validate_fiche(no_section, {"demo", "autre"})))
+        empty = make(doc(sources="Aucune pour l'instant.\n"))
+        self.assertTrue(any("la section existe" in p for p in sf.validate_fiche(empty, {"demo", "autre"})))
+
+    def test_a_hash_followed_by_a_digit_is_not_a_comment(self):
+        f = make(doc().replace("titre: Fiche de démonstration", "titre: Réglage #1 du manche   # vrai commentaire"))
+        self.assertEqual(f["meta"]["titre"], "Réglage #1 du manche")
+
+    def test_only_a_whole_line_of_three_dashes_closes_the_header(self):
+        with self.assertRaises(sf.SeedError):
+            sf.split_front_matter("---\nslug: demo\n----\ntitre: T\n---\ncorps\n")
+        meta, body = sf.split_front_matter("---\nslug: demo\n---\ncorps\n")
+        self.assertEqual((meta["slug"], body), ("demo", "corps\n"))
+
     def test_a_missing_header_is_refused(self):
         with self.assertRaises(sf.SeedError):
             sf.split_front_matter("# pas d'en-tête\n")
@@ -89,6 +124,16 @@ class TestValidation(unittest.TestCase):
         self.assertTrue(any("statut" in p for p in problems))
         self.assertTrue(any("différent du nom du fichier" in p for p in self.check(doc(), name="autre-nom.md")))
 
+    def test_difficulte_and_duree_are_required(self):
+        problems = self.check(doc().replace("difficulte: 2\n", "").replace("duree: 30 min\n", ""))
+        self.assertTrue(any("« difficulte » manquant" in p for p in problems))
+        self.assertTrue(any("« duree » manquant" in p for p in problems))
+
+    def test_a_fiche_with_no_usable_alias_at_all_is_refused(self):
+        problems = self.check(doc().replace("titre: Fiche de démonstration", "titre: Réglage").replace(
+            "alias: truss rod coincé, action haute\n", ""))
+        self.assertTrue(any("aucun alias exploitable" in p for p in problems))
+
     def test_a_broken_cross_reference_is_refused(self):
         self.assertTrue(any("autre.md" in p for p in self.check(doc(), known=("demo",))))
 
@@ -96,8 +141,29 @@ class TestValidation(unittest.TestCase):
         problems = self.check(doc().replace("alias: truss rod coincé, action haute", "alias: action"))
         self.assertTrue(any("« action »" in p for p in problems))
         self.assertTrue(gk.fiche_alias_usable("action haute"))
+        self.assertTrue(gk.fiche_alias_usable("truss rod coince"))
         self.assertFalse(gk.fiche_alias_usable("manche"))
         self.assertFalse(gk.fiche_alias_usable("guitare"))
+
+    def test_multi_word_alias_made_only_of_common_words_is_refused(self):
+        for alias in ("manche corps", "cordes frettes", "neck relief", "relief du manche", "cordes et frettes"):
+            self.assertFalse(gk.fiche_alias_usable(gk.normalize(alias)), alias)
+            problems = self.check(doc().replace("alias: truss rod coincé, action haute", f"alias: {alias}, action haute"))
+            self.assertTrue(any(f"« {alias} »" in p for p in problems), alias)
+
+
+class TestPruneDecision(unittest.TestCase):
+    def test_prune_is_refused_without_yes_in_dry_run_or_with_an_incomplete_directory(self):
+        full = tempfile.mkdtemp()
+        open(os.path.join(full, sf.SENTINEL), "w").close()
+        empty = tempfile.mkdtemp()
+        self.assertEqual(sf.prune_decision(False, False, True, full)[0], False)
+        self.assertEqual(sf.prune_decision(True, True, True, full)[0], False)       # dry-run
+        self.assertEqual(sf.prune_decision(True, False, False, full)[0], False)     # sans --yes
+        refused, message = sf.prune_decision(True, False, True, empty)              # dossier incomplet
+        self.assertFalse(refused)
+        self.assertIn("introuvable", message)
+        self.assertEqual(sf.prune_decision(True, False, True, full), (True, ""))
 
 
 class TestShippedFiches(unittest.TestCase):
@@ -200,6 +266,52 @@ class TestLoadIntoPostgres(unittest.TestCase):
         path = self._fiche(doc(extra="concerne: Marque Inconnue\n"))
         with self.assertRaises(sf.SeedError):
             sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
+
+    def test_plan_and_orphans_work_before_the_fiche_tables_exist(self):
+        """Un --dry-run (lecture seule) peut précéder le premier chargement réel, qui applique le schéma."""
+        self.conn.execute("DROP TABLE guitar_knowledge_link, guitar_knowledge_fiche")
+        planned = sf.plan(self.conn, [self._fiche(doc())], known_slugs={"demo", "autre"})
+        self.assertFalse(planned[0]["unchanged"])
+        self.assertEqual(sf.orphans(self.conn, planned), [])
+        self.assertFalse(sf._has_fiche_tables(self.conn))
+
+    def test_a_change_of_alias_rules_replays_an_unchanged_file(self):
+        path = self._fiche(doc())
+        self._load(path)
+        self.assertTrue(self._load(path)[0][0]["unchanged"])
+        with patch.object(sf, "FICHE_STOP", frozenset(gk.FICHE_STOP | {"nouveau"})):
+            planned, written = self._load(path)
+        self.assertEqual((planned[0]["unchanged"], written), (False, 1))
+
+    def test_a_lost_brand_link_is_restored_without_force(self):
+        path = self._fiche(doc(extra="concerne: Gibson\n"))
+        self._load(path)
+        self.conn.execute("DELETE FROM guitar_knowledge_link")      # marque supprimée puis recréée sous le même id
+        planned, written = self._load(path)
+        self.assertEqual((planned[0]["unchanged"], written), (False, 1))
+        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_link").fetchone()["n"], 1)
+
+    def test_a_concerne_id_that_does_not_exist_is_refused_with_the_fiche_name(self):
+        for ref in ("manual:marque-inexistante", "wd:Q123"):
+            path = self._fiche(doc(extra=f"concerne: {ref}\n"))
+            with self.assertRaises(sf.SeedError) as ctx:
+                sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
+            self.assertIn("demo.md", str(ctx.exception))
+            self.assertIn(ref, str(ctx.exception))
+
+    def test_a_concerne_id_must_be_a_brand_not_a_fiche(self):
+        self._load(self._fiche(doc()))
+        path = self._fiche(doc(extra="concerne: fiche:demo\n").replace("slug: demo", "slug: autre"), "autre.md")
+        with self.assertRaises(sf.SeedError):
+            sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
+
+    def test_reload_resets_the_columns_a_hand_made_row_could_have_changed(self):
+        self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, relevance_override, source, kb_version,
+                             curated) VALUES ('fiche:demo','brand','x','accessories','accessories','wikidata',7,false)""")
+        self._load(self._fiche(doc()))
+        row = self.conn.execute("SELECT * FROM guitar_knowledge WHERE id = 'fiche:demo'").fetchone()
+        self.assertEqual((row["kind"], row["relevance"], row["relevance_override"], row["curated"], row["source"],
+                          row["kb_version"]), ("fiche", "guitars", None, True, "manual", 0))
 
     def test_orphans_and_prune(self):
         path = self._fiche(doc())

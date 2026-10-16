@@ -6,7 +6,7 @@ difficulte: 2
 duree: 45 min à 1 h
 statut: brouillon
 revision: 2026-10-15
-alias: action haute, action trop haute, action trop basse, régler l'action, hauteur des cordes, relief du manche, cordes qui frisent, bourdonnement des cordes
+alias: action haute, action trop haute, action trop basse, régler l'action, hauteur des cordes, relief trop important, relief insuffisant, cordes qui frisent, bourdonnement des cordes
 ---
 
 # Ajuster l'action
