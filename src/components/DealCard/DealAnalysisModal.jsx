@@ -32,6 +32,7 @@ const DealAnalysisModal = ({
     onReject,
     onToggleFavorite,
     onTogglePurchased,
+    onSetUserSale,
     onDelete,
     isAnalyzing,
     onSetClassification,
@@ -49,6 +50,9 @@ const DealAnalysisModal = ({
     const [chatDraftRequest, setChatDraftRequest] = useState(null);
     const { user } = useAuth();
     const restorationPlan = useRestorationPlan(deal, user);
+    // Plan de restauration personnel (2026-10-11) : disponible pour une guitare ACHETÉE ou AIMÉE
+    // (préparation avant achat / négociation) ; le plan préparé devient le plan réel à l'achat.
+    const canPlanRestoration = !!(isPurchased || deal?.isFavorite);
 
     useEffect(() => {
         if (activeView === 'chat') setHasOpenedChat(true);
@@ -59,8 +63,8 @@ const DealAnalysisModal = ({
     // (voir plus bas) : sans ce filet, aucune des 3 vues ne correspondrait plus et le corps de la
     // modale resterait vide.
     useEffect(() => {
-        if (!isPurchased && activeView === 'restoration') setActiveView('analysis');
-    }, [isPurchased, activeView]);
+        if (!canPlanRestoration && activeView === 'restoration') setActiveView('analysis');
+    }, [canPlanRestoration, activeView]);
 
     const askInChat = (item) => {
         setChatDraftRequest({ text: `Concernant l'étape "${item.label}" : comment procéder, et coût réaliste ?`, autoSend: false });
@@ -131,6 +135,7 @@ const DealAnalysisModal = ({
                             isAnalyzing={isAnalyzing}
                             onToggleFavorite={onToggleFavorite}
                             onTogglePurchased={onTogglePurchased}
+                            onSetUserSale={onSetUserSale}
                             onReject={onReject}
                             onDelete={onDelete}
                             onRetry={onRetry}
@@ -159,7 +164,7 @@ const DealAnalysisModal = ({
                         />
                     </div>
                 )}
-                {isPurchased && (
+                {canPlanRestoration && (
                     <div className={`flex-1 flex flex-col min-h-0 ${activeView === 'restoration' ? '' : 'hidden'}`}>
                         <RestorationPlanPanel deal={deal} plan={restorationPlan} onBack={() => setActiveView('analysis')} onAskInChat={askInChat} onQuickPrompt={sendQuickPrompt} />
                     </div>
@@ -237,18 +242,24 @@ const DealAnalysisModal = ({
                                 <div className="text-[10px] text-slate-500 font-bold uppercase">Confiance IA</div>
                                 <div className="text-lg font-black text-blue-400">{Math.round(confidence || 0)}%</div>
                             </div>
-                            {isPurchased && (
+                            {canPlanRestoration && (
                                 <div className="bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20">
-                                    <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
-                                        <ShoppingBag size={11} /> Achetée
-                                    </div>
-                                    <div className="text-sm font-black text-emerald-400">
-                                        {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
-                                        {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
-                                    </div>
+                                    {/* « Achetée » seulement si elle l'est : le plan de restauration s'ouvre aussi aux favoris. */}
+                                    {isPurchased && (
+                                        <>
+                                            <div className="text-[10px] text-emerald-500/70 font-bold uppercase flex items-center gap-1">
+                                                <ShoppingBag size={11} /> Achetée
+                                            </div>
+                                            <div className="text-sm font-black text-emerald-400">
+                                                {deal.purchasePrice != null ? `${deal.purchasePrice}$` : 'Prix non précisé'}
+                                                {deal.purchasedAt && <span className="text-emerald-500/70 font-normal ml-1.5">le {formatRelativeDate(deal.purchasedAt)}</span>}
+                                                {deal.userSalePrice != null && <span className="text-amber-400 font-bold ml-1.5">· revendue {deal.userSalePrice}$</span>}
+                                            </div>
+                                        </>
+                                    )}
                                     <button
                                         onClick={() => setActiveView('restoration')}
-                                        className="flex items-center gap-1 text-xs font-bold text-emerald-300/80 hover:text-emerald-200 mt-1 pt-1 border-t border-emerald-500/20 transition-colors"
+                                        className={`flex items-center gap-1 text-xs font-bold text-emerald-300/80 hover:text-emerald-200 transition-colors ${isPurchased ? 'mt-1 pt-1 border-t border-emerald-500/20' : ''}`}
                                     >
                                         <Wrench size={11} />
                                         Restauration {restorationPlan.totals.doneCount}/{restorationPlan.totals.itemCount}

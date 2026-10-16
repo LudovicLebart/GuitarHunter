@@ -7,7 +7,7 @@ import DealCardImage from './DealCardImage';
 import DealCardActions from './DealCardActions';
 import DealAnalysisModal from './DealAnalysisModal';
 
-const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onDelete, onSetClassification, onGalleryImageAdded, onAnalysisOverridesApplied }) => {
+const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, onTogglePurchased, onSetUserSale, onDelete, onSetClassification, onGalleryImageAdded, onAnalysisOverridesApplied }) => {
     const [showAnalysisModal, setShowAnalysisModal] = useState(false);
     const [showDetailedAnalysis, setShowDetailedAnalysis] = useState(false);
     const [imageError, setImageError] = useState(false);
@@ -71,6 +71,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                 title={deal.title}
                 isSold={isSold}
                 isPurchased={deal.isPurchased}
+                userSalePrice={deal.userSalePrice}
                 vc={vc}
                 isAnalyzing={isAnalyzing}
                 alsoPepite={alsoPepite}
@@ -165,6 +166,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                         isAnalyzing={isAnalyzing}
                         onToggleFavorite={onToggleFavorite}
                         onTogglePurchased={onTogglePurchased}
+                        onSetUserSale={onSetUserSale}
                         onReject={onReject}
                         onDelete={onDelete}
                         onRetry={onRetry}
@@ -198,6 +200,7 @@ const DealCard = ({ deal, onRetry, onForceExpert, onReject, onToggleFavorite, on
                     onReject={onReject}
                     onToggleFavorite={onToggleFavorite}
                     onTogglePurchased={onTogglePurchased}
+                    onSetUserSale={onSetUserSale}
                     onDelete={onDelete}
                     isAnalyzing={isAnalyzing}
                     onSetClassification={onSetClassification}

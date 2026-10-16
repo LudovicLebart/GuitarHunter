@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Target, Activity, DollarSign, Clock, AlertTriangle, ChevronRight, BarChart2, CheckCircle2, XCircle, TrendingUp, Zap, MapPin, Layers, GitCompare, ShieldCheck, Coins } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from 'recharts';
 import { RADAR_GROUP } from '../constants';
+import { useAuth } from '../hooks/useAuth';
 import { normalizeCityKey, pickBestLabel } from '../utils/cities';
 import { resolveClassification, formatClassificationLabel } from '../utils/taxonomy';
 import DealsExplorer from './DealsExplorer';
@@ -85,6 +86,7 @@ const resolveCategoryLabel = (classification) => {
 };
 
 const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
+    const { user } = useAuth();
 
     // ─── Jeu de données unique : l'inventaire complet, jamais l'onglet actif ──
     // Les stats sont des statistiques générales de marché — elles ne doivent pas dépendre du
@@ -140,6 +142,15 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
     });
 
     const averageMargin = validMarginsCount > 0 ? Math.round(totalPotentialMargin / validMarginsCount) : 0;
+
+    // Marge RÉALISÉE (2026-10-10) : guitares achetées puis revendues par l'utilisateur.
+    // revente − achat − frais de restauration engagés (étapes terminées, coût réel sinon estimé).
+    // Achat et revente sont globaux (catalogue partagé) : on ne compte que MES guitares.
+    const resoldDeals = analysisDeals.filter(d => d.isPurchased && d.userSalePrice != null && d.purchasedByUserId === user?.uid);
+    const realizedMargin = resoldDeals.reduce(
+        (acc, d) => acc + (Number(d.userSalePrice) - (Number(d.purchasePrice) || 0) - (Number(d.restorationSpent) || 0)), 0
+    );
+    const realizedRevenue = resoldDeals.reduce((acc, d) => acc + Number(d.userSalePrice), 0);
     // Moyenne sur les annonces réellement analysées (deal_score renseigné), pas sur l'inventaire
     // complet (2026-08-12, bug confirmé) : diviser par totalDeals inclut les milliers d'annonces
     // rejetées au Portier seul (jamais scorées par l'Analyste), diluant la moyenne vers 0.
@@ -505,6 +516,19 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
                     <Activity size={14} className="animate-pulse" />
                     Market Insights
                 </div>
+            </div>
+
+            {/* Marge réalisée (guitares revendues) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard
+                    title="Marge Réalisée"
+                    value={`${Math.round(realizedMargin)}$`}
+                    subtitle={resoldDeals.length > 0
+                        ? `${resoldDeals.length} guitare${resoldDeals.length > 1 ? 's' : ''} revendue${resoldDeals.length > 1 ? 's' : ''} · ${Math.round(realizedRevenue)}$ de ventes, restauration incluse`
+                        : 'Aucune guitare revendue pour l\'instant'}
+                    icon={DollarSign}
+                    colorClass="from-amber-500 to-orange-500"
+                />
             </div>
 
             {/* Financial KPIs */}

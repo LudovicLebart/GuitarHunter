@@ -262,7 +262,8 @@ const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs,
 // avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
 const CHAT_REQUEST_TIMEOUT_MS = 120_000;
 // Attente avant l'unique nouvelle tentative sur une erreur transitoire (429, 5xx, réseau).
-const CHAT_RETRY_DELAY_MS = 2_000;
+// 8 s (avant : 2 s, 2026-10-13) : une coupure réseau dure plus que 2 s (reprise à 95 ms en échec).
+const CHAT_RETRY_DELAY_MS = 8_000;
 
 const isTransientChatError = (kind) => kind === 'connection' || kind === 'http_429' || /^http_5\d\d$/.test(kind);
 
@@ -352,7 +353,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             setLoading(false);
             setError(null); // efface un bandeau laissé par une coupure désormais résolue
             try {
-                const withRestorationTools = !!dealRef.current?.isPurchased && !toolsUnsupportedRef.current;
+                const withRestorationTools = !!(dealRef.current?.isPurchased || dealRef.current?.isFavorite) && !toolsUnsupportedRef.current;
                 const withPhotoRecall = !toolsUnsupportedRef.current;
                 const withRequalification = !toolsUnsupportedRef.current;
                 const model = getDealChatModel(modelName, { withRestorationTools, withPhotoRecall, withRequalification });
@@ -391,7 +392,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             const startedAt = performance.now();
             const ctx = { modelName, dealId: deal?.id, sentParts };
             try {
-                const response = await session.sendMessage(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                // Streaming (2026-10-13) : la connexion reste active pendant la génération (Pro avec
+                // réflexion, jusqu'à ~2 min sans aucun octet en mode non-streamé, coupée par le réseau
+                // — voir llm_usage `connection`). On draine le flux, puis `stream.response` donne la
+                // même réponse agrégée qu'avant : le reste de la cascade est inchangé.
+                const stream = await session.sendMessageStream(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                // eslint-disable-next-line no-unused-vars
+                for await (const _chunk of stream.stream) { /* drainage */ }
+                const response = { response: await stream.response };
                 logTokenUsage(label, response.response, { ...ctx, latencyMs: Math.round(performance.now() - startedAt) });
                 // Réponse coupée par `maxOutputTokens` (qui peut inclure la réflexion) : jamais
                 // persistée comme une réponse normale, voir la note ajoutée avant l'écriture.
@@ -641,7 +649,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         // exception ici laissait `sending` bloqué à `true` jusqu'au démontage du panneau (c'est ce
         // qui est arrivé avec le crash `.slice is not a function`).
         try {
-            const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+            const withRestorationTools = !!(deal.isPurchased || deal.isFavorite) && !toolsUnsupportedRef.current;
             const withPhotoRecall = !toolsUnsupportedRef.current;
             const withRequalification = !toolsUnsupportedRef.current;
             // Index de refs construit une seule fois pour ce tour, réutilisé pour l'élision de
@@ -680,7 +688,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             // Contexte invisible (dans `parts`, jamais `displayText`) injecté à CHAQUE tour tant que
             // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
             // évolue au fil des sessions (voir buildRestorationPlanContextText).
-            const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
+            const restorationContextText = (deal.isPurchased || deal.isFavorite) ? buildRestorationPlanContextText(restorationItems) : null;
             const contextBlocks = [
                 isFirstMessage ? buildDealContextText(deal) : null,
                 restorationContextText,
@@ -781,7 +789,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
 
         setSendingState(true);
         setError(null);
-        const withRestorationTools = !!deal.isPurchased && !toolsUnsupportedRef.current;
+        const withRestorationTools = !!(deal.isPurchased || deal.isFavorite) && !toolsUnsupportedRef.current;
         const withPhotoRecall = !toolsUnsupportedRef.current;
         const withRequalification = !toolsUnsupportedRef.current;
         const photoRefIndex = buildPhotoRefIndex(deal, messages);

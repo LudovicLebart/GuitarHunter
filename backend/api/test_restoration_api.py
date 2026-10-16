@@ -33,9 +33,32 @@ async def _seed_deal_and_user(deal_id, user_id):
         await conn.close()
 
 
+async def _seed_favorite_unpurchased(deal_id, user_id):
+    """Guitare NON achetée, vue (match) et mise en favori par `user_id` : plan de préparation."""
+    conn = await asyncpg.connect(DATABASE_URL)
+    try:
+        await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
+        await conn.execute(
+            "INSERT INTO guitar_deals (id, title, is_purchased) VALUES ($1, 'x', false) ON CONFLICT (id) DO NOTHING",
+            deal_id,
+        )
+        await conn.execute(
+            "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", user_id, deal_id,
+        )
+        await conn.execute(
+            "INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES ($1, $2, true) "
+            "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = true",
+            user_id, deal_id,
+        )
+    finally:
+        await conn.close()
+
+
 async def _cleanup(*, deal_ids, user_ids):
     conn = await asyncpg.connect(DATABASE_URL)
     try:
+        await conn.execute("DELETE FROM user_deal_state WHERE deal_id = ANY($1::text[])", list(deal_ids))
+        await conn.execute("DELETE FROM user_deal_matches WHERE deal_id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM restoration_plan_items WHERE deal_id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM guitar_deals WHERE id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM users WHERE uid = ANY($1::text[])", list(user_ids))
@@ -60,6 +83,67 @@ class TestRestorationPlanAPI(unittest.TestCase):
         self.client.__exit__(None, None, None)
         app.dependency_overrides.clear()
         asyncio.run(_cleanup(deal_ids=[self.DEAL_ID, "plan-deal-other"], user_ids=[self.UID, self.OTHER_UID]))
+
+    def test_plan_on_favorite_unpurchased_deal_is_personal(self):
+        """Plan de préparation (2026-10-11) : accessible sur une guitare aimée mais non achetée,
+        et PERSONNEL — un autre utilisateur qui voit aussi la guitare ne voit pas mes étapes."""
+        deal = "plan-deal-fav"
+        asyncio.run(_seed_favorite_unpurchased(deal, self.UID))
+        asyncio.run(_seed_favorite_unpurchased(deal, self.OTHER_UID))
+        try:
+            create = self.client.post(f"/deals/{deal}/restoration-plan", json={"label": "Refret", "estimatedCost": 150})
+            self.assertEqual(create.status_code, 201, create.text)
+            self.assertEqual(len(self.client.get(f"/deals/{deal}/restoration-plan").json()), 1)
+
+            app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+            self.assertEqual(self.client.get(f"/deals/{deal}/restoration-plan").json(), [])  # accès ok, plan vide
+            other_item = self.client.patch(f"/deals/{deal}/restoration-plan/{create.json()['id']}", json={"notes": "x"})
+            self.assertEqual(other_item.status_code, 404)  # étape d'un autre utilisateur
+        finally:
+            app.dependency_overrides[get_current_uid] = lambda: self.UID
+            asyncio.run(_cleanup(deal_ids=[deal], user_ids=[]))
+
+    def test_schema_backfill_assigns_orphan_plan_rows_to_first_matched_user(self):
+        """Migration `user_id` (2026-10-11) : une étape sans propriétaire sur une annonce non achetée,
+        vue par deux utilisateurs, est rattachée au PREMIER à l'avoir vue (jamais laissée orpheline)."""
+        from backend.api.db import SCHEMA_PATH
+        deal = "plan-deal-orphan"
+        asyncio.run(_seed_favorite_unpurchased(deal, self.UID))
+        asyncio.run(_seed_favorite_unpurchased(deal, self.OTHER_UID))
+
+        async def _run():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("UPDATE user_deal_matches SET matched_at = now() - interval '1 day' WHERE deal_id = $1 AND user_id = $2", deal, self.OTHER_UID)
+                await conn.execute("INSERT INTO restoration_plan_items (deal_id, label, user_id) VALUES ($1, 'orphelin', NULL)", deal)
+                await conn.execute(SCHEMA_PATH.read_text(encoding="utf-8"))  # même exécution qu'au démarrage de l'API
+                return await conn.fetchval("SELECT user_id FROM restoration_plan_items WHERE deal_id = $1", deal)
+            finally:
+                await conn.close()
+
+        try:
+            self.assertEqual(asyncio.run(_run()), self.OTHER_UID)
+        finally:
+            asyncio.run(_cleanup(deal_ids=[deal], user_ids=[]))
+
+    def test_plan_refused_on_unpurchased_not_favorite_deal(self):
+        deal = "plan-deal-nofav"
+        asyncio.run(_seed_favorite_unpurchased(deal, self.UID))
+        conn_sql = "UPDATE user_deal_state SET is_favorite = false WHERE deal_id = $1"
+
+        async def _unfavorite():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute(conn_sql, deal)
+            finally:
+                await conn.close()
+
+        asyncio.run(_unfavorite())
+        try:
+            resp = self.client.post(f"/deals/{deal}/restoration-plan", json={"label": "x"})
+            self.assertEqual(resp.status_code, 404)
+        finally:
+            asyncio.run(_cleanup(deal_ids=[deal], user_ids=[]))
 
     def test_add_and_list_items(self):
         resp = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan", json={
