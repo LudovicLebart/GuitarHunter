@@ -228,15 +228,16 @@ class GuitarHunterBot:
         hits = [a for a in allowed_norms if a and re.search(r'(?<![a-z0-9])' + re.escape(a) + r'(?![a-z0-9])', norm)]
         return max(hits, key=len) if hits else None
 
-    def _kijiji_strict_label(self, deal, city_points, allowed_norms):
+    def _kijiji_strict_label(self, deal, city_points, allowed_norms, coordless_norms=frozenset()):
         """Clé normalisée de la ville de la liste à laquelle rattacher l'annonce Kijiji, ou None si
         elle est hors liste. Avec GPS : ville la plus proche dans la borne (5 km, ou 15 km si le nom
-        est reconnu ; élargie à `kijijiRadiusKm` pour une ville qui en porte un). Sans GPS : le nom."""
+        est reconnu ; élargie à `kijijiRadiusKm` pour une ville qui en porte un). Sans GPS : le nom.
+        `coordless_norms` : villes listées sans coordonnées exploitables (le nom suffit pour elles)."""
         matched = self._match_allowed_city(deal.get('location'), allowed_norms)
         lat, lng = deal.get('latitude'), deal.get('longitude')
         if not (self._is_number(lat) and self._is_number(lng)):
             return matched
-        if matched and matched not in {key for key, *_ in city_points}:
+        if matched and matched in coordless_norms:
             # Ville listée sans coordonnées exploitables : aucune vérification GPS possible, le nom suffit.
             return matched
         base = self.KIJIJI_STRICT_NAME_GPS_KM if matched else self.KIJIJI_STRICT_GPS_KM
@@ -558,7 +559,10 @@ class GuitarHunterBot:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return "rejected_prefilter"
 
-        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+        analysis = self.analyzer.analyze_deal(
+            listing_data, firestore_config=current_config, user_email=self._user_email,
+            bypass_active_search=is_manual_scan,
+        )
 
         # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) : le Portier
         # T1 n'a produit aucun verdict fiable (échec d'appel ou réponse malformée, voir
@@ -936,6 +940,7 @@ class GuitarHunterBot:
             for c in cities_to_scan
             if c.get('name') and self._is_number(c.get('latitude')) and self._is_number(c.get('longitude'))
         ]
+        coordless_cities = frozenset(strict_cities) - {key for key, *_ in city_points}
         min_price = scan_config.get('min_price', 0)
         max_price = scan_config.get('max_price', 0)
 
@@ -1045,7 +1050,7 @@ class GuitarHunterBot:
                             # Mode strict (`distance=0`), comme [STRICT] côté Facebook : hors liste -> rejetée.
                             # Avant, le GPS rattachait l'annonce à la ville configurée la plus proche sans
                             # aucune borne (Laval -> « Sherbrooke »).
-                            label = self._kijiji_strict_label(deal, city_points, strict_cities)
+                            label = self._kijiji_strict_label(deal, city_points, strict_cities, coordless_cities)
                             if label:
                                 deal['location'] = city_display_names.get(label, label)
                                 ready_deals.append(deal)
@@ -1123,7 +1128,7 @@ class GuitarHunterBot:
             # souvent une grande sous-région, pas la ville précise), jusqu'ici absente du
             # scan manuel (2026-07-27, corrigé — signalé par l'utilisateur).
             city_display_names = {}
-            manual_city_norms, manual_city_points = [], []
+            manual_city_norms, manual_city_points, manual_coordless = [], [], frozenset()
             if is_kijiji and not self.offline_mode:
                 configured_cities = self.repo.get_cities()
                 # Voir _run_kijiji_scan() : on stocke le libellé d'affichage, pas la clé normalisée.
@@ -1134,6 +1139,7 @@ class GuitarHunterBot:
                     for c in configured_cities
                     if c.get('name') and self._is_number(c.get('latitude')) and self._is_number(c.get('longitude'))
                 ]
+                manual_coordless = frozenset(manual_city_norms) - {key for key, *_ in manual_city_points}
             try:
                 scan_result = {}
                 def handle_manual_deal(listing_data):
@@ -1145,7 +1151,7 @@ class GuitarHunterBot:
                         listing_data['id'] = f"kijiji_{listing_data['id']}"
                         # Même borne que le scan planifié (strict) : une annonce hors liste garde son
                         # libellé Kijiji d'origine plutôt qu'une ville configurée lointaine.
-                        label = self._kijiji_strict_label(listing_data, manual_city_points, manual_city_norms)
+                        label = self._kijiji_strict_label(listing_data, manual_city_points, manual_city_norms, manual_coordless)
                         if label:
                             listing_data['location'] = city_display_names.get(label, label)
                     scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)

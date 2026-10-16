@@ -183,9 +183,22 @@ class TestDealsAPI(unittest.TestCase):
         self.assertTrue(first.json()["isPurchased"])
         self.assertEqual(float(self.client.get("/deals/deal-1").json()["purchase_price"]), 450.0)
 
-        second = self.client.patch("/deals/deal-1/purchased", json={})
+        second = self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})
         self.assertFalse(second.json()["isPurchased"])
         self.assertIsNone(self.client.get("/deals/deal-1").json()["purchase_price"])  # effacé au retour à False
+
+    def test_unpurchase_requires_confirmation_server_side(self):
+        """Garde serveur (2026-10-11) : un client sans confirmation (ancien bundle en cache) ne
+        peut pas désacheter — prix, date et revente restent intacts."""
+        self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 75})
+        self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+
+        refused = self.client.patch("/deals/deal-1/purchased", json={})
+        self.assertEqual(refused.status_code, 428)
+        body = self.client.get("/deals/deal-1").json()
+        self.assertTrue(body["is_purchased"])
+        self.assertEqual(float(body["purchase_price"]), 75.0)
+        self.assertEqual(float(body["user_sale_price"]), 220.0)
 
     def test_toggle_purchased_by_another_user_returns_409(self):
         """Achat GLOBAL (2026-09-19) : une fois achetée par un utilisateur, un AUTRE utilisateur
@@ -207,6 +220,32 @@ class TestDealsAPI(unittest.TestCase):
         finally:
             app.dependency_overrides[get_current_uid] = lambda: self.UID
             asyncio.run(_cleanup(deal_ids=[], user_ids=[third_uid]))
+
+    def test_user_sale_requires_purchase_and_cleared_on_unpurchase(self):
+        """Revente par l'acheteur (2026-10-10) : refusée tant que la guitare n'est pas achetée
+        par cet utilisateur ; posée avec son prix ; effacée si l'achat est annulé."""
+        refused = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.assertEqual(refused.status_code, 409)
+
+        self.client.patch("/deals/deal-1/purchased", json={"purchasePrice": 75})
+        ok = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.assertEqual(ok.status_code, 200)
+        body = self.client.get("/deals/deal-1").json()
+        self.assertEqual(float(body["user_sale_price"]), 220.0)
+        self.assertIsNotNone(body["user_sold_at"])
+
+        cleared = self.client.patch("/deals/deal-1/user-sale", json={})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
+
+        self.client.patch("/deals/deal-1/user-sale", json={"salePrice": 220})
+        self.client.patch("/deals/deal-1/purchased", json={"confirmUnpurchase": True})  # désachat
+        self.assertIsNone(self.client.get("/deals/deal-1").json()["user_sale_price"])
+
+    def test_user_sale_negative_price_rejected(self):
+        self.client.patch("/deals/deal-1/purchased", json={})
+        resp = self.client.patch("/deals/deal-1/user-sale", json={"salePrice": -5})
+        self.assertEqual(resp.status_code, 422)
 
     def test_set_and_clear_manual_classification(self):
         set_resp = self.client.patch("/deals/deal-1/classification", json={"classificationPath": "acoustique_acier.parlor"})
@@ -332,6 +371,32 @@ class TestDealsWebSocket(unittest.TestCase):
                     # user_deal_matches n'a pas de ligne pour ce (user_id, deal_id)).
                     second = ws_other.recv(timeout=5)
                     self.assertEqual(json.loads(second)["id"], "deal-ws-1")
+
+    def test_websocket_pushes_when_deal_enters_user_feed(self):
+        """2026-10-13 : une annonce neuve n'était jamais poussée — l'upsert `guitar_deals`
+        notifie AVANT que `record_deal_match` n'écrive le lien utilisateur-annonce (autre
+        transaction), donc `_push_if_visible` ne trouvait aucune visibilité. Le trigger sur
+        `user_deal_matches` notifie désormais à l'insertion du lien lui-même."""
+        asyncio.run(_seed_deal("deal-ws-2", self.UID, visible_to=[], title="Annonce neuve"))
+        try:
+            with patch("backend.api.main.verify_token", return_value=self.UID), _RealServer(app) as srv:
+                with ws_sync_client.connect(f"{srv.ws_url}/ws/deals?token=fake-mine") as ws_mine:
+                    self.assertEqual(json.loads(ws_mine.recv(timeout=5))["type"], "ready")
+
+                    async def _record_match():
+                        conn = await asyncpg.connect(DATABASE_URL)
+                        try:
+                            await conn.execute(
+                                "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2)",
+                                self.UID, "deal-ws-2",
+                            )
+                        finally:
+                            await conn.close()
+
+                    asyncio.run(_record_match())
+                    self.assertEqual(json.loads(ws_mine.recv(timeout=5))["id"], "deal-ws-2")
+        finally:
+            asyncio.run(_cleanup(deal_ids=["deal-ws-2"], user_ids=[]))
 
 
 if __name__ == "__main__":

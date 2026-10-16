@@ -303,7 +303,8 @@ class DealAnalyzer(LLMClientsMixin):
             f"{prefix}LatencyS": latency_s,
         }
 
-    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                     bypass_active_search=False):
         """Cascade 3-Tiers, puis canonicalisation de la classification renvoyée par l'IA.
 
         La canonicalisation est faite ICI, sur le résultat final, plutôt que dans chacun des 5
@@ -311,7 +312,8 @@ class DealAnalyzer(LLMClientsMixin):
         """
         llm_usage.current_deal_id.set(listing_data.get('id'))
         llm_usage.current_user_ref.set(user_email)
-        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
+        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email,
+                                            bypass_active_search)
         taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
         return self._canonicalize_classification(result, taxonomy)
 
@@ -427,7 +429,8 @@ class DealAnalyzer(LLMClientsMixin):
         result.update(qwen_observation)
         return result
 
-    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                              bypass_active_search=False):
         """Point d'entrée public : point de sortie UNIQUE pour l'attache des métadonnées Portier
         (`_attach_gatekeeper_metadata`), quel que soit le chemin emprunté par `_run_analysis_cascade_body`
         (rejet T1, hors-recherche-active, erreur T2, échec T3 avec repli T2, succès T2/T3) — un futur
@@ -439,13 +442,14 @@ class DealAnalyzer(LLMClientsMixin):
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
         result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation = self._run_analysis_cascade_body(
-            listing_data, firestore_config, force_expert, user_comment, user_email,
+            listing_data, firestore_config, force_expert, user_comment, user_email, bypass_active_search,
         )
         return self._attach_gatekeeper_metadata(
             result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
         )
 
-    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                                   bypass_active_search=False):
         """Corps de la cascade 3-Tiers — chaque point de sortie retourne
         `(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)`,
         jamais un dict déjà attaché (voir `_run_analysis_cascade`, seul appelant, qui fait
@@ -491,7 +495,7 @@ class DealAnalyzer(LLMClientsMixin):
         # PHASE 1 : TIER 1 - PORTIER
         if not force_expert:
             t1 = self._run_t1_phase(listing_data, config, taxonomy, images, user_comment, user_email,
-                                    gatekeeper_model_name, model_chain)
+                                    gatekeeper_model_name, model_chain, bypass_active_search)
             gatekeeper_status, gatekeeper_reason = t1.status, t1.reason
             gatekeeper_brand, gatekeeper_classification = t1.brand, t1.classification
             qwen_observation = t1.observation
@@ -586,7 +590,7 @@ class DealAnalyzer(LLMClientsMixin):
         return result_t1, primary_provider, tried, chain_errors
 
     def _run_t1_phase(self, listing_data, config, taxonomy, images, user_comment, user_email,
-                      gatekeeper_model_name, model_chain):
+                      gatekeeper_model_name, model_chain, bypass_active_search=False):
         """PHASE 1 : TIER 1 - PORTIER (Chantier I, 2026-09-29 : chaîne T1_PROVIDER_CHAIN — local Dell
         primaire / Qwen cloud secours par défaut, voir config.py). Retourne un `_T1Outcome` ;
         `early_result` non None = sortie anticipée de la cascade (rejet T1, NOT_PROMOTED ou
@@ -701,7 +705,9 @@ class DealAnalyzer(LLMClientsMixin):
             # planté ou réponse malformée) n'a par définition aucune classification fiable ;
             # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
             # vide ⇒ aucune correspondance) au lieu du skip dédié juste après ce bloc.
-            active_search_families = config.get('activeSearchFamilies') or []
+            # Scan manuel d'URL (2026-10-16) : l'utilisateur demande explicitement cette annonce,
+            # elle contourne le routage par recherche active (comme les filtres prix/mots-clés).
+            active_search_families = [] if bypass_active_search else (config.get('activeSearchFamilies') or [])
             if (
                 active_search_families
                 and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
