@@ -42,6 +42,11 @@ DÉCISIONS DE LUDOVIC DU 2026-10-16, PRISES AVANT TOUT RÉSULTAT DU REJEU (à ne
     en B (borne haute de l'IC95 de la hausse du taux de rejet inférieure ou égale à +3 points, bras « portier ») ET
     (2) le cas connu (annonce Guerilla 7 cordes, mode « cas précis » ci-dessous) est corrigé par la fiche.
 
+  * COMPLÉMENT DU 2026-10-16, APRÈS LE CAS GUERILLA (à lire avec ce qui précède, sans le remplacer) : l'annonce est déjà
+    acceptée SANS fiche (0 rejet sur 10) ; l'erreur d'origine venait d'un ancien Portier (autre prompt, ancienne
+    version de Flash) et n'existe plus avec le Portier actuel. Le critère (2) est donc SANS OBJET (ni atteint, ni raté) ;
+    la décision repose sur le seul critère (1), la non-régression en B.
+
 Mode « cas précis » (2026-10-15 : vérifier qu'une annonce connue, ex. la Guerilla 7 cordes, n'est plus rejetée à tort) :
 
   python -m backend.scripts.t1_kb_paired_replay plan --only-ids ID --out kb_case.json
