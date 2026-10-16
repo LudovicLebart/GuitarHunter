@@ -401,6 +401,12 @@ class TestCascadeCharacterization(unittest.TestCase):
         self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
         self.assertEqual(self._actions(), ["t2_analyst"])
 
+    def test_bypass_active_search_continues_to_t2_even_if_not_matching(self):
+        """Scan manuel d'URL : l'annonce demandée explicitement n'est jamais « hors recherche »."""
+        r = self._run(config={"activeSearchFamilies": ["amplificateur"]}, bypass_active_search=True)
+        self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
+        self.assertEqual(self._actions(), ["t2_analyst"])
+
     def test_pepite_bypasses_active_search_filter(self):
         self.a._call_t1_provider = MagicMock(return_value=({**self.T1_ACCEPT, "status": "PEPITE"}, None))
         r = self._run(config={"activeSearchFamilies": ["amplificateur"]})

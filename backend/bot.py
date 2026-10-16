@@ -558,7 +558,10 @@ class GuitarHunterBot:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return "rejected_prefilter"
 
-        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+        analysis = self.analyzer.analyze_deal(
+            listing_data, firestore_config=current_config, user_email=self._user_email,
+            bypass_active_search=is_manual_scan,
+        )
 
         # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) : le Portier
         # T1 n'a produit aucun verdict fiable (échec d'appel ou réponse malformée, voir
