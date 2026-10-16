@@ -800,6 +800,13 @@ export const markChatMessageRequalificationProposalStatus = async (dealId, messa
 
 // --- Plan de restauration ---
 
+// dealId -> relectures du plan en cours d'écoute. Une écriture réussie relit le plan tout de suite :
+// sans cela, une étape créée n'apparaissait que si la notification WebSocket arrivait (coupée, ou
+// filtrée côté serveur, l'ajout semblait ne rien faire — signalé le 2026-10-16).
+const restorationPlanRefreshers = new Map();
+const refreshRestorationPlan = (dealId) =>
+  Promise.all([...(restorationPlanRefreshers.get(dealId) || [])].map((refresh) => refresh()));
+
 export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
   const fetchAndEmit = async () => {
     try {
@@ -811,7 +818,15 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
     }
   };
   fetchAndEmit();
-  return openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
+  // Rafraîchissement direct après nos propres écritures (voir `refreshRestorationPlan`) : ne dépend
+  // plus du seul WebSocket pour qu'une étape ajoutée apparaisse.
+  if (!restorationPlanRefreshers.has(dealId)) restorationPlanRefreshers.set(dealId, new Set());
+  restorationPlanRefreshers.get(dealId).add(fetchAndEmit);
+  const closeSocket = openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
+  return () => {
+    restorationPlanRefreshers.get(dealId)?.delete(fetchAndEmit);
+    closeSocket();
+  };
 };
 
 export const addRestorationItem = async (dealId, _userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order }) => {
@@ -820,16 +835,18 @@ export const addRestorationItem = async (dealId, _userId, { label, category, est
       method: 'POST',
       body: { label, category, estimatedCost, notes, source, proposedByMessageId, order },
     });
+    await refreshRestorationPlan(dealId);
     return result.id;
   } catch (error) {
     console.error(`Error adding restoration item for deal ${dealId}:`, error);
-    throw new Error("Erreur lors de l'ajout de l'étape de restauration.");
+    throw new Error(`Erreur lors de l'ajout de l'étape de restauration (${error.status ?? 'réseau'}).`);
   }
 };
 
 export const updateRestorationItem = async (dealId, _userId, itemId, patch) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}`, { method: 'PATCH', body: patch });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error updating restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la mise à jour de l'étape de restauration.");
@@ -839,6 +856,7 @@ export const updateRestorationItem = async (dealId, _userId, itemId, patch) => {
 export const deleteRestorationItem = async (dealId, _userId, itemId) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}`, { method: 'DELETE' });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error deleting restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la suppression de l'étape de restauration.");
@@ -848,6 +866,7 @@ export const deleteRestorationItem = async (dealId, _userId, itemId) => {
 export const reorderRestorationItems = async (dealId, _userId, orderedItemIds) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/order`, { method: 'PATCH', body: { orderedItemIds } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error reordering restoration items for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la réorganisation des étapes.");
@@ -868,6 +887,7 @@ export const backfillRestorationOrder = async (dealId, _userId, orderedItems) =>
 export const addRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}/photos`, { method: 'POST', body: { url } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error adding photo to restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de l'ajout de la photo à l'étape.");
@@ -877,6 +897,7 @@ export const addRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
 export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}/photos`, { method: 'DELETE', body: { url } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error removing photo from restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors du retrait de la photo de l'étape.");
