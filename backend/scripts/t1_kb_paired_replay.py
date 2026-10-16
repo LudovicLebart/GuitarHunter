@@ -34,6 +34,14 @@ Sous-commandes (sur le serveur, `export DATABASE_URL=...`, Dell allumé ; ces sc
         --plan kb_plan.json --results kb_paired.jsonl --ocr kb_ocr.jsonl --stage eval    > kb_eval.log 2>&1 &
   python -m backend.scripts.t1_kb_paired_replay report --plan kb_plan.json --results kb_paired.jsonl
 
+DÉCISIONS DE LUDOVIC DU 2026-10-16, PRISES AVANT TOUT RÉSULTAT DU REJEU (à ne pas modifier après coup) :
+  * Le seuil de lecture de 70 pour cent (`ocr-check`) n'est PAS atteint (11/22 = 50 pour cent, verdict LECTURE INSUFFISANTE
+    le 2026-10-16) ; il est ABANDONNÉ en connaissance de cause : le détail montre que la référence (texte de l'Expert)
+    contient des suppositions, pas seulement du texte lu ; ce seuil ne sert plus de condition au rejeu.
+  * A n'a que 20 annonces (moins de 25) : la strate A ne sert plus à décider. Critère de décision : (1) NON-RÉGRESSION
+    en B (borne haute de l'IC95 de la hausse du taux de rejet inférieure ou égale à +3 points, bras « portier ») ET
+    (2) le cas connu (annonce Guerilla 7 cordes, mode « cas précis » ci-dessous) est corrigé par la fiche.
+
 Mode « cas précis » (2026-10-15 : vérifier qu'une annonce connue, ex. la Guerilla 7 cordes, n'est plus rejetée à tort) :
 
   python -m backend.scripts.t1_kb_paired_replay plan --only-ids ID --out kb_case.json
@@ -233,6 +241,12 @@ def print_report(rep):
     print(f"VERDICT (recherche par titre + description)          : {rep['verdict']}")
     print(f"VERDICT (+ photos lues par le Portier, à déployer)    : {rep['verdict_portier']}")
     print(VERDICT_TEXT[rep["verdict_portier"] if rep["A_portier"] else rep["verdict"]])
+    print(f"\nCRITÈRE DE DÉCISION DU 2026-10-16 (fixé par Ludovic avant les résultats) : non-régression en B, borne haute ≤ +{MAX_RISE_POINTS} points")
+    for label, key in (("recherche par titre + description", "B_with"), ("+ photos lues par le Portier", "B_portier")):
+        b = rep.get(key)
+        ok = bool(b) and b["ci_pts"][1] <= MAX_RISE_POINTS
+        print(f"  {label:36s}: {'NON-RÉGRESSION DÉMONTRÉE' if ok else 'NON-RÉGRESSION NON DÉMONTRÉE'}")
+    print("  (+ le cas Guerilla doit être corrigé : voir `case-report`. A étant sous le seuil, son verdict « NON CONCLUANT » est attendu.)")
 
 
 VERDICT_TEXT = {
@@ -404,7 +418,8 @@ def run(args):
     with open(results_path + ".meta.json", "w", encoding="utf-8") as fh:
         json.dump({"plan_meta": meta, "model": cq.QWEN_LOCAL_MODEL, "max_images": cq.MAX_IMAGES,
                    "fit_budget": cq.QWEN_LOCAL_FIT_BUDGET, "num_ctx": cq.QWEN_LOCAL_NUM_CTX, "temperature": None,
-                   "nonprod_overrides": nonprod, "started": time.strftime("%Y-%m-%d %H:%M:%S")}, fh, indent=2)
+                   "nonprod_overrides": nonprod, "note": getattr(args, "note", ""),
+                   "started": time.strftime("%Y-%m-%d %H:%M:%S")}, fh, indent=2)
 
     cache = {"id": None}
     consecutive_failures = 0
@@ -631,6 +646,7 @@ def main(argv=None):
     r.add_argument("--reps-b", type=int, default=DEFAULTS["reps_b"])
     r.add_argument("--limit", type=int, default=0, help="n'exécute que N appels (essai)")
     r.add_argument("--allow-nonprod", action="store_true")
+    r.add_argument("--note", default="", help="note consignée dans le fichier de méta (ex. dérogation décidée par l'utilisateur)")
     o = sub.add_parser("ocr", help="le Portier lit les photos des annonces du plan (reprenable)")
     o.add_argument("--plan", default="kb_plan.json")
     o.add_argument("--ocr", default="kb_ocr.jsonl")
