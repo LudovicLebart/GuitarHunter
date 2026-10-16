@@ -290,13 +290,22 @@ class TestSeedAgainstPostgres(unittest.TestCase):
         self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version) VALUES
             ('wd:vox', 'brand', 'Vox', 'accessories', 'wikidata', 3), ('wd:supro', 'company', 'Supro', 'accessories', 'wikidata', 3)""")
         entries = sk.load_entries(sorted(glob.glob(os.path.join(sk.SEED_DIR, "*.json"))))
+        # Les lots 7 et 8 corrigent des fiches existantes de la vraie base par leur identifiant (« wd:Q… ») : on les crée
+        # vides dans cette base d'essai.
+        for e in entries:
+            target = e.get("patch") or ""
+            if target.startswith("wd:"):
+                self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version)
+                                     VALUES (%s, 'brand', %s, 'accessories', 'wikidata', 3) ON CONFLICT (id) DO NOTHING""",
+                                  (target, "Fiche " + target))
         planned = sk.plan(self.conn, entries)
         self.assertEqual(len(planned), len(entries))
         sk.write(self.conn, planned)
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge WHERE source='manual'").fetchone()["n"],
                          len([e for e in entries if not e.get("patch")]))
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge WHERE relevance_override = 'guitars'")
-                         .fetchone()["n"], len([e for e in entries if e.get("patch")]))
+                         .fetchone()["n"],
+                         len([e for e in entries if e.get("patch") and e.get("relevance_override") == "guitars"]))
 
 
 if __name__ == "__main__":
