@@ -5,17 +5,23 @@ connexion (si besoin) -> ID de ville (si besoin) -> scans anonyme/connecté -> t
 Lecture seule : réutilise FacebookScraper.scan_marketplace() tel quel, sans écriture en base ni
 analyse IA. Les deux modes tournent avec la même requête, ville, budget et ordre de tri.
 
+Réglages : lus dans la config Postgres de ton utilisateur (`--user-id`, ou l'unique utilisateur de
+la base) : `scanConfig` (search_query, min_price, max_price, max_ads) et villes actives
+(liste blanche + ancrage, comme le bot : rayon `FACEBOOK_ANCHOR_RADIUS_KM`). Tout argument CLI
+l'emporte sur la config. Exporter `DATABASE_URL` avant (les scripts ne lisent pas `.env`).
+
 Identifiants : FB_EMAIL / FB_PASSWORD, lus dans l'environnement ou dans --env-file
 (défaut ~/.facebook_test.env, hors dépôt). La session est mise en cache dans --storage-state
 (ignoré par git) et réutilisée tant qu'elle est valide.
 
 Usage serveur (Xvfb, connexion automatique) :
-    xvfb-run -a python -m backend.scripts.compare_fb_anon_vs_auth \
-        --query guitare --city-name "Saint-Bruno" \
-        --allowed "saint-bruno,longueuil,boucherville" --max-price 1500 --max-ads 40 --runs 3
+    export DATABASE_URL=...
+    xvfb-run -a python -m backend.scripts.compare_fb_anon_vs_auth --user-id <UID> --runs 3
+    (ajouter --city-name "Saint-Bruno" pour choisir la ville parmi les tiennes ; sinon l'ancrage
+     du plus gros cluster)
 
 Usage poste avec écran, connexion manuelle (checkpoint, code de sécurité) : ajouter --manual-login.
---city-id <ID> évite la recherche de ville par l'interface. --relogin force une nouvelle connexion.
+--city-id/--city-name/--query/--min-price/--max-price/--max-ads/--allowed surchargent la config. --relogin force une nouvelle connexion.
 
 Le rapport détaillé (IDs d'annonces seulement, aucun titre ni URL) est écrit dans
 fb_compare_<horodatage>.json, ignoré par git (dépôt public).
@@ -34,6 +40,9 @@ from playwright.sync_api import sync_playwright
 from backend.scraping.core import FacebookScraper
 from backend.scraping.config import ScraperConfig
 from backend.scraping.parser import ListingParser
+from backend.scraping.geo_clustering import compute_anchor_clusters
+
+ANCHOR_RADIUS_KM = 80  # = GuitarHunterBot.FACEBOOK_ANCHOR_RADIUS_KM
 
 DEFAULT_STATE = os.path.expanduser("~/facebook_storage_state.json")
 DEFAULT_ENV_FILE = os.path.expanduser("~/.facebook_test.env")
@@ -131,6 +140,45 @@ def ensure_session(state_path, relogin, manual):
             browser.close()
 
 
+def load_user_setup(user_id):
+    """Config Postgres de l'utilisateur : (uid, scanConfig, villes actives). Lecture seule."""
+    from psycopg_pool import ConnectionPool
+    from psycopg.rows import dict_row
+    from backend.pg_db import DATABASE_URL
+    from backend.pg_repository import PostgresRepository
+
+    pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=2, kwargs={"row_factory": dict_row}, open=True)
+    try:
+        if not user_id:
+            with pool.connection() as conn:
+                uids = [r["uid"] for r in conn.execute("SELECT uid FROM users").fetchall()]
+            if len(uids) != 1:
+                print(f"❌ {len(uids)} utilisateurs en base — précise --user-id parmi : {', '.join(uids)}")
+                return None
+            user_id = uids[0]
+        repo = PostgresRepository(pool, user_id, logger=logging.getLogger("fb_compare"))
+        config = repo.get_user_config()
+        if not config:
+            print(f"❌ Utilisateur {user_id} introuvable.")
+            return None
+        return user_id, (config.get("scanConfig") or {}), repo.get_cities()
+    finally:
+        pool.close()
+
+
+def pick_city(cities, wanted_name):
+    """Ville à scanner : celle demandée (parmi les villes actives), sinon l'ancrage du plus gros
+    cluster — exactement ce que le bot scanne pour cette zone."""
+    if wanted_name:
+        norm = ListingParser.normalize_city_name(wanted_name)
+        for c in cities:
+            if ListingParser.normalize_city_name(c.get("name", "")) == norm:
+                return c
+        print(f"⚠️ '{wanted_name}' n'est pas dans tes villes actives — ancrage du plus gros cluster utilisé.")
+    clusters = compute_anchor_clusters(cities, ANCHOR_RADIUS_KM)
+    return max(clusters, key=lambda cl: len(cl.members)).anchor
+
+
 def resolve_city_id(city_name, logger):
     scraper = FacebookScraper({}, {}, config=ScraperConfig(), logger=logger)
     try:
@@ -142,9 +190,9 @@ def resolve_city_id(city_name, logger):
 
 def run_mode(label, storage_state, args, allowed, logger):
     cfg = ScraperConfig(storage_state_path=storage_state)
-    scraper = FacebookScraper({}, {}, allowed_cities=allowed, config=cfg, logger=logger)
+    scraper = FacebookScraper({}, {args.location_key: args.city_id}, allowed_cities=allowed, config=cfg, logger=logger)
     scan_config = {
-        "search_query": args.query, "location": args.city_id,
+        "search_query": args.query, "location": args.location_key,
         "min_price": args.min_price, "max_price": args.max_price, "max_ads": args.max_ads,
     }
     t0 = time.time()
@@ -190,13 +238,14 @@ def print_table(rows):
 
 def main():
     parser = argparse.ArgumentParser(description="Compare Facebook Marketplace anonyme vs connecté (lecture seule)")
-    parser.add_argument("--query", required=True)
+    parser.add_argument("--user-id", help="UID de l'utilisateur dont on reprend la config (défaut : l'unique utilisateur)")
+    parser.add_argument("--query")
     parser.add_argument("--city-id", help="ID numérique Facebook de la ville (sinon recherché via --city-name)")
     parser.add_argument("--city-name", help="Nom de la ville, pour retrouver l'ID automatiquement")
     parser.add_argument("--allowed", default="", help="Villes autorisées, séparées par des virgules")
-    parser.add_argument("--min-price", type=int, default=0)
-    parser.add_argument("--max-price", type=int, default=1500)
-    parser.add_argument("--max-ads", type=int, default=40)
+    parser.add_argument("--min-price", type=int)
+    parser.add_argument("--max-price", type=int)
+    parser.add_argument("--max-ads", type=int)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--storage-state", default=DEFAULT_STATE)
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
@@ -204,13 +253,35 @@ def main():
     parser.add_argument("--relogin", action="store_true", help="Ignorer la session en cache")
     args = parser.parse_args()
 
-    if not args.city_id and not args.city_name:
-        parser.error("--city-id ou --city-name est requis")
-
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logger = logging.getLogger("fb_compare")
     load_env_file(args.env_file)
-    allowed = {ListingParser.normalize_city_name(c) for c in args.allowed.split(",") if c.strip()}
+
+    scan_cfg, cities, city = {}, [], None
+    if not (args.city_id and args.query):
+        setup = load_user_setup(args.user_id)
+        if setup is None:
+            sys.exit(1)
+        uid, scan_cfg, cities = setup
+        print(f"Config de l'utilisateur {uid[:8]}… : {len(cities)} villes actives")
+        if cities and not args.city_id:
+            city = pick_city(cities, args.city_name)
+            args.city_id, args.city_name = str(city["id"]), city["name"]
+
+    args.query = args.query or scan_cfg.get("search_query")
+    if args.min_price is None: args.min_price = scan_cfg.get("min_price", 0)
+    if args.max_price is None: args.max_price = scan_cfg.get("max_price", 1500)
+    if args.max_ads is None: args.max_ads = scan_cfg.get("max_ads", 40)
+    if not args.query:
+        parser.error("--query requis (aucune search_query dans la config)")
+    if not args.city_id and not args.city_name:
+        parser.error("--city-id ou --city-name est requis (aucune ville active dans la config)")
+
+    allowed_names = [c.strip() for c in args.allowed.split(",") if c.strip()] or [c["name"] for c in cities if c.get("name")]
+    allowed = {ListingParser.normalize_city_name(c) for c in allowed_names}
+    args.location_key = ListingParser.normalize_city_name(args.city_name) if args.city_name else str(args.city_id)
+    print(f"Requête='{args.query}'  budget={args.min_price}-{args.max_price}$  max_ads={args.max_ads}  "
+          f"ville={args.city_name or '?'} ({args.city_id or 'ID à rechercher'})  liste blanche={len(allowed)} villes")
 
     print("=== 1/3 Session connectée ===")
     if not ensure_session(args.storage_state, args.relogin, args.manual_login):
