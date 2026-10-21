@@ -1,24 +1,26 @@
 """
-Compare le scraper Facebook Marketplace en mode anonyme (production) et connecté (storage_state).
+Compare le scraper Facebook Marketplace en mode anonyme (production) et connecté. Script unique :
+connexion (si besoin) -> ID de ville (si besoin) -> scans anonyme/connecté -> tableau + rapport.
 
 Lecture seule : réutilise FacebookScraper.scan_marketplace() tel quel, sans écriture en base ni
 analyse IA. Les deux modes tournent avec la même requête, ville, budget et ordre de tri.
 
-Prérequis : python -m backend.scripts.facebook_login_once  (génère la session connectée)
+Identifiants : FB_EMAIL / FB_PASSWORD, lus dans l'environnement ou dans --env-file
+(défaut ~/.facebook_test.env, hors dépôt). La session est mise en cache dans --storage-state
+(ignoré par git) et réutilisée tant qu'elle est valide.
 
-Usage :
-    python -m backend.scripts.compare_fb_anon_vs_auth \
-        --query guitare --city-id 123456789 --city-name "Saint-Bruno" \
-        --allowed "saint-bruno,longueuil,boucherville" --min-price 0 --max-price 1500 --max-ads 40
+Usage serveur (Xvfb, connexion automatique) :
+    xvfb-run -a python -m backend.scripts.compare_fb_anon_vs_auth \
+        --query guitare --city-name "Saint-Bruno" \
+        --allowed "saint-bruno,longueuil,boucherville" --max-price 1500 --max-ads 40 --runs 3
 
---city-id : ID numérique Facebook de la ville (visible dans l'URL /marketplace/<ID>/).
---allowed : villes autorisées (liste blanche), séparées par des virgules ; sert à mesurer le
-            remplissage hors zone. Vide = tout est accepté.
---runs    : nombre d'alternances anonyme/connecté (défaut 1) pour lisser la variabilité de Facebook.
+Usage poste avec écran, connexion manuelle (checkpoint, code de sécurité) : ajouter --manual-login.
+--city-id <ID> évite la recherche de ville par l'interface. --relogin force une nouvelle connexion.
 
 Le rapport détaillé (IDs d'annonces seulement, aucun titre ni URL) est écrit dans
 fb_compare_<horodatage>.json, ignoré par git (dépôt public).
 """
+import os
 import sys
 import json
 import time
@@ -27,11 +29,115 @@ import logging
 
 sys.path.insert(0, '.')
 
+from playwright.sync_api import sync_playwright
+
 from backend.scraping.core import FacebookScraper
 from backend.scraping.config import ScraperConfig
 from backend.scraping.parser import ListingParser
 
-DEFAULT_STATE = "backend/scripts/facebook_storage_state.json"
+DEFAULT_STATE = os.path.expanduser("~/facebook_storage_state.json")
+DEFAULT_ENV_FILE = os.path.expanduser("~/.facebook_test.env")
+
+
+def load_env_file(path):
+    """Charge KEY=VALUE dans os.environ sans écraser l'existant. Ignore un fichier absent."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+def _new_context(p, cfg, state_path=None):
+    browser = p.chromium.launch(
+        headless=cfg.headless,
+        args=["--disable-blink-features=AutomationControlled", "--disable-infobars", "--no-sandbox"],
+    )
+    context = browser.new_context(
+        viewport={"width": 1440, "height": 900}, user_agent=cfg.user_agent,
+        locale=cfg.locale, timezone_id=cfg.timezone,
+        storage_state=state_path if state_path and os.path.exists(state_path) else None,
+    )
+    return browser, context
+
+
+def _is_logged_in(page):
+    page.goto("https://www.facebook.com/marketplace/", timeout=60000)
+    time.sleep(3)
+    url = page.url
+    if any(x in url for x in ("/login", "checkpoint", "two_step")):
+        return False
+    return any(c["name"] == "c_user" for c in page.context.cookies())
+
+
+def ensure_session(state_path, relogin, manual):
+    """Garantit un storage_state connecté valide dans state_path. Retourne True si OK."""
+    cfg = ScraperConfig()
+    with sync_playwright() as p:
+        browser, context = _new_context(p, cfg, None if relogin else state_path)
+        try:
+            page = context.new_page()
+            if not relogin and os.path.exists(state_path) and _is_logged_in(page):
+                print(f"✅ Session existante valide ({state_path}).")
+                return True
+
+            if manual:
+                page.goto("https://www.facebook.com/login", timeout=60000)
+                print("\n👉 Connecte-toi dans la fenêtre (codes de sécurité inclus), ouvre Marketplace.")
+                input("   Appuie sur Entrée ici une fois connecté...\n")
+            else:
+                email, pwd = os.environ.get("FB_EMAIL"), os.environ.get("FB_PASSWORD")
+                if not email or not pwd:
+                    print("❌ FB_EMAIL / FB_PASSWORD introuvables (environnement ou --env-file).")
+                    return False
+                page.goto("https://www.facebook.com/login", timeout=60000)
+                for label in ("Allow all cookies", "Decline optional cookies", "Autoriser tous les cookies"):
+                    try:
+                        page.get_by_role("button", name=label).click(timeout=2000)
+                        break
+                    except Exception:
+                        pass
+                page.fill("input[name='email']", email)
+                page.fill("input[name='pass']", pwd)
+                page.keyboard.press("Enter")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=20000)
+                except Exception:
+                    pass
+                time.sleep(5)
+                if any(x in page.url for x in ("checkpoint", "two_step", "/login")):
+                    shot = "fb_login_failed.png"
+                    try:
+                        page.screenshot(path=shot)
+                    except Exception:
+                        shot = "(capture impossible)"
+                    print(f"❌ Connexion automatique bloquée (checkpoint ou identifiants refusés). "
+                          f"URL: {page.url} — capture: {shot}\n"
+                          f"   Relance avec --manual-login sur un poste avec écran.")
+                    return False
+
+            if not _is_logged_in(page):
+                print("❌ Session non connectée après la tentative de login.")
+                return False
+            context.storage_state(path=state_path)
+            os.chmod(state_path, 0o600)
+            print(f"✅ Session sauvegardée dans {state_path}")
+            return True
+        finally:
+            browser.close()
+
+
+def resolve_city_id(city_name, logger):
+    scraper = FacebookScraper({}, {}, config=ScraperConfig(), logger=logger)
+    try:
+        city_id, _ = scraper.get_city_id_and_coords(city_name)
+    finally:
+        scraper.close_session()
+    return city_id
 
 
 def run_mode(label, storage_state, args, allowed, logger):
@@ -85,22 +191,45 @@ def print_table(rows):
 def main():
     parser = argparse.ArgumentParser(description="Compare Facebook Marketplace anonyme vs connecté (lecture seule)")
     parser.add_argument("--query", required=True)
-    parser.add_argument("--city-id", required=True, help="ID numérique Facebook de la ville")
+    parser.add_argument("--city-id", help="ID numérique Facebook de la ville (sinon recherché via --city-name)")
+    parser.add_argument("--city-name", help="Nom de la ville, pour retrouver l'ID automatiquement")
     parser.add_argument("--allowed", default="", help="Villes autorisées, séparées par des virgules")
     parser.add_argument("--min-price", type=int, default=0)
     parser.add_argument("--max-price", type=int, default=1500)
     parser.add_argument("--max-ads", type=int, default=40)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--storage-state", default=DEFAULT_STATE)
+    parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
+    parser.add_argument("--manual-login", action="store_true", help="Connexion manuelle (poste avec écran)")
+    parser.add_argument("--relogin", action="store_true", help="Ignorer la session en cache")
     args = parser.parse_args()
+
+    if not args.city_id and not args.city_name:
+        parser.error("--city-id ou --city-name est requis")
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logger = logging.getLogger("fb_compare")
+    load_env_file(args.env_file)
     allowed = {ListingParser.normalize_city_name(c) for c in args.allowed.split(",") if c.strip()}
 
+    print("=== 1/3 Session connectée ===")
+    if not ensure_session(args.storage_state, args.relogin, args.manual_login):
+        sys.exit(1)
+
+    if not args.city_id:
+        print(f"\n=== 2/3 Recherche de l'ID de '{args.city_name}' ===")
+        args.city_id = resolve_city_id(args.city_name, logger)
+        if not args.city_id:
+            print("❌ ID de ville introuvable via l'interface. Relance avec --city-id.")
+            sys.exit(1)
+        print(f"✅ ID: {args.city_id}")
+    else:
+        print(f"\n=== 2/3 ID de ville fourni: {args.city_id} ===")
+
+    print("\n=== 3/3 Comparaison ===")
     rows = []
     for i in range(args.runs):
-        print(f"\n=== Passage {i + 1}/{args.runs} ===")
+        print(f"\n--- Passage {i + 1}/{args.runs} ---")
         rows.append(run_mode("anonyme", None, args, allowed, logger))
         rows.append(run_mode("connecté", args.storage_state, args, allowed, logger))
         print_table(rows[-2:])
