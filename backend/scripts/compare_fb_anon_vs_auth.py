@@ -20,7 +20,8 @@ Usage serveur (Xvfb, connexion automatique) :
     (ajouter --city-name "Saint-Bruno" pour choisir la ville parmi les tiennes ; sinon l'ancrage
      du plus gros cluster)
 
-Usage poste avec écran, connexion manuelle (checkpoint, code de sécurité) : ajouter --manual-login.
+Usage poste avec écran, connexion manuelle (checkpoint, 2FA) : --login-only --manual-login, puis copier
+le fichier de session sur le serveur.
 --city-id/--city-name/--query/--min-price/--max-price/--max-ads/--allowed surchargent la config. --relogin force une nouvelle connexion.
 
 Le rapport détaillé (IDs d'annonces seulement, aucun titre ni URL) est écrit dans
@@ -250,12 +251,16 @@ def main():
     parser.add_argument("--storage-state", default=DEFAULT_STATE)
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
     parser.add_argument("--manual-login", action="store_true", help="Connexion manuelle (poste avec écran)")
+    parser.add_argument("--login-only", action="store_true", help="Génère/valide la session puis s'arrête (pas de base, pas de scan)")
     parser.add_argument("--relogin", action="store_true", help="Ignorer la session en cache")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logger = logging.getLogger("fb_compare")
     load_env_file(args.env_file)
+
+    if args.login_only:
+        sys.exit(0 if ensure_session(args.storage_state, args.relogin, args.manual_login) else 1)
 
     scan_cfg, cities, city = {}, [], None
     if not (args.city_id and args.query):
