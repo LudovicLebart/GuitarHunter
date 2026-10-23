@@ -765,5 +765,103 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
         mock_notification_service.notify_deal.assert_called_once()
 
 
+class TestRecordScrapeHealth(unittest.TestCase):
+    """Suivi de santé des scrapers (backend/scrape_health.py) : enregistrement par scan de ville,
+    alerte à seuil avec délai minimal, et — surtout — jamais d'exception vers le scan."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._user_email = "a@b.c"
+        self.bot.repo = MagicMock()
+        self.bot.repo.record_scrape_run.return_value = 42
+        self.bot.repo.was_scrape_alerted_recently.return_value = False
+        self.bot.repo.last_ok_scrape_run.return_value = "2026-10-20 12:00 UTC"
+        self.city = {"id": 110035235685771, "name": "Bromont"}
+
+    def _record(self, outcome="ok", detail=""):
+        self.bot._record_scrape_health("facebook", self.city, "guitar", outcome, detail, cards_seen=82, out_of_list=82, kept=0)
+
+    @patch("backend.bot.NotificationService")
+    def test_healthy_scan_is_recorded_without_alert(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["ok", "ok"]
+        self._record()
+        args, kwargs = self.bot.repo.record_scrape_run.call_args
+        self.assertEqual(args[:5], ("facebook", "110035235685771", "Bromont", "guitar", "ok"))
+        self.assertEqual((kwargs["cards_seen"], kwargs["out_of_list"], kwargs["kept"]), (82, 82, 0))
+        mock_notif.notify_scrape_health.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_three_consecutive_failures_alert_once_and_mark_the_run(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["geo_mismatch"] * 3
+        self._record("geo_mismatch", "82/82 cartes hors liste de villes")
+        mock_notif.notify_scrape_health.assert_called_once()
+        args, kwargs = mock_notif.notify_scrape_health.call_args
+        self.assertEqual(args[:5], ("facebook", "Bromont", "geo_mismatch", 3, "2026-10-20 12:00 UTC"))
+        self.assertIn("Bromont", args[5])  # piste de réparation nominative
+        self.assertEqual(kwargs["user_email"], "a@b.c")
+        self.bot.repo.mark_scrape_run_alerted.assert_called_once_with(42)
+
+    @patch("backend.bot.NotificationService")
+    def test_cooldown_suppresses_repeated_alert(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["geo_mismatch"] * 5
+        self.bot.repo.was_scrape_alerted_recently.return_value = True
+        self._record("geo_mismatch")
+        mock_notif.notify_scrape_health.assert_not_called()
+        self.bot.repo.mark_scrape_run_alerted.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_repository_failure_never_propagates(self, mock_notif):
+        self.bot.repo.record_scrape_run.side_effect = RuntimeError("db down")
+        self._record("error", "boom")  # ne doit pas lever
+        mock_notif.notify_scrape_health.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_notification_failure_never_propagates(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["error"] * 3
+        mock_notif.notify_scrape_health.side_effect = RuntimeError("smtp down")
+        self._record("error", "boom")  # ne doit pas lever
+
+    def test_offline_mode_records_nothing(self):
+        self.bot.offline_mode = True
+        self._record()
+        self.bot.repo.record_scrape_run.assert_not_called()
+
+
+@patch("backend.bot.time.sleep")
+class TestScrapeHealthWiringKijiji(unittest.TestCase):
+    """`_run_kijiji_scan` enregistre un résultat par ville scannée."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._record_scrape_health = MagicMock()
+        self.scan_config = {"max_ads": 5, "search_query": "guitar", "distance": 0}
+
+    @patch("backend.bot.KijijiScraper")
+    def test_ok_scan_is_recorded_with_cards_seen(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.return_value = []
+        scraper.last_scan = {"blocked": False, "error": None, "cards_seen": 12}
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        args, kwargs = self.bot._record_scrape_health.call_args
+        self.assertEqual(args[0], "kijiji")
+        self.assertEqual(args[3], "ok")
+        self.assertEqual(kwargs["cards_seen"], 12)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_blocked_scan_is_recorded_as_blocked(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.return_value = []
+        scraper.last_scan = {"blocked": True, "error": None, "cards_seen": 0}
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "blocked")
+
+    @patch("backend.bot.KijijiScraper")
+    def test_exception_is_recorded_as_error_and_scan_continues(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.side_effect = RuntimeError("boom")
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "error")
+
+
 if __name__ == "__main__":
     unittest.main()

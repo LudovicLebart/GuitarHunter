@@ -417,6 +417,71 @@ class PostgresRepository:
                     (deal_id, self.user_id),
                 )
 
+    # ------------------------------------------------------------------ santé des scrapers
+
+    def record_scrape_run(self, source, city_id, city_name, query, outcome, detail=None,
+                          cards_seen=None, out_of_list=None, kept=None, duration_ms=None):
+        """Enregistre un scan de ville (voir `backend/scrape_health.py`). Retourne l'`id` de la ligne."""
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """
+                INSERT INTO scrape_runs (user_id, source, city_id, city_name, query, outcome, detail,
+                                         cards_seen, out_of_list, kept, duration_ms)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (self.user_id, source, city_id, city_name, query, outcome, detail,
+                 cards_seen, out_of_list, kept, duration_ms),
+            ).fetchone()
+        return row["id"]
+
+    def recent_scrape_outcomes(self, source, city_id, limit=10):
+        """Codes de résultat des `limit` derniers scans de (source, ville), du plus récent au plus ancien."""
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT outcome FROM scrape_runs
+                WHERE user_id = %s AND source = %s AND city_id IS NOT DISTINCT FROM %s
+                ORDER BY created_at DESC, id DESC LIMIT %s
+                """,
+                (self.user_id, source, city_id, limit),
+            ).fetchall()
+        return [r["outcome"] for r in rows]
+
+    def was_scrape_alerted_recently(self, source, city_id, hours):
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM scrape_runs
+                WHERE user_id = %s AND source = %s AND city_id IS NOT DISTINCT FROM %s
+                  AND alerted_at > now() - make_interval(hours => %s)
+                LIMIT 1
+                """,
+                (self.user_id, source, city_id, hours),
+            ).fetchone()
+        return row is not None
+
+    def last_ok_scrape_run(self, source, city_id):
+        """Date (texte ISO) du dernier scan `ok` de (source, ville), ou None."""
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """
+                SELECT created_at FROM scrape_runs
+                WHERE user_id = %s AND source = %s AND city_id IS NOT DISTINCT FROM %s AND outcome = 'ok'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (self.user_id, source, city_id),
+            ).fetchone()
+        return row["created_at"].strftime("%Y-%m-%d %H:%M UTC") if row else None
+
+    def mark_scrape_run_alerted(self, run_id):
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE scrape_runs SET alerted_at = now() WHERE id = %s", (run_id,))
+
+    def purge_scrape_runs(self, days=90):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM scrape_runs WHERE created_at < now() - make_interval(days => %s)", (days,))
+
     # ------------------------------------------------------------------ villes
 
     def get_cities(self):

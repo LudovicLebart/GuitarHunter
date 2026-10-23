@@ -433,5 +433,71 @@ class TestPostgresRepository(unittest.TestCase):
         self.assertEqual(remaining["n"], 0)
 
 
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({_sync_dsn()}) depuis cet environnement.")
+class TestScrapeRuns(unittest.TestCase):
+    """Suivi de santé des scrapers (table `scrape_runs`, voir backend/scrape_health.py)."""
+    UID = "test-uid-scrape-runs-1"
+    OTHER_UID = "test-uid-scrape-runs-2"
+
+    def setUp(self):
+        with open("backend/api/schema.sql", encoding="utf-8") as f:
+            schema_sql = f.read()
+        self.pool = _Pool(_sync_dsn())
+        with self.pool.connection() as conn:
+            conn.execute(schema_sql)
+            for uid in (self.UID, self.OTHER_UID):
+                conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (uid,))
+        self.repo = PostgresRepository(self.pool, self.UID)
+        self.other_repo = PostgresRepository(self.pool, self.OTHER_UID)
+
+    def tearDown(self):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM users WHERE uid IN (%s, %s)", (self.UID, self.OTHER_UID))  # CASCADE -> scrape_runs
+        self.pool.close()
+
+    def _run(self, outcome, city_id="110", source="facebook", repo=None):
+        return (repo or self.repo).record_scrape_run(source, city_id, "Bromont", "guitar", outcome, None,
+                                                     cards_seen=10, out_of_list=2, kept=1, duration_ms=500)
+
+    def test_recent_outcomes_are_newest_first_and_scoped_by_user_source_and_city(self):
+        for o in ("ok", "geo_mismatch", "blocked"):
+            self._run(o)
+        self._run("error", city_id="999")
+        self._run("error", source="kijiji")
+        self._run("error", repo=self.other_repo)
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 10), ["blocked", "geo_mismatch", "ok"])
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 2), ["blocked", "geo_mismatch"])
+
+    def test_last_ok_run(self):
+        self.assertIsNone(self.repo.last_ok_scrape_run("facebook", "110"))
+        self._run("blocked")
+        self.assertIsNone(self.repo.last_ok_scrape_run("facebook", "110"))
+        self._run("ok")
+        self.assertRegex(self.repo.last_ok_scrape_run("facebook", "110"), r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$")
+
+    def test_alert_cooldown_follows_the_marked_run(self):
+        run_id = self._run("geo_mismatch")
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+        self.repo.mark_scrape_run_alerted(run_id)
+        self.assertTrue(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "999", 6))
+        self.assertFalse(self.other_repo.was_scrape_alerted_recently("facebook", "110", 6))
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE scrape_runs SET alerted_at = now() - interval '7 hours' WHERE id = %s", (run_id,))
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+
+    def test_run_without_city_id_is_supported(self):
+        self.repo.record_scrape_run("kijiji", None, "X", "q", "error", "boom")
+        self.assertEqual(self.repo.recent_scrape_outcomes("kijiji", None, 5), ["error"])
+
+    def test_purge_removes_only_old_rows(self):
+        old_id = self._run("error")
+        self._run("ok")
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE scrape_runs SET created_at = now() - interval '100 days' WHERE id = %s", (old_id,))
+        self.repo.purge_scrape_runs(90)
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 10), ["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -435,6 +435,31 @@ CREATE TABLE IF NOT EXISTS logs_archive (
 CREATE INDEX IF NOT EXISTS idx_logs_archive_user_created ON logs_archive(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_archive_created ON logs_archive(created_at);
 
+-- Santé des scrapers (2026-10-23) : UNE ligne par scan de ville (ancrage) Facebook / Kijiji, pour
+-- quantifier ce qui casse et alerter à seuil — voir backend/scrape_health.py. `outcome` : ok |
+-- no_cards | geo_mismatch | blocked | detail_degraded | error. `alerted_at` : posé sur la ligne qui a
+-- déclenché une alerte (délai minimal entre deux alertes, résistant aux redémarrages du bot). Jamais
+-- de titre ni d'URL d'annonce ici (dépôt public / simple suivi technique). Purge : 90 jours.
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source        TEXT NOT NULL,            -- 'facebook' | 'kijiji'
+    city_id       TEXT,
+    city_name     TEXT,
+    query         TEXT,
+    outcome       TEXT NOT NULL,
+    detail        TEXT,
+    cards_seen    INTEGER,
+    out_of_list   INTEGER,
+    kept          INTEGER,
+    duration_ms   INTEGER,
+    alerted_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_lookup ON scrape_runs(user_id, source, city_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_created ON scrape_runs(created_at);
+
 -- Catalogue partagé (remplace `artifacts/{APP_ID}/cities`, écrit par bot.py::add_city_auto()
 -- avec un `.set(merge=True)` — hors périmètre ici : cette tranche ne construit que la surface
 -- consommée par le frontend, le bot restant sur Firestore jusqu'à la bascule, voir §5.1).

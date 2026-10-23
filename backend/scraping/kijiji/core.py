@@ -80,6 +80,11 @@ class KijijiScraper:
     # rayon modeste suffisant. Proxy imparfait (Longueuil n'est pas Montréal) mais ne
     # nécessite aucune nouvelle donnée à maintenir (2026-07-27).
     DEFAULT_RADIUS_KM_RESOLVED = DEFAULT_SEARCH_RADIUS_KM
+
+    # Résultat « technique » du DERNIER scan (scan_city/scan_search_url), lu par bot.py pour le suivi de
+    # santé (backend/scrape_health.py) : ces méthodes retournent `[]` aussi bien pour un blocage ou une
+    # erreur que pour une page sans résultat — cette liste seule ne permet pas de les distinguer.
+    last_scan = {"blocked": False, "error": None, "cards_seen": 0}
     DEFAULT_RADIUS_KM_HUB_FALLBACK = 5
 
     def __init__(self, *, config: KijijiScraperConfig = None, logger: logging.Logger = None,
@@ -296,6 +301,7 @@ class KijijiScraper:
         dans le chemin — ces deux ID sont stables et réutilisables).
         """
         self._ensure_session()
+        self.last_scan = {"blocked": False, "error": None, "cards_seen": 0}
 
         self.logger.info(f"\n🌍 Scan Kijiji (URL directe): {url}")
 
@@ -321,10 +327,12 @@ class KijijiScraper:
 
             if "/login" in page.url or "captcha" in page.url.lower():
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan Kijiji (Redirection {page.url}).")
+                self.last_scan["blocked"] = True
                 return []
 
             found_deals = self._scrape_results_page(page, max_ads, should_skip_callback, stop_event)
         except Exception as e:
+            self.last_scan["error"] = str(e)
             self.logger.error(f"❌ Erreur scan Kijiji (URL directe): {e}", exc_info=True)
         finally:
             page.close()
@@ -372,6 +380,7 @@ class KijijiScraper:
                 f"propre, ni point d'ancrage proche trouvé ({len(self.resolvable_hubs)} "
                 f"candidat(s) disponible(s) — lat/lng fourni(s) : {lat is not None and lng is not None})."
             )
+            self.last_scan = {"blocked": False, "error": "aucun ancrage Kijiji résolvable pour cette ville", "cards_seen": 0}
             return []
 
         if radius_km is None or radius_km <= 0:
@@ -402,6 +411,7 @@ class KijijiScraper:
         """
         next_data_listings = KijijiListingParser.extract_all_standard_listings(page, self.logger)
         if next_data_listings:
+            self.last_scan = {**self.last_scan, "cards_seen": len(next_data_listings)}
             self.logger.info(f"   📦 {len(next_data_listings)} annonce(s) lues directement depuis __NEXT_DATA__ (pas de sélecteur de carte nécessaire).")
             return self._scrape_from_next_data(next_data_listings, max_ads, should_skip_callback, stop_event)
 
@@ -484,6 +494,7 @@ class KijijiScraper:
             previous_count = current_count
 
         listings = page.locator("a[href*='/v-']").all()
+        self.last_scan = {**self.last_scan, "cards_seen": len(listings)}
         self.logger.info(f"   👀 {len(listings)} éléments trouvés.")
 
         count = 0
