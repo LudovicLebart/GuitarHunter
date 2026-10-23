@@ -29,8 +29,35 @@ OPTION_SEL = "ul[role='listbox'] li, div[role='option']"
 QC_MARKERS = ("québec", "quebec", ", qc")
 
 
+START_URL = "https://www.facebook.com/marketplace/110035235685771/"  # page à ID : le bouton de lieu y existe (audit)
+
+
+def diagnose(page):
+    """Texte seulement (pas d'image) : de quoi adapter les sélecteurs si Facebook a changé."""
+    print(f"  [diag] url={page.url}")
+    try:
+        print(f"  [diag] titre={page.title()!r}")
+    except Exception:
+        pass
+    try:
+        buttons = page.locator("div[role='button']").all()[:30]
+        for b in buttons:
+            t = " ".join((b.inner_text(timeout=1000) or "").split())[:70]
+            if t:
+                print(f"  [diag] bouton: {t}")
+    except Exception as e:
+        print(f"  [diag] boutons illisibles: {e}")
+    try:
+        body = page.inner_text("body", timeout=3000).lower()
+        for marker in ("se connecter", "log in", "connexion", "captcha"):
+            if marker in body:
+                print(f"  [diag] la page contient « {marker} »")
+    except Exception:
+        pass
+
+
 def open_picker(page, text):
-    page.goto("https://www.facebook.com/marketplace/", timeout=60000)
+    page.goto(START_URL, timeout=60000)
     time.sleep(2)
     try:
         page.locator("div[aria-label='Fermer'], div[aria-label='Close']").first.click(timeout=2000)
@@ -39,7 +66,11 @@ def open_picker(page, text):
     btn = page.locator("div[role='button']").filter(has_text="·").first
     if btn.count() == 0:
         btn = page.locator("div[role='main']").locator("div[role='button']").first
-    btn.click()
+    try:
+        btn.click(timeout=8000)
+    except Exception:
+        diagnose(page)
+        raise
     time.sleep(2)
     page.locator(INPUT_SEL).first.fill(text)
     time.sleep(2.5)
