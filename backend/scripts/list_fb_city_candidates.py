@@ -1,131 +1,74 @@
 """
-Liste, pour un ou plusieurs noms de villes, TOUTES les suggestions du sélecteur de lieu Facebook
-Marketplace avec l'ID associé à chacune (anonyme, lecture seule, rien n'est écrit).
+Compare l'ID Facebook d'une ville en base (`cities.id`) à celui que `CityFinder` (celui du flux
+d'ajout de ville, avec `region_hint`) retrouve aujourd'hui. Anonyme, lecture seule : aucune
+écriture en base, rien n'est modifié.
 
-Sert à repérer le bon ID quand `FacebookScraper.get_city_id_and_coords()` — qui clique sur la
-PREMIÈRE suggestion sans vérifier la région — a retenu la mauvaise ville (ex. Bromont en France).
-
-Usage :
+Usage (DATABASE_URL exporté pour comparer à la base ; sinon seul l'ID retrouvé est affiché) :
     xvfb-run -a python -m backend.scripts.list_fb_city_candidates --names "Bromont,Beloeil"
-    xvfb-run -a python -m backend.scripts.list_fb_city_candidates --names "Bromont" --suffix ", Québec"
+    xvfb-run -a python -m backend.scripts.list_fb_city_candidates --user-id <UID> --all
 
---suffix est ajouté au nom tapé dans le champ de lieu (défaut : aucun, pour voir ce que voit le bot).
-Les suggestions contenant « Québec », « Quebec » ou « QC » sont marquées d'une flèche.
+--region : indice de région passé à CityFinder (défaut « Québec »).
+--all    : toutes les villes actives de l'utilisateur.
+Statut : OK (même ID), DIFF (ID différent), SANS-INDICE (aucune suggestion ne correspond à la
+région : CityFinder est retombé sur la première, résultat à ne pas croire).
 """
-import re
 import sys
-import time
 import argparse
+import logging
 
 sys.path.insert(0, '.')
 
-from playwright.sync_api import sync_playwright
-
+from backend.scraping.core import FacebookScraper
 from backend.scraping.config import ScraperConfig
-from backend.scripts.compare_fb_anon_vs_auth import _new_context
-
-INPUT_SEL = "input[aria-label='Lieu'], input[aria-label='Location'], input[placeholder='Rechercher un lieu']"
-OPTION_SEL = "ul[role='listbox'] li, div[role='option']"
-QC_MARKERS = ("québec", "quebec", ", qc")
-
-
-START_URL = "https://www.facebook.com/marketplace/110035235685771/"  # page à ID : le bouton de lieu y existe (audit)
-
-
-def diagnose(page):
-    """Texte seulement (pas d'image) : de quoi adapter les sélecteurs si Facebook a changé."""
-    print(f"  [diag] url={page.url}")
-    try:
-        print(f"  [diag] titre={page.title()!r}")
-    except Exception:
-        pass
-    try:
-        buttons = page.locator("div[role='button']").all()[:30]
-        for b in buttons:
-            t = " ".join((b.inner_text(timeout=1000) or "").split())[:70]
-            if t:
-                print(f"  [diag] bouton: {t}")
-    except Exception as e:
-        print(f"  [diag] boutons illisibles: {e}")
-    try:
-        body = page.inner_text("body", timeout=3000).lower()
-        for marker in ("se connecter", "log in", "connexion", "captcha"):
-            if marker in body:
-                print(f"  [diag] la page contient « {marker} »")
-    except Exception:
-        pass
-
-
-def open_picker(page, text):
-    page.goto(START_URL, timeout=60000)
-    time.sleep(2)
-    try:
-        page.locator("div[aria-label='Fermer'], div[aria-label='Close']").first.click(timeout=2000)
-    except Exception:
-        pass
-    btn = page.locator("div[role='button']").filter(has_text="·").first
-    if btn.count() == 0:
-        btn = page.locator("div[role='main']").locator("div[role='button']").first
-    try:
-        btn.click(timeout=8000)
-    except Exception:
-        diagnose(page)
-        raise
-    time.sleep(2)
-    page.locator(INPUT_SEL).first.fill(text)
-    time.sleep(2.5)
-
-
-def candidates(page, text, max_n):
-    open_picker(page, text)
-    options = page.locator(OPTION_SEL)
-    n = min(options.count(), max_n)
-    labels = [" ".join(options.nth(i).inner_text().split()) for i in range(n)]
-    results = []
-    for i in range(n):
-        open_picker(page, text)
-        page.locator(OPTION_SEL).nth(i).click()
-        time.sleep(1)
-        for name in ("Appliquer", "Apply"):
-            apply_btn = page.locator("div[role='button']").filter(has_text=name).first
-            if apply_btn.count() > 0:
-                apply_btn.click()
-                break
-        try:
-            page.wait_for_load_state("networkidle", timeout=10000)
-        except Exception:
-            pass
-        time.sleep(2)
-        m = re.search(r'/marketplace/([^/?]+)/', page.url)
-        results.append((labels[i], m.group(1) if m else "?"))
-    return results
+from backend.scraping.city_finder import CityFinder
+from backend.scraping.parser import ListingParser
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Candidats d'ID de ville Facebook (lecture seule)")
-    parser.add_argument("--names", required=True, help="Noms séparés par des virgules")
-    parser.add_argument("--suffix", default="", help="Texte ajouté au nom tapé (ex. ', Québec')")
-    parser.add_argument("--max", type=int, default=6, help="Nombre max de suggestions par ville")
+    parser = argparse.ArgumentParser(description="ID Facebook en base vs CityFinder (lecture seule)")
+    parser.add_argument("--names", help="Noms séparés par des virgules")
+    parser.add_argument("--all", action="store_true", help="Toutes les villes actives de l'utilisateur")
+    parser.add_argument("--user-id")
+    parser.add_argument("--region", default="Québec")
     args = parser.parse_args()
+    if not args.names and not args.all:
+        parser.error("--names ou --all est requis")
 
-    with sync_playwright() as p:
-        browser, context = _new_context(p, ScraperConfig())
-        try:
-            for name in [n.strip() for n in args.names.split(",") if n.strip()]:
-                print(f"\n=== {name}{args.suffix} ===")
-                page = context.new_page()
-                try:
-                    res = candidates(page, name + args.suffix, args.max)
-                except Exception as e:
-                    print(f"  (erreur: {str(e)[:100]})")
-                    res = []
-                finally:
-                    page.close()
-                for label, cid in res:
-                    mark = "←" if any(m in label.lower() for m in QC_MARKERS) else " "
-                    print(f"  {mark} {cid:<18}{label}")
-        finally:
-            browser.close()
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logger = logging.getLogger("fb_city_candidates")
+
+    db_ids = {}
+    names = [n.strip() for n in (args.names or "").split(",") if n.strip()]
+    if args.all or args.user_id:
+        from backend.scripts.compare_fb_anon_vs_auth import load_user_setup
+        setup = load_user_setup(args.user_id)
+        if setup is None:
+            sys.exit(1)
+        for c in setup[2]:
+            db_ids[ListingParser.normalize_city_name(c["name"])] = str(c["id"])
+        if args.all:
+            names = sorted(c["name"] for c in setup[2])
+
+    scraper = FacebookScraper({}, {}, config=ScraperConfig(), logger=logger)
+    print(f"{'statut':<12}{'ville':<28}{'ID base':<22}{'ID CityFinder':<22}suggestion retenue")
+    try:
+        for name in names:
+            try:
+                found_id, _, label, confident = CityFinder.find_city_id_and_coords(scraper, name, region_hint=args.region)
+            except Exception as e:
+                found_id, label, confident = None, f"(erreur: {str(e)[:60]})", False
+            db_id = db_ids.get(ListingParser.normalize_city_name(name), "-")
+            if not found_id:
+                status = "ÉCHEC"
+            elif not confident:
+                status = "SANS-INDICE"
+            elif db_id == "-":
+                status = "?"
+            else:
+                status = "OK" if db_id == str(found_id) else "DIFF"
+            print(f"{status:<12}{name:<28}{db_id:<22}{str(found_id):<22}{' '.join((label or '').split())}")
+    finally:
+        scraper.close_session()
 
 
 if __name__ == "__main__":
