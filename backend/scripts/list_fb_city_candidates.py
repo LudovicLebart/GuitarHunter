@@ -26,8 +26,10 @@ from backend.scraping.city_finder import CityFinder
 from backend.scraping.parser import ListingParser
 
 
-def list_options(scraper, name):
-    """Texte de TOUTES les suggestions du sélecteur de lieu (mêmes sélecteurs que CityFinder)."""
+def explore(scraper, name, pick=None):
+    """Ouvre le sélecteur de lieu (mêmes sélecteurs que CityFinder) et tape `name`.
+    pick=None : retourne le texte de TOUTES les suggestions.
+    pick=i    : clique la suggestion i, applique, et retourne (id ou alias lu dans l'URL, libellé)."""
     scraper._ensure_session()
     page = scraper.context.new_page()
     try:
@@ -42,9 +44,18 @@ def list_options(scraper, name):
         page.keyboard.press("Backspace")
         field.fill(name)
         time.sleep(3)
-        return [" | ".join(o.inner_text().split("\n")) for o in page.locator("div[role='option']").all()]
+        options = page.locator("div[role='option']").all()
+        labels = [" | ".join(o.inner_text().split("\n")) for o in options]
+        if pick is None:
+            return labels
+        options[pick].click()
+        time.sleep(0.5)
+        page.locator("div[aria-label='Appliquer'], div[aria-label='Apply']").first.click()
+        page.wait_for_url(re.compile(r"/marketplace/.*?/"), timeout=10000)
+        seg = page.url.split("/marketplace/")[1].split("/")[0]
+        return seg, labels[pick]
     except Exception as e:
-        return [f"(erreur: {str(e)[:80]})"]
+        return [f"(erreur: {str(e)[:80]})"] if pick is None else ("?", f"(erreur: {str(e)[:80]})")
     finally:
         page.close()
 
@@ -55,6 +66,8 @@ def main():
     parser.add_argument("--all", action="store_true", help="Toutes les villes actives de l'utilisateur")
     parser.add_argument("--user-id")
     parser.add_argument("--region", default="Québec")
+    parser.add_argument("--try-all", action="store_true",
+                        help="Clique chaque suggestion et affiche son ID (puis tester chaque ID avec compare_fb_anon_vs_auth --anon-only --city-id)")
     args = parser.parse_args()
     if not args.names and not args.all:
         parser.error("--names ou --all est requis")
@@ -75,6 +88,18 @@ def main():
             names = sorted(c["name"] for c in setup[2])
 
     scraper = FacebookScraper({}, {}, config=ScraperConfig(), logger=logger)
+    if args.try_all:
+        try:
+            for name in names:
+                n = len(explore(scraper, name))
+                print(f"\n=== {name} : {n} suggestion(s) ===")
+                for i in range(n):
+                    cid, label = explore(scraper, name, pick=i)
+                    print(f"  suggestion {i + 1}: ID={cid:<18} {label}")
+        finally:
+            scraper.close_session()
+        return
+
     print(f"{'statut':<12}{'ville':<28}{'ID base':<22}{'ID CityFinder':<22}suggestion retenue")
     try:
         for name in names:
@@ -82,7 +107,7 @@ def main():
                 found_id, _, label, confident = CityFinder.find_city_id_and_coords(scraper, name, region_hint=args.region)
             except Exception as e:
                 found_id, label, confident = None, f"(erreur: {str(e)[:60]})", False
-            for i, opt in enumerate(list_options(scraper, name), 1):
+            for i, opt in enumerate(explore(scraper, name), 1):
                 print(f"   suggestion {i}: {opt}")
             db_id = db_ids.get(ListingParser.normalize_city_name(name), "-")
             if not found_id:
