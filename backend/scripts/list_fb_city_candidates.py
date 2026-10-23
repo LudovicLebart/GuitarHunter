@@ -36,7 +36,9 @@ def explore(scraper, name, pick=None):
         page.goto("https://www.facebook.com/marketplace/", timeout=30000)
         scraper._close_login_popup(page)
         btn = page.locator("div[role='button']").filter(has_text=re.compile(r"\d+\s*(km|mi)", re.IGNORECASE)).first
-        btn.click(force=True, timeout=8000)
+        if not btn.is_visible(timeout=5000):  # même repli que CityFinder
+            btn = page.locator("div[aria-label*='Lieu'], div[aria-label*='Location'], div[aria-label*='Lugar']").first
+        btn.click(force=True, timeout=10000)
         page.wait_for_selector("div[role='dialog']", timeout=8000)
         field = page.locator("input[aria-label='Lieu'], input[aria-label='Location'], input[placeholder*='Lieu'], input[placeholder*='Location']").first
         field.click()
@@ -91,8 +93,14 @@ def main():
     if args.try_all:
         try:
             for name in names:
-                n = len(explore(scraper, name))
+                found = explore(scraper, name)
+                if not found or found[0].startswith("(erreur"):
+                    print(f"\n=== {name} : échec du sélecteur de lieu {found[:1]} ===")
+                    continue
+                n = len(found)
                 print(f"\n=== {name} : {n} suggestion(s) ===")
+                for i, lab in enumerate(found, 1):
+                    print(f"  libellé {i}: {lab}")
                 for i in range(n):
                     cid, label = explore(scraper, name, pick=i)
                     print(f"  suggestion {i + 1}: ID={cid:<18} {label}")
