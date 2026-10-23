@@ -12,7 +12,9 @@ Usage (DATABASE_URL exporté pour comparer à la base ; sinon seul l'ID retrouv�
 Statut : OK (même ID), DIFF (ID différent), SANS-INDICE (aucune suggestion ne correspond à la
 région : CityFinder est retombé sur la première, résultat à ne pas croire).
 """
+import re
 import sys
+import time
 import argparse
 import logging
 
@@ -22,6 +24,29 @@ from backend.scraping.core import FacebookScraper
 from backend.scraping.config import ScraperConfig
 from backend.scraping.city_finder import CityFinder
 from backend.scraping.parser import ListingParser
+
+
+def list_options(scraper, name):
+    """Texte de TOUTES les suggestions du sélecteur de lieu (mêmes sélecteurs que CityFinder)."""
+    scraper._ensure_session()
+    page = scraper.context.new_page()
+    try:
+        page.goto("https://www.facebook.com/marketplace/", timeout=30000)
+        scraper._close_login_popup(page)
+        btn = page.locator("div[role='button']").filter(has_text=re.compile(r"\d+\s*(km|mi)", re.IGNORECASE)).first
+        btn.click(force=True, timeout=8000)
+        page.wait_for_selector("div[role='dialog']", timeout=8000)
+        field = page.locator("input[aria-label='Lieu'], input[aria-label='Location'], input[placeholder*='Lieu'], input[placeholder*='Location']").first
+        field.click()
+        page.keyboard.press("Control+A")
+        page.keyboard.press("Backspace")
+        field.fill(name)
+        time.sleep(3)
+        return [" | ".join(o.inner_text().split("\n")) for o in page.locator("div[role='option']").all()]
+    except Exception as e:
+        return [f"(erreur: {str(e)[:80]})"]
+    finally:
+        page.close()
 
 
 def main():
@@ -57,6 +82,8 @@ def main():
                 found_id, _, label, confident = CityFinder.find_city_id_and_coords(scraper, name, region_hint=args.region)
             except Exception as e:
                 found_id, label, confident = None, f"(erreur: {str(e)[:60]})", False
+            for i, opt in enumerate(list_options(scraper, name), 1):
+                print(f"   suggestion {i}: {opt}")
             db_id = db_ids.get(ListingParser.normalize_city_name(name), "-")
             if not found_id:
                 status = "ÉCHEC"
