@@ -32,6 +32,8 @@ import sys
 import json
 import time
 import argparse
+import re
+from collections import Counter
 import logging
 
 sys.path.insert(0, '.')
@@ -189,6 +191,24 @@ def resolve_city_id(city_name, logger):
     return city_id
 
 
+class LocationCollector(logging.Handler):
+    """Compte les lieux des cartes (hors liste / gardées) à partir des logs du scraper —
+    uniquement le nom de lieu, jamais le titre ni l'URL d'une annonce."""
+    def __init__(self):
+        super().__init__(logging.INFO)
+        self.out_of_list, self.kept = Counter(), Counter()
+
+    def emit(self, record):
+        msg = record.getMessage()
+        m = re.search(r"Ignoré \(ville non autorisée\): (.+?) — id=", msg)
+        if m:
+            self.out_of_list[m.group(1)] += 1
+            return
+        m = re.search(r"Trouvé: .* dans (.+)$", msg)
+        if m:
+            self.kept[m.group(1)] += 1
+
+
 def run_mode(label, storage_state, args, allowed, logger):
     cfg = ScraperConfig(storage_state_path=storage_state)
     scraper = FacebookScraper({}, {args.location_key: args.city_id}, allowed_cities=allowed, config=cfg, logger=logger)
@@ -196,11 +216,14 @@ def run_mode(label, storage_state, args, allowed, logger):
         "search_query": args.query, "location": args.location_key,
         "min_price": args.min_price, "max_price": args.max_price, "max_ads": args.max_ads,
     }
+    collector = LocationCollector()
+    logger.addHandler(collector)
     t0 = time.time()
     try:
         res = scraper.scan_marketplace(scan_config)
     finally:
         scraper.close_session()
+        logger.removeHandler(collector)
     deals = res["deals"]
     n = len(deals)
     return {
@@ -217,6 +240,8 @@ def run_mode(label, storage_state, args, allowed, logger):
         "kept_with_gps": sum(1 for d in deals if d.get("latitude")),
         "kept_with_publish_date": sum(1 for d in deals if d.get("published_at_raw")),
         "avg_photos": round(sum(len(d.get("imageUrls") or []) for d in deals) / n, 2) if n else 0,
+        "out_of_list_locations": collector.out_of_list.most_common(10),
+        "kept_locations": collector.kept.most_common(10),
         "ids": [d["id"] for d in deals],
     }
 
@@ -235,6 +260,11 @@ def print_table(rows):
               f"{pct(r['kept_with_photos'], k):>8}{pct(r['kept_with_description'], k):>8}"
               f"{pct(r['kept_with_gps'], k):>7}{pct(r['kept_with_publish_date'], k):>7}"
               f"{str(r['anti_bot_blocked']):>8}{r['duration_s']:>7}s")
+    for r in rows:
+        if r.get("out_of_list_locations"):
+            print(f"  [{r['mode']}] hors liste : " + ", ".join(f"{loc} ×{n}" for loc, n in r["out_of_list_locations"]))
+        if r.get("kept_locations"):
+            print(f"  [{r['mode']}] gardées    : " + ", ".join(f"{loc} ×{n}" for loc, n in r["kept_locations"]))
 
 
 def main():
@@ -252,11 +282,18 @@ def main():
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE)
     parser.add_argument("--manual-login", action="store_true", help="Connexion manuelle (poste avec écran)")
     parser.add_argument("--login-only", action="store_true", help="Génère/valide la session puis s'arrête (pas de base, pas de scan)")
+    parser.add_argument("--anon-only", action="store_true", help="Seulement les passages anonymes (pas de connexion, pas de 2FA)")
     parser.add_argument("--relogin", action="store_true", help="Ignorer la session en cache")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logger = logging.getLogger("fb_compare")
+    # INFO pour le collecteur de lieux, mais seuls les WARNING+ s'affichent à l'écran.
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    _console = logging.StreamHandler()
+    _console.setLevel(logging.WARNING)
+    logger.addHandler(_console)
     load_env_file(args.env_file)
 
     if args.login_only:
@@ -288,9 +325,12 @@ def main():
     print(f"Requête='{args.query}'  budget={args.min_price}-{args.max_price}$  max_ads={args.max_ads}  "
           f"ville={args.city_name or '?'} ({args.city_id or 'ID à rechercher'})  liste blanche={len(allowed)} villes")
 
-    print("=== 1/3 Session connectée ===")
-    if not ensure_session(args.storage_state, args.relogin, args.manual_login):
-        sys.exit(1)
+    if args.anon_only:
+        print("=== 1/3 Session connectée : ignorée (--anon-only) ===")
+    else:
+        print("=== 1/3 Session connectée ===")
+        if not ensure_session(args.storage_state, args.relogin, args.manual_login):
+            sys.exit(1)
 
     if not args.city_id:
         print(f"\n=== 2/3 Recherche de l'ID de '{args.city_name}' ===")
@@ -307,8 +347,9 @@ def main():
     for i in range(args.runs):
         print(f"\n--- Passage {i + 1}/{args.runs} ---")
         rows.append(run_mode("anonyme", None, args, allowed, logger))
-        rows.append(run_mode("connecté", args.storage_state, args, allowed, logger))
-        print_table(rows[-2:])
+        if not args.anon_only:
+            rows.append(run_mode("connecté", args.storage_state, args, allowed, logger))
+        print_table(rows[-1:] if args.anon_only else rows[-2:])
 
     if args.runs > 1:
         print("\n=== Tous les passages ===")
