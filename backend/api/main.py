@@ -22,7 +22,8 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_current_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import chat_repo, cities_repo, commands_repo, deals_repo, logs_repo, restoration_repo, shared_repo, usage_repo, users_repo
+from backend.api import (chat_repo, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo, shared_repo,
+                         usage_repo, users_repo)
 
 
 @asynccontextmanager
@@ -562,6 +563,40 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
         await listen_conn.close()
 
 
+# --- Fiches techniques de restauration (lot C) -------------------------------------------------
+# Lecture seule de la base commune marques/fiches (voir fiches_repo.py) ; chargement par
+# backend/scripts/seed_guitar_fiches.py. Catalogue partagé : toute personne connectée peut lire les fiches.
+
+@app.get("/fiches")
+async def list_fiches(categorie: Optional[str] = None, uid: str = Depends(get_current_uid)):
+    return await fiches_repo.list_fiches(get_pool(), categorie)
+
+
+@app.get("/fiches/{slug}")
+async def get_fiche(slug: str, uid: str = Depends(get_current_uid)):
+    fiche = await fiches_repo.get_fiche(get_pool(), slug)
+    if fiche is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Fiche introuvable.")
+    return fiche
+
+
+@app.get("/deals/{deal_id}/fiches")
+async def list_deal_fiches(deal_id: str, q: Optional[str] = Query(None, max_length=2000), limit: int = Query(5, ge=1, le=20),
+                           uid: str = Depends(get_current_uid)):
+    """Fiches utiles pour une annonce (et la question `q` en cours dans le chat). Visible comme le chat (toute personne qui
+    voit l'annonce) ; les fiches liées aux ÉTAPES du plan et leurs libellés ne sont pris en compte que pour l'acheteur,
+    à qui le plan appartient."""
+    pool = get_pool()
+    await _require_deal_visible(pool, deal_id, uid)
+    step_slugs, step_labels = [], []
+    if await chat_repo.get_deal_owner(pool, deal_id) == uid:
+        for item in await restoration_repo.list_items(pool, deal_id):
+            step_labels.append(item["label"] or "")
+            if item["fiche_slug"]:
+                step_slugs.append(item["fiche_slug"])
+    return await fiches_repo.fiches_for_deal(pool, deal_id, step_slugs=step_slugs, step_labels=step_labels, q=q, limit=limit)
+
+
 # --- Plan de restauration (tranche 4) --------------------------------------------------------
 # Remplace onRestorationPlanUpdate/addRestorationItem/updateRestorationItem/deleteRestorationItem/
 # reorderRestorationItems/backfillRestorationOrder/addRestorationItemPhoto/removeRestorationItemPhoto
@@ -584,15 +619,23 @@ class RestorationItemCreate(BaseModel):
     source: str = "user"
     proposedByMessageId: Optional[int] = None
     order: Optional[int] = None
+    ficheSlug: Optional[str] = None
+
+
+async def _require_known_fiche(pool, slug: Optional[str]) -> None:
+    """Un lien d'étape vers une fiche doit viser une fiche qui existe (`None` = pas de lien / effacer le lien)."""
+    if slug is not None and slug not in await fiches_repo.existing_slugs(pool, [slug]):
+        raise HTTPException(status_code=422, detail="Fiche technique inconnue.")
 
 
 @app.post("/deals/{deal_id}/restoration-plan", status_code=status.HTTP_201_CREATED)
 async def create_restoration_item(deal_id: str, body: RestorationItemCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
+    await _require_known_fiche(pool, body.ficheSlug)
     item_id = await restoration_repo.add_item(
         pool, deal_id, body.label, body.category, body.estimatedCost, body.notes,
-        body.source, body.proposedByMessageId, body.order,
+        body.source, body.proposedByMessageId, body.order, body.ficheSlug,
     )
     return {"id": item_id}
 
@@ -619,6 +662,7 @@ class RestorationItemPatch(BaseModel):
     estimatedCost: Optional[float] = None
     actualCost: Optional[float] = None
     notes: Optional[str] = None
+    ficheSlug: Optional[str] = None
 
 
 async def _require_restoration_item_found(found: bool) -> None:
@@ -630,7 +674,9 @@ async def _require_restoration_item_found(found: bool) -> None:
 async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationItemPatch, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    found = await restoration_repo.update_item(pool, deal_id, item_id, body.model_dump(exclude_unset=True))
+    patch = body.model_dump(exclude_unset=True)
+    await _require_known_fiche(pool, patch.get("ficheSlug"))
+    found = await restoration_repo.update_item(pool, deal_id, item_id, patch)
     await _require_restoration_item_found(found)
     return {"status": "ok"}
 

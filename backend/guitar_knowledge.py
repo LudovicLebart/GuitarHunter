@@ -56,6 +56,15 @@ _CACHE_TTL_S = 600
 # du Portier. `BRAND_KINDS` est la valeur par défaut de toute recherche.
 BRAND_KINDS = ("company", "brand", "line", "factory", "luthier")
 FICHE_KINDS = ("fiche",)
+FICHE_ID_PREFIX = "fiche:"          # id d'une fiche technique : « fiche:<slug> » (slug = nom du fichier .md)
+
+
+def fiche_id(slug):
+    return FICHE_ID_PREFIX + slug
+
+
+def fiche_slug(knowledge_id):
+    return knowledge_id[len(FICHE_ID_PREFIX):]
 
 # Un cache PAR jeu de types (la recherche des marques et celle des fiches ont des alias différents).
 # `at` = None tant que rien n'est chargé (ou après `invalidate_cache`) : un cache VIDE mais chargé
@@ -175,6 +184,13 @@ def _load_aliases(conn, kinds=BRAND_KINDS):
              AND (%s::int IS NULL OR k.kb_version <= %s::int)))""",
         (list(kinds), list(FICHE_KINDS), limit, limit),
     ).fetchall()
+    return build_alias_index(rows)
+
+
+def build_alias_index(rows):
+    """Index de recherche `(aliases, by_len)` à partir de lignes `(alias_norm, knowledge_id, kind)` (dict ou tuple).
+    Pur, sans accès base : le chargeur synchrone des marques (`_load_aliases`, psycopg) et l'API asynchrone des fiches
+    (asyncpg) construisent le même index avec les mêmes règles."""
     aliases = {}
     for row in rows:
         alias_norm, kid, kind = ((row["alias_norm"], row["knowledge_id"], row.get("kind")) if isinstance(row, dict)
@@ -235,6 +251,13 @@ def find_ids(conn, *texts, max_ngram=4, kinds=BRAND_KINDS):
     fiches recherchés (marques par défaut ; jamais les fiches techniques sans le demander)."""
     kinds = _kinds_key(kinds)          # vide ou None : marques seulement, jamais « tout »
     aliases, by_len = _aliases(conn, kinds)
+    return match_aliases(aliases, by_len, texts, kinds, max_ngram)
+
+
+def match_aliases(aliases, by_len, texts, kinds=BRAND_KINDS, max_ngram=4):
+    """Cœur PUR de `find_ids` : alias trouvés dans `texts` pour un index déjà construit (`build_alias_index`).
+    Réutilisé tel quel par l'API (recherche de fiches), qui charge son index avec asyncpg."""
+    kinds = _kinds_key(kinds)
     tokens = normalize(" ".join(t for t in texts if t)).split()
     found = {}
     for n in range(max_ngram, 0, -1):

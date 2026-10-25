@@ -38,7 +38,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend.guitar_knowledge import (BRAND_KINDS, FICHE_KINDS, FICHE_STOP, MAX_EXCERPT, confidence_of,  # noqa: E402
-                                      domain, fiche_alias_usable, normalize, validate_sources)
+                                      domain, fiche_alias_usable, fiche_id, normalize, validate_sources)
 from backend.scripts.seed_guitar_knowledge import SeedError, resolve_ref  # noqa: E402
 
 FICHES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "fiches")
@@ -246,7 +246,7 @@ def plan(conn, paths, known_slugs=None, force=False):
     planned = []
     for f in fiches:
         slug = f["meta"]["slug"]
-        f["id"] = f"fiche:{slug}"
+        f["id"] = fiche_id(slug)
         f["confidence"] = confidence_of(f["sources"])
         try:
             f["concerne_ids"] = [resolve_brand(conn, ref) for ref in f["meta"].get("concerne", [])]

@@ -17,7 +17,7 @@ ignoré, sans erreur — l'essentiel est qu'il ne puisse écrire nulle part hors
 import asyncpg
 
 # Correspondance champ API (camelCase, contrat calqué sur firestoreService.js) -> colonne SQL.
-# Volontairement restreint à ces 6 champs : une mise à jour ne doit jamais pouvoir toucher
+# Volontairement restreint à ces 7 champs : une mise à jour ne doit jamais pouvoir toucher
 # deal_id/source/proposed_by_message_id/item_order/photo_urls par ce chemin (routes dédiées).
 _PATCHABLE_FIELDS = {
     "label": "label",
@@ -26,6 +26,8 @@ _PATCHABLE_FIELDS = {
     "estimatedCost": "estimated_cost",
     "actualCost": "actual_cost",
     "notes": "notes",
+    # Lien vers une fiche technique (slug sans préfixe) ; None efface le lien. Validé côté main.py contre la base.
+    "ficheSlug": "fiche_slug",
 }
 
 
@@ -39,16 +41,16 @@ async def list_items(pool: asyncpg.Pool, deal_id: str):
 async def add_item(
     pool: asyncpg.Pool, deal_id: str, label: str, category: str | None = None,
     estimated_cost: float | None = None, notes: str | None = None, source: str = "user",
-    proposed_by_message_id: int | None = None, order: int | None = None,
+    proposed_by_message_id: int | None = None, order: int | None = None, fiche_slug: str | None = None,
 ) -> int:
     row = await pool.fetchrow(
         """
         INSERT INTO restoration_plan_items
-            (deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, item_order)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, item_order, fiche_slug)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
         """,
-        deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, order,
+        deal_id, label, category, estimated_cost, notes, source, proposed_by_message_id, order, fiche_slug,
     )
     return row["id"]
 
