@@ -4,11 +4,11 @@
 
 ## 1. Contexte : ce qu'on a découvert
 
-La question de départ était « les résultats Facebook sont-ils meilleurs avec un vrai compte qu'en anonyme ? ». La mesure a montré que **ce n'était pas la bonne question** :
+La question de départ était « les résultats Facebook sont-ils meilleurs avec un vrai compte qu'en anonyme ? » (hypothèse de l'utilisateur : « je suis sûr que c'est beaucoup moins bon en anonyme »). **Cette question reste OUVERTE** (voir Phase C, §6) : la comparaison n'a jamais pu être faite, car la connexion automatique du compte a été bloquée par Facebook (checkpoint `two_step_verification`, détection de bot) ; l'enquête a ensuite dévié vers un problème d'ID de ville, apparu prioritaire. Ce que la mesure a établi, sans répondre à la question de départ :
 
 - **Le scan Facebook du bot cherchait en France.** L'ID de Bromont en base (`110035235685771`) est Bromont-Lamothe (Puy-de-Dôme), pas Bromont (Québec). Mesure anonyme sur le serveur : **82 cartes vues, 100 % hors liste de villes, 0 annonce gardée** (Riom, Clermont-Ferrand, Issoire…). Avec le bon ID (`103111009728836`) : 24 cartes, 12 % hors liste, 21 gardées (Montréal, Longueuil…).
 - **Un seul ancrage** : `compute_anchor_clusters` (rayon 80 km) regroupe les 27 villes de l'utilisateur sous Bromont. Seul l'ID de l'ancrage compte pour le scan Facebook.
-- **Le mode anonyme fonctionne** (page chargée, pas de blocage). Le compte Facebook (2FA, session à renouveler à la main) n'est donc **pas** nécessaire. Test avec compte abandonné.
+- **Le mode anonyme charge bien la page** (82 cartes avec l'ID français, 24 avec le bon : pas de blocage). Cela **ne dit rien** sur la qualité relative d'une session connectée : on n'a aucune mesure « connecté » (le compte a un 2FA que le script ne peut pas passer seul). La comparaison honnête n'est possible **qu'avec le bon ID de ville**, d'où la Phase 0 en préalable.
 - **8 IDs faux sur 27** (audit `audit_fb_city_ids.py`) : Beloeil (→ Belgique), Saint-lambert (→ Woluwe-Saint-Lambert, Bruxelles), Sutton (→ Macclesfield, R.-U.), La saline (→ Réunion), Sherbrooke (ID texte `edmonton`), Chambly / Longueuil / McMasterville (ID texte aléatoire), Carignan (→ Chambly) ; doublons « Mc Masterville » / « McMasterville ». Sans effet sur le scan tant que Bromont est le seul ancrage, mais à corriger (un autre ancrage ou un ajout de ville les rendrait actifs).
 - **Rien ne détectait le problème** : `bot.py` calculait des statistiques par cycle (`cycle_stats`) mais seulement sous forme de ligne de log, sans alerte.
 - **Ce que Facebook affiche** : pour « Bromont », 3 suggestions (`Bromont | Ville`, `Bromont | Ville`, `Bromont-Lamothe, Auvergne, France | Ville`). Facebook **omet la région des lieux proches de l'IP** du client : l'indice « Québec » de `CityFinder` n'y correspond donc jamais et le code retombe sur la première suggestion. Le clic des suggestions 1 et 3 a donné le même ID : l'ordre / le clic ne sont pas fiables, l'ID obtenu doit être **vérifié**.
@@ -79,8 +79,21 @@ Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded
 - **Risques** : blocage anti-bot (arrêt automatique) ; seuils mal calibrés (le dry-run sert à les juger, calibrer sur les deux IDs de Bromont) ; bot actif pendant `--apply` (transactions courtes).
 - **Retour arrière** : remettre `fb_location_id` à `NULL` pour les villes touchées, ou restaurer depuis la sauvegarde JSON / la base.
 
-## 6. État d'avancement
+## 6. Phase C — comparaison anonyme / connecté (à reprendre, question toujours ouverte)
+
+*Objectif : répondre à l'hypothèse de l'utilisateur (« beaucoup moins bon en anonyme ») avec des chiffres, maintenant qu'on sait que le test était faussé par l'ID de Bromont.*
+
+- **Préalable** : Phase 0 faite (bon ID de Bromont), sinon on compare deux scans de la France.
+- **Base de référence anonyme (mesurée le 2026-10-23, bon ID, requête `Guitar.,,.,` 0-300 $)** : 24 cartes, 3 hors liste (12 %), 21 gardées, 100 % avec photos, 71 % avec description, 100 % avec GPS et date de publication.
+- **Ce qui a bloqué** : la connexion automatique (`FB_EMAIL` / `FB_PASSWORD`) est arrêtée par Facebook (checkpoint 2FA, URL `two_step_verification`). C'est un blocage anti-bot de connexion, pas un échec de la comparaison elle-même.
+- **Outil déjà prêt** : `backend/scripts/compare_fb_anon_vs_auth.py` (anonyme + connecté alternés, `--runs`, tableau, lieux hors liste ; réutilise `~/facebook_storage_state.json`). Avec `--anon-only`, il ne fait que la partie anonyme.
+- **Chemin retenu pour se connecter sans ordinateur** (l'utilisateur n'a qu'un téléphone) : se connecter **depuis le serveur lui-même** (même IP que le bot, donc pas d'invalidation de session) par un écran virtuel visible depuis le téléphone : `Xvfb :99` + `x11vnc` lié à l'IP Tailscale + app VNC sur le téléphone, puis `DISPLAY=:99 python -m backend.scripts.compare_fb_anon_vs_auth --login-only --manual-login --relogin` (code 2FA saisi à la main). La session est ensuite mise en cache.
+- **Comparer** (≥ 3 passages alternés) : cartes vues, part hors liste, annonces gardées, annonces présentes seulement en connecté (et leur âge), fiches avec prix / photos / description, blocages.
+- **Décision à prendre ensuite** : si l'écart est net, évaluer le coût d'une session connectée en production (renouvellement manuel du 2FA, risque de restriction du compte, repli automatique vers l'anonyme + alerte ntfy à l'expiration).
+
+## 7. État d'avancement
 
 - [x] Phase A codée, testée, poussée (non déployée, non validée par l'utilisateur).
 - [ ] Phase 0 : correction de Bromont en base (à confirmer).
+- [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §7).
 - [x] B1 module pur + tests (30 tests, `backend/scraping/city_verification.py`) · [ ] B2 `CityFinder` v2 · [ ] B3 colonne + script de réparation · [ ] B4 tests bot · [ ] B5 déploiement par étapes.
