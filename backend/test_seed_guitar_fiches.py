@@ -134,6 +134,12 @@ class TestValidation(unittest.TestCase):
             "alias: truss rod coincé, action haute\n", ""))
         self.assertTrue(any("aucun alias exploitable" in p for p in problems))
 
+    def test_a_slug_the_api_would_not_open_is_refused(self):
+        for slug in ("reglage_action", "truss-1.2", "réglage", "Demo"):
+            text = doc().replace("slug: demo", f"slug: {slug}")
+            problems = self.check(text, name=f"{slug}.md", known=(slug, "autre"))
+            self.assertTrue(any("invalide" in p for p in problems), slug)
+
     def test_a_broken_cross_reference_is_refused(self):
         self.assertTrue(any("autre.md" in p for p in self.check(doc(), known=("demo",))))
 

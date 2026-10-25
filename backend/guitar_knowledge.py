@@ -59,11 +59,23 @@ FICHE_KINDS = ("fiche",)
 FICHE_ID_PREFIX = "fiche:"          # id d'une fiche technique : « fiche:<slug> » (slug = nom du fichier .md)
 
 
+# Format d'un slug de fiche : UNE seule définition, pour le chargeur (qui le tire du nom de fichier) ET l'API (qui le
+# reçoit dans une URL ou un lien d'étape) — une fiche chargée est donc toujours consultable et liable.
+FICHE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
+
+
+def valid_fiche_slug(slug):
+    return isinstance(slug, str) and FICHE_SLUG_RE.fullmatch(slug) is not None
+
+
 def fiche_id(slug):
     return FICHE_ID_PREFIX + slug
 
 
 def fiche_slug(knowledge_id):
+    """Slug d'un id de fiche ; lève ValueError pour un id qui n'est pas celui d'une fiche (jamais de slug bidon)."""
+    if not str(knowledge_id).startswith(FICHE_ID_PREFIX):
+        raise ValueError(f"« {knowledge_id} » n'est pas un id de fiche technique")
     return knowledge_id[len(FICHE_ID_PREFIX):]
 
 # Un cache PAR jeu de types (la recherche des marques et celle des fiches ont des alias différents).
@@ -188,13 +200,18 @@ def _load_aliases(conn, kinds=BRAND_KINDS):
 
 
 def build_alias_index(rows):
-    """Index de recherche `(aliases, by_len)` à partir de lignes `(alias_norm, knowledge_id, kind)` (dict ou tuple).
-    Pur, sans accès base : le chargeur synchrone des marques (`_load_aliases`, psycopg) et l'API asynchrone des fiches
-    (asyncpg) construisent le même index avec les mêmes règles."""
+    """Index de recherche `(aliases, by_len)` à partir de lignes portant `alias_norm`, `knowledge_id` et `kind` : dict
+    (psycopg), `asyncpg.Record` — tout objet à clés nommées, lu PAR NOM, jamais par position — ou tuple
+    `(alias_norm, knowledge_id, kind)`. Pur, sans accès base : le chargeur synchrone des marques (`_load_aliases`) et
+    l'API asynchrone des fiches (asyncpg) construisent le même index avec les mêmes règles."""
     aliases = {}
     for row in rows:
-        alias_norm, kid, kind = ((row["alias_norm"], row["knowledge_id"], row.get("kind")) if isinstance(row, dict)
-                                 else (tuple(row) + (None,))[:3])
+        if hasattr(row, "keys"):
+            names = set(row.keys())
+            alias_norm, kid = row["alias_norm"], row["knowledge_id"]
+            kind = row["kind"] if "kind" in names else None
+        else:
+            alias_norm, kid, kind = (tuple(row) + (None,))[:3]
         # Règle d'alias choisie PAR FICHE selon son type (jamais selon la requête) : un mélange marques + fiches
         # ne peut pas faire passer l'alias « action » d'une fiche technique avec la règle, plus lâche, des marques.
         if not (fiche_alias_usable if kind in FICHE_KINDS else alias_usable)(alias_norm):

@@ -583,18 +583,20 @@ async def get_fiche(slug: str, uid: str = Depends(get_current_uid)):
 @app.get("/deals/{deal_id}/fiches")
 async def list_deal_fiches(deal_id: str, q: Optional[str] = Query(None, max_length=2000), limit: int = Query(5, ge=1, le=20),
                            uid: str = Depends(get_current_uid)):
-    """Fiches utiles pour une annonce (et la question `q` en cours dans le chat). Visible comme le chat (toute personne qui
-    voit l'annonce) ; les fiches liées aux ÉTAPES du plan et leurs libellés ne sont pris en compte que pour l'acheteur,
-    à qui le plan appartient."""
+    """Fiches utiles pour une annonce (et la question `q` en cours dans le chat), classées par pertinence : voir
+    `fiches_repo.fiches_for_deal`. Visible comme le chat (toute personne qui voit l'annonce) ; les fiches liées aux
+    ÉTAPES du plan et leurs libellés ne sont prises en compte que pour l'acheteur, à qui le plan appartient.
+    Appelée à chaque question (pas à chaque frappe : le client doit temporiser) ; trois lectures indépendantes en
+    parallèle, puis le plan (acheteur seulement), puis une seule requête de métadonnées."""
     pool = get_pool()
-    await _require_deal_visible(pool, deal_id, uid)
-    step_slugs, step_labels = [], []
-    if await chat_repo.get_deal_owner(pool, deal_id) == uid:
-        for item in await restoration_repo.list_items(pool, deal_id):
-            step_labels.append(item["label"] or "")
-            if item["fiche_slug"]:
-                step_slugs.append(item["fiche_slug"])
-    return await fiches_repo.fiches_for_deal(pool, deal_id, step_slugs=step_slugs, step_labels=step_labels, q=q, limit=limit)
+    visible, owner, deal_texts = await asyncio.gather(
+        chat_repo.is_deal_visible(pool, deal_id, uid), chat_repo.get_deal_owner(pool, deal_id), fiches_repo.deal_text(pool, deal_id))
+    if not visible:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    steps = await restoration_repo.list_step_refs(pool, deal_id) if owner == uid else []
+    return await fiches_repo.fiches_for_deal(
+        pool, q=q, step_slugs=[s["fiche_slug"] for s in steps if s["fiche_slug"]],
+        step_labels=[s["label"] for s in steps if s["label"]], deal_texts=deal_texts, limit=limit)
 
 
 # --- Plan de restauration (tranche 4) --------------------------------------------------------
@@ -607,8 +609,15 @@ async def list_deal_fiches(deal_id: str, q: Optional[str] = Query(None, max_leng
 async def list_restoration_plan(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
-    rows = await restoration_repo.list_items(pool, deal_id)
-    return [dict(r) for r in rows]
+    items = [dict(r) for r in await restoration_repo.list_items(pool, deal_id)]
+    # Une fiche retirée de la base (`--prune`) laisse son slug sur l'étape : on ne renvoie jamais un lien mort.
+    linked = {i["fiche_slug"] for i in items if i.get("fiche_slug")}
+    if linked:
+        known = await fiches_repo.existing_slugs(pool, linked)
+        for item in items:
+            if item.get("fiche_slug") and item["fiche_slug"] not in known:
+                item["fiche_slug"] = None
+    return items
 
 
 class RestorationItemCreate(BaseModel):
@@ -675,7 +684,10 @@ async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationIt
     pool = get_pool()
     await _require_deal_owner(pool, deal_id, uid)
     patch = body.model_dump(exclude_unset=True)
-    await _require_known_fiche(pool, patch.get("ficheSlug"))
+    if patch.get("ficheSlug") is not None:
+        # L'étape d'abord : 404 si elle n'existe pas (un patch vide ne fait que vérifier), puis 422 si la fiche est inconnue.
+        await _require_restoration_item_found(await restoration_repo.update_item(pool, deal_id, item_id, {}))
+        await _require_known_fiche(pool, patch["ficheSlug"])
     found = await restoration_repo.update_item(pool, deal_id, item_id, patch)
     await _require_restoration_item_found(found)
     return {"status": "ok"}

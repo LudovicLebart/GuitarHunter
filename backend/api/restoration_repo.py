@@ -31,11 +31,17 @@ _PATCHABLE_FIELDS = {
 }
 
 
+_ORDER = "ORDER BY item_order NULLS LAST, created_at ASC"
+
+
 async def list_items(pool: asyncpg.Pool, deal_id: str):
-    return await pool.fetch(
-        "SELECT * FROM restoration_plan_items WHERE deal_id = $1 ORDER BY item_order NULLS LAST, created_at ASC",
-        deal_id,
-    )
+    return await pool.fetch(f"SELECT * FROM restoration_plan_items WHERE deal_id = $1 {_ORDER}", deal_id)
+
+
+async def list_step_refs(pool: asyncpg.Pool, deal_id: str):
+    """Libellé et fiche liée de chaque étape, dans l'ordre du plan : de quoi chercher des fiches pertinentes sans relire
+    les lignes entières (coûts, notes, photos…)."""
+    return await pool.fetch(f"SELECT label, fiche_slug FROM restoration_plan_items WHERE deal_id = $1 {_ORDER}", deal_id)
 
 
 async def add_item(

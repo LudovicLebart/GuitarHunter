@@ -38,7 +38,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend.guitar_knowledge import (BRAND_KINDS, FICHE_KINDS, FICHE_STOP, MAX_EXCERPT, confidence_of,  # noqa: E402
-                                      domain, fiche_alias_usable, fiche_id, normalize, validate_sources)
+                                      domain, fiche_alias_usable, fiche_id, normalize, valid_fiche_slug, validate_sources)
 from backend.scripts.seed_guitar_knowledge import SeedError, resolve_ref  # noqa: E402
 
 FICHES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "fiches")
@@ -153,8 +153,9 @@ def validate_fiche(f, known_slugs):
     slug = meta.get("slug") or ""
     if slug and slug != os.path.splitext(f["file"])[0]:
         problems.append(f"{label} : slug « {slug} » différent du nom du fichier")
-    if slug and (slug != slug.lower() or " " in slug):
-        problems.append(f"{label} : slug « {slug} » doit être en minuscules sans espaces")
+    if slug and not valid_fiche_slug(slug):
+        problems.append(f"{label} : slug « {slug} » invalide (a-z, 0-9 et tirets, 80 caractères au plus : l'API "
+                        f"n'ouvrirait pas la fiche)")
     if meta.get("categorie") and meta["categorie"] not in CATEGORIES:
         problems.append(f"{label} : categorie « {meta['categorie']} » inconnue ({', '.join(sorted(CATEGORIES))})")
     if meta.get("statut") and meta["statut"] not in STATUTS:

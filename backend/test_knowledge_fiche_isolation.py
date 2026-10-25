@@ -27,6 +27,36 @@ class _Recorder:
         return result
 
 
+class _RecordLike:
+    """Comme un asyncpg.Record : clés nommées, colonnes dans UN AUTRE ordre que (alias_norm, knowledge_id, kind)."""
+
+    def __init__(self, **cols):
+        self._cols = cols
+
+    def keys(self):
+        return list(self._cols)
+
+    def __getitem__(self, key):
+        return self._cols[key]
+
+    def __iter__(self):          # itération par valeurs, comme un Record : piège pour qui lirait par position
+        return iter(self._cols.values())
+
+
+class TestAliasIndexRows(unittest.TestCase):
+    def test_rows_are_read_by_name_whatever_the_column_order(self):
+        rows = [_RecordLike(kind="fiche", knowledge_id="fiche:a", alias_norm="action haute"),
+                _RecordLike(knowledge_id="fiche:b", kind="fiche", alias_norm="action"),          # trop courant pour une fiche
+                _RecordLike(alias_norm="gibson", knowledge_id="manual:g", kind="brand")]
+        aliases, _ = gk.build_alias_index(rows)
+        self.assertEqual(aliases, {"action haute": {"fiche:a"}, "gibson": {"manual:g"}})
+
+    def test_dict_and_tuple_rows_still_work(self):
+        aliases, _ = gk.build_alias_index([{"alias_norm": "gibson", "knowledge_id": "manual:g", "kind": "brand"},
+                                           ("fender", "manual:f", "brand"), ("telecaster", "manual:t")])
+        self.assertEqual(set(aliases), {"gibson", "fender", "telecaster"})
+
+
 class TestWhitelistByDefault(unittest.TestCase):
     def setUp(self):
         gk.invalidate_cache()

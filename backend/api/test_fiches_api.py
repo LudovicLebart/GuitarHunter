@@ -2,6 +2,7 @@
 si injoignable (même principe que test_restoration_api.py). Les fiches sont insérées directement en SQL, sans passer
 par le chargeur, pour tester l'API seule."""
 import asyncio
+import time
 import unittest
 
 import asyncpg
@@ -18,7 +19,7 @@ BUYER = "test-uid-fiches-buyer"
 VIEWER = "test-uid-fiches-viewer"
 STRANGER = "test-uid-fiches-stranger"
 DEAL = "fiches-deal-1"
-FICHES = ("fiche:api-truss", "fiche:api-action", "fiche:api-neck")
+FICHES = ("fiche:api-truss", "fiche:api-action", "fiche:api-neck", "fiche:api-extra")
 BRAND = "manual:api-gibson"
 
 
@@ -121,7 +122,7 @@ class TestFichesAPI(_FichesBase):
         self.assertEqual([c["name"] for c in body["concerne"]], ["Gibson"])
 
     def test_unknown_invalid_or_brand_slugs_are_404(self):
-        for slug in ("inconnue", "API-TRUSS", "..%2Fx", "manual:api-gibson", "api-gibson"):
+        for slug in ("inconnue", "API-TRUSS", "..%2Fx", "manual:api-gibson", "api-gibson", "api-truss%0A", "api_truss"):
             self.assertEqual(self.client.get(f"/fiches/{slug}").status_code, 404, slug)
 
     def test_authentication_is_required(self):
@@ -147,21 +148,81 @@ class TestFichesAPI(_FichesBase):
         self.assertEqual(self.client.patch(f"/deals/{DEAL}/restoration-plan/{item_id}", json={"ficheSlug": "api-gibson"}).status_code, 422)
         self.assertIsNone(self.client.get(f"/deals/{DEAL}/restoration-plan").json()[0]["fiche_slug"])
 
+    def test_a_dead_fiche_link_is_not_returned_in_the_plan(self):
+        item_id = self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "x", "ficheSlug": "api-action"}).json()["id"]
+        async def drop():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("DELETE FROM guitar_knowledge WHERE id = 'fiche:api-action'")
+            finally:
+                await conn.close()
+        asyncio.run(drop())
+        item = self.client.get(f"/deals/{DEAL}/restoration-plan").json()[0]
+        self.assertEqual(item["id"], item_id)
+        self.assertIsNone(item["fiche_slug"])
+
+    def test_patching_a_missing_step_is_404_even_with_an_unknown_fiche(self):
+        resp = self.client.patch(f"/deals/{DEAL}/restoration-plan/999999999", json={"ficheSlug": "inconnue"})
+        self.assertEqual(resp.status_code, 404, resp.text)
+
     def test_patching_another_field_leaves_the_fiche_link_alone(self):
         item_id = self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "x", "ficheSlug": "api-truss"}).json()["id"]
         self.client.patch(f"/deals/{DEAL}/restoration-plan/{item_id}", json={"notes": "n"})
         self.assertEqual(self.client.get(f"/deals/{DEAL}/restoration-plan").json()[0]["fiche_slug"], "api-truss")
 
     # --- fiches d'une annonce --------------------------------------------------------------------
-    def test_deal_fiches_put_linked_steps_first_then_text_matches(self):
+    def test_deal_fiches_are_ranked_question_then_step_link_then_listing(self):
         self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "Régler le manche", "ficheSlug": "api-action"})
         resp = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "mon truss rod coincé, que faire ?"})
         self.assertEqual(resp.status_code, 200, resp.text)
         found = [(f["slug"], f["reason"], f["matchedOn"]) for f in resp.json()]
-        self.assertEqual(found[0], ("api-action", "etape", None))
-        self.assertIn(("api-truss", "texte", "truss rod coince"), found)
-        # le texte de l'annonce (« neck reset » dans la description) compte aussi
-        self.assertIn("api-neck", [f[0] for f in found])
+        self.assertEqual(found, [("api-truss", "question", "truss rod coince"),
+                                 ("api-action", "etape", None),
+                                 # « neck reset » figure dans la description de l'annonce
+                                 ("api-neck", "annonce", "neck reset")])
+
+    def test_the_current_question_is_never_crowded_out_by_step_links(self):
+        self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "a", "ficheSlug": "api-action"})
+        self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "b", "ficheSlug": "api-neck"})
+        only = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "truss rod coincé", "limit": 1}).json()
+        self.assertEqual([f["slug"] for f in only], ["api-truss"])
+
+    def test_every_fiche_exposes_its_status_and_confidence(self):
+        """Les brouillons sont servis (décision produit) : le client doit pouvoir les signaler."""
+        for f in self.client.get("/fiches").json() + self.client.get(f"/deals/{DEAL}/fiches", params={"q": "action haute"}).json():
+            self.assertIn(f["statut"], ("brouillon", "en_revision", "validee"))
+            self.assertIn(f["confidence"], ("sourced", "single_source"))
+        self.assertEqual(self.client.get("/fiches/api-action").json()["statut"], "brouillon")
+
+    def test_a_stale_alias_index_never_crowds_out_a_valid_fiche(self):
+        params = {"q": "action haute et truss rod coincé", "limit": 1}
+        self.assertEqual(self.client.get(f"/deals/{DEAL}/fiches", params=params).json()[0]["slug"], "api-truss")   # réchauffe l'index
+        async def drop():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("DELETE FROM guitar_knowledge WHERE id = 'fiche:api-truss'")      # sans invalider le cache
+            finally:
+                await conn.close()
+        asyncio.run(drop())
+        found = self.client.get(f"/deals/{DEAL}/fiches", params=params).json()
+        self.assertEqual([f["slug"] for f in found], ["api-action"])
+
+    def test_the_alias_index_sees_a_new_fiche_without_a_restart(self):
+        self.client.get(f"/deals/{DEAL}/fiches", params={"q": "micro bourdonne"})                      # réchauffe l'index
+        async def add():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, source, kb_version, curated)
+                                      VALUES ('fiche:api-extra', 'fiche', 'Micro qui bourdonne', 'guitars', 'manual', 0, true)""")
+                await conn.execute("""INSERT INTO guitar_knowledge_fiche (knowledge_id, body_md, categorie, statut, revision, content_hash)
+                                      VALUES ('fiche:api-extra', '# x', 'electronique', 'brouillon', '2026-10-15', 'h')""")
+                await conn.execute("INSERT INTO guitar_knowledge_alias VALUES ('micro bourdonne', 'fiche:api-extra', 'x', 'fiche')")
+            finally:
+                await conn.close()
+        asyncio.run(add())
+        fiches_repo._index["at"] = time.monotonic() - 3600        # la fenêtre de vérification est écoulée
+        slugs = [f["slug"] for f in self.client.get(f"/deals/{DEAL}/fiches", params={"q": "mon micro bourdonne"}).json()]
+        self.assertIn("api-extra", slugs)
 
     def test_deal_fiches_never_return_a_brand_and_respect_limit(self):
         resp = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "gibson truss rod coincé action haute", "limit": 1})
@@ -206,16 +267,25 @@ class TestFichesAPIAsViewer(_FichesBase):
         slugs = [f["slug"] for f in found]
         self.assertIn("api-truss", slugs)
         self.assertNotIn("api-action", slugs)
-        self.assertTrue(all(f["reason"] == "texte" for f in found))
+        self.assertTrue(all(f["reason"] in ("question", "annonce") for f in found))
 
 
 class TestFicheIdHelpers(unittest.TestCase):
-    def test_id_and_slug_round_trip_and_slug_validation(self):
+    def test_id_and_slug_round_trip(self):
         self.assertEqual(gk.fiche_id("reglage-action"), "fiche:reglage-action")
         self.assertEqual(gk.fiche_slug("fiche:reglage-action"), "reglage-action")
-        for bad in ("", "A", "a b", "../x", "a" * 81, None, 3):
-            self.assertFalse(fiches_repo.valid_slug(bad), repr(bad))
-        self.assertTrue(fiches_repo.valid_slug("neck-reset-2"))
+
+    def test_fiche_slug_refuses_an_id_that_is_not_a_fiche(self):
+        for bad in ("manual:gibson", "wd:Q123", "", "fiche"):
+            with self.assertRaises(ValueError, msg=bad):
+                gk.fiche_slug(bad)
+
+    def test_slug_format_is_one_strict_rule(self):
+        for bad in ("", "A", "a b", "../x", "a" * 81, None, 3, "abc\n", "reglage_action", "truss-1.2", "réglage", "-x"):
+            self.assertFalse(gk.valid_fiche_slug(bad), repr(bad))
+        for good in ("neck-reset-2", "a", "a" * 80, "0-9"):
+            self.assertTrue(gk.valid_fiche_slug(good), good)
+        self.assertIs(fiches_repo.valid_slug, gk.valid_fiche_slug)
 
 
 if __name__ == "__main__":
