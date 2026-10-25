@@ -95,5 +95,5 @@ Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded
 
 - [x] Phase A codée, testée, poussée (non déployée, non validée par l'utilisateur).
 - [ ] Phase 0 : correction de Bromont en base (à confirmer).
-- [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §7).
+- [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §6).
 - [x] B1 module pur + tests (30 tests, `backend/scraping/city_verification.py`) · [ ] B2 `CityFinder` v2 · [ ] B3 colonne + script de réparation · [ ] B4 tests bot · [ ] B5 déploiement par étapes.
