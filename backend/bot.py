@@ -19,6 +19,7 @@ from backend.cities import normalize_city_key, format_city_label, pick_best_labe
 from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
+from backend.scraping.city_verification import trusted_gazetteer
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
@@ -751,7 +752,9 @@ class GuitarHunterBot:
 
             city_data = cluster.anchor
             city_name = city_data.get('name')
-            city_id = city_data.get('id')
+            # ID Facebook RÉEL : `fb_location_id` s'il est renseigné (ID corrigé / partagé), sinon `id`
+            # (convention historique `cities.id` = ID Facebook). Voir schema.sql.
+            city_id = city_data.get('fbLocationId') or city_data.get('id')
             city_lat = city_data.get('latitude')
             city_lon = city_data.get('longitude')
             city_norm_name = ListingParser.normalize_city_name(city_name)
@@ -1529,8 +1532,14 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
+                # CityFinder v2 (2026-10-23) VÉRIFIE l'ID avant de le rendre (sonde du fil de la ville) :
+                # coordonnées confirmées par l'utilisateur + coordonnées fiables du catalogue servent à
+                # départager des homonymes de la même province. Un ID non vérifié (ambigu, indéterminé,
+                # introuvable) revient `None` -> la ville n'est PAS enregistrée (voir l'exception plus bas).
                 city_id, city_coords, matched_label, matched_confidently = CityFinder.find_city_id_and_coords(
-                    temp_scraper, city_name, region_hint=region_hint
+                    temp_scraper, city_name, region_hint=region_hint,
+                    expected_coords=(confirmed_lat, confirmed_lon) if confirmed_lat is not None and confirmed_lon is not None else None,
+                    gazetteer=trusted_gazetteer(list(catalog.values())),
                 )
             finally:
                 temp_scraper.close_session()
@@ -1578,6 +1587,11 @@ class GuitarHunterBot:
             needs_review = (bool(region_hint) and not matched_confidently) or coords_from_blind_geocode
 
             city_data = {'name': city_name, 'id': city_id_str}
+            if target_id != city_id_str:
+                # Le nom existe déjà au catalogue sous un autre identifiant (ID texte hérité, ID erroné...) :
+                # on garde cette ligne (clé primaire, préférences utilisateurs) et on lui attache l'ID
+                # Facebook VÉRIFIÉ — avant ce correctif, l'ID trouvé par CityFinder était simplement ignoré.
+                city_data['fbLocationId'] = city_id_str
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
             if needs_review:
@@ -1606,7 +1620,10 @@ class GuitarHunterBot:
             return True
         else:
             self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
-            raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
+            raise Exception(
+                f"Impossible de vérifier l'ID Facebook de la ville '{city_name}' (aucune suggestion fiable) : "
+                f"ville non ajoutée plutôt qu'enregistrée avec un ID douteux. Détail dans les logs du bot."
+            )
 
     def clear_logs(self, _=None):
         if self.offline_mode:

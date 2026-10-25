@@ -499,5 +499,56 @@ class TestScrapeRuns(unittest.TestCase):
         self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 10), ["ok"])
 
 
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({_sync_dsn()}) depuis cet environnement.")
+class TestCityFbLocationId(unittest.TestCase):
+    """Colonne `cities.fb_location_id` (2026-10-23) : ID Facebook réel quand `cities.id` ne l'est pas."""
+    UID = "test-uid-fbloc"
+    ID_FIXED, ID_PLAIN = "pgrepo-fbloc-1", "pgrepo-fbloc-2"
+
+    def setUp(self):
+        with open("backend/api/schema.sql", encoding="utf-8") as f:
+            schema_sql = f.read()
+        self.pool = _Pool(_sync_dsn())
+        with self.pool.connection() as conn:
+            conn.execute(schema_sql)
+            conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (self.UID,))
+            conn.execute("DELETE FROM cities WHERE id LIKE 'pgrepo-fbloc-%'")
+        self.repo = PostgresRepository(self.pool, self.UID)
+
+    def tearDown(self):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM cities WHERE id LIKE 'pgrepo-fbloc-%'")
+            conn.execute("DELETE FROM users WHERE uid = %s", (self.UID,))
+        self.pool.close()
+
+    def test_get_cities_exposes_fb_location_id_or_none(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "fbLocationId": "103111009728836"})
+        self.repo.add_city_to_catalog(self.ID_PLAIN, {"name": "Granby test"})
+        self.repo.set_city_user_pref(self.ID_FIXED, True)
+        self.repo.set_city_user_pref(self.ID_PLAIN, True)
+        by_id = {c["id"]: c for c in self.repo.get_cities()}
+        self.assertEqual(by_id[self.ID_FIXED]["fbLocationId"], "103111009728836")
+        self.assertIsNone(by_id[self.ID_PLAIN]["fbLocationId"])
+
+    def test_catalog_listing_exposes_it(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "fbLocationId": "42"})
+        self.assertEqual(self.repo.get_all_catalog_cities()[self.ID_FIXED]["fbLocationId"], "42")
+
+    def test_partial_merge_neither_clears_nor_requires_it(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "latitude": 45.3, "fbLocationId": "42"})
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"latitude": 45.4})          # merge partiel sans fbLocationId
+        city = self.repo.get_all_catalog_cities()[self.ID_FIXED]
+        self.assertEqual((city["latitude"], city["fbLocationId"]), (45.4, "42"))
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"fbLocationId": "43"})      # et l'inverse
+        city = self.repo.get_all_catalog_cities()[self.ID_FIXED]
+        self.assertEqual((city["latitude"], city["fbLocationId"]), (45.4, "43"))
+
+    def test_two_cities_can_share_one_facebook_id(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Saint-Hubert test", "fbLocationId": "77"})
+        self.repo.add_city_to_catalog(self.ID_PLAIN, {"name": "Longueuil test", "fbLocationId": "77"})
+        catalog = self.repo.get_all_catalog_cities()
+        self.assertEqual(catalog[self.ID_FIXED]["fbLocationId"], catalog[self.ID_PLAIN]["fbLocationId"])
+
+
 if __name__ == "__main__":
     unittest.main()

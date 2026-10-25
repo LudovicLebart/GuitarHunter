@@ -491,7 +491,7 @@ class PostgresRepository:
         with self.pool.connection() as conn:
             rows = conn.execute(
                 """
-                SELECT c.id, c.name, c.latitude, c.longitude, p.kijiji_radius_km
+                SELECT c.id, c.name, c.latitude, c.longitude, c.fb_location_id, p.kijiji_radius_km
                 FROM cities c
                 JOIN user_city_prefs p ON p.city_id = c.id AND p.user_id = %s
                 WHERE p.active = true
@@ -502,6 +502,7 @@ class PostgresRepository:
             {
                 "id": row["id"], "name": row["name"],
                 "latitude": row["latitude"], "longitude": row["longitude"],
+                "fbLocationId": row["fb_location_id"],
                 "isScannable": True, "kijijiRadiusKm": row["kijiji_radius_km"],
             }
             for row in rows
@@ -510,13 +511,14 @@ class PostgresRepository:
     def get_all_catalog_cities(self) -> dict:
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT id, name, latitude, longitude, needs_review, created_by FROM cities"
+                "SELECT id, name, latitude, longitude, needs_review, created_by, fb_location_id FROM cities"
             ).fetchall()
         return {
             row["id"]: {
                 "id": row["id"], "name": row["name"],
                 "latitude": row["latitude"], "longitude": row["longitude"],
                 "needsReview": row["needs_review"], "createdBy": row["created_by"],
+                "fbLocationId": row["fb_location_id"],
             }
             for row in rows
         }
@@ -537,6 +539,8 @@ class PostgresRepository:
             CITY_FIELD_TO_COLUMN[k]: v for k, v in city_data.items()
             if k in CITY_FIELD_TO_COLUMN
         }
+        if "fbLocationId" in city_data:  # colonne ajoutée 2026-10-23, hors CITY_FIELD_TO_COLUMN (partagé avec l'export Firestore)
+            present["fb_location_id"] = city_data["fbLocationId"]
         if not present:
             return
         with self.pool.connection() as conn:

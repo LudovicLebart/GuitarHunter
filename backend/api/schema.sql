@@ -474,6 +474,14 @@ CREATE TABLE IF NOT EXISTS cities (
 
 ALTER TABLE cities ADD COLUMN IF NOT EXISTS created_by TEXT;   -- uid, voir add_city_auto()
 
+-- ID Facebook Marketplace RÉEL de la ville (2026-10-23). NULL = `id` est l'ID Facebook (convention
+-- historique : `cities.id` = ID Facebook de la ville). Renseigné quand `id` ne l'est pas ou plus :
+-- ID texte hérité de la migration (« edmonton », chaînes Firestore), ID qui pointait sur un homonyme
+-- étranger (Bromont -> Bromont-Lamothe, France), ou ville servie par l'ID d'une ville voisine
+-- (Saint-Hubert -> Longueuil). Plusieurs villes peuvent partager le même `fb_location_id`. Le scraper
+-- Facebook utilise `COALESCE(fb_location_id, id)`. Voir docs/management/plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md.
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS fb_location_id TEXT;
+
 -- Préférences par utilisateur (remplace `users/{uid}/cities`, architecture actuelle). L'absence
 -- de ligne pour un (user_id, city_id) donné == "non scannable" côté Firestore (`isScannable ??
 -- false`, `onCitiesUpdate`) — d'où `active DEFAULT false` : une ligne créée UNIQUEMENT pour y

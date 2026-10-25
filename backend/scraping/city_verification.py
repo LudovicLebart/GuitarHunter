@@ -168,3 +168,60 @@ def decide(scored, floor=MIN_CARDS, min_province=MIN_PROVINCE_SHARE, min_near=MI
         return Decision(AMBIGUOUS, None, f"plusieurs ID valides : {', '.join(map(str, valid_ids))}")
     best = max(probed, key=lambda s: s["part_province"])
     return Decision(NOT_FOUND, None, f"aucun ID ne passe (meilleur : {best['id']}, {best['part_province']:.0%} de la province)")
+
+
+# ---------------------------------------------------------------------------------------------
+# Lecture d'une page /marketplace/<id>/ : ID dans l'URL et ville affichée par le bouton de lieu.
+# ---------------------------------------------------------------------------------------------
+
+def marketplace_segment(url):
+    """Segment qui suit `/marketplace/` dans une URL (ID numérique OU alias texte), ou None."""
+    m = re.search(r"/marketplace/([^/?#]+)", url or "")
+    if not m:
+        return None
+    seg = m.group(1)
+    return None if seg in ("search", "category", "item", "you", "notifications", "inbox", "selling", "buying") else seg
+
+
+def numeric_city_id(url):
+    """ID Facebook numérique d'une URL `/marketplace/<id>/...`, ou None (alias texte, pas d'ID)."""
+    seg = marketplace_segment(url)
+    return seg if seg and seg.isdigit() else None
+
+
+def landed_place_name(button_text):
+    """Nom du lieu affiché par le bouton de lieu : « Bromont · Dans un rayon de 65 km » -> « Bromont » ;
+    « Beloeil, Hainaut, Belgium · Dans un rayon de 65 km » -> « Beloeil » (la région est ignorée ici)."""
+    head = re.split(r"[·•]", button_text or "")[0]
+    return parse_label(head)[0]
+
+
+def landed_name_matches(button_text, city_name):
+    """La page chargée affiche-t-elle bien `city_name` ? Garde-fou contre un clic qui n'a pas pris
+    (URL de la ville précédente) : un ID « québécois » mais d'une AUTRE ville ne doit pas passer."""
+    return bool(button_text) and normalize_city_key(landed_place_name(button_text)) == normalize_city_key(city_name)
+
+
+def landed_region(button_text):
+    """Région explicite du lieu affiché (« Hainaut, Belgium »), ou None."""
+    head = re.split(r"[·•]", button_text or "")[0]
+    return parse_label(head)[1]
+
+
+def trusted_gazetteer(cities):
+    """{clé de ville normalisée: (lat, lon)} à partir de dicts {name, latitude, longitude}, en écartant les
+    coordonnées DOUTEUSES : manquantes, ou strictement identiques à celles d'une AUTRE ville (cas réel :
+    « Sherbrooke » porte les coordonnées de Montréal). Mieux vaut ignorer une ville que se fier à une
+    coordonnée fausse pour valider la proximité."""
+    by_coords = {}
+    for c in cities or []:
+        lat, lon = c.get("latitude"), c.get("longitude")
+        key = normalize_city_key(c.get("name", ""))
+        if not key or lat is None or lon is None:
+            continue
+        by_coords.setdefault((round(float(lat), 4), round(float(lon), 4)), set()).add(key)
+    gazetteer = {}
+    for (lat, lon), keys in by_coords.items():
+        if len(keys) == 1:
+            gazetteer[next(iter(keys))] = (lat, lon)
+    return gazetteer

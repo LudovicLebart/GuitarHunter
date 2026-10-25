@@ -29,3 +29,5 @@ backend/scripts/experiments/yolo_annotation/dataset_a_*.jsonl
 /dataset_a_*.jsonl
 /dataset_test.jsonl
 fb_login_failed.png
+fb_city_repair_report*.json
+cities_backup_*.json

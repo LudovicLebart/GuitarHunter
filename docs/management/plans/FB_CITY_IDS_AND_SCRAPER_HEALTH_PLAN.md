@@ -91,9 +91,33 @@ Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded
 - **Comparer** (≥ 3 passages alternés) : cartes vues, part hors liste, annonces gardées, annonces présentes seulement en connecté (et leur âge), fiches avec prix / photos / description, blocages.
 - **Décision à prendre ensuite** : si l'écart est net, évaluer le coût d'une session connectée en production (renouvellement manuel du 2FA, risque de restriction du compte, repli automatique vers l'anonyme + alerte ntfy à l'expiration).
 
-## 7. État d'avancement
+## 7. Mode d'emploi (serveur) — correction des IDs de villes
+
+*Codé et testé le 2026-10-25 (250 tests, dont l'application réelle contre un Postgres 16 local). Jamais exécuté contre le vrai Facebook ni la vraie base : les sélecteurs de la page de sélection de lieu et de lecture des cartes du fil sont ceux du bot, mais la sonde `/marketplace/<id>/` est nouvelle — à valider sur Bromont d'abord.*
+
+**Ordre obligatoire** : le bot doit lire `fb_location_id` AVANT qu'on l'écrive, sinon la correction ne change rien au scan.
+1. **Déployer le code** (`dev` / `master`, au choix de l'utilisateur) puis redémarrer le bot (`sudo systemctl restart guitare-hunter`). La colonne `cities.fb_location_id` est créée au démarrage (le schéma est rejoué) ; pour lancer le script avant le redémarrage : `psql "$DATABASE_URL" -c "ALTER TABLE cities ADD COLUMN IF NOT EXISTS fb_location_id TEXT"` (idempotent).
+2. **Bromont d'abord** (3 minutes, c'est le seul ancrage) :
+   ```bash
+   cd ~/GuitareHunter && source venv/bin/activate
+   set -a; source <(tr -d '\r' < ~/.guitarhunter_prod_db.env); set +a
+   xvfb-run -a python -m backend.scripts.repair_fb_city_ids --user-id <UID> --only Bromont --report ~/fb_city_report.json
+   python -m backend.scripts.repair_fb_city_ids --from ~/fb_city_report.json            # aperçu, n'écrit rien
+   python -m backend.scripts.repair_fb_city_ids --from ~/fb_city_report.json --apply    # écrit fb_location_id
+   ```
+   Si la Phase 0 (SQL) a déjà été exécutée, le rapport dira `OK` pour Bromont : rien à faire.
+3. **Toutes les villes actives** (compter ~1 h à 1 h 30 : sonde + recherche + pauses anti-bot ; reprenable, on peut interrompre et relancer la même commande) :
+   `xvfb-run -a python -m backend.scripts.repair_fb_city_ids --user-id <UID> --report ~/fb_city_report_all.json`, puis relire le rapport, aperçu, `--apply`.
+4. **Vérifier** : au cycle suivant, `python -m backend.scripts.scrape_health_report` (Bromont : 0 % `geo_mismatch`, cartes gardées > 0).
+- **Retour arrière** : `UPDATE cities SET fb_location_id = NULL WHERE id = '<id>'` (retour à `cities.id`) ; la sauvegarde JSON locale (`cities_backup_*.json`, mode 600, ignorée par git) garde l'état d'avant.
+- **Hors périmètre de ce script** : les doublons de graphie (`merge_city_catalog_duplicates.py`) et les coordonnées douteuses (signalées dans le rapport, jamais modifiées).
+
+## 8. État d'avancement
 
 - [x] Phase A codée, testée, poussée (non déployée, non validée par l'utilisateur).
-- [ ] Phase 0 : correction de Bromont en base (à confirmer).
+- [ ] Phase 0 : correction de Bromont en base (à confirmer ; remplacée par l'étape 2 du §7 si pas encore faite).
+- [x] B1 module pur (`city_verification.py`, 39 tests).
+- [x] B2 `CityFinder` v2 (`city_finder.py`, orchestration testée avec un faux pilote, 18 tests) ; `add_city_auto` refuse un ID non vérifié et attache l'ID vérifié à un nom existant.
+- [x] B3 colonne `cities.fb_location_id` (lue par le scan Facebook : `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport puis application, 25 tests dont l'application réelle en base).
+- [ ] B5 déploiement par étapes (§7) : à faire par l'utilisateur, Bromont d'abord.
 - [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §6).
-- [x] B1 module pur + tests (30 tests, `backend/scraping/city_verification.py`) · [ ] B2 `CityFinder` v2 · [ ] B3 colonne + script de réparation · [ ] B4 tests bot · [ ] B5 déploiement par étapes.

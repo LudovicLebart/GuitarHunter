@@ -156,5 +156,55 @@ class TestDecide(unittest.TestCase):
         self.assertEqual(cv.decide([]).status, cv.INDETERMINATE)
 
 
+class TestLandedPage(unittest.TestCase):
+    def test_numeric_id_from_url(self):
+        self.assertEqual(cv.numeric_city_id("https://www.facebook.com/marketplace/103111009728836/"), "103111009728836")
+        self.assertEqual(cv.numeric_city_id("https://www.facebook.com/marketplace/103111009728836/search/?query=a"), "103111009728836")
+
+    def test_text_alias_is_not_a_numeric_id(self):
+        self.assertIsNone(cv.numeric_city_id("https://www.facebook.com/marketplace/edmonton/"))
+        self.assertEqual(cv.marketplace_segment("https://www.facebook.com/marketplace/edmonton/"), "edmonton")
+
+    def test_non_city_segments_and_garbage(self):
+        self.assertIsNone(cv.marketplace_segment("https://www.facebook.com/marketplace/category/vehicles"))
+        self.assertIsNone(cv.marketplace_segment("https://www.facebook.com/login/"))
+        self.assertIsNone(cv.marketplace_segment(None))
+
+    def test_landed_name_from_location_button(self):
+        self.assertEqual(cv.landed_place_name("Bromont · Dans un rayon de 65 km"), "Bromont")
+        self.assertEqual(cv.landed_place_name("Beloeil, Hainaut, Belgium · Dans un rayon de 65 km"), "Beloeil")
+        self.assertEqual(cv.landed_region("Beloeil, Hainaut, Belgium · Dans un rayon de 65 km"), "Hainaut, Belgium")
+        self.assertIsNone(cv.landed_region("Bromont · Dans un rayon de 65 km"))
+
+    def test_landed_name_matches_guards_against_a_stale_page(self):
+        self.assertTrue(cv.landed_name_matches("Bromont · Dans un rayon de 65 km", "Bromont"))
+        self.assertTrue(cv.landed_name_matches("Saint-Lambert · Dans un rayon de 65 km", "St-Lambert"))
+        self.assertFalse(cv.landed_name_matches("Montreal · Dans un rayon de 65 km", "Bromont"))
+        self.assertFalse(cv.landed_name_matches("Woluwe-Saint-Lambert · Dans un rayon de 65 km", "Saint-Lambert"))
+        self.assertFalse(cv.landed_name_matches("", "Bromont"))
+        self.assertFalse(cv.landed_name_matches(None, "Bromont"))
+
+
+class TestTrustedGazetteer(unittest.TestCase):
+    def test_keeps_unique_coordinates_and_drops_shared_or_missing(self):
+        cities = [
+            {"name": "Montréal", "latitude": 45.518, "longitude": -73.567},
+            {"name": "Sherbrooke", "latitude": 45.518, "longitude": -73.567},   # coordonnées de Montréal
+            {"name": "Granby", "latitude": 45.40, "longitude": -72.73},
+            {"name": "Sutton", "latitude": None, "longitude": None},
+            {"name": "Mc Masterville", "latitude": 45.55, "longitude": -73.31},
+            {"name": "McMasterville", "latitude": 45.55, "longitude": -73.31},  # même lieu, deux clés
+        ]
+        g = cv.trusted_gazetteer(cities)
+        # Deux clés différentes aux mêmes coordonnées sont indiscernables d'une vraie collision :
+        # écartées par prudence (le doublon de graphie se règle par merge_city_catalog_duplicates).
+        self.assertEqual(set(g), {"granby"})
+        self.assertNotIn("montreal", g)
+        self.assertNotIn("sherbrooke", g)
+
+    def test_empty(self):
+        self.assertEqual(cv.trusted_gazetteer(None), {})
+
+
 if __name__ == "__main__":
     unittest.main()

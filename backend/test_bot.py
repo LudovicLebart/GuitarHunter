@@ -406,6 +406,55 @@ class TestAddCityAuto(unittest.TestCase):
         mock_city_finder.find_city_id_and_coords.assert_not_called()
 
 
+    def test_passes_expected_coords_and_trusted_gazetteer_to_city_finder(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert", True)
+        self.bot.repo.get_all_catalog_cities.return_value = {
+            "1": {"name": "Granby", "latitude": 45.40, "longitude": -72.73},
+            "2": {"name": "Montréal", "latitude": 45.5, "longitude": -73.57},
+            "3": {"name": "Sherbrooke", "latitude": 45.5, "longitude": -73.57},  # coordonnées de Montréal : doutes
+        }
+
+        self.bot.add_city_auto({"name": "Saint-Lambert", "latitude": 45.53, "longitude": -73.5, "region_hint": "Québec"})
+
+        _, kwargs = mock_city_finder.find_city_id_and_coords.call_args
+        self.assertEqual(kwargs["expected_coords"], (45.53, -73.5))
+        self.assertEqual(set(kwargs["gazetteer"]), {"granby"})
+
+    def test_no_expected_coords_without_confirmed_coordinates(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "X", False)
+        self.bot.add_city_auto("Saint-Lambert")
+        _, kwargs = mock_city_finder.find_city_id_and_coords.call_args
+        self.assertIsNone(kwargs["expected_coords"])
+
+    def test_verified_id_is_attached_to_an_existing_city_with_another_id(self, mock_city_finder, _mock_fb_scraper):
+        """Avant 2026-10-23, l'ID trouvé par CityFinder était ignoré quand le nom existait déjà au
+        catalogue sans coordonnées : un ID faux (« edmonton » pour Sherbrooke) n'était jamais réparé."""
+        self.bot.repo.get_all_catalog_cities.return_value = {"edmonton": {"name": "Sherbrooke", "latitude": None, "longitude": None}}
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Sherbrooke, QC", True)
+
+        self.bot.add_city_auto({"name": "Sherbrooke", "latitude": 45.4, "longitude": -71.9, "region_hint": "Québec"})
+
+        target_id, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertEqual(target_id, "edmonton")           # la ligne (clé primaire, préférences) est conservée
+        self.assertEqual(city_data["fbLocationId"], "555")  # ... et reçoit l'ID Facebook vérifié
+        self.bot.repo.set_city_user_pref.assert_called_once_with("edmonton", True)
+
+    def test_brand_new_city_uses_the_facebook_id_as_key_without_fb_location_id(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Granby", True)
+        self.bot.add_city_auto({"name": "Granby", "latitude": 45.4, "longitude": -72.7, "region_hint": "Québec"})
+        target_id, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertEqual(target_id, "555")
+        self.assertNotIn("fbLocationId", city_data)
+
+    def test_unverified_id_means_the_city_is_not_added(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = (None, None, None, False)
+        with self.assertRaises(Exception) as ctx:
+            self.bot.add_city_auto({"name": "Bromont", "latitude": 45.3, "longitude": -72.6, "region_hint": "Québec"})
+        self.assertIn("vérifier", str(ctx.exception))
+        self.bot.repo.add_city_to_catalog.assert_not_called()
+        self.bot.repo.set_city_user_pref.assert_not_called()
+
+
 class TestRunSourcesInParallel(unittest.TestCase):
     """_run_sources_in_parallel() dispatche Facebook et Kijiji chacun dans son propre
     thread (au lieu de les enchaîner en séquence) — voir demande utilisateur du
@@ -764,6 +813,41 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
         bot.repo.create_new_deal.assert_called_once()
         mock_notification_service.notify_deal.assert_called_once()
 
+
+@patch("backend.bot.time.sleep")
+@patch("backend.bot.FacebookScraper")
+class TestFacebookScanUsesRealFacebookId(unittest.TestCase):
+    """Le scan Facebook doit chercher avec `fb_location_id` (ID corrigé) quand il est renseigné, sinon
+    avec `cities.id` (convention historique) — sinon corriger la base ne changerait rien au scan."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._record_scrape_health = MagicMock()
+        self.scan_config = {"max_ads": 5, "search_query": "guitar", "distance": 0}
+        self.empty = {"deals": [], "anti_bot_blocked": False, "rejected_out_of_list": 0, "total_cards_seen": 0,
+                      "dropped_no_location": 0, "dropped_no_price": 0, "error": None}
+
+    def _run(self, city, mock_scraper_cls):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_marketplace.return_value = self.empty
+        self.bot._run_facebook_scan(self.scan_config, [city])
+        return scraper
+
+    def test_uses_fb_location_id_when_present(self, mock_scraper_cls, _sleep):
+        city = {"id": "110035235685771", "fbLocationId": "103111009728836", "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        scraper = self._run(city, mock_scraper_cls)
+        self.assertEqual(scraper.city_mapping, {"bromont": "103111009728836"})
+
+    def test_falls_back_to_catalog_id(self, mock_scraper_cls, _sleep):
+        city = {"id": "103111009728836", "fbLocationId": None, "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        scraper = self._run(city, mock_scraper_cls)
+        self.assertEqual(scraper.city_mapping, {"bromont": "103111009728836"})
+
+    def test_health_record_keeps_the_catalog_id_as_key(self, mock_scraper_cls, _sleep):
+        city = {"id": "110035235685771", "fbLocationId": "103111009728836", "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        self._run(city, mock_scraper_cls)
+        args, _ = self.bot._record_scrape_health.call_args
+        self.assertEqual(args[1]["id"], "110035235685771")  # clé stable de la ville dans scrape_runs
 
 class TestRecordScrapeHealth(unittest.TestCase):
     """Suivi de santé des scrapers (backend/scrape_health.py) : enregistrement par scan de ville,
