@@ -34,19 +34,20 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
-## 🌍 IDs de villes Facebook + suivi de santé des scrapers (2026-10-23, phases A et B codées et testées, à déployer)
+## 🌍 IDs de villes Facebook + suivi de santé des scrapers (2026-10-23, phases A et B codées et testées, Bromont corrigé en base, fusion dans `dev` prête)
 
 *Plan complet, validé par l'utilisateur et relu par Opus : [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md). Constat : l'ID Facebook de Bromont (le seul ancrage) pointait sur Bromont-Lamothe, en France (82 cartes, 100 % hors liste, 0 gardée) ; ce n'est pas un problème de compte, le mode anonyme fonctionne.*
 
 - [x] **Phase 0 — ID de Bromont corrigé en base le 2026-10-28** par `repair_fb_city_ids.py` (rapport `A_CORRIGER` : l'ancien ID donnait 0 % de cartes québécoises — Montluçon, Brassac-les-Mines… —, le nouveau 87 %) : `cities.fb_location_id = 103111009728836`, `id` inchangé, sauvegarde `cities_backup_20261028_130811.json` sur le serveur. **Sans effet tant que le bot n'exécute pas ce code** (il lit encore `cities.id`) : voir Phase B5.
 - [x] **Phase A — suivi de santé des scrapers** (commit `bec5a48`, codé, 19 tests purs + 9 `test_bot` + 5 base ; **non déployé, non validé**) : table `scrape_runs`, alerte ntfy + email à 3 échecs de suite ou ≥ 50 % sur 10 scans, `scrape_health_report.py`. *Limite connue* : fausse alerte `geo_mismatch` possible pour un utilisateur avec 1 ou 2 villes seulement.
-- [x] **Phase B1** — module pur `backend/scraping/city_verification.py` + 30 tests (cas réels du 2026-10-23 : Bromont QC vs France, Beloeil BE, Woluwe-Saint-Lambert, Sherbrooke AB) ; codé, non déployé. Pas de minimum d'annonces : proportions seulement, plancher de 3 cartes → INDÉTERMINÉ.
-- [x] **Phase B2** — `CityFinder` v2 (clic par libellé, attente du changement d'URL, ID numérique exigé, sonde de chaque candidat, ville affichée vérifiée) ; `add_city_auto` refuse l'ajout non vérifié et attache l'ID vérifié à un nom existant. Codé, 18 tests avec faux pilote ; **non déployé, jamais exécuté contre le vrai Facebook**.
+- [x] **Phase B1** — module pur `backend/scraping/city_verification.py` + 37 tests (cas réels du 2026-10-23 : Bromont QC vs France, Beloeil BE, Woluwe-Saint-Lambert, Sherbrooke AB) ; codé, non déployé. Pas de minimum d'annonces : proportions seulement, plancher de 3 cartes → INDÉTERMINÉ.
+- [x] **Phase B2** — `CityFinder` v2 (clic par libellé, attente du changement d'URL, ID numérique exigé, sonde de chaque candidat, ville affichée vérifiée) ; `add_city_auto` refuse l'ajout non vérifié et attache l'ID vérifié à un nom existant. Codé, 20 tests avec faux pilote ; **non déployé, jamais exécuté contre le vrai Facebook**.
 - [x] **Phase B3** — colonne `cities.fb_location_id` (le scan Facebook lit `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport JSON reprenable puis `--from … --apply`, sauvegarde locale, pauses anti-bot, arrêt sur login/captcha). Codé, 25 tests dont l'application réelle sur Postgres ; **non déployé**.
-- [ ] **Phase B5 — à faire par l'utilisateur** : déployer, redémarrer le bot, puis lancer le script **sur Bromont d'abord**, puis sur toutes les villes actives (mode d'emploi dans le plan, §7). Coordonnées douteuses : signalées par le rapport, à corriger à part.
+- [ ] **Phase B5 — déploiement** : *fusion avec `dev` préparée le 2026-10-28* (branche `ccr-92f47355-0yvnvx` = `dev` + 18 commits, avance rapide, 601 tests, mêmes 13 erreurs d'environnement que `dev` seul) ; **push sur `dev` puis `sudo systemctl restart guitare-hunter` à confirmer**, puis vérifier au cycle suivant (« Scan de l'ancrage : Bromont (103111009728836) », `scrape_health_report.py`). *Fait* : Bromont (3 min, validé sur le vrai Facebook). *Reste* : lancer le rapport sur les 26 autres villes actives (~1 h à 1 h 30, `--report`, reprenable), relire, `--apply` (mode d'emploi dans le plan, §7). Coordonnées douteuses : signalées par le rapport, à corriger à part.
 - [ ] **Phase C — comparaison anonyme / connecté (question d'origine, toujours ouverte)** : à reprendre une fois l'ID de Bromont corrigé (Phase 0). Connexion depuis le serveur par VNC (téléphone) pour passer le 2FA, puis `compare_fb_anon_vs_auth.py --runs 3`. Référence anonyme déjà mesurée (24 cartes, 21 gardées).
 - [ ] **Piste Phase A** : distinguer « hors région » de « hors liste » pour éviter les fausses alertes `geo_mismatch` des petits comptes.
-- [ ] **Après validation** : journal de la semaine 2026-W43, `ARCHITECTURE.md` / `DATA_FLOW.md` (table `scrape_runs`, `fb_location_id`).
+- [x] **Documentation** (2026-10-28) : journaux 2026-W43 et W44, `JOURNAL.md`, `reference/ARCHITECTURE.md` et `reference/DATA_FLOW.md` (table `scrape_runs`, colonne `fb_location_id`, `CityFinder` v2).
+- [ ] **Mettre à jour `CLAUDE.md`** (piège « l'ID Facebook de la ville, seule clé du scan Facebook, doit être vérifié ; `fb_location_id` prime sur `cities.id` ») — non fait, `CLAUDE.md` n'est pas dans la liste de l'étape 3 : à la demande de l'utilisateur.
 
 ---
 

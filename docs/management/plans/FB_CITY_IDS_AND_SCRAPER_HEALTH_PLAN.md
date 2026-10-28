@@ -116,8 +116,8 @@ Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded
 
 - [x] Phase A codée, testée, poussée (non déployée, non validée par l'utilisateur).
 - [x] Phase 0 : Bromont corrigé en base le 2026-10-28 (étape 2 du §7, rapport `A_CORRIGER` puis `--apply`) ; effet réel après déploiement du code qui lit `fb_location_id`.
-- [x] B1 module pur (`city_verification.py`, 39 tests).
-- [x] B2 `CityFinder` v2 (`city_finder.py`, orchestration testée avec un faux pilote, 18 tests) ; `add_city_auto` refuse un ID non vérifié et attache l'ID vérifié à un nom existant.
+- [x] B1 module pur (`city_verification.py`, 37 tests).
+- [x] B2 `CityFinder` v2 (`city_finder.py`, orchestration testée avec un faux pilote, 20 tests) ; `add_city_auto` refuse un ID non vérifié et attache l'ID vérifié à un nom existant.
 - [x] B3 colonne `cities.fb_location_id` (lue par le scan Facebook : `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport puis application, 25 tests dont l'application réelle en base).
 - [ ] B5 déploiement par étapes (§7) : à faire par l'utilisateur, Bromont d'abord.
 - [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §6).
