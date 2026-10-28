@@ -85,7 +85,7 @@ def main():
         if setup is None:
             sys.exit(1)
         for c in setup[2]:
-            db_ids[ListingParser.normalize_city_name(c["name"])] = str(c["id"])
+            db_ids[ListingParser.normalize_city_name(c["name"])] = str(c.get("fbLocationId") or c["id"])
         if args.all:
             names = sorted(c["name"] for c in setup[2])
 

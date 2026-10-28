@@ -308,7 +308,7 @@ def main():
         print(f"Config de l'utilisateur {uid[:8]}… : {len(cities)} villes actives")
         if cities and not args.city_id:
             city = pick_city(cities, args.city_name)
-            args.city_id, args.city_name = str(city["id"]), city["name"]
+            args.city_id, args.city_name = str(city.get("fbLocationId") or city["id"]), city["name"]
 
     args.query = args.query or scan_cfg.get("search_query")
     if args.min_price is None: args.min_price = scan_cfg.get("min_price", 0)

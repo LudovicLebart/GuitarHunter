@@ -56,9 +56,10 @@ def main():
         browser, context = _new_context(p, cfg)
         try:
             for c in sorted(cities, key=lambda x: x.get("name") or ""):
+                fb_id = str(c.get("fbLocationId") or c["id"])  # même ID que le scan du bot
                 page = context.new_page()
                 try:
-                    page.goto(f"https://www.facebook.com/marketplace/{c['id']}/", timeout=60000)
+                    page.goto(f"https://www.facebook.com/marketplace/{fb_id}/", timeout=60000)
                     time.sleep(3)
                     label = location_label(page)
                 except Exception as e:
@@ -66,7 +67,7 @@ def main():
                 finally:
                     page.close()
                 flag = " " if any(m in label.lower() for m in OK_MARKERS) else "?"
-                print(f"{flag:<2} {c.get('name', '?'):<28}{c['id']:<18}{label}")
+                print(f"{flag:<2} {c.get('name', '?'):<28}{fb_id:<18}{label}")
         finally:
             browser.close()
 
