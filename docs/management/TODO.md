@@ -34,6 +34,22 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🌍 IDs de villes Facebook + suivi de santé des scrapers (2026-10-23, phases A et B codées et testées, à déployer)
+
+*Plan complet, validé par l'utilisateur et relu par Opus : [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md). Constat : l'ID Facebook de Bromont (le seul ancrage) pointait sur Bromont-Lamothe, en France (82 cartes, 100 % hors liste, 0 gardée) ; ce n'est pas un problème de compte, le mode anonyme fonctionne.*
+
+- [x] **Phase 0 — ID de Bromont corrigé en base le 2026-10-28** par `repair_fb_city_ids.py` (rapport `A_CORRIGER` : l'ancien ID donnait 0 % de cartes québécoises — Montluçon, Brassac-les-Mines… —, le nouveau 87 %) : `cities.fb_location_id = 103111009728836`, `id` inchangé, sauvegarde `cities_backup_20261028_130811.json` sur le serveur. **Sans effet tant que le bot n'exécute pas ce code** (il lit encore `cities.id`) : voir Phase B5.
+- [x] **Phase A — suivi de santé des scrapers** (commit `bec5a48`, codé, 19 tests purs + 9 `test_bot` + 5 base ; **non déployé, non validé**) : table `scrape_runs`, alerte ntfy + email à 3 échecs de suite ou ≥ 50 % sur 10 scans, `scrape_health_report.py`. *Limite connue* : fausse alerte `geo_mismatch` possible pour un utilisateur avec 1 ou 2 villes seulement.
+- [x] **Phase B1** — module pur `backend/scraping/city_verification.py` + 30 tests (cas réels du 2026-10-23 : Bromont QC vs France, Beloeil BE, Woluwe-Saint-Lambert, Sherbrooke AB) ; codé, non déployé. Pas de minimum d'annonces : proportions seulement, plancher de 3 cartes → INDÉTERMINÉ.
+- [x] **Phase B2** — `CityFinder` v2 (clic par libellé, attente du changement d'URL, ID numérique exigé, sonde de chaque candidat, ville affichée vérifiée) ; `add_city_auto` refuse l'ajout non vérifié et attache l'ID vérifié à un nom existant. Codé, 18 tests avec faux pilote ; **non déployé, jamais exécuté contre le vrai Facebook**.
+- [x] **Phase B3** — colonne `cities.fb_location_id` (le scan Facebook lit `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport JSON reprenable puis `--from … --apply`, sauvegarde locale, pauses anti-bot, arrêt sur login/captcha). Codé, 25 tests dont l'application réelle sur Postgres ; **non déployé**.
+- [ ] **Phase B5 — à faire par l'utilisateur** : déployer, redémarrer le bot, puis lancer le script **sur Bromont d'abord**, puis sur toutes les villes actives (mode d'emploi dans le plan, §7). Coordonnées douteuses : signalées par le rapport, à corriger à part.
+- [ ] **Phase C — comparaison anonyme / connecté (question d'origine, toujours ouverte)** : à reprendre une fois l'ID de Bromont corrigé (Phase 0). Connexion depuis le serveur par VNC (téléphone) pour passer le 2FA, puis `compare_fb_anon_vs_auth.py --runs 3`. Référence anonyme déjà mesurée (24 cartes, 21 gardées).
+- [ ] **Piste Phase A** : distinguer « hors région » de « hors liste » pour éviter les fausses alertes `geo_mismatch` des petits comptes.
+- [ ] **Après validation** : journal de la semaine 2026-W43, `ARCHITECTURE.md` / `DATA_FLOW.md` (table `scrape_runs`, `fb_location_id`).
+
+---
+
 ## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
 
 *Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
@@ -63,7 +79,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] `add_city_auto` plantait (`NameError: firestore`) sur toute nouvelle ville ; suggestion Facebook « QC » non reconnue pour l'indice « Québec » (Sherbrooke, AB → id `edmonton`) ; message d'erreur des commandes non remonté (`error`) ; suggestions Photon en double.
 - [x] **Correction des villes sans coordonnées** : run #595, 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable ; `run_once.py` désarmé.
-- [ ] **À décider** : faire échouer l'ajout quand la suggestion Facebook ne correspond pas à la région (au lieu d'enregistrer la ville au mauvais id avec `needsReview`).
+- [x] **Décidé (2026-10-23)** : faire échouer l'ajout quand la suggestion Facebook n'est pas vérifiée (au lieu d'enregistrer la ville au mauvais id avec `needsReview`) — à implémenter en Phase B2, voir [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md).
 
 ---
 
@@ -490,6 +506,7 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 - [ ] **Investiguer : session Facebook non authentifiée → Facebook gate parfois le prix/les photos**
     - *Détails :* Le scraper est 100% anonyme (aucun `storage_state`/cookies persistants nulle part dans le backend, vérifié). Comportement intermittent observé sur `SCAN_URL` — la fiche détail se charge sans carrousel photo ni prix visible, alors que le titre/description restent disponibles (voir `TODO_ARCHIVE.md` pour l'historique du bug "Fiche détail Facebook dégradée").
     - *Options à trancher avec l'utilisateur :* (a) accepter la limitation — les annonces concernées ne sont simplement plus stockées (garde-fou "scraping raté" déjà en place) ; (b) implémenter une session Facebook authentifiée (identifiants d'un compte dédié, risque de bannissement selon les CGU Facebook, gestion sécurisée des secrets, renouvellement de session).
+    - *Mise à jour 2026-10-23 (corrigée 2026-10-25)* : **question toujours ouverte**. La comparaison anonyme / connecté n'a pas été menée à terme : la connexion automatique a été bloquée par un checkpoint 2FA (détection de bot), puis l'enquête a dévié vers l'**ID de ville de l'ancrage** (Bromont → France), qui faussait de toute façon les mesures. Le mode anonyme charge la page, mais on n'a **aucune mesure « connecté »** ; à reprendre avec le bon ID de ville — voir la Phase C de [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md).
 
 - [x] **Fix : `GEMINI_MODELS["default_analyst"]` (`config.py`) n'est pas réellement câblé** *(Corrigé 2026-08-19)*
     - *Détails :* Découvert le 2026-07-09 en corrigeant le fix `gemini-2.5-flash`. `bot.py::_init_firestore_structure()` n'initialisait que `gatekeeperModel`/`expertModel` dans le document Firestore d'un nouvel utilisateur, jamais `mainModel` — `GEMINI_MODELS["default_analyst"]` était donc mort de fait. Le vrai défaut utilisé en pratique restait le fallback codé en dur dans `analyzer.py::analyze_deal()` (`config.get('mainModel', '...')`).

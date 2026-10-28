@@ -101,7 +101,8 @@ class FacebookScraper:
             timezone_id=self.config.timezone,
             geolocation=self.config.geolocation,
             permissions=["geolocation"],
-            extra_http_headers={"Referer": "https://www.google.com/"}
+            extra_http_headers={"Referer": "https://www.google.com/"},
+            storage_state=self.config.storage_state_path  # None = anonyme
         )
 
     def get_city_id_and_coords(self, city_name: str):
@@ -337,10 +338,13 @@ class FacebookScraper:
         return False
 
     def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0,
-                      dropped_no_location=0, dropped_no_price=0):
+                      dropped_no_location=0, dropped_no_price=0, error=None):
         """Forme standard retournée par scan_marketplace() à chaque point de sortie,
-        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés)."""
+        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés).
+        `error` : message de l'exception interceptée par scan_marketplace() (qui ne la propage pas),
+        pour que le suivi de santé (backend/scrape_health.py) distingue un scan cassé d'un scan vide."""
         return {
+            "error": error,
             "deals": deals or [],
             "anti_bot_blocked": anti_bot_blocked,
             "rejected_out_of_list": rejected_out_of_list,
@@ -391,6 +395,7 @@ class FacebookScraper:
         listings_count = 0
         dropped_no_location = 0
         dropped_no_price = 0
+        scan_error = None
 
         try:
             q = urllib.parse.quote(search_query)
@@ -563,11 +568,12 @@ class FacebookScraper:
                 found_deals.append(listing_data) # Ajout à la liste
                 count += 1
         except Exception as e:
+            scan_error = str(e)
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
         return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
-                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
+                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price, error=scan_error)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()

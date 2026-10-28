@@ -19,6 +19,7 @@ from backend.cities import normalize_city_key, format_city_label, pick_best_labe
 from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
+from backend.scraping.city_verification import trusted_gazetteer
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
@@ -27,6 +28,7 @@ from backend.pg_repository import PostgresRepository
 from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
+from backend import scrape_health
 from backend.taxonomy import matches_active_search_family
 
 class GuitarHunterBot:
@@ -675,6 +677,46 @@ class GuitarHunterBot:
         for t in threads:
             t.join()
 
+    def _record_scrape_health(self, source, city_data, query, outcome, detail=None,
+                              cards_seen=None, out_of_list=None, kept=None, started_at=None):
+        """Enregistre le résultat technique d'un scan de ville (table `scrape_runs`) et alerte
+        (ntfy + email) si la même (source, ville) échoue de façon répétée — seuils dans
+        `backend/scrape_health.py`. Ne lève JAMAIS : un suivi de santé en panne ne doit pas casser un
+        scan. À ne pas appeler quand l'arrêt du bot a été demandé (un scan interrompu n'est pas un échec)."""
+        try:
+            if getattr(self, 'offline_mode', False):
+                return
+            city_id = str(city_data.get('id')) if city_data.get('id') is not None else None
+            city_name = city_data.get('name') or '?'
+            duration_ms = int((time.time() - started_at) * 1000) if started_at else None
+            run_id = self.repo.record_scrape_run(
+                source, city_id, city_name, query, outcome, detail,
+                cards_seen=cards_seen, out_of_list=out_of_list, kept=kept, duration_ms=duration_ms,
+            )
+            if outcome != scrape_health.OK:
+                self.logger.warning(f"⚠️ [Santé {source}] '{city_name}' : {outcome} ({detail or '-'})")
+
+            alert, code, failures = scrape_health.should_alert(
+                self.repo.recent_scrape_outcomes(source, city_id, scrape_health.ALERT_WINDOW)
+            )
+            if not alert or self.repo.was_scrape_alerted_recently(source, city_id, scrape_health.ALERT_COOLDOWN_HOURS):
+                return
+            hint = scrape_health.repair_hint(code, city_name)
+            self.logger.error(f"🚨 [Santé {source}] '{city_name}' : {failures} échec(s) récent(s), cause dominante « {code} ». {hint}")
+            NotificationService.notify_scrape_health(
+                source, city_name, code, failures, self.repo.last_ok_scrape_run(source, city_id), hint,
+                user_email=self._user_email, logger=self.logger,
+            )
+            self.repo.mark_scrape_run_alerted(run_id)
+        except Exception as e:
+            self.logger.warning(f"[Santé {source}] enregistrement/alerte impossible : {e}")
+
+    def _purge_scrape_runs_safely(self):
+        try:
+            self.repo.purge_scrape_runs()
+        except Exception as e:
+            self.logger.warning(f"[Santé] purge de scrape_runs impossible : {e}")
+
     def _run_facebook_scan(self, scan_config, cities_to_scan):
         all_allowed_cities_norm = [ListingParser.normalize_city_name(c.get('name', '')) for c in cities_to_scan if c.get('name')]
 
@@ -714,7 +756,9 @@ class GuitarHunterBot:
 
             city_data = cluster.anchor
             city_name = city_data.get('name')
-            city_id = city_data.get('id')
+            # ID Facebook RÉEL : `fb_location_id` s'il est renseigné (ID corrigé / partagé), sinon `id`
+            # (convention historique `cities.id` = ID Facebook). Voir schema.sql.
+            city_id = city_data.get('fbLocationId') or city_data.get('id')
             city_lat = city_data.get('latitude')
             city_lon = city_data.get('longitude')
             city_norm_name = ListingParser.normalize_city_name(city_name)
@@ -739,8 +783,21 @@ class GuitarHunterBot:
                 temp_scraper.allowed_cities = all_allowed_cities_norm
 
                 try:
-                    scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    scan_started_at = time.time()
+                    try:
+                        scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    except Exception as scan_exc:
+                        self._record_scrape_health("facebook", city_data, scan_config.get('search_query'),
+                                                   scrape_health.ERROR, str(scan_exc)[:300], started_at=scan_started_at)
+                        raise
                     found_deals = scan_result["deals"]
+                    if not self._is_stop_requested():
+                        fb_outcome, fb_detail = scrape_health.classify_facebook(scan_result)
+                        self._record_scrape_health(
+                            "facebook", city_data, scan_config.get('search_query'), fb_outcome, fb_detail,
+                            cards_seen=scan_result["total_cards_seen"], out_of_list=scan_result["rejected_out_of_list"],
+                            kept=len(found_deals), started_at=scan_started_at,
+                        )
                     cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
                     cycle_stats["total_cards_seen"] += scan_result["total_cards_seen"]
                     cycle_stats["dropped_no_location"] += scan_result["dropped_no_location"]
@@ -837,6 +894,7 @@ class GuitarHunterBot:
 
             time.sleep(2)
 
+        self._purge_scrape_runs_safely()
         blocked = cycle_stats["anti_bot_blocked_cities"]
         self.logger.info(
             "📊 Résumé du cycle Facebook : "
@@ -1015,6 +1073,7 @@ class GuitarHunterBot:
                         self.logger.info(f"--- Scan Kijiji : ancrage {city_name} (rayon {kijiji_search_radius_km}km) — couvre aussi : {covered_names} ---")
                     else:
                         self.logger.info(f"--- Scan Kijiji : {city_name} ---")
+                    kijiji_started_at = time.time()
                     try:
                         # ID préfixé avant même le check de dédup (pas seulement après coup
                         # sur `found_deals`) : `should_skip_deal` compare contre
@@ -1031,8 +1090,17 @@ class GuitarHunterBot:
                             min_price=min_price, max_price=max_price,
                             lat=city_lat, lng=city_lon, radius_km=kijiji_search_radius_km,
                         )
+                        if not self._is_stop_requested():
+                            kj_outcome, kj_detail = scrape_health.classify_kijiji(temp_scraper.last_scan)
+                            self._record_scrape_health(
+                                "kijiji", city_data, scan_config.get('search_query'), kj_outcome, kj_detail,
+                                cards_seen=temp_scraper.last_scan.get("cards_seen"), kept=len(found_deals),
+                                started_at=kijiji_started_at,
+                            )
                     except Exception as e:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
+                        self._record_scrape_health("kijiji", city_data, scan_config.get('search_query'),
+                                                   scrape_health.ERROR, str(e)[:300], started_at=kijiji_started_at)
                         continue
 
                     # Pré-traitement séquentiel (préfixe d'ID, résolution de ville, filtre de
@@ -1078,6 +1146,7 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
 
+        self._purge_scrape_runs_safely()
         self.logger.info(
             "📊 Résumé du cycle Kijiji : "
             f"{cycle_stats['processed']} traitée(s) (analyse IA), "
@@ -1469,8 +1538,14 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
+                # CityFinder v2 (2026-10-23) VÉRIFIE l'ID avant de le rendre (sonde du fil de la ville) :
+                # coordonnées confirmées par l'utilisateur + coordonnées fiables du catalogue servent à
+                # départager des homonymes de la même province. Un ID non vérifié (ambigu, indéterminé,
+                # introuvable) revient `None` -> la ville n'est PAS enregistrée (voir l'exception plus bas).
                 city_id, city_coords, matched_label, matched_confidently = CityFinder.find_city_id_and_coords(
-                    temp_scraper, city_name, region_hint=region_hint
+                    temp_scraper, city_name, region_hint=region_hint,
+                    expected_coords=(confirmed_lat, confirmed_lon) if confirmed_lat is not None and confirmed_lon is not None else None,
+                    gazetteer=trusted_gazetteer(list(catalog.values())),
                 )
             finally:
                 temp_scraper.close_session()
@@ -1518,6 +1593,11 @@ class GuitarHunterBot:
             needs_review = (bool(region_hint) and not matched_confidently) or coords_from_blind_geocode
 
             city_data = {'name': city_name, 'id': city_id_str}
+            if target_id != city_id_str:
+                # Le nom existe déjà au catalogue sous un autre identifiant (ID texte hérité, ID erroné...) :
+                # on garde cette ligne (clé primaire, préférences utilisateurs) et on lui attache l'ID
+                # Facebook VÉRIFIÉ — avant ce correctif, l'ID trouvé par CityFinder était simplement ignoré.
+                city_data['fbLocationId'] = city_id_str
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
             if needs_review:
@@ -1546,7 +1626,10 @@ class GuitarHunterBot:
             return True
         else:
             self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
-            raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
+            raise Exception(
+                f"Impossible de vérifier l'ID Facebook de la ville '{city_name}' (aucune suggestion fiable) : "
+                f"ville non ajoutée plutôt qu'enregistrée avec un ID douteux. Détail dans les logs du bot."
+            )
 
     def clear_logs(self, _=None):
         if self.offline_mode:

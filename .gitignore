@@ -14,6 +14,8 @@ venv/
 .venv/
 scratch/
 backend/scripts/leboncoin_storage_state.json
+backend/scripts/facebook_storage_state.json
+fb_compare_*.json
 leboncoin_probe_*.png
 leboncoin_probe_*.html
 leboncoin_probe_*.json
@@ -29,3 +31,6 @@ backend/scripts/experiments/yolo_annotation/dataset_a_*.jsonl
 # Candidates de vérité terrain (backend/scripts/truth_candidates.py) : titres, liens et extraits de chat — locales uniquement.
 backend/scripts/data/truth_candidates*.jsonl
 backend/scripts/data/t3_replay*
+fb_login_failed.png
+fb_city_repair_report*.json
+cities_backup_*.json

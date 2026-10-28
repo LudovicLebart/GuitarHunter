@@ -345,6 +345,39 @@ class NotificationService:
         )
         _email_notifier.send(to_email=user_email, subject=subject, body=body, logger=log)
 
+    @staticmethod
+    def notify_scrape_health(source: str, city: str, code: str, failures: int, last_ok: Optional[str],
+                             hint: str, user_email: Optional[str] = None,
+                             logger: logging.Logger = None) -> None:
+        """
+        Alerte (ntfy + email) quand un scraper (Facebook/Kijiji) échoue de façon répétée pour une
+        ville — seuils décidés par `backend/scrape_health.py::should_alert`, délai minimal entre deux
+        alertes géré par l'appelant (`bot.py`, via `scrape_runs.alerted_at`).
+
+        Args:
+            source   : 'facebook' | 'kijiji'.
+            city     : ville (ancrage) concernée.
+            code     : code de résultat dominant (geo_mismatch, blocked, no_cards, ...).
+            failures : nombre d'échecs récents ayant déclenché l'alerte.
+            last_ok  : date du dernier scan réussi (texte), ou None s'il n'y en a pas d'enregistré.
+            hint     : piste de réparation (`scrape_health.repair_hint`).
+        """
+        log = logger or _module_logger
+        title = f"⚠️ Scraper {source} en échec : {city} ({code})"
+        body = (
+            f"⚠️ SCRAPER EN ÉCHEC\n"
+            f"{'=' * 50}\n"
+            f"Source        : {source}\n"
+            f"Ville         : {city}\n"
+            f"Problème      : {code}\n"
+            f"Échecs récents: {failures}\n"
+            f"Dernier succès: {last_ok or 'aucun enregistré'}\n\n"
+            f"À faire : {hint}\n\n"
+            f"—\nGuitar Hunter Bot"
+        )
+        _ntfy.send(title, f"{failures} échec(s) récent(s). {hint}"[:200], priority='high', tags=['warning'], logger=log)
+        _email_notifier.send(to_email=user_email, subject=f"[GuitarHunter] {title}", body=body, logger=log)
+
     # Messages adaptés au code de statut retourné par bot.py::handle_deal_found()
     _SCAN_URL_OUTCOME_MESSAGES = {
         "processed": "✅ Nouvelle annonce ajoutée et analysée : {title}",
