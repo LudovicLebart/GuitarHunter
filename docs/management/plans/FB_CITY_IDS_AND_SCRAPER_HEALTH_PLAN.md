@@ -42,9 +42,9 @@ Commit `bec5a48`. Résumé :
 | Un enregistrement par scan, alerte avec délai 6 h, jamais d'exception vers le scan | `backend/bot.py::_record_scrape_health` |
 | Rapport chiffré par source / ville / code | `backend/scripts/scrape_health_report.py` |
 
-Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded` = ≥ 3 fiches dont ≥ 50 % sans photo. Tests : 19 purs, 9 dans `test_bot.py`, 5 contre un vrai Postgres (`test_pg_repository.py`).
+Seuils : `geo_mismatch` = ≥ 5 cartes, ≥ 90 % hors liste **et aucune carte de la ville cherchée** (règle ajoutée le 2026-10-29) ; `detail_degraded` = ≥ 3 fiches dont ≥ 50 % sans photo. Tests : 19 purs, 9 dans `test_bot.py`, 5 contre un vrai Postgres (`test_pg_repository.py`).
 
-**Limite connue** : un utilisateur qui n'a que 1 ou 2 villes en liste verrait presque toutes les cartes de sa zone « hors liste » → fausse alerte `geo_mismatch`. Piste : distinguer « hors région » de « hors liste » (la région est dans le libellé de la carte, ex. « Montréal, QC »). Non traité.
+**Limite connue, traitée le 2026-10-29** : un utilisateur à 1 ou 2 villes voyait presque toutes les cartes de sa zone « hors liste » → fausse alerte `geo_mismatch` (Paris : 148 scans sur 166). Corrigé par la règle « aucune carte de la ville cherchée » (mesure sur 3 jours : les 148 faux échecs avaient tous ≥ 1 carte de la ville, les 8 vrais de Montréal 0). Reste à confirmer en production.
 
 ## 5. Phase B — vérification et réparation des villes Facebook
 
