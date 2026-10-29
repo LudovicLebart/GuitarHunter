@@ -152,11 +152,35 @@ class TestLookupDecisions(unittest.TestCase):
     def test_no_suggestions_at_all(self):
         self.assertEqual(CityFinder.lookup(FakeDriver([]), "X", region_hint="Québec").status, cv.NOT_FOUND)
 
-    def test_text_alias_is_not_an_id(self):
-        driver = FakeDriver(["Sherbrooke, QC | Ville"], selects={("Sherbrooke, QC | Ville", 0): sel(None, segment="edmonton")})
+    def test_text_alias_is_rejected_when_its_feed_is_another_city(self):
+        """« edmonton » (l'ancien ID de Sherbrooke) est sondé comme tout alias : Edmonton, AB -> refusé."""
+        driver = FakeDriver(["Sherbrooke, QC | Ville"], selects={("Sherbrooke, QC | Ville", 0): sel(None, segment="edmonton")},
+                            probes={"edmonton": ProbeResult(["Edmonton, AB"] * 12, landed("Edmonton"))})
         result = CityFinder.lookup(driver, "Sherbrooke", region_hint="Québec")
         self.assertEqual((result.status, result.city_id), (cv.NOT_FOUND, None))
         self.assertIn("edmonton", str(result.evidence))
+
+    def test_text_alias_is_accepted_only_after_a_quebec_probe(self):
+        """Montréal : Facebook donne l'alias « montreal », pas un numéro ; le fil confirme le Québec."""
+        driver = FakeDriver(["Montréal | Ville"], selects={("Montréal | Ville", 0): sel(None, segment="montreal")},
+                            probes={"montreal": ProbeResult(QUEBEC_CARDS, landed("Montréal"))})
+        result = CityFinder.lookup(driver, "montreal", region_hint="Québec")
+        self.assertEqual((result.status, result.city_id), (cv.VERIFIED, "montreal"))
+
+    def test_reserved_segment_is_not_an_alias(self):
+        driver = FakeDriver(["Montréal | Ville"], selects={("Montréal | Ville", 0): sel(None, segment="search")})
+        result = CityFinder.lookup(driver, "montreal", region_hint="Québec")
+        self.assertEqual((result.status, result.city_id), (cv.NOT_FOUND, None))
+        self.assertEqual(driver.probe_calls, [])
+
+    def test_ligature_and_administrative_region_are_found(self):
+        """Cas réels du 2026-10-29 : « Belœil » (ligature) et « Saint-Lambert (Montérégie) »."""
+        for name, label, fid in (("Beloeil", "Belœil | Ville", "115006338514442"),
+                                 ("Saint-lambert", "Saint-Lambert (Montérégie) | Ville", "107670455929039")):
+            driver = FakeDriver([label, "Woluwe-Saint-Lambert | Ville"], selects={(label, 0): sel(fid)},
+                                probes={fid: ProbeResult(QUEBEC_CARDS, landed(name.replace("Beloeil", "Belœil")))})
+            result = CityFinder.lookup(driver, name, region_hint="Québec")
+            self.assertEqual((result.status, result.city_id), (cv.VERIFIED, fid), name)
 
     def test_one_failing_click_does_not_prevent_trying_the_others(self):
         driver = FakeDriver(

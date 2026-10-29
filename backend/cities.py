@@ -45,7 +45,8 @@ def normalize_city_key(raw):
     name = name.replace('-', ' ').replace('.', ' ')
     # 3. Abréviations Saint/Sainte
     name = " ".join(CITY_ABBREVIATIONS.get(w, w) for w in name.split())
-    # 4. Accents retirés
+    # 4. Ligatures dépliées (NFD ne décompose pas « œ » : « Belœil » deviendrait « belil »), puis accents retirés
+    name = name.replace('œ', 'oe').replace('æ', 'ae')
     return unicodedata.normalize('NFD', name).encode('ascii', 'ignore').decode('utf-8')
 
 

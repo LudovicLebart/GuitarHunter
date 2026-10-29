@@ -201,20 +201,22 @@ class CityFinder:
             except Exception as e:  # une suggestion qui échoue ne doit pas empêcher d'essayer les autres
                 evidence.append({"label": cand["label"], "error": f"clic impossible : {str(e)[:100]}"})
                 continue
-            if not sel.city_id:
+            # ID numérique, sinon alias texte (« montreal ») : jamais accepté sans le sondage ci-dessous.
+            fb_id = sel.city_id or cv.slug_from_segment(sel.segment)
+            if not fb_id:
                 evidence.append({"label": cand["label"], "error": f"pas d'ID numérique (segment « {sel.segment} »)", "url_changed": sel.changed})
                 continue
-            if any(e.get("id") == sel.city_id for e in evidence):
+            if any(e.get("id") == fb_id for e in evidence):
                 continue  # même ID déjà sondé (clic non fiable : plusieurs libellés -> un seul ID)
 
-            probe = driver.probe(sel.city_id)
+            probe = driver.probe(fb_id)
             name_ok = cv.landed_name_matches(probe.landed_label, city_name)
             score = cv.score_probe(probe.cards, province, expected_coords, gazetteer)
-            evidence.append({"id": sel.city_id, "label": cand["label"], "landed": probe.landed_label,
+            evidence.append({"id": fb_id, "label": cand["label"], "landed": probe.landed_label,
                              "name_ok": name_ok, "url_changed": sel.changed, **score})
-            coords_by_id[sel.city_id], label_by_id[sel.city_id] = sel.coords, cand["label"]
+            coords_by_id[fb_id], label_by_id[fb_id] = sel.coords, cand["label"]
             # Une page qui n'affiche pas la ville demandée (clic non pris en compte) ne peut pas valider.
-            scored.append({"id": sel.city_id, **(score if name_ok else {"n": 0, "part_province": 0.0, "part_near": None})})
+            scored.append({"id": fb_id, **(score if name_ok else {"n": 0, "part_province": 0.0, "part_near": None})})
 
         probed = [e for e in evidence if "id" in e]
         if not probed:

@@ -16,9 +16,38 @@ class TestParseLabel(unittest.TestCase):
         self.assertEqual(cv.parse_label("Sherbrooke, AB"), ("Sherbrooke", "AB"))
         self.assertEqual(cv.parse_label("Beloeil, Hainaut, Belgium | Ville"), ("Beloeil", "Hainaut, Belgium"))
 
+    def test_region_in_parentheses(self):
+        self.assertEqual(cv.parse_label("Saint-Lambert (Montérégie) | Ville"), ("Saint-Lambert", "Montérégie"))
+        self.assertEqual(cv.parse_label("Montreal (Wisconsin) | Ville"), ("Montreal", "Wisconsin"))
+
     def test_empty(self):
         self.assertEqual(cv.parse_label(""), ("", None))
         self.assertEqual(cv.parse_label(None), ("", None))
+
+
+class TestQuebecAdministrativeRegions(unittest.TestCase):
+    def test_quebec_regions_are_compatible_with_quebec(self):
+        for region in ("Montérégie", "Estrie", "Laurentides", "Capitale-Nationale"):
+            self.assertTrue(cv.region_compatible(region, "Québec"), region)
+
+    def test_foreign_regions_are_not(self):
+        for region in ("Wisconsin", "Michigan", "Hainaut, Belgium"):
+            self.assertFalse(cv.region_compatible(region, "Québec"), region)
+
+    def test_quebec_regions_only_apply_to_a_quebec_hint(self):
+        self.assertFalse(cv.region_compatible("Montérégie", "Ontario"))
+
+    def test_ligature_filter(self):
+        kept = cv.filter_candidates(["Beloeil, Hainaut, Belgium | Ville", "Belœil | Ville"], "Beloeil", "Québec")
+        self.assertEqual([c["label"] for c in kept], ["Belœil | Ville"])
+
+
+class TestSlugFromSegment(unittest.TestCase):
+    def test_alias_and_non_alias(self):
+        self.assertEqual(cv.slug_from_segment("montreal"), "montreal")
+        self.assertIsNone(cv.slug_from_segment("103111009728836"))
+        self.assertIsNone(cv.slug_from_segment("search"))
+        self.assertIsNone(cv.slug_from_segment(None))
 
 
 class TestProvinceCode(unittest.TestCase):

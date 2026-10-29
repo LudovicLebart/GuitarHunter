@@ -43,6 +43,17 @@ PROVINCE_CODES = {
     "nouvelle-écosse": "NS", "nova scotia": "NS", "manitoba": "MB", "saskatchewan": "SK",
 }
 
+# Régions administratives du Québec, telles que Facebook les affiche entre parenthèses.
+QC_REGIONS = (
+    "montérégie", "estrie", "laurentides", "lanaudière", "outaouais", "capitale-nationale",
+    "chaudière-appalaches", "centre-du-québec", "mauricie", "saguenay", "bas-saint-laurent",
+    "gaspésie", "abitibi-témiscamingue", "côte-nord", "nord-du-québec", "laval", "montréal",
+)
+
+# Segments d'URL `/marketplace/<x>/` qui ne sont pas une ville.
+_RESERVED_SEGMENTS = {"search", "category", "item", "you", "notifications", "selling", "inbox",
+                      "create", "buying", "saved", "groups", "explore"}
+
 # Seuils de décision (proportions, pas de volumes).
 MIN_CARDS = 3
 MIN_PROVINCE_SHARE = 0.7
@@ -72,6 +83,9 @@ def parse_label(label):
     """
     parts = [p.strip() for p in re.split(r"\n|\s\|\s", label or "") if p.strip()]
     place = parts[0] if parts else ""
+    in_parens = re.match(r"^(.*?)\s*\(([^()]+)\)\s*$", place)  # « Saint-Lambert (Montérégie) », « Saline (Michigan) »
+    if in_parens:
+        return in_parens.group(1).strip(), (in_parens.group(2).strip() or None)
     name, _, region = place.partition(",")
     return name.strip(), (region.strip() or None)
 
@@ -89,6 +103,8 @@ def region_compatible(region, hint):
     if code:
         variants.add(code.lower())
     text = region.lower()
+    if code == "QC" and any(re.search(rf"(?<![a-zà-ÿ]){re.escape(r)}(?![a-zà-ÿ])", text) for r in QC_REGIONS):
+        return True  # Facebook écrit la région administrative : « Saint-Lambert (Montérégie) »
     return any(re.search(rf"(?<![a-zà-ÿ]){re.escape(v)}(?![a-zà-ÿ])", text) for v in variants)
 
 
@@ -187,6 +203,15 @@ def numeric_city_id(url):
     """ID Facebook numérique d'une URL `/marketplace/<id>/...`, ou None (alias texte, pas d'ID)."""
     seg = marketplace_segment(url)
     return seg if seg and seg.isdigit() else None
+
+
+def slug_from_segment(segment):
+    """Alias texte d'un segment `/marketplace/<alias>/` (« montreal »), ou None. Facebook n'a pas de
+    numéro pour certaines grandes villes ; l'alias n'est accepté qu'après sondage de son fil."""
+    seg = (segment or "").lower()
+    if re.fullmatch(r"[a-z][a-z0-9_-]{2,40}", seg) and seg not in _RESERVED_SEGMENTS:
+        return seg
+    return None
 
 
 def landed_place_name(button_text):
