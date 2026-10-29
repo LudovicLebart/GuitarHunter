@@ -23,6 +23,12 @@ class TestClassifyFacebook(unittest.TestCase):
         # Cartes vues, aucune gardée (déjà connues / filtrées) : pas un échec du scraper.
         self.assertEqual(sh.classify_facebook(fb(12, 1))[0], sh.OK)
 
+    def test_single_city_account_with_mostly_suburb_cards_is_ok(self):
+        # Paris (mesure réelle 2026-10-29) : 148 scans signalés à tort, tous avec au moins
+        # une carte de la ville cherchée (27 cartes, 26 de banlieue hors liste).
+        self.assertEqual(sh.classify_facebook(fb(27, 26))[0], sh.OK)
+        self.assertEqual(sh.classify_facebook(fb(82, 80))[0], sh.OK)
+
     def test_few_cards_all_out_of_list_is_not_geo_mismatch(self):
         # Sous le plancher de 5 cartes, on ne conclut pas (une toute petite ville).
         self.assertEqual(sh.classify_facebook(fb(3, 3))[0], sh.OK)

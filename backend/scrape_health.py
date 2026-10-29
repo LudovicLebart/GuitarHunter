@@ -57,7 +57,11 @@ def classify_facebook(scan_result, exception=None):
     if cards == 0:
         return NO_CARDS, "0 carte vue"
     out_of_list = scan_result.get("rejected_out_of_list", 0) or 0
-    if cards >= GEO_MIN_CARDS and out_of_list / cards >= GEO_OUT_OF_LIST_RATIO:
+    no_location = scan_result.get("dropped_no_location", 0) or 0
+    # Une carte de la ville cherchée prouve que l'ID est le bon : un compte à une seule ville (Paris)
+    # a naturellement ~90 % de cartes de banlieue « hors liste » sans que le scraper soit cassé.
+    in_list = cards - out_of_list - no_location
+    if cards >= GEO_MIN_CARDS and in_list <= 0 and out_of_list / cards >= GEO_OUT_OF_LIST_RATIO:
         return GEO_MISMATCH, f"{out_of_list}/{cards} cartes hors liste de villes"
     deals = scan_result.get("deals") or []
     if len(deals) >= DETAIL_MIN_DEALS:
