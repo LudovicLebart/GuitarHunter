@@ -1,8 +1,9 @@
 import React from 'react';
-import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, ShieldCheck } from 'lucide-react';
+import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, ShieldCheck, BookOpen } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/apiService';
+import { FICHES_HREF } from '../utils/fiches';
 
 const StatusDot = ({ ok, label, title }) => (
     <div className="flex items-center gap-1.5 text-[11px] font-bold" title={title}>
@@ -164,6 +165,16 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                         )}
                     </button>
                     
+                    {/* Fiches techniques de restauration (page `#fiches`) */}
+                    <a
+                        href={FICHES_HREF}
+                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
+                        title="Fiches techniques de restauration"
+                    >
+                        <BookOpen size={16} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
+                        <span className="hidden md:inline">Fiches</span>
+                    </a>
+
                     {/* Aide button */}
                     <button
                         onClick={onOpenHelp}

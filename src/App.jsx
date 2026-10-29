@@ -6,14 +6,17 @@ import { BotConfigProvider, useBotConfigContext } from './context/BotConfigConte
 import { DealsProvider } from './context/DealsContext';
 import { CitiesProvider } from './context/CitiesContext';
 import { useAuth } from './hooks/useAuth';
+import { useFicheRoute } from './hooks/useFicheRoute';
 
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
 import SharedDealPage from './components/SharedDealPage';
+import FichesPage from './components/FichesPage';
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
   const { error, setError } = useBotConfigContext();
+  const ficheRoute = useFicheRoute();   // `#fiches` / `#fiche/<slug>` : fiches techniques, après connexion (l'API exige un jeton)
 
   if (authStatus.status === 'loading') {
     return (
@@ -26,6 +29,8 @@ const AppContent = () => {
   if (!user) {
     return <LoginPage />;
   }
+
+  if (ficheRoute) return <FichesPage route={ficheRoute} />;
 
   return (
     <div className="font-sans text-slate-900 selection:bg-blue-100 min-h-screen bg-slate-950">

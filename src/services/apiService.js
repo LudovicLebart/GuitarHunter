@@ -743,6 +743,20 @@ export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) =
 
 // --- Cities ---
 
+// --- Fiches techniques de restauration (lot C, backend/api/fiches_repo.py) ---------------------------------
+// Catalogue partagé en lecture seule : `statut` (brouillon | en_revision | validee) et `confidence` (sourced |
+// single_source) accompagnent TOUJOURS la fiche, à afficher (les brouillons sont servis, pas cachés).
+export const fetchFiches = (categorie = '') => apiFetch(`/fiches${categorie ? `?categorie=${encodeURIComponent(categorie)}` : ''}`);
+/** Fiche complète (corps Markdown, sources, marques concernées) ou null si elle n'existe pas (404). */
+export const fetchFiche = async (slug) => {
+  try {
+    return await apiFetch(`/fiches/${encodeURIComponent(slug)}`);
+  } catch (error) {
+    if (error.status === 404) return null;
+    throw error;
+  }
+};
+
 export const onCitiesUpdate = (onUpdate, onError, _userId) => {
   const fetchAndEmit = async () => {
     try {
