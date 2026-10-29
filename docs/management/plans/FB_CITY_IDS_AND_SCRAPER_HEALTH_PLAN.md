@@ -119,5 +119,6 @@ Seuils : `geo_mismatch` = ≥ 5 cartes et ≥ 90 % hors liste ; `detail_degraded
 - [x] B1 module pur (`city_verification.py`, 37 tests).
 - [x] B2 `CityFinder` v2 (`city_finder.py`, orchestration testée avec un faux pilote, 20 tests) ; `add_city_auto` refuse un ID non vérifié et attache l'ID vérifié à un nom existant.
 - [x] B3 colonne `cities.fb_location_id` (lue par le scan Facebook : `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport puis application, 25 tests dont l'application réelle en base).
-- [ ] B5 déploiement par étapes (§7) : à faire par l'utilisateur, Bromont d'abord.
-- [ ] Phase C : comparaison anonyme / connecté (question ouverte, voir §6).
+- [x] **2026-10-29** : déploiement vérifié (commit `f56da04`), rapport des 27 villes appliqué (6 `A_CORRIGER`) + 3 corrections manuelles (Montréal `montreal`, Beloeil, Saint-lambert) ; La saline : entrée erronée, non corrigée. `CityFinder` corrigé (ligatures, régions du Québec, alias texte sondé), commit local `2346df5`. Détail : `journal/2026-W44.md`.
+- [ ] (historique) B5 déploiement par étapes (§7) : à faire par l'utilisateur, Bromont d'abord.
+- [x] Phase C : première mesure le 2026-10-29 (1 passage : anonyme 24 cartes, connecté 198) ; décision sur une session connectée en production **non prise** (voir §6 et `TODO.md`).
