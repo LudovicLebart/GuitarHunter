@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    FICHES_HREF, ficheHref, filterFiches, groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage,
+    FICHES_HREF, buildFichesContextText, ficheHref, fichesForCategory, filterFiches, groupByCategory, needsWarning, parseFicheHash,
+    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, splitFicheLinks,
 } from './fiches.js';
 
 test('parseFicheHash : liste, détail, formes tolérées, rejets', () => {
@@ -59,4 +60,41 @@ test('needsWarning : brouillon, en révision ou source unique', () => {
     assert.equal(needsWarning(FICHES[1]), false);                     // validée et sourcée
     assert.equal(needsWarning(FICHES[2]), true);                      // validée mais source unique
     assert.equal(needsWarning({ statut: 'en_revision', confidence: 'sourced' }), true);
+});
+
+test('fichesForCategory : la catégorie de l’étape d’abord, sans cacher les autres', () => {
+    const { same, others } = fichesForCategory(FICHES, 'reglage');
+    assert.deepEqual(same.map((f) => f.slug), ['reglage-action', 'reglage-truss-rod']);
+    assert.deepEqual(others.map((f) => f.slug), ['neck-reset']);
+    assert.deepEqual(fichesForCategory(null, 'x'), { same: [], others: [] });
+});
+
+test('splitFicheLinks : seuls les liens de fiches valides deviennent des liens', () => {
+    assert.deepEqual(splitFicheLinks('Voir [Ajuster le truss rod](#fiche/reglage-truss-rod) pour la marche à suivre.'),
+        ['Voir ', { title: 'Ajuster le truss rod', slug: 'reglage-truss-rod' }, ' pour la marche à suivre.']);
+    assert.deepEqual(splitFicheLinks('[A](#fiche/a-1) puis [B](#fiche/b-2)').filter((p) => typeof p !== 'string').map((p) => p.slug), ['a-1', 'b-2']);
+    for (const bad of ['[x](#fiche/A_B)', '[x](https://exemple.org)', '[x](#fiches)', '[x](javascript:alert(1))', 'texte **gras** et `code`']) {
+        assert.deepEqual(splitFicheLinks(bad), [bad], bad);                 // texte inchangé
+    }
+    assert.deepEqual(splitFicheLinks(null), []);
+    assert.deepEqual(splitFicheLinks(''), []);
+});
+
+test('buildFichesContextText : une ligne par fiche, statut et confiance visibles, pas de corps', () => {
+    assert.equal(buildFichesContextText([]), null);
+    assert.equal(buildFichesContextText(undefined), null);
+    const text = buildFichesContextText([{ ...FICHES[0], resume: 'x '.repeat(200) }, FICHES[2]]);
+    const lines = text.split('\n');
+    assert.ok(lines[1].includes('[slug: reglage-action]') && lines[1].includes('Brouillon') && lines[1].includes('Sourcée'));
+    assert.ok(lines[2].includes('Source unique'));
+    assert.ok(lines[1].length < 300, 'résumé coupé');
+    assert.match(text, /\[Titre\]\(#fiche\/<slug>\)/);
+    assert.match(text, /jamais un lien ou un slug inventé/);
+});
+
+test('pickAllowedFicheSlug : seulement une fiche réellement fournie au modèle', () => {
+    const allowed = new Set(['reglage-action']);
+    assert.equal(pickAllowedFicheSlug('reglage-action', allowed), 'reglage-action');
+    for (const bad of ['inventee', '', null, undefined, 3, 'REGLAGE-ACTION']) assert.equal(pickAllowedFicheSlug(bad, allowed), null, String(bad));
+    assert.equal(pickAllowedFicheSlug('reglage-action', undefined), null);
 });

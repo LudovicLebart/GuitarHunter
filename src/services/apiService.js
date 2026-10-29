@@ -315,6 +315,7 @@ function restorationItemFromRow(row) {
     actualCost: row.actual_cost ?? undefined,
     notes: row.notes ?? undefined,
     proposedByMessageId: row.proposed_by_message_id ?? undefined,
+    ficheSlug: row.fiche_slug ?? undefined,       // fiche technique liée (slug), voir fetchFiche
     order: row.item_order ?? undefined,
     photoUrls: row.photo_urls ?? undefined,
     updatedAt: row.updated_at,
@@ -672,11 +673,11 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
   return openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
 };
 
-export const addRestorationItem = async (dealId, _userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order }) => {
+export const addRestorationItem = async (dealId, _userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order, ficheSlug }) => {
   try {
     const result = await apiFetch(`/deals/${dealId}/restoration-plan`, {
       method: 'POST',
-      body: { label, category, estimatedCost, notes, source, proposedByMessageId, order },
+      body: { label, category, estimatedCost, notes, source, proposedByMessageId, order, ficheSlug },
     });
     return result.id;
   } catch (error) {
@@ -747,6 +748,13 @@ export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) =
 // Catalogue partagé en lecture seule : `statut` (brouillon | en_revision | validee) et `confidence` (sourced |
 // single_source) accompagnent TOUJOURS la fiche, à afficher (les brouillons sont servis, pas cachés).
 export const fetchFiches = (categorie = '') => apiFetch(`/fiches${categorie ? `?categorie=${encodeURIComponent(categorie)}` : ''}`);
+/** Fiches utiles pour une annonce et la question en cours (`q`), classées par pertinence : chacune porte `reason`
+ *  (question | etape | plan | annonce) et `matchedOn`. À appeler à chaque question, pas à chaque frappe. */
+export const fetchDealFiches = (dealId, { q = '', limit = 5 } = {}) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (q) params.set('q', q.slice(0, 2000));
+  return apiFetch(`/deals/${encodeURIComponent(dealId)}/fiches?${params}`);
+};
 /** Fiche complète (corps Markdown, sources, marques concernées) ou null si elle n'existe pas (404). */
 export const fetchFiche = async (slug) => {
   try {

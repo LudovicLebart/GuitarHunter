@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
     ArrowLeft, Plus, Trash2, Loader2, Pencil, MessageCircle, AlertTriangle, Sparkles,
-    GripVertical, Camera, Image as ImageIcon, ImagePlus, X, Check,
+    GripVertical, Camera, Image as ImageIcon, ImagePlus, X, Check, BookOpen,
 } from 'lucide-react';
 import {
     DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -10,6 +10,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
 import { ImageLightbox } from '../ImageGallery';
+import { useFichesCatalog } from '../../hooks/useFichesCatalog';
+import { ficheHref, fichesForCategory } from '../../utils/fiches';
 
 const STATUS_STYLES = {
     pending: 'bg-slate-800 text-slate-300 border-slate-700',
@@ -19,13 +21,13 @@ const STATUS_STYLES = {
     skipped: 'bg-slate-900 text-slate-500 border-slate-800',
 };
 
-const emptyForm = { label: '', category: 'autre', estimatedCost: '', notes: '' };
+const emptyForm = { label: '', category: 'autre', estimatedCost: '', notes: '', ficheSlug: '' };
 
 // Formulaire d'édition (ajout ou modification) d'une étape — champs regroupés ici uniquement le
 // temps de l'édition (jamais montés en continu) : évite qu'un listener temps réel ne vole le
 // curseur au milieu de la frappe, puisque rien ne resynchronise ce brouillon local tant qu'il
 // n'est pas explicitement enregistré/annulé.
-const ItemForm = ({ initial, onCancel, onSubmit, submitLabel }) => {
+const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
     const [form, setForm] = useState(initial);
     const [saving, setSaving] = useState(false);
 
@@ -39,6 +41,7 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel }) => {
                 category: form.category,
                 estimatedCost: Number.isFinite(parsedCost) ? parsedCost : null,
                 notes: form.notes.trim() || null,
+                ficheSlug: form.ficheSlug || null,      // null efface le lien à la modification
             });
         } finally {
             setSaving(false);
@@ -72,6 +75,27 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel }) => {
                     className="w-32 bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
                 />
             </div>
+            {(fiches.length > 0 || form.ficheSlug) && (
+                <select
+                    value={form.ficheSlug}
+                    onChange={(e) => setForm(f => ({ ...f, ficheSlug: e.target.value }))}
+                    aria-label="Fiche technique liée"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                >
+                    <option value="">Aucune fiche technique liée</option>
+                    {/* un lien déjà posé reste affiché même si le catalogue ne le connaît plus */}
+                    {form.ficheSlug && !fiches.some(f => f.slug === form.ficheSlug) && <option value={form.ficheSlug}>{form.ficheSlug}</option>}
+                    {(() => {
+                        const { same, others } = fichesForCategory(fiches, form.category);
+                        return (
+                            <>
+                                {same.length > 0 && <optgroup label={`Fiches « ${CATEGORY_LABELS[form.category] || form.category} »`}>{same.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
+                                {others.length > 0 && <optgroup label="Autres fiches">{others.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
+                            </>
+                        );
+                    })()}
+                </select>
+            )}
             <textarea
                 value={form.notes}
                 onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
@@ -131,7 +155,7 @@ const GalleryPickerModal = ({ galleryUrls, attached, onPick, onClose }) => (
     </div>
 );
 
-const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, onAttachExistingPhoto, onRemovePhoto, galleryUrls }) => {
+const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, onAttachExistingPhoto, onRemovePhoto, galleryUrls, fiches, fichesLoaded }) => {
     const [editing, setEditing] = useState(false);
     const [actualCostDraft, setActualCostDraft] = useState(item.actualCost != null ? String(item.actualCost) : '');
     const [editingActualCost, setEditingActualCost] = useState(false);
@@ -159,7 +183,9 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
                         category: item.category,
                         estimatedCost: item.estimatedCost != null ? String(item.estimatedCost) : '',
                         notes: item.notes || '',
+                        ficheSlug: item.ficheSlug || '',
                     }}
+                    fiches={fiches}
                     submitLabel="Enregistrer"
                     onCancel={() => setEditing(false)}
                     onSubmit={async (data) => { await onUpdate(item.id, data); setEditing(false); }}
@@ -203,6 +229,9 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
     };
 
     const photoUrls = item.photoUrls || [];
+    const ficheLink = item.ficheSlug
+        ? (fiches.find(f => f.slug === item.ficheSlug) || (fichesLoaded ? null : { slug: item.ficheSlug, titre: item.ficheSlug }))
+        : null;
 
     return (
         <div ref={setNodeRef} style={dragStyle} className="bg-slate-950 border border-slate-800 rounded-xl p-3">
@@ -228,6 +257,14 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
                                 )}
                             </div>
                             {item.notes && <div className="text-xs text-slate-400 mt-1.5 whitespace-pre-wrap">{item.notes}</div>}
+                            {/* Fiche technique liée : nouvel onglet (le plan et le chat restent ouverts). Un lien vers une fiche
+                                que le catalogue (bien reçu) ne connaît plus n'est pas affiché. */}
+                            {ficheLink && (
+                                <a href={ficheHref(item.ficheSlug)} target="_blank" rel="noopener noreferrer"
+                                    className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold text-purple-300 hover:text-purple-200 underline decoration-purple-300/40">
+                                    <BookOpen size={11} /> Fiche : {ficheLink.titre}
+                                </a>
+                            )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                             <button onClick={() => onAskInChat(item)} title="Demander conseil dans le chat" className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-purple-400 hover:bg-purple-500/10 transition-colors">
@@ -386,6 +423,7 @@ const buildAtelierAdvicePrompt = (item) => {
 const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }) => {
     const { items, loading, error, addItem, updateItem, deleteItem, reorderItems, addPhoto, attachExistingPhoto, removePhoto, totals } = plan;
     const [showAddForm, setShowAddForm] = useState(false);
+    const { fiches, loaded: fichesLoaded } = useFichesCatalog();   // fiches techniques proposables sur une étape
     // Étape "en cours" pour le bouton "Conseil d'atelier" — priorité à un item explicitement
     // `in_progress` (l'utilisateur y travaille activement) ; à défaut, la prochaine étape non
     // terminée dans l'ordre d'affichage (déjà trié par `order`, voir useRestorationPlan.js).
@@ -530,6 +568,8 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }
                                     onAttachExistingPhoto={attachExistingPhoto}
                                     onRemovePhoto={removePhoto}
                                     galleryUrls={galleryUrls}
+                                    fiches={fiches}
+                                    fichesLoaded={fichesLoaded}
                                 />
                             ))}
                         </div>
@@ -541,6 +581,7 @@ const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }
                         initial={emptyForm}
                         submitLabel="Ajouter"
                         onCancel={() => setShowAddForm(false)}
+                        fiches={fiches}
                         onSubmit={async (data) => { await addItem(data); setShowAddForm(false); }}
                     />
                 ) : (

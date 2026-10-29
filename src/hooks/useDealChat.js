@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
-    markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides, recordLlmUsage,
+    markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides, recordLlmUsage, fetchDealFiches,
 } from '../services/apiService';
 import {
     getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
@@ -10,6 +10,8 @@ import {
     buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal,
 } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
+import { buildFichesContextText } from '../utils/fiches';
+import { getFichesCatalog } from './useFichesCatalog';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
 // porte que les champs singuliers `attachedImagePartIndex`/`addedToGalleryUrl`. Ces deux fonctions
@@ -60,6 +62,23 @@ const sanitizeHistory = (msgs) => {
     return history;
 };
 
+// Fiches techniques utiles pour une question (API `/deals/{id}/fiches`), en 4 s au plus : le chat ne doit jamais attendre
+// un service annexe. Tout échec (réseau, délai, API sans fiches) donne une liste vide.
+const FICHES_LOOKUP_TIMEOUT_MS = 4000;
+const lookupFiches = async (dealId, question) => {
+    let timer;
+    try {
+        const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('délai dépassé')), FICHES_LOOKUP_TIMEOUT_MS); });
+        const fiches = await Promise.race([fetchDealFiches(dealId, { q: question, limit: 4 }), timeout]);
+        return Array.isArray(fiches) ? fiches : [];
+    } catch (e) {
+        console.warn('Fiches techniques indisponibles pour ce tour :', e.message);
+        return [];
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
 const MAX_RESTORATION_ADD_PROPOSALS_PER_TURN = 5;
 // Un seul réordonnancement affiché par tour — en proposer plusieurs dans le même tour n'a pas de
 // sens produit (chacun porte déjà l'ordre COMPLET de la checklist, le second écraserait le premier).
@@ -69,11 +88,11 @@ const MAX_RESTORATION_REORDER_PROPOSALS_PER_TURN = 1;
 // — factorisé (2026-08-23, Lot D) car désormais appelé depuis 3 chemins distincts dans sendMessage
 // (tour normal, tour rejoué après rappel de photo, rappel de photo invalide) : jamais dupliquer
 // cette logique pour ne pas risquer de la faire diverger entre les chemins.
-const buildRestorationProposalsFromCalls = (calls) => {
+const buildRestorationProposalsFromCalls = (calls, allowedFicheSlugs) => {
     const addProposals = calls
         .filter(call => call.name === 'propose_restoration_step')
         .slice(0, MAX_RESTORATION_ADD_PROPOSALS_PER_TURN)
-        .map(call => validateRestorationStepProposal(call.args))
+        .map(call => validateRestorationStepProposal(call.args, allowedFicheSlugs))
         .filter(Boolean)
         .map(p => ({ type: 'add', ...p }));
     const reorderProposals = calls
@@ -326,6 +345,11 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
     // correction plus tard dans le fil. Jamais un tour orphelin (sanitizeHistory exige une
     // alternance stricte user/model) — la note est toujours accrochée à un vrai tour utilisateur.
     const pendingRequalificationNoteRef = useRef(null);
+    // Slugs des fiches techniques DÉJÀ données au modèle dans cette conversation (2026-10-29, fiches) : chaque fiche n'est
+    // décrite qu'une fois (l'historique la contient déjà, inutile de repayer ses tokens à chaque tour), et ce sont les
+    // seules que `propose_restoration_step` peut lier à une étape (un slug inventé est écarté, voir validateRestorationStepProposal).
+    const sharedFicheSlugsRef = useRef(new Set());
+    useEffect(() => { sharedFicheSlugsRef.current = new Set(); }, [deal?.id]);
     // Garde anti-double-envoi SYNCHRONE (2026-10-06) : l'état React `sending` est lu dans une
     // closure, donc deux clics dans le même cycle de rendu passaient tous les deux — deux tours
     // 'user' consécutifs, dont `sanitizeHistory` jette le premier.
@@ -496,7 +520,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                         // Le tour rejoué peut lui-même proposer une étape/un réordonnancement/une
                         // requalification (jamais un 2e rappel de photo, plus déclaré sur cette
                         // session) — traité normalement.
-                        restorationProposals = buildRestorationProposalsFromCalls(replayCalls);
+                        restorationProposals = buildRestorationProposalsFromCalls(replayCalls, sharedFicheSlugsRef.current);
                         requalificationProposal = buildRequalificationProposalFromCalls(replayCalls);
                         const functionResponseParts2 = replayCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
@@ -511,7 +535,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     // rien) : réponse via le chemin functionResponse classique avec un statut
                     // d'erreur explicite. Les éventuels autres appels du même tour (ex: une
                     // proposition de restauration mêlée au même tour) sont traités normalement.
-                    restorationProposals = buildRestorationProposalsFromCalls(calls);
+                    restorationProposals = buildRestorationProposalsFromCalls(calls, sharedFicheSlugsRef.current);
                     requalificationProposal = buildRequalificationProposalFromCalls(calls);
                     const functionResponseParts = calls.map(call => ({
                         functionResponse: {
@@ -529,7 +553,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                     // tour terminé, sinon la proposition est perdue et la bulle persiste vide.
                     const followUpCalls = followUp.response.functionCalls?.() || [];
                     if (followUpCalls.length) {
-                        restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                        restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls, sharedFicheSlugsRef.current)];
                         requalificationProposal = requalificationProposal || buildRequalificationProposalFromCalls(followUpCalls);
                         const functionResponseParts2 = followUpCalls.map(call => ({
                             functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
@@ -547,7 +571,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 // réponse à l'API. La résolution complète des refs de réordonnancement contre
                 // l'état courant (voir resolveRestorationReorderProposal) est différée au
                 // rendu/à l'application — ici on ne valide que la forme.
-                restorationProposals = buildRestorationProposalsFromCalls(calls);
+                restorationProposals = buildRestorationProposalsFromCalls(calls, sharedFicheSlugsRef.current);
                 requalificationProposal = buildRequalificationProposalFromCalls(calls);
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
@@ -558,7 +582,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 // était perdue et seul le texte générique s'affichait.
                 const followUpCalls = followUp.response.functionCalls?.() || [];
                 if (followUpCalls.length) {
-                    restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls)];
+                    restorationProposals = [...restorationProposals, ...buildRestorationProposalsFromCalls(followUpCalls, sharedFicheSlugsRef.current)];
                     requalificationProposal = requalificationProposal || buildRequalificationProposalFromCalls(followUpCalls);
                     const followUp2 = await sendLogged(chat, followUpCalls.map(call => ({
                         functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
@@ -681,9 +705,14 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             // l'annonce est achetée et le plan non vide — pas seulement au premier message : le plan
             // évolue au fil des sessions (voir buildRestorationPlanContextText).
             const restorationContextText = deal.isPurchased ? buildRestorationPlanContextText(restorationItems) : null;
+            // Fiches techniques pertinentes pour CETTE question (meilleur effort : un échec ou un délai dépassé = pas de fiches
+            // pour ce tour, jamais un envoi bloqué). Seules les nouvelles sont décrites au modèle.
+            const newFiches = (await lookupFiches(deal.id, trimmed)).filter(f => !sharedFicheSlugsRef.current.has(f.slug));
+            newFiches.forEach(f => sharedFicheSlugsRef.current.add(f.slug));
             const contextBlocks = [
                 isFirstMessage ? buildDealContextText(deal) : null,
                 restorationContextText,
+                buildFichesContextText(newFiches),
                 pendingRequalificationNoteRef.current,
             ].filter(Boolean);
             pendingRequalificationNoteRef.current = null;
@@ -850,6 +879,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
         // redéclenchait le rattrapage silencieux sur tout le plan, effaçant un ordre de
         // glisser-déposer déjà mis en place par l'utilisateur.
         const order = restorationItems?.length ? Math.max(...restorationItems.map(i => i.order ?? -1)) + 1 : 0;
+        // Fiche liée : revérifiée contre le catalogue COURANT (la fiche a pu être retirée depuis la proposition) ; sans
+        // catalogue joignable, l'étape est ajoutée sans lien plutôt que de risquer un refus de l'API.
+        const catalog = await getFichesCatalog().catch(() => []);
+        const ficheSlug = proposal.ficheSlug && catalog.some(f => f.slug === proposal.ficheSlug) ? proposal.ficheSlug : undefined;
         const itemId = await addRestorationItem(deal.id, user.uid, {
             label: proposal.label,
             category: proposal.category,
@@ -858,6 +891,7 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
             source: 'ai',
             proposedByMessageId: message.id,
             order,
+            ficheSlug,
         });
         await markChatMessageRestorationProposalStatus(deal.id, message.id, index, 'applied', user.uid, itemId);
     }, [deal, user, restorationItems]);

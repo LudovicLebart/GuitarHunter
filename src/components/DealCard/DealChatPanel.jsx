@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw, Sparkles, BookOpen } from 'lucide-react';
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState, getRequalificationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
 import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS } from '../../services/geminiChatService';
 import { NEW_VERDICTS } from '../../constants';
+import { useFichesCatalog } from '../../hooks/useFichesCatalog';
+import { ficheHref } from '../../utils/fiches';
+import FicheLinkText from '../FicheLinkText';
 
 // Carte de proposition d'étape de restauration (2026-08-22, Lot B ; réordonnancement 2026-08-23)
 // — sous une bulle modèle portant `restorationProposals`. Jamais d'écriture silencieuse :
@@ -17,6 +20,9 @@ import { NEW_VERDICTS } from '../../constants';
 const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onApply, onDismiss }) => {
     const isReorder = proposal.type === 'reorder';
     const resolved = isReorder ? resolveRestorationReorderProposal(proposal.orderedItemRefs, liveItems) : null;
+    // Fiche technique liée à l'étape proposée (titre lu dans le catalogue ; sans catalogue, le slug fait office de titre).
+    const { fiches } = useFichesCatalog();
+    const fiche = !isReorder && proposal.ficheSlug ? (fiches.find(f => f.slug === proposal.ficheSlug) || { slug: proposal.ficheSlug, titre: proposal.ficheSlug }) : null;
 
     return (
         <div className="mt-2 bg-slate-900/60 border border-purple-500/20 rounded-xl p-2.5">
@@ -39,6 +45,12 @@ const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onAp
                 <>
                     <div className="text-sm font-bold text-slate-100">{proposal.label}</div>
                     {proposal.estimatedCost != null && <div className="text-xs text-slate-400 mt-0.5">≈ {proposal.estimatedCost}$ estimé</div>}
+                    {fiche && (
+                        <a href={ficheHref(fiche.slug)} target="_blank" rel="noopener noreferrer"
+                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-purple-300 hover:text-purple-200 underline decoration-purple-300/40">
+                            <BookOpen size={11} /> Fiche : {fiche.titre}
+                        </a>
+                    )}
                 </>
             )}
             {proposal.justification && <div className="text-xs text-slate-400 mt-1 italic">{proposal.justification}</div>}
@@ -194,7 +206,7 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalifica
                         ))}
                     </div>
                 )}
-                {text}
+                {isUser ? text : <FicheLinkText text={text} />}
                 {photoRecall?.refs?.length > 0 && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-bold text-purple-300/70">
                         <Search size={11} /> Photo{photoRecall.refs.length > 1 ? 's' : ''} réexaminée{photoRecall.refs.length > 1 ? 's' : ''} pour cette réponse

@@ -2,6 +2,7 @@ import { getGenerativeModel, Schema } from 'firebase/ai';
 import { ai } from './firebase';
 import { RESTORATION_CATEGORIES, RESTORATION_STATUS_LABELS } from '../constants/restorationPlan';
 import { NEW_VERDICTS } from '../constants';
+import { pickAllowedFicheSlug } from '../utils/fiches';
 
 // Modèle par défaut si analysisConfig.expertModel n'est pas encore chargé — aligné sur
 // GEMINI_MODELS["default_expert"] (config.py), le même modèle que le Tier 3 Expert Pro du
@@ -342,8 +343,9 @@ const RESTORATION_FUNCTION_DECLARATIONS = [
                 category: Schema.enumString({ enum: RESTORATION_CATEGORIES, description: "Catégorie de l'étape." }),
                 estimated_cost: Schema.number({ description: 'Coût estimé en dollars, si évaluable à ce stade. Omettre si inconnu — ne jamais deviner un chiffre arbitraire.' }),
                 justification: Schema.string({ description: 'Pourquoi cette étape est proposée — résumé du constat fait dans la conversation.' }),
+                fiche_slug: Schema.string({ description: "Slug EXACT d'une fiche technique fournie en contexte qui explique comment réaliser cette étape. Omettre si aucune fiche fournie ne correspond — jamais un slug inventé." }),
             },
-            optionalProperties: ['estimated_cost'],
+            optionalProperties: ['estimated_cost', 'fiche_slug'],
         }),
     },
     {
@@ -521,13 +523,15 @@ const RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM = [
     "reprenant TOUTES les étapes actuelles avec leur [ref: ...] exact, jamais leur numéro affiché. Ne",
     "propose jamais de modifier ou marquer terminée une étape déjà dans la checklist — l'utilisateur",
     "gère lui-même l'avancement dans son panneau ; contente-toi d'en discuter s'il te le demande.",
+    "Quand des fiches techniques te sont fournies en contexte, tu peux en renseigner une (fiche_slug) dans",
+    "propose_restoration_step si elle explique comment réaliser l'étape — uniquement un slug fourni, jamais inventé.",
 ].join(' ');
 
 // Valide/normalise les arguments bruts d'un appel `propose_restoration_step` avant affichage —
 // jamais seulement avant application : Gemini peut halluciner une catégorie hors liste ou un
 // coût aberrant, une proposition invalide doit être silencieusement écartée plutôt que rendue
 // avec un bouton Appliquer qui écrirait n'importe quoi.
-export const validateRestorationStepProposal = (args) => {
+export const validateRestorationStepProposal = (args, allowedFicheSlugs) => {
     if (!args || typeof args !== 'object') return null;
     const label = typeof args.label === 'string' ? args.label.trim().slice(0, 200) : '';
     if (!label) return null;
@@ -536,7 +540,8 @@ export const validateRestorationStepProposal = (args) => {
         ? args.estimated_cost
         : null;
     const justification = typeof args.justification === 'string' ? args.justification.trim().slice(0, 500) : '';
-    return { label, category, estimatedCost, justification };
+    // Lien vers une fiche technique : seulement une fiche réellement fournie au modèle (voir pickAllowedFicheSlug).
+    return { label, category, estimatedCost, justification, ficheSlug: pickAllowedFicheSlug(args.fiche_slug, allowedFicheSlugs) };
 };
 
 // `withRestorationTools` (2026-08-22) : gaté par l'appelant sur `deal.isPurchased` (jamais ici) —
