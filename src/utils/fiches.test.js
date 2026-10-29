@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     FICHES_HREF, buildFichesContextText, ficheHref, fichesForCategory, filterFiches, groupByCategory, needsWarning, parseFicheHash,
-    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, splitFicheLinks,
+    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, splitFicheLinks, fichesSharedInMessages,
 } from './fiches.js';
 
 test('parseFicheHash : liste, détail, formes tolérées, rejets', () => {
@@ -97,4 +97,18 @@ test('pickAllowedFicheSlug : seulement une fiche réellement fournie au modèle'
     assert.equal(pickAllowedFicheSlug('reglage-action', allowed), 'reglage-action');
     for (const bad of ['inventee', '', null, undefined, 3, 'REGLAGE-ACTION']) assert.equal(pickAllowedFicheSlug(bad, allowed), null, String(bad));
     assert.equal(pickAllowedFicheSlug('reglage-action', undefined), null);
+});
+
+test('fichesSharedInMessages : relit les fiches déjà décrites dans les messages utilisateur seulement', () => {
+    const block = buildFichesContextText([FICHES[0], FICHES[1]]);
+    const history = [
+        { role: 'user', parts: [{ text: `${block}\n\nMa question` }, { inlineData: {} }] },
+        { role: 'model', parts: [{ text: 'Réponse citant [slug: neck-reset] en passant' }] },        // le modèle n'est pas une source
+        { role: 'user', parts: [{ text: 'Sans fiche' }] },
+    ];
+    assert.deepEqual([...fichesSharedInMessages(history)].sort(), ['reglage-action', 'reglage-truss-rod']);
+    assert.equal(fichesSharedInMessages(null).size, 0);
+    assert.equal(fichesSharedInMessages([{ role: 'user' }, null]).size, 0);
+    assert.equal(fichesSharedInMessages([{ role: 'user', parts: [{ text: '[slug: A_B] [slug: ok-1]' }] }]).has('ok-1'), true);
+    assert.equal(fichesSharedInMessages([{ role: 'user', parts: [{ text: '[slug: A_B]' }] }]).size, 0);
 });

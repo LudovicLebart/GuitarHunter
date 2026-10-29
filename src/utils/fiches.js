@@ -129,3 +129,20 @@ export const buildFichesContextText = (fiches) => {
 /** `slug` si le modèle a cité une fiche qu'on lui a réellement fournie (`allowed` = Set de slugs), sinon null : un slug inventé
  *  ou hors liste est écarté plutôt que d'écrire un lien mort sur l'étape. */
 export const pickAllowedFicheSlug = (slug, allowed) => (typeof slug === 'string' && allowed?.has(slug) ? slug : null);
+
+const SHARED_SLUG_RE = /\[slug: ([a-z0-9][a-z0-9-]{0,79})\]/g;
+
+/** Slugs des fiches DÉJÀ décrites au modèle dans un historique (liste de `{role, parts:[{text}]}`) : relus dans les blocs de
+ *  contexte `buildFichesContextText` des messages UTILISATEUR. L'historique est la seule source de vérité — rien n'est tenu en
+ *  mémoire, donc rien ne se perd à un rechargement et rien n'est compté pour un tour qui a échoué. */
+export const fichesSharedInMessages = (messages) => {
+    const slugs = new Set();
+    for (const m of messages || []) {
+        if (m?.role !== 'user') continue;
+        for (const part of m.parts || []) {
+            if (typeof part?.text !== 'string') continue;
+            for (const match of part.text.matchAll(SHARED_SLUG_RE)) slugs.add(match[1]);
+        }
+    }
+    return slugs;
+};

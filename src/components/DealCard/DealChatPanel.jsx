@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camera, Image as ImageIcon, ImagePlus, Check, Wrench, ArrowUpDown, Search, Copy, RefreshCw, Sparkles, BookOpen } from 'lucide-react';
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState, getRequalificationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
@@ -7,7 +7,7 @@ import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
 import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS } from '../../services/geminiChatService';
 import { NEW_VERDICTS } from '../../constants';
 import { useFichesCatalog } from '../../hooks/useFichesCatalog';
-import { ficheHref } from '../../utils/fiches';
+import { ficheHref, fichesSharedInMessages } from '../../utils/fiches';
 import FicheLinkText from '../FicheLinkText';
 
 // Carte de proposition d'étape de restauration (2026-08-22, Lot B ; réordonnancement 2026-08-23)
@@ -17,11 +17,11 @@ import FicheLinkText from '../FicheLinkText';
 // `galleryUploadState`). `liveItems` (le plan RÉEL et courant, pas un instantané du tour de chat)
 // est nécessaire pour l'aperçu d'un réordonnancement — voir resolveRestorationReorderProposal,
 // recalculé à chaque rendu pour ne jamais afficher un ordre qui ne correspond plus au plan actuel.
-const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onApply, onDismiss }) => {
+const RestorationProposalCard = ({ proposal, state, busy, error, notice, liveItems, fiches, onApply, onDismiss }) => {
     const isReorder = proposal.type === 'reorder';
     const resolved = isReorder ? resolveRestorationReorderProposal(proposal.orderedItemRefs, liveItems) : null;
-    // Fiche technique liée à l'étape proposée (titre lu dans le catalogue ; sans catalogue, le slug fait office de titre).
-    const { fiches } = useFichesCatalog();
+    // Fiche technique liée à l'étape proposée (titre lu dans le catalogue, lu UNE fois par le panneau et passé ici ; sans
+    // catalogue, le slug fait office de titre).
     const fiche = !isReorder && proposal.ficheSlug ? (fiches.find(f => f.slug === proposal.ficheSlug) || { slug: proposal.ficheSlug, titre: proposal.ficheSlug }) : null;
 
     return (
@@ -55,9 +55,12 @@ const RestorationProposalCard = ({ proposal, state, busy, error, liveItems, onAp
             )}
             {proposal.justification && <div className="text-xs text-slate-400 mt-1 italic">{proposal.justification}</div>}
             {state?.status === 'applied' ? (
-                <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                    <Check size={12} /> {isReorder ? 'Nouvel ordre appliqué' : 'Ajoutée au plan de restauration'}
-                </div>
+                <>
+                    <div className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                        <Check size={12} /> {isReorder ? 'Nouvel ordre appliqué' : 'Ajoutée au plan de restauration'}
+                    </div>
+                    {notice && <div className="mt-1 flex items-center gap-1.5 text-[11px] text-amber-300"><AlertTriangle size={11} className="shrink-0" /> {notice}</div>}
+                </>
             ) : state?.status === 'dismissed' ? (
                 <div className="mt-2 text-[11px] font-bold text-slate-500">Ignorée</div>
             ) : (
@@ -162,7 +165,7 @@ const RequalificationProposalCard = ({ proposal, currentAnalysis, state, busy, e
 // chat entier), pour que l'upload d'une photo n'affecte pas les autres. `addedToGalleryUrl` vient
 // de Firestore (persisté, voir markChatMessageAddedToGallery) — source de vérité qui survit à un
 // reload ou à un 2e client, contrairement à `galleryState`.
-const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalificationProposal, photoRecall, isError, onRetry, retrying, onCopy, copied }) => {
+const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalificationProposal, photoRecall, isError, onRetry, retrying, onCopy, copied, knownFicheSlugs }) => {
     const isUser = role === 'user';
     return (
         <div className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -206,7 +209,7 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalifica
                         ))}
                     </div>
                 )}
-                {isUser ? text : <FicheLinkText text={text} />}
+                {isUser ? text : <FicheLinkText text={text} knownSlugs={knownFicheSlugs} />}
                 {photoRecall?.refs?.length > 0 && (
                     <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-bold text-purple-300/70">
                         <Search size={11} /> Photo{photoRecall.refs.length > 1 ? 's' : ''} réexaminée{photoRecall.refs.length > 1 ? 's' : ''} pour cette réponse
@@ -219,7 +222,9 @@ const ChatBubble = ({ role, text, images, onAddToGallery, proposals, requalifica
                         state={p.state}
                         busy={p.busy}
                         error={p.error}
+                        notice={p.notice}
                         liveItems={p.liveItems}
+                        fiches={p.fiches}
                         onApply={p.onApply}
                         onDismiss={p.onDismiss}
                     />
@@ -270,6 +275,13 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
         applyRestorationProposal, dismissRestorationProposal,
         applyRequalificationProposal, dismissRequalificationProposal,
     } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
+    // Catalogue des fiches techniques lu UNE fois pour tout le panneau (cartes de proposition, liens des bulles). Un lien
+    // `[Titre](#fiche/slug)` n'est cliquable que vers une fiche du catalogue ou donnée au modèle dans cette conversation.
+    const { fiches: catalogFiches } = useFichesCatalog();
+    const knownFicheSlugs = useMemo(
+        () => new Set([...catalogFiches.map(f => f.slug), ...fichesSharedInMessages(messages)]),
+        [catalogFiches, messages],
+    );
     const [input, setInput] = useState('');
     const [imageFiles, setImageFiles] = useState([]);
     const [imagePreviews, setImagePreviews] = useState([]);
@@ -284,6 +296,8 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
     // Message d'erreur par proposition (même clé) — ex. réordonnancement devenu caduc entretemps
     // (voir applyRestorationProposal). Effacé au début de chaque nouvelle tentative.
     const [proposalErrorState, setProposalErrorState] = useState({});
+    // Information non bloquante par proposition (ex. étape ajoutée SANS sa fiche : la fiche n'existait plus).
+    const [proposalNoticeState, setProposalNoticeState] = useState({});
     // Bouton "Réessayer"/"Copier" (2026-08-24) — état purement local (jamais persisté) : un
     // retry en cours désactive juste CE bouton, "Copié ✓" s'efface tout seul après un délai.
     const [retryingMessageId, setRetryingMessageId] = useState(null);
@@ -337,7 +351,11 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
         setProposalBusyState(prev => ({ ...prev, [key]: true }));
         setProposalErrorState(prev => { const next = { ...prev }; delete next[key]; return next; });
         try {
-            await applyRestorationProposal(message, index);
+            const result = await applyRestorationProposal(message, index);
+            if (result?.ficheDropped) {
+                const title = catalogFiches.find(f => f.slug === result.ficheDropped)?.titre || result.ficheDropped;
+                setProposalNoticeState(prev => ({ ...prev, [key]: `Étape ajoutée sans la fiche « ${title} » : cette fiche n'existe plus.` }));
+            }
         } catch (e) {
             console.error('Erreur application de la proposition de restauration:', e);
             setProposalErrorState(prev => ({ ...prev, [key]: e.message || "Impossible d'appliquer cette proposition." }));
@@ -530,7 +548,9 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                         state: getRestorationProposalState(m, index),
                         busy: !!proposalBusyState[`${m.id}:${index}`],
                         error: proposalErrorState[`${m.id}:${index}`],
+                        notice: proposalNoticeState[`${m.id}:${index}`],
                         liveItems: restorationItems,
+                        fiches: catalogFiches,
                         onApply: () => handleApplyProposal(m, index),
                         onDismiss: () => handleDismissProposal(m, index),
                     }));
@@ -558,6 +578,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                             retrying={retryingMessageId === m.id}
                             onCopy={() => handleCopy(m.id, m.displayText)}
                             copied={copiedMessageId === m.id}
+                            knownFicheSlugs={knownFicheSlugs}
                         />
                     );
                 })}

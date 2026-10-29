@@ -86,7 +86,7 @@ async function getIdToken() {
   return user.getIdToken();
 }
 
-async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
+async function apiFetch(path, { method = 'GET', body, skipAuth = false, signal } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!skipAuth) headers.Authorization = `Bearer ${await getIdToken()}`;
@@ -95,6 +95,8 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false } = {}) {
   // (serveur lent/injoignable) restait pendante indéfiniment côté UI au lieu d'échouer proprement.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  // Signal de l'appelant (ex. délai maximal d'une recherche annexe) : annule AUSSI la requête, pas seulement l'attente.
+  if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', () => controller.abort(), { once: true }); }
   let resp;
   try {
     resp = await fetch(`${API_BASE_URL}${path}`, {
@@ -682,7 +684,9 @@ export const addRestorationItem = async (dealId, _userId, { label, category, est
     return result.id;
   } catch (error) {
     console.error(`Error adding restoration item for deal ${dealId}:`, error);
-    throw new Error("Erreur lors de l'ajout de l'étape de restauration.");
+    const wrapped = new Error("Erreur lors de l'ajout de l'étape de restauration.");
+    wrapped.status = error.status;     // 422 = fiche technique inconnue : l'appelant peut réessayer sans le lien
+    throw wrapped;
   }
 };
 
@@ -750,10 +754,10 @@ export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) =
 export const fetchFiches = (categorie = '') => apiFetch(`/fiches${categorie ? `?categorie=${encodeURIComponent(categorie)}` : ''}`);
 /** Fiches utiles pour une annonce et la question en cours (`q`), classées par pertinence : chacune porte `reason`
  *  (question | etape | plan | annonce) et `matchedOn`. À appeler à chaque question, pas à chaque frappe. */
-export const fetchDealFiches = (dealId, { q = '', limit = 5 } = {}) => {
+export const fetchDealFiches = (dealId, { q = '', limit = 5, signal } = {}) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (q) params.set('q', q.slice(0, 2000));
-  return apiFetch(`/deals/${encodeURIComponent(dealId)}/fiches?${params}`);
+  return apiFetch(`/deals/${encodeURIComponent(dealId)}/fiches?${params}`, { signal });
 };
 /** Fiche complète (corps Markdown, sources, marques concernées) ou null si elle n'existe pas (404). */
 export const fetchFiche = async (slug) => {
