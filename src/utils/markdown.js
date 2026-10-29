@@ -7,16 +7,21 @@
 // interprété : tout texte est rendu comme texte), pas de notes de bas de page, pas de listes de définitions.
 
 // URL d'un lien : parenthèses tolérées si elles sont équilibrées sur un niveau (`Les_Paul_(guitare)`).
-const URL_PATTERN = '((?:[^()\\s]|\\([^()\\s]*\\))+)';
+const URL_BODY = '(?:[^()\\s]|\\([^()\\s]*\\))+';
+const URL_PATTERN = `(${URL_BODY})`;
 const IMAGE_RE = new RegExp(`^!\\[([^\\]]*)\\]\\(${URL_PATTERN}(?:\\s+"[^"]*")?\\)`);
-const LINK_RE = new RegExp(`^\\[((?:[^\\]\\\\]|\\\\.)+)\\]\\(${URL_PATTERN}(?:\\s+"[^"]*")?\\)`);
+// Texte d'un lien : tout sauf `]`, ou une image (`[![schéma](img/x.jpg)](https://source)` = image cliquable).
+const INLINE_IMAGE = `!\\[[^\\]]*\\]\\(${URL_BODY}\\)`;      // sans groupe capturant : le lien garde ses groupes 1 et 2
+const LINK_RE = new RegExp(`^\\[((?:[^\\[\\]\\\\]|\\\\.|${INLINE_IMAGE})+)\\]\\(${URL_PATTERN}(?:\\s+"[^"]*")?\\)`);
 
 /** Lien sûr à poser dans un `href` / `src`, ou null : http(s), mailto, ancre `#…` ou chemin relatif. Tout autre schéma
  *  (`javascript:`, `data:`, `vbscript:`…) est refusé. */
 export const safeUrl = (url) => {
     const value = String(url || '').trim();
     if (!value) return null;
-    const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(value.replace(/[\u0000-\u001f\s]/g, ''));
+    const compact = value.replace(/[\u0000-\u001f\s]/g, '');
+    if (/^[/\\]{2}/.test(compact)) return null;      // `//hôte/…` : URL protocole-relative = site tiers, jamais un chemin relatif
+    const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
     if (!scheme) return value;                       // ancre ou chemin relatif
     return ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase()) ? value : null;
 };
@@ -73,7 +78,8 @@ const splitCells = (line) => {
 };
 const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const LIST_ITEM_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
-const HEADING_RE = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+// Séquence fermante ATX (`## Titre ##`) seulement si elle est précédée d'une espace : « Accordage en C# » garde son `#`.
+const HEADING_RE = /^(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const FENCE_RE = /^\s*```\s*([\w-]*)\s*$/;
 const HR_RE = /^\s*([-*_])(\s*\1){2,}\s*$/;
 const alignOf = (cell) => (cell.startsWith(':') && cell.endsWith(':') ? 'center' : cell.endsWith(':') ? 'right' : cell.startsWith(':') ? 'left' : null);
@@ -86,7 +92,8 @@ const startsBlock = (line, next) => (
 /** Analyse les blocs d'un texte. Renvoie une liste de blocs :
  *  {type:'heading',level,text} | {type:'paragraph',text} | {type:'hr'} | {type:'code',lang,text} |
  *  {type:'quote',blocks} | {type:'table',header,align,rows} |
- *  {type:'list',ordered,items:[{checked,text,children}]} (`checked` = null | true | false). */
+ *  {type:'list',ordered,start,items:[{checked,text,children}]} (`checked` = null | true | false ; `start` = premier
+ *  numéro d'une liste numérotée, null sinon). */
 export const parseBlocks = (text) => {
     const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
     const blocks = [];
@@ -127,35 +134,45 @@ export const parseBlocks = (text) => {
         if ((m = LIST_ITEM_RE.exec(line))) {
             const baseIndent = m[1].length;
             const ordered = /\d/.test(m[2]);
+            const start = ordered ? parseInt(m[2], 10) : null;
+            const isSibling = (l) => {
+                const it = LIST_ITEM_RE.exec(l || '');
+                return !!it && it[1].length === baseIndent && /\d/.test(it[2]) === ordered;
+            };
             const items = [];
-            while (i < lines.length) {
-                const itemMatch = LIST_ITEM_RE.exec(lines[i]);
-                if (!itemMatch || itemMatch[1].length !== baseIndent || /\d/.test(itemMatch[2]) !== ordered) break;
-                let content = itemMatch[3];
+            while (i < lines.length && isSibling(lines[i])) {
+                let content = LIST_ITEM_RE.exec(lines[i])[3];
                 let checked = null;
                 const box = /^\[( |x|X)\]\s+(.*)$/.exec(content);
                 if (box) { checked = box[1] !== ' '; content = box[2]; }
                 i += 1;
-                const nested = [];
-                while (i < lines.length) {                           // lignes plus indentées = suite de l'élément / sous-liste
-                    const next = lines[i];
-                    if (!next.trim()) break;
-                    const indent = /^\s*/.exec(next)[0].length;
-                    if (indent <= baseIndent) break;
-                    nested.push(next.slice(Math.min(indent, baseIndent + 2)));
-                    i += 1;
+                // Corps de l'élément : lignes plus indentées que la puce, lignes vides comprises tant que la suite est encore
+                // indentée (bloc de code, image seule, sous-liste, second paragraphe).
+                const body = [];
+                while (i < lines.length) {
+                    if (!lines[i].trim()) {
+                        let j = i;
+                        while (j < lines.length && !lines[j].trim()) j += 1;
+                        if (j < lines.length && /^\s*/.exec(lines[j])[0].length > baseIndent) { while (i < j) { body.push(''); i += 1; } continue; }
+                        break;
+                    }
+                    if (/^\s*/.exec(lines[i])[0].length <= baseIndent) break;
+                    body.push(lines[i]); i += 1;
                 }
                 let children = [];
-                const firstList = nested.findIndex((l) => LIST_ITEM_RE.test(l));
-                if (firstList === -1) {                              // simple suite de l'élément (retour à la ligne)
-                    if (nested.length) content += ` ${nested.map((l) => l.trim()).join(' ')}`;
-                } else {                                             // sous-liste (le texte qui la précède prolonge l'élément)
-                    if (firstList > 0) content += ` ${nested.slice(0, firstList).map((l) => l.trim()).join(' ')}`;
-                    children = parseBlocks(nested.slice(firstList).join('\n'));
+                if (body.length) {
+                    const indent = Math.min(...body.filter((l) => l.trim()).map((l) => /^\s*/.exec(l)[0].length));
+                    children = parseBlocks(body.map((l) => l.slice(indent)).join('\n'));
+                    // Un premier paragraphe prolonge le texte de l'élément (retour à la ligne) ; le reste reste en blocs.
+                    if (body[0] !== '' && children[0]?.type === 'paragraph') content += ` ${children.shift().text}`;   // pas après une ligne vide : c'est un vrai second paragraphe
                 }
                 items.push({ checked, text: content, children });
+                // Éléments d'une même liste séparés par des lignes vides : toujours UNE liste (numérotation continue).
+                let j = i;
+                while (j < lines.length && !lines[j].trim()) j += 1;
+                if (j > i && isSibling(lines[j])) i = j;
             }
-            blocks.push({ type: 'list', ordered, items });
+            blocks.push({ type: 'list', ordered, start, items });
             continue;
         }
 
@@ -177,3 +194,22 @@ export const plainText = (text) => nodesToText(parseInline(text));
 export const slugifyHeading = (text) => plainText(text)
     .normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+/** Tous les titres d'un texte, DANS L'ORDRE du document (y compris ceux imbriqués dans citations et listes), avec une
+ *  ancre UNIQUE : un titre répété reçoit `-2`, `-3`… Source commune du rendu (`id` des titres) et du sommaire (liens). */
+export const collectHeadings = (blocks) => {
+    const found = [];
+    const walk = (list) => list.forEach((b) => {
+        if (b.type === 'heading') found.push({ level: b.level, text: b.text });
+        else if (b.type === 'quote') walk(b.blocks);
+        else if (b.type === 'list') b.items.forEach((it) => walk(it.children));
+    });
+    walk(blocks);
+    const seen = new Map();
+    return found.map((h) => {
+        const base = slugifyHeading(h.text) || 'section';
+        const n = (seen.get(base) || 0) + 1;
+        seen.set(base, n);
+        return { ...h, id: n === 1 ? base : `${base}-${n}` };
+    });
+};

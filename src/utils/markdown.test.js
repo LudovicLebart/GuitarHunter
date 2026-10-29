@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBlocks, parseInline, plainText, safeUrl, slugifyHeading } from './markdown.js';
+import { collectHeadings, parseBlocks, parseInline, plainText, safeUrl, slugifyHeading } from './markdown.js';
 
 const text = (nodes) => nodes.map((n) => n.value ?? '').join('');
 
@@ -94,4 +94,58 @@ test('une vraie fiche se découpe sans perdre de section', () => {
     const fiche = '# Titre\n\n> Résumé\n\n## Étapes\n\n### 1. Un\n\nTexte avec **gras**.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n## Vérifications finales\n\n- [ ] contrôle\n\n## Sources et liens\n\n- [StewMac : x](https://stewmac.com/x) : note\n';
     const types = parseBlocks(fiche).map((b) => b.type);
     assert.deepEqual(types, ['heading', 'quote', 'heading', 'heading', 'paragraph', 'table', 'heading', 'list', 'heading', 'list']);
+});
+
+test('image cliquable : [![alt](img)](url) est un lien dont le texte est une image', () => {
+    const [link] = parseInline('[![schéma](img/x.jpg)](https://source.example/page)');
+    assert.equal(link.type, 'link');
+    assert.equal(link.href, 'https://source.example/page');
+    assert.deepEqual(link.children, [{ type: 'image', alt: 'schéma', src: 'img/x.jpg' }]);
+    const nodes = parseInline('avant [![a](i.png)](https://x.org) après [lien](y.md)');
+    assert.deepEqual(nodes.map((n) => n.type), ['text', 'link', 'text', 'link']);
+    assert.equal(nodes[3].href, 'y.md');                                  // les groupes du second lien ne sont pas décalés
+});
+
+test('safeUrl : une URL protocole-relative (//hôte) est refusée', () => {
+    for (const bad of ['//tracker.example/p.png', '\\\\hote\\partage', '/ /x']) assert.equal(safeUrl(bad), null, bad);
+    assert.equal(safeUrl('/chemin/absolu.png'), '/chemin/absolu.png');
+});
+
+test('titres : « C# » garde son dièse, la séquence fermante précédée d’une espace est retirée', () => {
+    const blocks = parseBlocks('## Accordage en C#\n\n## Piège n°1 ##\n\n### Fin #\n\n#hashtag');
+    assert.equal(blocks[0].text, 'Accordage en C#');
+    assert.equal(blocks[1].text, 'Piège n°1');
+    assert.equal(blocks[2].text, 'Fin');
+    assert.equal(blocks[3].type, 'paragraph');                            // `#hashtag` (sans espace) n'est pas un titre
+    assert.equal(slugifyHeading(blocks[0].text), 'accordage-en-c');
+});
+
+test('liste numérotée séparée par des lignes vides : UNE liste, numéro de départ conservé', () => {
+    const [list, ...rest] = parseBlocks('1. A\n\n2. B\n\n3. C');
+    assert.equal(rest.length, 0);
+    assert.deepEqual([list.ordered, list.start, list.items.map((i) => i.text)], [true, 1, ['A', 'B', 'C']]);
+    const [from3] = parseBlocks('3. trois\n4. quatre');
+    assert.equal(from3.start, 3);
+    assert.equal(parseBlocks('- a\n- b')[0].start, null);
+    // deux listes réellement distinctes (texte entre les deux) restent deux listes
+    assert.equal(parseBlocks('- a\n\npuis un paragraphe\n\n- b').filter((b) => b.type === 'list').length, 2);
+    // une liste à puces ne se fond pas dans une liste numérotée voisine
+    assert.deepEqual(parseBlocks('1. a\n\n- b').map((b) => b.type), ['list', 'list']);
+});
+
+test('élément de liste : bloc de code, image seule et second paragraphe restent des blocs', () => {
+    const [list] = parseBlocks('- Étape\n  ```bash\n  python seed.py\n  ```\n- Suite\n  ![schéma](img/x.jpg)\n- Fin\n\n  Second paragraphe de Fin');
+    const [etape, suite, fin] = list.items;
+    assert.equal(etape.text, 'Étape');
+    assert.deepEqual([etape.children[0].type, etape.children[0].text], ['code', 'python seed.py']);
+    assert.equal(suite.text, 'Suite ![schéma](img/x.jpg)');                // une image seule prolonge le texte de l'élément
+    assert.deepEqual(parseInline(suite.text).map((n) => n.type), ['text', 'image']);
+    assert.equal(fin.children[0].text, 'Second paragraphe de Fin');
+    assert.equal(list.items.length, 3);
+});
+
+test('collectHeadings : ancres uniques dans l’ordre du document, titres imbriqués compris', () => {
+    const blocks = parseBlocks('# Notes\n\n## Notes\n\n## Notes\n\n> ## Dans une citation\n\n## Dans une citation');
+    assert.deepEqual(collectHeadings(blocks).map((h) => h.id), ['notes', 'notes-2', 'notes-3', 'dans-une-citation', 'dans-une-citation-2']);
+    assert.equal(collectHeadings(parseBlocks('## !!!'))[0].id, 'section');
 });

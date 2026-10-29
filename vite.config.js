@@ -18,10 +18,15 @@ const ficheImages = () => {
     configResolved(config) { outDir = path.resolve(config.root, config.build.outDir) },
     closeBundle() {
       if (fs.existsSync(FICHE_IMAGES)) fs.cpSync(FICHE_IMAGES, path.join(outDir, 'fiches', 'img'), { recursive: true })
+      // Une image citée par une fiche mais absente de docs/fiches/img serait un 404 en production sans que rien ne casse :
+      // on le dit bruyamment (sans bloquer le déploiement du site pour autant).
+      const missing = missingFicheImages()
+      if (missing.length) console.warn(`\n⚠️  Images de fiches introuvables dans docs/fiches/ (404 en production) :\n${missing.map((m) => `   - ${m}`).join('\n')}\n`)
     },
     configureServer(server) {
       server.middlewares.use(`${BASE}fiches/img`, (req, res, next) => {
-        const file = path.join(FICHE_IMAGES, decodeURIComponent((req.url || '/').split('?')[0]))
+        let file
+        try { file = path.join(FICHE_IMAGES, decodeURIComponent((req.url || '/').split('?')[0])) } catch { return next() }   // %-encodage invalide : pas une image
         const type = IMAGE_TYPES[path.extname(file).toLowerCase()]
         // jamais en dehors du dossier des images, jamais autre chose qu'une image
         if (!type || !file.startsWith(FICHE_IMAGES + path.sep) || !fs.existsSync(file)) return next()
@@ -30,6 +35,19 @@ const ficheImages = () => {
       })
     },
   }
+}
+
+// Images relatives (`![légende](img/<slug>/01-x.jpg)`) citées par les fiches mais absentes du dossier des images.
+const missingFicheImages = () => {
+  const dir = fileURLToPath(new URL('./docs/fiches', import.meta.url))
+  const missing = []
+  for (const name of fs.readdirSync(dir).filter((f) => f.endsWith('.md') && !f.startsWith('_') && f !== 'README.md')) {
+    const text = fs.readFileSync(path.join(dir, name), 'utf8')
+    for (const m of text.matchAll(/!\[[^\]]*\]\(((?!https?:|\/)[^)\s]+)\)/g)) {
+      if (!fs.existsSync(path.join(dir, m[1]))) missing.push(`${name} : ${m[1]}`)
+    }
+  }
+  return missing
 }
 
 // https://vitejs.dev/config/

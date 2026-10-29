@@ -30,6 +30,7 @@ test('resolveFicheImage : chemin relatif vers les images du build, URL absolue i
     assert.equal(resolveFicheImage('https://exemple.com/x.jpg', '/'), 'https://exemple.com/x.jpg');
     assert.equal(resolveFicheImage('/absolu.jpg', '/'), '/absolu.jpg');
     assert.equal(resolveFicheImage('img/../../secret.jpg', '/'), '');
+    assert.equal(resolveFicheImage('//tracker.example/p.png', '/'), '');            // protocole-relatif = site tiers
 });
 
 const FICHES = [

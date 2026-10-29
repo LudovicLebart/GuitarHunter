@@ -30,6 +30,7 @@ export const resolveFicheHref = (href) => {
  *  au build dans `<base>fiches/…` ; une URL absolue (http, `/…`) est laissée telle quelle. `base` = `import.meta.env.BASE_URL`. */
 export const resolveFicheImage = (src, base = '/') => {
     const value = String(src || '');
+    if (/^[/\\]{2}/.test(value)) return '';                              // `//hôte/…` : site tiers, jamais une image de la fiche
     if (/^([a-z][a-z0-9+.-]*:|\/)/i.test(value)) return value;
     const clean = value.replace(/^(\.\/)+/, '');
     if (clean.split('/').includes('..')) return '';                       // jamais de remontée de dossier

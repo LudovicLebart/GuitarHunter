@@ -2,10 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeft, BookOpen, Clock, Gauge, Search } from 'lucide-react';
 import { fetchFiche, fetchFiches } from '../services/apiService';
 import { RESTORATION_CATEGORIES, RESTORATION_CATEGORY_LABELS } from '../constants/restorationPlan';
-import { parseBlocks, slugifyHeading } from '../utils/markdown';
+import { collectHeadings, parseBlocks } from '../utils/markdown';
 import {
     CONFIDENCE_HINTS, CONFIDENCE_LABELS, FICHES_HREF, STATUT_HINTS, STATUT_LABELS, difficultyLabel, ficheHref, filterFiches,
-    groupByCategory, needsWarning, resolveFicheHref, resolveFicheImage,
+    groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage,
 } from '../utils/fiches';
 import SimpleMarkdown from './SimpleMarkdown';
 
@@ -35,17 +35,20 @@ export const ConfidenceBadge = ({ confidence }) => (
 
 const categoryLabel = (c) => RESTORATION_CATEGORY_LABELS[c] || c;
 
+// Chargement asynchrone lié à `deps`. Le résultat est rattaché au jeu de dépendances qui l'a produit (`token`) : dès que
+// les dépendances changent (autre fiche), l'ancien résultat n'est plus renvoyé — pas un seul rendu avec la fiche précédente.
 const useAsync = (load, deps) => {
-    const [state, setState] = useState({ loading: true, error: null, data: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const token = useMemo(() => ({}), deps);
+    const [state, setState] = useState({ token, loading: true, error: null, data: null });
     useEffect(() => {
         let cancelled = false;
-        setState({ loading: true, error: null, data: null });
-        load().then((data) => { if (!cancelled) setState({ loading: false, error: null, data }); })
-            .catch((error) => { if (!cancelled) setState({ loading: false, error, data: null }); });
+        load().then((data) => { if (!cancelled) setState({ token, loading: false, error: null, data }); })
+            .catch((error) => { if (!cancelled) setState({ token, loading: false, error, data: null }); });
         return () => { cancelled = true; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, deps);
-    return state;
+    }, [token]);
+    return state.token === token ? state : { loading: true, error: null, data: null };
 };
 
 const Message = ({ children, tone = 'muted' }) => (
@@ -110,7 +113,7 @@ const FichesList = ({ api }) => {
 const FicheDetail = ({ slug, api }) => {
     const { loading, error, data: fiche } = useAsync(() => api.fetchFiche(slug), [api, slug]);
     const base = imageBase();
-    const sommaire = useMemo(() => (fiche ? parseBlocks(fiche.body_md).filter((b) => b.type === 'heading' && b.level === 2) : []), [fiche]);
+    const sommaire = useMemo(() => (fiche ? collectHeadings(parseBlocks(fiche.body_md)).filter((h) => h.level === 2) : []), [fiche]);
 
     if (loading) return <Message>Chargement de la fiche…</Message>;
     if (error) return <Message tone="error">Impossible de charger la fiche : {error.message}</Message>;
@@ -151,23 +154,23 @@ const FicheDetail = ({ slug, api }) => {
                     <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-1">Sommaire</p>
                     <ol className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                         {sommaire.map((h) => (
-                            <li key={h.text}><a href={`#${anchorOf(h.text)}`} onClick={(e) => scrollToHeading(e, h.text)} className="text-blue-400 hover:text-blue-300">{h.text}</a></li>
+                            <li key={h.id}><a href={`#${h.id}`} onClick={(e) => scrollToHeading(e, h.id)} className="text-blue-400 hover:text-blue-300">{h.text}</a></li>
                         ))}
                     </ol>
                 </nav>
             )}
 
-            <SimpleMarkdown text={fiche.body_md} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)} />
+            <SimpleMarkdown text={fiche.body_md} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
+                isRouteHref={(href) => parseFicheHash(href) !== null} />
         </article>
     );
 };
 
 // L'ancre d'un titre est son `id` (voir SimpleMarkdown) ; le hash de l'URL sert déjà à la navigation entre pages, donc le
 // sommaire fait défiler la page sans toucher au hash.
-const anchorOf = (text) => slugifyHeading(text);
-const scrollToHeading = (event, text) => {
+const scrollToHeading = (event, id) => {
     event.preventDefault();
-    document.getElementById(anchorOf(text))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
 const FichesPage = ({ route, api = DEFAULT_API }) => {
