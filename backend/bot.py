@@ -23,6 +23,9 @@ from backend.scraping.city_verification import trusted_gazetteer
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
 from backend.scraping.zone import bucket_city, is_outside_canada, nearest_listed_city
+from backend.pricing import normalize_price
+from backend.scraping.catchup import catchup_allowed
+from backend.scraping.config import ScraperConfig
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.scraping.kijiji.locations import DEFAULT_SEARCH_RADIUS_KM
 from backend.pg_repository import PostgresRepository
@@ -83,6 +86,10 @@ class GuitarHunterBot:
 
         # Sémaphore global Playwright partagé entre tous les bots (limite les navigateurs simultanés)
         self._browser_semaphore = browser_semaphore
+
+        # Scans Facebook complets réussis par recherche (ville, requête, budget, villes autorisées) :
+        # alimente `catchup_allowed`. En mémoire : un redémarrage refait une passe complète.
+        self._fb_scans_done = {}
 
         # Gestionnaire d'état robuste
         self._status_lock = threading.Lock()
@@ -197,12 +204,7 @@ class GuitarHunterBot:
 
     @staticmethod
     def _normalize_price(price):
-        """Nettoie une chaîne de prix (ex: ' 150 $ ') pour retourner un float fiable."""
-        try:
-            num_str = ''.join(c for c in str(price).replace(',', '.') if c.isdigit() or c == '.')
-            return float(num_str) if num_str else 0.0
-        except Exception:
-            return 0.0
+        return normalize_price(price)
 
     @staticmethod
     def _is_number(value):
@@ -220,6 +222,11 @@ class GuitarHunterBot:
     # Mêmes valeurs côté Facebook (2026-10-29), constantes distinctes pour pouvoir les régler séparément.
     FACEBOOK_STRICT_GPS_KM = 5
     FACEBOOK_STRICT_NAME_GPS_KM = DEFAULT_SEARCH_RADIUS_KM
+    # Arrêt « scan rattrapé » (2026-10-29) : cartes de la zone connues d'affilée au bout desquelles un scan
+    # Facebook s'arrête (0 = désactivé, tant que le test Montréal n'a pas validé la règle). Le premier scan
+    # d'une recherche et un scan sur FACEBOOK_FULL_PASS_EVERY restent complets (voir `catchup_allowed`).
+    FACEBOOK_CATCHUP_KNOWN_RUN = 0
+    FACEBOOK_FULL_PASS_EVERY = 6
 
     @staticmethod
     def _match_allowed_city(location, allowed_norms):
@@ -789,7 +796,8 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
-                temp_scraper = FacebookScraper({}, {}, logger=self.logger)
+                temp_scraper = FacebookScraper({}, {}, config=ScraperConfig(catchup_known_run=self.FACEBOOK_CATCHUP_KNOWN_RUN),
+                                               logger=self.logger)
                 temp_scraper.city_mapping = {city_norm_name: city_id}
                 temp_scraper.allowed_cities = all_allowed_cities_norm
                 if fb_zone_points:
@@ -799,7 +807,11 @@ class GuitarHunterBot:
                 try:
                     scan_started_at = time.time()
                     try:
-                        scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                        scan_key = (str(city_id), scan_config.get('search_query'), scan_config.get('min_price'),
+                                    scan_config.get('max_price'), scan_config.get('max_ads'), hash(frozenset(all_allowed_cities_norm)))
+                        scan_result = temp_scraper.scan_marketplace(
+                            city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event,
+                            allow_catchup=catchup_allowed(self._fb_scans_done.get(scan_key, 0), self.FACEBOOK_FULL_PASS_EVERY))
                     except Exception as scan_exc:
                         # Un arrêt demandé ferme la page/le contexte en plein scan : l'exception qui en résulte n'est pas
                         # un échec du scraper (trois « échecs » d'affilée déclencheraient une fausse alerte).
@@ -809,6 +821,8 @@ class GuitarHunterBot:
                         raise
                     found_deals = scan_result["deals"]
                     if not self._is_stop_requested():
+                        if not scan_result["error"] and not scan_result["anti_bot_blocked"]:
+                            self._fb_scans_done[scan_key] = self._fb_scans_done.get(scan_key, 0) + 1
                         fb_outcome, fb_detail = scrape_health.classify_facebook(scan_result)
                         self._record_scrape_health(
                             "facebook", city_data, scan_config.get('search_query'), fb_outcome, fb_detail,

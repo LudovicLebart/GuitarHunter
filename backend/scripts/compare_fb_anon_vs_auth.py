@@ -47,6 +47,7 @@ from backend.scraping.geo_clustering import compute_anchor_clusters
 
 ANCHOR_RADIUS_KM = 80  # = GuitarHunterBot.FACEBOOK_ANCHOR_RADIUS_KM
 
+SKIP_CALLBACK = None  # renseigné par --skip-known
 DEFAULT_STATE = os.path.expanduser("~/facebook_storage_state.json")
 DEFAULT_ENV_FILE = os.path.expanduser("~/.facebook_test.env")
 
@@ -191,6 +192,30 @@ def resolve_city_id(city_name, logger):
     return city_id
 
 
+def build_known_skip():
+    """Équivalent en lecture seule de `GuitarHunterBot.should_skip_deal` (sans `record_deal_match`) :
+    une annonce déjà en base, rejetée ou au prix inchangé, est sautée sans ouvrir sa fiche —
+    comme en production. Sans cela, le script ouvre une fiche pour chaque carte de la zone."""
+    from psycopg_pool import ConnectionPool
+    from psycopg.rows import dict_row
+    from backend.pg_db import DATABASE_URL
+    from backend.pricing import normalize_price
+
+    pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=2, kwargs={"row_factory": dict_row}, open=True)
+
+    def should_skip(deal_id, price):
+        with pool.connection() as conn:
+            row = conn.execute("SELECT status, price FROM guitar_deals WHERE id = %s", (deal_id,)).fetchone()
+        if not row:
+            return False
+        if row.get("status") == "rejected":
+            return True
+        old_price = normalize_price(row.get("price", -1))
+        return old_price > 0 and old_price == normalize_price(price)
+
+    return should_skip, pool.close
+
+
 class LocationCollector(logging.Handler):
     """Compte les lieux des cartes (hors liste / gardées) à partir des logs du scraper —
     uniquement le nom de lieu, jamais le titre ni l'URL d'une annonce."""
@@ -210,7 +235,7 @@ class LocationCollector(logging.Handler):
 
 
 def run_mode(label, storage_state, args, allowed, logger):
-    cfg = ScraperConfig(storage_state_path=storage_state)
+    cfg = ScraperConfig(storage_state_path=storage_state, catchup_known_run=args.catchup_run)
     scraper = FacebookScraper({}, {args.location_key: args.city_id}, allowed_cities=allowed, config=cfg, logger=logger)
     scan_config = {
         "search_query": args.query, "location": args.location_key,
@@ -220,7 +245,7 @@ def run_mode(label, storage_state, args, allowed, logger):
     logger.addHandler(collector)
     t0 = time.time()
     try:
-        res = scraper.scan_marketplace(scan_config)
+        res = scraper.scan_marketplace(scan_config, SKIP_CALLBACK)
     finally:
         scraper.close_session()
         logger.removeHandler(collector)
@@ -231,6 +256,8 @@ def run_mode(label, storage_state, args, allowed, logger):
         "duration_s": round(time.time() - t0, 1),
         "anti_bot_blocked": res["anti_bot_blocked"],
         "total_cards_seen": res["total_cards_seen"],
+        "skipped_known": res["skipped_known"],
+        "stopped_caught_up": res["stopped_caught_up"],
         "rejected_out_of_list": res["rejected_out_of_list"],
         "dropped_no_location": res["dropped_no_location"],
         "dropped_no_price": res["dropped_no_price"],
@@ -264,6 +291,8 @@ def print_table(rows):
               f"{pct(r['kept_with_gps'], k):>7}{pct(r['kept_with_publish_date'], k):>7}"
               f"{str(r['anti_bot_blocked']):>8}{r['duration_s']:>7}s")
     for r in rows:
+        if r.get("skipped_known") or r.get("stopped_caught_up"):
+            print(f"  [{r['mode']}] déjà connues sautées : {r['skipped_known']}  scan rattrapé (arrêt anticipé) : {r['stopped_caught_up']}")
         if r.get("out_of_list_locations"):
             print(f"  [{r['mode']}] hors liste : " + ", ".join(f"{loc} ×{n}" for loc, n in r["out_of_list_locations"]))
         if r.get("kept_locations"):
@@ -287,7 +316,13 @@ def main():
     parser.add_argument("--login-only", action="store_true", help="Génère/valide la session puis s'arrête (pas de base, pas de scan)")
     parser.add_argument("--anon-only", action="store_true", help="Seulement les passages anonymes (pas de connexion, pas de 2FA)")
     parser.add_argument("--relogin", action="store_true", help="Ignorer la session en cache")
+    parser.add_argument("--skip-known", action="store_true",
+                        help="Saute les annonces déjà en base (lecture seule), comme en production")
+    parser.add_argument("--catchup-run", type=int, default=None,
+                        help="Arrêt « scan rattrapé » après N cartes de la zone connues d'affilée (0 = désactivé ; défaut : 10 avec --skip-known, sinon 0)")
     args = parser.parse_args()
+    if args.catchup_run is None:
+        args.catchup_run = 10 if args.skip_known else 0
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     logger = logging.getLogger("fb_compare")
@@ -346,6 +381,8 @@ def main():
         print(f"\n=== 2/3 ID de ville fourni: {args.city_id} ===")
 
     print("\n=== 3/3 Comparaison ===")
+    global SKIP_CALLBACK
+    SKIP_CALLBACK, close_skip_pool = build_known_skip() if args.skip_known else (None, lambda: None)
     rows = []
     for i in range(args.runs):
         print(f"\n--- Passage {i + 1}/{args.runs} ---")
@@ -367,6 +404,7 @@ def main():
     with open(out, "w", encoding="utf-8") as f:
         json.dump({"args": vars(args), "runs": rows}, f, ensure_ascii=False, indent=2)
     print(f"Rapport détaillé (IDs uniquement) : {out}")
+    close_skip_pool()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright, Page
 
 from .config import KijijiScraperConfig
 from .parser import KijijiListingParser
+from backend.scraping.scroll import ScrollProgress
 from .locations import (
     DEFAULT_SEARCH_RADIUS_KM,
     load_location_lookup, load_city_coordinates, build_resolvable_hubs,
@@ -470,9 +471,7 @@ class KijijiScraper:
         found_deals: List[Dict[str, Any]] = []
 
         self.logger.info("   📜 Défilement dynamique...")
-        previous_count = 0
-        stagnant_iterations = 0
-        target_ads_to_load = max_ads + 10
+        progress = ScrollProgress(max_ads + 10)
         for i in range(self.config.max_scroll_iterations):
             if stop_event and stop_event.is_set():
                 self.logger.info("🛑 Scan Kijiji annulé pendant le défilement (STOP_BOT).")
@@ -481,17 +480,13 @@ class KijijiScraper:
             time.sleep(1.5)
 
             current_count = page.locator("a[href*='/v-']").count()
-            if current_count >= target_ads_to_load:
-                self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
+            reason = progress.observe(current_count)
+            if reason == ScrollProgress.TARGET:
+                self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {progress.target}), arrêt du défilement.")
                 break
-            if current_count <= previous_count:
-                stagnant_iterations += 1
-                if stagnant_iterations >= 2:
-                    self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
-                    break
-            else:
-                stagnant_iterations = 0
-            previous_count = current_count
+            if reason == ScrollProgress.STAGNANT:
+                self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
+                break
 
         listings = page.locator("a[href*='/v-']").all()
         self.last_scan = {**self.last_scan, "cards_seen": len(listings)}

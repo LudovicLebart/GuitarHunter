@@ -85,6 +85,9 @@ jobs:
             backend.scraping.test_city_finder \
             backend.scraping.test_city_verification \
             backend.scraping.test_zone \
+            backend.scraping.test_catchup \
+            backend.scraping.test_scroll \
+            backend.test_pricing \
             backend.scripts.test_repair_fb_city_ids \
             backend.api.test_fiches_api \
             backend.api.test_restoration_api \
