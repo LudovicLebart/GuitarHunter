@@ -69,7 +69,9 @@ async def _cleanup():
         await conn.execute("DELETE FROM restoration_plan_items WHERE deal_id = $1", DEAL)
         await conn.execute("DELETE FROM user_deal_matches WHERE deal_id = $1", DEAL)
         await conn.execute("DELETE FROM guitar_deals WHERE id = $1", DEAL)
-        await conn.execute("DELETE FROM guitar_knowledge WHERE id = ANY($1::text[])", [*FICHES, BRAND])
+        # TOUTES les fiches (pas seulement les nôtres) : d'autres tests de la base de connaissances laissent les leurs dans la même
+        # base jetable, et ces tests-ci supposent un catalogue de fiches maîtrisé (ordre d'exécution indifférent).
+        await conn.execute("DELETE FROM guitar_knowledge WHERE kind = 'fiche' OR id = ANY($1::text[])", [*FICHES, BRAND])
         await conn.execute("DELETE FROM users WHERE uid = ANY($1::text[])", [BUYER, VIEWER, STRANGER])
     finally:
         await conn.close()

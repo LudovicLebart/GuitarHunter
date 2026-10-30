@@ -10,7 +10,69 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Tests automatiques (2026-10-30) — AVANT tout déploiement : `deploy-frontend` et `deploy` en dépendent (`needs: tests`).
+  # Un test rouge bloque donc le déploiement ; pour le débloquer en urgence, relancer après correction (ou retirer `needs`).
+  # Postgres jetable (service) : les tests de la base de connaissances, des fiches et de l'API s'y exécutent pour de bon
+  # (sans lui ils se sautent). Voir CLAUDE.md « Tests ». Hors liste volontairement : `test_chat_api` (8 échecs antérieurs
+  # au système fiches, à traiter à part) et les tests qui exigent un vrai navigateur ou un vrai service externe.
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      KB_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Tests du site (npm test)
+        run: |
+          npm ci
+          npm test
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Dépendances Python
+        run: |
+          pip install -r requirements.txt
+          pip install httpx websockets
+
+      - name: Tests Python (base de connaissances, fiches, API)
+        run: |
+          python -m unittest \
+            backend.test_analyzer \
+            backend.test_guitar_knowledge \
+            backend.test_seed_guitar_knowledge \
+            backend.test_knowledge_coverage \
+            backend.test_compare_knowledge_effect \
+            backend.test_knowledge_fiche_isolation \
+            backend.test_seed_guitar_fiches \
+            backend.api.test_fiches_api \
+            backend.api.test_restoration_api \
+            backend.api.test_prod_sync
+
   deploy-frontend:
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -68,6 +130,7 @@ jobs:
           force_orphan: true
 
   deploy:
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -163,6 +226,22 @@ jobs:
             # ici n'empêche pas le redémarrage du service.
             python3 backend/scripts/run_once.py || echo "⚠️ run_once.py a échoué — voir logs ci-dessus. Le déploiement continue."
 
+            echo "--- Fiches techniques de restauration ---"
+            # docs/fiches/*.md (git) = SEULE source ; la base n'en est qu'une copie dérivée, reconstruite ici à chaque
+            # déploiement (backend/scripts/seed_guitar_fiches.py : idempotent, ne réécrit pas une fiche inchangée, crée
+            # tables/colonnes si besoin, ne supprime rien sans --prune). Chaque base utilisée par un service est chargée :
+            # celle du bot (.env) et celles des deux API (staging, prod), si leur fichier existe — sans doublon. Non
+            # bloquant : un échec n'empêche ni le redémarrage ni le déploiement.
+            declare -A SEEN_DB
+            for ENV_FILE in .env "$HOME/.guitarhunter_prod_db.env" "$HOME/.guitarhunter_staging_db.env"; do
+              [ -f "$ENV_FILE" ] || continue
+              DB_URL="$(grep -h '^DATABASE_URL=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r')"
+              if [ -z "$DB_URL" ] || [ -n "${SEEN_DB[$DB_URL]}" ]; then continue; fi
+              SEEN_DB[$DB_URL]=1
+              echo "Chargement des fiches (base de $ENV_FILE)"
+              DATABASE_URL="$DB_URL" python3 backend/scripts/seed_guitar_fiches.py || echo "⚠️ Chargement des fiches échoué pour $ENV_FILE — voir logs ci-dessus. Le déploiement continue."
+            done
+
             echo "--- Service Restart ---"
             echo "Restarting service: guitare-hunter"
             # On utilise sudo -n pour s'assurer qu'on ne reste pas bloqué sur un prompt de mot de passe
@@ -219,6 +298,10 @@ jobs:
             # backend/deal_mapping.py (seul import hors backend/api/ que nécessite
             # backend.api.main:app, vérifié 2026-09-23) sont désormais mergés sur dev — ce bloc se
             # contente de les resynchroniser vers ce répertoire séparé avant de redémarrer.
+            # ⚠️ Tout module de backend/ importé (même par ricochet) par backend/api/*.py doit figurer dans le `cp`
+            # ci-dessous, sinon l'API de PRODUCTION ne démarre plus (ImportError) — 2026-10-30 :
+            # `guitar_knowledge.py` (importé par fiches_repo.py) manquait. Garde-fou : backend/api/test_prod_sync.py,
+            # lancé par le job `tests` (un oubli bloque le déploiement).
             if ! sudo -n -l 2>/dev/null | grep -q guitarhunter-api-prod; then
               echo "⚠️ Pas de règle sudoers NOPASSWD couvrant guitarhunter-api-prod — resynchronisation ignorée."
               echo "   Pour l'activer, ajouter au sudoers (visudo) une règle couvrant :"
@@ -226,7 +309,7 @@ jobs:
             else
               mkdir -p ~/guitarhunter-api-prod/backend
               cp -r backend/api ~/guitarhunter-api-prod/backend/
-              cp backend/__init__.py backend/deal_mapping.py ~/guitarhunter-api-prod/backend/
+              cp backend/__init__.py backend/deal_mapping.py backend/guitar_knowledge.py ~/guitarhunter-api-prod/backend/
               if sudo -n systemctl restart guitarhunter-api-prod; then
                 echo "✅ Service guitarhunter-api-prod resynchronisé et redémarré avec succès (127.0.0.1:8001)."
               else

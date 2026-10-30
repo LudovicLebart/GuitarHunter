@@ -3,7 +3,9 @@
 // la navigation se fait par le hash de l'URL (`#fiches`, `#fiche/<slug>`), sans routeur.
 
 // Même format que `guitar_knowledge.valid_fiche_slug` côté serveur : une fiche listée est toujours consultable.
-export const FICHE_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
+// UNE seule définition du motif : tous les autres usages de ce fichier en dérivent (test de parité : parity.test.js).
+const SLUG_PATTERN = '[a-z0-9][a-z0-9-]{0,79}';
+export const FICHE_SLUG_RE = new RegExp(`^${SLUG_PATTERN}$`);
 
 export const FICHES_HREF = '#fiches';
 export const ficheHref = (slug) => `#fiche/${slug}`;
@@ -22,8 +24,8 @@ export const parseFicheHash = (hash) => {
 
 /** Lien d'un corps de fiche : `autre-fiche.md` (renvoi entre fiches) devient `#fiche/autre-fiche` ; le reste est inchangé. */
 export const resolveFicheHref = (href) => {
-    const m = /^(?:\.\/)?([a-z0-9][a-z0-9-]*)\.md(?:#.*)?$/.exec(String(href || ''));
-    return m && FICHE_SLUG_RE.test(m[1]) ? ficheHref(m[1]) : href;
+    const m = new RegExp(`^(?:\\./)?(${SLUG_PATTERN})\\.md(?:#.*)?$`).exec(String(href || ''));
+    return m ? ficheHref(m[1]) : href;
 };
 
 /** Source d'une image d'un corps de fiche : un chemin relatif (`img/<slug>/01-nom.jpg`) pointe vers les images copiées
@@ -130,7 +132,7 @@ export const buildFichesContextText = (fiches) => {
  *  ou hors liste est écarté plutôt que d'écrire un lien mort sur l'étape. */
 export const pickAllowedFicheSlug = (slug, allowed) => (typeof slug === 'string' && allowed?.has(slug) ? slug : null);
 
-const SHARED_SLUG_RE = /\[slug: ([a-z0-9][a-z0-9-]{0,79})\]/g;
+const SHARED_SLUG_RE = new RegExp(`\\[slug: (${SLUG_PATTERN})\\]`, 'g');
 
 /** Slugs des fiches DÉJÀ décrites au modèle dans un historique (liste de `{role, parts:[{text}]}`) : relus dans les blocs de
  *  contexte `buildFichesContextText` des messages UTILISATEUR. L'historique est la seule source de vérité — rien n'est tenu en
