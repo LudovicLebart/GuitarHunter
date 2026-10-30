@@ -89,5 +89,22 @@ class TestMayTryGpsFallback(unittest.TestCase):
         self.assertTrue(zone.may_try_gps_fallback(5, 1, cap=8))
 
 
+
+class TestBucketCity(unittest.TestCase):
+    """Ville de rangement en mode strict : le GPS ne supplante le lieu affiché que pour une carte rattachée par GPS."""
+
+    def test_a_name_matched_card_keeps_its_displayed_location_even_if_gps_is_nearer_another_listed_city(self):
+        deal = {"location": "Laval", "zone_city": "montreal"}               # nom reconnu : zone_rescued absent
+        self.assertEqual(zone.bucket_city(deal), "Laval")
+
+    def test_a_gps_rescued_card_is_bucketed_by_its_gps_city(self):
+        deal = {"location": "Réunion, Reunion", "zone_city": "granby", "zone_rescued": True}
+        self.assertEqual(zone.bucket_city(deal), "granby")
+
+    def test_missing_fields_never_raise(self):
+        self.assertEqual(zone.bucket_city({}), "")
+        self.assertEqual(zone.bucket_city({"zone_rescued": True}), "")      # rattachée sans ville : retombe sur le lieu affiché
+        self.assertEqual(zone.bucket_city({"location": None}), "")
+
 if __name__ == "__main__":
     unittest.main()

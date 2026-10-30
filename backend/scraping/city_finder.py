@@ -240,9 +240,15 @@ class CityFinder:
         pick = candidates[0] if candidates else {"index": 0, "label": labels[0]}
         occurrence = sum(1 for l in labels[: pick["index"]] if l == pick["label"])
         sel = driver.select(city_name, pick["label"], occurrence)
-        city_id = sel.city_id or sel.segment
-        log.warning(f"⚠️ ID Facebook de « {city_name} » NON vérifié (aucune province connue) : {city_id}")
-        return CityLookupResult(city_id, sel.coords, pick["label"], LEGACY, "indice de province inconnu : non vérifié", [])
+        # Un clic non pris en compte laisse l'URL sur `/marketplace/` : le segment est alors vide, « category » ou périmé. Seul
+        # un ID NUMÉRIQUE lu après un VRAI changement d'URL est enregistrable ; sinon aucun ID (jamais le segment brut :
+        # `cities.id` recevrait une valeur bidon et le scraper irait chercher au mauvais endroit).
+        if not sel.city_id or not sel.changed:
+            why = "l'URL n'a pas changé après le clic" if not sel.changed else f"pas d'ID numérique (segment « {sel.segment} »)"
+            log.warning(f"⚠️ ID Facebook de « {city_name} » non obtenu (aucune province connue) : {why}")
+            return CityLookupResult(None, None, None, cv.NOT_FOUND, f"indice de province inconnu, et {why}", [])
+        log.warning(f"⚠️ ID Facebook de « {city_name} » NON vérifié (aucune province connue) : {sel.city_id}")
+        return CityLookupResult(sel.city_id, sel.coords, pick["label"], LEGACY, "indice de province inconnu : non vérifié", [])
 
     @staticmethod
     def lookup_with_scraper(scraper, city_name, region_hint=None, expected_coords=None, gazetteer=None):

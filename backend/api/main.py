@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
-from backend.api.auth import get_current_uid, verify_token
+from backend.api.auth import get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
 from backend.api import (chat_repo, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo, shared_repo,
                          usage_repo, users_repo)
@@ -47,12 +47,13 @@ _NOTIFY_BULK_THRESHOLD = 50
 # Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
 # du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
 # cookies) — allow_credentials=False, pas besoin d'assouplir vers "*".
+ALLOWED_ORIGINS = [
+    "https://ludoviclebart.github.io",
+    "http://localhost:5173",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://ludoviclebart.github.io",
-        "http://localhost:5173",
-    ],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -245,7 +246,7 @@ async def get_deals_by_ids(body: DealIdsBody, uid: str = Depends(get_current_uid
 # silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
 # .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
 @app.get("/deals/index")
-async def list_deals_index(status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, uid: str = Depends(get_current_uid)):
+async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, uid: str = Depends(get_current_uid)):
     """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
     texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
     téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
@@ -256,6 +257,10 @@ async def list_deals_index(status_filter: Optional[str] = Query(None, alias="sta
     `?perf=1` (2026-10-13, diagnostic opt-in) : réponse mesurée — en-têtes `Server-Timing` (`sql`,
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
+    # Le diagnostic coûte une sérialisation tamponnée en mémoire sur l'unique worker : réservé aux ADMINS (claim `admin`) ;
+    # pour tout autre utilisateur `?perf=1` est ignoré en silence (chemin normal, aucune erreur côté client).
+    if perf and not await asyncio.to_thread(is_admin_uid, uid):
+        perf = False
     if not perf:
         rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
         return [dict(r) for r in rows]
@@ -266,7 +271,9 @@ async def list_deals_index(status_filter: Optional[str] = Query(None, alias="sta
     t_ser = time.perf_counter()
     sql_ms, ser_ms, raw_bytes = (t_sql - t0) * 1000, (t_ser - t_sql) * 1000, len(response.body)
     response.headers["Server-Timing"] = f'sql;dur={sql_ms:.0f}, ser;dur={ser_ms:.0f}, raw;desc="{raw_bytes}", rows;desc="{len(rows)}"'
-    response.headers["Timing-Allow-Origin"] = "https://ludoviclebart.github.io"
+    origin = request.headers.get("origin")
+    if origin in ALLOWED_ORIGINS:       # la même liste que CORS : un front de test autorisé reçoit aussi ses mesures
+        response.headers["Timing-Allow-Origin"] = origin
     logger.info("GET /deals/index?perf=1: %d annonces, sql=%.0f ms, sérialisation=%.0f ms, brut=%.1f Mo", len(rows), sql_ms, ser_ms, raw_bytes / 1e6)
     return response
 

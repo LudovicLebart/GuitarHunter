@@ -316,6 +316,9 @@ class LLMClientsMixin:
         blocks, image_count = self._claude_content_blocks(content_parts)
 
         for attempt in range(max_retries + 1):
+            if attempt > 0 and tool_handler is not None:
+                # La boucle d'outil repart de zéro : budget de requêtes et trace aussi (voir `make_brand_tool().reset`).
+                getattr(tool_handler, "reset", lambda: None)()
             usage_row = {"provider": "anthropic", "model": model_name, "action": action, "latency_ms": None,
                          "images": image_count}
             t_call = time.monotonic()

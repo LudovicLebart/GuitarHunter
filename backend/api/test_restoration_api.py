@@ -103,6 +103,30 @@ class TestRestorationPlanAPI(unittest.TestCase):
             app.dependency_overrides[get_current_uid] = lambda: self.UID
             asyncio.run(_cleanup(deal_ids=[deal], user_ids=[]))
 
+    def test_restoration_spent_is_computed_for_the_buyer_only(self):
+        """`restoration_spent` sert à la marge RÉALISÉE (revente) : seul l'acheteur a quelque chose à réaliser. Une personne qui
+        a aimé l'annonce d'un autre et s'y fait son propre plan, avec des étapes terminées, n'en reçoit pas."""
+        async def _match_buyer():                       # `GET /deals/{id}` exige la visibilité (user_deal_matches)
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", self.UID, self.DEAL_ID)
+            finally:
+                await conn.close()
+        asyncio.run(_match_buyer())
+        buyer = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan", json={"label": "Refret", "estimatedCost": 100})
+        item_id = buyer.json()["id"]
+        self.client.patch(f"/deals/{self.DEAL_ID}/restoration-plan/{item_id}", json={"status": "done"})
+        self.assertEqual(float(self.client.get(f"/deals/{self.DEAL_ID}").json()["restoration_spent"]), 100.0)
+
+        asyncio.run(_seed_favorite_unpurchased(self.DEAL_ID, self.OTHER_UID))      # même annonce, aimée par quelqu'un d'autre
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        own = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan", json={"label": "Mon étape", "estimatedCost": 50})
+        self.assertEqual(own.status_code, 201, own.text)
+        self.client.patch(f"/deals/{self.DEAL_ID}/restoration-plan/{own.json()['id']}", json={"status": "done"})
+        self.assertEqual(float(self.client.get(f"/deals/{self.DEAL_ID}").json()["restoration_spent"]), 0.0)
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+        self.assertEqual(float(self.client.get(f"/deals/{self.DEAL_ID}").json()["restoration_spent"]), 100.0)   # inchangé pour l'acheteur
+
     def test_schema_backfill_assigns_orphan_plan_rows_to_first_matched_user(self):
         """Migration `user_id` (2026-10-11) : une étape sans propriétaire sur une annonce non achetée,
         vue par deux utilisateurs, est rattachée au PREMIER à l'avoir vue (jamais laissée orpheline)."""

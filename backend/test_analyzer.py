@@ -293,11 +293,13 @@ class TestT1Knowledge(unittest.TestCase):
 
     # ── Lecture des photos par le Portier (2026-10-15) ──
     def _photo_lookup(self, from_text_only, with_photo):
-        """lookup factice : sans texte photo -> `from_text_only` ; avec texte photo (3e argument) -> `with_photo`."""
+        """Faux `lookup` (UN seul appel, avec le texte des photos -> `with_photo`) et faux `find_ids` (le texte seul,
+        titre + description -> les ids de `from_text_only`)."""
         def fake(conn, *texts, limit=3, fuzzy_texts=(0,)):
             fake.calls.append((texts, fuzzy_texts))
-            return with_photo if len(texts) > 2 else from_text_only
+            return with_photo
         fake.calls = []
+        fake.find_ids = lambda conn, *texts, **kw: {f["id"]: (f["matched_on"], "exact") for f in from_text_only}
         return fake
 
     def test_photo_text_is_ignored_while_its_switch_is_off(self):
@@ -311,7 +313,8 @@ class TestT1Knowledge(unittest.TestCase):
         other = {**self.FICHE, "id": "wd:epiphone", "name": "Epiphone", "matched_on": "epiphone"}
         fake = self._photo_lookup([self.FICHE], [self.FICHE, other])
         with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True), \
-                patch("backend.analyzer.guitar_knowledge.lookup", fake):
+                patch("backend.analyzer.guitar_knowledge.lookup", fake), \
+                patch("backend.analyzer.guitar_knowledge.find_ids", fake.find_ids):
             self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone ; Casino")
             block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
         self.assertIn("Epiphone (brand)", block)
@@ -320,6 +323,7 @@ class TestT1Knowledge(unittest.TestCase):
         self.assertEqual(info["fiches"], ["manual:vantage", "wd:epiphone"])
         self.assertEqual(info["viaPhoto"], ["wd:epiphone"])
         self.assertEqual(info["photoText"], "Epiphone ; Casino")
+        self.assertEqual(len(fake.calls), 1)                    # UN SEUL lookup complet (plus de second appel pour viaPhoto)
         texts, fuzzy = fake.calls[0]
         self.assertEqual(texts[2], "Epiphone ; Casino")
         self.assertEqual(fuzzy, (0, 2))                         # fautes de lecture tolérées sur le texte des photos

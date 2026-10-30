@@ -384,6 +384,28 @@ class TestAddCityAuto(unittest.TestCase):
         city_data = self.bot.repo.add_city_to_catalog.call_args[0][1]
         self.assertNotIn("needsReview", city_data)
 
+    def test_a_verified_id_clears_a_stale_needs_review_on_an_existing_city(self, mock_city_finder, _mock_fb_scraper):
+        """Ville déjà au catalogue (sans coordonnées, donc ré-enrichie par CityFinder) marquée « à vérifier », ré-ajoutée avec un ID
+        VÉRIFIÉ : le drapeau doit tomber. (Une ville déjà complète est seulement activée, sans CityFinder.)"""
+        self.bot.repo.get_all_catalog_cities.return_value = {
+            "555": {"name": "Sherbrooke", "latitude": None, "longitude": None, "needsReview": True}}   # sans coordonnées : CityFinder tourne
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Sherbrooke, QC", True)
+
+        self.bot.add_city_auto({"name": "Sherbrooke", "latitude": 45.4, "longitude": -71.9, "region_hint": "Québec"})
+
+        _, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertIs(city_data["needsReview"], False)
+
+    def test_an_unverified_id_does_not_clear_needs_review_on_an_existing_city(self, mock_city_finder, _mock_fb_scraper):
+        self.bot.repo.get_all_catalog_cities.return_value = {
+            "555": {"name": "Sherbrooke", "latitude": None, "longitude": None, "needsReview": True}}   # sans coordonnées : CityFinder tourne
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Sherbrooke, France", False)
+
+        self.bot.add_city_auto({"name": "Sherbrooke", "latitude": 45.4, "longitude": -71.9, "region_hint": "Québec"})
+
+        _, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertIs(city_data["needsReview"], True)
+
     def test_raises_when_facebook_city_id_not_found(self, mock_city_finder, _mock_fb_scraper):
         mock_city_finder.find_city_id_and_coords.return_value = (None, None, None, False)
 

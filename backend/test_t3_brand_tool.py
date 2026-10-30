@@ -117,6 +117,17 @@ class TestFormatting(unittest.TestCase):
         self.assertNotIn("secret.example", text)
 
 
+class TestMatchAliasesMisuse(unittest.TestCase):
+    def test_the_old_positional_call_fails_loudly(self):
+        """`match_aliases(aliases, by_len, texts)` était la signature de la fonction par type, renommée `match_alias_index` :
+        un appelant resté sur l'ancien nom doit échouer, pas renvoyer silencieusement un résultat vide."""
+        with self.assertRaises(TypeError):
+            gk.match_aliases({"fender": {"k1"}}, {}, ["Fender Stratocaster"])
+        index_aliases, by_len = gk.build_alias_index([("fender", "k1", "brand")])
+        self.assertEqual(set(gk.match_alias_index(index_aliases, by_len, ["Fender Stratocaster"])), {"k1"})   # la bonne fonction
+        self.assertEqual(set(gk.match_aliases("Fender Stratocaster", {"fender": {"k1"}})), {"k1"})              # et la recherche libre
+
+
 class TestBrandToolHandler(unittest.TestCase):
     def _handler(self):
         trace = []
@@ -144,6 +155,21 @@ class TestBrandToolHandler(unittest.TestCase):
             for _ in range(tools.MAX_CALLS_PER_ANALYSIS):
                 last = handler("lookup_brand", {"query": "x"})
         self.assertIn("Limite", last)
+
+
+    def test_reset_restores_the_budget_and_clears_the_trace_in_place(self):
+        handler, trace = self._handler()
+        pool = MagicMock()
+        with patch("backend.pg_db.get_pool", return_value=pool), \
+             patch.object(tools.guitar_knowledge, "search_brand", return_value=[]):
+            for _ in range(tools.MAX_CALLS_PER_ANALYSIS):
+                handler("lookup_brand", {"query": "x"})
+            self.assertIn("Limite", handler("lookup_brand", {"query": "x"}))
+            same_list = trace
+            handler.reset()
+            self.assertIs(trace, same_list)                  # vidée EN PLACE : l'appelant garde sa référence
+            self.assertEqual(trace, [])
+            self.assertNotIn("Limite", handler("lookup_brand", {"query": "x"}))   # budget rendu à la reprise
 
 
 class TestToolLoop(unittest.TestCase):
@@ -197,6 +223,28 @@ class TestToolLoop(unittest.TestCase):
         block = self.client.messages.create.call_args_list[1].kwargs["messages"][2]["content"][0]
         self.assertTrue(block["is_error"])
         self.assertIn("base hors ligne", block["content"])
+
+    def test_a_json_retry_gets_a_fresh_tool_budget_and_a_clean_trace(self):
+        """1re tentative : un appel d'outil puis un JSON invalide ; reprise : la boucle repart, le gestionnaire est remis à zéro."""
+        self.client.messages.create.side_effect = [self._tool_use("a"), _claude_response("pas du json {{{"),
+                                                   self._tool_use("b"), _claude_response('{"verdict": "FAIR"}')]
+        resets, seen = [], []
+
+        def handler(name, args):
+            seen.append(args["query"])
+            return "ok"
+        handler.reset = lambda: resets.append(len(seen))
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], tools=[tools.LOOKUP_BRAND_TOOL],
+                                               tool_handler=handler, max_retries=1)
+        self.assertEqual(result, {"verdict": "FAIR"})
+        self.assertEqual(seen, ["a", "b"])
+        self.assertEqual(resets, [1])                       # remis à zéro UNE fois, au début de la 2e tentative seulement
+
+    def test_a_handler_without_reset_still_works_on_retry(self):
+        self.client.messages.create.side_effect = [_claude_response("pas du json {{{"), _claude_response('{"verdict": "FAIR"}')]
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], tools=[tools.LOOKUP_BRAND_TOOL],
+                                               tool_handler=lambda n, a: "ok", max_retries=1)
+        self.assertEqual(result, {"verdict": "FAIR"})
 
     def test_budget_exhausted_forces_the_final_answer(self):
         with patch("backend.llm_clients.T3_KNOWLEDGE_MAX_TOOL_ROUNDS", 1):

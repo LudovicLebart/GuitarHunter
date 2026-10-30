@@ -37,6 +37,16 @@ def verify_token(token: str) -> str:
     return decoded["uid"]
 
 
+def is_admin_uid(uid: str) -> bool:
+    """Custom claim `admin` de l'utilisateur — même source que le frontend (`useAuth.js`, `claims.admin === true`).
+    Faux au moindre doute (utilisateur introuvable, Firebase injoignable) : sert à GARDER des diagnostics coûteux."""
+    try:
+        _ensure_firebase_app()
+        return (firebase_auth.get_user(uid).custom_claims or {}).get("admin") is True
+    except Exception:
+        return False
+
+
 async def get_current_uid(authorization: str = Header(...)) -> str:
     """Dépendance FastAPI (routes HTTP) : extrait et vérifie le Bearer token Firebase.
 

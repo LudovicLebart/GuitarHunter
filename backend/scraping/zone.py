@@ -66,3 +66,14 @@ def may_try_gps_fallback(pages_used, rescued, cap, probe_limit=3):
     if pages_used >= cap:
         return False
     return not (pages_used >= probe_limit and rescued == 0)
+
+
+def bucket_city(deal):
+    """Ville sous laquelle le mode strict RANGE une annonce Facebook : la ville listée trouvée par le GPS de la fiche
+    (`zone_city`) SEULEMENT pour une carte rattachée par GPS (`zone_rescued` : son lieu affiché était inexploitable) ;
+    sinon le lieu affiché. `zone_city` est aussi posé sur une carte dont le NOM était reconnu (ville listée la plus
+    proche à <= `name_km`), où il ne doit pas supplanter le lieu affiché : une carte « Laval » dont le GPS est plus près
+    de « Montréal » resterait sinon rangée sous Montréal alors que son lieu enregistré est Laval."""
+    if deal.get("zone_rescued") and deal.get("zone_city"):
+        return deal["zone_city"]
+    return deal.get("location", "") or ""

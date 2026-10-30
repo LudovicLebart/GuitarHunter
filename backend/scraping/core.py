@@ -620,6 +620,7 @@ class FacebookScraper:
                         # Lieu affiché inexploitable (« Réunion, Reunion ») : l'annonce est stockée sous la
                         # ville listée trouvée par GPS, comme les annonces Kijiji.
                         listing_data["location"] = self.gps_zone_labels.get(zone_city, spec_loc)
+                        listing_data["zone_rescued"] = True    # seule cette carte est rangée par sa ville GPS (voir zone.bucket_city)
                 if coords:
                     self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
                     listing_data["latitude"] = coords["lat"]

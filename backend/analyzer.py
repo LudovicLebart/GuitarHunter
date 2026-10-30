@@ -238,8 +238,10 @@ class DealAnalyzer(LLMClientsMixin):
                 if photo_text:
                     fiches = guitar_knowledge.lookup(conn, title, description, photo_text,
                                                      limit=T1_KNOWLEDGE_MAX_FICHES, fuzzy_texts=(0, 2))
-                    from_text = {f["id"] for f in guitar_knowledge.lookup(conn, title, description,
-                                                                          limit=T1_KNOWLEDGE_MAX_FICHES)}
+                    # Fiches trouvées grâce aux photos SEULES : ids que le texte seul (titre + description) ne trouve pas.
+                    # UNE recherche en mémoire (index d'alias en cache), pas un second `lookup` complet (requête
+                    # SQL de plus à chaque analyse, sur une connexion de 1 s pendant que le Dell travaille).
+                    from_text = set(guitar_knowledge.find_ids(conn, title, description))
                     via_photo = [f["id"] for f in fiches if f["id"] not in from_text]
                 else:
                     fiches = guitar_knowledge.lookup(conn, title, description, limit=T1_KNOWLEDGE_MAX_FICHES)

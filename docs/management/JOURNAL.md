@@ -13,7 +13,7 @@ Le journal est découpé **par semaine ISO** (lundi → dimanche) : un fichier `
 
 | Semaine | Période | Entrées |
 |---|---|---|
-| [2026-W44](journal/2026-W44.md) | 2026-10-26 → 2026-11-01 | 11 |
+| [2026-W44](journal/2026-W44.md) | 2026-10-26 → 2026-11-01 | 12 |
 | [2026-W43](journal/2026-W43.md) | 2026-10-19 → 2026-10-25 | 4 |
 | [2026-W42](journal/2026-W42.md) | 2026-10-12 → 2026-10-18 | 9 |
 | [2026-W41](journal/2026-W41.md) | 2026-10-05 → 2026-10-11 | 9 |

@@ -32,6 +32,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       KB_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # `backend.config` refuse de démarrer sans ces variables (normalement lues dans .env) : valeurs factices pour les tests.
+      APP_ID_TARGET: test
+      USER_IDS_TARGET: test_user
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -78,6 +81,11 @@ jobs:
             backend.test_pg_repository \
             backend.test_log_archive \
             backend.test_scrape_health \
+            backend.test_bot \
+            backend.scraping.test_city_finder \
+            backend.scraping.test_city_verification \
+            backend.scraping.test_zone \
+            backend.scripts.test_repair_fb_city_ids \
             backend.api.test_fiches_api \
             backend.api.test_restoration_api \
             backend.api.test_chat_api \
@@ -87,7 +95,12 @@ jobs:
             backend.api.test_logs_api \
             backend.api.test_api \
             backend.api.test_shared_deals_api \
+            backend.api.test_perf_diagnostic \
             backend.api.test_prod_sync
+
+          # Tests de style pytest (rejeu T3, candidats de vérité, rapport T1) : `unittest` n'y voit aucun test.
+          pip install pytest
+          python -m pytest -q tests/test_replay_t3.py tests/test_truth_candidates.py tests/test_t1_period_report.py
 
   deploy-frontend:
     needs: tests

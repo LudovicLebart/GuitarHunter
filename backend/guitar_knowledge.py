@@ -653,6 +653,11 @@ def match_aliases(query, aliases, max_ngram=4):
     `type` : « exact » (alias entier trouvé tel quel), « fuzzy » (faute de frappe, ratio ≥ 0,80, jamais un simple
     préfixe/suffixe), « partiel » (le mot cherché est UN des mots d'un alias plus long, ex. « catania » pour
     « carmelo catania » — plausible mais moins sûr). Le meilleur type de chaque fiche est conservé."""
+    if not isinstance(query, str):
+        # Ancien appel `match_aliases(aliases, by_len, texts, …)` (la fonction par type s'appelle désormais
+        # `match_alias_index`) : échouer FRANCHEMENT plutôt que normaliser un dict et ne rien trouver en silence.
+        raise TypeError("match_aliases(query: str, aliases: dict) : recherche libre de `lookup_brand` ; "
+                        "pour un index par type, voir match_alias_index(aliases, by_len, texts, ...)")
     tokens = normalize(query).split()
     found = {}
 

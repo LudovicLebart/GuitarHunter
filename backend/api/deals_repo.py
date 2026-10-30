@@ -43,9 +43,11 @@ _LIGHT_THUMBNAIL_SQL = """
 def _restoration_spent_sql(user_param: str) -> str:
     """Sous-requête `restoration_spent` : frais de restauration réellement engagés dans le plan de
     L'UTILISATEUR (`user_param` = `$1`/`$2`) — étapes `done`, coût réel sinon estimé. MÊME RÈGLE que
-    `useRestorationPlan.js::totals.spentCost` : à modifier des deux côtés. Sert à la marge réalisée."""
+    `useRestorationPlan.js::totals.spentCost` : à modifier des deux côtés. Sert à la marge réalisée, donc calculée pour
+    l'ACHETEUR seulement : une personne qui a aimé l'annonce d'un autre et s'y fait son propre plan n'a rien « réalisé »."""
     return (
-        "(CASE WHEN gd.is_purchased THEN (SELECT COALESCE(SUM(COALESCE(r.actual_cost, r.estimated_cost, 0)), 0) "
+        f"(CASE WHEN gd.is_purchased AND gd.purchased_by_user_id = {user_param} "
+        "THEN (SELECT COALESCE(SUM(COALESCE(r.actual_cost, r.estimated_cost, 0)), 0) "
         f"FROM restoration_plan_items r WHERE r.deal_id = gd.id AND r.user_id = {user_param} AND r.status = 'done') "
         "ELSE 0 END) AS restoration_spent"
     )

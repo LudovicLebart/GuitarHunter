@@ -22,7 +22,7 @@ from backend.scraping.city_finder import CityFinder
 from backend.scraping.city_verification import trusted_gazetteer
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
-from backend.scraping.zone import is_outside_canada, nearest_listed_city
+from backend.scraping.zone import bucket_city, is_outside_canada, nearest_listed_city
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.scraping.kijiji.locations import DEFAULT_SEARCH_RADIUS_KM
 from backend.pg_repository import PostgresRepository
@@ -801,8 +801,11 @@ class GuitarHunterBot:
                     try:
                         scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
                     except Exception as scan_exc:
-                        self._record_scrape_health("facebook", city_data, scan_config.get('search_query'),
-                                                   scrape_health.ERROR, str(scan_exc)[:300], started_at=scan_started_at)
+                        # Un arrêt demandé ferme la page/le contexte en plein scan : l'exception qui en résulte n'est pas
+                        # un échec du scraper (trois « échecs » d'affilée déclencheraient une fausse alerte).
+                        if not self._is_stop_requested():
+                            self._record_scrape_health("facebook", city_data, scan_config.get('search_query'),
+                                                       scrape_health.ERROR, str(scan_exc)[:300], started_at=scan_started_at)
                         raise
                     found_deals = scan_result["deals"]
                     if not self._is_stop_requested():
@@ -850,8 +853,8 @@ class GuitarHunterBot:
                         norm_city = ListingParser.normalize_city_name(city_name)
                         own_city_deals, other_city_deals, out_of_scope_count = [], [], 0
                         for deal in found_deals:
-                            # `zone_city` : ville listée trouvée par le GPS de la fiche (repli GPS du scraper).
-                            norm_deal_loc = ListingParser.normalize_city_name(deal.get('zone_city') or deal.get('location', ''))
+                            # Ville de rangement : GPS de la fiche seulement pour une carte rattachée par GPS (voir zone.bucket_city).
+                            norm_deal_loc = ListingParser.normalize_city_name(bucket_city(deal))
                             if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
                                 own_city_deals.append(deal)
                             elif norm_deal_loc and any(
@@ -1123,8 +1126,9 @@ class GuitarHunterBot:
                             )
                     except Exception as e:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
-                        self._record_scrape_health("kijiji", city_data, scan_config.get('search_query'),
-                                                   scrape_health.ERROR, str(e)[:300], started_at=kijiji_started_at)
+                        if not self._is_stop_requested():       # un arrêt demandé n'est pas un échec du scraper
+                            self._record_scrape_health("kijiji", city_data, scan_config.get('search_query'),
+                                                       scrape_health.ERROR, str(e)[:300], started_at=kijiji_started_at)
                         continue
 
                     # Pré-traitement séquentiel (préfixe d'ID, résolution de ville, filtre de
@@ -1636,6 +1640,11 @@ class GuitarHunterBot:
                         f"'{city_name}' marquée needsReview : suggestion Facebook cliquée ('{matched_label}') "
                         f"ne correspond pas à l'indice de région fourni ('{region_hint}')."
                     )
+            elif in_catalog and matched_confidently and not coords_from_blind_geocode:
+                # Ville DÉJÀ au catalogue, peut-être marquée « à vérifier » (ID homonyme, géocodage en aveugle) : son ID
+                # Facebook vient d'être VÉRIFIÉ par CityFinder, et ses coordonnées sont confirmées — le signal doit tomber.
+                # (Sans cette ligne, `add_city_to_catalog` ne touche que les champs présents : le drapeau restait posé.)
+                city_data['needsReview'] = False
 
             if in_catalog:
                 self.logger.info(f"ID {target_id} déjà dans le catalogue. Mise à jour et activation.")

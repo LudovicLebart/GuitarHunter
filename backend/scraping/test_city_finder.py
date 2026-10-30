@@ -204,6 +204,22 @@ class TestLegacyWithoutProvince(unittest.TestCase):
         self.assertEqual((result.status, result.city_id), (LEGACY, QUEBEC))
         self.assertEqual(driver.probe_calls, [])
 
+    def test_a_click_that_did_not_change_the_url_yields_no_id(self):
+        """Clic non pris en compte : l'URL reste `/marketplace/` — jamais d'ID enregistré (ni segment brut, ni ID périmé)."""
+        for result in (sel(None, changed=False, segment=""), sel(None, changed=False, segment="category"),
+                       sel(QUEBEC, changed=False)):                     # ID lu dans une URL inchangée = périmé
+            driver = FakeDriver(["Bromont | Ville"], selects={("Bromont | Ville", 0): result})
+            r = CityFinder.lookup(driver, "Bromont", region_hint=None)
+            self.assertEqual((r.status, r.city_id), (cv.NOT_FOUND, None), result)
+
+    def test_a_changed_url_without_a_numeric_id_yields_no_id(self):
+        driver = FakeDriver(["Bromont | Ville"], selects={("Bromont | Ville", 0): sel(None, changed=True, segment="category")})
+        r = CityFinder.lookup(driver, "Bromont", region_hint=None)
+        self.assertEqual((r.status, r.city_id), (cv.NOT_FOUND, None))
+        scraper = MagicMock()
+        with patch.object(CityFinder, "lookup_with_scraper", return_value=r):
+            self.assertEqual(CityFinder.find_city_id_and_coords(scraper, "Bromont"), (None, None, None, False))
+
     def test_unknown_province_is_legacy(self):
         driver = FakeDriver(["Paris, Île-de-France, France | Ville"], selects={("Paris, Île-de-France, France | Ville", 0): sel("8")})
         self.assertEqual(CityFinder.lookup(driver, "Paris", region_hint="France").status, LEGACY)

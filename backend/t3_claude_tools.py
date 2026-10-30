@@ -58,4 +58,13 @@ def make_brand_tool(logger, trace):
         logger.info(f"   🔎 lookup_brand « {query} » → {len(results)} fiche(s)")
         return guitar_knowledge.format_brand_results(query, results)
 
+    def reset():
+        """Nouvelle TENTATIVE de la même analyse (JSON invalide, voir `_call_claude_json`) : la boucle d'outil repart de zéro,
+        donc le budget de requêtes aussi — sinon la reprise se verrait refuser toute recherche si la 1re tentative a
+        épuisé `MAX_CALLS_PER_ANALYSIS` — et la trace ne garde que les recherches derrière la réponse RETENUE (pas de
+        doublons dans l'audit). `trace` est vidée EN PLACE : l'appelant garde sa référence."""
+        calls["n"] = 0
+        trace.clear()
+
+    handler.reset = reset
     return handler
