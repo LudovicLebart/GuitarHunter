@@ -1,0 +1,121 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fiches techniques : how-to</title><style>
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b6b70;--line:#e2e2e6;--code:#f3f3f6;--acc:#9a4a12}
+@media(prefers-color-scheme:dark){:root{--bg:#161618;--fg:#ececf0;--mut:#9b9ba3;--line:#34343a;--code:#222226;--acc:#e8a066}}
+body{background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,sans-serif;margin:0}
+main{max-width:46rem;margin:0 auto;padding:2rem 16px 4rem}
+h1{font-size:1.7rem;line-height:1.25}h2{margin-top:2.2rem;border-bottom:1px solid var(--line);padding-bottom:.3rem;font-size:1.25rem}
+a{color:var(--acc)}code{background:var(--code);padding:.1em .35em;border-radius:4px;font-size:.9em}
+pre{background:var(--code);padding:1rem;border-radius:8px;overflow-x:auto}pre code{padding:0}
+table{border-collapse:collapse;width:100%;display:block;overflow-x:auto}th,td{border:1px solid var(--line);padding:.45rem .7rem;text-align:left;vertical-align:top}th{background:var(--code)}
+</style></head><body><main><h1>Comment utiliser les fiches techniques de restauration</h1>
+<p>Les fiches sont des procédures pratiques (ajuster l'action, régler le truss rod…) écrites en Markdown dans <code>docs/fiches/</code>. Elles sont consultables sur le site, liables depuis les étapes d'un plan de restauration et citées par le chat de l'annonce.</p>
+<p><strong>Principe à retenir : la source est Git.</strong> La base Postgres n'en est qu'une copie, réécrite à chaque déploiement. Ne jamais corriger une fiche en base.</p>
+<h2>1. Lire une fiche sur le site</h2>
+<ul>
+<li>Liste : <code>#fiches</code> (ex. <code>https://…/#fiches</code>). Filtrer par catégorie ou chercher par mot.</li>
+<li>Une fiche : <code>#fiche/&lt;slug&gt;</code> (ex. <code>#fiche/reglage-truss-rod</code>). Table des matières à côté du texte.</li>
+<li>Les badges <strong>statut</strong> (<code>brouillon</code>, <code>en_revision</code>, <code>validee</code>) et <strong>confiance</strong> indiquent la fiabilité : une fiche <code>brouillon</code> n'a pas été relue.</li>
+<li>Chaque fiche liste ses <strong>sources</strong> (sites et vidéos de luthiers), avec une note quand elles divergent.</li>
+</ul>
+<h2>2. Lier une fiche à une étape de restauration</h2>
+<ol>
+<li>Ouvrir l'annonce, puis son plan de restauration.</li>
+<li>Sur une étape (en création ou en édition), choisir la fiche dans le sélecteur « fiche technique ».</li>
+<li>L'étape affiche alors un lien cliquable vers la fiche. Pour retirer le lien, vider le sélecteur.</li>
+</ol>
+<p>Un slug inconnu est refusé par l'API (422) ; si une fiche disparaît, le lien n'est simplement plus affiché.</p>
+<h2>3. Utiliser les fiches dans le chat</h2>
+<ul>
+<li>Poser la question normalement (« ma truss rod est coincée, que faire ? »). Les fiches pertinentes sont retrouvées par la question, puis par l'étape du plan, le plan, l'annonce.</li>
+<li>Les fiches trouvées s'affichent en cartes ; le chat les cite avec des liens cliquables et peut les proposer comme <code>fiche_slug</code> d'une nouvelle étape.</li>
+<li>Le contexte d'une fiche n'est injecté qu'une fois par conversation.</li>
+<li>Si la recherche de fiches est lente ou en panne (délai 2,5 s), le chat répond quand même, sans fiches.</li>
+</ul>
+<h2>4. Créer une nouvelle fiche</h2>
+<ol>
+<li>Copier <code>docs/fiches/_GABARIT.md</code> vers <code>docs/fiches/&lt;slug&gt;.md</code> (le slug = nom du fichier sans <code>.md</code>, en minuscules et tirets).</li>
+<li>Remplir l'en-tête, sans champ inconnu :</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Champ</th>
+<th>Valeur</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>slug</code>, <code>titre</code></td>
+<td>identifiant et titre</td>
+</tr>
+<tr>
+<td><code>categorie</code></td>
+<td><code>structurel</code>, <code>cosmetique</code>, <code>electronique</code>, <code>quincaillerie</code>, <code>reglage</code>, <code>autre</code></td>
+</tr>
+<tr>
+<td><code>difficulte</code></td>
+<td>1 (débutant) à 5 (luthier confirmé), <strong>obligatoire</strong></td>
+</tr>
+<tr>
+<td><code>duree</code></td>
+<td>texte libre, <strong>obligatoire</strong></td>
+</tr>
+<tr>
+<td><code>statut</code></td>
+<td><code>brouillon</code> → <code>en_revision</code> → <code>validee</code></td>
+</tr>
+<tr>
+<td><code>revision</code></td>
+<td>date <code>AAAA-MM-JJ</code></td>
+</tr>
+<tr>
+<td><code>alias</code></td>
+<td>expressions précises qui retrouvent la fiche (éviter les mots seuls trop courants : « action », « manche »)</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>Écrire le corps : résumé, risques et points de non-retour, outils, étapes, pièges, vérifications finales.</li>
+<li><strong>Sources obligatoires</strong> : dans la section « Sources et liens », une ligne par source :
+   <code>- [Éditeur : titre](https://…) : note</code>. Une source n'est jamais tronquée (note de plus de 300 caractères refusée).</li>
+<li>Images dans <code>docs/fiches/img/&lt;slug&gt;/NN-description.jpg</code>, référencées en chemin relatif : <code>![légende](img/&lt;slug&gt;/01-nom.jpg)</code>.</li>
+<li>Renvoi vers une autre fiche : lien relatif <code>[titre](autre-fiche.md)</code> ; la fiche appelante garde un résumé minimal.</li>
+<li>Dépôt public : aucune donnée personnelle, aucun titre ni URL d'annonce.</li>
+</ol>
+<h2>5. Modifier une fiche</h2>
+<p>Modifier le fichier par petits blocs, mettre à jour <code>revision</code>, ajouter une ligne à l'<em>Historique des révisions</em> de la fiche. Passer le statut à <code>validee</code> seulement après relecture à l'atelier.</p>
+<h2>6. Valider et publier</h2>
+<p>Vérifier avant de pousser (n'écrit rien) :</p>
+<pre><code class="language-bash">export DATABASE_URL=...   # base visée
+python backend/scripts/seed_guitar_fiches.py --dry-run
+</code></pre>
+<p>Le script contrôle les sources, les renvois, les alias, <code>difficulte</code> et <code>duree</code>, et refuse les champs inconnus.</p>
+<p>Publier : pousser sur <code>dev</code>. Le déploiement charge les fiches dans chaque base (bot, API prod, API staging) ; l'étape est non bloquante et idempotente. Chargement manuel : même commande sans <code>--dry-run</code> ; <code>--force</code> réécrit tout, <code>--prune --yes</code> supprime les fiches dont le fichier n'existe plus.</p>
+<p>Les tests <code>npm test</code> et <code>test_seed_guitar_fiches.py</code> / <code>test_fiches_api.py</code> (job <code>tests</code> de <code>deploy.yml</code>) bloquent le déploiement s'ils échouent.</p>
+<h2>7. Dépannage</h2>
+<table>
+<thead>
+<tr>
+<th>Symptôme</th>
+<th>Cause probable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>La fiche n'apparaît pas sur le site</td>
+<td>Chargement non fait ou refusé : relancer <code>--dry-run</code> et lire l'erreur ; vérifier les logs de l'étape de chargement du déploiement</td>
+</tr>
+<tr>
+<td>Le chat ne cite pas la fiche</td>
+<td>Alias trop vagues ou absents ; l'index d'alias se rafraîchit toutes les 30 s</td>
+</tr>
+<tr>
+<td>Image manquante sur le site</td>
+<td>Fichier absent de <code>docs/fiches/img/&lt;slug&gt;/</code> (le build affiche un avertissement)</td>
+</tr>
+<tr>
+<td>Correction en base écrasée</td>
+<td>Normal : corriger le fichier Markdown dans Git</td>
+</tr>
+</tbody>
+</table></main></body></html>
