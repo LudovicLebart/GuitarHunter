@@ -3,10 +3,10 @@ import { AlertTriangle, ArrowLeft, BookOpen, Clock, Gauge, Search } from 'lucide
 import { fetchFiche, fetchFiches } from '../services/apiService';
 import { RESTORATION_CATEGORIES, RESTORATION_CATEGORY_LABELS } from '../constants/restorationPlan';
 import {
-    CONFIDENCE_HINTS, CONFIDENCE_LABELS, FICHES_HREF, STATUT_HINTS, STATUT_LABELS, difficultyLabel, ficheHref, filterFiches,
-    groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage,
+    CONFIDENCE_HINTS, CONFIDENCE_LABELS, FICHES_HREF, HISTORY_ID, HISTORY_TITLE, STATUT_HINTS, STATUT_LABELS, difficultyLabel, ficheHref,
+    filterFiches, groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage, splitFicheHistory,
 } from '../utils/fiches';
-import SimpleMarkdown from './SimpleMarkdown';
+import SimpleMarkdown, { scrollToId } from './SimpleMarkdown';
 
 // Page « Fiches techniques de restauration » : liste filtrable et lecture d'une fiche, par le hash de l'URL
 // (`#fiches`, `#fiche/<slug>`, voir hooks/useFicheRoute.js). Les fiches viennent de l'API (base commune avec les marques,
@@ -115,6 +115,8 @@ const FicheDetail = ({ slug, api }) => {
     // Sommaire : les titres `##` EFFECTIVEMENT rendus (avec leur ancre, posée par rehype-slug), lus dans la page une fois la fiche affichée.
     const bodyRef = useRef(null);
     const [sommaire, setSommaire] = useState([]);
+    // L'historique des révisions (dernière section) est lu à part : panneau repliable, TOUJOURS fermé à l'arrivée.
+    const { main, history } = useMemo(() => splitFicheHistory(fiche?.body_md), [fiche]);
     useLayoutEffect(() => {
         const titles = bodyRef.current ? [...bodyRef.current.querySelectorAll('h2[id]')] : [];
         setSommaire(titles.map((h) => ({ id: h.id, text: h.textContent })));
@@ -125,6 +127,7 @@ const FicheDetail = ({ slug, api }) => {
     if (!fiche) return <Message>Cette fiche n'existe pas (ou plus). <a href={FICHES_HREF} className="text-blue-400 underline">Voir toutes les fiches</a></Message>;
 
     const publishers = new Set((fiche.sources || []).map((s) => s.publisher)).size;
+    const entrees = history ? [...sommaire, { id: HISTORY_ID, text: HISTORY_TITLE }] : sommaire;
     return (
         <article className="space-y-5">
             <header className="space-y-3">
@@ -151,21 +154,36 @@ const FicheDetail = ({ slug, api }) => {
                 </div>
             )}
 
-            {sommaire.length > 2 && (
+            {entrees.length > 2 && (
                 <nav aria-label="Sommaire" className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3">
                     <p className="text-[11px] font-black uppercase tracking-widest text-slate-500 mb-1">Sommaire</p>
                     <ol className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                        {sommaire.map((h) => (
-                            <li key={h.id}><a href={`#${h.id}`} onClick={(e) => scrollToHeading(e, h.id)} className="text-blue-400 hover:text-blue-300">{h.text}</a></li>
+                        {entrees.map((h) => (
+                            <li key={h.id}>
+                                <a href={`#${h.id}`} onClick={(e) => scrollToHeading(e, h.id)} className="text-blue-400 hover:text-blue-300">{h.text}</a>
+                            </li>
                         ))}
                     </ol>
                 </nav>
             )}
 
             <div ref={bodyRef}>
-                <SimpleMarkdown text={fiche.body_md} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
+                <SimpleMarkdown text={main} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
                     isRouteHref={(href) => parseFicheHash(href) !== null} />
             </div>
+
+            {history && (
+                // `key` : une autre fiche remonte le panneau, donc il repart fermé ; pas de mémoire de l'état ouvert.
+                <details key={fiche.slug} id={HISTORY_ID} className="rounded-2xl border border-slate-800 bg-slate-900/40 scroll-mt-20 group">
+                    <summary className="cursor-pointer select-none px-4 py-3 text-sm font-black text-white flex items-center gap-2 list-none [&::-webkit-details-marker]:hidden">
+                        <span className="text-slate-500 transition-transform group-open:rotate-90" aria-hidden="true">▸</span> {HISTORY_TITLE}
+                    </summary>
+                    <div className="px-4 pb-4">
+                        <SimpleMarkdown text={history} resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
+                            isRouteHref={(href) => parseFicheHash(href) !== null} />
+                    </div>
+                </details>
+            )}
         </article>
     );
 };
@@ -174,7 +192,7 @@ const FicheDetail = ({ slug, api }) => {
 // sommaire fait défiler la page sans toucher au hash.
 const scrollToHeading = (event, id) => {
     event.preventDefault();
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollToId(id);                                                 // ouvre aussi le panneau de l'historique si la cible est dedans
 };
 
 const FichesPage = ({ route, api = DEFAULT_API }) => {

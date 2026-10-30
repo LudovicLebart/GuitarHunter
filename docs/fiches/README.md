@@ -18,7 +18,8 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 - **Renvois entre fiches** : un sujet qui mérite sa propre procédure devient une fiche à part, citée par
   lien relatif (`[titre](autre-fiche.md)`) ; la fiche appelante ne garde qu'un résumé minimal.
 - **Évolution** : on modifie par petits blocs, on met à jour `revision` et on ajoute une ligne à
-  l'*Historique des révisions* de la fiche.
+  l'*Historique des révisions* de la fiche. Cette section reste **la dernière** de la fiche, avec ce titre exact
+  (`## Historique des révisions`) : le site l'affiche dans un panneau repliable, **fermé par défaut**.
 - **Statuts** : `brouillon` (rédigé, pas relu) → `en_revision` (en cours de correction) → `validee`
   (relue et confirmée par l'atelier).
 - **Dépôt public** : aucune donnée personnelle, aucun titre ni URL d'annonce, aucun identifiant.

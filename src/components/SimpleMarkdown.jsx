@@ -22,12 +22,20 @@ const identity = (value) => value;
 const never = () => false;
 const cx = (...names) => names.filter(Boolean).join(' ');
 
-// Fait défiler vers le titre dont l'`id` est l'ancre du lien, sans changer l'URL.
+// Fait défiler vers l'élément d'`id` donné, sans changer l'URL. Si la cible est (ou se trouve dans) un panneau repliable
+// `<details>` fermé (ex. l'historique des révisions d'une fiche), le panneau est ouvert d'abord : sinon on arriverait sur un titre replié.
+export const scrollToId = (id) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    for (let panel = target.closest('details'); panel; panel = panel.parentElement?.closest('details')) panel.open = true;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
 const scrollToAnchor = (event, href) => {
     event.preventDefault();
     let id = href.slice(1);
     try { id = decodeURIComponent(id); } catch { /* %-encodage invalide : on cherche l'id tel quel */ }
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollToId(id);
 };
 
 const HEADINGS = {

@@ -7,6 +7,34 @@
 const SLUG_PATTERN = '[a-z0-9][a-z0-9-]{0,79}';
 export const FICHE_SLUG_RE = new RegExp(`^${SLUG_PATTERN}$`);
 
+export const HISTORY_TITLE = 'Historique des révisions';
+export const HISTORY_ID = 'historique-des-revisions';
+
+/** Coupe le Markdown d'une fiche à sa DERNIÈRE section « ## Historique des révisions » : { main, history }.
+ *  Le titre est retiré de `history` (la page le pose dans le panneau repliable). Sans cette section, ou si elle n'est pas
+ *  la dernière (un autre `## …` la suit), tout reste dans `main` et `history` est vide. Les blocs de code ne sont pas parcourus. */
+export const splitFicheHistory = (markdown) => {
+    const text = String(markdown || '');
+    const lines = text.split('\n');
+    let fence = null;                                           // bloc de code ouvert : { char, len } ; fermé par ≥ len fois le même caractère
+    let start = -1;
+    let lastH2 = -1;
+    lines.forEach((line, i) => {
+        const marker = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        if (marker) {
+            const [char, len] = [marker[1][0], marker[1].length];
+            if (!fence) fence = { char, len };
+            else if (char === fence.char && len >= fence.len && !marker[2].trim()) fence = null;
+            return;
+        }
+        if (fence || !/^##\s+\S/.test(line)) return;
+        lastH2 = i;
+        if (line.replace(/^##\s+/, '').trim() === HISTORY_TITLE) start = i;
+    });
+    if (start === -1 || start !== lastH2) return { main: text, history: '' };
+    return { main: lines.slice(0, start).join('\n').trimEnd() + '\n', history: lines.slice(start + 1).join('\n').trim() };
+};
+
 export const FICHES_HREF = '#fiches';
 export const ficheHref = (slug) => `#fiche/${slug}`;
 

@@ -109,6 +109,15 @@ class TestValidation(unittest.TestCase):
     def test_a_good_fiche_is_valid(self):
         self.assertEqual(self.check(doc()), [])
 
+    def test_the_history_section_must_be_exact_and_last(self):
+        history = "\n## Historique des révisions\n\n| Date | Changement |\n|---|---|\n| 2026-10-30 | Création |\n"
+        self.assertEqual(self.check(doc() + history), [])
+        self.assertEqual(self.check(doc()), [])                                              # sans historique : toléré
+        mal_nomme = self.check(doc() + history.replace("Historique des révisions", "Historique"))
+        self.assertTrue(any("mal nommée" in p for p in mal_nomme), mal_nomme)
+        pas_derniere = self.check(doc() + history + "\n## Annexe\n\ntexte\n")
+        self.assertTrue(any("suivie d'une autre section" in p for p in pas_derniere), pas_derniere)
+
     def test_a_fiche_without_source_is_refused(self):
         self.assertTrue(any("AUCUNE source" in p for p in self.check(doc(sources="Aucune pour l'instant.\n"))))
 

@@ -55,6 +55,7 @@ PUBLISHER_KINDS = {"martinguitar.com": "manufacturer", "gibson.com": "manufactur
 SOURCE_RE = re.compile(r"^\s*[-*]\s+\[(?P<label>[^\]]+)\]\((?P<url>https?://(?:[^()\s]|\([^()\s]*\))+)\)\s*(?::\s*(?P<note>.+))?$")
 BULLET_RE = re.compile(r"^\s*[-*]\s+\S")
 SOURCES_TITLE = "Sources et liens"
+HISTORY_TITLE = "Historique des révisions"       # même titre que src/utils/fiches.js::HISTORY_TITLE
 # Marqueur d'une fiche complète dans docs/fiches/ : sans lui, `--prune` refuse de supprimer quoi que ce soit.
 SENTINEL = "_GABARIT.md"
 MD_LINK_RE = re.compile(r"\]\((?P<target>[^)\s#]+\.md)(?:#[^)]*)?\)")
@@ -190,6 +191,13 @@ def validate_fiche(f, known_slugs):
             continue
         if os.path.splitext(target)[0] not in known_slugs:
             problems.append(f"{label} : renvoi vers « {target} » qui n'existe pas dans docs/fiches/")
+    # Le site replie la DERNIÈRE section « Historique des révisions » (src/utils/fiches.js::splitFicheHistory) : titre exact, en dernier.
+    titles = [m.group(1) for m in re.finditer(r"^##\s+(\S.*?)\s*$", f["body"], re.M)]
+    for i, title in enumerate(titles):
+        if title.lower().startswith("historique") and (title != HISTORY_TITLE or i != len(titles) - 1):
+            raison = "mal nommée" if title != HISTORY_TITLE else "suivie d'une autre section"
+            problems.append(f"{label} : la section d'historique doit s'appeler « ## {HISTORY_TITLE} » et être la DERNIÈRE de la fiche "
+                            f"(le site ne la replierait pas) : « ## {title} » est {raison}")
     return problems
 
 

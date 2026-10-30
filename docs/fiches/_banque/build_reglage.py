@@ -44,13 +44,10 @@ ecrire("reglage-action", "01-ordre-des-reglages.svg", svg(
 # 2. Sillet : bon et trop bas ----------------------------------------------------------------------------------
 def panneau_sillet(x0, bon):
     y_corde_sillet = 128 if bon else 146
-    y_f1 = 137
     p = [f'<rect x="{x0 + 130}" y="140" width="270" height="50" fill="{C["manche"]}"/>',
          f'<rect x="{x0 + 100}" y="118" width="30" height="72" fill="#fff" stroke="{C["trait"]}" stroke-width="2"/>',
          f'<path d="M{x0 + 250 - 12} 140 q12 -10 24 0z" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>']
     # la corde : de la mécanique (haut gauche) au fond de l'entaille, puis droite vers le chevalet
-    pente = (y_corde_sillet - 95) / 95
-    y_f1_corde = y_corde_sillet + (150 / 270) * (y_f1 - 8 - y_corde_sillet + 6) if False else y_corde_sillet + (y_f1 - 3 - y_corde_sillet) * 0.15 - 2
     p.append(f'<path d="M{x0 + 20} 95 L{x0 + 115} {y_corde_sillet} L{x0 + 400} {y_corde_sillet - (4 if bon else 6)}" '
              f'stroke="#94a3b8" stroke-width="3" fill="none"/>')
     p.append(texte(x0 + 115, 108, "sillet", 13, C["texte_doux"], False, "middle"))

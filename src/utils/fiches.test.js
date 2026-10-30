@@ -2,8 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     FICHES_HREF, buildFichesContextText, ficheHref, fichesForCategory, filterFiches, groupByCategory, needsWarning, parseFicheHash,
-    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, safeUrl, splitFicheLinks, fichesSharedInMessages,
+    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, safeUrl, splitFicheLinks, fichesSharedInMessages, splitFicheHistory,
 } from './fiches.js';
+
+test('splitFicheHistory : la dernière section « Historique des révisions » est séparée du corps', () => {
+    const md = '# T\n\n## Étapes\n\ntexte\n\n## Sources et liens\n\n- a\n\n## Historique des révisions\n\n| Date | Changement |\n|---|---|\n| 2026-10-30 | Création |\n';
+    const { main, history } = splitFicheHistory(md);
+    assert.ok(main.includes('## Sources et liens') && !main.includes('Historique des révisions'));
+    assert.ok(main.endsWith('- a\n'));
+    assert.ok(history.startsWith('| Date | Changement |') && history.includes('Création'));
+    assert.ok(!history.includes('##'));
+});
+
+test('splitFicheHistory : sans historique, historique non final, ou dans un bloc de code : rien n\'est séparé', () => {
+    const sans = '# T\n\n## Étapes\n\ntexte\n';
+    assert.deepEqual(splitFicheHistory(sans), { main: sans, history: '' });
+    const milieu = '# T\n\n## Historique des révisions\n\n| a |\n\n## Annexe\n\ntexte\n';
+    assert.deepEqual(splitFicheHistory(milieu), { main: milieu, history: '' });
+    const code = '# T\n\n## Étapes\n\n```\n## Historique des révisions\n```\n';
+    assert.deepEqual(splitFicheHistory(code), { main: code, history: '' });
+    // fences mêlées : ``` imbriqué dans ~~~, ou 4 backticks contenant un bloc ``` : le titre dans le bloc ne compte pas
+    const melee = '# T\n\n~~~\n```\n## Historique des révisions\n~~~\n\n## Historique des révisions\n\n| a |\n';
+    const coupe = splitFicheHistory(melee);
+    assert.ok(coupe.main.includes('~~~\n```\n## Historique') && coupe.history === '| a |');
+    const quatre = '# T\n\n````\n```\n## Historique des révisions\n```\n````\n';
+    assert.deepEqual(splitFicheHistory(quatre), { main: quatre, history: '' });
+    assert.deepEqual(splitFicheHistory(''), { main: '', history: '' });
+    assert.deepEqual(splitFicheHistory(null), { main: '', history: '' });
+});
 
 test('parseFicheHash : liste, détail, formes tolérées, rejets', () => {
     assert.deepEqual(parseFicheHash('#fiches'), { name: 'list' });

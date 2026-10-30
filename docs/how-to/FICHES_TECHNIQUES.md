@@ -54,7 +54,7 @@ Un slug inconnu est refusé par l'API (422) ; si une fiche disparaît, le lien n
 
 ## 5. Modifier une fiche
 
-Modifier le fichier par petits blocs, mettre à jour `revision`, ajouter une ligne à l'*Historique des révisions* de la fiche. Passer le statut à `validee` seulement après relecture à l'atelier.
+Modifier le fichier par petits blocs, mettre à jour `revision`, ajouter une ligne à l'*Historique des révisions* de la fiche (dernière section, titre exact `## Historique des révisions` : le site l'affiche dans un panneau repliable fermé par défaut, ouvert par un clic ou par l'entrée du sommaire). Passer le statut à `validee` seulement après relecture à l'atelier.
 
 ## 6. Valider et publier
 
