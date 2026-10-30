@@ -35,6 +35,7 @@ def _make_bot():
     bot.stop_event = None
     bot.scan_stop_event = None
     bot._browser_semaphore = None
+    bot._fb_scans_done = {}
     bot._local = threading.local()
     bot.handle_deal_found = MagicMock(return_value="processed")
     bot.should_skip_deal = MagicMock(return_value=False)
@@ -848,6 +849,36 @@ class TestFacebookScanUsesRealFacebookId(unittest.TestCase):
         self._run(city, mock_scraper_cls)
         args, _ = self.bot._record_scrape_health.call_args
         self.assertEqual(args[1]["id"], "110035235685771")  # clé stable de la ville dans scrape_runs
+
+    def _allow_flags(self, mock_scraper_cls, runs, **overrides):
+        city = {"id": "103111009728836", "fbLocationId": None, "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_marketplace.return_value = {**self.empty, **overrides}
+        flags = []
+        for _ in range(runs):
+            self.bot._run_facebook_scan(self.scan_config, [city])
+            flags.append(scraper.scan_marketplace.call_args.kwargs["allow_catchup"])
+        return flags
+
+    def test_first_scan_is_a_full_pass_then_catchup_with_a_periodic_full_pass(self, mock_scraper_cls, _sleep):
+        n = self.bot.FACEBOOK_FULL_PASS_EVERY
+        flags = self._allow_flags(mock_scraper_cls, n + 2)
+        self.assertEqual(flags, [False] + [True] * (n - 1) + [False, True])
+
+    def test_failed_or_blocked_scans_do_not_count_as_complete(self, mock_scraper_cls, _sleep):
+        self.assertEqual(self._allow_flags(mock_scraper_cls, 3, error="boom"), [False, False, False])
+        self.assertEqual(self._allow_flags(mock_scraper_cls, 2, error=None, anti_bot_blocked=True), [False, False])
+
+    def test_changed_search_restarts_with_a_full_pass(self, mock_scraper_cls, _sleep):
+        self.assertEqual(self._allow_flags(mock_scraper_cls, 2), [False, True])
+        self.scan_config = {**self.scan_config, "max_price": 999}
+        self.assertEqual(self._allow_flags(mock_scraper_cls, 1), [False])
+
+    def test_scraper_gets_the_configured_catchup_run(self, mock_scraper_cls, _sleep):
+        self._allow_flags(mock_scraper_cls, 1)
+        config = mock_scraper_cls.call_args.kwargs["config"]
+        self.assertEqual(config.catchup_known_run, self.bot.FACEBOOK_CATCHUP_KNOWN_RUN)
+
 
 class TestRecordScrapeHealth(unittest.TestCase):
     """Suivi de santé des scrapers (backend/scrape_health.py) : enregistrement par scan de ville,

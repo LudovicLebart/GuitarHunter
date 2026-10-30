@@ -19,6 +19,8 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
+from .catchup import CatchUpTracker
+from .scroll import ScrollProgress
 from .zone import card_verdict, may_try_gps_fallback
 from backend.sold_markers import find_sold_marker
 
@@ -364,7 +366,7 @@ class FacebookScraper:
         return False
 
     def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0,
-                      dropped_no_location=0, dropped_no_price=0, error=None):
+                      dropped_no_location=0, dropped_no_price=0, error=None, skipped_known=0, stopped_caught_up=False):
         """Forme standard retournée par scan_marketplace() à chaque point de sortie,
         pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés).
         `error` : message de l'exception interceptée par scan_marketplace() (qui ne la propage pas),
@@ -377,9 +379,13 @@ class FacebookScraper:
             "total_cards_seen": total_cards_seen,
             "dropped_no_location": dropped_no_location,
             "dropped_no_price": dropped_no_price,
+            "skipped_known": skipped_known,
+            "stopped_caught_up": stopped_caught_up,
         }
 
-    def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None):
+    def scan_marketplace(self, scan_config, should_skip_callback=None, stop_event=None, allow_catchup=True):
+        """`allow_catchup=False` force une passe complète même si `config.catchup_known_run` est actif
+        (premier scan d'une recherche, passe de contrôle périodique : voir bot.py)."""
         self._ensure_session()
 
         # Mise à jour de allowed_cities si passé dans la config (optionnel, mais utile si dynamique)
@@ -466,41 +472,58 @@ class FacebookScraper:
             # cette étape, rien ne garantissait jusqu'ici que ce paramètre (ou le city_id)
             # survivait. Un retour silencieux au tri par défaut ("Pertinence") reproduirait
             # exactement le bug corrigé le 2026-08-23 (voir JOURNAL.md).
-            if "sortBy=creation_time_descend" not in page.url:
+            sorted_by_date = "sortBy=creation_time_descend" in page.url
+            if not sorted_by_date:
                 self.logger.warning(f"   ⚠️ 'sortBy=creation_time_descend' absent de l'URL après application des filtres — tri probablement retombé sur 'Pertinence'. URL actuelle: {page.url}")
 
             self.logger.info("   📜 Défilement dynamique...")
-            previous_count = 0
-            stagnant_iterations = 0
             target_ads_to_load = max_ads * 3 + 30  # Marge de sécurité pour survivre au filtrage (ville/prix)
-            for i in range(self.config.max_scroll_iterations):
-                if stop_event and stop_event.is_set():
-                    self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
-                    return self._scan_result()
-                page.mouse.wheel(0, 1000)
-                time.sleep(2)
 
-                current_count = len(page.locator("a[href*='/marketplace/item/']").all())
-                if current_count >= target_ads_to_load:
-                    self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
-                    break
-                if current_count <= previous_count:
-                    stagnant_iterations += 1
-                    if stagnant_iterations >= 2:
-                        self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i + 1} itération(s).")
-                        break
-                else:
-                    stagnant_iterations = 0
-                previous_count = current_count
+            progress = ScrollProgress(target_ads_to_load)
+            cancelled = False
 
-            listings = page.locator("a[href*='/marketplace/item/']").all()
-            listings_count = len(listings)
-            self.logger.info(f"   👀 {listings_count} éléments trouvés.")
+            def stream_cards():
+                """Défile par étapes et livre les cartes au fur et à mesure de leur apparition : la
+                boucle de traitement peut ainsi arrêter le défilement (plafond, scan rattrapé)."""
+                nonlocal listings_count, cancelled
+                delivered = 0
+                for i in range(self.config.max_scroll_iterations + 1):
+                    if i:  # l'itération 0 traite les cartes déjà chargées, sans défiler
+                        if stop_event and stop_event.is_set():
+                            self.logger.info("🛑 Scan annulé pendant le défilement (STOP_BOT).")
+                            cancelled = True
+                            return
+                        page.mouse.wheel(0, 1000)
+                        time.sleep(2)
+
+                    cards = page.locator("a[href*='/marketplace/item/']").all()
+                    current_count = len(cards)
+                    listings_count = current_count
+                    if current_count < delivered:
+                        # Liste raccourcie (nœuds retirés) : les indices ont glissé, on relit tout
+                        # (`seen` écarte les cartes déjà traitées).
+                        delivered = 0
+                    yield from cards[delivered:]
+                    delivered = current_count
+
+                    reason = progress.observe(current_count, scrolled=bool(i))
+                    if reason == ScrollProgress.TARGET:
+                        self.logger.info(f"   📜 {current_count} annonces chargées (≥ cible de {target_ads_to_load}), arrêt du défilement.")
+                        return
+                    if reason == ScrollProgress.STAGNANT:
+                        self.logger.info(f"   📜 Défilement stabilisé à {current_count} annonces après {i} itération(s).")
+                        return
 
             count = 0
             seen = set()
+            # L'arrêt « rattrapé » suppose un tri par date décroissante : sans lui, des cartes connues
+            # en tête ne disent rien de la suite de la liste.
+            known_run = self.config.catchup_known_run if (allow_catchup and sorted_by_date) else 0
+            catchup = CatchUpTracker(known_run)
+            skipped_known = 0
+            stopped_caught_up = False
 
-            for link in listings:
+            for link in stream_cards():
                 if count >= max_ads: break
 
                 if stop_event and stop_event.is_set():
@@ -558,7 +581,13 @@ class FacebookScraper:
                 # --- OPTIMIZATION: Check if we should skip this deal ---
                 if should_skip_callback and should_skip_callback(fb_id, price):
                     self.logger.info(f"   ⏩ Ignoré (déjà traité et inchangé): {title}")
+                    skipped_known += 1
+                    if catchup.known():
+                        self.logger.info(f"   🏁 Scan précédent rattrapé ({catchup.known_run} annonces connues d'affilée), arrêt du défilement.")
+                        stopped_caught_up = True
+                        break
                     continue
+                catchup.unknown()
                 # --- END OPTIMIZATION ---
 
                 if price <= 0 and "Gratuit" not in title and "Free" not in title:
@@ -629,13 +658,18 @@ class FacebookScraper:
 
                 found_deals.append(listing_data) # Ajout à la liste
                 count += 1
+
+            if cancelled:
+                return self._scan_result()
         except Exception as e:
             scan_error = str(e)
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
+        self.logger.info(f"   👀 {listings_count} carte(s) chargée(s), {skipped_known} déjà connue(s).")
         return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
-                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price, error=scan_error)
+                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price, error=scan_error,
+                                  skipped_known=skipped_known, stopped_caught_up=stopped_caught_up)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()

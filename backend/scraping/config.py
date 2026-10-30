@@ -15,6 +15,10 @@ class ScraperConfig:
     timeout_navigation: int = 60000
     timeout_selector: int = 15000
     max_scroll_iterations: int = 20
+    # Nombre de cartes de la zone consécutives, déjà connues et inchangées, au bout duquel le scan
+    # Facebook s'arrête (tri par date décroissante : on a rattrapé le scan précédent). 0 = désactivé
+    # Réglé par le bot (FACEBOOK_CATCHUP_KNOWN_RUN) ou par le script de comparaison, pas par défaut.
+    catchup_known_run: int = 0
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     locale: str = "fr-CA"
     timezone: str = "America/Montreal"
