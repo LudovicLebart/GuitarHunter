@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     FICHES_HREF, buildFichesContextText, ficheHref, fichesForCategory, filterFiches, groupByCategory, needsWarning, parseFicheHash,
-    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, splitFicheLinks, fichesSharedInMessages,
+    pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, safeUrl, splitFicheLinks, fichesSharedInMessages,
 } from './fiches.js';
 
 test('parseFicheHash : liste, détail, formes tolérées, rejets', () => {
@@ -111,4 +111,14 @@ test('fichesSharedInMessages : relit les fiches déjà décrites dans les messag
     assert.equal(fichesSharedInMessages([{ role: 'user' }, null]).size, 0);
     assert.equal(fichesSharedInMessages([{ role: 'user', parts: [{ text: '[slug: A_B] [slug: ok-1]' }] }]).has('ok-1'), true);
     assert.equal(fichesSharedInMessages([{ role: 'user', parts: [{ text: '[slug: A_B]' }] }]).size, 0);
+});
+
+test('safeUrl : refuse les schémas dangereux et les URL protocole-relatives, accepte le reste', () => {
+    for (const bad of ['javascript:alert(1)', ' JaVaScRiPt:alert(1)', 'java\nscript:alert(1)', 'data:text/html;base64,AAA', 'vbscript:x', '',
+        '//tracker.example/p.png', '\\\\hote\\partage', '/ /x']) {
+        assert.equal(safeUrl(bad), null, JSON.stringify(bad));
+    }
+    for (const good of ['https://stewmac.com/a', 'http://x.org', 'mailto:a@b.c', '#fiche/neck-reset', 'img/a/b.jpg', '../x', 'autre.md', '/chemin/absolu.png']) {
+        assert.equal(safeUrl(good), good, good);
+    }
 });

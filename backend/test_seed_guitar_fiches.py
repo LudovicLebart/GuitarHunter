@@ -51,10 +51,9 @@ def doc(sources=TWO_SOURCES, extra=""):
 
 class TestParsing(unittest.TestCase):
     def test_front_matter_with_comments_and_lists(self):
-        f = make(doc(extra="concerne: Gibson, Les Paul   # facultatif\n"))
+        f = make(doc())
         self.assertEqual(f["meta"]["categorie"], "reglage")
         self.assertEqual(f["meta"]["alias"], ["truss rod coincé", "action haute"])
-        self.assertEqual(f["meta"]["concerne"], ["Gibson", "Les Paul"])
         self.assertEqual(f["summary"], "Résumé court de la fiche.")
 
     def test_sources_are_parsed_with_publisher_title_and_kind(self):
@@ -140,6 +139,17 @@ class TestValidation(unittest.TestCase):
             problems = self.check(text, name=f"{slug}.md", known=(slug, "autre"))
             self.assertTrue(any("invalide" in p for p in problems), slug)
 
+    def test_an_unknown_header_field_is_refused(self):
+        for extra in ("concerne: Gibson\n", "aliase: truss rod coincé\n"):
+            problems = self.check(doc(extra=extra))
+            self.assertTrue(any("inconnu" in p for p in problems), extra)
+
+    def test_a_source_note_over_the_limit_is_refused_not_silently_truncated(self):
+        long_note = "x" * 400
+        f = make(doc(sources=f"- [StewMac : A](https://stewmac.com/a) : {long_note}\n- [Premier Guitar : B](https://www.premierguitar.com/b) : ok\n"))
+        self.assertGreater(len(f["sources"][0]["excerpt"]), 300)        # conservée telle quelle
+        self.assertTrue(any("citation trop longue" in p for p in sf.validate_fiche(f, {"demo", "autre"})))
+
     def test_a_broken_cross_reference_is_refused(self):
         self.assertTrue(any("autre.md" in p for p in self.check(doc(), known=("demo",))))
 
@@ -194,7 +204,7 @@ class TestLoadIntoPostgres(unittest.TestCase):
         with open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8") as fh:
             self.conn.execute(fh.read())
         self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions, "
-                          "guitar_knowledge_source, guitar_knowledge_fiche, guitar_knowledge_link CASCADE")
+                          "guitar_knowledge_source, guitar_knowledge_fiche CASCADE")
         self.addCleanup(gk.configure_version, "validated")
         self.addCleanup(gk.invalidate_cache)
         gk.configure_version("latest")
@@ -216,7 +226,7 @@ class TestLoadIntoPostgres(unittest.TestCase):
         return planned, sf.write(self.conn, planned)
 
     def test_write_creates_rows_without_creating_a_version(self):
-        path = self._fiche(doc(extra="concerne: Gibson\n"))
+        path = self._fiche(doc())
         planned, written = self._load(path)
         self.assertEqual(written, 1)
         row = self.conn.execute("SELECT * FROM guitar_knowledge WHERE id = 'fiche:demo'").fetchone()
@@ -226,8 +236,6 @@ class TestLoadIntoPostgres(unittest.TestCase):
         self.assertIn("Résumé court", fiche["body_md"])
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_source WHERE knowledge_id = 'fiche:demo'"
                                            ).fetchone()["n"], 2)
-        link = self.conn.execute("SELECT * FROM guitar_knowledge_link").fetchone()
-        self.assertEqual((link["from_id"], link["to_id"], link["rel"], link["origin"]), ("manual:gibson", "fiche:demo", "fiche_pour", "fiche"))
         # AUCUNE version créée : la version validée reste la 1
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_versions").fetchone()["n"], 1)
 
@@ -268,14 +276,9 @@ class TestLoadIntoPostgres(unittest.TestCase):
         self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_source WHERE origin = 'manual' AND knowledge_id = 'fiche:demo'"
                                            ).fetchone()["n"], 1)
 
-    def test_unknown_brand_in_concerne_is_refused(self):
-        path = self._fiche(doc(extra="concerne: Marque Inconnue\n"))
-        with self.assertRaises(sf.SeedError):
-            sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
-
     def test_plan_and_orphans_work_before_the_fiche_tables_exist(self):
         """Un --dry-run (lecture seule) peut précéder le premier chargement réel, qui applique le schéma."""
-        self.conn.execute("DROP TABLE guitar_knowledge_link, guitar_knowledge_fiche")
+        self.conn.execute("DROP TABLE guitar_knowledge_fiche")
         planned = sf.plan(self.conn, [self._fiche(doc())], known_slugs={"demo", "autre"})
         self.assertFalse(planned[0]["unchanged"])
         self.assertEqual(sf.orphans(self.conn, planned), [])
@@ -288,28 +291,6 @@ class TestLoadIntoPostgres(unittest.TestCase):
         with patch.object(sf, "FICHE_STOP", frozenset(gk.FICHE_STOP | {"nouveau"})):
             planned, written = self._load(path)
         self.assertEqual((planned[0]["unchanged"], written), (False, 1))
-
-    def test_a_lost_brand_link_is_restored_without_force(self):
-        path = self._fiche(doc(extra="concerne: Gibson\n"))
-        self._load(path)
-        self.conn.execute("DELETE FROM guitar_knowledge_link")      # marque supprimée puis recréée sous le même id
-        planned, written = self._load(path)
-        self.assertEqual((planned[0]["unchanged"], written), (False, 1))
-        self.assertEqual(self.conn.execute("SELECT count(*) AS n FROM guitar_knowledge_link").fetchone()["n"], 1)
-
-    def test_a_concerne_id_that_does_not_exist_is_refused_with_the_fiche_name(self):
-        for ref in ("manual:marque-inexistante", "wd:Q123"):
-            path = self._fiche(doc(extra=f"concerne: {ref}\n"))
-            with self.assertRaises(sf.SeedError) as ctx:
-                sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
-            self.assertIn("demo.md", str(ctx.exception))
-            self.assertIn(ref, str(ctx.exception))
-
-    def test_a_concerne_id_must_be_a_brand_not_a_fiche(self):
-        self._load(self._fiche(doc()))
-        path = self._fiche(doc(extra="concerne: fiche:demo\n").replace("slug: demo", "slug: autre"), "autre.md")
-        with self.assertRaises(sf.SeedError):
-            sf.plan(self.conn, [path], known_slugs={"demo", "autre"})
 
     def test_reload_resets_the_columns_a_hand_made_row_could_have_changed(self):
         self.conn.execute("""INSERT INTO guitar_knowledge (id, kind, name, relevance, relevance_override, source, kb_version,

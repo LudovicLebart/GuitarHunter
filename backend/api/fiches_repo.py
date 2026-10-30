@@ -63,7 +63,7 @@ async def list_fiches(pool: asyncpg.Pool, categorie: str | None = None) -> list[
 
 
 async def get_fiche(pool: asyncpg.Pool, slug: str) -> dict | None:
-    """Fiche complète (métadonnées, corps Markdown, sources, marques concernées) ou None. Les trois lectures partagent
+    """Fiche complète (métadonnées, corps Markdown, sources) ou None. Les trois lectures partagent
     UN instantané (transaction à lecture répétable) : un chargement qui réécrit la fiche entre-temps ne peut pas
     renvoyer des métadonnées d'une version, un corps et des sources d'une autre."""
     if not valid_slug(slug):
@@ -77,12 +77,8 @@ async def get_fiche(pool: asyncpg.Pool, slug: str) -> dict | None:
             sources = await conn.fetch(
                 """SELECT url, kind, title, publisher, lang, license, excerpt FROM guitar_knowledge_source
                    WHERE knowledge_id = $1 ORDER BY (origin = 'manual') DESC, publisher, url""", kid)
-            concerne = await conn.fetch(
-                """SELECT b.id, b.name, b.kind FROM guitar_knowledge_link l JOIN guitar_knowledge b ON b.id = l.from_id
-                   WHERE l.to_id = $1 AND l.rel = 'fiche_pour' ORDER BY b.name""", kid)
     fiche = _meta(row)
     fiche["sources"] = [dict(r) for r in sources]
-    fiche["concerne"] = [dict(r) for r in concerne]
     return fiche
 
 

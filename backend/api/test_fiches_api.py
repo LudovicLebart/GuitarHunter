@@ -57,8 +57,7 @@ async def _seed():
             await conn.execute(
                 """INSERT INTO guitar_knowledge_source (knowledge_id, url, kind, publisher, excerpt, origin)
                    VALUES ($1, 'https://stewmac.com/' || $1, 'other', 'StewMac', '[résumé] x', 'fiche') ON CONFLICT DO NOTHING""", kid)
-        await conn.execute("INSERT INTO guitar_knowledge_link (from_id, to_id, rel, origin) VALUES ($1, 'fiche:api-neck', 'fiche_pour', 'fiche') "
-                           "ON CONFLICT DO NOTHING", BRAND)
+
     finally:
         await conn.close()
 
@@ -115,13 +114,13 @@ class TestFichesAPI(_FichesBase):
         slugs = {f["slug"] for f in self.client.get("/fiches", params={"categorie": "structurel"}).json()}
         self.assertEqual(slugs, {"api-neck"})
 
-    def test_get_one_returns_body_sources_and_brands(self):
+    def test_get_one_returns_body_and_sources(self):
         resp = self.client.get("/fiches/api-neck")
         self.assertEqual(resp.status_code, 200, resp.text)
         body = resp.json()
         self.assertEqual(body["body_md"], "# Neck reset")
         self.assertEqual(body["sources"][0]["publisher"], "StewMac")
-        self.assertEqual([c["name"] for c in body["concerne"]], ["Gibson"])
+        self.assertNotIn("concerne", body)
 
     def test_unknown_invalid_or_brand_slugs_are_404(self):
         for slug in ("inconnue", "API-TRUSS", "..%2Fx", "manual:api-gibson", "api-gibson", "api-truss%0A", "api_truss"):

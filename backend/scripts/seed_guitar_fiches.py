@@ -1,12 +1,11 @@
 """Chargement des fiches techniques de restauration (`docs/fiches/*.md`) dans la base commune
 `guitar_knowledge` (kind 'fiche', id 'fiche:<slug>') — mêmes règles que l'amorçage des marques
-(`seed_guitar_knowledge.py`), dont il réutilise la validation des sources, la confiance et la résolution des références.
+(`seed_guitar_knowledge.py`), dont il réutilise la validation des sources et la confiance.
 
 Les fichiers Markdown restent la SOURCE DE VÉRITÉ (on les modifie en session de chat, puis on recharge) :
 - En-tête `clé: valeur` en tête de fichier (voir `docs/fiches/_GABARIT.md`) : slug (= nom du fichier), titre,
   categorie, difficulte, duree, statut, revision ; `alias:` (expressions qui retrouvent la fiche, séparées par des
-  virgules) ; `concerne:` (marques ou séries auxquelles la fiche s'applique, noms EXACTS de fiches de marques ;
-  absent = fiche générale).
+  virgules). Tout autre champ est refusé (une faute de frappe ne passe pas inaperçue).
 - Sources : section « Sources et liens », une puce par source `- [Éditeur : titre](url) : ce que la source appuie`.
   Une fiche SANS source est refusée ; la confiance est CALCULÉE (`sourced` si ≥ 2 éditeurs distincts).
 - Renvois entre fiches : liens relatifs `autre-fiche.md`, vérifiés (le fichier doit exister).
@@ -37,17 +36,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.guitar_knowledge import (BRAND_KINDS, FICHE_KINDS, FICHE_STOP, MAX_EXCERPT, confidence_of,  # noqa: E402
+from backend.guitar_knowledge import (FICHE_KINDS, FICHE_STOP, confidence_of,  # noqa: E402
                                       domain, fiche_alias_usable, fiche_id, normalize, valid_fiche_slug, validate_sources)
-from backend.scripts.seed_guitar_knowledge import SeedError, resolve_ref  # noqa: E402
+from backend.scripts.seed_guitar_knowledge import SeedError  # noqa: E402
 
 FICHES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "fiches")
 # Mêmes valeurs que `RESTORATION_CATEGORIES` (src/constants/restorationPlan.js) : une fiche se range dans la
 # catégorie de l'étape de restauration à laquelle elle sert.
 CATEGORIES = {"structurel", "cosmetique", "electronique", "quincaillerie", "reglage", "autre"}
 STATUTS = {"brouillon", "en_revision", "validee"}
-LIST_KEYS = {"alias", "concerne"}
+LIST_KEYS = {"alias"}
 REQUIRED_KEYS = ("slug", "titre", "categorie", "difficulte", "duree", "statut", "revision")
+ALLOWED_KEYS = set(REQUIRED_KEYS) | LIST_KEYS
 # Type de source déduit du site quand la puce n'en dit pas plus (voir SOURCE_KINDS) ; « other » par défaut.
 PUBLISHER_KINDS = {"martinguitar.com": "manufacturer", "gibson.com": "manufacturer", "fender.com": "manufacturer",
                    "premierguitar.com": "press", "wikipedia.org": "wikipedia", "youtube.com": "other"}
@@ -120,7 +120,7 @@ def parse_sources(body):
         kind = next((k for d, k in PUBLISHER_KINDS.items() if host == d or host.endswith("." + d)), "other")
         excerpt = f"[résumé] {note}" if note else ""
         sources.append({"url": url, "publisher": publisher.strip(), "kind": kind, "title": title.strip(),
-                        "lang": None, "license": "copyright", "excerpt": excerpt[:MAX_EXCERPT] if excerpt else ""})
+                        "lang": None, "license": "copyright", "excerpt": excerpt})   # jamais tronquée : validate_sources refuse > 300
     return sources, unparsed
 
 
@@ -150,6 +150,7 @@ def validate_fiche(f, known_slugs):
     meta = f["meta"]
     label = f["file"]
     problems = [f"{label} : champ « {k} » manquant" for k in REQUIRED_KEYS if not meta.get(k)]
+    problems += [f"{label} : champ « {k} » inconnu (champs permis : {', '.join(sorted(ALLOWED_KEYS))})" for k in meta if k not in ALLOWED_KEYS]
     slug = meta.get("slug") or ""
     if slug and slug != os.path.splitext(f["file"])[0]:
         problems.append(f"{label} : slug « {slug} » différent du nom du fichier")
@@ -198,34 +199,20 @@ def list_paths(paths=None):
 
 
 def _has_fiche_tables(conn):
-    """Les tables des fiches existent-elles ? Un `--dry-run` (lecture seule) peut tourner AVANT le premier chargement
+    """La table des fiches existe-t-elle ? Un `--dry-run` (lecture seule) peut tourner AVANT le premier chargement
     réel, qui est ce qui applique `schema.sql` : il valide alors sans comparer à la base."""
-    row = conn.execute("SELECT to_regclass('guitar_knowledge_fiche') AS t, to_regclass('guitar_knowledge_link') AS l").fetchone()
-    return bool(row["t"] and row["l"])
-
-
-def resolve_brand(conn, ref):
-    """Marque ou série désignée par `concerne:` : un nom EXACT unique, ou un id `wd:Q…` / `manual:slug` qui doit
-    EXISTER et être une fiche de marque (`resolve_ref` laisse passer ces préfixes sans vérifier : l'insertion du lien
-    échouerait alors sur la clé étrangère, au milieu de la transaction, sans nommer la fiche fautive)."""
-    if ref.startswith(("wd:", "manual:")):
-        row = conn.execute("SELECT id FROM guitar_knowledge WHERE id = %s AND kind = ANY(%s)",
-                           (ref, list(BRAND_KINDS))).fetchone()
-        if not row:
-            raise SeedError(f"« {ref} » : aucune fiche de marque avec cet id")
-        return ref
-    return resolve_ref(conn, ref, set())
+    return bool(conn.execute("SELECT to_regclass('guitar_knowledge_fiche') AS t").fetchone()["t"])
 
 
 def fingerprint(f):
-    """Empreinte de TOUT ce qui détermine ce qu'on écrit en base : le fichier, les règles d'alias (`FICHE_STOP`) et
-    les marques visées. Un changement de règle ou de marque rejoue donc la fiche sans `--force`."""
-    parts = [f["file_hash"], ",".join(sorted(FICHE_STOP)), ",".join(sorted(f["concerne_ids"]))]
+    """Empreinte de TOUT ce qui détermine ce qu'on écrit en base : le fichier et les règles d'alias (`FICHE_STOP`).
+    Un changement de règle rejoue donc la fiche sans `--force`."""
+    parts = [f["file_hash"], ",".join(sorted(FICHE_STOP))]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def plan(conn, paths, known_slugs=None, force=False):
-    """Valide tout le lot, résout `concerne:` et marque les fiches inchangées. Lève SeedError avec TOUS les problèmes."""
+    """Valide tout le lot et marque les fiches inchangées. Lève SeedError avec TOUS les problèmes."""
     fiches, problems = [], []
     for path in paths:
         try:
@@ -249,18 +236,8 @@ def plan(conn, paths, known_slugs=None, force=False):
         slug = f["meta"]["slug"]
         f["id"] = fiche_id(slug)
         f["confidence"] = confidence_of(f["sources"])
-        try:
-            f["concerne_ids"] = [resolve_brand(conn, ref) for ref in f["meta"].get("concerne", [])]
-        except SeedError as e:
-            problems.append(f"{f['file']} : concerne : {e}")
-            continue
         f["content_hash"] = fingerprint(f)
-        # Inchangée = même empreinte ET ses liens vers les marques existent toujours (une marque supprimée puis
-        # recréée sous le même id emporte le lien avec elle : il faut le rétablir).
-        links_ok = not tables or all(conn.execute(
-            "SELECT 1 FROM guitar_knowledge_link WHERE from_id = %s AND to_id = %s AND rel = 'fiche_pour'",
-            (brand_id, f["id"])).fetchone() for brand_id in f["concerne_ids"])
-        f["unchanged"] = not force and stored.get(f["id"]) == f["content_hash"] and links_ok
+        f["unchanged"] = not force and stored.get(f["id"]) == f["content_hash"]
         planned.append(f)
     if problems:
         raise SeedError("\n".join(problems))
@@ -307,10 +284,6 @@ def write(conn, planned):
                     ON CONFLICT (knowledge_id, url) DO NOTHING""",
                              (fid, src["url"], src["kind"], src["title"], src["publisher"], src["lang"], src["license"],
                               src["excerpt"]))
-            conn.execute("DELETE FROM guitar_knowledge_link WHERE to_id = %s AND origin = 'fiche'", (fid,))
-            for brand_id in f["concerne_ids"]:
-                conn.execute("""INSERT INTO guitar_knowledge_link (from_id, to_id, rel, origin)
-                                VALUES (%s,%s,'fiche_pour','fiche') ON CONFLICT DO NOTHING""", (brand_id, fid))
             written += 1
     return written
 
@@ -351,10 +324,9 @@ def print_plan(planned):
     for f in planned:
         meta = f["meta"]
         state = "inchangée" if f["unchanged"] else "à écrire"
-        concerne = f" | concerne {', '.join(meta['concerne'])}" if meta.get("concerne") else ""
         print(f"  [{f['confidence']:13s}] {meta['slug']} ({meta['categorie']}, {meta['statut']}, {state})"
               f" | {len(f['sources'])} source(s) : {', '.join(sorted({domain(s['url']) for s in f['sources']}))}"
-              f" | {len(meta.get('alias', []))} alias{concerne}")
+              f" | {len(meta.get('alias', []))} alias")
     single = [f["meta"]["slug"] for f in planned if f["confidence"] == "single_source"]
     if single:
         print(f"\n⚠️ {len(single)} fiche(s) à source unique — chargées, affichées avec leur niveau de confiance : "

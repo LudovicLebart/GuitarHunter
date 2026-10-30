@@ -148,3 +148,15 @@ export const fichesSharedInMessages = (messages) => {
     }
     return slugs;
 };
+
+/** Lien sûr à poser dans un `href` / `src`, ou null : http(s), mailto, ancre `#…` ou chemin relatif. Tout autre schéma
+ *  (`javascript:`, `data:`, `vbscript:`…) et toute URL protocole-relative `//hôte/…` (site tiers) sont refusés. */
+export const safeUrl = (url) => {
+    const value = String(url || '').trim();
+    if (!value) return null;
+    const compact = value.replace(/[\u0000-\u001f\s]/g, '');
+    if (/^[/\\]{2}/.test(compact)) return null;
+    const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
+    if (!scheme) return value;                       // ancre ou chemin relatif
+    return ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase()) ? value : null;
+};

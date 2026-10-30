@@ -86,7 +86,7 @@ class TestFicheIsolationPostgres(unittest.TestCase):
         with open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8") as fh:
             self.conn.execute(fh.read())
         self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions, "
-                          "guitar_knowledge_source, guitar_knowledge_fiche, guitar_knowledge_link CASCADE")
+                          "guitar_knowledge_source, guitar_knowledge_fiche CASCADE")
         self.addCleanup(gk.configure_version, "validated")
         self.addCleanup(gk.invalidate_cache)
         gk.configure_version("validated")

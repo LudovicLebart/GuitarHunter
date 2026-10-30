@@ -13,8 +13,8 @@ jobs:
   # Tests automatiques (2026-10-30) — AVANT tout déploiement : `deploy-frontend` et `deploy` en dépendent (`needs: tests`).
   # Un test rouge bloque donc le déploiement ; pour le débloquer en urgence, relancer après correction (ou retirer `needs`).
   # Postgres jetable (service) : les tests de la base de connaissances, des fiches et de l'API s'y exécutent pour de bon
-  # (sans lui ils se sautent). Voir CLAUDE.md « Tests ». Hors liste volontairement : `test_chat_api` (8 échecs antérieurs
-  # au système fiches, à traiter à part) et les tests qui exigent un vrai navigateur ou un vrai service externe.
+  # (sans lui ils se sautent). Voir CLAUDE.md « Tests ». Hors liste volontairement : les tests qui exigent un vrai navigateur
+  # ou un vrai service externe.
   tests:
     runs-on: ubuntu-latest
     services:
@@ -69,6 +69,7 @@ jobs:
             backend.test_seed_guitar_fiches \
             backend.api.test_fiches_api \
             backend.api.test_restoration_api \
+            backend.api.test_chat_api \
             backend.api.test_prod_sync
 
   deploy-frontend:

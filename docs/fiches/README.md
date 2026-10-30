@@ -11,7 +11,7 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
   que le site lira pour lister et lier les fiches.
 - **Chargement en base** : automatique à chaque déploiement (`deploy.yml`) — la source est ce dossier, la base n'en est qu'une copie
   dérivée (ne jamais corriger une fiche en base). À la main : `python backend/scripts/seed_guitar_fiches.py --dry-run` valide (sources,
-  renvois, alias, `difficulte` et `duree` obligatoires, marques de `concerne:`), puis sans `--dry-run` écrit ; `DATABASE_URL` à exporter.
+  renvois, alias, `difficulte` et `duree` obligatoires, champs d'en-tête inconnus refusés), puis sans `--dry-run` écrit ; `DATABASE_URL` à exporter.
 - **Images** dans `docs/fiches/img/<slug>/`, nommées `NN-description.jpg`, référencées en chemin relatif.
 - **Sources obligatoires** : chaque fiche cite un ou plusieurs liens (sites ou vidéos de luthiers)
   expliquant le problème et la marche à suivre ; signaler quand les sources divergent.

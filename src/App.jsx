@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { Suspense, lazy, useCallback } from 'react';
 import { AlertTriangle, XCircle } from 'lucide-react';
 
 import { AuthProvider } from './context/AuthContext';
@@ -11,7 +11,8 @@ import { useFicheRoute } from './hooks/useFicheRoute';
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
 import SharedDealPage from './components/SharedDealPage';
-import FichesPage from './components/FichesPage';
+// Chargé à la demande : la page des fiches (et sa bibliothèque Markdown) ne pèse pas sur le bundle principal.
+const FichesPage = lazy(() => import('./components/FichesPage'));
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
@@ -30,7 +31,13 @@ const AppContent = () => {
     return <LoginPage />;
   }
 
-  if (ficheRoute) return <FichesPage route={ficheRoute} />;
+  if (ficheRoute) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">Chargement des fiches…</div>}>
+        <FichesPage route={ficheRoute} />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="font-sans text-slate-900 selection:bg-blue-100 min-h-screen bg-slate-950">

@@ -1,9 +1,12 @@
 import React from 'react';
-import { collectHeadings, parseBlocks, parseInline, safeUrl } from '../utils/markdown';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSlug from 'rehype-slug';
+import { safeUrl } from '../utils/fiches';
 
-// Rendu React du Markdown minimal de `utils/markdown.js` (fiches techniques, réponses du chat). Aucun HTML brut n'est
-// jamais interprété : tout texte est posé comme texte React ; les liens et images passent par `safeUrl` (pas de
-// `javascript:`). Habillé pour le thème sombre de l'application.
+// Rendu Markdown (fiches techniques) par `react-markdown` + `remark-gfm` (tableaux, cases à cocher) + `rehype-slug` (ancres des
+// titres), habillé pour le thème sombre. Aucun HTML brut n'est jamais interprété (pas de `rehype-raw`) : tout texte est posé comme
+// texte React ; les liens et images passent par `safeUrl` (pas de `javascript:`, de `data:` ni de `//hôte`).
 //
 // Props :
 // - `text`          : le Markdown ;
@@ -17,6 +20,7 @@ import { collectHeadings, parseBlocks, parseInline, safeUrl } from '../utils/mar
 
 const identity = (value) => value;
 const never = () => false;
+const cx = (...names) => names.filter(Boolean).join(' ');
 
 // Fait défiler vers le titre dont l'`id` est l'ancre du lien, sans changer l'URL.
 const scrollToAnchor = (event, href) => {
@@ -26,107 +30,62 @@ const scrollToAnchor = (event, href) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-const renderInline = (nodes, ctx, keyPrefix = '') => nodes.map((node, i) => {
-    const key = `${keyPrefix}${i}`;
-    switch (node.type) {
-        case 'text': return <React.Fragment key={key}>{node.value}</React.Fragment>;
-        case 'code': return <code key={key} className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 text-[0.85em] font-mono">{node.value}</code>;
-        case 'bold': return <strong key={key} className="font-bold text-slate-100">{renderInline(node.children, ctx, `${key}.`)}</strong>;
-        case 'em': return <em key={key} className="italic">{renderInline(node.children, ctx, `${key}.`)}</em>;
-        case 'link': {
-            const href = safeUrl(ctx.resolveHref(node.href));
-            const content = renderInline(node.children, { ...ctx, insideLink: true }, `${key}.`);
-            if (!href) return <React.Fragment key={key}>{content}</React.Fragment>;
-            const external = /^https?:/i.test(href);
-            const inPageAnchor = href.startsWith('#') && href.length > 1 && !ctx.isRouteHref(href);
-            return (
-                <a key={key} href={href} className="text-blue-400 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-300"
-                    {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                    {...(inPageAnchor ? { onClick: (e) => scrollToAnchor(e, href) } : {})}>
-                    {content}
-                </a>
-            );
-        }
-        case 'image': {
-            const src = safeUrl(ctx.resolveImage(node.src));
-            if (!src) return <span key={key} className="text-slate-500 italic">{node.alt}</span>;
-            const img = <img src={src} alt={node.alt} loading="lazy" className="max-w-full max-h-[28rem] rounded-xl border border-slate-700" />;
-            // Dans un lien (image cliquable), l'image n'ouvre pas son propre lien : pas d'`<a>` imbriqué.
-            if (ctx.insideLink) return <React.Fragment key={key}>{img}</React.Fragment>;
-            return <a key={key} href={src} target="_blank" rel="noopener noreferrer" className="block my-2">{img}</a>;
-        }
-        default: return null;
-    }
-});
-
-const HEADING_CLASSES = {
-    1: 'text-2xl font-black text-white mt-6 mb-2',
-    2: 'text-lg font-black text-white mt-8 mb-2 pb-1 border-b border-slate-800',
-    3: 'text-base font-bold text-blue-300 mt-5 mb-1',
-    4: 'text-sm font-bold text-slate-200 mt-4 mb-1 uppercase tracking-wide',
-    5: 'text-sm font-bold text-slate-300 mt-3 mb-1',
-    6: 'text-xs font-bold text-slate-400 mt-3 mb-1 uppercase tracking-wide',
+const HEADINGS = {
+    h1: 'text-2xl font-black text-white mt-6 mb-2',
+    h2: 'text-lg font-black text-white mt-8 mb-2 pb-1 border-b border-slate-800',
+    h3: 'text-base font-bold text-blue-300 mt-5 mb-1',
+    h4: 'text-sm font-bold text-slate-200 mt-4 mb-1 uppercase tracking-wide',
+    h5: 'text-sm font-bold text-slate-300 mt-3 mb-1',
+    h6: 'text-xs font-bold text-slate-400 mt-3 mb-1 uppercase tracking-wide',
 };
-const ALIGN_CLASSES = { left: 'text-left', center: 'text-center', right: 'text-right' };
+const heading = (tag) => ({ node, className, ...props }) => React.createElement(tag, { ...props, className: cx(HEADINGS[tag], 'scroll-mt-20') });
 
-const renderBlocks = (blocks, ctx, keyPrefix = '') => blocks.map((block, i) => {
-    const key = `${keyPrefix}${i}`;
-    switch (block.type) {
-        case 'heading': {
-            const { id } = ctx.headings[ctx.state.heading++];        // même ordre que `collectHeadings` : ancres uniques
-            if (block.level === 1 && ctx.skipFirstH1 && !ctx.state.skipped) { ctx.state.skipped = true; return null; }
-            const Tag = `h${block.level}`;
-            return <Tag key={key} id={id} className={`${HEADING_CLASSES[block.level]} scroll-mt-20`}>{renderInline(parseInline(block.text), ctx, `${key}.`)}</Tag>;
-        }
-        case 'paragraph': return <p key={key}>{renderInline(parseInline(block.text), ctx, `${key}.`)}</p>;
-        case 'hr': return <hr key={key} className="border-slate-800 my-4" />;
-        case 'code': return <pre key={key} className="overflow-x-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-200 font-mono"><code>{block.text}</code></pre>;
-        case 'quote': return <blockquote key={key} className="border-l-4 border-blue-500/50 bg-slate-800/40 rounded-r-xl pl-4 pr-3 py-2 text-slate-300 space-y-2">{renderBlocks(block.blocks, ctx, `${key}.`)}</blockquote>;
-        case 'table': return (
-            <div key={key} className="overflow-x-auto rounded-xl border border-slate-700">
-                <table className="w-full text-sm border-collapse">
-                    <thead className="bg-slate-800 text-slate-200">
-                        <tr>{block.header.map((cell, c) => <th key={c} className={`px-3 py-2 font-bold ${ALIGN_CLASSES[block.align[c]] || 'text-left'}`}>{renderInline(parseInline(cell), ctx, `${key}.h${c}.`)}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                        {block.rows.map((row, r) => (
-                            <tr key={r} className="border-t border-slate-800">
-                                {block.header.map((_, c) => <td key={c} className={`px-3 py-2 align-top ${ALIGN_CLASSES[block.align[c]] || 'text-left'}`}>{renderInline(parseInline(row[c] ?? ''), ctx, `${key}.${r}.${c}.`)}</td>)}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+// `node` (arbre syntaxique) n'est jamais posé sur un élément DOM.
+const buildComponents = ({ isRouteHref }) => ({
+    h1: heading('h1'), h2: heading('h2'), h3: heading('h3'), h4: heading('h4'), h5: heading('h5'), h6: heading('h6'),
+    a: ({ node, href, children }) => {
+        if (!href) return <>{children}</>;                                // lien refusé par safeUrl : texte seul
+        const external = /^https?:/i.test(href);
+        const inPage = href.startsWith('#') && href.length > 1 && !isRouteHref(href);
+        return (
+            <a href={href} className="text-blue-400 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-300"
+                {...(external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                {...(inPage ? { onClick: (e) => scrollToAnchor(e, href) } : {})}>
+                {children}
+            </a>
         );
-        case 'list': {
-            const Tag = block.ordered ? 'ol' : 'ul';
-            const marker = block.ordered ? 'list-decimal' : 'list-disc';
-            const start = block.ordered && block.start > 1 ? { start: block.start } : {};
-            return (
-                <Tag key={key} {...start} className={`${block.items.some((it) => it.checked !== null) ? 'list-none pl-0' : `${marker} pl-6`} space-y-1 marker:text-blue-400`}>
-                    {block.items.map((item, n) => (
-                        <li key={n} className={item.checked !== null ? 'flex items-start gap-2' : undefined}>
-                            {item.checked !== null && <input type="checkbox" checked={item.checked} readOnly disabled className="mt-1 accent-blue-500" />}
-                            <span>
-                                {renderInline(parseInline(item.text), ctx, `${key}.${n}.`)}
-                                {item.children.length > 0 && <div className="mt-1 space-y-1">{renderBlocks(item.children, ctx, `${key}.${n}.c`)}</div>}
-                            </span>
-                        </li>
-                    ))}
-                </Tag>
-            );
-        }
-        default: return null;
-    }
+    },
+    img: ({ node, src, alt }) => (src
+        ? <img src={src} alt={alt || ''} loading="lazy" className="inline-block max-w-full max-h-[28rem] my-2 rounded-xl border border-slate-700" />
+        : <span className="text-slate-500 italic">{alt}</span>),
+    strong: ({ node, ...props }) => <strong {...props} className="font-bold text-slate-100" />,
+    em: ({ node, ...props }) => <em {...props} className="italic" />,
+    hr: () => <hr className="border-slate-800 my-4" />,
+    blockquote: ({ node, ...props }) => <blockquote {...props} className="border-l-4 border-blue-500/50 bg-slate-800/40 rounded-r-xl pl-4 pr-3 py-2 text-slate-300 space-y-2" />,
+    pre: ({ node, ...props }) => <pre {...props} className="overflow-x-auto rounded-xl bg-slate-950 border border-slate-800 p-3 text-xs text-slate-200 font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-slate-200" />,
+    code: ({ node, ...props }) => <code {...props} className={cx(props.className, 'px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 text-[0.85em] font-mono')} />,
+    ul: ({ node, className, ...props }) => <ul {...props} className={cx(className?.includes('contains-task-list') ? 'list-none pl-0' : 'list-disc pl-6', 'space-y-1 marker:text-blue-400')} />,
+    ol: ({ node, className, ...props }) => <ol {...props} className={cx(className?.includes('contains-task-list') ? 'list-none pl-0' : 'list-decimal pl-6', 'space-y-1 marker:text-blue-400')} />,
+    li: ({ node, className, ...props }) => <li {...props} className={cx(className, className?.includes('task-list-item') && 'flex items-start gap-2')} />,
+    input: ({ node, ...props }) => <input {...props} className="mt-1 accent-blue-500" />,
+    table: ({ node, ...props }) => (
+        <div className="overflow-x-auto rounded-xl border border-slate-700"><table {...props} className="w-full text-sm border-collapse" /></div>
+    ),
+    thead: ({ node, ...props }) => <thead {...props} className="bg-slate-800 text-slate-200" />,
+    tr: ({ node, ...props }) => <tr {...props} className="border-t border-slate-800 first:border-t-0" />,
+    th: ({ node, ...props }) => <th {...props} className="px-3 py-2 font-bold text-left" />,
+    td: ({ node, ...props }) => <td {...props} className="px-3 py-2 align-top" />,
 });
 
 const SimpleMarkdown = ({ text, resolveHref = identity, resolveImage = identity, isRouteHref = never, skipFirstH1 = false, className = '' }) => {
     if (!text) return null;
-    const blocks = parseBlocks(text);
-    const ctx = { resolveHref, resolveImage, isRouteHref, skipFirstH1, headings: collectHeadings(blocks), state: { skipped: false, heading: 0 } };
+    const source = skipFirstH1 ? text.replace(/^\s*#[ \t]+[^\n]*\n?/, '') : text;
+    const urlTransform = (url, key) => safeUrl(key === 'src' ? resolveImage(url) : resolveHref(url)) || '';
     return (
-        <div className={`space-y-3 text-slate-300 text-sm leading-relaxed ${className}`}>
-            {renderBlocks(blocks, ctx)}
+        <div className={cx('space-y-3 text-slate-300 text-sm leading-relaxed', className)}>
+            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSlug]} urlTransform={urlTransform} components={buildComponents({ isRouteHref })}>
+                {source}
+            </Markdown>
         </div>
     );
 };

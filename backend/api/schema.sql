@@ -657,17 +657,9 @@ CREATE TABLE IF NOT EXISTS guitar_knowledge_fiche (
     content_hash    TEXT NOT NULL              -- saute les fiches inchangées au rechargement
 );
 
--- Relation générique entre deux fiches de la base (marque ou série → fiche technique : « ce modèle a
--- souvent besoin de cette intervention »). `origin='fiche'` : déclarée par l'en-tête d'une fiche et
--- réécrite à chaque chargement de celle-ci ; `origin='manual'` n'est jamais touchée.
-CREATE TABLE IF NOT EXISTS guitar_knowledge_link (
-    from_id         TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
-    to_id           TEXT NOT NULL REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
-    rel             TEXT NOT NULL,             -- 'fiche_pour' (from = marque/série, to = fiche)
-    origin          TEXT NOT NULL DEFAULT 'manual',
-    PRIMARY KEY (from_id, to_id, rel)
-);
-CREATE INDEX IF NOT EXISTS guitar_knowledge_link_to_idx ON guitar_knowledge_link (to_id);
+-- `guitar_knowledge_link` (relation marque/série → fiche, créée le 2026-10-15) RETIRÉE le 2026-10-30 : jamais lue ni écrite
+-- (aucune fiche ne déclarait de marque concernée). Idempotent ; la table est vide.
+DROP TABLE IF EXISTS guitar_knowledge_link;
 
 -- Lien entre une étape du plan de restauration et sa fiche technique (slug sans le préfixe 'fiche:').
 -- Pas de clé étrangère : une fiche retirée de la base ne doit pas bloquer l'étape ; l'API valide le slug

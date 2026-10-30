@@ -18,9 +18,10 @@ from backend.api.test_deals_api import _pg_reachable, _RealServer  # réutilisé
 
 
 async def _seed_deal_and_user(deal_id, user_id):
-    """2026-09-19 (catalogue partagé) : le chat reste réservé à l'ACHETEUR
-    (`purchased_by_user_id`, voir chat_repo.py::get_deal_owner) — plus de `user_id` propre sur
-    `guitar_deals`."""
+    """Annonce du catalogue partagé + sa VISIBILITÉ pour `user_id` (`user_deal_matches`).
+    Depuis le 2026-09-27 le chat est ouvert à toute personne qui VOIT l'annonce (`chat_repo.is_deal_visible`),
+    pas seulement à l'acheteur (`purchased_by_user_id`, réservé au plan de restauration) : sans la ligne
+    `user_deal_matches`, l'API répond 404 « Annonce introuvable » (ces tests l'ignoraient depuis ce changement)."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
@@ -29,6 +30,7 @@ async def _seed_deal_and_user(deal_id, user_id):
             "VALUES ($1, 'x', true, $2) ON CONFLICT (id) DO NOTHING",
             deal_id, user_id,
         )
+        await conn.execute("INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", user_id, deal_id)
     finally:
         await conn.close()
 
@@ -37,6 +39,7 @@ async def _cleanup(*, deal_ids, user_ids):
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("DELETE FROM deal_chat WHERE deal_id = ANY($1::text[])", list(deal_ids))
+        await conn.execute("DELETE FROM user_deal_matches WHERE deal_id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM guitar_deals WHERE id = ANY($1::text[])", list(deal_ids))
         await conn.execute("DELETE FROM users WHERE uid = ANY($1::text[])", list(user_ids))
     finally:
@@ -60,6 +63,26 @@ class TestChatAPI(unittest.TestCase):
         self.client.__exit__(None, None, None)
         app.dependency_overrides.clear()
         asyncio.run(_cleanup(deal_ids=[self.DEAL_ID, "chat-deal-other"], user_ids=[self.UID, self.OTHER_UID]))
+
+    def test_chat_is_hidden_from_a_user_who_does_not_see_the_deal(self):
+        """Le chat est ouvert à qui VOIT l'annonce (`user_deal_matches`), pas à tout utilisateur connecté."""
+        app.dependency_overrides[get_current_uid] = lambda: "test-uid-chat-stranger"
+        self.assertEqual(self.client.get(f"/deals/{self.DEAL_ID}/chat").status_code, 404)
+        resp = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={"role": "user", "parts": [{"text": "x"}], "displayText": "x"})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_chat_is_open_to_a_user_who_sees_the_deal_without_having_bought_it(self):
+        """Décision produit du 2026-09-27 : seul le plan de restauration est réservé à l'acheteur, pas le chat."""
+        async def match():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", self.OTHER_UID, self.DEAL_ID)
+            finally:
+                await conn.close()
+        asyncio.run(match())
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        resp = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={"role": "user", "parts": [{"text": "x"}], "displayText": "x"})
+        self.assertEqual(resp.status_code, 201, resp.text)
 
     def test_add_and_list_messages(self):
         resp = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={

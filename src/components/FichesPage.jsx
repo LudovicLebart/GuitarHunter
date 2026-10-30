@@ -1,8 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, BookOpen, Clock, Gauge, Search } from 'lucide-react';
 import { fetchFiche, fetchFiches } from '../services/apiService';
 import { RESTORATION_CATEGORIES, RESTORATION_CATEGORY_LABELS } from '../constants/restorationPlan';
-import { collectHeadings, parseBlocks } from '../utils/markdown';
 import {
     CONFIDENCE_HINTS, CONFIDENCE_LABELS, FICHES_HREF, STATUT_HINTS, STATUT_LABELS, difficultyLabel, ficheHref, filterFiches,
     groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage,
@@ -113,7 +112,13 @@ const FichesList = ({ api }) => {
 const FicheDetail = ({ slug, api }) => {
     const { loading, error, data: fiche } = useAsync(() => api.fetchFiche(slug), [api, slug]);
     const base = imageBase();
-    const sommaire = useMemo(() => (fiche ? collectHeadings(parseBlocks(fiche.body_md)).filter((h) => h.level === 2) : []), [fiche]);
+    // Sommaire : les titres `##` EFFECTIVEMENT rendus (avec leur ancre, posée par rehype-slug), lus dans la page une fois la fiche affichée.
+    const bodyRef = useRef(null);
+    const [sommaire, setSommaire] = useState([]);
+    useLayoutEffect(() => {
+        const titles = bodyRef.current ? [...bodyRef.current.querySelectorAll('h2[id]')] : [];
+        setSommaire(titles.map((h) => ({ id: h.id, text: h.textContent })));
+    }, [fiche]);
 
     if (loading) return <Message>Chargement de la fiche…</Message>;
     if (error) return <Message tone="error">Impossible de charger la fiche : {error.message}</Message>;
@@ -133,9 +138,6 @@ const FicheDetail = ({ slug, api }) => {
                     {fiche.revision && <span>Révisée le {fiche.revision}</span>}
                     {publishers > 0 && <span>{publishers} éditeur{publishers > 1 ? 's' : ''} cité{publishers > 1 ? 's' : ''}</span>}
                 </div>
-                {(fiche.concerne || []).length > 0 && (
-                    <p className="text-xs text-slate-400">Concerne : {fiche.concerne.map((b) => b.name).join(', ')}</p>
-                )}
             </header>
 
             {needsWarning(fiche) && (
@@ -160,8 +162,10 @@ const FicheDetail = ({ slug, api }) => {
                 </nav>
             )}
 
-            <SimpleMarkdown text={fiche.body_md} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
-                isRouteHref={(href) => parseFicheHash(href) !== null} />
+            <div ref={bodyRef}>
+                <SimpleMarkdown text={fiche.body_md} skipFirstH1 resolveHref={resolveFicheHref} resolveImage={(src) => resolveFicheImage(src, base)}
+                    isRouteHref={(href) => parseFicheHash(href) !== null} />
+            </div>
         </article>
     );
 };
