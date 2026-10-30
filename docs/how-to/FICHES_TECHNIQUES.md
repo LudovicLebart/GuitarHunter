@@ -44,7 +44,11 @@ Un slug inconnu est refusé par l'API (422) ; si une fiche disparaît, le lien n
 3. Écrire le corps : résumé, risques et points de non-retour, outils, étapes, pièges, vérifications finales.
 4. **Sources obligatoires** : dans la section « Sources et liens », une ligne par source :
    `- [Éditeur : titre](https://…) : note`. Une source n'est jamais tronquée (note de plus de 300 caractères refusée).
-5. Images dans `docs/fiches/img/<slug>/NN-description.jpg`, référencées en chemin relatif : `![légende](img/<slug>/01-nom.jpg)`.
+5. **Images, visuels, diagrammes : une fiche doit illustrer, pas seulement expliquer.** Viser au moins un visuel par étape clé, un schéma d'ensemble (vue d'ensemble, niveaux, coupe) et un visuel par piège ou point de non-retour qui se voit. Stockage dans `docs/fiches/img/<slug>/NN-description.<ext>` (`.svg`, `.jpg`, `.png`, `.webp`, `.gif`), référencées en chemin relatif : `![légende](img/<slug>/01-nom.svg)`. Placer chaque image **dans l'étape qu'elle sert**, avec une légende qui dit ce qu'il faut regarder.
+   - **Provenance autorisée** : (a) schémas originaux en **SVG** écrits pour la fiche (le choix par défaut : léger, net, sans droits) ; (b) photos de l'atelier ; (c) images sous licence libre (CC BY, CC BY-SA, domaine public) avec auteur, licence et lien indiqués dans la légende ou sous l'image ; (d) image d'un tiers avec son **accord écrit**, créditée.
+   - **Interdit** : copier dans le dépôt (public) des images d'un site, d'une vidéo, d'un forum ou de Reddit sans l'une des autorisations ci-dessus. Citer la source ne donne pas le droit de reproduire une image.
+   - Les liens vers des pages ou vidéos externes restent un **complément** (`Vidéo`, `Photos`, `Avis`), placés dans l'étape concernée, jamais le seul visuel d'une étape.
+   - Un schéma sert le texte : montrer le geste, le sens, l'orientation ou la différence entre bon et mauvais, pas décorer.
 6. Renvoi vers une autre fiche : lien relatif `[titre](autre-fiche.md)` ; la fiche appelante garde un résumé minimal.
 7. Dépôt public : aucune donnée personnelle, aucun titre ni URL d'annonce.
 

@@ -26,7 +26,7 @@ Ce qui peut abîmer l'instrument, et à quel moment on ne peut plus revenir en a
 
 ### 1. Titre de l'étape
 
-Description. Image : `![légende](img/<slug>/01-nom.jpg)`
+Description. **Visuel obligatoire** (schéma SVG original, photo d'atelier ou image sous licence libre créditée) : `![légende : ce qu'il faut regarder](img/<slug>/01-nom.svg)`
 
 ### 2. Titre de l'étape
 

@@ -3,98 +3,207 @@ slug: reparation-fissure-table
 titre: Réparer une fissure dans la table d'harmonie
 categorie: structurel
 difficulte: 3
-duree: 2 à 4 h (hors séchage de la colle et remise en humidité)
-statut: brouillon
+duree: 1 h (niveau 1) à plusieurs heures (niveaux 2 et 3), hors séchage de la colle et retour à une humidité normale
+statut: en_revision
 revision: 2026-10-30
 alias: fissure dans la table, fissure sur la table, table fendue, table d'harmonie fissurée, fente dans la table, réparer une fissure de table, fissure d'épicéa, crack dans la table, soundboard crack
 ---
 
 # Réparer une fissure dans la table d'harmonie
 
-> Une fissure de table se traite en trois temps : comprendre pourquoi elle est apparue (presque toujours
-> la sécheresse), remettre le bois dans son état normal d'humidité, puis la recoller proprement. Les
-> cales de renfort (« cleats ») ne sont pas automatiques : bien des luthiers s'en passent quand les deux
-> lèvres se rejoignent bien.
+> La réparation dépend de l'état de la fissure : elle va d'un simple recollage après retour à une humidité relative normale
+> (niveau 1) à un travail de luthier (niveau 4). Il faut donc **classer la fissure avant d'agir**, puis
+> chercher la cause. Les cales de renfort (« cleats ») ne sont pas automatiques : certains luthiers
+> les jugent inutiles, voire nuisibles, sur une fissure qui se referme bien.
+>
+> La difficulté de l'en-tête (3/5) est une valeur moyenne : l'échelle réelle est dans le tableau ci-dessous.
 
-## Diagnostic : faut-il réparer, et comment ?
+## Diagnostic : quel niveau de réparation ?
 
-Observer la fissure **avec l'instrument à son humidité normale** (45 à 55 % d'humidité relative est la plage
-usuelle pour une acoustique ; à confirmer avec l'atelier).
+Observer la fissure **avec l'instrument à son humidité normale** (voir étape 1). Une fissure ouverte
+par la sécheresse peut changer de catégorie une fois l'instrument revenu à une humidité normale.
 
-| Constat | Conduite |
-|---|---|
-| Fissure fine, qui se referme bien en humidité normale, sans décalage de niveau entre les deux lèvres | Recollage simple (colle dans la fissure) ; cales facultatives. Une fissure qui reste stable n'exige parfois rien d'autre qu'un humidificateur |
-| Fissure qui reste ouverte, longue, ou qui se rouvre à chaque saison | Recollage **et** cales à l'intérieur (voir étapes) |
-| Lèvres décalées (une plus haute que l'autre) | Il faut les remettre de niveau : outil d'aplanissage (« crack lifter », cale et serre-joints, ou kit de réparation dédié) avant de coller |
-| Fissure causée par un choc, avec fibres écrasées, ou qui traverse le chevalet, un barrage ou la rosace | **Hors de portée d'un premier chantier** : voir un luthier |
+| Niveau | État de la fissure | Conduite | Difficulté |
+|:------:|--------------------|----------|:----------:|
+| 1 | Fissure fine, récente, qui se referme en humidité normale, lèvres de niveau | Laisser l'instrument retrouver une humidité normale, puis recollage simple. Pas de cales | 2/5 |
+| 2 | Fissure qui reste ouverte, longue, ou qui se rouvre à chaque saison, lèvres de niveau | Recollage **et** cales à l'intérieur | 3/5 |
+| 3 | Lèvres décalées (une plus haute que l'autre), fissure ancienne et encrassée, table enfoncée, barrage ou entretoise décollé près de la fissure | Remettre de niveau, nettoyer, recoller, souvent réparer le barrage, cales ou renfort | 4/5 |
+| 4 | Choc avec fibres écrasées ou lambeau replié, fissure qui traverse le chevalet, la rosace ou un barrage, table très mince (« double top »), instrument de valeur ou vernis d'origine à préserver | **Confier à un luthier** | 5/5 |
 
-Ne pas oublier de chercher la **cause** : instrument conservé trop au sec, barrage décollé, choc. Réparer sans corriger
-la cause, c'est préparer la fissure suivante.
+La fiche détaille les niveaux 1 à 3 ; le niveau 4 n'est décrit que pour le reconnaître.
+
+**Fissure du bois ou fissure du vernis ?** Une fissure discrète peut n'être que dans le vernis, sans réparation de structure. Indices cités par des luthiers sur des forums (à confirmer avec l'atelier) : une fissure du bois suit le fil, souvent près du chevalet, et traverse l'épaisseur de la table ; une fissure qui coupe le fil à angle droit est probablement dans le vernis seul ; regarder sous lumière rasante, avec les cordes détendues : des fibres encore en contact indiquent une fissure serrée, une gorge visible une fissure séparée. Le doute justifie de retirer la tension des cordes et de faire examiner l'instrument.
+
+![Les quatre niveaux de gravité d'une fissure de table, vus de dessus](img/reparation-fissure-table/01-niveaux-gravite.svg)
+
+**Exemples réels** (photos de Frank Ford, [Frets.com](https://www.frets.com/pages/xgadge6a/Crack-Repair), affichées depuis le site d'origine et non copiées) :
+
+![Niveau 1 à 2 : fissure fine qui part de derrière le chevalet d'une Taylor](https://shopic.mcmcclass.com/623c6b9a0b5640888030429d745fcb12/20241028/image/1168183572641635804/%E5%BE%AE%E4%BF%A1%E5%9B%BE%E7%89%87-20241028133710.png)
+
+*Niveau 1 à 2 : fissure fine, discrète, qui part de derrière le chevalet et suit le fil de la table (Taylor). C'est le cas le plus courant, et on ne la voit qu'en regardant de près. Source : [Hebikuo, cas de réparation Taylor et Martin](https://fr.hebikuo.com/blog/how-to-repair-cracks-on-guitar) (blog d'un vendeur d'accessoires, photo hébergée chez eux).*
+
+![Niveau 1 : fissure fine près du chevalet, révélée par la lumière rasante](https://www.frets.com/media/images/lns5vmmi/crack.jpg)
+
+*Niveau 1 : fissure fine près du chevalet, que seule la lumière rasante révèle. Source : [Frets.com, Body Cracks](https://www.frets.com/pages/5sin4n18/Body-Cracks).*
+
+![Niveau 1 à 2 : trois longues fissures fines le long du fil, sur la table d'une Martin de 1887](https://www.frets.com/media/images/1i26rlgf/1887cracks.JPG)
+
+*Niveau 1 à 2 : trois fissures fines et longues, orientées le long du fil (flèches de l'auteur), sur une Martin de 1887. Source : [Frets.com, Looking at Cracks](https://www.frets.com/pages/59oqhbml/Looking-at-Cracks).*
+
+![Niveau 2 à 3 : fissure avec éclats de bois près de la touche](https://www.frets.com/media/images/jbhglw2g/chipcrack.JPG)
+
+*Niveau 2 à 3 : fissure qui s'ouvre en éclats près de la touche (Martin 0-16). Source : [Frets.com, Looking at Cracks](https://www.frets.com/pages/59oqhbml/Looking-at-Cracks).*
+
+![Niveau 3 : fissure qui relève la table près du bord](https://www.frets.com/media/images/5jw0iu1g/pucker.JPG)
+
+*Niveau 3 : fissure dans la table d'épicéa avec un plissement au bord, vue de côté. Source : [Frets.com, Looking at Cracks](https://www.frets.com/pages/59oqhbml/Looking-at-Cracks).*
+
+![Niveau 3 : fissure ancienne et sale sur une table Gibson LG-2](https://www.frets.com/media/images/djcvkcpi/lg2topcrack01.jpg)
+
+*Niveau 3 : fissure ancienne, encrassée, près de la rosace d'une Gibson LG-2. Source : [Frets.com, A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair).*
+
+![Niveau 3 à 4 : bord de table qui déborde de la bordure après une chute](https://www.frets.com/FretsPages/Luthier/Technique/Guitar/Structural/Cracks/Taylor355Cracks/355CrackViews/355cracks09.jpg)
+
+*Niveau 3 à 4 : après une chute, le bord de la table déborde de la bordure (Taylor 12 cordes). Source : [Frets.com, Taylor 12-string](https://www.frets.com/pages/xgadge6a/Crack-Repair).*
+
+![Niveau 4 : table très mince enfoncée et fendue près du talon](https://www.frets.com/media/images/nymltc1o/2topcrunch01.jpg)
+
+*Niveau 4 : table très mince (« double top ») enfoncée près du talon, à confier à un luthier. Source : [Frets.com, Vacuum leveling](https://www.frets.com/pages/pzbarj9w/Vacuum-Leveling-for-Crack-Repair).*
+
+Chercher aussi la **cause** : instrument conservé trop au sec, barrage décollé, choc. Une fissure
+n'est pas toujours la cause d'un bourdonnement : elle peut accompagner un barrage desserré, à
+contrôler après réparation (voir *Vérifications finales*). Réparer sans corriger la cause prépare la
+fissure suivante.
 
 ## Risques et points de non-retour
 
-- **Colle dans la fissure, puis dessèchement** : une fissure collée « fermée de force » sur un bois encore sec se rouvre,
-  parfois à côté de la réparation. Toujours humidifier d'abord.
-- **Cales trop grosses ou trop nombreuses** : elles ajoutent de la masse sur la table et peuvent nuire au son. Elles sont aussi
-  difficiles à retirer si elles sont mal posées.
-- **Une cale peut déplacer le problème** : si l'instrument se dessèche de nouveau, la table peut fendre à côté de la cale.
-- **Colle et finition** : la cyanoacrylate (colle « super glue ») peut laisser un halo jaune sur l'épicéa et complique la retouche ;
-  la colle de peau laisse une ligne plus sombre que le bois, surtout sur une table claire.
-- **Rien d'irréversible tant que la colle n'est pas prise.** La colle de peau peut se reprendre à chaud ; le retrait d'une cyanoacrylate est bien plus difficile.
+- **Colle posée sur un bois encore trop sec** : la fissure collée « de force » se rouvre, parfois à
+  côté de la réparation. Laisser d'abord l'instrument retrouver une humidité normale.
+- **Fissure restée ouverte longtemps** : elle peut garder une « mémoire » et ne plus se refermer
+  correctement (Galloup) ; il faut alors la traiter comme un niveau 2 ou 3.
+- **Cales superflues ou mal posées** : elles ajoutent de la masse sur la table, nuisent au son et sont
+  difficiles à retirer. Si l'instrument se dessèche de nouveau, la table peut fendre à côté de la cale.
+- **Lèvres collées décalées** : la réparation reste visible et ne se rattrape pas ; mettre de niveau avant de coller.
+- **Colle irréversible** : une colle de peau peut se reprendre à chaud ; ce n'est pas le cas de la
+  cyanoacrylate ou d'une colle polyuréthane. Sur une réparation qu'on voudra peut-être reprendre, éviter ces dernières.
+  *(Le halo jaune de la cyanoacrylate sur l'épicéa vient de l'ancienne version de la fiche, non confirmé par les sources.)*
+- **Excès de colle** à l'extérieur ou à l'intérieur : essuyer aussitôt.
 
 ## Outils et matériel
 
+Commun aux niveaux 1 à 3 :
+
 - Humidificateur d'instrument, hygromètre
-- Colle de peau (liquide ou en grains) ou colle blanche ; seringue ou fine lame pour la faire pénétrer
-- Cales (« cleats ») dans la même essence que la table (épicéa), fil **perpendiculaire** à la fissure ; épaisseur de l'ordre de 3/32 à 1/8 po (2,4 à 3,2 mm)
-- Serre-joints, cales acryliques ou de bois pour le niveau extérieur ; ruban de masquage ou ruban de transfert à faible adhérence
+- Colle : colle de peau (la **Titebond Liquid Hide Glue** est celle de la démonstration StewMac) ou
+  colle à bois jaune pour une fissure ancienne et encrassée ; seringue ou fine lame pour la faire pénétrer
+- Ruban de masquage ou ruban de protection à faible adhérence, chiffon, eau chaude pour les bavures
 - Miroir et lampe pour travailler à l'intérieur de la caisse
-- Optionnel : kit de réparation de fissures (cales rondes, outil de découpe, serre-joint à aimants)
+
+Niveau 1 : cale plate (caul) en acrylique ou en bois, **papier ciré** pour qu'elle ne colle pas, serre-joint.
+
+Niveaux 2 et 3, en plus :
+
+- Cales (« cleats ») dans la même essence que la table (épicéa le plus souvent) ; épaisseur de l'ordre de 3/32 à
+  1/8 po (2,4 à 3,2 mm) selon StewMac ; Galloup parle d'une taille d'environ « une pièce de dix cents »
+- Cale de répartition (caul) en acrylique ou en bois recouvert de plastique ou de papier ciré
+- Outil pour tirer la cale en place : kit de réparation de fissures StewMac (fil, ancrage, serre-fissure), ou
+  système à aimants (Thompson) ; à défaut, plusieurs serre-joints et cales
+- Niveau 3 : sonde ou crochet pour soulever les lèvres, serre-joints à long bras, plaque acrylique
 
 ## Étapes
 
-### 1. Humidifier l'instrument
+### Niveau 1 : fissure fine qui se referme
 
-Laisser l'instrument à l'humidité normale (humidificateur dans la caisse ou dans l'étui) plusieurs jours, voire plusieurs
-semaines pour une table très sèche. Une fissure causée par la sécheresse se referme en partie d'elle-même. Mesurer l'humidité de la pièce avec un hygromètre.
+#### 1. Laisser l'instrument retrouver une humidité relative normale
 
-### 2. Nettoyer et protéger
+**Il ne s'agit pas de mouiller la table ni la fissure** : on corrige l'air autour de l'instrument pour que le bois
+reprenne son humidité d'équilibre. Placer l'instrument dans un air à humidité normale (humidificateur dans la caisse ou dans l'étui, hygromètre) plusieurs
+jours, voire plusieurs semaines pour une table très sèche. Méthode rapide montrée par StewMac pour une
+fissure récente : un petit bol d'eau avec une éponge et un hygromètre, le tout avec l'instrument à plat dans un
+sac plastique, une nuit. La fissure se referme parfois d'elle-même ; **dans la démonstration de StewMac elle ne
+s'est pas refermée** (printemps pluvieux), il faut alors passer au niveau 2. Une plage de 45 à 55 % d'humidité
+relative est l'usage courant mais n'apparaît dans aucune des sources lues : à confirmer avec l'atelier.
 
-Dégraisser les lèvres de la fissure sans solvant agressif. Masquer la finition autour avec du ruban de masquage ou de transfert,
-pour limiter les bavures de colle.
+> **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (Dan Erlewine, avec transcription) : la méthode du sac, le collage par l'extérieur et la cale à l'intérieur.
 
-### 3. Remettre les lèvres de niveau
+#### 2. Protéger et préparer
 
-Si une lèvre est plus haute que l'autre, la repousser avec un levier ou une cale prenant appui sous la table (un barrage, par exemple),
-puis maintenir le niveau à l'extérieur avec une cale souple et un serre-joint **avant** de coller. Sans ce niveau, la réparation sera visible
-et ne se rattrape pas.
+Dégraisser les lèvres sans solvant agressif, masquer la finition autour de la fissure avec du ruban à faible adhérence.
 
-### 4. Faire pénétrer la colle
+#### 3. Coller
 
-Introduire la colle (colle de peau, pour permettre une reprise ultérieure) dans toute la longueur de la fissure, par l'extérieur ou par
-l'intérieur selon l'accès, en écartant légèrement les lèvres. Essuyer l'excès à l'extérieur immédiatement.
+Entrouvrir légèrement la fissure (par exemple en poussant la table depuis la rosace), faire pénétrer peu de colle sur
+toute la longueur, essuyer l'excès aussitôt. Serrer légèrement avec une cale plate sur la table, papier ciré intercalé,
+pour garder les lèvres de niveau. Ne pas toucher pendant 24 heures.
 
-### 5. Serrer et laisser sécher
+> **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (même vidéo, partie collage).
 
-Serrer sans excès ; la fissure doit se refermer sans forcer ni créer de nouveau décalage. Laisser sécher le temps indiqué par la colle (un jour au moins pour
-la colle blanche).
+### Niveau 2 : fissure qui reste ouverte, avec cales
 
-### 6. Poser des cales à l'intérieur (si le diagnostic l'exige)
+Reprendre les étapes 1 à 3, puis :
 
-Découper des cales fines d'épicéa, de l'ordre de la taille d'une pièce de dix cents, fil perpendiculaire à la fissure, chants amincis. Les coller en pont
-sur la fissure, à l'intérieur de la caisse, espacées de quelques centimètres. Éviter de multiplier les grosses cales : le but est de « coudre » la fissure, pas
-d'alourdir la table.
+#### 4. Préparer les cales
 
-### 7. Finition
+Découper des cales en bois assorti à la table, **fil croisé** par rapport à la fissure (StewMac : environ 45°
+avec la fissure, à vérifier au miroir), chants amincis. Elles « cousent » la fissure : peu, petites, espacées de quelques centimètres.
 
-Reboucher le moindre interstice restant, teinter la ligne de colle si besoin et retoucher la finition avec les produits compatibles avec le vernis
-d'origine. Pour une finition nitro, voir un luthier si la retouche doit être invisible.
+![Vue de l'intérieur : cales en pont sur la fissure, fil à environ 45° ; détail de l'orientation du fil](img/reparation-fissure-table/03-cales-fil-croise.svg)
+
+> **Photos** : [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) (découpe des cales, cale de répartition). **Avis** : [Premier Guitar : to cleat or not to cleat](https://www.premierguitar.com/acoustic-soundboard-to-cleat-or-not-to-cleat) (une photo de cales en palissandre sur une Martin vintage ; quand s'en passer).
+
+#### 5. Poser les cales à l'intérieur
+
+Après le collage extérieur, coller chaque cale en pont sur la fissure, à l'intérieur de la caisse, en la plaquant contre la table
+(fil et ancrage dans le kit StewMac, aimants avec le système Thompson). Faire un essai à blanc sans colle pour mesurer la tension
+nécessaire. Avec un kit, la colle peut aussi être injectée par l'extérieur à faible pression (StewMac cite 10 psi). Essuyer les
+bavures à l'eau chaude, contrôler à la lampe.
+
+> **Vidéos** : [StewMac : Crack repair tools](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/stewmac-crack-repair-tools-video/) (kit à fil et ancrage, non revue en détail) ; [StewMac : TJ Thompson top crack repair](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/tj-thompson-top-crack-repair-video) (cale par aimants, fissure jusqu'au chevalet sur une Martin 1941).
+> **Photos** : [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) (essai à blanc, injection de colle, serrage).
+
+### Niveau 3 : lèvres décalées, fissure ancienne, table enfoncée
+
+#### 6. Nettoyer et remettre de niveau
+
+Ouvrir doucement la fissure avec un crochet appuyé sur un barrage, nettoyer la saleté ancienne, puis repousser la lèvre trop haute depuis
+l'intérieur et la maintenir **de niveau** avec une cale extérieure et des serre-joints avant de coller. Frets.com utilise une colle de peau
+**claire** sur de l'épicéa blond pour éviter de tacher, et une colle à bois jaune sur une fissure ancienne et sale.
+
+![Coupe de la table : lèvres décalées à gauche, lèvres de niveau maintenues par une cale et un serre-joint à droite](img/reparation-fissure-table/02-mise-de-niveau.svg)
+
+> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) (fissure ancienne et encrassée, entretoise décollée) ; [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (ouverture de la fissure, colle, serrage).
+
+#### 7. Réparer ce qui est décollé
+
+Barrage ou entretoise décollé près de la fissure : le recoller à la spatule, sous la table, avant ou en même temps que la fissure.
+
+#### 8. Renfort
+
+Selon la zone : cales (niveau 2) ou pièce plate d'épicéa d'environ 3/32 po à fil croisé collée en même temps que la fissure
+(exemples Frets.com). Ne pas multiplier les renforts.
+
+> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) ; [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (renforts d'épicéa à l'intérieur).
+
+### Pour tous les niveaux
+
+#### 9. Finition
+
+Reboucher le petit trou laissé par le fil ou la fissure, teinter la ligne de colle si besoin et retoucher avec des produits compatibles
+avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche doit être invisible.
+
+## Quand confier l'instrument à un luthier (niveau 4)
+
+- Fibres écrasées ou lambeau replié par un choc
+- Fissure qui traverse le chevalet, la rosace ou un barrage
+- Table très mince ou « double top » : Frets.com la répare sous vide avec de la colle de peau diluée, photos dans [Frets.com : Vacuum leveling for crack repair](https://www.frets.com/pages/pzbarj9w/Vacuum-Leveling-for-Crack-Repair) (pour information)
+- Lèvres qui refusent de se mettre de niveau malgré l'humidité
+- Instrument de valeur, ancien, ou vernis d'origine à préserver
 
 ## Pièges et erreurs courantes
 
-- Coller une fissure encore ouverte parce que le bois est sec, sans humidifier d'abord.
+- Coller une fissure encore ouverte parce que le bois est sec, sans avoir laissé d'abord l'instrument retrouver une humidité normale.
 - Poser des cales systématiquement, y compris sur une fissure qui se recolle seule et reste stable.
-- Utiliser une colle impossible à défaire (cyanoacrylate) pour une réparation qu'on voudra peut-être reprendre.
+- Utiliser une colle impossible à défaire pour une réparation qu'on voudra peut-être reprendre.
 - Oublier de remettre les lèvres de niveau avant de serrer.
 - Ne pas corriger la cause (instrument qui continue à sécher) : la fissure reviendra, parfois ailleurs.
 
@@ -108,20 +217,26 @@ d'origine. Pour une finition nitro, voir un luthier si la retouche doit être in
 
 ## Sources et liens
 
-- [Premier Guitar : Acoustic soundboard, to cleat or not to cleat (Bryan Galloup)](https://www.premierguitar.com/acoustic-soundboard-to-cleat-or-not-to-cleat) : quand les cales sont utiles ou superflues (une fissure bien ajustée tient par la colle seule), risque de nouvelle fissure à côté d'une cale, masse ajoutée à la table.
-- [Frets.com : Taylor 12-string crack repair (Frank Ford)](https://mail.frets.com/FretsPages/Luthier/Technique/Guitar/Structural/Cracks/Taylor355Cracks/355cracks.html) : cas réel de réparation d'une table choquée : fibres écrasées, soulèvement des lèvres, colle de peau claire, renforts d'épicéa à l'intérieur, retouche de finition.
-- [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) : cales rondes dans la même essence que la table, fil en travers de la fissure, aplanissement par cale extérieure.
-- [StewMac : Crack repair tools (vidéo, Dan Erlewine)](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/stewmac-crack-repair-tools-video/) : démonstration du kit de réparation sur une acoustique.
-- [StewMac : TJ Thompson, top crack repair (vidéo)](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/tj-thompson-top-crack-repair-video) : réparation d'une fissure de table avec cales d'épicéa préformées et aimants.
-- [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) : cas particulier des fissures dues à la sécheresse.
+- [Premier Guitar : Acoustic soundboard, to cleat or not to cleat (Bryan Galloup)](https://www.premierguitar.com/acoustic-soundboard-to-cleat-or-not-to-cleat) : une fissure d'humidité qui se referme bien tient par la colle seule ; les cales ajoutent de la masse et peuvent provoquer une fissure à côté ; elles se justifient quand un simple collage ne tiendra pas.
+- [Frets.com (Frank Ford) : Crack repair](https://www.frets.com/pages/xgadge6a/Crack-Repair) et [A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) : réparations réelles de gravité différente, colles, renforts d'épicéa.
+- [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) : cales en bois assorti de 3/32 à 1/8 po, fil à environ 45° de la fissure.
+- [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) : retour à l'humidité normale (méthode du sac), Titebond Liquid Hide Glue, cale interne.
+- [StewMac : TJ Thompson top crack repair](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/tj-thompson-top-crack-repair-video) : cale à aimants (cartouche usinée) pour les fissures près du chevalet.
 
-> **À confirmer** : seuls les articles de Premier Guitar et de Frets.com ont été lus en entier. Les quatre pages de StewMac n'ont été
-> connues que par leurs résumés de recherche (accès refusé à la lecture) ; l'épaisseur des cales (3/32 à 1/8 po), la plage d'humidité et la
-> séquence humidifier-puis-coller viennent de ces résumés et de forums de luthiers, avec des avis partagés (certains luthiers humidifient avant de coller,
-> d'autres craignent que le bois gonflé élargisse la fissure). À valider avec la pratique de l'atelier avant de passer le statut à `validee`.
+> Photos et vidéos : liens placés dans les étapes concernées ; aucune image n'est copiée dans le dépôt (public, droits des auteurs).
+
+> **À confirmer** : les pages ont été lues par un agent de lecture ; pour les pages longues, la fin n'est connue que par
+> un résumé automatique. La plage d'humidité (45 à 55 %), la division en quatre niveaux et leurs critères sont une
+> synthèse qui n'apparaît telle quelle dans aucune source. Les sources divergent sur les cales (Galloup : souvent inutiles ;
+> StewMac : procédure standard) et sur la colle (peau claire, colle jaune pour les fissures sales). À valider avec la pratique
+> de l'atelier avant `validee`. Aucune vidéo en français n'a été trouvée.
 
 ## Historique des révisions
 
 | Date | Changement |
 |------|------------|
 | 2026-10-30 | Création (brouillon) |
+| 2026-10-30 | Relecture contre les sources : quatre niveaux de gravité, correction de l'orientation des cales (45°, fil croisé), colles, section photos et vidéos |
+| 2026-10-30 | Ajout de trois schémas SVG originaux (niveaux de gravité, mise de niveau des lèvres, orientation des cales) |
+| 2026-10-30 | Ajout de photos réelles de Frets.com, affichées depuis le site d'origine (non copiées), avec crédit et lien |
+| 2026-10-30 | Ajout d'une photo de fissure discrète et d'un encadré fissure du bois ou du vernis |
