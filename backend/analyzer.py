@@ -326,6 +326,18 @@ class DealAnalyzer(LLMClientsMixin):
         result["model_used"] = f"backfill_leger -> {analyst_model_name}"
         return self._canonicalize_classification(result, taxonomy)
 
+    def normalize_classification(self, classification, taxonomy):
+        """Ramène une classification brute du Portier à son chemin canonique pour le routage
+        Recherche Active. Retourne `(valeur, raison)` : `raison` est None quand la valeur est
+        inchangée (déjà canonique, vide, ou non résolue — la valeur brute est alors conservée)."""
+        if not classification:
+            return classification, None
+        canonical, reason = canonicalize_classification(
+            classification, taxonomy, self._get_taxonomy_index(taxonomy))
+        if canonical and canonical != classification:
+            return canonical, reason
+        return classification, None
+
     def _get_taxonomy_index(self, taxonomy):
         """Index de taxonomie mémorisé, reconstruit uniquement si la taxonomie a changé.
 
@@ -634,14 +646,12 @@ class DealAnalyzer(LLMClientsMixin):
             # La classification du Portier est un texte libre (aucun enum côté schéma) : on la
             # ramène au chemin canonique AVANT le routage Recherche Active, qui compare par
             # égalité/préfixe de chemin. Non résolue (inconnue/ambiguë) : valeur brute conservée.
-            if gatekeeper_classification:
-                canonical, reason = canonicalize_classification(
-                    gatekeeper_classification, taxonomy, self._get_taxonomy_index(taxonomy))
-                if canonical and canonical != gatekeeper_classification:
-                    self.logger.info(
-                        f"   🧭 Classification du Portier normalisée : "
-                        f"'{gatekeeper_classification}' -> '{canonical}' ({reason})")
-                    gatekeeper_classification = canonical
+            normalized, reason = self.normalize_classification(gatekeeper_classification, taxonomy)
+            if reason:
+                self.logger.info(
+                    f"   🧭 Classification du Portier normalisée : "
+                    f"'{gatekeeper_classification}' -> '{normalized}' ({reason})")
+                gatekeeper_classification = normalized
 
             if gatekeeper_status == 'UNKNOWN':
                 gatekeeper_status = 'ERROR'

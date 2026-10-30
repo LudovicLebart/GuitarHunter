@@ -767,3 +767,53 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReevaluateNotPromoted(unittest.TestCase):
+    """Rattrapage Chantier G : la classification stockée (texte libre du Portier) est ramenée
+    au chemin canonique avant la comparaison au filtre ; décompte annoncé avant promotion."""
+
+    def setUp(self):
+        from backend.analyzer import DealAnalyzer
+        self.bot = _make_bot()
+        self.bot.offline_mode = False
+        self.bot.set_status = MagicMock()
+        self.bot._is_stop_requested = MagicMock(return_value=False)
+        self.bot._user_email = None
+        self.bot._build_listing_data_from_row = MagicMock(return_value={"title": "t"})
+        self.bot.config_manager = MagicMock()
+        self.bot.config_manager.current_config_snapshot = {
+            "analysisConfig": {"activeSearchFamilies": ["guitare.electrique"]}}
+        analyzer = DealAnalyzer.__new__(DealAnalyzer)
+        analyzer._cache_lock = threading.RLock()
+        analyzer._taxonomy_index = None
+        analyzer._taxonomy_index_source = None
+        analyzer.analyze_deal = MagicMock(return_value={})
+        self.bot.analyzer = analyzer
+        self.bot.repo = MagicMock()
+        rows = []
+        for deal_id, classification in (("a", "guitare.electrique"), ("b", "Guitare.Électrique"),
+                                        ("c", "amplificateur"), ("d", "n'importe quoi")):
+            row = MagicMock()
+            row.id = deal_id
+            row.to_dict.return_value = {"title": deal_id, "gatekeeper_classification": classification}
+            rows.append(row)
+        self.bot.repo.get_not_promoted_listings.return_value = rows
+
+    def test_promotes_matches_after_normalization_and_stores_canonical(self):
+        self.bot.reevaluate_not_promoted()
+        self.assertEqual(self.bot.analyzer.analyze_deal.call_count, 2)
+        stored = {c.args[0]: c.args[1]["gatekeeperClassification"]
+                  for c in self.bot.repo.update_deal_analysis.call_args_list}
+        self.assertEqual(stored, {"a": "guitare.electrique", "b": "guitare.electrique"})
+
+    def test_announces_count_before_promoting(self):
+        self.bot.reevaluate_not_promoted()
+        first = self.bot.logger.info.call_args_list[0].args[0]
+        self.assertIn("4 annonce(s) mise(s) de côté, 2 à promouvoir", first)
+        self.assertIn("1 déjà conformes, 1 après normalisation", first)
+
+    def test_dry_run_counts_without_promoting(self):
+        self.bot.reevaluate_not_promoted({"dry_run": True})
+        self.bot.analyzer.analyze_deal.assert_not_called()
+        self.bot.repo.update_deal_analysis.assert_not_called()

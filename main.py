@@ -75,7 +75,7 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
         'ADD_CITY': lambda payload: bot.add_city_auto(payload),
         'ANALYZE_DEAL': lambda payload: bot.analyze_single_deal(payload),
         # Rattrapage Chantier G (2026-09-19) : voir bot.py::reevaluate_not_promoted.
-        'REEVALUATE_NOT_PROMOTED': lambda _: bot.reevaluate_not_promoted(),
+        'REEVALUATE_NOT_PROMOTED': lambda payload: bot.reevaluate_not_promoted(payload),
         'CLEAR_LOGS': lambda _: bot.clear_logs(),
         'STOP_BOT': lambda _: stop_event.set(),
         'STOP_SCAN': lambda _: _trigger_stop_scan(scan_stop_event),

@@ -11,7 +11,7 @@ import firebase_admin.auth as fb_auth
 from config import (
     APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
-    DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
+    DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT, DEFAULT_TAXONOMY,
     GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID, HA_NODE_ID
 )
 from backend.analyzer import DealAnalyzer
@@ -1298,24 +1298,41 @@ class GuitarHunterBot:
         if self.offline_mode: return
 
         current_config = self.config_manager.current_config_snapshot
-        active_families = (current_config.get('analysisConfig') or {}).get('activeSearchFamilies') or []
+        analysis_config = current_config.get('analysisConfig') or {}
+        active_families = analysis_config.get('activeSearchFamilies') or []
+        taxonomy = analysis_config.get('taxonomy', DEFAULT_TAXONOMY)
+        dry_run = bool(isinstance(payload, dict) and payload.get('dry_run'))
 
         self.set_status('reevaluating_not_promoted', task_name='reevaluate_not_promoted')
         try:
             docs = list(self.repo.get_not_promoted_listings())
-            promoted_count = 0
+
+            # Classification du Portier = texte libre : on la ramène au chemin canonique avant la
+            # comparaison (même règle que le routage, `DealAnalyzer.normalize_classification`).
+            # Décompte annoncé AVANT toute promotion (chaque promotion coûte un appel T2/T3).
+            to_promote, already_matching = [], 0
             for doc in docs:
+                data = doc.to_dict()
+                raw_classification = data.get('gatekeeper_classification')
+                classification, normalized_by = self.analyzer.normalize_classification(raw_classification, taxonomy)
+                if not active_families or matches_active_search_family(classification, active_families):
+                    to_promote.append((doc, data, classification))
+                    if not normalized_by:
+                        already_matching += 1
+            self.logger.info(
+                f"🔎 Ré-évaluation : {len(docs)} annonce(s) mise(s) de côté, {len(to_promote)} à promouvoir "
+                f"({already_matching} déjà conformes, {len(to_promote) - already_matching} après normalisation "
+                f"de la classification) — {len(to_promote)} appel(s) Analyste (T2) à prévoir."
+            )
+            if dry_run:
+                self.logger.info("   ℹ️ Mode décompte (dry_run) : aucune annonce promue.")
+                return
+
+            promoted_count = 0
+            for doc, data, classification in to_promote:
                 if self._is_stop_requested():
                     self.logger.info("🛑 Ré-évaluation des annonces mises de côté interrompue.")
                     break
-
-                data = doc.to_dict()
-                # Colonne plate (pas de nesting aiAnalysis côté Postgres, contrairement à
-                # Firestore) — voir pg_repository.py::get_not_promoted_listings.
-                classification = data.get('gatekeeper_classification')
-                matches_active_search = not active_families or matches_active_search_family(classification, active_families)
-                if not matches_active_search:
-                    continue
 
                 self.logger.info(f"   🔎 Repromotion vers T2/T3 : '{data.get('title')}' (classification '{classification}' correspond au filtre actif).")
                 listing_data = self._build_listing_data_from_row(doc.id, data, prefer_storage_images=True)
@@ -1334,6 +1351,7 @@ class GuitarHunterBot:
                     # écraser un gatekeeper_verdict correct mais vide.
                     for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
                         analysis[key] = data.get(col)
+                    analysis['gatekeeperClassification'] = classification  # forme canonique
                     # Chantier H (porté depuis dev le 2026-09-22) : restaure aussi l'observation
                     # fantôme (`flashliteGatekeeper*`/`qwenGatekeeper*`) — jamais promue en colonne
                     # Postgres dédiée (voir analyzer.py::_attach_gatekeeper_metadata), elle ne vit
