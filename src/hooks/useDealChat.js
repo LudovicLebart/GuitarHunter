@@ -63,7 +63,7 @@ const sanitizeHistory = (msgs) => {
     return history;
 };
 
-// Fiches techniques utiles pour une question (API `/deals/{id}/fiches`) : délai de 2,5 s avec annulation réelle de la requête
+// Fiches techniques utiles pour une question (API `POST /deals/{id}/fiches/search`) : délai de 2,5 s avec annulation réelle de la requête
 // et disjoncteur d'une minute (voir utils/fichesLookup.js) — le chat n'attend jamais un service annexe.
 const lookupFiches = createFichesLookup(fetchDealFiches);
 

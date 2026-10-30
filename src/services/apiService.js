@@ -752,13 +752,11 @@ export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) =
 // Catalogue partagé en lecture seule : `statut` (brouillon | en_revision | validee) et `confidence` (sourced |
 // single_source) accompagnent TOUJOURS la fiche, à afficher (les brouillons sont servis, pas cachés).
 export const fetchFiches = (categorie = '') => apiFetch(`/fiches${categorie ? `?categorie=${encodeURIComponent(categorie)}` : ''}`);
-/** Fiches utiles pour une annonce et la question en cours (`q`), classées par pertinence : chacune porte `reason`
- *  (question | etape | plan | annonce) et `matchedOn`. À appeler à chaque question, pas à chaque frappe. */
-export const fetchDealFiches = (dealId, { q = '', limit = 5, signal } = {}) => {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (q) params.set('q', q.slice(0, 2000));
-  return apiFetch(`/deals/${encodeURIComponent(dealId)}/fiches?${params}`, { signal });
-};
+/** Fiches utiles pour une annonce et la question en cours (`q`, envoyée dans le corps d'un POST), classées par pertinence :
+ *  chacune porte `reason` (question | etape | plan | annonce) et `matchedOn`. À appeler à chaque question, pas à chaque frappe. */
+export const fetchDealFiches = (dealId, { q = '', limit = 5, signal } = {}) =>
+  // POST : la question part dans le CORPS, jamais dans l'URL (qui finirait en clair dans les journaux d'accès du serveur).
+  apiFetch(`/deals/${encodeURIComponent(dealId)}/fiches/search`, { method: 'POST', body: { q: q.slice(0, 2000) || null, limit }, signal });
 /** Fiche complète (corps Markdown, sources, marques concernées) ou null si elle n'existe pas (404). */
 export const fetchFiche = async (slug) => {
   try {

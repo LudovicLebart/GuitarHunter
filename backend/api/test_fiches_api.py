@@ -80,6 +80,10 @@ class _FichesBase(unittest.TestCase):
     """Base (sans test) : base seedée, client authentifié comme `self.uid`."""
     uid = BUYER
 
+    def _search(self, body):
+        """Recherche de fiches pour l'annonce de test : la question part dans le CORPS d'un POST."""
+        return self.client.post(f"/deals/{DEAL}/fiches/search", json=body)
+
     def setUp(self):
         app.dependency_overrides[get_current_uid] = lambda: self.uid
         self.client = TestClient(app)
@@ -174,7 +178,7 @@ class TestFichesAPI(_FichesBase):
     # --- fiches d'une annonce --------------------------------------------------------------------
     def test_deal_fiches_are_ranked_question_then_step_link_then_listing(self):
         self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "Régler le manche", "ficheSlug": "api-action"})
-        resp = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "mon truss rod coincé, que faire ?"})
+        resp = self._search({"q": "mon truss rod coincé, que faire ?"})
         self.assertEqual(resp.status_code, 200, resp.text)
         found = [(f["slug"], f["reason"], f["matchedOn"]) for f in resp.json()]
         self.assertEqual(found, [("api-truss", "question", "truss rod coince"),
@@ -185,19 +189,19 @@ class TestFichesAPI(_FichesBase):
     def test_the_current_question_is_never_crowded_out_by_step_links(self):
         self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "a", "ficheSlug": "api-action"})
         self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "b", "ficheSlug": "api-neck"})
-        only = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "truss rod coincé", "limit": 1}).json()
+        only = self._search({"q": "truss rod coincé", "limit": 1}).json()
         self.assertEqual([f["slug"] for f in only], ["api-truss"])
 
     def test_every_fiche_exposes_its_status_and_confidence(self):
         """Les brouillons sont servis (décision produit) : le client doit pouvoir les signaler."""
-        for f in self.client.get("/fiches").json() + self.client.get(f"/deals/{DEAL}/fiches", params={"q": "action haute"}).json():
+        for f in self.client.get("/fiches").json() + self._search({"q": "action haute"}).json():
             self.assertIn(f["statut"], ("brouillon", "en_revision", "validee"))
             self.assertIn(f["confidence"], ("sourced", "single_source"))
         self.assertEqual(self.client.get("/fiches/api-action").json()["statut"], "brouillon")
 
     def test_a_stale_alias_index_never_crowds_out_a_valid_fiche(self):
         params = {"q": "action haute et truss rod coincé", "limit": 1}
-        self.assertEqual(self.client.get(f"/deals/{DEAL}/fiches", params=params).json()[0]["slug"], "api-truss")   # réchauffe l'index
+        self.assertEqual(self._search(params).json()[0]["slug"], "api-truss")   # réchauffe l'index
         async def drop():
             conn = await asyncpg.connect(DATABASE_URL)
             try:
@@ -205,11 +209,11 @@ class TestFichesAPI(_FichesBase):
             finally:
                 await conn.close()
         asyncio.run(drop())
-        found = self.client.get(f"/deals/{DEAL}/fiches", params=params).json()
+        found = self._search(params).json()
         self.assertEqual([f["slug"] for f in found], ["api-action"])
 
     def test_the_alias_index_sees_a_new_fiche_without_a_restart(self):
-        self.client.get(f"/deals/{DEAL}/fiches", params={"q": "micro bourdonne"})                      # réchauffe l'index
+        self._search({"q": "micro bourdonne"})                      # réchauffe l'index
         async def add():
             conn = await asyncpg.connect(DATABASE_URL)
             try:
@@ -222,13 +226,13 @@ class TestFichesAPI(_FichesBase):
                 await conn.close()
         asyncio.run(add())
         fiches_repo._index["at"] = time.monotonic() - 3600        # la fenêtre de vérification est écoulée
-        slugs = [f["slug"] for f in self.client.get(f"/deals/{DEAL}/fiches", params={"q": "mon micro bourdonne"}).json()]
+        slugs = [f["slug"] for f in self._search({"q": "mon micro bourdonne"}).json()]
         self.assertIn("api-extra", slugs)
 
     def test_deal_fiches_never_return_a_brand_and_respect_limit(self):
-        resp = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "gibson truss rod coincé action haute", "limit": 1})
+        resp = self._search({"q": "gibson truss rod coincé action haute", "limit": 1})
         self.assertEqual(len(resp.json()), 1)
-        everything = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "gibson truss rod coincé action haute", "limit": 20}).json()
+        everything = self._search({"q": "gibson truss rod coincé action haute", "limit": 20}).json()
         self.assertNotIn("api-gibson", [f["slug"] for f in everything])
         self.assertTrue(all(f["slug"].startswith("api-") for f in everything))
 
@@ -242,12 +246,27 @@ class TestFichesAPI(_FichesBase):
                 await conn.close()
         asyncio.run(drop())
         fiches_repo.invalidate_cache()
-        slugs = [f["slug"] for f in self.client.get(f"/deals/{DEAL}/fiches").json()]
+        slugs = [f["slug"] for f in self._search({}).json()]
         self.assertNotIn("api-action", slugs)
+
+    def test_the_question_travels_in_the_body_never_in_the_url(self):
+        """L'ancienne route GET (`?q=…`) n'existe plus : la question ne peut plus finir dans les journaux d'accès."""
+        self.assertEqual(self.client.get(f"/deals/{DEAL}/fiches", params={"q": "ma question"}).status_code, 404)   # route retirée
+        self.assertEqual(self.client.get(f"/deals/{DEAL}/fiches/search", params={"q": "ma question"}).status_code, 405)
+        ok = self._search({"q": "truss rod coincé"})
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertNotIn("truss", str(ok.request.url))                  # la question n'est pas dans l'URL de la requête envoyée
+
+    def test_search_validates_the_body(self):
+        self.assertEqual(self._search({"q": "x" * 2001}).status_code, 422)
+        self.assertEqual(self._search({"limit": 0}).status_code, 422)
+        self.assertEqual(self._search({"limit": 21}).status_code, 422)
+        self.assertEqual(self._search({"q": None}).status_code, 200)
+        self.assertEqual(self._search({}).status_code, 200)
 
     def test_a_stranger_cannot_read_the_fiches_of_a_deal(self):
         self.uid = STRANGER
-        self.assertEqual(self.client.get(f"/deals/{DEAL}/fiches").status_code, 404)
+        self.assertEqual(self._search({}).status_code, 404)
 
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
@@ -264,7 +283,7 @@ class TestFichesAPIAsViewer(_FichesBase):
             finally:
                 await conn.close()
         asyncio.run(add_step())
-        found = self.client.get(f"/deals/{DEAL}/fiches", params={"q": "truss rod coincé"}).json()
+        found = self._search({"q": "truss rod coincé"}).json()
         slugs = [f["slug"] for f in found]
         self.assertIn("api-truss", slugs)
         self.assertNotIn("api-action", slugs)

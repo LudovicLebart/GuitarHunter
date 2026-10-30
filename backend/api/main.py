@@ -17,7 +17,7 @@ import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_current_uid, verify_token
@@ -580,14 +580,21 @@ async def get_fiche(slug: str, uid: str = Depends(get_current_uid)):
     return fiche
 
 
-@app.get("/deals/{deal_id}/fiches")
-async def list_deal_fiches(deal_id: str, q: Optional[str] = Query(None, max_length=2000), limit: int = Query(5, ge=1, le=20),
-                           uid: str = Depends(get_current_uid)):
-    """Fiches utiles pour une annonce (et la question `q` en cours dans le chat), classées par pertinence : voir
+class DealFichesSearch(BaseModel):
+    q: Optional[str] = Field(None, max_length=2000)      # la question en cours dans le chat
+    limit: int = Field(5, ge=1, le=20)
+
+
+# POST et non GET : la QUESTION de la personne est dans le corps de la requête. Dans l'URL (`?q=…`) elle serait écrite en clair
+# dans les journaux d'accès (uvicorn, Tailscale Funnel) ; un corps n'y figure pas. C'est une recherche, sans effet de bord.
+@app.post("/deals/{deal_id}/fiches/search")
+async def search_deal_fiches(deal_id: str, body: DealFichesSearch, uid: str = Depends(get_current_uid)):
+    """Fiches utiles pour une annonce et la question `q` en cours dans le chat, classées par pertinence : voir
     `fiches_repo.fiches_for_deal`. Visible comme le chat (toute personne qui voit l'annonce) ; les fiches liées aux
     ÉTAPES du plan et leurs libellés ne sont prises en compte que pour l'acheteur, à qui le plan appartient.
     Appelée à chaque question (pas à chaque frappe : le client doit temporiser) ; trois lectures indépendantes en
     parallèle, puis le plan (acheteur seulement), puis une seule requête de métadonnées."""
+    q, limit = body.q, body.limit
     pool = get_pool()
     visible, owner, deal_texts = await asyncio.gather(
         chat_repo.is_deal_visible(pool, deal_id, uid), chat_repo.get_deal_owner(pool, deal_id), fiches_repo.deal_text(pool, deal_id))
