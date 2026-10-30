@@ -243,6 +243,9 @@ def run_mode(label, storage_state, args, allowed, logger):
         "out_of_list_locations": collector.out_of_list.most_common(10),
         "kept_locations": collector.kept.most_common(10),
         "ids": [d["id"] for d in deals],
+        # Âge des annonces (timestamp de publication, secondes) : sert à savoir si les annonces vues
+        # seulement en connecté sont plus anciennes que celles de l'anonyme. IDs et dates seulement.
+        "published_at_ts": {d["id"]: d.get("published_at_ts") for d in deals},
     }
 
 
