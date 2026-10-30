@@ -80,6 +80,9 @@ interface Deal {
     // NOT_PROMOTED (« Hors Recherche ») : l'annonce a passé le Portier mais sa famille n'est pas dans la Recherche Active
     //   de l'utilisateur ; arrêtée avant l'Analyste (seul un verdict PEPITE contourne ce filtre), conservée pour pouvoir
     //   être repromue si la Recherche Active change. Appartient à ARCHIVE_GROUP (masquée de la vue par défaut).
+    //   Si `aiAnalysis.gatekeeperVerdict == 'PEPITE'` (`isOffSearchPepite`), la carte garde le badge « Pépite » (« Hors recherche »
+    //   en tag secondaire) et l'annonce reste dans le filtre Pépites. Côté backend, une ré-analyse ne peut pas déclasser une
+    //   `PEPITE` existante en `NOT_PROMOTED` (`bot.py::handle_deal_found`).
     
     /** Argumentaire détaillé de l'IA */
     reasoning: string; // Obligatoire si verdict !== 'PENDING'

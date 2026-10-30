@@ -122,6 +122,11 @@ export const MARKET_GROUP = ['COLLECTION', 'FAIR'];
 // archiver ; le flag reste orthogonal à ces groupes de verdicts.
 export const ARCHIVE_GROUP = ['BAD_DEAL', 'REJECTED_ITEM', 'REJECTED_SERVICE', 'INCOMPLETE_DATA', 'REJECTED', 'SOLD', 'NOT_PROMOTED'];
 
+// Annonce mise de côté (NOT_PROMOTED) alors que le Portier la jugeait pépite : la classification
+// du Portier prime sur le badge « Hors recherche », et elle doit rester retrouvable dans « Pépites ».
+export const isOffSearchPepite = (aiAnalysis) =>
+  aiAnalysis?.verdict === 'NOT_PROMOTED' && aiAnalysis?.gatekeeperVerdict === 'PEPITE';
+
 // --- NOTE D'INTÉRÊT (moyenne des 5 scores IA) ---
 // Utilisée pour trier les annonces par intérêt plutôt que par date,
 // utile notamment pour départager les annonces qui ne sont pas des Pépites.
