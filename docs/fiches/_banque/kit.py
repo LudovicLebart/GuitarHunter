@@ -142,7 +142,7 @@ def boite(x, y, largeur, hauteur, titre, sous_titre=None, couleur=None):
     return s
 
 
-def manche_profil(x, y, longueur=520, relief=0, frettes=14, corde=True, capo=False, etiquettes=False):
+def manche_profil(x, y, longueur=520, relief=0, frettes=14, corde=True, capo=False, etiquettes=False, pic=None):
     """Manche vu de côté, sillet à gauche. (x, y) = dessus de la touche au sillet.
     `relief` (px) = creux du milieu de la touche par rapport à la droite sillet-extrémité (0 = manche droit).
     14 frettes tracées à leurs vraies proportions ; la corde est la droite tendue au-dessus de la touche."""
@@ -151,9 +151,13 @@ def manche_profil(x, y, longueur=520, relief=0, frettes=14, corde=True, capo=Fal
     fin = xs[-1]
     r = relief
 
-    def surface(px):                                          # creux parabolique, nul aux extrémités
-        t = (px - x) / (fin - x)
-        return y + 4 * r * t * (1 - t)
+    def surface(px):                                          # creux nul aux extrémités ; `pic` = position du creux maximal
+        t = (px - x) / (fin - x)                              # (0 = sillet, 1 = dernière frette ; défaut : parabole, milieu)
+        if pic is None:
+            return y + 4 * r * t * (1 - t)
+        t = min(max(t, 0.0), 1.0)
+        maxi = pic ** (2 * pic) * (1 - pic) ** (2 * (1 - pic))
+        return y + r * t ** (2 * pic) * (1 - t) ** (2 * (1 - pic)) / maxi
 
     haut = [f"{x + (fin - x) * k / 24:.1f},{surface(x + (fin - x) * k / 24):.1f}" for k in range(25)]
     bas = [f"{x + (fin - x) * k / 24:.1f},{surface(x + (fin - x) * k / 24) + 26:.1f}" for k in range(24, -1, -1)]

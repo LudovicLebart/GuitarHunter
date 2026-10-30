@@ -201,3 +201,62 @@ corps = "\n  ".join([
 ecrire("regler-hauteur-chevalet", "01-poncer-le-sillet.svg", svg(
     820, 385, "Baisser un sillet de chevalet d'acoustique",
     "Sillet vu de face. À gauche, ponçage à plat : même épaisseur retirée sur toute la longueur. À droite, ponçage en dégradé : plus de matière côté grave, rien côté aigu.", corps))
+
+
+# 9. Relief visé : plages par instrument et par style de jeu --------------------------------------------------------------
+LIGNES = [  # (libellé, bas, haut en pouces, couleur, source)
+    ("Électrique", 0.004, 0.008, "#2563eb", "StewMac"),
+    ("Acoustique", 0.006, 0.012, "#16a34a", "StewMac"),
+    ("Basse", 0.008, 0.015, "#7c3aed", "StewMac"),
+    ("Classique (nylon)", 0.008, 0.010, "#b45309", "luthiers, forums"),
+    ("Jeu léger à médium", 0.0095, 0.0105, "#0891b2", "Premier Guitar : environ 0,010"),
+    ("Jeu agressif ou capo", 0.015, 0.020, "#dc2626", "Premier Guitar"),
+]
+X0, ECH = 250, 20800          # origine et pixels par pouce (0,025 po = 520 px)
+morceaux = [texte(410, 32, "Relief visé (valeurs de départ ; sources et frettes de mesure différentes)", 17, C["texte_doux"], True, "middle")]
+for pouce in (0, 0.005, 0.010, 0.015, 0.020, 0.025):
+    x = X0 + pouce * ECH
+    morceaux.append(f'<path d="M{x:.0f} 55 V{55 + 40 * len(LIGNES) + 15}" stroke="#cbd5e1" stroke-width="1"/>')
+    morceaux.append(texte(f"{x:.0f}", 50, f"{pouce:.3f} po".replace(".", ","), 12, C["texte_doux"], False, "middle"))
+    morceaux.append(texte(f"{x:.0f}", 55 + 40 * len(LIGNES) + 32, f"{pouce * 25.4:.2f} mm".replace(".", ","), 12, C["texte_doux"], False, "middle"))
+for i, (nom, bas, haut, col, src) in enumerate(LIGNES):
+    y = 70 + 40 * i
+    morceaux.append(texte(X0 - 12, y + 19, nom, 15, C["texte"], True, "end"))
+    morceaux.append(f'<rect x="{X0 + bas * ECH:.0f}" y="{y}" width="{max((haut - bas) * ECH, 8):.0f}" height="26" rx="5" fill="{col}" opacity=".85"/>')
+    morceaux.append(texte(f"{X0 + haut * ECH + 12:.0f}", y + 19, src, 12, C["texte_doux"]))
+morceaux.append(texte(410, 70 + 40 * len(LIGNES) + 62,
+                      "Les frettes de mesure diffèrent selon les sources (6e à 8e) ; aucune source lue ne cite la 10e.", 13, C["texte_doux"], False, "middle"))
+contenu = svg(820, 70 + 40 * len(LIGNES) + 80, "Relief visé par type d'instrument et style de jeu",
+              "Barres horizontales en pouces et millimètres : électrique 0,004 à 0,008, acoustique 0,006 à 0,012, basse 0,008 à 0,015, "
+              "classique 0,008 à 0,010, jeu léger à médium environ 0,010, jeu agressif ou capo 0,015 à 0,020.", "\n  ".join(morceaux))
+ecrire("mesurer-relief-manche", "02-relief-vise.svg", contenu)
+ecrire("reglage-truss-rod", "03-relief-vise.svg", contenu)
+
+
+# 10. Mesure du relief à la règle crantée (cales sous la règle, vers la 10e case) ------------------------------------------
+T10 = (1 - 2 ** (-10 / 12)) / (1 - 2 ** (-22 / 12))     # position de la 10e case entre le sillet et la 22e, en fraction
+manche, xs = manche_profil(60, 170, longueur=700, relief=13, frettes=22, corde=False, pic=T10)   # creux maximal à la 10e case
+x0, y0 = 60, 170
+fin = xs[-1]
+creux10 = 13   # creux maximal, à la 10e case
+encoches = "".join(f'<rect x="{px - 4:.1f}" y="{y0 - 6}" width="8" height="6" fill="{C["fond"]}"/>' for px in xs)
+corps = "\n  ".join([
+    manche,
+    f'<rect x="{x0 - 6}" y="{y0 - 10}" width="{fin - x0 + 12:.1f}" height="10" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    encoches,
+    f'<line x1="{x0 - 14}" y1="{y0 - 24}" x2="{fin + 40:.1f}" y2="{y0 - 24}" stroke="#94a3b8" stroke-width="2"/>',
+    f'<rect x="{xs[9] - 11:.1f}" y="{y0}" width="22" height="{max(creux10 - 3, 4):.1f}" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="2"/>',
+    texte(f"{xs[9]:.1f}", y0 + 52, "10e case : creux maximal", 13, C["alerte"], True, "middle"),
+    repere(1, 70, 78), texte(95, 84, "Règle crantée sur la touche (crans au droit des frettes)", 14, C["texte"], True),
+    ligne(150, 92, 190, y0 - 11),
+    repere(2, 70, 112), texte(95, 118, "Cordes accordées, sous tension, dans les crans", 14, C["texte"], True),
+    ligne(300, 126, 330, y0 - 25),
+    repere(3, 150, 245), texte(175, 251, "Cales sous la règle, là où le creux est le plus grand", 14, C["texte"], True),
+    texte(175, 270, "(vers la 10e case)", 14, C["texte_doux"], True),
+    ligne(420, 238, xs[9] - 4, y0 + creux10 + 2),
+    texte(410, 30, "Mesure du relief à la règle crantée (cordes accordées)", 17, C["texte_doux"], True, "middle"),
+    texte(410, 300, "On mesure là où le creux est le plus grand : la cale qui passe tout juste donne le creux (0,20 à 0,25 mm visés). Creux exagéré.", 14, C["texte_doux"], False, "middle"),
+])
+ecrire("mesurer-relief-manche", "03-regle-crantee.svg", svg(
+    820, 320, "Mesure du relief à la règle crantée",
+    "Manche vu de côté : une règle crantée repose sur la touche à chaque bout, les cordes passent dans les crans, et des cales glissées sous la règle vers la 10e case mesurent le creux.", corps))
