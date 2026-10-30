@@ -28,7 +28,7 @@ alias: nettoyer une fissure avant collage, dégraisser avant collage, dégraisse
 - Naphta : essence à briquet type Zippo, essence « F » ou combustible de lampe Coleman
 - Coton-tiges ou petit pinceau, chiffon propre sans peluches
 - Ruban de masquage ou ruban de protection à faible adhérence
-- Eau distillée (rinçage facultatif), lampe pour voir dans la fissure
+- Lampe pour voir dans la fissure
 
 ## Étapes
 
@@ -44,8 +44,8 @@ Chasser la poussière et les éclats de vernis hors de la fissure à l'air compr
 
 ### 3. Dégraisser au naphta
 
-Passer un coton-tige à peine humide de naphta **dans** la fissure, en une ou deux passes, puis laisser évaporer. Certains luthiers rincent ensuite à l'eau distillée ;
-pour une fissure très sale, un forum propose une solution très faible de phosphate trisodique (TSP) dans l'eau. Ne pas insister : le but est une surface propre,
+Passer un coton-tige à peine humide de naphta **dans** la fissure, en une ou deux passes, puis laisser évaporer. Un luthier du Luthiers Forum donne le naphta et le white spirit (mineral spirits) comme interchangeables
+et insiste pour se laver les mains avant, afin de ne pas pousser de saleté dans la fissure. Ne pas insister : le but est une surface propre,
 pas une fissure plus large.
 
 ### 4. Laisser sécher puis coller
@@ -68,10 +68,11 @@ Attendre l'évaporation complète avant d'injecter la colle (voir la fiche [Rép
 ## Sources et liens
 
 - [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) : nettoyage de la fissure à l'air comprimé avant la réparation.
+- [Luthiers Forum : Cordoba body crack repair suggestions](https://luthiersforum.com/forum/viewtopic.php?p=732734) : naphta ou white spirit interchangeables sur une fissure, mains propres pour ne pas pousser de saleté dedans.
 - [StewMac : Simple trick for repairing cracks on a guitar fretboard](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-guitar-and-instrument-fretting-and-fretwork/simple-trick-for-repairing-cracks-on-a-guitar-fretboard/) : nettoyage de la fissure au chiffon imbibé de naphta (cas d'une touche).
 
-> Une seule source (StewMac), sur une touche pour le naphta ; le reste vient d'échanges de forums de luthiers (naphta puis eau distillée, TSP). Les équivalents
-> français du naphta (essence à briquet, essence F) sont indiqués d'après l'usage courant, non d'une source. À confirmer avec l'atelier.
+> Le naphta vient d'un technicien StewMac (réparation d'une touche) et d'un fil du Luthiers Forum, où il sert surtout à vérifier qu'une fissure traverse la table (une goutte au compte-gouttes, on regarde si la tache apparaît à l'intérieur). Les équivalents
+> français (essence à briquet, essence F) sont indiqués d'après l'usage courant, non d'une source. Aucune des sources lues ne parle de rinçage à l'eau distillée ni de TSP : retirés. À confirmer avec l'atelier.
 
 ## Historique des révisions
 

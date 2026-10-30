@@ -42,7 +42,7 @@ Vérifier que la clé est exacte et bien enfoncée, que le sens de rotation tent
 
 1. **Détendre franchement les cordes** : la tige ne lutte plus contre la tension.
 2. **Nettoyer et lubrifier l'écrou** : un peu d'huile fine sur le filetage, sans en mettre dans le bois ni sur la touche. Laisser agir quelques minutes à quelques heures.
-3. **Chauffer très doucement** : chaleur douce (sèche-cheveux, jamais de flamme) sur la zone de l'écrou, pour dilater le métal et dégripper.
+3. **Chauffer très doucement** : jamais de flamme. Des luthiers chauffent l'écrou avec un **fer à souder propre**, vernis voisin protégé, en évitant de se brûler et sans casser la tige (Luthiers Forum) ; un sèche-cheveux est une alternative plus douce mais **non sourcée**.
 4. **Tourner en va-et-vient** : de minuscules mouvements dans les deux sens (une fraction de quart de tour), en gagnant un peu à chaque passage, plutôt qu'un effort continu dans un seul sens.
 5. **Soulager la tige** : en soutenant le manche, exercer une légère flexion à la main dans le sens qui diminue l'effort sur la tige pendant qu'on tourne, avec précaution.
 
@@ -78,8 +78,9 @@ Confier l'instrument à un luthier si la tige reste bloquée après ces essais, 
 ## Sources et liens
 
 - [Premier Guitar : Emergency truss rod tweaks](https://www.premierguitar.com/articles/Emergency_Truss_Rod_Tweaks) : cas difficiles, dont les truss rods récalcitrants.
+- [Luthiers Forum : fret levelling with relief](https://www.luthiersforum.com/forum/viewtopic.php?p=688239) : fil de luthiers sur une tige « bloquée » : huile pénétrante sur l'écrou, chaleur au fer à souder, petits mouvements dans les deux sens, graissage préventif du filetage, tige à réparer avant un refret.
 
-> Cette fiche s'appuie surtout sur des échanges de forums de luthiers et d'amateurs (huile pénétrante, va-et-vient, chaleur douce, retrait de l'écrou une fois libéré, graissage du filetage) : à confirmer avec la pratique de l'atelier. Une seule source citée ; aucune vidéo n'est encore référencée.
+> Le déblocage s'appuie surtout sur des échanges de forums de luthiers : seul le fil du Luthiers Forum a été relu (huile pénétrante, chaleur au fer à souder, va-et-vient, graisse anti-grippage en prévention, quand renoncer). Détendre les cordes, soulager la tige par une légère flexion du manche et démonter l'écrou pour le regraisser viennent de la fiche d'origine et d'avis non relus : à confirmer avec la pratique de l'atelier. Aucune vidéo n'est encore référencée. Trois autres fils de forum (TalkBass, Gibson, MIMF) étaient inaccessibles.
 
 ## Historique des révisions
 
