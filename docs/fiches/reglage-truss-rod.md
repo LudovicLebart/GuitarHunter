@@ -5,8 +5,8 @@ categorie: reglage
 difficulte: 2
 duree: 20 à 40 min (hors temps de stabilisation)
 statut: brouillon
-revision: 2026-10-15
-alias: truss rod, truss rod coincé, truss rod bloqué, tige de réglage du manche, courbure du manche, manche trop courbé, manche creux
+revision: 2026-10-30
+alias: truss rod, tige de réglage du manche, courbure du manche, manche trop courbé, manche creux, régler le truss rod
 ---
 
 # Ajuster le truss rod
@@ -18,7 +18,7 @@ alias: truss rod, truss rod coincé, truss rod bloqué, tige de réglage du manc
 ## Risques et points de non-retour
 
 - **Forcer** peut arracher le filetage, fendre le manche ou casser la tige : irréparable ou coûteux.
-  Une résistance anormale impose de s'arrêter.
+  Une résistance anormale impose de s'arrêter (voir [Débloquer un truss rod coincé](debloquer-truss-rod.md)).
 - **Écrou arrondi** (clé qui glisse) : utiliser la clé exacte du modèle, bien enfoncée et droite.
 - **Un manche qui ne répond pas** au truss rod n'a pas forcément un problème de truss rod : voir
   *Pièges*.
@@ -26,6 +26,8 @@ alias: truss rod, truss rod coincé, truss rod bloqué, tige de réglage du manc
   petit quart de tour et la mesure suivante avant de poursuivre.
 
 ## Repérer le type et l'accès
+
+![Deux guitares : accès du truss rod côté tête (cercle sur la tête) et côté corps (cercle sur la rosace)](img/reglage-truss-rod/02-acces.svg)
 
 - **Accès côté tête** (derrière le cache ou sous le sillet) : cas fréquent sur électriques.
 - **Accès côté corps** (par la rosace, ou sous le pickguard) : cas fréquent sur acoustiques.
@@ -39,21 +41,22 @@ Identifier le type avant d'intervenir (documentation du modèle, constructeur).
 - Clé du bon format (pas d'outil de fortune)
 - Règle et jauges d'épaisseur, capo
 - Accordeur
-- Lubrifiant adapté, en dernier recours, sur filetage grippé
 
 ## Étapes
 
 ### 1. Mesurer le relief avant d'agir
 
-Voir l'étape correspondante de la fiche [Ajuster l'action](reglage-action.md). Noter la valeur de
-départ : sans elle, on ne sait pas dans quel sens ni de combien corriger.
+Voir la fiche [Mesurer le relief du manche](mesurer-relief-manche.md). Noter la valeur de départ : sans elle,
+on ne sait pas dans quel sens ni de combien corriger.
 
 ### 2. Détendre légèrement les cordes si l'écrou résiste
 
 Une tige sous tension forte tourne plus difficilement. Détendre un peu les cordes (sans les retirer)
-réduit l'effort et protège le filetage.
+réduit l'effort et protège le filetage. Si l'écrou ne tourne toujours pas, voir [Débloquer un truss rod coincé](debloquer-truss-rod.md).
 
 ### 3. Tourner d'un quart de tour au maximum
+
+![Serrer dans le sens horaire redresse le manche ; desserrer dans le sens antihoraire augmente le relief](img/reglage-truss-rod/01-sens-de-rotation.svg)
 
 - **Serrer (sens horaire)** : redresse le manche, diminue le relief.
 - **Desserrer (sens antihoraire)** : augmente le relief.
@@ -69,40 +72,6 @@ Répéter les étapes 3 et 4 jusqu'à la valeur visée.
 
 Contrôler les bourdonnements sur les premières frettes, la hauteur des cordes et le jeu. Poursuivre
 avec le sillet et le chevalet (voir [Ajuster l'action](reglage-action.md)).
-
-## Débloquer un truss rod coincé
-
-Un truss rod « coincé » est un écrou qui ne tourne pas, ou une tige qui résiste fortement. Avant de
-conclure à un blocage, vérifier que la clé est exacte et bien enfoncée, que le sens de rotation
-tenté est le bon, et que les cordes sont accordées (ou légèrement détendues, voir étape 2).
-
-À essayer **dans cet ordre**, en s'arrêtant dès que ça tourne :
-
-1. **Détendre franchement les cordes** : la tige ne lutte plus contre la tension.
-2. **Nettoyer et lubrifier l'écrou** : un peu d'huile fine ou de lubrifiant adapté sur le filetage,
-   sans en mettre dans le bois ni sur la touche. Laisser agir quelques minutes à quelques heures.
-3. **Chauffer très doucement** : de la chaleur douce (sèche-cheveux, jamais de flamme), sur la zone
-   de l'écrou, pour dilater le métal et dégripper. Ne pas surchauffer le vernis ni le bois.
-4. **Tourner en va-et-vient** : de minuscules mouvements dans les deux sens (une fraction de quart de
-   tour), en gagnant un peu à chaque passage, plutôt qu'un effort continu dans un seul sens.
-5. **Soulager la tige** : en soutenant le manche, exercer une légère flexion du manche à la main
-   dans le sens qui diminue l'effort sur la tige pendant qu'on tourne, avec précaution.
-
-**Une fois le truss rod libéré**, ne pas le laisser tel quel : le blocage reviendra.
-
-1. Mesurer le relief sous tension, puis cordes détendues, et noter les deux valeurs.
-2. Dévisser complètement l'écrou, sans forcer, et le retirer de la tige.
-3. Essuyer le filetage (tige et écrou) et déposer une très petite quantité de graisse, par exemple de
-   la vaseline, sur la tige.
-4. Remettre l'écrou et le serrer jusqu'à retrouver le relief noté à l'étape 1, par quarts de tour,
-   en remesurant (voir *Étapes*).
-
-Sur certains modèles, l'écrou n'est pas démontable sans retirer d'autres pièces (cache, rosace,
-pickguard) : dans ce cas, ne démonter que si on sait comment l'instrument se remonte.
-
-**S'arrêter et confier l'instrument à un luthier** si la tige reste bloquée après ces essais, si
-l'écrou commence à s'arrondir, si on entend ou sent un craquement, ou si le manche semble sous
-contrainte. Insister risque de casser la tige ou de fendre le manche.
 
 ## Pièges et erreurs courantes
 
@@ -126,9 +95,7 @@ contrainte. Insister risque de casser la tige ou de fendre le manche.
 - [StewMac : How to measure neck relief on a guitar](https://stewmac.com/video-and-ideas/online-resources/neck-building-and-repair-and-setup/neck-relief-gauge-instructions) : mesure du relief avant et après réglage.
 - [Martin Guitar : SC13E setup adjustment (PDF)](https://www.martinguitar.com/on/demandware.static/-/Library-Sites-MartinSharedLibrary/default/pdf/sc13e-setup-adjustment.pdf) : réglage selon un constructeur d'acoustiques.
 
-> Pour le déblocage d'un truss rod coincé, la section ci-dessus s'appuie surtout sur des échanges de
-> forums de luthiers et d'amateurs (huile pénétrante, va-et-vient, chaleur douce, retrait de l'écrou
-> une fois libéré, graissage du filetage) : à confirmer avec la pratique de l'atelier. Aucune vidéo n'est encore référencée.
+> Les schémas exagèrent le creux du manche pour le rendre visible. Aucune vidéo n'est encore référencée.
 
 ## Historique des révisions
 
@@ -138,3 +105,4 @@ contrainte. Insister risque de casser la tige ou de fendre le manche.
 | 2026-10-15 | Ajout de la section « Débloquer un truss rod coincé » |
 | 2026-10-15 | Ajout des sources (sites de luthiers et constructeurs) |
 | 2026-10-15 | Déblocage : retrait de l'écrou, graissage du filetage et retour au relief mesuré |
+| 2026-10-30 | Déblocage déplacé dans la fiche « Débloquer un truss rod coincé » ; schémas du sens de rotation et de l'accès ; mesure du relief renvoyée à sa fiche |

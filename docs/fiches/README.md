@@ -29,6 +29,10 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 |-------|-----------|:----------:|--------|
 | [Ajuster l'action](reglage-action.md) | Réglage | 2/5 | brouillon |
 | [Ajuster le truss rod](reglage-truss-rod.md) | Réglage | 2/5 | brouillon |
+| [Débloquer un truss rod coincé](debloquer-truss-rod.md) | Réglage | 3/5 | brouillon |
+| [Mesurer le relief du manche](mesurer-relief-manche.md) | Réglage | 1/5 | brouillon |
+| [Régler la hauteur des cordes au sillet de tête](regler-sillet-de-tete.md) | Réglage | 3/5 | brouillon |
+| [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md) | Réglage | 3/5 | brouillon |
 | [Réparer une fissure dans la table](reparation-fissure-table.md) | Structurel | 3/5 (2 à 5 selon l'état) | en_revision |
 | [Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md) | Structurel | 1/5 | brouillon |
 | [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Structurel | 1/5 | brouillon |

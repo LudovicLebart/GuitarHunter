@@ -21,6 +21,10 @@ Les fiches doivent être **illustrées** (voir `../README.md`). Ce dossier regro
 | `fleche(x1, y1, x2, y2)` | Flèche droite |
 | `bon_mauvais(x, y, bon)` | Pastille ✓ vert ou ✗ rouge |
 | `texte(x, y, t, ...)` | Texte aligné |
+| `boite(x, y, l, h, titre, sous_titre)` | Case d'organigramme (étape, arrêt) |
+| `manche_profil(x, y, longueur, relief)` | Manche vu de côté, frettes aux vraies proportions, creux réglable |
+| `frette_corde(x, y, hauteur)` | Zoom sur une frette avec la corde au-dessus (action) |
+| `ecrou_rotation(x, y, sens)` | Écrou de truss rod avec flèche horaire ou antihoraire |
 
 Tout nouvel élément utile à plusieurs fiches (sillet, truss rod, touche, barrage, serre-joint…) s'ajoute **ici** plutôt que dans un schéma isolé.
 
@@ -39,5 +43,7 @@ Tout nouvel élément utile à plusieurs fiches (sillet, truss rod, touche, barr
 1. Écrire (ou ouvrir) `build_<sujet>.py`, assembler les éléments, lancer `python docs/fiches/_banque/build_<sujet>.py`.
 2. Regarder le résultat, ajuster, relancer.
 3. Référencer l'image dans l'étape qu'elle sert ; ajouter une ligne à l'historique de la fiche.
+
+Scripts : `build_retrouver_humidite.py` (sac et hygromètre), `build_reglage.py` (ordre des réglages, sillet, action, relief, truss rod, déblocage).
 
 Les trois premiers schémas de la fiche « Réparer une fissure dans la table » et celui de « Nettoyer avant collage » sont encore des fichiers dessinés à la main : à reconstruire avec la banque quand on les retouchera.

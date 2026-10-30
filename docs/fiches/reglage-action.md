@@ -5,8 +5,8 @@ categorie: reglage
 difficulte: 2
 duree: 45 min à 1 h
 statut: brouillon
-revision: 2026-10-15
-alias: action haute, action trop haute, action trop basse, régler l'action, hauteur des cordes, relief trop important, relief insuffisant, cordes qui frisent, bourdonnement des cordes
+revision: 2026-10-30
+alias: action haute, action trop haute, action trop basse, régler l'action, hauteur des cordes, cordes qui frisent, bourdonnement des cordes
 ---
 
 # Ajuster l'action
@@ -15,10 +15,12 @@ alias: action haute, action trop haute, action trop basse, régler l'action, hau
 > d'abord la courbure du manche (relief), puis le sillet, puis le chevalet. Toute valeur chiffrée
 > ci-dessous est un point de départ à confirmer sur l'instrument et au goût du joueur.
 
+![Guitare vue de dessus : 1 relief du manche, 2 sillet, 3 hauteur au chevalet](img/reglage-action/01-ordre-des-reglages.svg)
+
 ## Risques et points de non-retour
 
 - **Truss rod** : ne jamais forcer. Une rotation à la fois, par petits quarts de tour. Une tige
-  grippée ou un écrou rond est à traiter avant de continuer (lubrifier, desserrer les cordes).
+  grippée ou un écrou rond est à traiter avant de continuer (voir [Débloquer un truss rod coincé](debloquer-truss-rod.md)).
 - **Sillet** : on ne peut pas remettre de matière. Limer lentement, mesurer souvent, s'arrêter avant
   la hauteur visée.
 - **Chevalet / sillets de chevalet** : sur une acoustique à chevalet collé, abaisser le sillet osseux
@@ -41,30 +43,14 @@ alias: action haute, action trop haute, action trop basse, régler l'action, hau
 Mettre les cordes à leur tension normale et accorder. Régler un instrument avec des cordes
 détendues ou usées fausse toutes les mesures. Laisser reposer quelques minutes.
 
-### 2. Mesurer le relief du manche (diagnostic : faut-il toucher au truss rod ?)
+### 2. Mesurer le relief du manche
 
-Le relief est la légère courbure du manche vers l'avant, sous la tension des cordes. C'est elle qui
-dit si le truss rod doit être ajusté : on la mesure avant toute autre retouche.
+Le relief dit si le truss rod doit être ajusté : on le mesure avant toute autre retouche. Procédure, tableau de
+diagnostic et valeurs dans la fiche [Mesurer le relief du manche](mesurer-relief-manche.md).
 
-**Mesure (cordes accordées, instrument à plat ou en position de jeu) :**
-
-1. Poser un capo sur la 1re frette.
-2. Appuyer la corde de mi grave à la dernière frette (au niveau de la jonction manche/corps) : la
-   corde devient une règle droite entre ces deux points.
-3. Au milieu du manche (autour de la 8e frette), mesurer l'espace entre le dessous de la corde et le
-   dessus de la frette, avec une jauge d'épaisseur ou la règle.
-
-**Lecture du résultat** (valeurs de départ indicatives) :
-
-| Espace mesuré | Diagnostic | Action |
-|---------------|------------|--------|
-| environ 0,2 à 0,3 mm | Relief correct | Ne pas toucher au truss rod, passer au sillet |
-| nettement plus (corde loin de la frette) | Trop de relief : action haute, jeu mou | Serrer le truss rod |
-| presque nul, ou la corde touche la frette | Pas assez de relief, ou manche en arrière : bourdonnements dans les premières frettes | Desserrer le truss rod |
-
-**Avant de conclure sur le truss rod**, écarter deux autres causes d'action haute ou de
-bourdonnements : un sillet mal taillé (étape 4) et une frette haute ou un manche tordu. Un relief
-correct avec une action toujours trop haute ou une corde qui bourdonne ne se règle pas au truss rod.
+**Avant de conclure sur le truss rod**, écarter deux autres causes d'action haute ou de bourdonnements : un sillet
+mal taillé (étape 4) et une frette haute ou un manche tordu. Un relief correct avec une action toujours trop haute
+ou une corde qui bourdonne ne se règle pas au truss rod.
 
 ### 3. Corriger le relief au truss rod
 
@@ -73,34 +59,27 @@ correct avec une action toujours trop haute ou une corde qui bourdonne ne se rè
 
 Procédure complète, précautions et pièges : fiche [Ajuster le truss rod](reglage-truss-rod.md).
 
-### 4. Vérifier le sillet
+### 4. Vérifier le sillet de tête
 
-Appuyer la corde à la 3e frette et regarder l'espace au-dessus de la 1re frette : il doit être
-très faible mais non nul (de l'ordre de quelques dixièmes de mm, vérifiable à la jauge).
+L'espace entre la corde et la 1re frette doit être très faible mais non nul (de l'ordre de 0,010 à 0,020 po, soit 0,25 à 0,5 mm selon la corde et l'instrument).
+Une corde qui touche la 1re frette ou bourdonne à vide : entaille trop profonde ; espace trop grand : cordes dures en bas du manche.
+Valeurs par corde, mesure et limage de l'entaille : fiche [Régler la hauteur des cordes au sillet de tête](regler-sillet-de-tete.md).
 
-- Corde qui touche la 1re frette ou bourdonne à vide : sillet trop bas ou entaille mal profilée.
-- Espace trop grand : cordes dures en bas du manche, notes justes en haut mais fausses en bas.
+### 5. Mesurer l'action
 
-Si le sillet est à retoucher, limer seulement le fond de l'entaille, avec la lime du bon calibre,
-en suivant l'angle vers la tête.
+Mesurer l'espace entre le dessus de la frette et le dessous de la corde, corde grave et corde aiguë, à la frette de la source suivie (12e, 14e ou 17e).
 
-### 5. Mesurer l'action à la 12e frette
+![Zoom sur la 12e frette : l'action est l'espace entre le dessus de la frette et le dessous de la corde](img/reglage-action/03-action-12e-frette.svg)
 
-Mesurer l'espace entre le dessus de la frette et le dessous de la corde, à la 12e frette, pour la
-corde grave et pour l'aigu.
-
-| Instrument | Corde grave | Corde aiguë |
-|-----------|-------------|-------------|
-| Électrique (valeurs indicatives) | environ 1,6 à 2,0 mm | environ 1,2 à 1,6 mm |
-| Acoustique (valeurs indicatives) | environ 2,4 mm | environ 1,6 à 2,0 mm |
+Valeurs cibles par type d'instrument et points de mesure : fiche [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md).
 
 ### 6. Ajuster la hauteur au chevalet
 
-- Électrique : vis de hauteur du chevalet ou des sillets, un côté à la fois, par petits pas.
-- Acoustique : jeu de hauteur de sillet de chevalet (retirer de la matière en dessous, bien plat) ;
+- Électrique : vis de hauteur des sillets, un côté à la fois, par petits pas.
+- Acoustique : retirer de la matière sous le sillet de chevalet (environ deux fois la baisse voulue côté grave, zéro côté aigu), bien à plat ;
   l'inclinaison du manche conditionne la marge disponible (voir fiche *Neck reset* quand elle existera).
 
-Après chaque changement, réaccorder et remesurer.
+Détail, schéma et précautions : fiche [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md). Après chaque changement, réaccorder et remesurer.
 
 ### 7. Contrôler l'intonation
 
@@ -130,8 +109,7 @@ la corriger si besoin au chevalet.
 - [Premier Guitar : Guitar neck relief](https://www.premierguitar.com/diy/guitar-shop-101/guitar-neck-relief) : mesure du relief à la jauge d'épaisseur et valeurs selon le style de jeu.
 - [Martin Guitar : SC13E setup adjustment (PDF)](https://www.martinguitar.com/on/demandware.static/-/Library-Sites-MartinSharedLibrary/default/pdf/sc13e-setup-adjustment.pdf) : spécifications de réglage d'un constructeur d'acoustiques (relief mesuré à la 5e frette).
 
-> Les sources ne donnent pas les mêmes valeurs ni les mêmes points de mesure (relief à la 7e, 8e ou
-> 5e frette selon l'auteur). Se fier d'abord aux spécifications du constructeur de l'instrument.
+> Les sources ne donnent pas les mêmes valeurs ni les mêmes points de mesure. Se fier d'abord aux spécifications du constructeur de l'instrument.
 > Aucune vidéo n'est encore référencée : à ajouter quand une référence est choisie.
 
 ## Historique des révisions
@@ -142,3 +120,5 @@ la corriger si besoin au chevalet.
 | 2026-10-15 | Truss rod déplacé dans sa propre fiche ; l'étape 3 ne garde que le sens de rotation et un lien |
 | 2026-10-15 | Étape 2 : méthode de mesure détaillée et tableau de diagnostic pour décider d'ajuster ou non le truss rod |
 | 2026-10-15 | Ajout des sources (sites de luthiers et constructeurs) |
+| 2026-10-30 | Mesure du relief déplacée dans la fiche « Mesurer le relief du manche » ; schémas de l'ordre des réglages, du sillet et de l'action à la 12e frette |
+| 2026-10-30 | Sillet de tête et hauteur au chevalet déplacés dans deux fiches avec valeurs cibles sourcées ; anciennes valeurs d'action non sourcées retirées |

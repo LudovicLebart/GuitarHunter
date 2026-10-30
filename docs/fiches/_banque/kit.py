@@ -129,3 +129,67 @@ def bon_mauvais(x, y, bon=True):
     col, signe = (C["ok"], "✓") if bon else (C["ko"], "✗")
     return (f'<circle cx="{x}" cy="{y}" r="16" fill="{col}"/>'
             f'<text x="{x}" y="{y + 7}" font-size="21" font-weight="bold" fill="#fff" text-anchor="middle">{signe}</text>')
+
+
+def boite(x, y, largeur, hauteur, titre, sous_titre=None, couleur=None):
+    """Case d'un organigramme (étape, décision, arrêt). `couleur` : trait et titre (défaut : bleu eau)."""
+    col = couleur or C["eau_trait"]
+    s = (f'<rect x="{x}" y="{y}" width="{largeur}" height="{hauteur}" rx="10" fill="#fff" stroke="{col}" stroke-width="3"/>'
+         + texte(x + largeur / 2, y + 28, titre, 15, col, True, "middle"))
+    if sous_titre:
+        for i, ligne in enumerate(sous_titre.split("\n")):
+            s += texte(x + largeur / 2, y + 50 + 18 * i, ligne, 13, C["texte_doux"], False, "middle")
+    return s
+
+
+def manche_profil(x, y, longueur=520, relief=0, frettes=14, corde=True, capo=False, etiquettes=False):
+    """Manche vu de côté, sillet à gauche. (x, y) = dessus de la touche au sillet.
+    `relief` (px) = creux du milieu de la touche par rapport à la droite sillet-extrémité (0 = manche droit).
+    14 frettes tracées à leurs vraies proportions ; la corde est la droite tendue au-dessus de la touche."""
+    echelle = longueur / (1 - 2 ** (-frettes / 12))          # diapason en px
+    xs = [x + echelle * (1 - 2 ** (-n / 12)) for n in range(1, frettes + 1)]
+    fin = xs[-1]
+    r = relief
+
+    def surface(px):                                          # creux parabolique, nul aux extrémités
+        t = (px - x) / (fin - x)
+        return y + 4 * r * t * (1 - t)
+
+    haut = [f"{x + (fin - x) * k / 24:.1f},{surface(x + (fin - x) * k / 24):.1f}" for k in range(25)]
+    bas = [f"{x + (fin - x) * k / 24:.1f},{surface(x + (fin - x) * k / 24) + 26:.1f}" for k in range(24, -1, -1)]
+    s = [f'<polygon points="{" ".join(haut + bas)}" fill="{C["manche"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
+         f'<rect x="{x - 14}" y="{y - 12}" width="14" height="30" fill="#fff" stroke="{C["trait"]}" stroke-width="2"/>']
+    for k, px in enumerate(xs, 1):
+        s.append(f'<rect x="{px - 1.5:.1f}" y="{surface(px) - 3:.1f}" width="3" height="3" fill="{C["metal"]}"/>')
+        if etiquettes and k in (1, 5, 8, 12):
+            s.append(texte(f"{px:.1f}", f"{surface(px) + 46:.1f}", str(k), 12, C["texte_doux"], False, "middle"))
+    if corde:
+        s.append(f'<line x1="{x}" y1="{y - 6}" x2="{fin + 30:.1f}" y2="{y - 6}" stroke="#94a3b8" stroke-width="2"/>')
+    if capo:
+        s.append(f'<rect x="{xs[0] - 8:.1f}" y="{y - 24}" width="16" height="36" rx="3" fill="{C["noir"]}"/>')
+    return "".join(s), xs
+
+
+def frette_corde(x, y, hauteur=34, libelle=None):
+    """Zoom sur une frette (coupe) avec la corde au-dessus ; flèche de mesure de la hauteur (action)."""
+    s = (f'<rect x="{x - 70}" y="{y}" width="140" height="30" fill="{C["manche"]}"/>'
+         f'<path d="M{x - 14} {y} q14 -12 28 0z" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>'
+         f'<circle cx="{x}" cy="{y - 6 - hauteur - 5}" r="6" fill="#94a3b8" stroke="{C["trait"]}" stroke-width="2"/>'
+         f'<path d="M{x + 44} {y - 9} V{y - 6 - hauteur - 5}" stroke="{C["alerte"]}" stroke-width="3"/>'
+         f'<path d="M{x + 36} {y - 9} h16 M{x + 36} {y - 6 - hauteur - 5} h16" stroke="{C["alerte"]}" stroke-width="3"/>')
+    if libelle:
+        s += texte(x + 62, y - hauteur / 2 - 6, libelle, 14, C["alerte"], True)
+    return s
+
+
+def ecrou_rotation(x, y, sens="horaire"):
+    """Écrou de truss rod vu de face avec flèche de rotation (horaire = serrer, antihoraire = desserrer)."""
+    col = C["ok"] if sens == "horaire" else C["ko"]
+    sweep = 1 if sens == "horaire" else 0
+    p1, p2 = (x - 36, y - 6), (x + 36, y - 6)
+    dx, dy = (0.6, 0.8) if sens == "horaire" else (0.6, -0.8)   # sens de la flèche au bout de l'arc
+    return (f'<polygon points="{x - 18},{y - 31} {x + 18},{y - 31} {x + 36},{y} {x + 18},{y + 31} {x - 18},{y + 31} {x - 36},{y}" '
+            f'fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="3"/>'
+            f'<circle cx="{x}" cy="{y}" r="10" fill="{C["noir"]}"/>'
+            f'<path d="M{p1[0]} {p1[1]} A 46 46 0 0 {sweep} {p2[0]} {p2[1]}" transform="translate(0 -22)" fill="none" stroke="{col}" stroke-width="5"/>'
+            f'<polygon points="{p2[0] + 9 * dx:.1f},{p2[1] - 22 + 9 * dy:.1f} {p2[0] - 8 * dy:.1f},{p2[1] - 22 + 8 * dx:.1f} {p2[0] + 8 * dy:.1f},{p2[1] - 22 - 8 * dx:.1f}" fill="{col}"/>')
