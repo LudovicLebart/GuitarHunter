@@ -112,34 +112,44 @@ Niveaux 2 et 3, en plus :
 
 ## Étapes
 
-### Niveau 1 : fissure fine qui se referme
+Les étapes sont dans l'ordre où on les fait. Chacune indique les niveaux concernés : **niveau 1** = étapes 1, 2, 5 et 8 ; **niveau 2** = en plus les étapes 6 et 7 ; **niveau 3** = toutes les étapes.
 
-#### 1. Laisser l'instrument retrouver une humidité relative normale
+### 1. Laisser l'instrument retrouver une humidité relative normale (niveaux 1 à 3)
 
 **On ne mouille pas la guitare** : on corrige l'air autour d'elle (cible 45 à 55 % d'humidité relative). Procédure, méthode du sac et précautions dans la fiche
-[Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md). Si la fissure se referme, continuer au niveau 1 ; si elle reste ouverte
+[Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md). Si la fissure se referme, rester au niveau 1 ; si elle reste ouverte
 (c'est arrivé dans la démonstration de StewMac), passer au niveau 2.
 
 > **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (Dan Erlewine, avec transcription) : la méthode du sac, le collage par l'extérieur et la cale à l'intérieur.
 
-#### 2. Nettoyer et protéger
+### 2. Nettoyer et protéger (niveaux 1 à 3)
 
 Souffler la poussière, dégraisser l'intérieur de la fissure et masquer le vernis autour : procédure complète, produits et précautions dans la fiche
-[Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md).
+[Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md). Sur une fissure ancienne et encrassée (niveau 3), ouvrir doucement la fissure avec un crochet
+appuyé sur un barrage pour nettoyer la saleté ancienne.
 
-#### 3. Coller
+### 3. Recoller ce qui est décollé sous la table (niveau 3)
 
-Entrouvrir légèrement la fissure (par exemple en poussant la table depuis la rosace), faire pénétrer peu de colle sur
-toute la longueur, essuyer l'excès aussitôt. Serrer légèrement avec une cale plate sur la table, papier ciré intercalé,
-pour garder les lèvres de niveau. Ne pas toucher pendant 24 heures.
+Barrage ou entretoise décollé près de la fissure : le recoller à la spatule, sous la table, **avant** de coller la fissure ; c'est lui qui soutient la table pendant la mise de niveau et le serrage.
 
-> **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (même vidéo, partie collage).
+> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) (fissure ancienne et encrassée, entretoise décollée).
 
-### Niveau 2 : fissure qui reste ouverte, avec cales
+### 4. Remettre les lèvres de niveau (niveau 3)
 
-Reprendre les étapes 1 à 3, puis :
+Si une lèvre est plus haute que l'autre, la repousser depuis l'intérieur (un barrage sert d'appui) et la maintenir **de niveau** avec une cale extérieure et des serre-joints, **avant** de coller. Essayer à blanc, sans colle, pour vérifier que le serrage ne recrée pas de décalage.
 
-#### 4. Préparer les cales
+![Coupe de la table : lèvres décalées à gauche, lèvres de niveau maintenues par une cale et un serre-joint à droite](img/reparation-fissure-table/02-mise-de-niveau.svg)
+
+> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) ; [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (ouverture de la fissure, serrage).
+
+### 5. Coller la fissure (niveaux 1 à 3)
+
+Entrouvrir légèrement la fissure (par exemple en poussant la table depuis la rosace), faire pénétrer peu de colle sur toute la longueur, essuyer l'excès aussitôt. Serrer légèrement avec une cale plate sur la table,
+papier ciré intercalé, pour garder les lèvres de niveau. Ne pas toucher pendant 24 heures. Colle : Titebond Liquid Hide Glue dans la démonstration StewMac ; Frets.com utilise une colle de peau **claire** sur de l'épicéa blond pour éviter de tacher, et une colle à bois jaune sur une fissure ancienne et sale.
+
+> **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (même vidéo, partie collage). **Photos** : [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (colle dans la fissure, serrage).
+
+### 6. Préparer les cales (niveaux 2 et 3)
 
 Découper des cales en bois assorti à la table, **fil croisé** par rapport à la fissure (StewMac : environ 45°
 avec la fissure, à vérifier au miroir), chants amincis. Elles « cousent » la fissure : peu, petites, espacées de quelques centimètres.
@@ -148,42 +158,18 @@ avec la fissure, à vérifier au miroir), chants amincis. Elles « cousent » la
 
 > **Photos** : [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) (découpe des cales, cale de répartition). **Avis** : [Premier Guitar : to cleat or not to cleat](https://www.premierguitar.com/acoustic-soundboard-to-cleat-or-not-to-cleat) (une photo de cales en palissandre sur une Martin vintage ; quand s'en passer).
 
-#### 5. Poser les cales à l'intérieur
+### 7. Poser les cales ou le renfort à l'intérieur (niveaux 2 et 3)
 
 Après le collage extérieur, coller chaque cale en pont sur la fissure, à l'intérieur de la caisse, en la plaquant contre la table
 (fil et ancrage dans le kit StewMac, aimants avec le système Thompson). Faire un essai à blanc sans colle pour mesurer la tension
 nécessaire. Avec un kit, la colle peut aussi être injectée par l'extérieur à faible pression (StewMac cite 10 psi). Essuyer les
-bavures à l'eau chaude, contrôler à la lampe.
+bavures à l'eau chaude, contrôler à la lampe. Selon la zone, une pièce plate d'épicéa d'environ 3/32 po à fil croisé, collée à la place des cales,
+renforce le niveau 3 (exemples Frets.com). Ne pas multiplier les renforts.
 
 > **Vidéos** : [StewMac : Crack repair tools](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/stewmac-crack-repair-tools-video/) (kit à fil et ancrage, non revue en détail) ; [StewMac : TJ Thompson top crack repair](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/tj-thompson-top-crack-repair-video) (cale par aimants, fissure jusqu'au chevalet sur une Martin 1941).
-> **Photos** : [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) (essai à blanc, injection de colle, serrage).
+> **Photos** : [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) (essai à blanc, injection de colle, serrage) ; [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) et [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (renforts d'épicéa à l'intérieur).
 
-### Niveau 3 : lèvres décalées, fissure ancienne, table enfoncée
-
-#### 6. Nettoyer et remettre de niveau
-
-Ouvrir doucement la fissure avec un crochet appuyé sur un barrage, nettoyer la saleté ancienne, puis repousser la lèvre trop haute depuis
-l'intérieur et la maintenir **de niveau** avec une cale extérieure et des serre-joints avant de coller. Frets.com utilise une colle de peau
-**claire** sur de l'épicéa blond pour éviter de tacher, et une colle à bois jaune sur une fissure ancienne et sale.
-
-![Coupe de la table : lèvres décalées à gauche, lèvres de niveau maintenues par une cale et un serre-joint à droite](img/reparation-fissure-table/02-mise-de-niveau.svg)
-
-> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) (fissure ancienne et encrassée, entretoise décollée) ; [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (ouverture de la fissure, colle, serrage).
-
-#### 7. Réparer ce qui est décollé
-
-Barrage ou entretoise décollé près de la fissure : le recoller à la spatule, sous la table, avant ou en même temps que la fissure.
-
-#### 8. Renfort
-
-Selon la zone : cales (niveau 2) ou pièce plate d'épicéa d'environ 3/32 po à fil croisé collée en même temps que la fissure
-(exemples Frets.com). Ne pas multiplier les renforts.
-
-> **Photos** : [Frets.com : A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) ; [Frets.com : Taylor 12-string, top and side cracks](https://www.frets.com/pages/xgadge6a/Crack-Repair) (renforts d'épicéa à l'intérieur).
-
-### Pour tous les niveaux
-
-#### 9. Finition
+### 8. Finition (niveaux 1 à 3)
 
 Reboucher le petit trou laissé par le fil ou la fissure, teinter la ligne de colle si besoin et retoucher avec des produits compatibles
 avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche doit être invisible.
@@ -239,3 +225,4 @@ avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche
 | 2026-10-30 | Ajout de photos réelles de Frets.com, affichées depuis le site d'origine (non copiées), avec crédit et lien |
 | 2026-10-30 | Ajout d'une photo de fissure discrète et d'un encadré fissure du bois ou du vernis |
 | 2026-10-30 | Nettoyage et dégraissage déplacés dans la fiche « Nettoyer et dégraisser une fissure avant collage » (renvoi à l'étape 2) |
+| 2026-10-30 | Étapes remises dans l'ordre chronologique (nettoyer, recoller les barrages, mettre de niveau, puis coller, cales, finition) avec les niveaux concernés par étape |
