@@ -11,6 +11,20 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 📚 Base de connaissances : allumage au Portier, réparation, marché québécois (2026-10-25, rien codé)
+
+*Décision de l'utilisateur : la base sera allumée au Portier (session dédiée) ; le Portier filtre les pépites potentielles ; la base contiendra aussi des fiches de réparation et du savoir québécois/canadien. Avis après consultation d'Opus : `journal/2026-W43.md`, `STRATEGIE_IA.md` §3.8 ter.*
+
+- [ ] **Fournir le résultat du rejeu de non-régression** (`t1_kb_paired_replay run --stage eval`, strate B, critère fixé le 2026-10-16) — aucun résultat retrouvé dans le dépôt ; sans lui, rien à décider sur l'allumage.
+- [ ] **Audit des rejets** : faire passer ≈ 5 % des rejets du Portier (tirés au hasard) à l'Analyste pour mesurer les pépites perdues ; chiffrer le coût avec `cost_dashboard.py`. Seule vérité terrain possible, avec ou sans base.
+- [ ] **Second avis sur les rejets** : relancer un rejet, accepter si les deux tirages divergent (vise les réponses absurdes du 8B, cause dominante) ; à mesurer en parallèle.
+- [ ] **Fiches québécoises/canadiennes pour l'Expert d'abord** (famille Godin : Godin, Seagull, Norman, Simon & Patrick, Art & Lutherie, La Patrie ; Larrivée ; Guerilla ; luthiers québécois à préciser par l'utilisateur), via `seed_guitar_knowledge.py --file`, relues, sans URL d'annonce ni prix tiré des scans (dépôt public). Prix de l'occasion = comparables calculés à l'exécution, jamais recopiés dans une fiche.
+- [ ] **Fiches de réparation** (cassure de talon/tête, décollement, fissures, frettes, neck reset, truss rod, électronique…) : pour l'Analyste, l'Expert (outil `lookup_repair` à créer) et le mentor ; **pas d'injection au Portier** (il ne voit pas les défauts), au mieux une règle « défaut réparable : signaler, jamais un motif de rejet ».
+- [ ] **Si la base est allumée au Portier malgré tout** : mode « ombre » d'abord (calcul et trace sans injection, 1–2 semaines), bloc ≤ ≈ 220 tokens, aucun prix, correspondance OCR exacte, `requires` pour les séries (cas « Precision Bass »), puis rejeu apparié aux conditions de prod ; ne mettre à jour `CLAUDE.md` (« éteinte ») qu'à ce moment.
+- [ ] **Retirer les URL Reverb des sources de la fiche Guerilla** (dépôt public) — à confirmer par l'utilisateur.
+
+---
+
 ## 📘 Fiches techniques de restauration (2026-10-15)
 
 *Bibliothèque de fiches Markdown dans `docs/fiches/` (voir son `README.md`) ; créées au fil des sessions de chat. Journal : `journal/2026-W42.md`.*
@@ -39,7 +53,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ## 🎸 Remplacer Gemini par Claude Sonnet 5.5 pour l'Expert (T3) et le chat tuteur (2026-10-13)
 
-*Motif : l'utilisateur ne fait plus confiance à Gemini 3.1 Pro. Critère de bascule : Sonnet fait au moins aussi bien. Code sur `feat/t3-claude-provider` (poussé, **pas** sur `dev`/`master`), interrupteur `T3_PROVIDER` (défaut `gemini`). Détail et chiffres : `JOURNAL.md` 2026-10-13 et 2026-10-14.*
+*Motif : l'utilisateur ne fait plus confiance à Gemini 3.1 Pro. Critère de bascule : Sonnet fait au moins aussi bien. Code fusionné dans `dev` (vérifié le 2026-10-25, `feat/t3-claude-provider` n'a plus de commit en avance), interrupteur `T3_PROVIDER` (défaut `gemini`). Détail et chiffres : `JOURNAL.md` 2026-10-13 et 2026-10-14.*
 
 - [x] **Interrupteur `T3_PROVIDER`, cache de prompt Anthropic, tarifs `cost_dashboard.py`** (2026-10-13).
 - [x] **Outils de mesure** : `truth_candidates.py`, `replay_t3.py`, `replay_t3_digest.py`, `replay_t3_links.py` (2026-10-13/14).
@@ -57,6 +71,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 - [ ] **Rôle Postgres en lecture seule** pour les scripts de test (le fichier d'accès actuel donne l'écriture sur la production).
 - [ ] **Signal `rescued` de `truth_candidates.py` toujours à 0** sur les vraies données (basse priorité).
 - [ ] **Ne rien activer en production** (`T3_PROVIDER` reste `gemini`) tant que le critère n'est pas atteint.
+- [ ] **Corriger le biais de la comparaison (2026-10-25)** : `lookup_brand` n'existe que pour Claude, donc « Sonnet + base » contre « Gemini sans base » ne compare pas deux modèles. Ajouter un bras Sonnet sans base, ou donner l'outil à Gemini.
 
 ---
 
