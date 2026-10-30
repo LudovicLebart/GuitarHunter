@@ -63,11 +63,15 @@ Régler chaque sillet séparément, par petits pas, un côté à la fois (vis de
 
 ### 3b. Acoustique : retirer de la matière sous le sillet
 
-Comparer le rayon du sillet à celui de la touche (9,5 po et 10 po, ou 10 po et 12 po, sont assez proches ; 10 po contre 20 po demande de reprofiler le sillet avec une cale de rayon). **Pour baisser l'action à la 12e frette, retirer de la matière sous le sillet, environ deux fois la baisse voulue** côté grave, et dégressivement jusqu'à zéro côté aigu (exemple StewMac : baisser la 12e de 0,020 po = retirer 0,040 po côté grave).
+Comparer le rayon du sillet à celui de la touche (9,5 po et 10 po, ou 10 po et 12 po, sont assez proches ; 10 po contre 20 po demande de reprofiler le sillet avec une cale de rayon).
 
-![Sillet de chevalet vu de face : zone rouge à retirer côté grave, nulle côté aigu](img/regler-hauteur-chevalet/01-poncer-le-sillet.svg)
+**Cas courant : l'action est trop haute partout, on ponce le dessous du sillet à plat.** Le sillet reste un rectangle : on retire la même épaisseur sur toute sa longueur, en frottant le dessous sur du papier de verre fixé sur un support parfaitement plan, jusqu'à la hauteur visée. La corde pivote sur le sillet de tête, donc la baisse à la 12e frette vaut environ la moitié de celle prise sous le sillet : **pour baisser la 12e de 0,020 po, retirer environ 0,040 po** (exemple StewMac, 0,5 mm à la 12e pour 1 mm sous le sillet).
 
-Tracer la ligne de coupe au crayon, poncer bien à plat jusqu'à la ligne, vérifier, remettre en place.
+**Cas particulier : un seul côté est trop haut.** Si seules les cordes graves sont trop hautes (cibles différentes grave/aigu), on ponce en dégradé : plus de matière côté grave, dégressivement jusqu'à zéro côté aigu (exemple de la page StewMac : 0,040 po côté grave, zéro côté aigu). Tracer la ligne de coupe au crayon et poncer jusqu'à elle.
+
+![Sillet de chevalet vu de face : à gauche ponçage à plat (cas courant), à droite ponçage en dégradé côté grave (cas particulier)](img/regler-hauteur-chevalet/01-poncer-le-sillet.svg)
+
+Dans les deux cas : vérifier que le dessous reste **plan** (il doit reposer sur toute sa longueur au fond de la fente), remettre en place, réaccorder, remesurer.
 
 ### 4. Réaccorder, remesurer, corriger l'intonation
 
@@ -76,7 +80,7 @@ Après chaque changement, réaccorder et remesurer. Une fois l'action stable, co
 ## Pièges et erreurs courantes
 
 - Poncer en biais : le sillet ne repose plus à plat.
-- Retirer la même quantité côté aigu que côté grave.
+- Poncer en dégradé alors que l'action est trop haute partout (le côté aigu devient trop bas), ou à plat alors qu'un seul côté est trop haut.
 - Comparer ses mesures à un tableau pris à une autre frette que celle utilisée.
 - Régler l'action avant d'avoir corrigé le relief ou le sillet de tête.
 

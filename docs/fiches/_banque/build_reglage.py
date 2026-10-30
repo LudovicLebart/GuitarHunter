@@ -173,19 +173,31 @@ ecrire("debloquer-truss-rod", "01-ordre-de-deblocage.svg", svg(
     "Cinq essais successifs : détendre les cordes, lubrifier, chauffer très doucement, tourner en va-et-vient, soulager la tige ; sinon luthier.",
     "\n  ".join(morceaux)))
 
-# 8. Sillet de chevalet (acoustique) : retirer de la matière sous le sillet ----------------------------------------
+# 8. Sillet de chevalet (acoustique) : poncer le dessous du sillet -------------------------------------------------------
+def sillet_face(x0, titre, retire, couleur):
+    """Sillet vu de face (grave à gauche, aigu à droite) ; `retire` = (épaisseur grave, épaisseur aigu) en px."""
+    g, a = retire
+    return "".join([
+        f'<rect x="{x0}" y="110" width="340" height="62" rx="6" fill="#fff" stroke="{C["trait"]}" stroke-width="3"/>',
+        f'<polygon points="{x0},172 {x0 + 340},172 {x0 + 340},{172 - a} {x0},{172 - g}" fill="{C["alerte"]}" opacity=".35"/>',
+        f'<path d="M{x0} {172 - g} L{x0 + 340} {172 - a}" stroke="{C["alerte"]}" stroke-width="3" stroke-dasharray="8 5"/>',
+        texte(x0, 100, "Grave", 14, C["texte"], True), texte(x0 + 340, 100, "Aigu", 14, C["texte"], True, "end"),
+        texte(x0 + 170, 70, titre, 16, couleur, True, "middle"),
+    ])
+
+
 corps = "\n  ".join([
-    texte(410, 40, "Baisser l'action à la 12e frette : on retire de la matière sous le sillet", 17, C["texte_doux"], True, "middle"),
-    # sillet vu de face : grave à gauche, aigu à droite
-    f'<rect x="130" y="110" width="560" height="70" rx="6" fill="#fff" stroke="{C["trait"]}" stroke-width="3"/>',
-    f'<polygon points="130,180 690,180 690,180 130,150" fill="{C["alerte"]}" opacity=".35"/>',
-    f'<path d="M130 150 L690 180" stroke="{C["alerte"]}" stroke-width="3" stroke-dasharray="8 5"/>',
-    texte(130, 100, "Grave", 15, C["texte"], True), texte(690, 100, "Aigu", 15, C["texte"], True, "end"),
-    repere(1, 90, 235), texte(115, 241, "Tracer au crayon la ligne de coupe sous le sillet (pointillé rouge)", 15, C["texte"], True),
-    repere(2, 90, 275), texte(115, 281, "Poncer bien à plat jusqu'à la ligne : on retire deux fois la baisse voulue côté grave", 15, C["texte"], True),
-    repere(3, 90, 315), texte(115, 321, "Rien côté aigu : la matière retirée diminue jusqu'à zéro", 15, C["texte"], True),
-    texte(410, 355, "Exemple StewMac : baisser la 12e frette de 0,020 po (0,5 mm) = retirer 0,040 po (1 mm) côté grave, 0 côté aigu.", 14, C["texte_doux"], False, "middle"),
+    sillet_face(40, "Cas courant : ponçage à plat", (16, 16), C["ok"]),
+    sillet_face(440, "Cas particulier : en dégradé", (30, 0), C["eau_trait"]),
+    texte(210, 205, "Action trop haute partout", 14, C["texte_doux"], False, "middle"),
+    texte(210, 224, "même épaisseur sur toute la longueur", 14, C["texte_doux"], False, "middle"),
+    texte(610, 205, "Seules les cordes graves sont trop hautes", 14, C["texte_doux"], False, "middle"),
+    texte(610, 224, "plus côté grave, zéro côté aigu", 14, C["texte_doux"], False, "middle"),
+    repere(1, 60, 285, "Dessous du sillet sur papier de verre collé sur un support plan, mouvement régulier"),
+    repere(2, 60, 325, "Vérifier que le dessous reste plan, remettre en place, réaccorder, remesurer"),
+    texte(410, 30, "Baisser l'action : on ponce le dessous du sillet (la zone rouge est retirée)", 17, C["texte_doux"], True, "middle"),
+    texte(410, 365, "Baisser la 12e frette de 0,020 po (0,5 mm) demande de retirer environ 0,040 po (1 mm) sous le sillet (exemple StewMac).", 14, C["texte_doux"], False, "middle"),
 ])
 ecrire("regler-hauteur-chevalet", "01-poncer-le-sillet.svg", svg(
-    820, 375, "Baisser un sillet de chevalet d'acoustique",
-    "Sillet vu de face : la zone rouge sous le sillet est retirée, plus épaisse côté cordes graves, nulle côté aigu.", corps))
+    820, 385, "Baisser un sillet de chevalet d'acoustique",
+    "Sillet vu de face. À gauche, ponçage à plat : même épaisseur retirée sur toute la longueur. À droite, ponçage en dégradé : plus de matière côté grave, rien côté aigu.", corps))

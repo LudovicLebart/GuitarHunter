@@ -1,18 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 375" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 385" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
   <title id="t">Baisser un sillet de chevalet d'acoustique</title>
-  <desc id="d">Sillet vu de face : la zone rouge sous le sillet est retirée, plus épaisse côté cordes graves, nulle côté aigu.</desc>
-  <rect width="820" height="375" fill="#f8fafc"/>
-<text x="410" y="40" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Baisser l'action à la 12e frette : on retire de la matière sous le sillet</text>
-  <rect x="130" y="110" width="560" height="70" rx="6" fill="#fff" stroke="#475569" stroke-width="3"/>
-  <polygon points="130,180 690,180 690,180 130,150" fill="#dc2626" opacity=".35"/>
-  <path d="M130 150 L690 180" stroke="#dc2626" stroke-width="3" stroke-dasharray="8 5"/>
-  <text x="130" y="100" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Grave</text>
-  <text x="690" y="100" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Aigu</text>
-  <circle cx="90" cy="235" r="15" fill="#0f172a"/><text x="90" y="241" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
-  <text x="115" y="241" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Tracer au crayon la ligne de coupe sous le sillet (pointillé rouge)</text>
-  <circle cx="90" cy="275" r="15" fill="#0f172a"/><text x="90" y="281" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
-  <text x="115" y="281" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Poncer bien à plat jusqu'à la ligne : on retire deux fois la baisse voulue côté grave</text>
-  <circle cx="90" cy="315" r="15" fill="#0f172a"/><text x="90" y="321" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
-  <text x="115" y="321" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Rien côté aigu : la matière retirée diminue jusqu'à zéro</text>
-  <text x="410" y="355" font-size="14" fill="#334155" text-anchor="middle">Exemple StewMac : baisser la 12e frette de 0,020 po (0,5 mm) = retirer 0,040 po (1 mm) côté grave, 0 côté aigu.</text>
+  <desc id="d">Sillet vu de face. À gauche, ponçage à plat : même épaisseur retirée sur toute la longueur. À droite, ponçage en dégradé : plus de matière côté grave, rien côté aigu.</desc>
+  <rect width="820" height="385" fill="#f8fafc"/>
+<rect x="40" y="110" width="340" height="62" rx="6" fill="#fff" stroke="#475569" stroke-width="3"/><polygon points="40,172 380,172 380,156 40,156" fill="#dc2626" opacity=".35"/><path d="M40 156 L380 156" stroke="#dc2626" stroke-width="3" stroke-dasharray="8 5"/><text x="40" y="100" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Grave</text><text x="380" y="100" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="end">Aigu</text><text x="210" y="70" font-size="16" fill="#15803d" font-weight="bold" text-anchor="middle">Cas courant : ponçage à plat</text>
+  <rect x="440" y="110" width="340" height="62" rx="6" fill="#fff" stroke="#475569" stroke-width="3"/><polygon points="440,172 780,172 780,172 440,142" fill="#dc2626" opacity=".35"/><path d="M440 142 L780 172" stroke="#dc2626" stroke-width="3" stroke-dasharray="8 5"/><text x="440" y="100" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Grave</text><text x="780" y="100" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="end">Aigu</text><text x="610" y="70" font-size="16" fill="#0284c7" font-weight="bold" text-anchor="middle">Cas particulier : en dégradé</text>
+  <text x="210" y="205" font-size="14" fill="#334155" text-anchor="middle">Action trop haute partout</text>
+  <text x="210" y="224" font-size="14" fill="#334155" text-anchor="middle">même épaisseur sur toute la longueur</text>
+  <text x="610" y="205" font-size="14" fill="#334155" text-anchor="middle">Seules les cordes graves sont trop hautes</text>
+  <text x="610" y="224" font-size="14" fill="#334155" text-anchor="middle">plus côté grave, zéro côté aigu</text>
+  <circle cx="60" cy="285" r="15" fill="#0f172a"/><text x="60" y="291" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text><text x="85" y="291" font-size="15" fill="#0f172a" text-anchor="start">Dessous du sillet sur papier de verre collé sur un support plan, mouvement régulier</text>
+  <circle cx="60" cy="325" r="15" fill="#0f172a"/><text x="60" y="331" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text><text x="85" y="331" font-size="15" fill="#0f172a" text-anchor="start">Vérifier que le dessous reste plan, remettre en place, réaccorder, remesurer</text>
+  <text x="410" y="30" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Baisser l'action : on ponce le dessous du sillet (la zone rouge est retirée)</text>
+  <text x="410" y="365" font-size="14" fill="#334155" text-anchor="middle">Baisser la 12e frette de 0,020 po (0,5 mm) demande de retirer environ 0,040 po (1 mm) sous le sillet (exemple StewMac).</text>
 </svg>

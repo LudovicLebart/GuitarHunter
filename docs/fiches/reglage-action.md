@@ -76,7 +76,7 @@ Valeurs cibles par type d'instrument et points de mesure : fiche [Régler la hau
 ### 6. Ajuster la hauteur au chevalet
 
 - Électrique : vis de hauteur des sillets, un côté à la fois, par petits pas.
-- Acoustique : retirer de la matière sous le sillet de chevalet (environ deux fois la baisse voulue côté grave, zéro côté aigu), bien à plat ;
+- Acoustique : poncer le dessous du sillet de chevalet à plat, sur un support plan (environ deux fois la baisse voulue à la 12e frette ; en dégradé seulement si un côté est déjà bon) ;
   l'inclinaison du manche conditionne la marge disponible (voir fiche *Neck reset* quand elle existera).
 
 Détail, schéma et précautions : fiche [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md). Après chaque changement, réaccorder et remesurer.
