@@ -384,7 +384,6 @@ const Dashboard = ({ onClose }) => {
                 isRefreshing={isRefreshing}
                 isCleaning={isCleaning}
                 onOpenHelp={() => setShowHelp(true)}
-                onOpenAdmin={() => setShowAdmin(true)}
             />
 
             {showAdmin && <AdminDashboard onClose={() => setShowAdmin(false)} />}
@@ -425,7 +424,7 @@ const Dashboard = ({ onClose }) => {
             />
 
             {/* Real ConfigPanel — opens via gear icon */}
-            <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} />
+            <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} onOpenAdmin={() => { setShowConfig(false); setShowAdmin(true); }} />
 
             <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8">
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, ShieldCheck, BookOpen } from 'lucide-react';
+import { Guitar, Activity, SlidersHorizontal, X, Settings, Square, Power, SkipForward, PauseCircle, Trash2, RefreshCw, LogOut, HelpCircle, BookOpen } from 'lucide-react';
 import { useBotConfigContext } from '../context/BotConfigContext';
 import { useAuth } from '../hooks/useAuth';
 import { triggerStopScan, triggerStopBot, triggerStartBot } from '../services/apiService';
@@ -22,10 +22,10 @@ const BOT_STATUS_CONFIG = {
     stopped: { label: 'Arrêté', color: 'text-rose-400', icon: <Power size={14} className="text-rose-400" /> },
 };
 
-const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClose, filterCount }) => {
+const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onClose, filterCount }) => {
     // We assume context is available since it wraps AppContent
     const botContext = useBotConfigContext();
-    const { user, signOut, isAdmin } = useAuth();
+    const { user, signOut } = useAuth();
 
     // Fallback if rendered outside context (for isolated UI tests)
     const { botStatus = 'scanning', configStatus = { status: 'success' }, isRefreshing = false, isCleaning = false, handleManualRefresh = () => { }, handleManualCleanup = () => { } } = botContext || {};
@@ -149,12 +149,12 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                 </div>
 
                 {/* Right: Manual Actions + Filters + Settings + exit */}
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
 
                     {/* Filters button */}
                     <button
                         onClick={onOpenFilters}
-                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all"
+                        className="flex items-center gap-2 px-2 h-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all"
                     >
                         <SlidersHorizontal size={14} />
                         <span className="hidden sm:inline">Filtres</span>
@@ -168,7 +168,7 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                     {/* Fiches techniques de restauration (page `#fiches`) */}
                     <a
                         href={FICHES_HREF}
-                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
+                        className="flex items-center gap-2 px-2 h-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
                         title="Fiches techniques de restauration"
                     >
                         <BookOpen size={16} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
@@ -178,28 +178,17 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                     {/* Aide button */}
                     <button
                         onClick={onOpenHelp}
-                        className="flex items-center gap-2 px-3 h-9 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
+                        className="flex items-center gap-2 px-2 h-8 rounded-xl bg-slate-800 border border-slate-700 text-slate-300 text-xs font-bold hover:bg-slate-700 transition-all shadow-sm group"
                         title="Aide & Documentation"
                     >
                         <HelpCircle size={16} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
                         <span className="hidden md:inline">Aide</span>
                     </button>
 
-                    {/* Admin button (visible uniquement si custom claim admin) */}
-                    {isAdmin && (
-                        <button
-                            onClick={onOpenAdmin}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-all"
-                            title="Dashboard Administrateur"
-                        >
-                            <ShieldCheck size={16} />
-                        </button>
-                    )}
-
                     {/* Paramètres button (gear icon) */}
                     <button
                         onClick={onOpenSettings}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
+                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 transition-all"
                         title="Paramètres"
                     >
                         <Settings size={16} />
@@ -208,7 +197,7 @@ const Navbar = ({ onOpenFilters, onOpenSettings, onOpenHelp, onOpenAdmin, onClos
                     {/* Déconnexion button */}
                     <button
                         onClick={signOut}
-                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
+                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-all"
                         title="Se déconnecter"
                     >
                         <LogOut size={16} />
