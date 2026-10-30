@@ -37,8 +37,13 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Réparer une fissure dans la table](reparation-fissure-table.md) | Structurel | 3/5 (2 à 5 selon l'état) | en_revision |
 | [Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md) | Structurel | 1/5 | brouillon |
 | [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Structurel | 1/5 | brouillon |
+| [Refaire l'angle du manche (neck reset)](refaire-angle-du-manche.md) | Structurel | 4/5 | brouillon |
+| [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structurel | 3/5 | brouillon |
 
 ## Fiches envisagées
 
-- Décoller une touche
-- Neck reset
+- Décoller la rallonge de touche
+- Manche vissé : cale ou ponçage du talon
+- Neck reset d'un manche collé
+- Convertir un manche collé en vissé
+- Recoller la rallonge de touche
