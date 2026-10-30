@@ -23,10 +23,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
-from backend.api.auth import get_current_uid, is_admin_uid, verify_token
+from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (chat_repo, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo, shared_repo,
-                         usage_repo, users_repo)
+from backend.api import (admin_repo, chat_repo, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+                         shared_repo, usage_repo, users_repo)
 
 
 @asynccontextmanager
@@ -85,9 +85,17 @@ async def health():
 
 # --- Config utilisateur / botStatus (Phase A.2) --------------------------------------------
 # Remplace onBotConfigUpdate/updateUserConfig (firestoreService.js). L'utilisateur (ligne
-# `users`) est créé par le bot (`pg_repository.py::ensure_initial_structure`), jamais ici —
-# un GET avant le premier démarrage du bot renvoie 404, comme `onBotConfigUpdate` déclenchait
-# `onError({ message: "Dossier Python introuvable" })` côté Firestore.
+# `users`) est créé ici par `POST /users/me` (premier contact authentifié, appelé par le front après
+# la connexion) ; le bot y pose la config par défaut au démarrage de son thread. Un GET avant ce
+# premier contact renvoie 404.
+
+@app.post("/users/me")
+async def ensure_my_user(uid: str = Depends(get_current_uid)):
+    """Crée la ligne `users` de l'appelant si elle n'existe pas (idempotent). Le bot découvre les
+    utilisateurs en lisant cette table : sans cet appel, un nouvel inscrit n'aurait jamais de bot."""
+    created = await users_repo.ensure_user_exists(get_pool(), uid, {})
+    return {"created": created}
+
 
 class UserConfigPatch(BaseModel):
     """Corps libre (mêmes clés que `scanConfig`/`exclusionKeywords`/`analysisConfig`, décidées
@@ -873,6 +881,46 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
         if listener_added:
             await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
         await listen_conn.close()
+
+
+# --- Dashboard Administrateur (2026-10-11) -----------------------------------------------------
+# Remplace `AdminDashboard.jsx` lisant/écrivant Firestore directement (règle `isAdmin()`) : toutes
+# les routes exigent le custom claim Firebase `admin` (`auth.get_admin_uid`).
+
+@app.get("/admin/users")
+async def admin_list_users(_admin: str = Depends(get_admin_uid)):
+    return await admin_repo.list_admin_users(get_pool())
+
+
+@app.post("/admin/users/{target_uid}/pause", status_code=status.HTTP_202_ACCEPTED)
+async def admin_pause_user(target_uid: str, _admin: str = Depends(get_admin_uid)):
+    if not await admin_repo.pause_user(get_pool(), target_uid):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur introuvable.")
+    return {"status": "STOP_BOT envoyé"}
+
+
+class ScanFrequencyBody(BaseModel):
+    minutes: int
+
+
+@app.patch("/admin/users/{target_uid}/scan-frequency")
+async def admin_set_scan_frequency(target_uid: str, body: ScanFrequencyBody, _admin: str = Depends(get_admin_uid)):
+    if body.minutes < 1:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La fréquence doit être d'au moins 1 minute.")
+    if not await admin_repo.set_scan_frequency(get_pool(), target_uid, body.minutes):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur introuvable.")
+    return {"scanFrequency": body.minutes}
+
+
+@app.delete("/admin/users/{target_uid}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_user(target_uid: str, admin_uid: str = Depends(get_admin_uid)):
+    if target_uid == admin_uid:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Un administrateur ne peut pas supprimer ses propres données.")
+    result = await admin_repo.delete_user_data(get_pool(), target_uid)
+    if result == "not_found":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur introuvable.")
+    if result == "bot_active":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Le bot de cet utilisateur est en cours de scan : mets-le en pause d'abord.")
 
 
 # --- Villes (tranche 5) -----------------------------------------------------------------------

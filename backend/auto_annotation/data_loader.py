@@ -41,28 +41,29 @@ def fetch_image(url: str):
         return None
 
 
-def get_deal_images(db_client, app_id: str, limit: int = None):
+def get_deal_images(limit: int = None):
     """
-    Générateur itératif des URLs d'images depuis Firestore.
-    Itère directement sur les streams (sans list()) pour ne pas charger
-    des milliers de documents en RAM simultanément.
+    Générateur itératif des URLs d'images (`guitar_deals.storage_image_urls`) depuis Postgres.
+    Curseur côté serveur (nommé) : les lignes sont lues par paquets, jamais chargées toutes en RAM.
+    `DATABASE_URL` : même variable que le reste du projet (voir CLAUDE.md : les scripts ne lisent pas `.env`).
     """
-    users_ref = db_client.collection('artifacts').document(app_id).collection('users')
+    import os
+    import psycopg
+
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("DATABASE_URL absent : `export DATABASE_URL=postgresql://...` avant de lancer.")
 
     yielded_count = 0
-
-    # Itération directe — Firestore stream pagine internement
-    for user_doc in users_ref.stream():
-        deals_ref = user_doc.reference.collection('guitar_deals')
-
-        for deal in deals_ref.stream():
-            data = deal.to_dict()
-            urls = data.get('storageImageUrls', [])
-
-            for idx, url in enumerate(urls):
+    with psycopg.connect(dsn) as conn, conn.cursor(name="auto_annotation_deal_images") as cur:
+        cur.itersize = 200
+        cur.execute(
+            "SELECT id, storage_image_urls FROM guitar_deals "
+            "WHERE jsonb_typeof(storage_image_urls) = 'array' ORDER BY id"
+        )
+        for deal_id, urls in cur:
+            for idx, url in enumerate(urls or []):
                 if limit and yielded_count >= limit:
                     return
-
-                yield f"{deal.id}_{idx}", url
+                yield f"{deal_id}_{idx}", url
                 yielded_count += 1
-

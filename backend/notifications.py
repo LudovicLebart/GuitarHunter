@@ -213,12 +213,12 @@ class NotificationService:
         Évalue si l'annonce mérite une notification et l'envoie sur tous les canaux actifs.
 
         Args:
-            deal_id      : ID Firestore de l'annonce.
+            deal_id      : ID de l'annonce (`guitar_deals.id`).
             deal_data    : Dict complet de l'annonce (title, price, location…).
             analysis     : Dict du résultat d'analyse IA (verdict, reasoning…).
             is_update    : True si c'est une mise à jour de prix.
             user_email   : Email Firebase Auth de l'utilisateur destinataire.
-            logger       : Logger par-utilisateur (Firestore/LogViewer), optionnel.
+            logger       : Logger par-utilisateur (table `logs` / LogViewer), optionnel.
         """
         log = logger or _module_logger
         verdict = analysis.get('verdict', 'UNKNOWN')
@@ -275,7 +275,7 @@ class NotificationService:
             model_name : Nom du modèle Gemini en échec (ex: 'gemini-3.1-pro-preview').
             error      : Message d'erreur brut retourné par l'API.
             user_email : Email Firebase Auth de l'utilisateur destinataire.
-            logger     : Logger par-utilisateur (Firestore/LogViewer), optionnel.
+            logger     : Logger par-utilisateur (table `logs` / LogViewer), optionnel.
         """
         log = logger or _module_logger
         subject = f"[GuitarHunter] ⚠️ Modèle Gemini indisponible : {model_name}"
@@ -319,7 +319,7 @@ class NotificationService:
             provider   : Fournisseur T1 en échec (ex: 'T1-qwen', 'T1-gemini').
             error      : Message d'erreur brut.
             user_email : Email Firebase Auth de l'utilisateur destinataire.
-            logger     : Logger par-utilisateur (Firestore/LogViewer), optionnel.
+            logger     : Logger par-utilisateur (table `logs` / LogViewer), optionnel.
         """
         log = logger or _module_logger
         subject = f"[GuitarHunter] ⚠️ Portier T1 en échec : {provider}"

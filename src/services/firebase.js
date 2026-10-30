@@ -1,5 +1,4 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
@@ -17,11 +16,10 @@ const firebaseConfig = {
 
 console.log("🔥 Config Firebase:", { ...firebaseConfig, apiKey: firebaseConfig.apiKey ? '***' : 'MISSING' });
 
-let app, auth, db, ai, storage;
+let app, auth, ai, storage;
 try {
   app = initializeApp(firebaseConfig);
   auth = getAuth(app);
-  db = getFirestore(app);
   storage = getStorage(app);
 
   // App Check (2026-07-31) : protège le quota Gemini de Firebase AI Logic contre les appels non
@@ -60,4 +58,4 @@ try {
   console.error("🔥 ERREUR FATALE LORS DE L'INITIALISATION DE FIREBASE:", error);
 }
 
-export { auth, db, ai, storage };
+export { auth, ai, storage };

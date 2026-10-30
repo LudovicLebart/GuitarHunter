@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc, collection } from 'firebase/firestore';
 import { X, ShieldCheck, RefreshCw, AlertTriangle, Pause, Clock, Trash2 } from 'lucide-react';
-import { db } from '../services/firebase';
-
-const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
+import { getAdminUsers, adminPauseUser, adminSetScanFrequency, adminDeleteUser } from '../services/apiService';
 
 const formatDate = (ts) => {
     if (!ts) return '—';
@@ -27,60 +24,15 @@ const AdminDashboard = ({ onClose }) => {
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [statsComputedAt, setStatsComputedAt] = useState(null);
 
+    // Données lues en direct dans Postgres via l'API (`/admin/users`, claim Firebase `admin`
+    // vérifié côté serveur) : utilisateurs, état du bot, villes actives, et — sur les 24 dernières
+    // heures glissantes — volume d'annonces, annonces arrivées en T2/T3 et coût estimé.
     const loadData = async () => {
         setLoading(true);
         setError(null);
         try {
-            // Nécessite le custom claim admin (règle Firestore isAdmin() sur collectionGroup('users')).
-            const usersSnap = await getDocs(collectionGroup(db, 'users'));
-
-            let statsByUser = {};
-            try {
-                const statsDoc = await getDoc(doc(db, 'artifacts', APP_ID, 'admin_stats', 'latest'));
-                if (statsDoc.exists()) {
-                    statsByUser = statsDoc.data().users || {};
-                    setStatsComputedAt(statsDoc.data().computedAt);
-                }
-            } catch (e) {
-                // Pas bloquant : le tableau reste utilisable sans les stats de coût/volume.
-                console.warn('admin_stats indisponible :', e.message);
-            }
-
-            const merged = await Promise.all(usersSnap.docs
-                // collectionGroup('users') retourne toute collection nommée "users" dans la base,
-                // quel que soit l'appId parent — on ne garde que celle de cette app.
-                .filter(d => d.ref.parent.parent?.id === APP_ID)
-                .map(async (d) => {
-                    const data = d.data();
-                    const stats = statsByUser[d.id] || {};
-                    
-                    let citiesCount = 0;
-                    try {
-                        const citiesSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'users', d.id, 'cities'));
-                        citiesCount = citiesSnap.size;
-                    } catch (e) {
-                        console.warn(`Erreur lecture cities pour ${d.id}:`, e);
-                    }
-
-                    return {
-                        uid: d.id,
-                        email: data.email || '—',
-                        createdAt: data.createdAt,
-                        lastLogin: data.lastLogin || data.lastSeen,
-                        botStatus: data.botStatus || 'inconnu',
-                        scanFrequency: data.scanConfig?.frequency,
-                        maxListings: data.scanConfig?.max_listings || 0,
-                        citiesCount,
-                        dailyVolume: stats.dailyVolume ?? null,
-                        reachedT2: stats.reachedT2 ?? null,
-                        reachedT3: stats.reachedT3 ?? null,
-                        estimatedDailyCost: stats.estimatedDailyCost ?? null,
-                    };
-                }));
-
-            setRows(merged);
+            setRows(await getAdminUsers());
         } catch (e) {
             console.error('Erreur chargement AdminDashboard:', e);
             setError(e.message);
@@ -89,35 +41,27 @@ const AdminDashboard = ({ onClose }) => {
         }
     };
 
-    const handlePauseUser = async (uid) => {
+    const runAction = async (action) => {
         try {
-            await updateDoc(doc(db, 'artifacts', APP_ID, 'users', uid), { botStatus: 'paused' });
+            await action();
             loadData();
         } catch (e) {
             alert('Erreur: ' + e.message);
         }
     };
 
-    const handleChangeFreq = async (uid, currentFreq) => {
+    const handlePauseUser = (uid) => runAction(() => adminPauseUser(uid));
+
+    const handleChangeFreq = (uid, currentFreq) => {
         const freq = window.prompt("Nouvelle fréquence en minutes :", currentFreq || 60);
-        if (freq && !isNaN(freq)) {
-            try {
-                await updateDoc(doc(db, 'artifacts', APP_ID, 'users', uid), { 'scanConfig.frequency': parseInt(freq, 10) });
-                loadData();
-            } catch (e) {
-                alert('Erreur: ' + e.message);
-            }
+        if (freq && !isNaN(freq) && parseInt(freq, 10) >= 1) {
+            runAction(() => adminSetScanFrequency(uid, parseInt(freq, 10)));
         }
     };
 
-    const handleDeleteUser = async (uid, email) => {
-        if (window.confirm(`Voulez-vous vraiment supprimer les données de l'utilisateur ${email} (uid: ${uid}) ?\n(Ceci ne supprime pas son compte Firebase Auth)`)) {
-            try {
-                await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', uid));
-                loadData();
-            } catch (e) {
-                alert('Erreur: ' + e.message);
-            }
+    const handleDeleteUser = (uid, email) => {
+        if (window.confirm(`Voulez-vous vraiment supprimer les données de l'utilisateur ${email || uid} (uid: ${uid}) ?\n(Ceci ne supprime pas son compte Firebase Auth. Son bot doit être en pause.)`)) {
+            runAction(() => adminDeleteUser(uid));
         }
     };
 
@@ -152,15 +96,13 @@ const AdminDashboard = ({ onClose }) => {
                     {error && (
                         <div className="mb-4 flex items-center gap-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-sm">
                             <AlertTriangle size={16} className="shrink-0" />
-                            {error} — vérifie que le custom claim admin est posé (backend/scripts/set_admin_claim.py) et que les règles Firestore sont déployées.
+                            {error} — vérifie que le custom claim admin est posé (backend/scripts/set_admin_claim.py) et que l'API est joignable.
                         </div>
                     )}
 
-                    {statsComputedAt && (
-                        <p className="text-xs text-slate-500 mb-3">
-                            Snapshot coût/volume calculé le : {formatDate(statsComputedAt)}
-                        </p>
-                    )}
+                    <p className="text-xs text-slate-500 mb-3">
+                        Volume, T2 / T3 et coût estimé : 24 dernières heures glissantes, calculés en direct.
+                    </p>
 
                     {loading ? (
                         <div className="py-16 flex items-center justify-center text-slate-500 text-sm">Chargement...</div>
@@ -187,7 +129,7 @@ const AdminDashboard = ({ onClose }) => {
                             <tbody>
                                 {rows.map(r => (
                                     <tr key={r.uid} className="border-b border-slate-800/50 text-slate-300">
-                                        <td className="py-2 pr-4 font-bold text-slate-200">{r.email}</td>
+                                        <td className="py-2 pr-4 font-bold text-slate-200">{r.email || '—'}</td>
                                         <td className="py-2 pr-4 font-mono text-[11px] text-slate-500">{r.uid.slice(0, 12)}...</td>
                                         <td className="py-2 pr-4 text-xs">{formatDate(r.createdAt)}</td>
                                         <td className="py-2 pr-4 text-xs">{formatDate(r.lastLogin)}</td>

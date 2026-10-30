@@ -30,7 +30,7 @@ logger = logging.getLogger("ha.watchdog")
 
 @dataclass
 class HaConfig:
-    node_id: str                 # "lenovo" ou "dell" — identifie CETTE machine.
+    node_id: str                 # "serveur" ou "dell" — identifie CETTE machine.
     peer_host: str                # IP/hostname tailnet de la machine PAIRE.
     peer_ssh_user: str
     peer_ssh_key_path: str

@@ -8,8 +8,6 @@ from ultralytics import YOLO
 # Ajouter la racine du projet pour importer les modules partagés
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
-from backend.database import DatabaseService
 
 # Importation des modules spécifiques à l'auto-annotation
 from .config import (
@@ -115,12 +113,6 @@ async def run_pipeline(limit=None):
                 "Les prédictions pourraient être mal étiquetées — vérifier data.yaml du fine-tuning."
             )
 
-    logger.info("Connexion Firebase...")
-    db_service = DatabaseService(FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET)
-    if not db_service.db:
-        logger.error("Erreur de connexion Firestore.")
-        return
-
     counters = {
         'attempted': 0, 'skipped': 0,
         'yolo_kept': 0, 'heuristic_kept': 0,
@@ -137,7 +129,7 @@ async def run_pipeline(limit=None):
     logger.info(f"Démarrage de l'inférence de masse (concurrence: {PIPELINE_CONCURRENCY})...")
     tasks = []
 
-    for image_id, image_url in get_deal_images(db_service.db, APP_ID_TARGET, limit=limit):
+    for image_id, image_url in get_deal_images(limit=limit):
         # Déduplication : sauter les images déjà traitées (résumabilité après crash)
         if (LABELS_DIR / f"{image_id}.txt").exists():
             logger.debug(f"[{image_id}] skip: déjà exporté")

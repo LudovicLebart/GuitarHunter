@@ -26,13 +26,17 @@ def _deep_merge(base: dict, patch: dict) -> dict:
     return merged
 
 
-async def ensure_user_exists(pool: asyncpg.Pool, user_id: str, initial_config: dict) -> None:
-    """`.set(merge=True)` implicite du premier login Firestore — ne touche rien si l'utilisateur
-    existe déjà (config préservée), comme `pg_repository.py::ensure_initial_structure` côté bot."""
-    await pool.execute(
-        "INSERT INTO users (uid, bot_status, config) VALUES ($1, 'idle', $2) ON CONFLICT (uid) DO NOTHING",
+async def ensure_user_exists(pool: asyncpg.Pool, user_id: str, initial_config: dict) -> bool:
+    """Crée la ligne `users` au premier contact authentifié (ne touche rien si elle existe déjà).
+    Renvoie `True` si elle vient d'être créée. Le bot découvre les utilisateurs en LISANT cette table
+    (`main.py::discover_users`) : sans cette création, un nouvel inscrit n'aurait jamais de bot. Avec
+    `initial_config` vide, `pg_repository.ensure_initial_structure` complète les valeurs par défaut
+    au premier démarrage de son bot."""
+    row = await pool.fetchrow(
+        "INSERT INTO users (uid, bot_status, config) VALUES ($1, 'idle', $2) ON CONFLICT (uid) DO NOTHING RETURNING uid",
         user_id, initial_config,
     )
+    return row is not None
 
 
 async def get_user_config(pool: asyncpg.Pool, user_id: str):

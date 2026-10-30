@@ -146,7 +146,7 @@ class DealAnalyzer(LLMClientsMixin):
         # locale (aucun appel réseau tenu sous le verrou), donc pas de risque de contention
         # significative ni de deadlock croisé.
         self._cache_lock = threading.Lock()
-        # Logger par-utilisateur (Firestore/LogViewer) injecté par bot.py ; repli sur le
+        # Logger par-utilisateur (table `logs` / LogViewer) injecté par bot.py ; repli sur le
         # logger de module si non fourni (scripts autonomes/tests).
         self.logger = logger or logging.getLogger(__name__)
         if not GEMINI_API_KEY:

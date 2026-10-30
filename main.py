@@ -16,7 +16,6 @@ from backend.pg_db import init_pool as init_pg_pool, close_pool as close_pg_pool
 from backend.bot import GuitarHunterBot
 from backend.logging_config import setup_logging
 from backend.services import TaskScheduler
-from backend.admin_stats import run_admin_stats_job
 from backend.log_retention import run_log_retention_job, run_pg_log_archive_job
 import firebase_admin.auth as fb_auth
 
@@ -299,11 +298,6 @@ def main():
         start_user_bot(user_id, pg_pool, db_service.bucket, user_contexts, offline_mode)
 
     print(f"✅ {len(user_contexts)} bot(s) actif(s). Watchdog et Découverte dynamique activés.", flush=True)
-
-    # Job global (singleton, pas par-utilisateur) : snapshot admin_stats quotidien
-    # pour le Dashboard Administrateur. Tourne au premier passage du watchdog qui
-    # suit l'heure planifiée, peu importe quel(s) thread(s) utilisateur(s) actif(s).
-    schedule.every().day.at("03:00").do(run_admin_stats_job, db_service).tag('admin_stats')
 
     # Job global (singleton) : rétention de l'archive de logs locale (backend/logging_config.py,
     # dossier logs/) — compresse >30j, supprime >1 an. Ne dépend pas de Postgres.

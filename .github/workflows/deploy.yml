@@ -99,6 +99,7 @@ jobs:
             backend.api.test_api \
             backend.api.test_shared_deals_api \
             backend.api.test_perf_diagnostic \
+            backend.api.test_admin_api \
             backend.api.test_prod_sync
 
           # Tests de style pytest (rejeu T3, candidats de vérité, rapport T1) : `unittest` n'y voit aucun test.
@@ -343,7 +344,7 @@ jobs:
             else
               mkdir -p ~/guitarhunter-api-prod/backend
               cp -r backend/api ~/guitarhunter-api-prod/backend/
-              cp backend/__init__.py backend/deal_mapping.py backend/guitar_knowledge.py ~/guitarhunter-api-prod/backend/
+              cp backend/__init__.py backend/deal_mapping.py backend/funnel_cost.py backend/guitar_knowledge.py ~/guitarhunter-api-prod/backend/
               if sudo -n systemctl restart guitarhunter-api-prod; then
                 echo "✅ Service guitarhunter-api-prod resynchronisé et redémarré avec succès (127.0.0.1:8001)."
               else

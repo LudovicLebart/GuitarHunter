@@ -85,15 +85,26 @@ class PostgresRepository:
 
     def ensure_initial_structure(self, initial_config: dict):
         with self.pool.connection() as conn:
-            row = conn.execute("SELECT 1 FROM users WHERE uid = %s", (self.user_id,)).fetchone()
+            # Une seule lecture : la ligne et sa config (pas de second SELECT qui pourrait ne plus rien trouver si la ligne
+            # est supprimée entre-temps). `ON CONFLICT DO NOTHING` : l'API (`POST /users/me`) peut créer la ligne en même temps.
+            row = conn.execute("SELECT config FROM users WHERE uid = %s", (self.user_id,)).fetchone()
             if row is None:
                 self.logger.info(f"User document for {self.user_id} not found. Creating with initial config.")
                 conn.execute(
-                    "INSERT INTO users (uid, bot_status, config) VALUES (%s, 'idle', %s)",
+                    "INSERT INTO users (uid, bot_status, config) VALUES (%s, 'idle', %s) ON CONFLICT (uid) DO NOTHING",
                     (self.user_id, _to_pg_param(initial_config)),
                 )
             else:
-                self.logger.info("User document already exists. Config preserved.")
+                if not (row["config"] or {}):
+                    # Ligne créée vide par l'API (`POST /users/me`, premier contact d'un nouvel inscrit) :
+                    # on y pose la configuration par défaut du bot.
+                    self.logger.info("User row exists with an empty config. Filling initial config.")
+                    conn.execute(
+                        "UPDATE users SET config = %s, updated_at = now() WHERE uid = %s",
+                        (_to_pg_param(initial_config), self.user_id),
+                    )
+                else:
+                    self.logger.info("User document already exists. Config preserved.")
 
     def get_user_config(self):
         with self.pool.connection() as conn:

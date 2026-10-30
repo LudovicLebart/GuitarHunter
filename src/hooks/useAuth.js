@@ -6,34 +6,8 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../services/firebase';
-
-const APP_ID = import.meta.env.VITE_APP_ID_TARGET;
-
-/**
- * Assure que le document utilisateur existe dans Firestore.
- * Crée le document s'il n'existe pas, sinon met à jour `updateField`.
- * @param {string} uid - UID Firebase Auth
- * @param {string} email - email de l'utilisateur
- * @param {string} updateField - champ à mettre à jour si le doc existe ('lastSeen' | 'lastLogin')
- */
-const ensureUserDoc = async (uid, email, updateField = 'lastSeen') => {
-  const userDocRef = doc(db, 'artifacts', APP_ID, 'users', uid);
-  const snap = await getDoc(userDocRef);
-  if (!snap.exists()) {
-    await setDoc(userDocRef, {
-      email,
-      createdAt: serverTimestamp(),
-      botStatus: 'idle'
-    });
-  } else {
-    await updateDoc(userDocRef, { 
-      email,
-      [updateField]: serverTimestamp() 
-    });
-  }
-};
+import { auth } from '../services/firebase';
+import { ensureUser } from '../services/apiService';
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -46,8 +20,8 @@ export const useAuth = () => {
       if (firebaseUser) {
         setAuthStatus({ status: 'success', msg: `Connecté (${firebaseUser.email})` });
 
-        // Vérification défensive côté client (custom claim) — la vraie protection
-        // reste les règles Firestore (isAdmin() dans firestore.rules).
+        // Vérification défensive côté client (custom claim) — la vraie protection est côté API
+        // (`get_admin_uid`, routes `/admin/*`).
         try {
           const tokenResult = await firebaseUser.getIdTokenResult();
           setIsAdmin(tokenResult.claims?.admin === true);
@@ -56,16 +30,16 @@ export const useAuth = () => {
           setIsAdmin(false);
         }
 
-        // S'assurer que le document utilisateur existe pour le backend (cas de persistance session)
+        // S'assurer que la ligne utilisateur existe en base (idempotent) : le bot découvre les
+        // utilisateurs en lisant Postgres, un nouvel inscrit sans ligne n'aurait jamais de bot.
         try {
-          await ensureUserDoc(firebaseUser.uid, firebaseUser.email, 'lastSeen');
+          await ensureUser();
         } catch (e) {
-          console.error("Erreur initialisation document utilisateur:", e);
-          // Signaler à l'UI : l'utilisateur est connecté Firebase Auth mais le document
-          // Firestore est inaccessible → le backend ne pourra pas découvrir cet utilisateur.
+          console.error("Erreur initialisation de l'utilisateur:", e);
+          // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
           setAuthStatus({
             status: 'warning',
-            msg: `Connecté (${firebaseUser.email}) — ⚠️ Document utilisateur inaccessible : ${e.message}`
+            msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${e.message}`
           });
         }
       } else {
@@ -80,7 +54,7 @@ export const useAuth = () => {
     setAuthStatus({ status: 'loading', msg: 'Connexion en cours...' });
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      await ensureUserDoc(userCredential.user.uid, userCredential.user.email, 'lastLogin');
+      await ensureUser();
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });
       throw err;
@@ -91,13 +65,7 @@ export const useAuth = () => {
     setAuthStatus({ status: 'loading', msg: 'Création du compte...' });
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      // setDoc avec merge:true pour le signup (document garanti inexistant, mais sécurité idémpotente)
-      const userDocRef = doc(db, 'artifacts', APP_ID, 'users', userCredential.user.uid);
-      await setDoc(userDocRef, {
-        email: userCredential.user.email,
-        createdAt: serverTimestamp(),
-        botStatus: 'idle'
-      }, { merge: true });
+      await ensureUser();
       setAuthStatus({ status: 'success', msg: 'Compte créé et initialisé' });
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });

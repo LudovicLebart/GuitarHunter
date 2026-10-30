@@ -102,6 +102,13 @@ class TestPostgresRepository(unittest.TestCase):
         with self.pool.connection() as conn:
             conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (self.UID,))
 
+    def test_ensure_initial_structure_fills_a_row_created_empty_by_the_api(self):
+        """`POST /users/me` crée la ligne avec une config vide au premier contact d'un nouvel inscrit
+        (2026-10-11) : le bot doit y poser la config par défaut, pas la laisser vide à vie."""
+        self.assertEqual(self.repo.get_user_config()["botStatus"], "idle")  # ligne du setUp : config vide
+        self.repo.ensure_initial_structure({"scanConfig": {"frequency": 60}})
+        self.assertEqual(self.repo.get_user_config()["scanConfig"], {"frequency": 60})
+
     def test_update_bot_status(self):
         self.repo.update_bot_status("scanning")
         self.assertEqual(self.repo.get_user_config()["botStatus"], "scanning")

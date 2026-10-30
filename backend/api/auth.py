@@ -47,6 +47,30 @@ def is_admin_uid(uid: str) -> bool:
         return False
 
 
+def verify_token_claims(token: str) -> dict:
+    """Comme `verify_token` mais renvoie le jeton décodé complet (`uid`, custom claims `admin`...)."""
+    _ensure_firebase_app()
+    try:
+        return firebase_auth.verify_id_token(token)
+    except Exception as e:
+        raise ValueError(f"Token Firebase invalide : {e}")
+
+
+async def get_admin_uid(authorization: str = Header(...)) -> str:
+    """Dépendance FastAPI des routes `/admin/*` (Dashboard Administrateur, 2026-10-11) : exige le
+    custom claim Firebase `admin == true` (posé par `backend/scripts/set_admin_claim.py`). Remplace
+    la règle Firestore `isAdmin()` qui protégeait l'ancien dashboard côté client."""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "En-tête Authorization manquant ou mal formé (attendu: 'Bearer <token>').")
+    try:
+        decoded = verify_token_claims(authorization.removeprefix("Bearer ").strip())
+    except ValueError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
+    if decoded.get("admin") is not True:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Réservé aux administrateurs.")
+    return decoded["uid"]
+
+
 async def get_current_uid(authorization: str = Header(...)) -> str:
     """Dépendance FastAPI (routes HTTP) : extrait et vérifie le Bearer token Firebase.
 

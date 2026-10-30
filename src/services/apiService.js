@@ -438,6 +438,24 @@ export const createSharedDeal = async (deal) => {
 
 export const getSharedDeal = async (dealId) => apiFetch(`/shared-deals/${dealId}`, { skipAuth: true });
 
+// --- Utilisateur / Dashboard Administrateur (2026-10-11) -------------------------------------
+
+/**
+ * Crée la ligne `users` Postgres de l'utilisateur connecté si elle n'existe pas (idempotent). Le bot
+ * découvre les utilisateurs en LISANT cette table : sans cet appel après la connexion/inscription, un
+ * nouvel inscrit n'aurait jamais de bot. Remplace l'ancien document Firestore `users/{uid}`.
+ */
+export const ensureUser = async () => apiFetch('/users/me', { method: 'POST' });
+
+export const getAdminUsers = async () => apiFetch('/admin/users');
+
+export const adminPauseUser = async (uid) => apiFetch(`/admin/users/${uid}/pause`, { method: 'POST' });
+
+export const adminSetScanFrequency = async (uid, minutes) =>
+  apiFetch(`/admin/users/${uid}/scan-frequency`, { method: 'PATCH', body: { minutes } });
+
+export const adminDeleteUser = async (uid) => apiFetch(`/admin/users/${uid}`, { method: 'DELETE' });
+
 // --- Bot Configuration --------------------------------------------------------------------
 
 export const updateUserConfig = async (newConfig, _userId) => {
