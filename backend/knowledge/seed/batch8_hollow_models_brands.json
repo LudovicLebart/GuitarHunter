@@ -1,0 +1,268 @@
+{
+ "entries": [
+  {
+   "patch": "wd:Q208173",
+   "hunt_notes": "Fender Stratocaster : lancée en 1954 (Leo Fender, Bill Carson, George Fullerton, Freddie Tavares), fabriquée sans interruption depuis. Repères de datation : corps en frêne jusqu'à la fin de 1956 puis surtout en aulne ; touche en palissandre « veneer » (mince) depuis juillet 1962 ; plaque de manche à 4 vis jusqu'en 1971. Avant 1965 = « pré-CBS » (très recherchée) ; 1965-1985 = époque CBS. Usines : États-Unis (Fullerton jusqu'en 1984, puis Corona), Mexique, Japon ; Squier est la marque économique.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Fender_Stratocaster",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Fender Stratocaster",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Lancée en 1954 ; Fullerton jusqu'en 1984 puis Corona ; production aussi au Mexique et au Japon ; époque pré-CBS jusqu'en 1965, CBS de 1965 à 1985 ; plaque de manche à 4 vis (1954-1971)."
+    },
+    {
+     "url": "https://guitar.com/guides/essential-guide/vintage-fender-stratocaster-buying-guide/",
+     "publisher": "Guitar.com",
+     "kind": "press",
+     "title": "How to buy a vintage Fender Stratocaster",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Fender introduced veneer or round-lam fretboards in July 1962."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q623103",
+   "hunt_notes": "Fender Telecaster : première guitare électrique à corps plein produite en série (Leo Fender). Elle naît en 1950 : Esquire à un micro, puis Broadcaster à deux micros fin 1950 ; le nom Broadcaster est abandonné en 1951 (on parle de « Nocaster » pour les exemplaires sans nom), puis Telecaster vers septembre 1951. Variantes connues : Thinline (1968), Custom (1959), Deluxe (1972-1981). Fabriquée aux États-Unis (gamme professionnelle) et au Mexique, au Japon, en Chine et en Corée (gammes économiques) ; Squier vend aussi des Telecaster.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Fender_Telecaster",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Fender Telecaster",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Esquire 1950, Broadcaster fin 1950, renommée Telecaster vers septembre 1951 ; Thinline 1968, Custom 1959, Deluxe 1972-1981 ; lignes américaines et mexicaine/japonaise/chinoise/coréenne."
+    },
+    {
+     "url": "https://www.britannica.com/art/Fender-Telecaster",
+     "publisher": "Encyclopaedia Britannica",
+     "kind": "press",
+     "title": "Fender Telecaster",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "the first mass-produced solid-body electric guitar"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q322625",
+   "hunt_notes": "Gibson Les Paul : lancée en 1952 (Goldtop, deux micros P-90) ; micros humbucker dès 1957 ; version Standard sunburst de 1958 à 1960 (« Bursts », environ 1 200 à 1 700 exemplaires, très collectionnées). Au début des années 1960 le modèle devient la SG (double cutaway) ; la Les Paul à un cutaway revient en 1968. Variantes : Standard, Custom, Studio (1983), Junior et Special (plus économiques). Epiphone fabrique des Les Paul moins chères (hors États-Unis) : ne pas les confondre avec les Gibson. Atelier Custom Shop depuis 1986.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Gibson_Les_Paul",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Gibson Les Paul",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] 1952 Goldtop (P-90), 1957 humbuckers, Standard sunburst 1958-60 (1 200 à 1 700 exemplaires), redesign SG au début des années 1960, retour en 1968, Studio 1983, Custom Shop 1986 ; Epiphone fait des copies moins chères."
+    },
+    {
+     "url": "https://www.colemansmusic.com.au/blogs/blog/we-take-a-look-at-history-of-the-gibson-les-paul",
+     "publisher": "Coleman's Music",
+     "kind": "other",
+     "title": "A brief look at the History of the Gibson Les Paul",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "In 1968, Gibson responded to player and collector demand by reissuing the Les Paul Standard"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q727758",
+   "hunt_notes": "Fender Precision Bass : commercialisée en octobre 1951, première basse électrique à succès (prix initial 199,50 $). En 1957 elle reçoit le micro à bobinage divisé (split-coil) et une tête/pickguard proches de la Stratocaster, forme restée presque inchangée. Variantes : Telecaster Bass (1968), Precision Special (1980, actif), Plus (1987). Production aux États-Unis, avec une période au Japon (séries Vintage Reissue) avant le retour aux États-Unis en 1987, et le Mexique. La P Bass est l'une des basses les plus copiées (Kay a fabriqué des modèles sous licence).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Fender_Precision_Bass",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Fender Precision Bass",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Octobre 1951 (199,50 $) ; 1957 micro split-coil ; Telecaster Bass 1968 ; Special 1980 ; Plus 1987 ; production aux États-Unis, au Japon puis retour aux États-Unis en 1987, Mexique."
+    },
+    {
+     "url": "https://www.fender.com/articles/instruments/breaking-down-the-american-original-50s-precision-bass",
+     "publisher": "Fender",
+     "kind": "manufacturer",
+     "title": "Breaking down the American Original '50s Precision Bass",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "the instrument was given its now-familiar split-coil pickup"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q288342",
+   "hunt_notes": "Fender Jazz Bass : lancée vers 1960 sous le nom Deluxe Model, corps à taille décalée (offset waist, hérité de la Jazzmaster) et deux micros simples espacés. Les premiers exemplaires sont plutôt en aulne, le frêne devient la norme dans les années 1970. Fabrication : États-Unis (American Standard, Deluxe, Elite), Mexique (Ensenada), Japon, Corée (modèles 24 frettes) ; Squier propose aussi des Jazz Bass.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Fender_Jazz_Bass",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Fender Jazz Bass",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Lancée en 1960 (Deluxe Model) ; taille décalée ; deux micros simples ; américaine (American Standard 1989), mexicaine (Ensenada), japonaise et coréenne ; versions Squier."
+    },
+    {
+     "url": "https://www.sweetwater.com/insync/history-of-the-fender-jazz-bass/",
+     "publisher": "Sweetwater",
+     "kind": "press",
+     "title": "History of the Fender Jazz Bass",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Fender’s idea was that the offset waist offered a far more comfortable feel when sitting down"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q384486",
+   "hunt_notes": "Fender Mustang : lancée en août 1964 (189,50 $), troisième modèle de la gamme « étudiant » de Fender, avec une échelle de 24 pouces (Musicmaster et Duo-Sonic : 22,5 pouces ; quelques Mustang courtes ont existé). Production d'origine surtout américaine jusqu'en 1982, rééditée en 1990, puis versions américaines (2013) et mexicaines (2016, série Offset). Redevenue populaire avec le grunge (Kurt Cobain, modèle signature en 2012). Existe aussi en basse (Mustang Bass, 30 pouces, 1966).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Fender_Mustang",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Fender Mustang",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] 1964, production d'origine 1964-1982, réédition 1990, American Special 2013, Mustang mexicaine 2016, signature Cobain 2012, Mustang Bass 1966."
+    },
+    {
+     "url": "https://www.fender.com/articles/behind-the-scenes/short-scale-big-noise-the-mustang-story",
+     "publisher": "Fender",
+     "kind": "manufacturer",
+     "title": "Short Scale, Big Noise: The Mustang Story",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "introducing an entirely new guitar that August, the Mustang."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q511029",
+   "hunt_notes": "Godin : fondée en 1972 par Robert Godin à La Patrie (Québec) ; siège à Montréal, cinq usines au Québec et une au New Hampshire. Marques de la famille : Seagull (acoustiques en bois massif), Simon & Patrick (acoustiques moyen/haut de gamme), Art & Lutherie (entrée de gamme), Norman et La Patrie (classiques). Guitares électriques sous le nom Godin (LG, Multiac).",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Godin_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Godin Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] 1972 à La Patrie (Québec) ; siège à Montréal ; cinq usines au Québec ; marques Seagull, Simon & Patrick, Art & Lutherie, Norman, La Patrie ; électriques LG et Multiac."
+    },
+    {
+     "url": "https://www.premierguitar.com/articles/Builder_Profile_Godin_Guitars",
+     "publisher": "Premier Guitar",
+     "kind": "press",
+     "title": "Builder Profile: Godin Guitars",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "six guitar brands—Godin, Seagull, Simon & Patrick, Art & Lutherie, Norman, and La Patrie"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q545973",
+   "hunt_notes": "Dean Guitars : fondée à Chicago par Dean Zelinsky (1976, année officielle 1977), connue pour les formes ML, V et Z. Marque vendue ensuite (Oscar Medeiros de Tropical Music), puis rachetée en 1997 par Armadillo Enterprises (Elliott Rubinson), qui déplace la production à Tampa (Floride). Gammes américaines (Dean USA, Custom Shop) et importées. Signatures : Dave Mustaine (VMNT), Kerry King.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Dean_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Dean Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée à Chicago par Dean Zelinsky en 1976 ; vendue à Tropical Music puis à Armadillo (1997) ; siège à Tampa ; formes ML, V, Z ; gammes américaines et importées."
+    },
+    {
+     "url": "https://guitar.com/features/history/a-brief-history-of-dean-guitars/",
+     "publisher": "Guitar.com",
+     "kind": "press",
+     "title": "A brief history of Dean Guitars",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Armadillo moved Dean production to Tampa, Florida"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q1974471",
+   "hunt_notes": "Kramer : fondée en 1976 dans le New Jersey, célèbre pour ses manches en aluminium (« pitchfork », jusqu'en 1982) puis en bois dès fin 1981 ; seul fabricant à offrir des Floyd Rose d'origine de série (1983). Modèles : Baretta (vedette), Pacer. L'entreprise d'origine disparaît vers 1991 ; Gibson rachète la marque en 1997. Les Aerostar sont fabriquées en Corée.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Kramer_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Kramer Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] 1976, manches aluminium jusqu'en 1982, Floyd Rose en 1983, Baretta, fin de l'entreprise d'origine en 1991, rachat par Gibson en 1997 ; Aerostar fabriquées en Corée."
+    },
+    {
+     "url": "https://www.gibson.com/pages/kramer-history",
+     "publisher": "Gibson",
+     "kind": "manufacturer",
+     "title": "Kramer history",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "Introduced in 1976, early models featured the trademark \"pitchfork\" aluminum-reinforced necks."
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q2386434",
+   "hunt_notes": "Taylor Guitars : acoustiques américaines fondées en 1974 à El Cajon (Californie) par Bob Taylor et Kurt Listug. Usine de Tecate (Mexique) depuis 2007 pour certains modèles (plus abordables) et les étuis. Séries numérotées : 100 et 200 (entrée de gamme), 300 et 400, 500 et au-dessus ; manche vissé NT depuis 1999 ; entreprise détenue par ses employés depuis 2021.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Taylor_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Taylor Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1974 à El Cajon ; usine de Tecate (Mexique) pour les modèles plus abordables ; séries 100/200, 300/400, 500+ ; manche NT 1999 ; employés propriétaires depuis 2021."
+    },
+    {
+     "url": "https://www.guitarguitar.co.uk/news/143178/",
+     "publisher": "guitarguitar",
+     "kind": "press",
+     "title": "Brief History of TAYLOR Guitars: from 1974 to NOW",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "In 2007, Taylor began building certain guitars and parts in a new premises for them in Tecate, Mexico"
+    }
+   ]
+  },
+  {
+   "patch": "wd:Q1834836",
+   "hunt_notes": "Seagull : marque d'acoustiques de la famille Godin, fondée en 1982 par Robert Godin à La Patrie (Québec) et toujours fabriquée au Canada. Tables en bois massif (séries Artist, Maritime…), modèle S6, système électronique Godin Quantum. Positionnée comme abordable à bon rapport qualité/prix pour des guitares tout-massif.",
+   "sources": [
+    {
+     "url": "https://en.wikipedia.org/wiki/Seagull_Guitars",
+     "publisher": "Wikipedia",
+     "kind": "wikipedia",
+     "title": "Seagull Guitars",
+     "lang": "en",
+     "license": "CC BY-SA 4.0",
+     "excerpt": "[résumé] Fondée en 1982 par Robert Godin à La Patrie (Québec) ; acoustiques, mandolines, ukulélés ; modèle S6 ; micros Godin Quantum."
+    },
+    {
+     "url": "https://sixstringacoustic.com/?p=3334",
+     "publisher": "Six String Acoustic",
+     "kind": "press",
+     "title": "All About Seagull Guitars: History of Seagull Guitars",
+     "lang": "en",
+     "license": "copyright",
+     "excerpt": "In 1982 a man by the name of Robert Godin made the very first Seagull guitars ever produced"
+    }
+   ]
+  }
+ ]
+}

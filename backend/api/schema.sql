@@ -131,6 +131,17 @@ CREATE TRIGGER user_deal_state_notify
     AFTER INSERT OR UPDATE ON user_deal_state
     FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
 
+-- 2026-10-13 : une annonce NEUVE n'était jamais poussée au client. `create_new_deal` commit
+-- l'upsert `guitar_deals` (donc le NOTIFY) AVANT que `record_deal_match` n'écrive le lien
+-- utilisateur-annonce, dans une autre transaction : `ws_deals::_push_if_visible` ne trouvait alors
+-- aucune ligne `user_deal_matches` et ne poussait rien. Même chose pour une annonce déjà connue
+-- qui entre dans le fil d'un autre utilisateur (aucune écriture sur `guitar_deals`). Notifier à
+-- l'INSERT du lien lui-même ferme les deux cas (même fonction/canal que `user_deal_state`).
+DROP TRIGGER IF EXISTS user_deal_matches_notify ON user_deal_matches;
+CREATE TRIGGER user_deal_matches_notify
+    AFTER INSERT ON user_deal_matches
+    FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
+
 -- `purchased_by_user_id` : absente d'une base déjà initialisée avant le 2026-09-19 (comme
 -- toute colonne ajoutée après la création initiale, voir l'avertissement plus bas) — ajoutée ici
 -- en ALTER explicite avant les index qui la référencent.
@@ -198,6 +209,12 @@ END $$;
 -- juste en dessous : `guitar_deals` est déjà créée sur toute base ayant déjà joué ce fichier).
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchase_price NUMERIC;
 ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS purchased_at   TIMESTAMPTZ;
+
+-- Revente par l'ACHETEUR (2026-10-10) : distincte de `sold_at`/`status = 'sold'`, qui disent que
+-- l'annonce d'origine n'est plus disponible. Posée sur la ligne partagée comme l'achat (même
+-- propriétaire : `purchased_by_user_id`), effacée si l'achat est annulé.
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS user_sale_price NUMERIC;
+ALTER TABLE guitar_deals ADD COLUMN IF NOT EXISTS user_sold_at    TIMESTAMPTZ;
 
 -- `description` : présente dans `listing_data` du scraper (parser.py, jusqu'à 3000 caractères)
 -- et spread dans le document Firestore par `create_new_deal`/`update_deal_data_and_analysis`,
@@ -349,6 +366,23 @@ ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS completed_at        
 
 CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_items(deal_id, item_order);
 
+-- Plan de restauration PERSONNEL (2026-10-11) : un plan peut être préparé avant l'achat (guitare
+-- aimée) pour évaluer l'affaire et négocier ; il devient le plan réel à l'achat. Chaque étape
+-- appartient donc à un utilisateur (avant : plan unique de l'acheteur). Rattrapage des lignes
+-- existantes : l'acheteur de l'annonce, sinon le PREMIER utilisateur qui l'a vue (les plans étaient
+-- réservés à l'acheteur, donc cet utilisateur est le plus probable) ; sans aucun match, user_id reste
+-- NULL (ligne invisible, jamais supprimée).
+ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS user_id TEXT;
+UPDATE restoration_plan_items r
+SET user_id = COALESCE(
+    g.purchased_by_user_id,
+    (SELECT m.user_id FROM user_deal_matches m WHERE m.deal_id = r.deal_id
+       ORDER BY m.matched_at ASC, m.user_id ASC LIMIT 1)
+)
+FROM guitar_deals g
+WHERE g.id = r.deal_id AND r.user_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_restoration_plan_user_deal ON restoration_plan_items(user_id, deal_id);
+
 -- Temps réel (remplace onRestorationPlanUpdate) : canal séparé, filtré par deal_id comme
 -- chat_changes. Couvre aussi DELETE (contrairement à deal_changes/chat_changes, qui n'en ont
 -- pas besoin dans leurs flux actuels) car la suppression d'étape est une action réelle exposée
@@ -357,10 +391,10 @@ CREATE INDEX IF NOT EXISTS idx_restoration_plan_deal_id ON restoration_plan_item
 CREATE OR REPLACE FUNCTION notify_restoration_plan_change() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', OLD.deal_id, 'id', OLD.id, 'deleted', true)::text);
+        PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', OLD.deal_id, 'user_id', OLD.user_id, 'id', OLD.id, 'deleted', true)::text);
         RETURN OLD;
     END IF;
-    PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id)::text);
+    PERFORM pg_notify('restoration_plan_changes', json_build_object('deal_id', NEW.deal_id, 'user_id', NEW.user_id, 'id', NEW.id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -435,6 +469,31 @@ CREATE TABLE IF NOT EXISTS logs_archive (
 CREATE INDEX IF NOT EXISTS idx_logs_archive_user_created ON logs_archive(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_logs_archive_created ON logs_archive(created_at);
 
+-- Santé des scrapers (2026-10-23) : UNE ligne par scan de ville (ancrage) Facebook / Kijiji, pour
+-- quantifier ce qui casse et alerter à seuil — voir backend/scrape_health.py. `outcome` : ok |
+-- no_cards | geo_mismatch | blocked | detail_degraded | error. `alerted_at` : posé sur la ligne qui a
+-- déclenché une alerte (délai minimal entre deux alertes, résistant aux redémarrages du bot). Jamais
+-- de titre ni d'URL d'annonce ici (dépôt public / simple suivi technique). Purge : 90 jours.
+CREATE TABLE IF NOT EXISTS scrape_runs (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    source        TEXT NOT NULL,            -- 'facebook' | 'kijiji'
+    city_id       TEXT,
+    city_name     TEXT,
+    query         TEXT,
+    outcome       TEXT NOT NULL,
+    detail        TEXT,
+    cards_seen    INTEGER,
+    out_of_list   INTEGER,
+    kept          INTEGER,
+    duration_ms   INTEGER,
+    alerted_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_lookup ON scrape_runs(user_id, source, city_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scrape_runs_created ON scrape_runs(created_at);
+
 -- Catalogue partagé (remplace `artifacts/{APP_ID}/cities`, écrit par bot.py::add_city_auto()
 -- avec un `.set(merge=True)` — hors périmètre ici : cette tranche ne construit que la surface
 -- consommée par le frontend, le bot restant sur Firestore jusqu'à la bascule, voir §5.1).
@@ -448,6 +507,14 @@ CREATE TABLE IF NOT EXISTS cities (
 );
 
 ALTER TABLE cities ADD COLUMN IF NOT EXISTS created_by TEXT;   -- uid, voir add_city_auto()
+
+-- ID Facebook Marketplace RÉEL de la ville (2026-10-23). NULL = `id` est l'ID Facebook (convention
+-- historique : `cities.id` = ID Facebook de la ville). Renseigné quand `id` ne l'est pas ou plus :
+-- ID texte hérité de la migration (« edmonton », chaînes Firestore), ID qui pointait sur un homonyme
+-- étranger (Bromont -> Bromont-Lamothe, France), ou ville servie par l'ID d'une ville voisine
+-- (Saint-Hubert -> Longueuil). Plusieurs villes peuvent partager le même `fb_location_id`. Le scraper
+-- Facebook utilise `COALESCE(fb_location_id, id)`. Voir docs/management/plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md.
+ALTER TABLE cities ADD COLUMN IF NOT EXISTS fb_location_id TEXT;
 
 -- Préférences par utilisateur (remplace `users/{uid}/cities`, architecture actuelle). L'absence
 -- de ligne pour un (user_id, city_id) donné == "non scannable" côté Firestore (`isScannable ??
@@ -665,3 +732,12 @@ DROP TABLE IF EXISTS guitar_knowledge_link;
 -- Pas de clé étrangère : une fiche retirée de la base ne doit pas bloquer l'étape ; l'API valide le slug
 -- à l'écriture et l'interface ignore un slug devenu inconnu.
 ALTER TABLE restoration_plan_items ADD COLUMN IF NOT EXISTS fiche_slug TEXT;
+
+-- Porte de qualité des fiches (2026-10-14) : relecture HUMAINE d'une fiche. Colonnes CURÉES (l'import ne les touche
+-- jamais). `review_status` : NULL (non relue) | 'approved' | 'rejected'. `reviewed_digest` = empreinte du contenu au moment
+-- de la relecture (nom, description, années, parent, type) : si un réimport change la fiche, l'approbation ne vaut plus
+-- (voir `guitar_knowledge.py::review_state`). Posées par `backend/scripts/knowledge_review_apply.py`.
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_status TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_note TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_digest TEXT;
+ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;

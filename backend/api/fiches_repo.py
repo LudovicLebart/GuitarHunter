@@ -2,7 +2,7 @@
 
 Les fiches vivent dans la base COMMUNE avec les marques (voir backend/guitar_knowledge.py et schema.sql) : ce module
 ne duplique rien de la recherche par alias — il charge l'index des alias de fiches avec asyncpg et réutilise les
-fonctions PURES de `guitar_knowledge` (`build_alias_index`, `match_aliases`, `valid_fiche_slug`), donc les mêmes règles
+fonctions PURES de `guitar_knowledge` (`build_alias_index`, `match_alias_index`, `valid_fiche_slug`), donc les mêmes règles
 que le chargeur et que la recherche synchrone. Seul le type `fiche` est lu ici (liste blanche `FICHE_KINDS`) : une
 marque n'est jamais renvoyée par ces fonctions.
 
@@ -113,7 +113,7 @@ async def match_texts(pool: asyncpg.Pool, texts) -> list[tuple[str, str]]:
     long), à égalité par slug. Correspondance exacte seulement (pas de recherche floue pour les fiches). Deux fiches qui
     partagent un alias sont toutes deux renvoyées : contrairement aux marques, il n'y a pas de « propriétaire d'un nom »."""
     aliases, by_len = await _alias_index(pool)
-    found = gk.match_aliases(aliases, by_len, texts, gk.FICHE_KINDS)
+    found = gk.match_alias_index(aliases, by_len, texts, gk.FICHE_KINDS)
     pairs = [(gk.fiche_slug(kid), alias) for kid, (alias, _kind) in found.items()]
     return sorted(pairs, key=lambda p: (-len(p[1]), p[0]))
 

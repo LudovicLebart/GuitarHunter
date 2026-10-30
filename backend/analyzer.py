@@ -30,12 +30,19 @@ from config import (
     T1_PROVIDER_CHAIN,
     T1_KNOWLEDGE_ENABLED,
     T1_KNOWLEDGE_VERSION,
+    T1_KNOWLEDGE_REQUIRE_REVIEW,
     T1_KNOWLEDGE_MAX_FICHES,
+    T1_KNOWLEDGE_PHOTO_TEXT,
     T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
     T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+    T3_PROVIDER,
+    T3_CLAUDE_MODEL,
+    T3_CLAUDE_CACHE,
+    T3_KNOWLEDGE_ENABLED,
 )
 from backend import t1_circuit_breaker
 from backend import guitar_knowledge
+from backend.t3_claude_tools import CLAUDE_T3_ADDENDUM, LOOKUP_BRAND_TOOL, make_brand_tool
 from backend.llm_clients import (  # noqa: F401  (T1_* ré-exportées pour les scripts/tests existants)
     LLMClientsMixin,
     T1_VALID_STATUSES,
@@ -77,6 +84,11 @@ T1_FILTER_BYPASS_VERDICTS = frozenset({"PEPITE"})
 # historique vers l'Analyste (Chantier H, porté depuis dev le 2026-09-22) — provisoire, en
 # attendant un vrai mécanisme de repli (ex: second appel Gemini).
 T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
+
+# Frontière entre la partie STATIQUE du prompt T2/T3 (consigne, taxonomie, exemples — identique d'une annonce à
+# l'autre) et la partie propre à l'annonce. Partagée par `_construct_base_user_prompt` (qui l'écrit) et
+# `_run_t3_phase` (qui coupe dessus pour le cache de prompt Anthropic) : ne jamais dupliquer la chaîne.
+LISTING_DETAILS_MARKER = "Détails de l'annonce :\n"
 
 class _T1Outcome(NamedTuple):
     """Résultat de `DealAnalyzer._run_t1_phase`. `early_result` non None = sortie anticipée de la cascade
@@ -184,7 +196,7 @@ class DealAnalyzer(LLMClientsMixin):
             f"### TAXONOMIE DE RÉFÉRENCE\n"
             f"{taxonomy_str}\n\n"
             f"{examples_str}"
-            f"Détails de l'annonce :\n"
+            f"{LISTING_DETAILS_MARKER}"
             f"- Titre : {listing_data.get('title', 'N/A')}\n"
             f"- Prix : {listing_data.get('price', 'N/A')}\n"
             f"- Description : {listing_data.get('description', 'N/A')}\n"
@@ -197,27 +209,50 @@ class DealAnalyzer(LLMClientsMixin):
         le prompt T1 et `base_prompt` T2/T3 — les deux appelants le PLACENT différemment)."""
         return format_user_correction(user_comment)
 
-    def _t1_knowledge(self, listing_data):
+    def _t1_knowledge(self, listing_data, images=None):
         """Base de connaissances « univers des guitares » pour le Portier : renvoie `(bloc_prompt, trace)`.
         `("", {})` si l'interrupteur `T1_KNOWLEDGE_ENABLED` est éteint (défaut : AUCUN accès base, prompt inchangé),
         si aucune fiche ne correspond, ou si quoi que ce soit échoue — ÉCHEC OUVERT : la base ne doit jamais
         empêcher une analyse (le Portier tourne alors comme avant). `trace` (`gatekeeperKnowledge` : version de la
         base, ids et alias trouvés) est stockée avec la décision (`ai_analysis_raw`) pour attribuer un changement
-        de comportement à une version de la base. Les sources (URL) ne sont jamais injectées."""
+        de comportement à une version de la base. Les sources (URL) ne sont jamais injectées.
+
+        Avec `T1_KNOWLEDGE_PHOTO_TEXT` (éteint par défaut) et des photos, une passe courte du modèle local lit d'abord
+        le texte visible (marque, modèle, numéro de série) et ce texte s'ajoute au titre et à la description pour
+        CHERCHER les fiches (tolérance aux fautes de lecture). Il n'est jamais injecté tel quel dans le prompt ; la
+        trace garde `photoText` et `viaPhoto` (fiches trouvées grâce aux photos seules)."""
         if not T1_KNOWLEDGE_ENABLED:
             return "", {}
         try:
             from backend import pg_db
             guitar_knowledge.configure_version(T1_KNOWLEDGE_VERSION)      # idempotent
+            guitar_knowledge.configure_review_gate(T1_KNOWLEDGE_REQUIRE_REVIEW)   # idempotent
+            title, description = listing_data.get("title"), listing_data.get("description")
+            photo_text = ""
+            # Lecture AVANT d'ouvrir la connexion base (elle peut durer jusqu'au délai du Dell) ; sautée si le
+            # Dell est en pause (coupe-circuit) : inutile d'attendre un fournisseur déjà en échec.
+            if T1_KNOWLEDGE_PHOTO_TEXT and images and not t1_circuit_breaker.is_open("local"):
+                photo_text = self._t1_read_photo_text(images)
+            via_photo = []
             with pg_db.get_pool().connection(timeout=1.0) as conn:
-                fiches = guitar_knowledge.lookup(conn, listing_data.get("title"), listing_data.get("description"),
-                                                 limit=T1_KNOWLEDGE_MAX_FICHES)
+                if photo_text:
+                    fiches = guitar_knowledge.lookup(conn, title, description, photo_text,
+                                                     limit=T1_KNOWLEDGE_MAX_FICHES, fuzzy_texts=(0, 2))
+                    from_text = {f["id"] for f in guitar_knowledge.lookup(conn, title, description,
+                                                                          limit=T1_KNOWLEDGE_MAX_FICHES)}
+                    via_photo = [f["id"] for f in fiches if f["id"] not in from_text]
+                else:
+                    fiches = guitar_knowledge.lookup(conn, title, description, limit=T1_KNOWLEDGE_MAX_FICHES)
                 version = guitar_knowledge.effective_version(conn)
             if not fiches:
-                return "", {}
+                return "", ({"gatekeeperKnowledge": {"version": version, "fiches": [], "matched": [],
+                                                     "photoText": photo_text[:300], "viaPhoto": []}}
+                            if photo_text else {})
             trace = {"gatekeeperKnowledge": {"version": version,
                                              "fiches": [f["id"] for f in fiches],
                                              "matched": [f["matched_on"] for f in fiches]}}
+            if photo_text:
+                trace["gatekeeperKnowledge"].update(photoText=photo_text[:300], viaPhoto=via_photo)
             return guitar_knowledge.format_for_prompt(fiches), trace
         except Exception as e:  # jamais bloquant
             self.logger.warning(f"⚠️ [Portier] base de connaissances indisponible, analyse sans elle : {e}")
@@ -268,7 +303,8 @@ class DealAnalyzer(LLMClientsMixin):
             f"{prefix}LatencyS": latency_s,
         }
 
-    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def analyze_deal(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                     bypass_active_search=False):
         """Cascade 3-Tiers, puis canonicalisation de la classification renvoyée par l'IA.
 
         La canonicalisation est faite ICI, sur le résultat final, plutôt que dans chacun des 5
@@ -276,7 +312,8 @@ class DealAnalyzer(LLMClientsMixin):
         """
         llm_usage.current_deal_id.set(listing_data.get('id'))
         llm_usage.current_user_ref.set(user_email)
-        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email)
+        result = self._run_analysis_cascade(listing_data, firestore_config, force_expert, user_comment, user_email,
+                                            bypass_active_search)
         taxonomy = (firestore_config or {}).get('analysisConfig', {}).get('taxonomy', DEFAULT_TAXONOMY)
         return self._canonicalize_classification(result, taxonomy)
 
@@ -392,7 +429,8 @@ class DealAnalyzer(LLMClientsMixin):
         result.update(qwen_observation)
         return result
 
-    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def _run_analysis_cascade(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                              bypass_active_search=False):
         """Point d'entrée public : point de sortie UNIQUE pour l'attache des métadonnées Portier
         (`_attach_gatekeeper_metadata`), quel que soit le chemin emprunté par `_run_analysis_cascade_body`
         (rejet T1, hors-recherche-active, erreur T2, échec T3 avec repli T2, succès T2/T3) — un futur
@@ -404,13 +442,14 @@ class DealAnalyzer(LLMClientsMixin):
             return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
 
         result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation = self._run_analysis_cascade_body(
-            listing_data, firestore_config, force_expert, user_comment, user_email,
+            listing_data, firestore_config, force_expert, user_comment, user_email, bypass_active_search,
         )
         return self._attach_gatekeeper_metadata(
             result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation
         )
 
-    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None):
+    def _run_analysis_cascade_body(self, listing_data, firestore_config=None, force_expert=False, user_comment=None, user_email=None,
+                                   bypass_active_search=False):
         """Corps de la cascade 3-Tiers — chaque point de sortie retourne
         `(result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation)`,
         jamais un dict déjà attaché (voir `_run_analysis_cascade`, seul appelant, qui fait
@@ -456,7 +495,7 @@ class DealAnalyzer(LLMClientsMixin):
         # PHASE 1 : TIER 1 - PORTIER
         if not force_expert:
             t1 = self._run_t1_phase(listing_data, config, taxonomy, images, user_comment, user_email,
-                                    gatekeeper_model_name, model_chain)
+                                    gatekeeper_model_name, model_chain, bypass_active_search)
             gatekeeper_status, gatekeeper_reason = t1.status, t1.reason
             gatekeeper_brand, gatekeeper_classification = t1.brand, t1.classification
             qwen_observation = t1.observation
@@ -551,7 +590,7 @@ class DealAnalyzer(LLMClientsMixin):
         return result_t1, primary_provider, tried, chain_errors
 
     def _run_t1_phase(self, listing_data, config, taxonomy, images, user_comment, user_email,
-                      gatekeeper_model_name, model_chain):
+                      gatekeeper_model_name, model_chain, bypass_active_search=False):
         """PHASE 1 : TIER 1 - PORTIER (Chantier I, 2026-09-29 : chaîne T1_PROVIDER_CHAIN — local Dell
         primaire / Qwen cloud secours par défaut, voir config.py). Retourne un `_T1Outcome` ;
         `early_result` non None = sortie anticipée de la cascade (rejet T1, NOT_PROMOTED ou
@@ -568,7 +607,7 @@ class DealAnalyzer(LLMClientsMixin):
         # n'est PLUS basé sur base_prompt (réservé à T2/T3) — la correction utilisateur
         # (flux "Ré-analyser" sans Force Expert, rare mais possible, voir bot.py::analyze_single_deal)
         # est passée directement pour être placée AVANT `<annonce>`, jamais après (voir docstring).
-        knowledge_block, knowledge_trace = self._t1_knowledge(listing_data)
+        knowledge_block, knowledge_trace = self._t1_knowledge(listing_data, images)
         full_prompt_t1 = self._construct_t1_gatekeeper_prompt(listing_data, taxonomy, gatekeeper_instruction, user_comment,
                                                               knowledge_block)
 
@@ -666,7 +705,9 @@ class DealAnalyzer(LLMClientsMixin):
             # planté ou réponse malformée) n'a par définition aucune classification fiable ;
             # sans ce garde-fou, il se retrouverait routé vers NOT_PROMOTED (classification
             # vide ⇒ aucune correspondance) au lieu du skip dédié juste après ce bloc.
-            active_search_families = config.get('activeSearchFamilies') or []
+            # Scan manuel d'URL (2026-10-16) : l'utilisateur demande explicitement cette annonce,
+            # elle contourne le routage par recherche active (comme les filtres prix/mots-clés).
+            active_search_families = [] if bypass_active_search else (config.get('activeSearchFamilies') or [])
             if (
                 active_search_families
                 and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
@@ -713,6 +754,11 @@ class DealAnalyzer(LLMClientsMixin):
                       result_t2, trigger_reason):
         """PHASE 3 : TIER 3 - EXPERT PRO (déjà décidé par `expert_trigger_reason`). Retourne le résultat T3
         (qui écrase celui du T2) ; LÈVE `RuntimeError` si l'appel échoue (voir commentaire ci-dessous)."""
+        use_claude = T3_PROVIDER == "claude"
+        if use_claude:
+            # Le modèle Gemini de la config utilisateur (`proModel`/`expertModel`) est ignoré pour le T3 ;
+            # le nom réel apparaît ainsi dans les logs, `model_chain` et le message d'erreur.
+            expert_pro_model_name = T3_CLAUDE_MODEL
         self.logger.info(f"   ⭐ Étape 3 (DÉCLENCHÉE) : Expert Pro ({expert_pro_model_name}) - Motif : {trigger_reason}")
         model_chain.append(expert_pro_model_name)
 
@@ -733,7 +779,24 @@ class DealAnalyzer(LLMClientsMixin):
         # différent à chaque annonce) en tête, détruisant tout préfixe cacheable pour T3.
         full_prompt_t3 = f"{base_prompt}\n\n{context_t3}"
 
-        result_t3, err_t3 = self._call_gemini_json(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert")
+        call_t3 = self._call_claude_json if use_claude else self._call_gemini_json
+        t3_kwargs = {}
+        brand_trace = []
+        if use_claude and T3_KNOWLEDGE_ENABLED:
+            # Outil `lookup_brand` + consignes OCR / « marque inconnue ≠ faible valeur » (voir `t3_claude_tools.py`).
+            # Ajoutées APRÈS l'annonce : la partie statique mise en cache (avant le marqueur) ne change pas.
+            full_prompt_t3 += CLAUDE_T3_ADDENDUM
+            t3_kwargs["tools"] = [LOOKUP_BRAND_TOOL]
+            t3_kwargs["tool_handler"] = make_brand_tool(self.logger, brand_trace)
+        if use_claude and T3_CLAUDE_CACHE:
+            # Préfixe statique = tout ce qui précède le premier marqueur, écrit par `_construct_base_user_prompt`.
+            # La description d'une annonce (texte du vendeur) vient toujours APRÈS lui et ne peut pas le déplacer.
+            # Marqueur absent (prompt de config personnalisé) : pas de cache, comportement inchangé.
+            head, marker, _ = full_prompt_t3.partition(LISTING_DETAILS_MARKER)
+            if marker and head:
+                t3_kwargs["cached_prefix"] = head
+        result_t3, err_t3 = call_t3(expert_pro_model_name, [full_prompt_t3] + images, user_email, action="t3_expert",
+                                    **t3_kwargs)
 
         if err_t3 or not result_t3:
             # Ne fait plus fail-back silencieusement vers le T2 (2026-09-27, demande explicite
@@ -756,5 +819,7 @@ class DealAnalyzer(LLMClientsMixin):
         # L'Expert Pro écrase le T2
         result_t3["model_used"] = " -> ".join(model_chain)
         result_t3["tier3_trigger"] = trigger_reason
+        if brand_trace:
+            result_t3["brand_lookups"] = brand_trace  # ce que l'Expert a demandé à la base (audit, rejeu)
         self.logger.info(f"   ✅ Verdict Expert Pro : {result_t3.get('verdict', 'N/A')} | Deal: {result_t3.get('deal_score', '?')} | Auth: {result_t3.get('authenticity_score', '?')} | Conf: {result_t3.get('confidence', '?')} | Résumé: {result_t3.get('summary', 'N/A')}")
         return result_t3

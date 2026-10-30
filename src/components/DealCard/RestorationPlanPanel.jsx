@@ -30,10 +30,12 @@ const emptyForm = { label: '', category: 'autre', estimatedCost: '', notes: '', 
 const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
     const [form, setForm] = useState(initial);
     const [saving, setSaving] = useState(false);
+    const [submitError, setSubmitError] = useState(null);
 
     const submit = async () => {
         if (!form.label.trim()) return;
         setSaving(true);
+        setSubmitError(null);
         try {
             const parsedCost = parseFloat(form.estimatedCost);
             await onSubmit({
@@ -43,6 +45,10 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
                 notes: form.notes.trim() || null,
                 ficheSlug: form.ficheSlug || null,      // null efface le lien à la modification
             });
+        } catch (e) {
+            // Jusqu'ici l'erreur remontait sans être attrapée : le formulaire restait en place sans
+            // aucun message (« rien n'est ajouté », 2026-10-16).
+            setSubmitError(e?.message || "Échec de l'enregistrement de l'étape.");
         } finally {
             setSaving(false);
         }
@@ -103,6 +109,7 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
                 rows={2}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40 resize-none"
             />
+            {submitError && <p className="text-xs text-red-400">{submitError}</p>}
             <div className="flex justify-end gap-2">
                 <button onClick={onCancel} disabled={saving} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-50">
                     Annuler

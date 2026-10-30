@@ -406,6 +406,55 @@ class TestAddCityAuto(unittest.TestCase):
         mock_city_finder.find_city_id_and_coords.assert_not_called()
 
 
+    def test_passes_expected_coords_and_trusted_gazetteer_to_city_finder(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "Saint-Lambert", True)
+        self.bot.repo.get_all_catalog_cities.return_value = {
+            "1": {"name": "Granby", "latitude": 45.40, "longitude": -72.73},
+            "2": {"name": "Montréal", "latitude": 45.5, "longitude": -73.57},
+            "3": {"name": "Sherbrooke", "latitude": 45.5, "longitude": -73.57},  # coordonnées de Montréal : doutes
+        }
+
+        self.bot.add_city_auto({"name": "Saint-Lambert", "latitude": 45.53, "longitude": -73.5, "region_hint": "Québec"})
+
+        _, kwargs = mock_city_finder.find_city_id_and_coords.call_args
+        self.assertEqual(kwargs["expected_coords"], (45.53, -73.5))
+        self.assertEqual(set(kwargs["gazetteer"]), {"granby"})
+
+    def test_no_expected_coords_without_confirmed_coordinates(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("999", None, "X", False)
+        self.bot.add_city_auto("Saint-Lambert")
+        _, kwargs = mock_city_finder.find_city_id_and_coords.call_args
+        self.assertIsNone(kwargs["expected_coords"])
+
+    def test_verified_id_is_attached_to_an_existing_city_with_another_id(self, mock_city_finder, _mock_fb_scraper):
+        """Avant 2026-10-23, l'ID trouvé par CityFinder était ignoré quand le nom existait déjà au
+        catalogue sans coordonnées : un ID faux (« edmonton » pour Sherbrooke) n'était jamais réparé."""
+        self.bot.repo.get_all_catalog_cities.return_value = {"edmonton": {"name": "Sherbrooke", "latitude": None, "longitude": None}}
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Sherbrooke, QC", True)
+
+        self.bot.add_city_auto({"name": "Sherbrooke", "latitude": 45.4, "longitude": -71.9, "region_hint": "Québec"})
+
+        target_id, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertEqual(target_id, "edmonton")           # la ligne (clé primaire, préférences) est conservée
+        self.assertEqual(city_data["fbLocationId"], "555")  # ... et reçoit l'ID Facebook vérifié
+        self.bot.repo.set_city_user_pref.assert_called_once_with("edmonton", True)
+
+    def test_brand_new_city_uses_the_facebook_id_as_key_without_fb_location_id(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = ("555", None, "Granby", True)
+        self.bot.add_city_auto({"name": "Granby", "latitude": 45.4, "longitude": -72.7, "region_hint": "Québec"})
+        target_id, city_data = self.bot.repo.add_city_to_catalog.call_args[0]
+        self.assertEqual(target_id, "555")
+        self.assertNotIn("fbLocationId", city_data)
+
+    def test_unverified_id_means_the_city_is_not_added(self, mock_city_finder, _mock_fb_scraper):
+        mock_city_finder.find_city_id_and_coords.return_value = (None, None, None, False)
+        with self.assertRaises(Exception) as ctx:
+            self.bot.add_city_auto({"name": "Bromont", "latitude": 45.3, "longitude": -72.6, "region_hint": "Québec"})
+        self.assertIn("vérifier", str(ctx.exception))
+        self.bot.repo.add_city_to_catalog.assert_not_called()
+        self.bot.repo.set_city_user_pref.assert_not_called()
+
+
 class TestRunSourcesInParallel(unittest.TestCase):
     """_run_sources_in_parallel() dispatche Facebook et Kijiji chacun dans son propre
     thread (au lieu de les enchaîner en séquence) — voir demande utilisateur du
@@ -763,6 +812,139 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
         self.assertEqual(outcome, "processed")
         bot.repo.create_new_deal.assert_called_once()
         mock_notification_service.notify_deal.assert_called_once()
+
+
+@patch("backend.bot.time.sleep")
+@patch("backend.bot.FacebookScraper")
+class TestFacebookScanUsesRealFacebookId(unittest.TestCase):
+    """Le scan Facebook doit chercher avec `fb_location_id` (ID corrigé) quand il est renseigné, sinon
+    avec `cities.id` (convention historique) — sinon corriger la base ne changerait rien au scan."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._record_scrape_health = MagicMock()
+        self.scan_config = {"max_ads": 5, "search_query": "guitar", "distance": 0}
+        self.empty = {"deals": [], "anti_bot_blocked": False, "rejected_out_of_list": 0, "total_cards_seen": 0,
+                      "dropped_no_location": 0, "dropped_no_price": 0, "error": None}
+
+    def _run(self, city, mock_scraper_cls):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_marketplace.return_value = self.empty
+        self.bot._run_facebook_scan(self.scan_config, [city])
+        return scraper
+
+    def test_uses_fb_location_id_when_present(self, mock_scraper_cls, _sleep):
+        city = {"id": "110035235685771", "fbLocationId": "103111009728836", "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        scraper = self._run(city, mock_scraper_cls)
+        self.assertEqual(scraper.city_mapping, {"bromont": "103111009728836"})
+
+    def test_falls_back_to_catalog_id(self, mock_scraper_cls, _sleep):
+        city = {"id": "103111009728836", "fbLocationId": None, "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        scraper = self._run(city, mock_scraper_cls)
+        self.assertEqual(scraper.city_mapping, {"bromont": "103111009728836"})
+
+    def test_health_record_keeps_the_catalog_id_as_key(self, mock_scraper_cls, _sleep):
+        city = {"id": "110035235685771", "fbLocationId": "103111009728836", "name": "Bromont", "latitude": 45.3, "longitude": -72.6}
+        self._run(city, mock_scraper_cls)
+        args, _ = self.bot._record_scrape_health.call_args
+        self.assertEqual(args[1]["id"], "110035235685771")  # clé stable de la ville dans scrape_runs
+
+class TestRecordScrapeHealth(unittest.TestCase):
+    """Suivi de santé des scrapers (backend/scrape_health.py) : enregistrement par scan de ville,
+    alerte à seuil avec délai minimal, et — surtout — jamais d'exception vers le scan."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._user_email = "a@b.c"
+        self.bot.repo = MagicMock()
+        self.bot.repo.record_scrape_run.return_value = 42
+        self.bot.repo.was_scrape_alerted_recently.return_value = False
+        self.bot.repo.last_ok_scrape_run.return_value = "2026-10-20 12:00 UTC"
+        self.city = {"id": 110035235685771, "name": "Bromont"}
+
+    def _record(self, outcome="ok", detail=""):
+        self.bot._record_scrape_health("facebook", self.city, "guitar", outcome, detail, cards_seen=82, out_of_list=82, kept=0)
+
+    @patch("backend.bot.NotificationService")
+    def test_healthy_scan_is_recorded_without_alert(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["ok", "ok"]
+        self._record()
+        args, kwargs = self.bot.repo.record_scrape_run.call_args
+        self.assertEqual(args[:5], ("facebook", "110035235685771", "Bromont", "guitar", "ok"))
+        self.assertEqual((kwargs["cards_seen"], kwargs["out_of_list"], kwargs["kept"]), (82, 82, 0))
+        mock_notif.notify_scrape_health.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_three_consecutive_failures_alert_once_and_mark_the_run(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["geo_mismatch"] * 3
+        self._record("geo_mismatch", "82/82 cartes hors liste de villes")
+        mock_notif.notify_scrape_health.assert_called_once()
+        args, kwargs = mock_notif.notify_scrape_health.call_args
+        self.assertEqual(args[:5], ("facebook", "Bromont", "geo_mismatch", 3, "2026-10-20 12:00 UTC"))
+        self.assertIn("Bromont", args[5])  # piste de réparation nominative
+        self.assertEqual(kwargs["user_email"], "a@b.c")
+        self.bot.repo.mark_scrape_run_alerted.assert_called_once_with(42)
+
+    @patch("backend.bot.NotificationService")
+    def test_cooldown_suppresses_repeated_alert(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["geo_mismatch"] * 5
+        self.bot.repo.was_scrape_alerted_recently.return_value = True
+        self._record("geo_mismatch")
+        mock_notif.notify_scrape_health.assert_not_called()
+        self.bot.repo.mark_scrape_run_alerted.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_repository_failure_never_propagates(self, mock_notif):
+        self.bot.repo.record_scrape_run.side_effect = RuntimeError("db down")
+        self._record("error", "boom")  # ne doit pas lever
+        mock_notif.notify_scrape_health.assert_not_called()
+
+    @patch("backend.bot.NotificationService")
+    def test_notification_failure_never_propagates(self, mock_notif):
+        self.bot.repo.recent_scrape_outcomes.return_value = ["error"] * 3
+        mock_notif.notify_scrape_health.side_effect = RuntimeError("smtp down")
+        self._record("error", "boom")  # ne doit pas lever
+
+    def test_offline_mode_records_nothing(self):
+        self.bot.offline_mode = True
+        self._record()
+        self.bot.repo.record_scrape_run.assert_not_called()
+
+
+@patch("backend.bot.time.sleep")
+class TestScrapeHealthWiringKijiji(unittest.TestCase):
+    """`_run_kijiji_scan` enregistre un résultat par ville scannée."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot._record_scrape_health = MagicMock()
+        self.scan_config = {"max_ads": 5, "search_query": "guitar", "distance": 0}
+
+    @patch("backend.bot.KijijiScraper")
+    def test_ok_scan_is_recorded_with_cards_seen(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.return_value = []
+        scraper.last_scan = {"blocked": False, "error": None, "cards_seen": 12}
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        args, kwargs = self.bot._record_scrape_health.call_args
+        self.assertEqual(args[0], "kijiji")
+        self.assertEqual(args[3], "ok")
+        self.assertEqual(kwargs["cards_seen"], 12)
+
+    @patch("backend.bot.KijijiScraper")
+    def test_blocked_scan_is_recorded_as_blocked(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.return_value = []
+        scraper.last_scan = {"blocked": True, "error": None, "cards_seen": 0}
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "blocked")
+
+    @patch("backend.bot.KijijiScraper")
+    def test_exception_is_recorded_as_error_and_scan_continues(self, mock_scraper_cls, _sleep):
+        scraper = mock_scraper_cls.return_value
+        scraper.scan_city.side_effect = RuntimeError("boom")
+        self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
+        self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "error")
 
 
 if __name__ == "__main__":

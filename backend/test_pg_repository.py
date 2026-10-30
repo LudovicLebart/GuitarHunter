@@ -433,5 +433,122 @@ class TestPostgresRepository(unittest.TestCase):
         self.assertEqual(remaining["n"], 0)
 
 
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({_sync_dsn()}) depuis cet environnement.")
+class TestScrapeRuns(unittest.TestCase):
+    """Suivi de santé des scrapers (table `scrape_runs`, voir backend/scrape_health.py)."""
+    UID = "test-uid-scrape-runs-1"
+    OTHER_UID = "test-uid-scrape-runs-2"
+
+    def setUp(self):
+        with open("backend/api/schema.sql", encoding="utf-8") as f:
+            schema_sql = f.read()
+        self.pool = _Pool(_sync_dsn())
+        with self.pool.connection() as conn:
+            conn.execute(schema_sql)
+            for uid in (self.UID, self.OTHER_UID):
+                conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (uid,))
+        self.repo = PostgresRepository(self.pool, self.UID)
+        self.other_repo = PostgresRepository(self.pool, self.OTHER_UID)
+
+    def tearDown(self):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM users WHERE uid IN (%s, %s)", (self.UID, self.OTHER_UID))  # CASCADE -> scrape_runs
+        self.pool.close()
+
+    def _run(self, outcome, city_id="110", source="facebook", repo=None):
+        return (repo or self.repo).record_scrape_run(source, city_id, "Bromont", "guitar", outcome, None,
+                                                     cards_seen=10, out_of_list=2, kept=1, duration_ms=500)
+
+    def test_recent_outcomes_are_newest_first_and_scoped_by_user_source_and_city(self):
+        for o in ("ok", "geo_mismatch", "blocked"):
+            self._run(o)
+        self._run("error", city_id="999")
+        self._run("error", source="kijiji")
+        self._run("error", repo=self.other_repo)
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 10), ["blocked", "geo_mismatch", "ok"])
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 2), ["blocked", "geo_mismatch"])
+
+    def test_last_ok_run(self):
+        self.assertIsNone(self.repo.last_ok_scrape_run("facebook", "110"))
+        self._run("blocked")
+        self.assertIsNone(self.repo.last_ok_scrape_run("facebook", "110"))
+        self._run("ok")
+        self.assertRegex(self.repo.last_ok_scrape_run("facebook", "110"), r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$")
+
+    def test_alert_cooldown_follows_the_marked_run(self):
+        run_id = self._run("geo_mismatch")
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+        self.repo.mark_scrape_run_alerted(run_id)
+        self.assertTrue(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "999", 6))
+        self.assertFalse(self.other_repo.was_scrape_alerted_recently("facebook", "110", 6))
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE scrape_runs SET alerted_at = now() - interval '7 hours' WHERE id = %s", (run_id,))
+        self.assertFalse(self.repo.was_scrape_alerted_recently("facebook", "110", 6))
+
+    def test_run_without_city_id_is_supported(self):
+        self.repo.record_scrape_run("kijiji", None, "X", "q", "error", "boom")
+        self.assertEqual(self.repo.recent_scrape_outcomes("kijiji", None, 5), ["error"])
+
+    def test_purge_removes_only_old_rows(self):
+        old_id = self._run("error")
+        self._run("ok")
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE scrape_runs SET created_at = now() - interval '100 days' WHERE id = %s", (old_id,))
+        self.repo.purge_scrape_runs(90)
+        self.assertEqual(self.repo.recent_scrape_outcomes("facebook", "110", 10), ["ok"])
+
+
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({_sync_dsn()}) depuis cet environnement.")
+class TestCityFbLocationId(unittest.TestCase):
+    """Colonne `cities.fb_location_id` (2026-10-23) : ID Facebook réel quand `cities.id` ne l'est pas."""
+    UID = "test-uid-fbloc"
+    ID_FIXED, ID_PLAIN = "pgrepo-fbloc-1", "pgrepo-fbloc-2"
+
+    def setUp(self):
+        with open("backend/api/schema.sql", encoding="utf-8") as f:
+            schema_sql = f.read()
+        self.pool = _Pool(_sync_dsn())
+        with self.pool.connection() as conn:
+            conn.execute(schema_sql)
+            conn.execute("INSERT INTO users (uid) VALUES (%s) ON CONFLICT (uid) DO NOTHING", (self.UID,))
+            conn.execute("DELETE FROM cities WHERE id LIKE 'pgrepo-fbloc-%'")
+        self.repo = PostgresRepository(self.pool, self.UID)
+
+    def tearDown(self):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM cities WHERE id LIKE 'pgrepo-fbloc-%'")
+            conn.execute("DELETE FROM users WHERE uid = %s", (self.UID,))
+        self.pool.close()
+
+    def test_get_cities_exposes_fb_location_id_or_none(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "fbLocationId": "103111009728836"})
+        self.repo.add_city_to_catalog(self.ID_PLAIN, {"name": "Granby test"})
+        self.repo.set_city_user_pref(self.ID_FIXED, True)
+        self.repo.set_city_user_pref(self.ID_PLAIN, True)
+        by_id = {c["id"]: c for c in self.repo.get_cities()}
+        self.assertEqual(by_id[self.ID_FIXED]["fbLocationId"], "103111009728836")
+        self.assertIsNone(by_id[self.ID_PLAIN]["fbLocationId"])
+
+    def test_catalog_listing_exposes_it(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "fbLocationId": "42"})
+        self.assertEqual(self.repo.get_all_catalog_cities()[self.ID_FIXED]["fbLocationId"], "42")
+
+    def test_partial_merge_neither_clears_nor_requires_it(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Bromont test", "latitude": 45.3, "fbLocationId": "42"})
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"latitude": 45.4})          # merge partiel sans fbLocationId
+        city = self.repo.get_all_catalog_cities()[self.ID_FIXED]
+        self.assertEqual((city["latitude"], city["fbLocationId"]), (45.4, "42"))
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"fbLocationId": "43"})      # et l'inverse
+        city = self.repo.get_all_catalog_cities()[self.ID_FIXED]
+        self.assertEqual((city["latitude"], city["fbLocationId"]), (45.4, "43"))
+
+    def test_two_cities_can_share_one_facebook_id(self):
+        self.repo.add_city_to_catalog(self.ID_FIXED, {"name": "Saint-Hubert test", "fbLocationId": "77"})
+        self.repo.add_city_to_catalog(self.ID_PLAIN, {"name": "Longueuil test", "fbLocationId": "77"})
+        catalog = self.repo.get_all_catalog_cities()
+        self.assertEqual(catalog[self.ID_FIXED]["fbLocationId"], catalog[self.ID_PLAIN]["fbLocationId"])
+
+
 if __name__ == "__main__":
     unittest.main()

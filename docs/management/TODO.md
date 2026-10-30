@@ -30,6 +30,53 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🎸 Remplacer Gemini par Claude Sonnet 5.5 pour l'Expert (T3) et le chat tuteur (2026-10-13)
+
+*Motif : l'utilisateur ne fait plus confiance à Gemini 3.1 Pro. Critère de bascule : Sonnet fait au moins aussi bien. Code sur `feat/t3-claude-provider` (poussé, **pas** sur `dev`/`master`), interrupteur `T3_PROVIDER` (défaut `gemini`). Détail et chiffres : `JOURNAL.md` 2026-10-13 et 2026-10-14.*
+
+- [x] **Interrupteur `T3_PROVIDER`, cache de prompt Anthropic, tarifs `cost_dashboard.py`** (2026-10-13).
+- [x] **Outils de mesure** : `truth_candidates.py`, `replay_t3.py`, `replay_t3_digest.py`, `replay_t3_links.py` (2026-10-13/14).
+- [x] **Premier rejeu (11 annonces, 2 passages)** : Sonnet 0,054 $/appel contre 0,061 $, verdict stable 82 % contre 57 % ; mais valeur de la 7 cordes sous-évaluée (marque absente du titre) et cassure du talon manquée par les deux modèles. Pas de conclusion de bascule.
+- [x] **« Go » de l'utilisateur sur le plan révisé (2026-10-14)** : A) Expert, B) chat et tuteur.
+- [x] **A1–A3 codés et poussés (2026-10-14)** : diagnostic `knowledge_diag_t3.py` (lancé : la marque de la 7 cordes n'est pas dans la base), outil `lookup_brand` + boucle d'outil + addendum OCR derrière `T3_KNOWLEDGE_ENABLED` (éteint), `replay_t3 --knowledge`, recherche floue mot à mot, étiquette de fiabilité indépendante de la version validée. Détail : `JOURNAL.md` 2026-10-14.
+- [ ] **Écrire la fiche « Guerilla Guitars » en base (par l'utilisateur, sur le serveur)** : `python backend/scripts/seed_guitar_knowledge.py --file backend/knowledge/seed/batch6_guerilla.json --dry-run`, puis sans `--dry-run` ; vérifier avec `python -m backend.scripts.knowledge_diag_t3 --query guerrilla`. Relire la fiche (chiffres de prix, formulation) avant.
+- [ ] **A4 — autres fiches manquantes** : Pyramid n'a toujours que < 2 sources ; chercher d'autres marques absentes parmi les annonces à vérité connue (le diagnostic ne l'a pas fait pour les 11 autres).
+- [ ] **A5 — jeu gelé d'environ 20 annonces à vérité en base** (achats, ventes, corrections manuelles), distinct des 11, puis rejeu payant `replay_t3 --knowledge` (≈ 3–4 $) : 2 passages par modèle, critère fixé d'avance ci-dessous. À décrire à l'utilisateur avant de lancer.
+- [ ] **B) chat et tuteur** (rejeu aveugle d'~15 tours corrigés par l'utilisateur, banc du tuteur avec outil de calcul déterministe, coût ≈ 3–5 $) : après A.
+- [ ] **Corriger les slugs en double des lots d'amorçage** (`carmelo-catania`, `antonio-aparicio` entre `batch2`, `batch4`, `batch5`) : fait échouer `test_every_shipped_entry_is_valid_and_sourced` et empêche de lancer le script d'amorçage sans `--file`. Non demandé, à décider.
+- [ ] **Critère de décision à respecter, fixé d'avance** : médiane de l'erreur relative de valeur de Sonnet pas pire que celle de Gemini ; taux de sous-évaluation < 40 % ; accord de verdict avec le jugement de l'utilisateur (pas de juge modèle sur la valeur : prouvé peu fiable).
+- [ ] **Réunir 8 à 10 vraies questions de tuteur** où Gemini s'est contredit (banc B) ; cas fondateur : angle du manche, 14 messages avec Sonnet contre 20 sans résultat avec Gemini.
+- [ ] **Portage du chat en production** (proxy FastAPI, streaming, boucle d'outils, historique) : plan séparé, seulement si A et B sont concluants (le chat tourne aujourd'hui côté navigateur, `geminiChatService.js`).
+- [ ] **Rôle Postgres en lecture seule** pour les scripts de test (le fichier d'accès actuel donne l'écriture sur la production).
+- [ ] **Signal `rescued` de `truth_candidates.py` toujours à 0** sur les vraies données (basse priorité).
+- [ ] **Ne rien activer en production** (`T3_PROVIDER` reste `gemini`) tant que le critère n'est pas atteint.
+
+---
+
+## 🌍 IDs de villes Facebook + suivi de santé des scrapers (2026-10-23, phases A et B codées et testées, Bromont corrigé en base, fusion dans `dev` prête)
+
+*Plan complet, validé par l'utilisateur et relu par Opus : [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md). Constat : l'ID Facebook de Bromont (le seul ancrage) pointait sur Bromont-Lamothe, en France (82 cartes, 100 % hors liste, 0 gardée) ; ce n'est pas un problème de compte, le mode anonyme fonctionne.*
+
+- [x] **Phase 0 — ID de Bromont corrigé en base le 2026-10-28** par `repair_fb_city_ids.py` (rapport `A_CORRIGER` : l'ancien ID donnait 0 % de cartes québécoises — Montluçon, Brassac-les-Mines… —, le nouveau 87 %) : `cities.fb_location_id = 103111009728836`, `id` inchangé, sauvegarde `cities_backup_20261028_130811.json` sur le serveur. **Sans effet tant que le bot n'exécute pas ce code** (il lit encore `cities.id`) : voir Phase B5.
+- [x] **Phase A — suivi de santé des scrapers** (commit `bec5a48`, codé, 19 tests purs + 9 `test_bot` + 5 base ; **non déployé, non validé**) : table `scrape_runs`, alerte ntfy + email à 3 échecs de suite ou ≥ 50 % sur 10 scans, `scrape_health_report.py`. *Limite connue* : fausse alerte `geo_mismatch` possible pour un utilisateur avec 1 ou 2 villes seulement.
+- [x] **Phase B1** — module pur `backend/scraping/city_verification.py` + 37 tests (cas réels du 2026-10-23 : Bromont QC vs France, Beloeil BE, Woluwe-Saint-Lambert, Sherbrooke AB) ; codé, non déployé. Pas de minimum d'annonces : proportions seulement, plancher de 3 cartes → INDÉTERMINÉ.
+- [x] **Phase B2** — `CityFinder` v2 (clic par libellé, attente du changement d'URL, ID numérique exigé, sonde de chaque candidat, ville affichée vérifiée) ; `add_city_auto` refuse l'ajout non vérifié et attache l'ID vérifié à un nom existant. Codé, 20 tests avec faux pilote ; **non déployé, jamais exécuté contre le vrai Facebook**.
+- [x] **Phase B3** — colonne `cities.fb_location_id` (le scan Facebook lit `fb_location_id` sinon `id`) + `backend/scripts/repair_fb_city_ids.py` (rapport JSON reprenable puis `--from … --apply`, sauvegarde locale, pauses anti-bot, arrêt sur login/captcha). Codé, 25 tests dont l'application réelle sur Postgres ; **non déployé**.
+- [x] **Phase B5 — déploiement et vérification des 27 villes (2026-10-28/29)** : serveur au commit `f56da04`, bot redémarré le 2026-10-28 à 13:23 EDT ; rapport `repair_fb_city_ids` sur les 27 villes de l'utilisateur : 14 `OK`, 3 `ALIAS_OK`, 6 `A_CORRIGER` (appliqués : Chambly, Sherbrooke, Sutton, Longueuil, Varennes, McMasterville ; sauvegarde `cities_backup_20261029_064725.json`), 4 `INTROUVABLE` dont 3 corrigés à la main (Montréal → alias `montreal`, Beloeil → `115006338514442`, Saint-lambert → `107670455929039` ; sauvegarde `cities_backup_manual_20261029_071439.json`). **La saline** est une entrée erronée (suggestions : La Réunion, Haïti, Michigan…), non corrigée : à désactiver ou à supprimer du catalogue. Coordonnées douteuses (Sherbrooke porte celles de Montréal) : toujours à corriger à part. Détail dans `journal/2026-W44.md`.
+- [ ] **Comprendre les changements d'ancrage Facebook** : l'ancrage de l'utilisateur est passé de Saint-Bruno-de-Montarville à Bromont (ancien ID français) le 2026-10-09, puis à Granby le 2026-10-28 au redémarrage. Causes non établies (hypothèse non vérifiée : les corrections de coordonnées de la même période modifient `compute_anchor_clusters`).
+- [x] **Phase C — 3 passages sur Granby (2026-10-29)** : résultats stables. Anonyme **24 cartes** à chaque passage (21 gardées, ~200 s) ; connecté **197-198 cartes** (50 gardées, plafond `max_ads`, ~1 900 s) ; sur les 3 passages, 29 annonces distinctes gardées en anonyme, 56 en connecté, 27 seulement en connecté, 0 seulement en anonyme ; description présente 62-76 % (anonyme) contre 84-86 % (connecté), photos / GPS / date 100 % des deux côtés ; aucun blocage. **Cause du plafond de 24 : le mur de connexion de Facebook**, pas le scraper (3 méthodes de défilement, attentes de 3 s et fermeture de la fenêtre n'y changent rien ; un « 53 » obtenu une fois n'a pas été reproduit). **Âge des 27 annonces vues seulement en connecté : non mesuré** (les identifiants Facebook ne suivent pas le temps) ; `compare_fb_anon_vs_auth.py` enregistre désormais `published_at_ts` par annonce, un passage de plus est nécessaire. Décision sur une session connectée en production **non prise**.
+- [ ] **Contrôle GPS des cartes Facebook et Kijiji hors Canada (2026-10-29, code non déployé)** : voir `ARCHITECTURE.md`. À faire après déploiement : mesurer le nombre de fiches supplémentaires ouvertes par scan (journal « Rattachée par GPS » / « GPS hors des villes listées »), vérifier que La saline réactivée est rattachée (cartes « Réunion, Reunion ») et qu'aucune alerte `no_cards` Kijiji ne revient. **La saline est désactivée pour le compte** (`user_city_prefs.active = false`) en attendant.
+- [x] **Phase C — comparaison anonyme / connecté (2026-10-29, 1 seul passage)** : compte Facebook **dédié** créé ; connexion manuelle (2FA) par VNC depuis le serveur, session dans `~/facebook_storage_state.json` (mode 600). Bromont `103111009728836`, requête de la config, 0-300 $, `max_ads` 50 : anonyme **24 cartes**, 20 gardées, 274 s ; connecté **198 cartes**, 50 gardées (plafond `max_ads`), 2014 s ; les 20 gardées de l'anonyme sont toutes dans le connecté, 30 de plus seulement en connecté, aucune seulement en anonyme ; pas de blocage. **Hypothèse « l'anonyme est bien moins bon » confirmée sur l'effectif** (plafond de ~24 cartes en anonyme), mais **1 passage seulement** et rien sur la valeur des annonces en plus. Décision sur une session connectée en production **non prise** (coût : 7× plus lent par scan, 2FA à renouveler à la main, risque pour le compte).
+- [ ] **Matchs Facebook de l'utilisateur** : 275 à 358 par semaine jusqu'au 2026-10-08, **0 en semaines 42 et 43** (ancrage sur l'ID français de Bromont), retour le 2026-10-28 (80 en semaine 44).
+- [x] **CI Tailscale : `deploy.yml`, `run_script.yml` et `run_script_dell.yml` passés à `tailscale/github-action@v3`** (2026-10-29) après l'échec du run #613 (cause exacte non établie). `deploy.yml` validé (run vert) ; les deux autres workflows non essayés.
+- [ ] **La saline (2026-10-29)** : coordonnées corrigées en base (La Saline-les-Bains, La Réunion ; sauvegarde `~/cities_backup_lasaline_20261029.json` sur le serveur). À vérifier au cycle suivant : ligne « Scan de la ville : La saline » côté Facebook, et que Kijiji (qui scanne désormais cette ville à part, probablement sans annonce) ne produise pas de fausses alertes `no_cards`.
+- [x] **Piste Phase A** *(corrigée dans le code le 2026-10-29, à vérifier en production : plus aucune alerte `geo_mismatch` attendue pour `paris`)* : `classify_facebook` ne conclut à `geo_mismatch` que s'il n'y a **aucune** carte de la ville cherchée (cartes − hors liste − sans localisation ≤ 0) ; sur 3 jours de scans réels, les 148 faux échecs de Paris avaient tous ≥ 1 carte de la ville, les 8 vrais de Montréal 0. *Confirmée le 2026-10-29* : le compte à une seule ville `paris` (ID texte `paris`, 20 à 30 matchs Facebook par semaine) alerte à tort (22 cartes sur 24 de la banlieue parisienne hors liste). L'alerte du compte à une seule ville `montreal` était, elle, fondée (ID de Montréal, Wisconsin ; corrigé).
+- [x] **CityFinder : ligatures, régions administratives, alias texte (2026-10-29)** : `normalize_city_key` déplie `œ`/`æ` ; `parse_label` lit la région entre parenthèses et `region_compatible` accepte les régions du Québec (Montérégie, Estrie…) ; un alias texte (`montreal`) est accepté **seulement après sondage** de son fil (`slug_from_segment`). Commit local `2346df5` (avec `05e8697` : les 3 scripts lisent `fbLocationId` avant `cities.id`), 135 tests, **non poussés au moment de l'écriture, jamais essayés sur le vrai Facebook**.
+- [x] **Documentation** (2026-10-28) : journaux 2026-W43 et W44, `JOURNAL.md`, `reference/ARCHITECTURE.md` et `reference/DATA_FLOW.md` (table `scrape_runs`, colonne `fb_location_id`, `CityFinder` v2).
+- [ ] **Mettre à jour `CLAUDE.md`** (piège « l'ID Facebook de la ville, seule clé du scan Facebook, doit être vérifié ; `fb_location_id` prime sur `cities.id` ») — non fait, `CLAUDE.md` n'est pas dans la liste de l'étape 3 : à la demande de l'utilisateur.
+
+---
+
 ## 🛡️ Portier local : budget de contexte des photos (2026-10-07, codé, non déployé)
 
 *Cause trouvée : à 8 photos hautes le prompt dépasse les 8192 tokens du Dell, Ollama le tronque et le Portier répond n'importe quoi (3 appels sur 801 en prod, tous mal tournés). Voir `JOURNAL.md` [2026-10-07].*
@@ -59,7 +106,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 - [x] `add_city_auto` plantait (`NameError: firestore`) sur toute nouvelle ville ; suggestion Facebook « QC » non reconnue pour l'indice « Québec » (Sherbrooke, AB → id `edmonton`) ; message d'erreur des commandes non remonté (`error`) ; suggestions Photon en double.
 - [x] **Correction des villes sans coordonnées** : run #595, 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable ; `run_once.py` désarmé.
-- [ ] **À décider** : faire échouer l'ajout quand la suggestion Facebook ne correspond pas à la région (au lieu d'enregistrer la ville au mauvais id avec `needsReview`).
+- [x] **Décidé (2026-10-23)** : faire échouer l'ajout quand la suggestion Facebook n'est pas vérifiée (au lieu d'enregistrer la ville au mauvais id avec `needsReview`) — à implémenter en Phase B2, voir [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md).
 
 ---
 
@@ -345,6 +392,13 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ---
 
+## 💰 Revente par l'acheteur (2026-10-10)
+
+- [ ] **Déployer puis essayer** : modal « Annuler l'achat ? », bouton `$` (revente), badge « Revendue N$ », carte « Marge Réalisée ». Les colonnes `user_sale_price`/`user_sold_at` se créent au redémarrage de l'API.
+- [x] **Tests de l'API exécutés contre un Postgres local** *(2026-10-11)* : `pip install pixeltable-pgserver`, serveur lancé via `pixeltable_pgserver.get_server(<dossier>)` (URI affichée par `get_uri()`), puis `DATABASE_URL=<uri> python -m pytest backend/api` → 64 tests verts.
+- [ ] **Plan de restauration personnel (2026-10-11) — à essayer après déploiement** : plan sur une guitare aimée non achetée, bascule à l'achat, retrait du favori. Non fait : marge potentielle avant achat (valeur estimée − prix − plan) dans le panneau.
+- [ ] **Saisir la revente de la Yamaha ERG121** (achat 75 $, revente 220 $) une fois le bouton déployé ; sa date d'achat d'origine est perdue (restauration manuelle du 2026-10-10).
+
 ## 🛒 Multi-plateforme — Scraper Kijiji
 
 *Scraper autonome intégré au pipeline et validé de bout en bout (2026-07-27) — voir l'archive pour le détail. Reste à faire :*
@@ -479,6 +533,8 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 - [ ] **Investiguer : session Facebook non authentifiée → Facebook gate parfois le prix/les photos**
     - *Détails :* Le scraper est 100% anonyme (aucun `storage_state`/cookies persistants nulle part dans le backend, vérifié). Comportement intermittent observé sur `SCAN_URL` — la fiche détail se charge sans carrousel photo ni prix visible, alors que le titre/description restent disponibles (voir `TODO_ARCHIVE.md` pour l'historique du bug "Fiche détail Facebook dégradée").
     - *Options à trancher avec l'utilisateur :* (a) accepter la limitation — les annonces concernées ne sont simplement plus stockées (garde-fou "scraping raté" déjà en place) ; (b) implémenter une session Facebook authentifiée (identifiants d'un compte dédié, risque de bannissement selon les CGU Facebook, gestion sécurisée des secrets, renouvellement de session).
+    - *Mise à jour 2026-10-29* : première mesure connectée (1 passage, compte dédié) : 198 cartes contre 24 en anonyme — voir « Phase C » dans la section des IDs de villes ci-dessus. Option (b) non tranchée.
+    - *Mise à jour 2026-10-23 (corrigée 2026-10-25)* : **question toujours ouverte**. La comparaison anonyme / connecté n'a pas été menée à terme : la connexion automatique a été bloquée par un checkpoint 2FA (détection de bot), puis l'enquête a dévié vers l'**ID de ville de l'ancrage** (Bromont → France), qui faussait de toute façon les mesures. Le mode anonyme charge la page, mais on n'a **aucune mesure « connecté »** ; à reprendre avec le bon ID de ville — voir la Phase C de [`plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md`](plans/FB_CITY_IDS_AND_SCRAPER_HEALTH_PLAN.md).
 
 - [x] **Fix : `GEMINI_MODELS["default_analyst"]` (`config.py`) n'est pas réellement câblé** *(Corrigé 2026-08-19)*
     - *Détails :* Découvert le 2026-07-09 en corrigeant le fix `gemini-2.5-flash`. `bot.py::_init_firestore_structure()` n'initialisait que `gatekeeperModel`/`expertModel` dans le document Firestore d'un nouvel utilisateur, jamais `mainModel` — `GEMINI_MODELS["default_analyst"]` était donc mort de fait. Le vrai défaut utilisé en pratique restait le fallback codé en dur dans `analyzer.py::analyze_deal()` (`config.get('mainModel', '...')`).

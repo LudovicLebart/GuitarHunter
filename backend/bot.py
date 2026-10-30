@@ -19,14 +19,17 @@ from backend.cities import normalize_city_key, format_city_label, pick_best_labe
 from backend.sold_markers import find_sold_marker
 from backend.scraping import FacebookScraper, ListingParser
 from backend.scraping.city_finder import CityFinder
+from backend.scraping.city_verification import trusted_gazetteer
 from backend.scraping.utils import calculate_distance, city_name_variants
 from backend.scraping.geo_clustering import compute_anchor_clusters
+from backend.scraping.zone import is_outside_canada, nearest_listed_city
 from backend.scraping.kijiji import KijijiScraper, nearest_configured_city
 from backend.scraping.kijiji.locations import DEFAULT_SEARCH_RADIUS_KM
 from backend.pg_repository import PostgresRepository
 from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
+from backend import scrape_health
 from backend.taxonomy import matches_active_search_family
 
 class GuitarHunterBot:
@@ -214,6 +217,9 @@ class GuitarHunterBot:
     # de la liste. Le nom est le choix du vendeur (parfois une grande région), le GPS est fiable.
     KIJIJI_STRICT_GPS_KM = 5            # GPS seul suffit si l'annonce est à <= 5 km d'une ville listée
     KIJIJI_STRICT_NAME_GPS_KM = DEFAULT_SEARCH_RADIUS_KM  # nom reconnu : tolérance GPS plus large (grande sous-région)
+    # Mêmes valeurs côté Facebook (2026-10-29), constantes distinctes pour pouvoir les régler séparément.
+    FACEBOOK_STRICT_GPS_KM = 5
+    FACEBOOK_STRICT_NAME_GPS_KM = DEFAULT_SEARCH_RADIUS_KM
 
     @staticmethod
     def _match_allowed_city(location, allowed_norms):
@@ -228,24 +234,20 @@ class GuitarHunterBot:
         hits = [a for a in allowed_norms if a and re.search(r'(?<![a-z0-9])' + re.escape(a) + r'(?![a-z0-9])', norm)]
         return max(hits, key=len) if hits else None
 
-    def _kijiji_strict_label(self, deal, city_points, allowed_norms):
+    def _kijiji_strict_label(self, deal, city_points, allowed_norms, coordless_norms=frozenset()):
         """Clé normalisée de la ville de la liste à laquelle rattacher l'annonce Kijiji, ou None si
         elle est hors liste. Avec GPS : ville la plus proche dans la borne (5 km, ou 15 km si le nom
-        est reconnu ; élargie à `kijijiRadiusKm` pour une ville qui en porte un). Sans GPS : le nom."""
+        est reconnu ; élargie à `kijijiRadiusKm` pour une ville qui en porte un). Sans GPS : le nom.
+        `coordless_norms` : villes listées sans coordonnées exploitables (le nom suffit pour elles)."""
         matched = self._match_allowed_city(deal.get('location'), allowed_norms)
         lat, lng = deal.get('latitude'), deal.get('longitude')
         if not (self._is_number(lat) and self._is_number(lng)):
             return matched
-        if matched and matched not in {key for key, *_ in city_points}:
+        if matched and matched in coordless_norms:
             # Ville listée sans coordonnées exploitables : aucune vérification GPS possible, le nom suffit.
             return matched
         base = self.KIJIJI_STRICT_NAME_GPS_KM if matched else self.KIJIJI_STRICT_GPS_KM
-        best, best_d = None, None
-        for key, c_lat, c_lng, extra_km in city_points:
-            d = calculate_distance(lat, lng, c_lat, c_lng)
-            if d <= max(base, extra_km) and (best_d is None or d < best_d):
-                best, best_d = key, d
-        return best
+        return nearest_listed_city(lat, lng, city_points, base)
 
     @staticmethod
     def _title_tokens(title):
@@ -540,7 +542,7 @@ class GuitarHunterBot:
 
         if price_too_high:
             # Hors budget = hors du périmètre de recherche, pas une "mauvaise annonce" —
-            # ignorée sans être stockée ni analysée (aucune écriture Firestore), contrairement
+            # ignorée sans être stockée ni analysée (aucune écriture en base), contrairement
             # à un rejet par mot-clé. Comportement uniforme Facebook/Kijiji : le filtre de prix
             # côté recherche (URL Facebook/Kijiji) est censé éviter ce cas en amont, ceci n'est
             # qu'un filet de sécurité pour ce qu'il laisse passer.
@@ -558,7 +560,10 @@ class GuitarHunterBot:
                     self.repo.create_new_deal(listing_data['id'], listing_data, rejection_analysis)
             return "rejected_prefilter"
 
-        analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+        analysis = self.analyzer.analyze_deal(
+            listing_data, firestore_config=current_config, user_email=self._user_email,
+            bypass_active_search=is_manual_scan,
+        )
 
         # Skip (2026-09-24, provisoire tant qu'aucun autre fallback n'est implémenté) : le Portier
         # T1 n'a produit aucun verdict fiable (échec d'appel ou réponse malformée, voir
@@ -586,7 +591,7 @@ class GuitarHunterBot:
                     listing_data['storageImageGsUris'] = gs_uris
             
             if is_update:
-                # Appel de la nouvelle méthode pour écraser le prix Firestore et ajouter l'historique
+                # Appel de la nouvelle méthode pour écraser le prix en base et ajouter l'historique
                 self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, analysis)
             else:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
@@ -637,7 +642,7 @@ class GuitarHunterBot:
         max(FB, Kijiji) au lieu de FB + Kijiji. Les deux sources sont désactivables
         indépendamment (ex: isoler un scan Kijiji seul en désactivant Facebook, pour
         déboguer sans le bruit de l'autre source dans les logs partagés). Sûr à
-        paralléliser : les deux sources n'écrivent jamais le même document Firestore (IDs
+        paralléliser : les deux sources n'écrivent jamais la même annonce (IDs
         Kijiji préfixés `kijiji_`, voir _run_kijiji_scan), `session_processed_ids` est déjà
         isolé par thread (`threading.local()`, voir sa docstring), et `_browser_semaphore`
         (déjà thread-safe) continue de plafonner le nombre réel de navigateurs Playwright
@@ -671,6 +676,46 @@ class GuitarHunterBot:
         for t in threads:
             t.join()
 
+    def _record_scrape_health(self, source, city_data, query, outcome, detail=None,
+                              cards_seen=None, out_of_list=None, kept=None, started_at=None):
+        """Enregistre le résultat technique d'un scan de ville (table `scrape_runs`) et alerte
+        (ntfy + email) si la même (source, ville) échoue de façon répétée — seuils dans
+        `backend/scrape_health.py`. Ne lève JAMAIS : un suivi de santé en panne ne doit pas casser un
+        scan. À ne pas appeler quand l'arrêt du bot a été demandé (un scan interrompu n'est pas un échec)."""
+        try:
+            if getattr(self, 'offline_mode', False):
+                return
+            city_id = str(city_data.get('id')) if city_data.get('id') is not None else None
+            city_name = city_data.get('name') or '?'
+            duration_ms = int((time.time() - started_at) * 1000) if started_at else None
+            run_id = self.repo.record_scrape_run(
+                source, city_id, city_name, query, outcome, detail,
+                cards_seen=cards_seen, out_of_list=out_of_list, kept=kept, duration_ms=duration_ms,
+            )
+            if outcome != scrape_health.OK:
+                self.logger.warning(f"⚠️ [Santé {source}] '{city_name}' : {outcome} ({detail or '-'})")
+
+            alert, code, failures = scrape_health.should_alert(
+                self.repo.recent_scrape_outcomes(source, city_id, scrape_health.ALERT_WINDOW)
+            )
+            if not alert or self.repo.was_scrape_alerted_recently(source, city_id, scrape_health.ALERT_COOLDOWN_HOURS):
+                return
+            hint = scrape_health.repair_hint(code, city_name)
+            self.logger.error(f"🚨 [Santé {source}] '{city_name}' : {failures} échec(s) récent(s), cause dominante « {code} ». {hint}")
+            NotificationService.notify_scrape_health(
+                source, city_name, code, failures, self.repo.last_ok_scrape_run(source, city_id), hint,
+                user_email=self._user_email, logger=self.logger,
+            )
+            self.repo.mark_scrape_run_alerted(run_id)
+        except Exception as e:
+            self.logger.warning(f"[Santé {source}] enregistrement/alerte impossible : {e}")
+
+    def _purge_scrape_runs_safely(self):
+        try:
+            self.repo.purge_scrape_runs()
+        except Exception as e:
+            self.logger.warning(f"[Santé] purge de scrape_runs impossible : {e}")
+
     def _run_facebook_scan(self, scan_config, cities_to_scan):
         all_allowed_cities_norm = [ListingParser.normalize_city_name(c.get('name', '')) for c in cities_to_scan if c.get('name')]
 
@@ -703,6 +748,18 @@ class GuitarHunterBot:
         shuffled_clusters = list(clusters)
         random.shuffle(shuffled_clusters)
 
+        # Mode strict : le GPS de la fiche détail décide si une carte est dans la zone (voir scraping/zone.py),
+        # comme côté Kijiji ; les points et libellés ne dépendent pas du cluster, calculés une seule fois.
+        fb_zone_points, fb_zone_labels = [], {}
+        if scan_config.get('distance', 0) == 0:
+            fb_zone_points = [
+                (ListingParser.normalize_city_name(c['name']), c['latitude'], c['longitude'])
+                for c in cities_to_scan
+                if c.get('name') and self._is_number(c.get('latitude')) and self._is_number(c.get('longitude'))
+            ]
+            if fb_zone_points:
+                fb_zone_labels = self._build_city_display_names(cities_to_scan)
+
         for cluster in shuffled_clusters:
             if self._is_stop_requested():
                 self.logger.info("🛑 Interruption de la boucle des villes (Facebook).")
@@ -710,7 +767,9 @@ class GuitarHunterBot:
 
             city_data = cluster.anchor
             city_name = city_data.get('name')
-            city_id = city_data.get('id')
+            # ID Facebook RÉEL : `fb_location_id` s'il est renseigné (ID corrigé / partagé), sinon `id`
+            # (convention historique `cities.id` = ID Facebook). Voir schema.sql.
+            city_id = city_data.get('fbLocationId') or city_data.get('id')
             city_lat = city_data.get('latitude')
             city_lon = city_data.get('longitude')
             city_norm_name = ListingParser.normalize_city_name(city_name)
@@ -733,10 +792,26 @@ class GuitarHunterBot:
                 temp_scraper = FacebookScraper({}, {}, logger=self.logger)
                 temp_scraper.city_mapping = {city_norm_name: city_id}
                 temp_scraper.allowed_cities = all_allowed_cities_norm
+                if fb_zone_points:
+                    temp_scraper.set_gps_zone(fb_zone_points, self.FACEBOOK_STRICT_GPS_KM,
+                                              self.FACEBOOK_STRICT_NAME_GPS_KM, fb_zone_labels)
 
                 try:
-                    scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    scan_started_at = time.time()
+                    try:
+                        scan_result = temp_scraper.scan_marketplace(city_specific_config, self.should_skip_deal, stop_event=self.stop_event or self.scan_stop_event)
+                    except Exception as scan_exc:
+                        self._record_scrape_health("facebook", city_data, scan_config.get('search_query'),
+                                                   scrape_health.ERROR, str(scan_exc)[:300], started_at=scan_started_at)
+                        raise
                     found_deals = scan_result["deals"]
+                    if not self._is_stop_requested():
+                        fb_outcome, fb_detail = scrape_health.classify_facebook(scan_result)
+                        self._record_scrape_health(
+                            "facebook", city_data, scan_config.get('search_query'), fb_outcome, fb_detail,
+                            cards_seen=scan_result["total_cards_seen"], out_of_list=scan_result["rejected_out_of_list"],
+                            kept=len(found_deals), started_at=scan_started_at,
+                        )
                     cycle_stats["rejected_out_of_list"] += scan_result["rejected_out_of_list"]
                     cycle_stats["total_cards_seen"] += scan_result["total_cards_seen"]
                     cycle_stats["dropped_no_location"] += scan_result["dropped_no_location"]
@@ -775,7 +850,8 @@ class GuitarHunterBot:
                         norm_city = ListingParser.normalize_city_name(city_name)
                         own_city_deals, other_city_deals, out_of_scope_count = [], [], 0
                         for deal in found_deals:
-                            norm_deal_loc = ListingParser.normalize_city_name(deal.get('location', ''))
+                            # `zone_city` : ville listée trouvée par le GPS de la fiche (repli GPS du scraper).
+                            norm_deal_loc = ListingParser.normalize_city_name(deal.get('zone_city') or deal.get('location', ''))
                             if norm_deal_loc and (norm_deal_loc == norm_city or norm_city in norm_deal_loc or norm_deal_loc.startswith(norm_city)):
                                 own_city_deals.append(deal)
                             elif norm_deal_loc and any(
@@ -833,6 +909,7 @@ class GuitarHunterBot:
 
             time.sleep(2)
 
+        self._purge_scrape_runs_safely()
         blocked = cycle_stats["anti_bot_blocked_cities"]
         self.logger.info(
             "📊 Résumé du cycle Facebook : "
@@ -894,7 +971,7 @@ class GuitarHunterBot:
         `FacebookScraper`.
 
         Rayon de recherche Kijiji (`radius_km` de `scan_city()`), priorité décroissante :
-        `city_data['kijijiRadiusKm']` (réglage par ville, Firestore) — la ville n'est alors
+        `city_data['kijijiRadiusKm']` (réglage par ville, `user_city_prefs`) — la ville n'est alors
         JAMAIS regroupée dans un cluster, toujours scannée seule avec ce rayon exact > pour
         une ville regroupée par défaut, le plus grand entre `scan_config['distance']`
         (réglage global explicite, partagé avec Facebook) et le rayon minimal requis pour
@@ -910,6 +987,15 @@ class GuitarHunterBot:
         à l'ancre par défaut.
         """
         self.logger.info("--- Scan Kijiji (source additionnelle) ---")
+
+        # Kijiji ne couvre que le Canada : une ville hors du pays (La Réunion, Paris) n'y donnerait que
+        # des scans vides et de fausses alertes `no_cards`.
+        foreign = [c.get('name') for c in cities_to_scan if is_outside_canada(c.get('latitude'), c.get('longitude'))]
+        if foreign:
+            self.logger.info(f"Kijiji ignore les villes hors Canada : {', '.join(map(str, foreign))}.")
+            cities_to_scan = [c for c in cities_to_scan if not is_outside_canada(c.get('latitude'), c.get('longitude'))]
+        if not cities_to_scan:
+            return
 
         # Coordonnées des villes configurées, pour nearest_configured_city() — corrige
         # 'location' (souvent une région Kijiji élargie, pas la ville précise, voir
@@ -936,12 +1022,13 @@ class GuitarHunterBot:
             for c in cities_to_scan
             if c.get('name') and self._is_number(c.get('latitude')) and self._is_number(c.get('longitude'))
         ]
+        coordless_cities = frozenset(strict_cities) - {key for key, *_ in city_points}
         min_price = scan_config.get('min_price', 0)
         max_price = scan_config.get('max_price', 0)
 
         # Points d'ancrage (2026-08-25), même principe que côté Facebook — voir
         # `backend/scraping/geo_clustering.py` et `KIJIJI_ANCHOR_CLUSTERING_RADIUS_KM`.
-        # Une ville avec `kijijiRadiusKm` (réglage Firestore explicite par ville) signale
+        # Une ville avec `kijijiRadiusKm` (réglage explicite par ville, `user_city_prefs`) signale
         # une intention précise de l'utilisateur POUR CETTE VILLE : jamais absorbée dans
         # un cluster, toujours scannée seule avec son propre rayon, exactement comme
         # avant. Seules les villes "par défaut" sont regroupées.
@@ -1010,10 +1097,11 @@ class GuitarHunterBot:
                         self.logger.info(f"--- Scan Kijiji : ancrage {city_name} (rayon {kijiji_search_radius_km}km) — couvre aussi : {covered_names} ---")
                     else:
                         self.logger.info(f"--- Scan Kijiji : {city_name} ---")
+                    kijiji_started_at = time.time()
                     try:
                         # ID préfixé avant même le check de dédup (pas seulement après coup
                         # sur `found_deals`) : `should_skip_deal` compare contre
-                        # `session_processed_ids`/Firestore, qui utilisent tous deux l'ID
+                        # `session_processed_ids`/la base, qui utilisent tous deux l'ID
                         # préfixé — sinon aucune annonce déjà connue n'y matcherait jamais,
                         # et chaque cycle revisiterait inutilement sa fiche détail.
                         found_deals = temp_scraper.scan_city(
@@ -1026,8 +1114,17 @@ class GuitarHunterBot:
                             min_price=min_price, max_price=max_price,
                             lat=city_lat, lng=city_lon, radius_km=kijiji_search_radius_km,
                         )
+                        if not self._is_stop_requested():
+                            kj_outcome, kj_detail = scrape_health.classify_kijiji(temp_scraper.last_scan)
+                            self._record_scrape_health(
+                                "kijiji", city_data, scan_config.get('search_query'), kj_outcome, kj_detail,
+                                cards_seen=temp_scraper.last_scan.get("cards_seen"), kept=len(found_deals),
+                                started_at=kijiji_started_at,
+                            )
                     except Exception as e:
                         self.logger.error(f"❌ Erreur scan Kijiji pour '{city_name}': {e}", exc_info=True)
+                        self._record_scrape_health("kijiji", city_data, scan_config.get('search_query'),
+                                                   scrape_health.ERROR, str(e)[:300], started_at=kijiji_started_at)
                         continue
 
                     # Pré-traitement séquentiel (préfixe d'ID, résolution de ville, filtre de
@@ -1045,7 +1142,7 @@ class GuitarHunterBot:
                             # Mode strict (`distance=0`), comme [STRICT] côté Facebook : hors liste -> rejetée.
                             # Avant, le GPS rattachait l'annonce à la ville configurée la plus proche sans
                             # aucune borne (Laval -> « Sherbrooke »).
-                            label = self._kijiji_strict_label(deal, city_points, strict_cities)
+                            label = self._kijiji_strict_label(deal, city_points, strict_cities, coordless_cities)
                             if label:
                                 deal['location'] = city_display_names.get(label, label)
                                 ready_deals.append(deal)
@@ -1073,6 +1170,7 @@ class GuitarHunterBot:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
 
+        self._purge_scrape_runs_safely()
         self.logger.info(
             "📊 Résumé du cycle Kijiji : "
             f"{cycle_stats['processed']} traitée(s) (analyse IA), "
@@ -1123,7 +1221,7 @@ class GuitarHunterBot:
             # souvent une grande sous-région, pas la ville précise), jusqu'ici absente du
             # scan manuel (2026-07-27, corrigé — signalé par l'utilisateur).
             city_display_names = {}
-            manual_city_norms, manual_city_points = [], []
+            manual_city_norms, manual_city_points, manual_coordless = [], [], frozenset()
             if is_kijiji and not self.offline_mode:
                 configured_cities = self.repo.get_cities()
                 # Voir _run_kijiji_scan() : on stocke le libellé d'affichage, pas la clé normalisée.
@@ -1134,6 +1232,7 @@ class GuitarHunterBot:
                     for c in configured_cities
                     if c.get('name') and self._is_number(c.get('latitude')) and self._is_number(c.get('longitude'))
                 ]
+                manual_coordless = frozenset(manual_city_norms) - {key for key, *_ in manual_city_points}
             try:
                 scan_result = {}
                 def handle_manual_deal(listing_data):
@@ -1145,7 +1244,7 @@ class GuitarHunterBot:
                         listing_data['id'] = f"kijiji_{listing_data['id']}"
                         # Même borne que le scan planifié (strict) : une annonce hors liste garde son
                         # libellé Kijiji d'origine plutôt qu'une ville configurée lointaine.
-                        label = self._kijiji_strict_label(listing_data, manual_city_points, manual_city_norms)
+                        label = self._kijiji_strict_label(listing_data, manual_city_points, manual_city_norms, manual_coordless)
                         if label:
                             listing_data['location'] = city_display_names.get(label, label)
                     scan_result["outcome"] = self.handle_deal_found(listing_data, is_manual_scan=True, source=source)
@@ -1463,8 +1562,14 @@ class GuitarHunterBot:
         try:
             temp_scraper = FacebookScraper({}, {}, logger=self.logger)
             try:
+                # CityFinder v2 (2026-10-23) VÉRIFIE l'ID avant de le rendre (sonde du fil de la ville) :
+                # coordonnées confirmées par l'utilisateur + coordonnées fiables du catalogue servent à
+                # départager des homonymes de la même province. Un ID non vérifié (ambigu, indéterminé,
+                # introuvable) revient `None` -> la ville n'est PAS enregistrée (voir l'exception plus bas).
                 city_id, city_coords, matched_label, matched_confidently = CityFinder.find_city_id_and_coords(
-                    temp_scraper, city_name, region_hint=region_hint
+                    temp_scraper, city_name, region_hint=region_hint,
+                    expected_coords=(confirmed_lat, confirmed_lon) if confirmed_lat is not None and confirmed_lon is not None else None,
+                    gazetteer=trusted_gazetteer(list(catalog.values())),
                 )
             finally:
                 temp_scraper.close_session()
@@ -1512,6 +1617,11 @@ class GuitarHunterBot:
             needs_review = (bool(region_hint) and not matched_confidently) or coords_from_blind_geocode
 
             city_data = {'name': city_name, 'id': city_id_str}
+            if target_id != city_id_str:
+                # Le nom existe déjà au catalogue sous un autre identifiant (ID texte hérité, ID erroné...) :
+                # on garde cette ligne (clé primaire, préférences utilisateurs) et on lui attache l'ID
+                # Facebook VÉRIFIÉ — avant ce correctif, l'ID trouvé par CityFinder était simplement ignoré.
+                city_data['fbLocationId'] = city_id_str
             if final_coords:
                 city_data.update({'latitude': final_coords['lat'], 'longitude': final_coords['lon']})
             if needs_review:
@@ -1540,7 +1650,10 @@ class GuitarHunterBot:
             return True
         else:
             self.logger.warning(f"Impossible de trouver l'ID pour la ville {city_name}.")
-            raise Exception(f"Impossible de trouver l'ID Facebook pour la ville '{city_name}'.")
+            raise Exception(
+                f"Impossible de vérifier l'ID Facebook de la ville '{city_name}' (aucune suggestion fiable) : "
+                f"ville non ajoutée plutôt qu'enregistrée avec un ID douteux. Détail dans les logs du bot."
+            )
 
     def clear_logs(self, _=None):
         if self.offline_mode:
@@ -1570,7 +1683,7 @@ class GuitarHunterBot:
         
         deal_data = self.repo.get_deal_by_id(deal_id)
         if not deal_data:
-            self.logger.error(f"Annonce {deal_id} introuvable dans Firestore.")
+            self.logger.error(f"Annonce {deal_id} introuvable en base.")
             return
         # update_deal_analysis n'enregistre plus le match lui-même (correctif 2026-09-20,
         # voir sa docstring) — cette demande explicite de l'utilisateur est un vrai signal

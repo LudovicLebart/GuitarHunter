@@ -10,6 +10,7 @@ load_dotenv()
 
 # --- CLÉS API ET IDENTIFIANTS ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # Expert T3 si T3_PROVIDER=claude (voir plus bas)
 FACEBOOK_ACCESS_TOKEN = os.getenv("FACEBOOK_ACCESS_TOKEN")
 APP_ID_TARGET = os.getenv("APP_ID_TARGET")
 
@@ -194,6 +195,44 @@ T1_OBSERVATION_ENABLED = os.getenv("T1_OBSERVATION_ENABLED", "false").lower() in
 T1_KNOWLEDGE_ENABLED = os.getenv("T1_KNOWLEDGE_ENABLED", "false").lower() in ("1", "true", "yes")
 T1_KNOWLEDGE_VERSION = os.getenv("T1_KNOWLEDGE_VERSION", "validated")
 T1_KNOWLEDGE_MAX_FICHES = int(os.getenv("T1_KNOWLEDGE_MAX_FICHES", 3))
+# Lecture des photos par le Portier avant la recherche de fiches (2026-10-15, voir backend/t1_photo_text.py) : une passe
+# courte du modèle LOCAL recopie le texte visible (marque, modèle, numéro de série) et ce texte s'ajoute au titre et à la
+# description pour chercher les fiches. Éteint par défaut ; sans effet si T1_KNOWLEDGE_ENABLED est éteint. Coût : un
+# second appel au Dell par annonce. Échec ouvert : si la lecture échoue, la recherche se fait comme avant.
+T1_KNOWLEDGE_PHOTO_TEXT = os.getenv("T1_KNOWLEDGE_PHOTO_TEXT", "false").lower() in ("1", "true", "yes")
+# Porte de qualité (2026-10-14) : le Portier ne reçoit que des fiches DE CONFIANCE (relues et approuvées, curées ou écrites à
+# la main) — jamais une fiche importée de Wikidata non relue. "false" = comportement d'avant (audits, rejeux de comparaison).
+T1_KNOWLEDGE_REQUIRE_REVIEW = os.getenv("T1_KNOWLEDGE_REQUIRE_REVIEW", "true").lower() in ("1", "true", "yes")
+
+# --- FOURNISSEUR DE L'EXPERT PRO (TIER 3) ---
+# "gemini" (défaut) : comportement historique, modèle lu dans la config utilisateur (`proModel`).
+# "claude" : l'Expert est appelé via l'API Anthropic (`backend/llm_clients.py::_call_claude_json`) ;
+# `proModel`/`expertModel` de la config utilisateur sont alors ignorés pour le Tier 3. Retour à Gemini =
+# repasser la variable à "gemini" (aucun repli automatique : un Expert qui échoue échoue visiblement,
+# décision du 2026-09-27, voir `analyzer.py::_run_t3_phase`). Ne PAS basculer en prod sans rejeu
+# concluant (voir `COST_OPTIMIZATION_CHANTIERS.md`, Chantier F : le choix du modèle T3 est une décision de qualité).
+T3_PROVIDER = os.getenv("T3_PROVIDER", "gemini").strip().lower()
+T3_CLAUDE_MODEL = os.getenv("T3_CLAUDE_MODEL", "claude-sonnet-5-5")
+# Niveau d'effort Anthropic (`output_config.effort`) : low | medium | high | xhigh | max. `high` = défaut
+# de l'API pour Sonnet 5.5. Le raisonnement adaptatif est actif par défaut et COMPTE dans `max_tokens`.
+T3_CLAUDE_EFFORT = os.getenv("T3_CLAUDE_EFFORT", "high").strip().lower()
+T3_CLAUDE_MAX_TOKENS = int(os.getenv("T3_CLAUDE_MAX_TOKENS", 16000))
+T3_CLAUDE_TIMEOUT_SECONDS = int(os.getenv("T3_CLAUDE_TIMEOUT_SECONDS", 300))
+# Plus grand côté (px) des photos envoyées à Claude : une photo coûte ⌈largeur/28⌉ × ⌈hauteur/28⌉ tokens
+# (jusqu'à ~4 800 à 2048 px), bien plus qu'une photo Gemini — le plafond borne la facture.
+T3_CLAUDE_MAX_IMAGE_EDGE = int(os.getenv("T3_CLAUDE_MAX_IMAGE_EDGE", 1568))
+# Cache de prompt Anthropic : la partie statique du prompt (consigne, taxonomie, exemples) va dans `system` avec
+# `cache_control` ; lecture à 5 % du prix d'entrée, écriture à 125 % (TTL "5m") ou 200 % ("1h"). Rentable quand
+# plusieurs appels tombent dans le TTL (rejeu, chat, rafales) ; l'Expert ne concernant que ~5 % des annonces, ses
+# lectures de cache seront rares en prod et la prime d'écriture ne pèse que quelques centimes par mois.
+T3_CLAUDE_CACHE = os.getenv("T3_CLAUDE_CACHE", "true").strip().lower() in ("1", "true", "yes", "on")
+T3_CLAUDE_CACHE_TTL = os.getenv("T3_CLAUDE_CACHE_TTL", "5m").strip().lower()  # "5m" ou "1h"
+# Base de marques pour l'Expert Claude, sous forme d'OUTIL `lookup_brand` que le modèle appelle avec ce qu'il lit sur
+# la photo (tête de manche, étiquette) — et non injectée à partir du titre, où une marque absente ou mal écrite
+# n'est jamais trouvée. ÉTEINT par défaut ; sans effet si T3_PROVIDER n'est pas "claude". Les fiches non validées
+# sont renvoyées mais étiquetées « non vérifiée ». `T3_KNOWLEDGE_MAX_TOOL_ROUNDS` borne les allers-retours outil.
+T3_KNOWLEDGE_ENABLED = os.getenv("T3_KNOWLEDGE_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+T3_KNOWLEDGE_MAX_TOOL_ROUNDS = int(os.getenv("T3_KNOWLEDGE_MAX_TOOL_ROUNDS", 3))
 
 # --- SEUILS DE DÉCLENCHEMENT EXPERT PRO (TIER 3) ---
 DEFAULT_PRO_PRICE_THRESHOLD = 1000

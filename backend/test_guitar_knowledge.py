@@ -254,6 +254,8 @@ class TestEligibilityAndVersions(unittest.TestCase):
         self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions CASCADE")
         self.addCleanup(gk.configure_version, "validated")
         gk.configure_version("latest")
+        gk.configure_review_gate(False)
+        self.addCleanup(gk.configure_review_gate, True)
 
     def _fiche(self, fid, name, kind="brand", relevance="guitars", version=1, origin=None, **cols):
         raw = json.dumps({"origin": origin or ["category:en"]}) if origin != [] else None
@@ -469,6 +471,19 @@ class TestFuzzyGuards(unittest.TestCase):
     def test_exact_match_still_works_in_the_description(self):
         self.assertIn("wd:0", gk.find_ids(self.conn, "guitare électrique", "fabriquée par martin en 1975"))
 
+    def test_text_read_on_photos_can_opt_in_to_typo_tolerance(self):
+        # Lecture ratée d'un logo (« stratocster ») dans le texte des photos : tolérée seulement si l'appelant le demande.
+        self.assertEqual(gk.find_ids(self.conn, "guitare électrique", "vend bien", "stratocster"), {})
+        found = gk.find_ids(self.conn, "guitare électrique", "vend bien", "stratocster", fuzzy_texts=(0, 2))
+        self.assertEqual(found["wd:3"][1], "fuzzy")
+
+    def test_photo_typo_tolerance_keeps_the_same_guards_as_the_title(self):
+        for photo in ("martine", "carving", "hammer", "matin"):
+            self.assertEqual(gk.find_ids(self.conn, "guitare", "", photo, fuzzy_texts=(0, 2)), {}, photo)
+
+    def test_default_fuzzy_positions_are_unchanged(self):
+        self.assertEqual(gk.find_ids(self.conn, "fender stratocster"), gk.find_ids(self.conn, "fender stratocster", fuzzy_texts=(0,)))
+
 
 class TestDerivedAliases(unittest.TestCase):
     def test_generic_ambiguous_and_colliding_aliases_are_dropped(self):
@@ -535,6 +550,8 @@ def use_latest_kb(testcase):
     """Ces tests vérifient la LOGIQUE de recherche, pas le filtre de version : contenu actuel, validé ou non."""
     gk.configure_version("latest")
     testcase.addCleanup(gk.configure_version, "validated")
+    gk.configure_review_gate(False)          # la porte de relecture a ses propres tests (TestQualityGate)
+    testcase.addCleanup(gk.configure_review_gate, True)
 
 
 class TestAliasCache(unittest.TestCase):
@@ -576,6 +593,104 @@ class TestModelUnavailableClassification(unittest.TestCase):
 
 @unittest.skipUnless(os.getenv("KB_TEST_DATABASE_URL"),
                      "définir KB_TEST_DATABASE_URL (base Postgres JETABLE) pour tester write_records")
+class TestQualityGate(unittest.TestCase):
+    """Porte de qualité (2026-10-14) : erreurs évidentes jamais servies, fiche non relue réservée à l'outil de l'Expert,
+    approbation périmée si la fiche change, série servie seulement avec sa marque mère."""
+
+    def setUp(self):
+        import psycopg
+        from psycopg.rows import dict_row
+        self.conn = psycopg.connect(os.environ["KB_TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row)
+        self.addCleanup(self.conn.close)
+        with open(os.path.join(os.path.dirname(__file__), "api", "schema.sql"), encoding="utf-8") as fh:
+            self.conn.execute(fh.read())
+        self.conn.execute("TRUNCATE guitar_knowledge, guitar_knowledge_alias, guitar_knowledge_versions CASCADE")
+        use_latest_kb(self)
+        gk.configure_review_gate(True)
+
+    def _fiche(self, fid, name, kind="brand", **cols):
+        self.conn.execute(
+            """INSERT INTO guitar_knowledge (id, kind, name, description, parent_id, active_from, active_to, relevance,
+                                             source, kb_version, raw, curated)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'guitars',%s,1,'{"origin":["category:en"]}',%s)""",
+            (fid, kind, name, cols.get("description", "Fabricant américain de guitares électriques et de basses, actif depuis les années 1950."),
+             cols.get("parent_id"), cols.get("active_from"), cols.get("active_to"), cols.get("source", "wikidata"),
+             cols.get("curated", False)))
+        self.conn.execute("INSERT INTO guitar_knowledge_alias VALUES (%s,%s,%s,'wikidata')", (gk.normalize(name), fid, name))
+        gk.invalidate_cache()
+
+    def _approve(self, fid, status="approved"):
+        digest = self.conn.execute(
+            "SELECT md5(concat_ws('|', name, description, active_from::text, active_to::text, parent_id, kind)) AS d "
+            "FROM guitar_knowledge WHERE id = %s", (fid,)).fetchone()["d"]
+        self.conn.execute("UPDATE guitar_knowledge SET review_status = %s, reviewed_digest = %s WHERE id = %s",
+                          (status, digest, fid))
+
+    def _ids(self, text):
+        return [f["id"] for f in gk.lookup(self.conn, text)]
+
+    def test_unreviewed_import_is_not_served_to_the_gatekeeper(self):
+        self._fiche("wd:a", "Marquea")
+        self.assertEqual(self._ids("vends marquea"), [])
+        gk.configure_review_gate(False)
+        self.assertEqual(self._ids("vends marquea"), ["wd:a"])
+
+    def test_approved_curated_and_manual_fiches_are_served(self):
+        self._fiche("wd:a", "Marquea")
+        self._approve("wd:a")
+        self._fiche("wd:c", "Marquec", curated=True)
+        self._fiche("manual:m", "Marquem", source="manual")
+        self.assertEqual(sorted(self._ids("marquea marquec marquem")), ["manual:m", "wd:a", "wd:c"])
+
+    def test_approval_goes_stale_when_the_fiche_changes(self):
+        self._fiche("wd:a", "Marquea")
+        self._approve("wd:a")
+        self.conn.execute("UPDATE guitar_knowledge SET description = 'Autre description de guitares.' WHERE id = 'wd:a'")
+        self.assertEqual(self._ids("marquea"), [])
+        found = gk.search_brand(self.conn, "marquea")
+        self.assertEqual(found[0]["review_state"], "stale")
+        self.assertIn("fiche modifiée depuis sa relecture", found[0]["unverified_reasons"])
+
+    def test_rejected_fiche_is_served_nowhere(self):
+        self._fiche("wd:a", "Marquea", curated=True)
+        self._approve("wd:a", "rejected")
+        gk.configure_review_gate(False)
+        self.assertEqual(self._ids("marquea"), [])
+        self.assertEqual(gk.search_brand(self.conn, "marquea"), [])
+
+    def test_obvious_errors_are_served_nowhere(self):
+        self._fiche("wd:old", "Anciennea", curated=True, active_from=1750)
+        self._fiche("wd:rev", "Inversea", curated=True, active_from=1990, active_to=1960)
+        self._fiche("wd:watch", "Montrea", curated=True, description="Fabricant de montres suisses.")
+        self._fiche("wd:ok", "Correcta", curated=True, active_from=1950, active_to=1975)
+        self.assertEqual(self._ids("anciennea inversea montrea correcta"), ["wd:ok"])
+        self.assertEqual([f["id"] for f in gk.search_brand(self.conn, "anciennea")], [])
+
+    def test_series_needs_its_parent_brand_in_the_text(self):
+        self._fiche("wd:fender", "Fendera", curated=True)
+        self._fiche("wd:pbass", "Precisiona", kind="line", curated=True, parent_id="wd:fender")
+        self.assertEqual(self._ids("basse precisiona tone"), [])
+        self.assertEqual(self._ids("fendera precisiona"), ["wd:pbass", "wd:fender"])
+        # L'outil de l'Expert la renvoie, mais l'étiquette le dit.
+        tool = gk.search_brand(self.conn, "precisiona")
+        self.assertIn("série trouvée sans sa marque mère", tool[0]["unverified_reasons"])
+
+    def test_tool_returns_unreviewed_imports_labelled_as_such(self):
+        self._fiche("wd:a", "Marquea")
+        found = gk.search_brand(self.conn, "marquea")
+        self.assertEqual(found[0]["unverified_reasons"], ["import Wikidata non relu"])
+        self._approve("wd:a")
+        self.assertEqual(gk.search_brand(self.conn, "marquea")[0]["unverified_reasons"], [])
+
+    def test_missing_review_columns_do_not_break_scripts_run_before_the_schema_update(self):
+        self._fiche("wd:a", "Marquea", curated=True)
+        for col in ("review_status", "review_note", "reviewed_digest", "reviewed_at"):
+            self.conn.execute(f"ALTER TABLE guitar_knowledge DROP COLUMN {col}")
+        with gk._lock:
+            gk._cols_cache.update(at=None, has=False)
+        self.assertEqual(self._ids("marquea"), ["wd:a"])
+
+
 class TestWriteRecordsPostgres(unittest.TestCase):
     """write_records contre un vrai Postgres : curation préservée, orphelins, refus des imports partiels."""
 

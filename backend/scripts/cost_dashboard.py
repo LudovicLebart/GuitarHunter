@@ -58,6 +58,9 @@ PRICING = {
     ],
     "gemini-3.6-flash": [{"in": 1.50, "out": 7.50, "cached": 0.10}],
     "gemini-3.1-pro-preview": [{"in": 2.00, "out": 12.00, "cached": 0.25}],
+    # Anthropic (doc tarifs vérifiée 2026-10-13) : lecture de cache = 5 % de l'entrée sur Sonnet 5.5. `out` inclut
+    # déjà le raisonnement (`thoughts` enregistré à 0 par `_call_claude_json`).
+    "claude-sonnet-5-5": [{"in": 2.00, "out": 10.00, "cached": 0.05}],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
     "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
     "qwen3-vl:8b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # le bon tag (Instruct, pas Thinking)
@@ -72,6 +75,7 @@ ROLE = {
     "gemini-3.7-flash": "T2 Analyste",
     "gemini-3.6-flash": "T2 Analyste (ancien)",
     "gemini-3.1-pro-preview": "T3 Expert Pro",
+    "claude-sonnet-5-5": "T3 Expert Pro (Claude)",
     "qwen3-vl:8b": "Local (Dell)",
     "qwen3-vl:8b-instruct": "T1 Portier local (Dell)",
     "qwen3-vl:4b-instruct": "Local (Dell)",

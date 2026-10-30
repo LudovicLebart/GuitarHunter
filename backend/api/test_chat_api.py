@@ -18,10 +18,10 @@ from backend.api.test_deals_api import _pg_reachable, _RealServer  # réutilisé
 
 
 async def _seed_deal_and_user(deal_id, user_id):
-    """Annonce du catalogue partagé + sa VISIBILITÉ pour `user_id` (`user_deal_matches`).
-    Depuis le 2026-09-27 le chat est ouvert à toute personne qui VOIT l'annonce (`chat_repo.is_deal_visible`),
-    pas seulement à l'acheteur (`purchased_by_user_id`, réservé au plan de restauration) : sans la ligne
-    `user_deal_matches`, l'API répond 404 « Annonce introuvable » (ces tests l'ignoraient depuis ce changement)."""
+    """Catalogue partagé : plus de `user_id` propre sur `guitar_deals`. Depuis le 2026-09-27 le chat
+    est ouvert à tout utilisateur qui VOIT l'annonce (`user_deal_matches`, voir
+    chat_repo.py::is_deal_visible) — le seed crée donc aussi ce match (les tests supposaient encore
+    le chat réservé à l'acheteur et échouaient tous, jamais exécutés faute de base)."""
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("INSERT INTO users (uid) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
@@ -30,7 +30,9 @@ async def _seed_deal_and_user(deal_id, user_id):
             "VALUES ($1, 'x', true, $2) ON CONFLICT (id) DO NOTHING",
             deal_id, user_id,
         )
-        await conn.execute("INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", user_id, deal_id)
+        await conn.execute(
+            "INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", user_id, deal_id,
+        )
     finally:
         await conn.close()
 
@@ -143,6 +145,24 @@ class TestChatAPI(unittest.TestCase):
         self.assertEqual(proposal["status"], "applied")
         self.assertEqual(proposal["itemId"], "item-1")
         self.assertEqual(proposal["label"], "Refret")  # champs existants préservés
+
+    def test_mark_restoration_proposal_status_accepts_integer_item_id(self):
+        """Régression : le front envoie l'id Postgres (entier) renvoyé par POST /restoration-plan ;
+        `itemId: Optional[str]` répondait 422 -> « Erreur lors de la mise à jour de la proposition »."""
+        create = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={
+            "role": "model", "parts": [{"text": "..."}],
+            "restorationProposals": [{"label": "Refret", "status": "pending"}],
+        })
+        message_id = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/deals/{self.DEAL_ID}/chat/{message_id}/restoration-proposal",
+            json={"proposalIndex": 0, "status": "applied", "itemId": 42},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        proposal = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()[0]["restoration_proposals"][0]
+        self.assertEqual(proposal["status"], "applied")
+        self.assertEqual(proposal["itemId"], 42)
 
     def test_mark_restoration_proposal_status_out_of_range_index_leaves_column_unchanged(self):
         """`jsonb_set`/`||` sont STRICT : sans garde, un index hors bornes rendrait tout le

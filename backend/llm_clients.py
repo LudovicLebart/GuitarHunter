@@ -20,8 +20,16 @@ from PIL import Image
 
 from backend import llm_usage
 from backend.t1_image_budget import fit_images_to_budget
+from backend.t1_photo_text import PHOTO_TEXT_PROMPT, PHOTO_TEXT_JSON_SCHEMA, parse_photo_text
 from backend.notifications import NotificationService
 from config import (
+    ANTHROPIC_API_KEY,
+    T3_CLAUDE_EFFORT,
+    T3_CLAUDE_MAX_TOKENS,
+    T3_CLAUDE_TIMEOUT_SECONDS,
+    T3_CLAUDE_MAX_IMAGE_EDGE,
+    T3_CLAUDE_CACHE_TTL,
+    T3_KNOWLEDGE_MAX_TOOL_ROUNDS,
     TOKENROUTER_API_KEY,
     TOKENROUTER_BASE_URL,
     T1_OBSERVATION_QWEN_MODEL,
@@ -37,6 +45,26 @@ import re
 
 # Un seul Dell pour tous les threads utilisateurs : sémaphore au niveau du module (voir config.py).
 _T1_LOCAL_SEMAPHORE = threading.BoundedSemaphore(T1_LOCAL_MAX_CONCURRENCY)
+
+# Client Anthropic partagé par tous les threads utilisateurs (le SDK est thread-safe). Créé ET importé à la
+# demande : tant que `T3_PROVIDER="gemini"`, le paquet `anthropic` n'est jamais chargé (prod inchangée).
+_claude_client = None
+_claude_client_lock = threading.Lock()
+
+# Gemini est forcé en JSON par `response_mime_type` ; l'API Anthropic n'a pas ce réglage ici, la consigne
+# passe donc par le prompt (le prompt de prod décrit déjà le format, voir prompts.json).
+_CLAUDE_JSON_SUFFIX = (
+    "\n\nRéponds UNIQUEMENT avec l'objet JSON demandé : aucun texte avant ou après, aucune balise markdown."
+)
+
+
+def _get_claude_client():
+    global _claude_client
+    with _claude_client_lock:
+        if _claude_client is None:
+            import anthropic
+            _claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=T3_CLAUDE_TIMEOUT_SECONDS)
+        return _claude_client
 
 # Chantier H (porté depuis dev le 2026-09-22) : les 9 verdicts que `gatekeeper_verbosity_instruction`
 # (prompts.json) autorise explicitement pour le champ `status` du Portier — seule liste fermée du
@@ -222,6 +250,173 @@ class LLMClientsMixin:
                     self._notify_model_unavailable(model_name, str(e), user_email)
                 return None, str(e)
 
+    @staticmethod
+    def _claude_content_blocks(content_parts):
+        """Convertit `[prompt, PIL.Image, ...]` (format de `_call_gemini_json`) en blocs de contenu Anthropic :
+        photos d'abord, chacune étiquetée « Image N : », texte ensuite (ordre recommandé par la doc). Les photos
+        sont réduites sur une COPIE — les mêmes objets PIL servent aux autres tiers et threads, ne jamais les
+        modifier en place — puis envoyées en JPEG. Retourne `(blocs, nombre_de_photos)`."""
+        texts = [p for p in content_parts if isinstance(p, str)]
+        blocks, count = [], 0
+        for part in content_parts:
+            if not isinstance(part, Image.Image):
+                continue
+            img = part.convert("RGB")  # `convert` renvoie une copie, même si le mode est déjà RGB
+            if max(img.size) > T3_CLAUDE_MAX_IMAGE_EDGE:
+                img.thumbnail((T3_CLAUDE_MAX_IMAGE_EDGE, T3_CLAUDE_MAX_IMAGE_EDGE), Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            count += 1
+            blocks.append({"type": "text", "text": f"Image {count} :"})
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/jpeg",
+                "data": base64.b64encode(buf.getvalue()).decode("ascii"),
+            }})
+        blocks.append({"type": "text", "text": "\n\n".join(texts) + _CLAUDE_JSON_SUFFIX})
+        return blocks, count
+
+    @staticmethod
+    def _claude_system_with_cache(content_parts, cached_prefix):
+        """Cache de prompt : si `content_parts[0]` commence par `cached_prefix`, ce préfixe statique devient le bloc
+        `system` (avec `cache_control`) et il est retiré du texte du message. Le `system` passe AVANT les photos dans
+        l'ordre de cache d'Anthropic (outils, system, messages) : les photos, différentes à chaque annonce, n'invalident
+        donc pas le préfixe. Retourne `(system | None, content_parts)` ; sans préfixe valable, aucun cache (silencieux)."""
+        first = content_parts[0] if content_parts else None
+        if not cached_prefix or not isinstance(first, str) or not first.startswith(cached_prefix):
+            return None, content_parts
+        control = {"type": "ephemeral"}
+        if T3_CLAUDE_CACHE_TTL == "1h":
+            control["ttl"] = "1h"
+        system = [{"type": "text", "text": cached_prefix, "cache_control": control}]
+        return system, [first[len(cached_prefix):]] + list(content_parts[1:])
+
+    def _call_claude_json(self, model_name, content_parts, user_email=None, max_retries=1, action=None,
+                          cached_prefix=None, tools=None, tool_handler=None):
+        """Équivalent de `_call_gemini_json` pour l'API Anthropic (Expert T3 si `T3_PROVIDER="claude"`) : même
+        signature, même contrat de retour `(dict, None)` ou `(None, message)`, même ligne `llm_usage` par TENTATIVE.
+
+        Particularités : (1) raisonnement adaptatif actif par défaut, piloté par `output_config.effort` — passé
+        par `extra_body` pour ne pas dépendre de la version du SDK ; (2) `max_tokens` borne raisonnement ET réponse :
+        une réponse coupée (`stop_reason="max_tokens"`) est une erreur franche, sans nouvel essai payant ;
+        (3) `output_tokens` inclut déjà le raisonnement, donc `thoughts_tokens=0` (sinon `cost_dashboard` le compterait
+        deux fois) ; (4) `input_tokens` est enregistré SANS le cache chez Anthropic, on le ré-additionne pour suivre la
+        convention de la table (cache inclus dans l'entrée) — limite connue : les tokens ÉCRITS au cache coûtent 125 %
+        (5 min) ou 200 % (1 h) du prix d'entrée, mais `cost_dashboard` les compte à 100 % (la table n'a pas de colonne
+        d'écriture de cache) ; l'écart se chiffre en centimes, ne pas en déduire un coût réel exact.
+        `cached_prefix` : partie statique du prompt à mettre en cache (voir `_claude_system_with_cache`).
+        `tools` / `tool_handler` (2026-10-14) : outils que le modèle peut appeler (ex. `lookup_brand`) ;
+        `tool_handler(nom, arguments) -> str` répond à chaque `tool_use`. Au plus `T3_KNOWLEDGE_MAX_TOOL_ROUNDS`
+        allers-retours, puis un dernier appel avec `tool_choice=none` qui force la réponse JSON. Chaque appel API
+        a SA ligne `llm_usage` ; une exception du gestionnaire est renvoyée au modèle comme `is_error`, jamais levée."""
+        if not ANTHROPIC_API_KEY:
+            llm_usage.record(provider="anthropic", model=model_name, action=action, ok=False, error_type="other")
+            return None, "ANTHROPIC_API_KEY n'est pas configurée."
+        client = _get_claude_client()
+        system, content_parts = self._claude_system_with_cache(content_parts, cached_prefix)
+        blocks, image_count = self._claude_content_blocks(content_parts)
+
+        for attempt in range(max_retries + 1):
+            usage_row = {"provider": "anthropic", "model": model_name, "action": action, "latency_ms": None,
+                         "images": image_count}
+            t_call = time.monotonic()
+            response = None
+            messages = [{"role": "user", "content": blocks}]
+            try:
+                for tool_round in range(T3_KNOWLEDGE_MAX_TOOL_ROUNDS + 1):
+                    last_round = tool_round == T3_KNOWLEDGE_MAX_TOOL_ROUNDS
+                    extra_args = {}
+                    if tools and tool_handler:
+                        extra_args["tools"] = tools
+                        if last_round:  # budget d'outils épuisé : on force la réponse finale
+                            extra_args["tool_choice"] = {"type": "none"}
+                    response = client.messages.create(
+                        model=model_name,
+                        max_tokens=T3_CLAUDE_MAX_TOKENS,
+                        messages=messages,
+                        extra_body={"output_config": {"effort": T3_CLAUDE_EFFORT}},
+                        **({"system": system} if system else {}),
+                        **extra_args,
+                    )
+                    usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                    usage = getattr(response, "usage", None)
+                    if usage:
+                        _fresh = getattr(usage, "input_tokens", 0) or 0
+                        _read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                        _write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                        _out = getattr(usage, "output_tokens", 0) or 0
+                        self.logger.info(
+                            f"[tokens] model={model_name} images={image_count} in={_fresh + _read + _write} "
+                            f"out={_out} cached={_read} total={_fresh + _read + _write + _out}"
+                        )
+                        usage_row.update(input_tokens=_fresh + _read + _write, cached_tokens=_read,
+                                         output_tokens=_out, thoughts_tokens=0)
+                    if not (tools and tool_handler and not last_round
+                            and getattr(response, "stop_reason", None) == "tool_use"):
+                        break
+                    # Appel intermédiaire : ligne d'usage enregistrée tout de suite, puis réponses aux outils.
+                    llm_usage.record(**usage_row)
+                    results = []
+                    for block in response.content:
+                        if getattr(block, "type", None) != "tool_use":
+                            continue
+                        try:
+                            out, is_error = str(tool_handler(block.name, block.input))[:6000], False
+                        except Exception as tool_err:  # le modèle doit pouvoir continuer sans l'outil
+                            self.logger.warning(f"⚠️ Outil {block.name} en échec : {tool_err}")
+                            out, is_error = f"Outil indisponible : {tool_err}", True
+                        results.append({"type": "tool_result", "tool_use_id": block.id, "content": out,
+                                        **({"is_error": True} if is_error else {})})
+                    messages = messages + [{"role": "assistant", "content": response.content},
+                                           {"role": "user", "content": results}]
+                    usage_row = {"provider": "anthropic", "model": model_name, "action": action, "latency_ms": None,
+                                 "images": image_count}
+                    t_call = time.monotonic()
+
+                text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text").strip()
+                if getattr(response, "stop_reason", None) == "max_tokens":
+                    llm_usage.record(**usage_row, ok=False, error_type="json")
+                    msg = (f"Réponse tronquée : max_tokens={T3_CLAUDE_MAX_TOKENS} atteint (le raisonnement compte dans "
+                           f"cette limite) — augmenter T3_CLAUDE_MAX_TOKENS ou baisser T3_CLAUDE_EFFORT.")
+                    self.logger.error(f"❌ {msg}")
+                    return None, msg
+                if not text:
+                    llm_usage.record(**usage_row, ok=False, error_type="other")
+                    msg = f"Aucun texte dans la réponse de {model_name} (stop_reason={getattr(response, 'stop_reason', '?')})."
+                    self.logger.error(f"❌ {msg}")
+                    return None, msg
+
+                cleaned = self._clean_json_response(text)
+                try:
+                    result = json.loads(cleaned)
+                except json.decoder.JSONDecodeError:
+                    # Claude ajoute parfois une phrase autour de l'objet : on retente sur l'objet englobant.
+                    start, end = cleaned.find("{"), cleaned.rfind("}")
+                    if start == -1 or end <= start:
+                        raise
+                    result = json.loads(cleaned[start:end + 1])
+                if isinstance(result, list):
+                    result = result[0] if result and isinstance(result[0], dict) else {}
+                llm_usage.record(**usage_row)  # succès : enregistré APRÈS le parse, comme pour Gemini
+                return result, None
+            except json.decoder.JSONDecodeError as e:
+                llm_usage.record(**usage_row, ok=False, error_type="json")
+                self.logger.warning(f"⚠️ JSON invalide généré par {model_name} (tentative {attempt+1}/{max_retries+1}) : {e}")
+                if attempt == max_retries:
+                    raw = "".join(getattr(b, "text", "") for b in getattr(response, "content", []) or [])
+                    self.logger.error(f"❌ Impossible de parser le JSON après {max_retries+1} tentatives. Réponse brute: {raw[:500]}...")
+                    return None, f"Erreur de format JSON: {e}"
+                blocks = blocks + [{"type": "text", "text": (
+                    "CRITICAL: The previous JSON output was invalid. Ensure ALL strings are properly escaped "
+                    "(use \\\" for quotes inside strings) and NO trailing commas exist. Output ONLY valid JSON.")}]
+            except Exception as e:
+                if usage_row.get("latency_ms") is None:
+                    usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
+                llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
+                self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
+                if self._is_model_unavailable_error(e):
+                    self._notify_model_unavailable(model_name, str(e), user_email)
+                return None, str(e)
+
     def _call_openai_compatible_json(self, prompt, images, model_name, api_key, base_url, response_format=None, action=None, provider_label=None, timeout=60, max_retries=2):
         """Chantier H (porté depuis dev le 2026-09-22) : appelle un modèle compatible OpenAI
         (Qwen via TokenRouter, etc.) et parse le JSON, avec la même tolérance que
@@ -309,6 +504,27 @@ class LLMClientsMixin:
                 f"{info['before']} → {info['after']} tokens estimés (budget {info['budget']}), "
                 f"coefficient {info['scale']}, {info['dropped']} photo(s) retirée(s) sur {len(images)}.")
         return fitted
+
+    def _t1_read_photo_text(self, images):
+        """Texte lisible sur les photos (marque, modèle, numéro de série), lu par le modèle LOCAL du Portier : sert à
+        chercher des fiches dans la base de connaissances (voir `backend/t1_photo_text.py`). Renvoie une chaîne, vide
+        si rien n'est lisible ou si quoi que ce soit échoue — ÉCHEC OUVERT : ne bloque jamais une analyse. Le dernier
+        appel est enregistré dans `llm_usage` sous l'action `t1_photo_text` (coût et latence mesurables à part)."""
+        if not images:
+            return ""
+        try:
+            fitted = self._fit_t1_local_images(PHOTO_TEXT_PROMPT, images)
+            with _T1_LOCAL_SEMAPHORE:
+                result, err = self._call_openai_compatible_json(
+                    PHOTO_TEXT_PROMPT, fitted, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
+                    response_format=PHOTO_TEXT_JSON_SCHEMA, action="t1_photo_text", provider_label="local",
+                    timeout=T1_LOCAL_TIMEOUT_SECONDS, max_retries=0)
+            if err or not result:
+                return ""
+            return parse_photo_text(result)
+        except Exception as e:
+            self.logger.warning(f"   ⚠️ [Portier] lecture des photos indisponible : {e}")
+            return ""
 
     def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
         """Chantier H/I : point d'appel UNIQUE pour n'importe lequel des fournisseurs T1 ("local"

@@ -475,6 +475,10 @@ def main():
     parser.add_argument("--kb-version", default="latest",
                          help="Version de la base pour --with-knowledge : latest (défaut : la version à valider), validated "
                               "ou un numéro.")
+    parser.add_argument("--review-gate", action="store_true",
+                         help="Avec --with-knowledge : applique la porte de qualité de la prod (seules les fiches relues, "
+                              "curées ou écrites à la main sont injectées). Sans ce drapeau, comportement d'avant : toute fiche "
+                              "de la version choisie (comparabilité avec les anciens rejeux).")
     parser.add_argument("--out", default="compare_qwen_local_vs_prod.json",
                          help="Nom du fichier de résultats dans backend/benchmark/results/ (à changer pour garder les "
                               "rejeux sans/avec base côte à côte).")
@@ -534,6 +538,7 @@ def main():
     seed = None if temperature is None else args.seed
     if args.with_knowledge:
         guitar_knowledge.configure_version(args.kb_version)
+        guitar_knowledge.configure_review_gate(args.review_gate)
 
     est_minutes = round(args.limit * 20 / 60, 1)
     before_info = f" (antérieures à {args.before} — ère Gemini Flash-Lite)" if args.before else ""

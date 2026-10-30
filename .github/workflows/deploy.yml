@@ -57,7 +57,7 @@ jobs:
           pip install -r requirements.txt
           pip install httpx websockets
 
-      - name: Tests Python (base de connaissances, fiches, API)
+      - name: Tests Python (base de connaissances, fiches, API, Portier, journaux)
         run: |
           python -m unittest \
             backend.test_analyzer \
@@ -67,9 +67,26 @@ jobs:
             backend.test_compare_knowledge_effect \
             backend.test_knowledge_fiche_isolation \
             backend.test_seed_guitar_fiches \
+            backend.test_t3_brand_tool \
+            backend.test_knowledge_gate_report \
+            backend.test_knowledge_triage \
+            backend.test_knowledge_ai_review \
+            backend.test_knowledge_review_html \
+            backend.test_t1_photo_text \
+            backend.test_t1_kb_paired_replay \
+            backend.test_t1_image_budget \
+            backend.test_pg_repository \
+            backend.test_log_archive \
+            backend.test_scrape_health \
             backend.api.test_fiches_api \
             backend.api.test_restoration_api \
             backend.api.test_chat_api \
+            backend.api.test_deals_api \
+            backend.api.test_users_api \
+            backend.api.test_cities_api \
+            backend.api.test_logs_api \
+            backend.api.test_api \
+            backend.api.test_shared_deals_api \
             backend.api.test_prod_sync
 
   deploy-frontend:
@@ -138,7 +155,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v2
+        uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}

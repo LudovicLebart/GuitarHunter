@@ -66,6 +66,7 @@ async def _cleanup():
     conn = await asyncpg.connect(DATABASE_URL)
     try:
         await conn.execute("DELETE FROM restoration_plan_items WHERE deal_id = $1", DEAL)
+        await conn.execute("DELETE FROM user_deal_state WHERE deal_id = $1", DEAL)
         await conn.execute("DELETE FROM user_deal_matches WHERE deal_id = $1", DEAL)
         await conn.execute("DELETE FROM guitar_deals WHERE id = $1", DEAL)
         # TOUTES les fiches (pas seulement les nôtres) : d'autres tests de la base de connaissances laissent les leurs dans la même
@@ -288,6 +289,38 @@ class TestFichesAPIAsViewer(_FichesBase):
         self.assertIn("api-truss", slugs)
         self.assertNotIn("api-action", slugs)
         self.assertTrue(all(f["reason"] in ("question", "annonce") for f in found))
+
+
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
+class TestFichesAPIPersonalPlan(_FichesBase):
+    """Le plan de restauration est PERSONNEL (acheteur ou favori) : la recherche de fiches n'utilise que les étapes de
+    l'utilisateur qui la lance, jamais celles d'un autre — même sur la même annonce."""
+    uid = BUYER
+
+    def test_a_favorite_user_gets_only_their_own_steps_not_the_buyers(self):
+        buyer_item = self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "Régler le manche", "ficheSlug": "api-action"})
+        self.assertEqual(buyer_item.status_code, 201, buyer_item.text)
+
+        async def favorite():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("INSERT INTO user_deal_state (user_id, deal_id, is_favorite) VALUES ($1, $2, true) ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = true", VIEWER, DEAL)
+            finally:
+                await conn.close()
+        asyncio.run(favorite())
+
+        mine = [f["slug"] for f in self.client.post(f"/deals/{DEAL}/fiches/search", json={}).json()]
+        self.assertIn("api-action", mine)                                   # le lien de MON étape compte
+        app.dependency_overrides[get_current_uid] = lambda: VIEWER          # même annonce, autre personne (favori : a accès au plan)
+        fiches_repo.invalidate_cache()
+        theirs = self.client.post(f"/deals/{DEAL}/fiches/search", json={})
+        self.assertEqual(theirs.status_code, 200, theirs.text)
+        self.assertNotIn("api-action", [f["slug"] for f in theirs.json()])   # ... mais pas celles de l'acheteur
+        own = self.client.post(f"/deals/{DEAL}/restoration-plan", json={"label": "Mon étape", "ficheSlug": "api-neck"})
+        self.assertEqual(own.status_code, 201, own.text)                     # et il peut poser SON lien
+        after = [(f["slug"], f["reason"]) for f in self.client.post(f"/deals/{DEAL}/fiches/search", json={}).json()]
+        self.assertIn(("api-neck", "etape"), after)
+        self.assertNotIn("api-action", [s for s, _ in after])
 
 
 class TestFicheIdHelpers(unittest.TestCase):

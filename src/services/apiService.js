@@ -86,7 +86,15 @@ async function getIdToken() {
   return user.getIdToken();
 }
 
-async function apiFetch(path, { method = 'GET', body, skipAuth = false, signal } = {}) {
+const isPerfEnabled = () => {
+  try {
+    if (typeof window === 'undefined') return false;
+    if (new URLSearchParams(window.location.search).get('perf') === '1') return true;
+    return window.localStorage.getItem('gh_perf') === '1';
+  } catch { return false; }
+};
+
+async function apiFetch(path, { method = 'GET', body, skipAuth = false, onResponse, signal } = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!skipAuth) headers.Authorization = `Bearer ${await getIdToken()}`;
@@ -120,6 +128,7 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false, signal }
     error.status = resp.status; // permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
     throw error;
   }
+  onResponse?.(resp);
   if (resp.status === 204) return null;
   const contentType = resp.headers.get('content-type') || '';
   return contentType.includes('application/json') ? resp.json() : null;
@@ -160,32 +169,50 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false, signal }
  */
 function openChangeSocket(path, onChange, onError) {
   const ERROR_REPORT_THRESHOLD = 3;
+  // Au-delà de ce temps en arrière-plan, on rattrape par un rafraîchissement au retour même si le
+  // socket paraît ouvert (un navigateur mobile peut le laisser "ouvert" alors qu'il est mort).
+  const STALE_AFTER_HIDDEN_MS = 30000;
   let closed = false;
   let ws = null;
   let retryDelay = WS_RETRY_DELAY_MS;
+  let retryTimer = null;
+  let connecting = false;
   let hasConnectedOnce = false;
   let consecutiveFailures = 0;
+  let hiddenSince = null;
 
   const scheduleRetry = () => {
     if (closed) return;
+    clearTimeout(retryTimer);
     const delay = retryDelay;
     retryDelay = Math.min(retryDelay * 2, WS_RETRY_DELAY_MAX_MS);
-    setTimeout(connect, delay);
+    retryTimer = setTimeout(connect, delay);
   };
 
+  // Page en arrière-plan (onglet quitté sur mobile) : les tentatives échouent normalement, ce
+  // n'est pas une panne à afficher à l'utilisateur — la reconnexion se fait au retour (voir
+  // `reconnectNow`).
   const reportError = (error) => {
+    if (typeof document !== 'undefined' && document.hidden) return;
     consecutiveFailures += 1;
     if (consecutiveFailures >= ERROR_REPORT_THRESHOLD) onError?.(error);
   };
 
   const connect = async () => {
-    if (closed) return;
+    if (closed || connecting) return;
+    connecting = true; // verrou : `getIdToken()` peut être lent, jamais deux connexions en parallèle
     try {
       const token = await getIdToken();
       if (closed) return;
-      ws = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
+      const sock = new WebSocket(`${WS_BASE_URL}${path}?token=${encodeURIComponent(token)}`);
+      ws = sock;
+      // Chaque handler ignore un socket qui n'est plus le courant (remplacé par une reconnexion
+      // immédiate) : sans ça, l'`onclose` tardif de l'ancien socket planifierait une connexion de
+      // trop, et chaque socket vivant tient une connexion Postgres LISTEN côté serveur.
+      sock.onmessage = (event) => {
+        if (sock !== ws) return;
+        let data;
+        try { data = JSON.parse(event.data); } catch { return; }
         if (data.type === 'ready') {
           retryDelay = WS_RETRY_DELAY_MS;
           consecutiveFailures = 0;
@@ -195,9 +222,8 @@ function openChangeSocket(path, onChange, onError) {
         }
         onChange();
       };
-      ws.onerror = () => reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`));
-      ws.onclose = scheduleRetry; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
-      if (closed) ws.close(); // fermé pendant l'ouverture asynchrone ci-dessus
+      sock.onerror = () => { if (sock === ws) reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`)); };
+      sock.onclose = () => { if (sock === ws) scheduleRetry(); }; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
     } catch (error) {
       // `closed` peut être passé à true PENDANT le `await getIdToken()` ci-dessus (composant
       // démonté en cours de route) — sans ce check, un rejet tardif de `getIdToken()` appellerait
@@ -206,13 +232,49 @@ function openChangeSocket(path, onChange, onError) {
       if (closed) return;
       reportError(error);
       scheduleRetry();
+    } finally {
+      connecting = false;
     }
   };
+
+  // Retour au premier plan / réseau rétabli / restauration depuis le bfcache (iOS n'émet pas
+  // toujours `visibilitychange`) : un navigateur mobile gèle ou bride les timers d'un onglet caché,
+  // la reconnexion planifiée (jusqu'à 30 s de backoff) n'a alors pas eu lieu à l'heure.
+  const reconnectNow = () => {
+    if (closed) return;
+    const isLive = ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+    if (isLive) return;
+    clearTimeout(retryTimer);
+    retryDelay = WS_RETRY_DELAY_MS;
+    connect();
+  };
+  const onVisibilityChange = () => {
+    if (document.hidden) { hiddenSince = Date.now(); return; }
+    const wasHiddenLong = hiddenSince !== null && Date.now() - hiddenSince > STALE_AFTER_HIDDEN_MS;
+    hiddenSince = null;
+    const wasLive = ws && ws.readyState === WebSocket.OPEN;
+    reconnectNow();
+    if (wasLive && wasHiddenLong) onChange(); // socket "ouvert" mais possiblement mort : rattrapage
+  };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', reconnectNow);
+    window.addEventListener('pageshow', reconnectNow);
+  }
+
   connect();
 
   return () => {
     closed = true;
-    ws?.close();
+    clearTimeout(retryTimer);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', reconnectNow);
+      window.removeEventListener('pageshow', reconnectNow);
+    }
+    const sock = ws;
+    ws = null;
+    sock?.close();
   };
 }
 
@@ -266,6 +328,7 @@ function dealFromRow(row) {
     status: row.is_rejected ? 'rejected' : row.status,
     isFavorite: row.is_favorite,
     isPurchased: row.is_purchased,
+    purchasedByUserId: row.purchased_by_user_id,
     manualClassification: row.manual_classification,
     manualAnalysisOverrides: row.manual_analysis_overrides,
     link: row.link,
@@ -281,6 +344,9 @@ function dealFromRow(row) {
     publishTimestamp: toFirestoreLikeTimestamp(row.published_at_ts),
     purchasePrice: row.purchase_price,
     purchasedAt: toFirestoreLikeTimestamp(row.purchased_at),
+    userSalePrice: row.user_sale_price != null ? Number(row.user_sale_price) : undefined,
+    userSoldAt: toFirestoreLikeTimestamp(row.user_sold_at),
+    restorationSpent: row.restoration_spent != null ? Number(row.restoration_spent) : 0,
     description: row.description,
     soldNotes: row.sold_notes,
     initialVerdict: row.initial_verdict,
@@ -462,19 +528,78 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // à chaque chargement de page et, depuis la reconnexion WebSocket, à chaque reconnexion.
   // Les documents complets restent chargés à la demande via fetchDealsByIds() (déjà utilisé par
   // useDealsManager.js::loadedDeals pour les annonces réellement visibles à l'écran).
+  // Une seule lecture à la fois, au plus une en attente (2026-10-13) : chaque notification WS
+  // relançait jusqu'ici un GET complet, sans limite ni ordre garanti (une réponse ancienne pouvait
+  // écraser une plus récente et les requêtes s'empilaient sur l'unique worker du serveur). Les
+  // notifications reçues pendant une lecture sont fusionnées en UNE relecture ensuite, et une
+  // rafale est lissée par un délai de regroupement (`REFRESH_BATCH_DELAY_MS`, sans réarmement :
+  // un flux continu ne retarde pas indéfiniment la lecture).
+  const REFRESH_BATCH_DELAY_MS = 300;
+  let destroyed = false;
+  let inFlight = false;
+  let queued = false;
+  let batchTimer = null;
+
   const fetchAndEmit = async () => {
+    if (destroyed) return;
+    if (inFlight) { queued = true; return; }
+    inFlight = true;
     try {
-      const rows = await apiFetch('/deals/index');
+      // Diagnostic opt-in (2026-10-13) : `?perf=1` dans l'URL de la page, ou
+      // `localStorage.gh_perf = '1'` — sans cela, aucune mesure ni en-tête supplémentaire.
+      const perfOn = isPerfEnabled();
+      const t0 = performance.now();
+      let tHeaders = t0;
+      let serverTiming = null;
+      const rows = await apiFetch(perfOn ? '/deals/index?perf=1' : '/deals/index', {
+        onResponse: perfOn ? (resp) => { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); } : undefined,
+      });
+      if (destroyed) return;
+      const t1 = performance.now();
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
+      if (perfOn) {
+        const perf = {
+          rows: rows.length,
+          toHeadersMs: Math.round(tHeaders - t0), // jeton Firebase + attente du serveur (SQL + sérialisation)
+          bodyAndParseMs: Math.round(t1 - tHeaders), // téléchargement du corps + parse JSON
+          mapMs: Math.round(performance.now() - t1), // reconstruction des objets (`dealFromRow`)
+          serverTiming,
+        };
+        try {
+          const entry = performance.getEntriesByType('resource').filter((e) => e.startTime >= t0 && e.name.includes('/deals/index')).pop();
+          if (entry) Object.assign(perf, {
+            ttfbMs: Math.round(entry.responseStart - entry.requestStart),
+            downloadMs: Math.round(entry.responseEnd - entry.responseStart),
+            encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
+          });
+          performance.clearResourceTimings(); // le tampon (≈250 entrées) se remplit sinon et ne renvoie plus l'entrée courante
+        } catch { /* API Performance indisponible : mesure partielle */ }
+        window.__dealsIndexPerf = perf;
+        console.info('[perf] /deals/index', perf);
+      }
       onUpdate(merged, rows.length);
     } catch (error) {
+      if (destroyed) return;
       console.error("Error listening to deals index:", error);
       onError(error);
+    } finally {
+      inFlight = false;
+      if (queued && !destroyed) { queued = false; fetchAndEmit(); }
     }
   };
+  const scheduleFetch = () => {
+    if (destroyed || batchTimer !== null) return;
+    batchTimer = setTimeout(() => { batchTimer = null; fetchAndEmit(); }, REFRESH_BATCH_DELAY_MS);
+  };
+
   fetchAndEmit();
-  return openChangeSocket('/ws/deals', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/deals', scheduleFetch, onError);
+  return () => {
+    destroyed = true;
+    clearTimeout(batchTimer);
+    closeSocket();
+  };
 };
 
 export const fetchDealsByIds = async (ids, _userId) => {
@@ -524,11 +649,28 @@ export const toggleDealFavorite = async (dealId, _currentStatus, _chunkId, _user
   }
 };
 
+/**
+ * Revente par l'acheteur (2026-10-10) : `salePrice` null annule la revente. 409 si l'utilisateur
+ * n'est pas l'acheteur (voir main.py::patch_user_sale).
+ */
+export const setDealUserSale = async (dealId, salePrice, soldAt = null) => {
+  try {
+    await apiFetch(`/deals/${dealId}/user-sale`, {
+      method: 'PATCH',
+      body: salePrice == null ? {} : { salePrice, ...(soldAt ? { soldAt } : {}) },
+    });
+  } catch (error) {
+    console.error(`Error setting user sale for deal ${dealId}:`, error);
+    if (error.status === 409) throw new Error("Seul l'acheteur peut déclarer la revente.");
+    throw new Error("Erreur lors de l'enregistrement de la revente.");
+  }
+};
+
 export const toggleDealPurchased = async (dealId, currentStatus, _chunkId, _userId, purchasePrice = null) => {
   try {
     await apiFetch(`/deals/${dealId}/purchased`, {
       method: 'PATCH',
-      body: !currentStatus ? { purchasePrice } : {},
+      body: !currentStatus ? { purchasePrice } : { confirmUnpurchase: true },
     });
   } catch (error) {
     console.error(`Error toggling purchased for deal ${dealId}:`, error);
@@ -661,6 +803,13 @@ export const markChatMessageRequalificationProposalStatus = async (dealId, messa
 
 // --- Plan de restauration ---
 
+// dealId -> relectures du plan en cours d'écoute. Une écriture réussie relit le plan tout de suite :
+// sans cela, une étape créée n'apparaissait que si la notification WebSocket arrivait (coupée, ou
+// filtrée côté serveur, l'ajout semblait ne rien faire — signalé le 2026-10-16).
+const restorationPlanRefreshers = new Map();
+const refreshRestorationPlan = (dealId) =>
+  Promise.all([...(restorationPlanRefreshers.get(dealId) || [])].map((refresh) => refresh()));
+
 export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
   const fetchAndEmit = async () => {
     try {
@@ -672,7 +821,15 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
     }
   };
   fetchAndEmit();
-  return openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
+  // Rafraîchissement direct après nos propres écritures (voir `refreshRestorationPlan`) : ne dépend
+  // plus du seul WebSocket pour qu'une étape ajoutée apparaisse.
+  if (!restorationPlanRefreshers.has(dealId)) restorationPlanRefreshers.set(dealId, new Set());
+  restorationPlanRefreshers.get(dealId).add(fetchAndEmit);
+  const closeSocket = openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
+  return () => {
+    restorationPlanRefreshers.get(dealId)?.delete(fetchAndEmit);
+    closeSocket();
+  };
 };
 
 export const addRestorationItem = async (dealId, _userId, { label, category, estimatedCost, notes, source = 'user', proposedByMessageId, order, ficheSlug }) => {
@@ -681,10 +838,11 @@ export const addRestorationItem = async (dealId, _userId, { label, category, est
       method: 'POST',
       body: { label, category, estimatedCost, notes, source, proposedByMessageId, order, ficheSlug },
     });
+    await refreshRestorationPlan(dealId);
     return result.id;
   } catch (error) {
     console.error(`Error adding restoration item for deal ${dealId}:`, error);
-    const wrapped = new Error("Erreur lors de l'ajout de l'étape de restauration.");
+    const wrapped = new Error(`Erreur lors de l'ajout de l'étape de restauration (${error.status ?? 'réseau'}).`);
     wrapped.status = error.status;     // 422 = fiche technique inconnue : l'appelant peut réessayer sans le lien
     throw wrapped;
   }
@@ -693,6 +851,7 @@ export const addRestorationItem = async (dealId, _userId, { label, category, est
 export const updateRestorationItem = async (dealId, _userId, itemId, patch) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}`, { method: 'PATCH', body: patch });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error updating restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la mise à jour de l'étape de restauration.");
@@ -702,6 +861,7 @@ export const updateRestorationItem = async (dealId, _userId, itemId, patch) => {
 export const deleteRestorationItem = async (dealId, _userId, itemId) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}`, { method: 'DELETE' });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error deleting restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la suppression de l'étape de restauration.");
@@ -711,6 +871,7 @@ export const deleteRestorationItem = async (dealId, _userId, itemId) => {
 export const reorderRestorationItems = async (dealId, _userId, orderedItemIds) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/order`, { method: 'PATCH', body: { orderedItemIds } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error reordering restoration items for deal ${dealId}:`, error);
     throw new Error("Erreur lors de la réorganisation des étapes.");
@@ -731,6 +892,7 @@ export const backfillRestorationOrder = async (dealId, _userId, orderedItems) =>
 export const addRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}/photos`, { method: 'POST', body: { url } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error adding photo to restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors de l'ajout de la photo à l'étape.");
@@ -740,6 +902,7 @@ export const addRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
 export const removeRestorationItemPhoto = async (dealId, _userId, itemId, url) => {
   try {
     await apiFetch(`/deals/${dealId}/restoration-plan/${itemId}/photos`, { method: 'DELETE', body: { url } });
+    await refreshRestorationPlan(dealId);
   } catch (error) {
     console.error(`Error removing photo from restoration item ${itemId} for deal ${dealId}:`, error);
     throw new Error("Erreur lors du retrait de la photo de l'étape.");

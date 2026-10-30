@@ -19,9 +19,17 @@ except ImportError:
 
 from .config import ScraperConfig
 from .parser import ListingParser
+from .zone import card_verdict, may_try_gps_fallback
 from backend.sold_markers import find_sold_marker
 
 class FacebookScraper:
+    # Mémoire (par processus) des annonces déjà écartées par le GPS : sans elle, une carte hors zone serait
+    # rouverte à chaque cycle puisqu'elle n'est jamais enregistrée en base. Clé = (signature de la liste de
+    # villes de l'utilisateur, id Facebook) : une annonce hors zone pour un compte peut être dans la zone
+    # d'un autre, ou du même compte après l'ajout d'une ville.
+    _gps_rejected = set()
+    _GPS_REJECTED_MAX = 5000
+
     def __init__(self, city_coordinates, city_mapping, allowed_cities=None, config: ScraperConfig = None, logger: logging.Logger = None):
         self.city_coordinates = city_coordinates
         self.city_mapping = city_mapping
@@ -35,6 +43,14 @@ class FacebookScraper:
         self.playwright = None
         self.browser = None
         self.context = None
+
+        # Contrôle GPS (2026-10-29), mode strict : voir `set_gps_zone()`. Désactivé tant qu'il n'est pas appelé.
+        self.gps_zone_points = None
+        self.gps_zone_km = 5
+        self.gps_zone_name_km = 5
+        self.gps_zone_labels = {}
+        self._zone_sig = None
+        self.gps_fallback_max_pages = 8   # fiches supplémentaires ouvertes par scan (coût : ~10 s chacune)
 
         # --- STEALTH: Randomization Arrays ---
         self._user_agents = [
@@ -101,7 +117,8 @@ class FacebookScraper:
             timezone_id=self.config.timezone,
             geolocation=self.config.geolocation,
             permissions=["geolocation"],
-            extra_http_headers={"Referer": "https://www.google.com/"}
+            extra_http_headers={"Referer": "https://www.google.com/"},
+            storage_state=self.config.storage_state_path  # None = anonyme
         )
 
     def get_city_id_and_coords(self, city_name: str):
@@ -319,6 +336,16 @@ class FacebookScraper:
         except Exception as e:
             self.logger.warning(f"Erreur filtre prix: {e}")
 
+    def set_gps_zone(self, points, gps_km, name_km, labels=None):
+        """Active le contrôle GPS des cartes (mode strict). `points` : [(clé de ville, lat, lng)] des villes
+        listées ; `gps_km` : borne pour une carte au lieu non reconnu (rattachée par la fiche détail) ;
+        `name_km` : borne pour une carte au lieu reconnu (un homonyme lointain est rejeté) ; `labels` :
+        {clé: libellé d'affichage} pour étiqueter une annonce rattachée par GPS."""
+        self.gps_zone_points = list(points) or None
+        self.gps_zone_km, self.gps_zone_name_km = gps_km, name_km
+        self.gps_zone_labels = labels or {}
+        self._zone_sig = hash((tuple(sorted((k, round(a, 4), round(b, 4)) for k, a, b in points)), gps_km, name_km))
+
     def is_city_allowed(self, city_name):
         """Vérifie si une ville est dans la liste blanche (insensible à la casse/accents)."""
         if not city_name: return False
@@ -337,10 +364,13 @@ class FacebookScraper:
         return False
 
     def _scan_result(self, deals=None, anti_bot_blocked=False, rejected_out_of_list=0, total_cards_seen=0,
-                      dropped_no_location=0, dropped_no_price=0):
+                      dropped_no_location=0, dropped_no_price=0, error=None):
         """Forme standard retournée par scan_marketplace() à chaque point de sortie,
-        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés)."""
+        pour permettre à run_scan() de comptabiliser les échecs (pas seulement les deals trouvés).
+        `error` : message de l'exception interceptée par scan_marketplace() (qui ne la propage pas),
+        pour que le suivi de santé (backend/scrape_health.py) distingue un scan cassé d'un scan vide."""
         return {
+            "error": error,
             "deals": deals or [],
             "anti_bot_blocked": anti_bot_blocked,
             "rejected_out_of_list": rejected_out_of_list,
@@ -391,6 +421,9 @@ class FacebookScraper:
         listings_count = 0
         dropped_no_location = 0
         dropped_no_price = 0
+        gps_pages_used = 0
+        gps_rescued = 0
+        scan_error = None
 
         try:
             q = urllib.parse.quote(search_query)
@@ -502,10 +535,20 @@ class FacebookScraper:
                     dropped_no_location += 1
                     continue
 
-                if not self.is_city_allowed(spec_loc):
-                    self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc} — id={fb_id}")
+                gps_on = bool(self.gps_zone_points)
+                if gps_on and (self._zone_sig, fb_id) in self._gps_rejected:
+                    self.logger.info(f"   ⏩ Ignoré (GPS déjà jugé hors zone): {spec_loc} — id={fb_id}")
                     rejected_out_of_list += 1
                     continue
+                name_ok = self.is_city_allowed(spec_loc)
+                gps_candidate = False
+                if not name_ok:
+                    if gps_on and may_try_gps_fallback(gps_pages_used, gps_rescued, self.gps_fallback_max_pages):
+                        gps_candidate = True
+                    else:
+                        self.logger.info(f"   ⏩ Ignoré (ville non autorisée): {spec_loc} — id={fb_id}")
+                        rejected_out_of_list += 1
+                        continue
                 # --- END OF NEW LOGIC ---
 
                 title = card_info['title']
@@ -524,6 +567,8 @@ class FacebookScraper:
                     continue
 
                 self.logger.info(f"   ✨ Trouvé: {title} ({price}$) dans {spec_loc}")
+                if gps_candidate:
+                    gps_pages_used += 1
 
                 details_page = self.context.new_page()
                 try:
@@ -544,6 +589,22 @@ class FacebookScraper:
                     details_page.close()
 
                 coords = details['coordinates']
+                zone_city = None
+                if gps_on:
+                    verdict, detail = card_verdict(name_ok, coords, self.gps_zone_points, self.gps_zone_km, self.gps_zone_name_km)
+                    if verdict == "reject":
+                        # Mémorisé seulement si le GPS était lu : une fiche non chargée sera retentée.
+                        if detail:
+                            if len(self._gps_rejected) >= self._GPS_REJECTED_MAX:
+                                self._gps_rejected.clear()
+                            self._gps_rejected.add((self._zone_sig, fb_id))
+                        self.logger.info(f"   ⏩ Ignoré (GPS hors des villes listées): {spec_loc} — id={fb_id}")
+                        rejected_out_of_list += 1
+                        continue
+                    zone_city = detail
+                    if gps_candidate:
+                        gps_rescued += 1
+                        self.logger.info(f"   📍 Rattachée par GPS à '{zone_city}' (lieu affiché : {spec_loc}) — id={fb_id}")
                 final_img = details['imageUrls'][0] if details['imageUrls'] else img_url
 
                 listing_data = {
@@ -553,6 +614,12 @@ class FacebookScraper:
                     "id": fb_id, "published_at_raw": details.get('published_at_raw'),
                     "published_at_ts": details.get('published_at_ts')
                 }
+                if zone_city:
+                    listing_data["zone_city"] = zone_city
+                    if gps_candidate:
+                        # Lieu affiché inexploitable (« Réunion, Reunion ») : l'annonce est stockée sous la
+                        # ville listée trouvée par GPS, comme les annonces Kijiji.
+                        listing_data["location"] = self.gps_zone_labels.get(zone_city, spec_loc)
                 if coords:
                     self.logger.info(f"   📍 Coordonnées GPS trouvées: {coords}")
                     listing_data["latitude"] = coords["lat"]
@@ -563,11 +630,12 @@ class FacebookScraper:
                 found_deals.append(listing_data) # Ajout à la liste
                 count += 1
         except Exception as e:
+            scan_error = str(e)
             self.logger.error(f"❌ Erreur scan: {e}", exc_info=True)
         finally:
             page.close()
         return self._scan_result(found_deals, rejected_out_of_list=rejected_out_of_list, total_cards_seen=listings_count,
-                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price)
+                                  dropped_no_location=dropped_no_location, dropped_no_price=dropped_no_price, error=scan_error)
 
     def scan_specific_url(self, url, on_deal_found):
         self._ensure_session()

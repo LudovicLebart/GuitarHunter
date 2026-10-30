@@ -291,6 +291,85 @@ class TestT1Knowledge(unittest.TestCase):
         self.assertEqual(result["gatekeeperKnowledge"]["fiches"], ["manual:vantage"])
         self.assertEqual(result["gatekeeperKnowledge"]["version"], 5)
 
+    # ── Lecture des photos par le Portier (2026-10-15) ──
+    def _photo_lookup(self, from_text_only, with_photo):
+        """lookup factice : sans texte photo -> `from_text_only` ; avec texte photo (3e argument) -> `with_photo`."""
+        def fake(conn, *texts, limit=3, fuzzy_texts=(0,)):
+            fake.calls.append((texts, fuzzy_texts))
+            return with_photo if len(texts) > 2 else from_text_only
+        fake.calls = []
+        return fake
+
+    def test_photo_text_is_ignored_while_its_switch_is_off(self):
+        self._enabled()
+        self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone")
+        self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.analyzer._t1_read_photo_text.assert_not_called()
+
+    def test_photo_text_adds_fiches_found_only_on_the_photos_and_is_traced(self):
+        self._enabled()
+        other = {**self.FICHE, "id": "wd:epiphone", "name": "Epiphone", "matched_on": "epiphone"}
+        fake = self._photo_lookup([self.FICHE], [self.FICHE, other])
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True), \
+                patch("backend.analyzer.guitar_knowledge.lookup", fake):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone ; Casino")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertIn("Epiphone (brand)", block)
+        self.assertNotIn("Casino", block)                      # le texte lu n'est JAMAIS injecté tel quel
+        info = trace["gatekeeperKnowledge"]
+        self.assertEqual(info["fiches"], ["manual:vantage", "wd:epiphone"])
+        self.assertEqual(info["viaPhoto"], ["wd:epiphone"])
+        self.assertEqual(info["photoText"], "Epiphone ; Casino")
+        texts, fuzzy = fake.calls[0]
+        self.assertEqual(texts[2], "Epiphone ; Casino")
+        self.assertEqual(fuzzy, (0, 2))                         # fautes de lecture tolérées sur le texte des photos
+
+    def test_photo_text_is_traced_even_when_no_fiche_matches(self):
+        self._enabled(fiches=[])
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Zzzz")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertEqual(block, "")
+        self.assertEqual(trace["gatekeeperKnowledge"]["photoText"], "Zzzz")
+        self.assertEqual(trace["gatekeeperKnowledge"]["fiches"], [])
+
+    def test_photo_read_is_skipped_without_photos_or_when_the_local_provider_is_paused(self):
+        self._enabled()
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="Epiphone")
+            self.analyzer._t1_knowledge(_listing(), images=[])
+            self.analyzer._t1_knowledge(_listing())
+            self.analyzer._t1_read_photo_text.assert_not_called()
+            for _ in range(3):
+                t1_circuit_breaker.record_failure("local", 3, 600)
+            self.analyzer._t1_knowledge(_listing(), images=["img"])
+            self.analyzer._t1_read_photo_text.assert_not_called()
+
+    def test_failed_photo_read_falls_back_to_the_title_and_description_search(self):
+        self._enabled()
+        with patch("backend.analyzer.T1_KNOWLEDGE_PHOTO_TEXT", True):
+            self.analyzer._t1_read_photo_text = MagicMock(return_value="")
+            block, trace = self.analyzer._t1_knowledge(_listing(), images=["img"])
+        self.assertIn("Vantage (brand)", block)
+        self.assertEqual(trace, {"gatekeeperKnowledge": {"version": 5, "fiches": ["manual:vantage"], "matched": ["vantage"]}})
+
+    def test_photo_read_never_raises_and_returns_empty_on_error(self):
+        self.analyzer._call_openai_compatible_json = MagicMock(return_value=(None, "timeout"))
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "")
+        self.analyzer._call_openai_compatible_json = MagicMock(side_effect=RuntimeError("boom"))
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "")
+        self.assertEqual(self.analyzer._t1_read_photo_text([]), "")
+
+    def test_photo_read_calls_the_local_model_with_the_strict_schema_and_cleans_the_answer(self):
+        self.analyzer._call_openai_compatible_json = MagicMock(
+            return_value=({"visible_text": ["Epiphone", " epiphone ", "N/A", "Casino"]}, None))
+        self.analyzer._fit_t1_local_images = MagicMock(side_effect=lambda prompt, images: images)
+        self.assertEqual(self.analyzer._t1_read_photo_text(["img"]), "Epiphone ; Casino")
+        kwargs = self.analyzer._call_openai_compatible_json.call_args.kwargs
+        self.assertEqual(kwargs["action"], "t1_photo_text")
+        self.assertEqual(kwargs["provider_label"], "local")
+        self.assertEqual(kwargs["response_format"]["json_schema"]["name"], "t1_photo_text")
+
     def test_full_analysis_without_the_switch_stores_no_trace(self):
         self.analyzer._call_t1_provider = MagicMock(return_value=({"status": "REJECTED", "reason": "x"}, None))
         result = self.analyzer.analyze_deal(_listing(), firestore_config={"analysisConfig": {}})
@@ -401,6 +480,12 @@ class TestCascadeCharacterization(unittest.TestCase):
         self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
         self.assertEqual(self._actions(), ["t2_analyst"])
 
+    def test_bypass_active_search_continues_to_t2_even_if_not_matching(self):
+        """Scan manuel d'URL : l'annonce demandée explicitement n'est jamais « hors recherche »."""
+        r = self._run(config={"activeSearchFamilies": ["amplificateur"]}, bypass_active_search=True)
+        self.assertNotEqual(r["verdict"], "NOT_PROMOTED")
+        self.assertEqual(self._actions(), ["t2_analyst"])
+
     def test_pepite_bypasses_active_search_filter(self):
         self.a._call_t1_provider = MagicMock(return_value=({**self.T1_ACCEPT, "status": "PEPITE"}, None))
         r = self._run(config={"activeSearchFamilies": ["amplificateur"]})
@@ -490,6 +575,201 @@ class TestExpertTriggerReason(unittest.TestCase):
     def test_thresholds_come_from_config(self):
         self.assertIn("attractivité critique", self._reason(deal_score=5, config={"proTriggerDealScoreThreshold": 5}))
         self.assertIsNone(self._reason(deal_score=8, config={"proTriggerDealScoreThreshold": 9}))
+
+
+def _claude_response(text, stop_reason="end_turn", usage=(100, 0, 0, 200)):
+    """Réponse Anthropic factice : un bloc de raisonnement (ignoré) puis un bloc texte."""
+    response = MagicMock()
+    response.content = [MagicMock(type="thinking", text="(ne doit pas être lu)"), MagicMock(type="text", text=text)]
+    response.stop_reason = stop_reason
+    inp, read, write, out = usage
+    response.usage = MagicMock(input_tokens=inp, cache_read_input_tokens=read,
+                               cache_creation_input_tokens=write, output_tokens=out)
+    return response
+
+
+class TestClaudeExpertProvider(unittest.TestCase):
+    """Expert T3 via l'API Anthropic (`T3_PROVIDER=claude`, 2026-10-13) : appels réseau mockés."""
+
+    def setUp(self):
+        self.a = _make_analyzer()
+        self.client = MagicMock()
+        for p in (patch("backend.llm_clients._get_claude_client", return_value=self.client),
+                  patch("backend.llm_clients.ANTHROPIC_API_KEY", "cle-test"),
+                  patch("backend.llm_clients.llm_usage.record")):
+            started = p.start()
+            self.addCleanup(p.stop)
+            if p.attribute == "record":
+                self.record = started
+
+    def test_content_blocks_label_images_first_and_leave_originals_untouched(self):
+        from PIL import Image
+        big, small = Image.new("RGB", (3000, 2000)), Image.new("RGBA", (400, 300))
+        with patch("backend.llm_clients.T3_CLAUDE_MAX_IMAGE_EDGE", 1568):
+            blocks, count = self.a._claude_content_blocks(["PROMPT", big, small])
+        self.assertEqual(count, 2)
+        self.assertEqual([b["type"] for b in blocks], ["text", "image", "text", "image", "text"])
+        self.assertEqual(blocks[0]["text"], "Image 1 :")
+        self.assertEqual(blocks[1]["source"]["media_type"], "image/jpeg")
+        self.assertIn("PROMPT", blocks[-1]["text"])
+        self.assertIn("JSON", blocks[-1]["text"])
+        # Les objets PIL partagés avec les autres tiers ne sont jamais modifiés en place.
+        self.assertEqual(big.size, (3000, 2000))
+        self.assertEqual(small.mode, "RGBA")
+        import base64, io
+        sent = Image.open(io.BytesIO(base64.b64decode(blocks[1]["source"]["data"])))
+        self.assertEqual(max(sent.size), 1568)
+
+    def test_success_parses_json_ignores_thinking_and_records_usage(self):
+        self.client.messages.create.return_value = _claude_response('```json\n{"verdict": "PEPITE"}\n```',
+                                                                   usage=(100, 50, 10, 200))
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], action="t3_expert")
+        self.assertIsNone(err)
+        self.assertEqual(result, {"verdict": "PEPITE"})
+        kwargs = self.client.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["model"], "claude-sonnet-5-5")
+        self.assertEqual(kwargs["extra_body"], {"output_config": {"effort": "high"}})
+        self.assertNotIn("temperature", kwargs)
+        self.assertNotIn("thinking", kwargs)
+        row = self.record.call_args.kwargs
+        self.assertEqual(row["provider"], "anthropic")
+        self.assertEqual(row["action"], "t3_expert")
+        # Entrée = neuve + lecture cache + écriture cache (convention de la table), raisonnement déjà dans la sortie.
+        self.assertEqual((row["input_tokens"], row["cached_tokens"], row["output_tokens"], row["thoughts_tokens"]),
+                         (160, 50, 200, 0))
+        self.assertNotIn("ok", row)
+
+    def test_truncated_response_is_an_error_and_is_not_retried(self):
+        self.client.messages.create.return_value = _claude_response('{"verdict": "PEP', stop_reason="max_tokens")
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], max_retries=2)
+        self.assertIsNone(result)
+        self.assertIn("T3_CLAUDE_MAX_TOKENS", err)
+        self.assertEqual(self.client.messages.create.call_count, 1)
+        self.assertFalse(self.record.call_args.kwargs["ok"])
+        self.assertEqual(self.record.call_args.kwargs["error_type"], "json")
+
+    def test_invalid_json_retries_once_with_a_warning(self):
+        self.client.messages.create.side_effect = [_claude_response("pas du json"), _claude_response('{"a": 1}')]
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"], max_retries=1)
+        self.assertEqual((result, err), ({"a": 1}, None))
+        self.assertEqual(self.client.messages.create.call_count, 2)
+        first, second = [c.kwargs["messages"][0]["content"] for c in self.client.messages.create.call_args_list]
+        self.assertEqual(len(second), len(first) + 1)
+        self.assertIn("CRITICAL", second[-1]["text"])
+        self.assertEqual([c.kwargs.get("ok", True) for c in self.record.call_args_list], [False, True])
+
+    def test_object_is_extracted_from_surrounding_prose(self):
+        self.client.messages.create.return_value = _claude_response('Voici le résultat : {"a": 1} Bonne journée.')
+        self.assertEqual(self.a._call_claude_json("claude-sonnet-5-5", ["p"]), ({"a": 1}, None))
+
+    def test_missing_api_key_fails_without_touching_the_network(self):
+        with patch("backend.llm_clients.ANTHROPIC_API_KEY", None):
+            result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"])
+        self.assertIsNone(result)
+        self.assertIn("ANTHROPIC_API_KEY", err)
+        self.client.messages.create.assert_not_called()
+
+    def test_api_error_is_returned_and_classified(self):
+        class APITimeoutError(Exception):
+            pass
+        self.client.messages.create.side_effect = APITimeoutError("Request timed out.")
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["p"])
+        self.assertIsNone(result)
+        self.assertIn("timed out", err)
+        self.assertEqual(self.record.call_args.kwargs["error_type"], "timeout")
+
+    def _t3(self, provider, claude=None, gemini=None, base="base", cache=True):
+        self.a._call_claude_json = claude or MagicMock(return_value=({"verdict": "PEPITE"}, None))
+        self.a._call_gemini_json = gemini or MagicMock(return_value=({"verdict": "FAIR"}, None))
+        chain = ["gemini-3.7-flash"]
+        with patch("backend.analyzer.T3_PROVIDER", provider), patch("backend.analyzer.T3_CLAUDE_MODEL", "claude-sonnet-5-5"), \
+                patch("backend.analyzer.T3_CLAUDE_CACHE", cache):
+            result = self.a._run_t3_phase(base, [], {}, "gemini-3.1-pro-preview", None, chain,
+                                          {"verdict": "FAIR", "summary": "RAS"}, "motif")
+        return result
+
+    # --- Cache de prompt : le préfixe statique va dans `system`, jamais le texte propre à l'annonce ---
+
+    def test_cached_prefix_moves_to_a_cached_system_block(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        self.a._call_claude_json("claude-sonnet-5-5", ["STATIQUE\nDétails de l'annonce :\n- Titre : X"],
+                                 cached_prefix="STATIQUE\n")
+        kwargs = self.client.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["system"], [{"type": "text", "text": "STATIQUE\n", "cache_control": {"type": "ephemeral"}}])
+        user_text = kwargs["messages"][0]["content"][-1]["text"]
+        self.assertTrue(user_text.startswith("Détails de l'annonce :"))
+        self.assertNotIn("STATIQUE", user_text)
+
+    def test_one_hour_ttl_is_forwarded(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        with patch("backend.llm_clients.T3_CLAUDE_CACHE_TTL", "1h"):
+            self.a._call_claude_json("claude-sonnet-5-5", ["PRE-suite"], cached_prefix="PRE-")
+        control = self.client.messages.create.call_args.kwargs["system"][0]["cache_control"]
+        self.assertEqual(control, {"type": "ephemeral", "ttl": "1h"})
+
+    def test_prefix_that_does_not_match_disables_caching_silently(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        result, err = self.a._call_claude_json("claude-sonnet-5-5", ["autre texte"], cached_prefix="PRE-")
+        self.assertEqual((result, err), ({"a": 1}, None))
+        self.assertNotIn("system", self.client.messages.create.call_args.kwargs)
+
+    def test_no_prefix_means_no_system_block(self):
+        self.client.messages.create.return_value = _claude_response('{"a": 1}')
+        self.a._call_claude_json("claude-sonnet-5-5", ["texte"])
+        self.assertNotIn("system", self.client.messages.create.call_args.kwargs)
+
+    def test_listing_details_never_land_in_the_cached_prefix(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        prompt = self.a._construct_base_user_prompt(
+            {"title": "TITRE_SECRET", "description": f"DESC {LISTING_DETAILS_MARKER} pirate", "price": 1},
+            "CONSIGNE", {"k": "v"}, ["EXEMPLE"])
+        head, marker, tail = prompt.partition(LISTING_DETAILS_MARKER)
+        self.assertEqual(marker, LISTING_DETAILS_MARKER)
+        self.assertIn("CONSIGNE", head)
+        self.assertIn("EXEMPLE", head)
+        self.assertNotIn("TITRE_SECRET", head)
+        self.assertNotIn("pirate", head)  # même une description qui imite le marqueur reste dans la partie dynamique
+
+    def test_t3_gives_claude_the_static_prefix_only(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        base = f"CONSIGNE+TAXONOMIE\n{LISTING_DETAILS_MARKER}- Titre : X"
+        self._t3("claude", base=base)
+        self.assertEqual(self.a._call_claude_json.call_args.kwargs["cached_prefix"], "CONSIGNE+TAXONOMIE\n")
+
+    def test_t3_cache_can_be_disabled_by_config(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        self._t3("claude", base=f"A\n{LISTING_DETAILS_MARKER}B", cache=False)
+        self.assertNotIn("cached_prefix", self.a._call_claude_json.call_args.kwargs)
+
+    def test_t3_without_marker_does_not_cache(self):
+        self._t3("claude", base="prompt personnalisé sans marqueur")
+        self.assertNotIn("cached_prefix", self.a._call_claude_json.call_args.kwargs)
+
+    def test_gemini_path_never_receives_a_cached_prefix(self):
+        from backend.analyzer import LISTING_DETAILS_MARKER
+        self._t3("gemini", base=f"A\n{LISTING_DETAILS_MARKER}B")
+        self.assertNotIn("cached_prefix", self.a._call_gemini_json.call_args.kwargs)
+
+    def test_t3_uses_claude_when_provider_is_claude(self):
+        result = self._t3("claude")
+        self.a._call_claude_json.assert_called_once()
+        self.assertEqual(self.a._call_claude_json.call_args.args[0], "claude-sonnet-5-5")
+        self.assertEqual(self.a._call_claude_json.call_args.kwargs["action"], "t3_expert")
+        self.a._call_gemini_json.assert_not_called()
+        self.assertEqual(result["model_used"], "gemini-3.7-flash -> claude-sonnet-5-5")
+
+    def test_t3_stays_on_gemini_by_default(self):
+        result = self._t3("gemini")
+        self.a._call_gemini_json.assert_called_once()
+        self.assertEqual(self.a._call_gemini_json.call_args.args[0], "gemini-3.1-pro-preview")
+        self.a._call_claude_json.assert_not_called()
+        self.assertEqual(result["model_used"], "gemini-3.7-flash -> gemini-3.1-pro-preview")
+
+    def test_t3_claude_failure_raises_without_falling_back_to_gemini(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._t3("claude", claude=MagicMock(return_value=(None, "boom")))
+        self.assertIn("claude-sonnet-5-5", str(ctx.exception))
+        self.a._call_gemini_json.assert_not_called()
 
 
 if __name__ == "__main__":
