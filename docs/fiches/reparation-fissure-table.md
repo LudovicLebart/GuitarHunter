@@ -218,7 +218,8 @@ avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche
 ## Sources et liens
 
 - [Premier Guitar : Acoustic soundboard, to cleat or not to cleat (Bryan Galloup)](https://www.premierguitar.com/acoustic-soundboard-to-cleat-or-not-to-cleat) : une fissure d'humidité qui se referme bien tient par la colle seule ; les cales ajoutent de la masse et peuvent provoquer une fissure à côté ; elles se justifient quand un simple collage ne tiendra pas.
-- [Frets.com (Frank Ford) : Crack repair](https://www.frets.com/pages/xgadge6a/Crack-Repair) et [A simple top crack repair](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) : réparations réelles de gravité différente, colles, renforts d'épicéa.
+- [Frets.com : Crack repair (Frank Ford)](https://www.frets.com/pages/xgadge6a/Crack-Repair) : réparation d'une table et d'une éclisse après une chute, colle de peau claire, renforts d'épicéa.
+- [Frets.com : A simple top crack repair (Frank Ford)](https://www.frets.com/pages/xmlg02db/A-Simple-Top-Crack-Repair) : fissure ancienne et encrassée, colle à bois jaune, renfort d'épicéa d'environ 3/32 po.
 - [StewMac : Crack repair tool instructions](https://www.stewmac.com/video-and-ideas/online-resources/learn-about-repair-tools-and-repair-techniques/stewmac-crack-repair-tool-instructions) : cales en bois assorti de 3/32 à 1/8 po, fil à environ 45° de la fissure.
 - [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) : retour à l'humidité normale (méthode du sac), Titebond Liquid Hide Glue, cale interne.
 - [StewMac : TJ Thompson top crack repair](https://www.stewmac.com/video-and-ideas/tool-demo-videos/luthier-tools-and-supplies-videos/tj-thompson-top-crack-repair-video) : cale à aimants (cartouche usinée) pour les fissures près du chevalet.
