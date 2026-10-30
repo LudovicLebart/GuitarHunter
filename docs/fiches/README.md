@@ -12,7 +12,7 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 - **Chargement en base** : automatique à chaque déploiement (`deploy.yml`) — la source est ce dossier, la base n'en est qu'une copie
   dérivée (ne jamais corriger une fiche en base). À la main : `python backend/scripts/seed_guitar_fiches.py --dry-run` valide (sources,
   renvois, alias, `difficulte` et `duree` obligatoires, champs d'en-tête inconnus refusés), puis sans `--dry-run` écrit ; `DATABASE_URL` à exporter.
-- **Images, visuels, diagrammes (obligatoires)** : une fiche illustre ses étapes, elle n'est pas que du texte. Fichiers dans `docs/fiches/img/<slug>/`, nommés `NN-description.svg` (ou `.jpg`, `.png`, `.webp`), référencés en chemin relatif, placés dans l'étape qu'ils servent. Par défaut : schémas SVG originaux ; sinon photos de l'atelier ou images sous licence libre avec crédit. **Jamais d'image copiée d'un site, d'un forum ou de Reddit sans accord** (le dépôt est public). Les liens externes restent un complément. Détail : `docs/how-to/FICHES_TECHNIQUES.md` §4.
+- **Images, visuels, diagrammes (obligatoires)** : une fiche illustre ses étapes, elle n'est pas que du texte. Fichiers dans `docs/fiches/img/<slug>/`, nommés `NN-description.svg` (ou `.jpg`, `.png`, `.webp`), référencés en chemin relatif, placés dans l'étape qu'ils servent. Par défaut : schémas SVG originaux, fabriqués avec la **banque d'éléments** `_banque/` (guitare, sac, hygromètre, repères numérotés… même style partout, voir `_banque/README.md`) ; sinon photos de l'atelier ou images sous licence libre avec crédit. **Jamais d'image copiée d'un site, d'un forum ou de Reddit sans accord** (le dépôt est public). Les liens externes restent un complément. Détail : `docs/how-to/FICHES_TECHNIQUES.md` §4.
 - **Sources obligatoires** : chaque fiche cite un ou plusieurs liens (sites ou vidéos de luthiers)
   expliquant le problème et la marche à suivre ; signaler quand les sources divergent.
 - **Renvois entre fiches** : un sujet qui mérite sa propre procédure devient une fiche à part, citée par
@@ -30,6 +30,8 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Ajuster l'action](reglage-action.md) | Réglage | 2/5 | brouillon |
 | [Ajuster le truss rod](reglage-truss-rod.md) | Réglage | 2/5 | brouillon |
 | [Réparer une fissure dans la table](reparation-fissure-table.md) | Structurel | 3/5 (2 à 5 selon l'état) | en_revision |
+| [Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md) | Structurel | 1/5 | brouillon |
+| [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Structurel | 1/5 | brouillon |
 
 ## Fiches envisagées
 

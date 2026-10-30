@@ -116,19 +116,16 @@ Niveaux 2 et 3, en plus :
 
 #### 1. Laisser l'instrument retrouver une humidité relative normale
 
-**Il ne s'agit pas de mouiller la table ni la fissure** : on corrige l'air autour de l'instrument pour que le bois
-reprenne son humidité d'équilibre. Placer l'instrument dans un air à humidité normale (humidificateur dans la caisse ou dans l'étui, hygromètre) plusieurs
-jours, voire plusieurs semaines pour une table très sèche. Méthode rapide montrée par StewMac pour une
-fissure récente : un petit bol d'eau avec une éponge et un hygromètre, le tout avec l'instrument à plat dans un
-sac plastique, une nuit. La fissure se referme parfois d'elle-même ; **dans la démonstration de StewMac elle ne
-s'est pas refermée** (printemps pluvieux), il faut alors passer au niveau 2. Une plage de 45 à 55 % d'humidité
-relative est l'usage courant mais n'apparaît dans aucune des sources lues : à confirmer avec l'atelier.
+**On ne mouille pas la guitare** : on corrige l'air autour d'elle (cible 45 à 55 % d'humidité relative). Procédure, méthode du sac et précautions dans la fiche
+[Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md). Si la fissure se referme, continuer au niveau 1 ; si elle reste ouverte
+(c'est arrivé dans la démonstration de StewMac), passer au niveau 2.
 
 > **Vidéo** : [StewMac : How to fix a guitar crack caused by humidity damage](https://www.stewmac.com/video-and-ideas/trade-secrets/how-to-fix-a-guitar-crack-caused-by-humidity-damage/) (Dan Erlewine, avec transcription) : la méthode du sac, le collage par l'extérieur et la cale à l'intérieur.
 
-#### 2. Protéger et préparer
+#### 2. Nettoyer et protéger
 
-Dégraisser les lèvres sans solvant agressif, masquer la finition autour de la fissure avec du ruban à faible adhérence.
+Souffler la poussière, dégraisser l'intérieur de la fissure et masquer le vernis autour : procédure complète, produits et précautions dans la fiche
+[Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md).
 
 #### 3. Coller
 
@@ -227,7 +224,7 @@ avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche
 > Photos et vidéos : liens placés dans les étapes concernées ; aucune image n'est copiée dans le dépôt (public, droits des auteurs).
 
 > **À confirmer** : les pages ont été lues par un agent de lecture ; pour les pages longues, la fin n'est connue que par
-> un résumé automatique. La plage d'humidité (45 à 55 %), la division en quatre niveaux et leurs critères sont une
+> un résumé automatique. La division en quatre niveaux et leurs critères sont une
 > synthèse qui n'apparaît telle quelle dans aucune source. Les sources divergent sur les cales (Galloup : souvent inutiles ;
 > StewMac : procédure standard) et sur la colle (peau claire, colle jaune pour les fissures sales). À valider avec la pratique
 > de l'atelier avant `validee`. Aucune vidéo en français n'a été trouvée.
@@ -241,3 +238,4 @@ avec le vernis d'origine. Sur une finition nitro, voir un luthier si la retouche
 | 2026-10-30 | Ajout de trois schémas SVG originaux (niveaux de gravité, mise de niveau des lèvres, orientation des cales) |
 | 2026-10-30 | Ajout de photos réelles de Frets.com, affichées depuis le site d'origine (non copiées), avec crédit et lien |
 | 2026-10-30 | Ajout d'une photo de fissure discrète et d'un encadré fissure du bois ou du vernis |
+| 2026-10-30 | Nettoyage et dégraissage déplacés dans la fiche « Nettoyer et dégraisser une fissure avant collage » (renvoi à l'étape 2) |
