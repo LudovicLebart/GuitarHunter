@@ -35,10 +35,13 @@ _STAMP_SQL = """
 MAX_CANDIDATES = 50      # fiches examinées avant de couper à `limit` (les identifiants périmés sont écartés ensuite)
 
 
-def _meta_sql(with_body: bool = False) -> str:
+def _meta_sql(with_body: bool = False, with_aliases: bool = False) -> str:
+    # `aliases` : les expressions qui retrouvent la fiche (texte d'origine) ; le catalogue du client s'en sert pour chercher une fiche.
+    aliases = (", ARRAY(SELECT a.alias FROM guitar_knowledge_alias a WHERE a.knowledge_id = k.id ORDER BY a.alias) AS aliases"
+               if with_aliases else "")
     return f"""
     SELECT k.id, k.name AS titre, k.description AS resume, k.confidence,
-           f.categorie, f.difficulte, f.duree, f.statut, f.revision{', f.body_md' if with_body else ''}
+           f.categorie, f.difficulte, f.duree, f.statut, f.revision{', f.body_md' if with_body else ''}{aliases}
     FROM guitar_knowledge k JOIN guitar_knowledge_fiche f ON f.knowledge_id = k.id
     WHERE k.kind = ANY($1)"""
 
@@ -55,7 +58,7 @@ def invalidate_cache() -> None:
 
 
 async def list_fiches(pool: asyncpg.Pool, categorie: str | None = None) -> list[dict]:
-    sql, params = _meta_sql(), [list(gk.FICHE_KINDS)]
+    sql, params = _meta_sql(with_aliases=True), [list(gk.FICHE_KINDS)]
     if categorie:
         sql += " AND f.categorie = $2"
         params.append(categorie)

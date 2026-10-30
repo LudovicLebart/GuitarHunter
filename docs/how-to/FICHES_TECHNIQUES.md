@@ -14,7 +14,7 @@ Les fiches sont des procédures pratiques (ajuster l'action, régler le truss ro
 ## 2. Lier une fiche à une étape de restauration
 
 1. Ouvrir l'annonce, puis son plan de restauration.
-2. Sur une étape (en création ou en édition), choisir la fiche dans le sélecteur « fiche technique ».
+2. Sur une étape (en création ou en édition), choisir la fiche dans le sélecteur « fiche technique ». Un champ de recherche au-dessus filtre la liste (titre, résumé, mot-clé ou alias, sans accents ni casse) ; choisir une fiche reprend sa catégorie, que l'on peut ensuite modifier.
 3. L'étape affiche alors un lien cliquable vers la fiche. Pour retirer le lien, vider le sélecteur.
 
 Un slug inconnu est refusé par l'API (422) ; si une fiche disparaît, le lien n'est simplement plus affiché.

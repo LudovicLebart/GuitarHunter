@@ -11,7 +11,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
 import { ImageLightbox } from '../ImageGallery';
 import { useFichesCatalog } from '../../hooks/useFichesCatalog';
-import { ficheHref, fichesForCategory } from '../../utils/fiches';
+import { categoryForFiche, ficheHref, fichesForCategory, filterFiches } from '../../utils/fiches';
 
 const STATUS_STYLES = {
     pending: 'bg-slate-800 text-slate-300 border-slate-700',
@@ -31,6 +31,18 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
     const [form, setForm] = useState(initial);
     const [saving, setSaving] = useState(false);
     const [submitError, setSubmitError] = useState(null);
+    const [ficheQuery, setFicheQuery] = useState('');
+
+    // Choisir une fiche reprend sa catégorie (modifiable ensuite) ; « aucune fiche » ne touche pas à la catégorie.
+    const pickFiche = (slug) => {
+        const category = categoryForFiche(fiches.find(f => f.slug === slug), Object.keys(CATEGORY_LABELS));
+        setForm(f => ({ ...f, ficheSlug: slug, ...(category ? { category } : {}) }));
+    };
+    // Recherche dans le titre, le résumé, le slug et les alias ; la fiche déjà choisie reste toujours dans la liste.
+    const matching = filterFiches(fiches, { query: ficheQuery });
+    const shown = ficheQuery.trim() && form.ficheSlug && !matching.some(f => f.slug === form.ficheSlug)
+        ? [...matching, ...fiches.filter(f => f.slug === form.ficheSlug)]
+        : matching;
 
     const submit = async () => {
         if (!form.label.trim()) return;
@@ -82,17 +94,28 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
                 />
             </div>
             {(fiches.length > 0 || form.ficheSlug) && (
+                <div className="space-y-1.5">
+                {fiches.length > 0 && (
+                    <input
+                        type="search"
+                        value={ficheQuery}
+                        onChange={(e) => setFicheQuery(e.target.value)}
+                        placeholder="Rechercher une fiche (titre, mot-clé, alias…)"
+                        aria-label="Rechercher une fiche technique"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
+                    />
+                )}
                 <select
                     value={form.ficheSlug}
-                    onChange={(e) => setForm(f => ({ ...f, ficheSlug: e.target.value }))}
+                    onChange={(e) => pickFiche(e.target.value)}
                     aria-label="Fiche technique liée"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40"
                 >
-                    <option value="">Aucune fiche technique liée</option>
+                    <option value="">{ficheQuery.trim() && shown.length === 0 ? 'Aucune fiche ne correspond à la recherche' : 'Aucune fiche technique liée'}</option>
                     {/* un lien déjà posé reste affiché même si le catalogue ne le connaît plus */}
                     {form.ficheSlug && !fiches.some(f => f.slug === form.ficheSlug) && <option value={form.ficheSlug}>{form.ficheSlug}</option>}
                     {(() => {
-                        const { same, others } = fichesForCategory(fiches, form.category);
+                        const { same, others } = fichesForCategory(shown, form.category);
                         return (
                             <>
                                 {same.length > 0 && <optgroup label={`Fiches « ${CATEGORY_LABELS[form.category] || form.category} »`}>{same.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
@@ -101,6 +124,7 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
                         );
                     })()}
                 </select>
+                </div>
             )}
             <textarea
                 value={form.notes}

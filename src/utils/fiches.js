@@ -85,13 +85,13 @@ export const difficultyLabel = (d) => (Number.isInteger(d) && d >= 1 && d <= 5 ?
 
 const fold = (text) => String(text || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-/** Filtre la liste : catégorie exacte (vide = toutes) et mots de `query` tous présents dans titre, résumé ou slug (sans
- *  tenir compte des accents ni de la casse). */
+/** Filtre la liste : catégorie exacte (vide = toutes) et mots de `query` tous présents dans titre, résumé, slug ou alias
+ *  (les expressions qui retrouvent la fiche, ex. « truss rod coincé »), sans tenir compte des accents ni de la casse. */
 export const filterFiches = (fiches, { categorie = '', query = '' } = {}) => {
     const words = fold(query).split(/\s+/).filter(Boolean);
     return (fiches || []).filter((f) => {
         if (categorie && f.categorie !== categorie) return false;
-        const haystack = fold(`${f.titre} ${f.resume || ''} ${f.slug}`);
+        const haystack = fold(`${f.titre} ${f.resume || ''} ${f.slug} ${(f.aliases || []).join(' ')}`);
         return words.every((w) => haystack.includes(w));
     });
 };
@@ -106,6 +106,10 @@ export const groupByCategory = (fiches, order = []) => {
     const rank = (c) => (order.indexOf(c) === -1 ? order.length : order.indexOf(c));
     return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]));
 };
+
+/** Catégorie d'étape de restauration à reprendre d'une fiche : sa catégorie si elle fait partie des catégories d'étape
+ *  connues (`validCategories`), sinon null (la catégorie de l'étape reste telle quelle). */
+export const categoryForFiche = (fiche, validCategories = []) => (validCategories.includes(fiche?.categorie) ? fiche.categorie : null);
 
 /** Sépare les fiches d'une catégorie (étape de restauration) du reste, pour un sélecteur : les fiches de la même catégorie
  *  d'abord, sans en cacher aucune autre. */

@@ -115,6 +115,12 @@ class TestFichesAPI(_FichesBase):
                          ("Ajuster le truss rod", "reglage", "brouillon", "sourced"))
         self.assertNotIn("body_md", first)
 
+    def test_list_carries_the_aliases_of_each_fiche_for_client_search(self):
+        by_slug = {f["slug"]: f for f in self.client.get("/fiches").json()}
+        self.assertEqual(by_slug["api-truss"]["aliases"], ["ajuster le truss rod", "truss rod coince"])
+        self.assertEqual(by_slug["api-neck"]["aliases"], ["neck reset"])
+        self.assertNotIn("aliases", self.client.get("/fiches/api-neck").json())       # le détail n'en a pas besoin
+
     def test_list_filters_by_category(self):
         slugs = {f["slug"] for f in self.client.get("/fiches", params={"categorie": "structurel"}).json()}
         self.assertEqual(slugs, {"api-neck"})

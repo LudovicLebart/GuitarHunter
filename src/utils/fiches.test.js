@@ -3,7 +3,28 @@ import assert from 'node:assert/strict';
 import {
     FICHES_HREF, buildFichesContextText, ficheHref, fichesForCategory, filterFiches, groupByCategory, needsWarning, parseFicheHash,
     pickAllowedFicheSlug, resolveFicheHref, resolveFicheImage, safeUrl, splitFicheLinks, fichesSharedInMessages, splitFicheHistory,
+    categoryForFiche,
 } from './fiches.js';
+
+test('filterFiches : cherche aussi dans les alias (sans accents ni casse)', () => {
+    const fiches = [
+        { slug: 'debloquer-truss-rod', titre: 'Débloquer un truss rod coincé', resume: '', categorie: 'reglage', aliases: ['écrou qui ne tourne pas', 'truss rod grippé'] },
+        { slug: 'neck-reset', titre: 'Neck reset', resume: '', categorie: 'structurel', aliases: [] },
+        { slug: 'sans-alias', titre: 'Autre', categorie: 'autre' },
+    ];
+    assert.deepEqual(filterFiches(fiches, { query: 'GRIPPE' }).map((f) => f.slug), ['debloquer-truss-rod']);
+    assert.deepEqual(filterFiches(fiches, { query: 'ecrou tourne' }).map((f) => f.slug), ['debloquer-truss-rod']);
+    assert.deepEqual(filterFiches(fiches, { query: 'neck' }).map((f) => f.slug), ['neck-reset']);
+    assert.equal(filterFiches(fiches, { query: 'introuvable' }).length, 0);
+});
+
+test('categoryForFiche : la catégorie de la fiche si elle est connue, sinon null', () => {
+    const categories = ['structurel', 'reglage', 'autre'];
+    assert.equal(categoryForFiche({ categorie: 'reglage' }, categories), 'reglage');
+    assert.equal(categoryForFiche({ categorie: 'inconnue' }, categories), null);
+    assert.equal(categoryForFiche(null, categories), null);
+    assert.equal(categoryForFiche({ categorie: 'reglage' }), null);
+});
 
 test('splitFicheHistory : la dernière section « Historique des révisions » est séparée du corps', () => {
     const md = '# T\n\n## Étapes\n\ntexte\n\n## Sources et liens\n\n- a\n\n## Historique des révisions\n\n| Date | Changement |\n|---|---|\n| 2026-10-30 | Création |\n';
