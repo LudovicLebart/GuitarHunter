@@ -631,6 +631,18 @@ class DealAnalyzer(LLMClientsMixin):
             gatekeeper_brand = result_t1.get('brand')
             gatekeeper_classification = result_t1.get('classification')
 
+            # La classification du Portier est un texte libre (aucun enum côté schéma) : on la
+            # ramène au chemin canonique AVANT le routage Recherche Active, qui compare par
+            # égalité/préfixe de chemin. Non résolue (inconnue/ambiguë) : valeur brute conservée.
+            if gatekeeper_classification:
+                canonical, reason = canonicalize_classification(
+                    gatekeeper_classification, taxonomy, self._get_taxonomy_index(taxonomy))
+                if canonical and canonical != gatekeeper_classification:
+                    self.logger.info(
+                        f"   🧭 Classification du Portier normalisée : "
+                        f"'{gatekeeper_classification}' -> '{canonical}' ({reason})")
+                    gatekeeper_classification = canonical
+
             if gatekeeper_status == 'UNKNOWN':
                 gatekeeper_status = 'ERROR'
                 gatekeeper_reason = f"Réponse IA invalide. Brut : {str(result_t1)}"
