@@ -97,7 +97,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 ### Pipeline IA (3-Tiers)
 1. **Tier 1 — Portier** : filtre rapide. Depuis le 2026-09-29, **`qwen3-vl:8b-instruct` en local sur le Dell** (Ollama, chaîne `T1_PROVIDER_CHAIN=local,qwen`, Qwen cloud en secours) ; Gemini Flash-Lite n'est plus le décideur
 2. **Tier 2 — Analyste** (`gemini-3.5-flash`, depuis 2026-07-09 — `gemini-2.5-flash` retiré par Google) : 5 scores numériques
-3. **Tier 3 — Expert Pro** (`gemini-3.1-pro-preview`, depuis 2026-07-07) : analyse exhaustive (conditionnel)
+3. **Tier 3 — Expert Pro** (**`claude-sonnet-5-5` par défaut depuis 2026-10-31**, `T3_PROVIDER=claude` ; Gemini `gemini-3.1-pro-preview` si `T3_PROVIDER=gemini`) : analyse exhaustive (conditionnel)
 
 ### Commandes Backend
 `REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP`
