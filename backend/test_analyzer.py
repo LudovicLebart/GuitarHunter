@@ -390,6 +390,10 @@ class TestCascadeCharacterization(unittest.TestCase):
 
     def setUp(self):
         self.a = _make_analyzer()
+        # Ces tests figent la cascade Gemini ; le défaut de production est "claude" depuis le 2026-10-31.
+        _p = patch("backend.analyzer.T3_PROVIDER", "gemini")
+        _p.start()
+        self.addCleanup(_p.stop)
         self.a._run_t1_shadow_observation = MagicMock(return_value={})
         self.a._download_and_optimize_image = MagicMock(return_value=None)
         self.a._call_t1_provider = MagicMock(return_value=(dict(self.T1_ACCEPT), None))

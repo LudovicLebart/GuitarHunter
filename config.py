@@ -205,13 +205,12 @@ T1_KNOWLEDGE_PHOTO_TEXT = os.getenv("T1_KNOWLEDGE_PHOTO_TEXT", "false").lower() 
 T1_KNOWLEDGE_REQUIRE_REVIEW = os.getenv("T1_KNOWLEDGE_REQUIRE_REVIEW", "true").lower() in ("1", "true", "yes")
 
 # --- FOURNISSEUR DE L'EXPERT PRO (TIER 3) ---
-# "gemini" (défaut) : comportement historique, modèle lu dans la config utilisateur (`proModel`).
-# "claude" : l'Expert est appelé via l'API Anthropic (`backend/llm_clients.py::_call_claude_json`) ;
+# "claude" (défaut depuis le 2026-10-31) : l'Expert est appelé via l'API Anthropic (`backend/llm_clients.py::_call_claude_json`) ;
 # `proModel`/`expertModel` de la config utilisateur sont alors ignorés pour le Tier 3. Retour à Gemini =
-# repasser la variable à "gemini" (aucun repli automatique : un Expert qui échoue échoue visiblement,
-# décision du 2026-09-27, voir `analyzer.py::_run_t3_phase`). Ne PAS basculer en prod sans rejeu
-# concluant (voir `COST_OPTIMIZATION_CHANTIERS.md`, Chantier F : le choix du modèle T3 est une décision de qualité).
-T3_PROVIDER = os.getenv("T3_PROVIDER", "gemini").strip().lower()
+# mettre T3_PROVIDER=gemini (comportement historique, modèle lu dans `proModel`) (aucun repli automatique : un Expert qui échoue échoue visiblement,
+# décision du 2026-09-27, voir `analyzer.py::_run_t3_phase`). Exige ANTHROPIC_API_KEY dans le .env du serveur.
+# Bascule décidée par l'utilisateur le 2026-10-31 après rejeu + examen à l'aveugle (égalité de qualité, coût équivalent).
+T3_PROVIDER = os.getenv("T3_PROVIDER", "claude").strip().lower()
 T3_CLAUDE_MODEL = os.getenv("T3_CLAUDE_MODEL", "claude-sonnet-5-5")
 # Niveau d'effort Anthropic (`output_config.effort`) : low | medium | high | xhigh | max. `high` = défaut
 # de l'API pour Sonnet 5.5. Le raisonnement adaptatif est actif par défaut et COMPTE dans `max_tokens`.
