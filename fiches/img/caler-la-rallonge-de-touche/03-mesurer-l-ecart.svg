@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 335" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Mesurer l'écart sous le bout de la rallonge</title>
+  <desc id="d">Coupe latérale : l'écart se mesure entre le dessous du bout de la rallonge et la table, manche serré à blanc.</desc>
+  <rect width="820" height="335" fill="#f8fafc"/>
+<g transform="rotate(-8.8 340 170)"><rect x="230" y="170" width="110" height="70" fill="#7c4a1e"/><rect x="230" y="161" width="330" height="9" fill="#1e293b" stroke="#475569" stroke-width="2"/></g><rect x="340" y="170" width="290" height="14" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <path d="M557.4 136.3 V170" stroke="#dc2626" stroke-width="3"/>
+  <path d="M548.4 136.3 h18 M548.4 170 h18" stroke="#dc2626" stroke-width="3"/>
+  <circle cx="627.4102439182416" cy="153.17155800875582" r="15" fill="#0f172a"/><text x="627.4102439182416" y="159.17155800875582" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <text x="652.4102439182416" y="159.17155800875582" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Écart au bout</text>
+  <text x="410" y="30" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Manche serré à blanc, comme il le sera au collage</text>
+  <text x="410" y="290" font-size="14" fill="#334155" text-anchor="middle">Mesurer côté graves et côté aigus (cales d'épaisseur ou petits coins).</text>
+  <text x="410" y="312" font-size="14" fill="#334155" text-anchor="middle">Si l'écart diffère d'un côté à l'autre : revoir l'alignement du manche avant de caler.</text>
+</svg>
