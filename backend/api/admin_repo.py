@@ -123,7 +123,7 @@ async def delete_user_data(pool: asyncpg.Pool, target_uid: str) -> str:
 _CHAT_COST_SQL = """
 SELECT (created_at AT TIME ZONE 'America/Toronto')::date AS day, model, user_ref,
        COUNT(*) AS calls, SUM(input_tokens) AS input_tokens, SUM(cached_tokens) AS cached_tokens,
-       SUM(output_tokens + thoughts_tokens) AS output_tokens
+       SUM(cache_write_tokens) AS cache_write_tokens, SUM(output_tokens + thoughts_tokens) AS output_tokens
 FROM llm_usage
 WHERE source = 'chat' AND ok AND created_at > now() - make_interval(days => $1)
 GROUP BY 1, 2, 3
@@ -132,17 +132,17 @@ GROUP BY 1, 2, 3
 
 async def chat_cost(pool: asyncpg.Pool, days: int = 30) -> dict:
     """Coût du chat (instrument de coût, 2026-11-01) : par jour, par modèle et par utilisateur, sur `days` jours, plus le
-    total du jour et l'alerte (seuil `DAILY_ALERT_USD`, jamais bloquante). Les modèles sans tarif sont comptés à part."""
+    total du jour et l'alerte (seuil `DAILY_ALERT_USD`, jamais bloquante). Un modèle sans tarif est compté au tarif le plus haut connu (jamais à 0 $) et signalé."""
     rows = await pool.fetch(_CHAT_COST_SQL, days)
     today = (await pool.fetchval("SELECT (now() AT TIME ZONE 'America/Toronto')::date")).isoformat()
     by_day, by_model, by_user = {}, {}, {}
-    unpriced = 0
+    estimated, unpriced_models = 0, set()
     for r in rows:
         cost = llm_pricing.cost_usd(r["model"], int(r["input_tokens"] or 0), int(r["cached_tokens"] or 0),
-                                    int(r["output_tokens"] or 0))
-        if cost is None:
-            unpriced += r["calls"]
-            cost = 0.0
+                                    int(r["output_tokens"] or 0), int(r["cache_write_tokens"] or 0), fallback=True)
+        if not llm_pricing.is_priced(r["model"]):
+            estimated += r["calls"]
+            unpriced_models.add(r["model"])
         for bucket, key in ((by_day, r["day"].isoformat()), (by_model, r["model"]), (by_user, r["user_ref"])):
             agg = bucket.setdefault(key, {"cost": 0.0, "calls": 0})
             agg["cost"] += cost
@@ -158,6 +158,7 @@ async def chat_cost(pool: asyncpg.Pool, days: int = 30) -> dict:
                     for m, v in sorted(by_model.items(), key=lambda kv: -kv[1]["cost"])],
         "byUser": [{"uid": u, "email": auth_users.get(u, {}).get("email"), "cost": round(v["cost"], 4), "calls": v["calls"]}
                    for u, v in sorted(by_user.items(), key=lambda kv: -kv[1]["cost"])],
-        "unpricedCalls": unpriced,
+        "estimatedCalls": estimated,  # appels de modèles sans tarif, comptés au tarif le plus haut connu
+        "unpricedModels": sorted(unpriced_models),
     }
 

@@ -25,7 +25,7 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_repo, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_repo, cost_alert, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -217,7 +217,15 @@ async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
             raise HTTPException(status_code=422, detail=f"{k} hors bornes")
     if len(row["model"]) > 100 or len(row["action"]) > 60 or len(row["error_type"] or "") > 40:
         raise HTTPException(status_code=422, detail="model/action/error_type trop longs")
-    await usage_repo.add_usage(get_pool(), uid, row)
+    # Le navigateur ne déclare que des tours Gemini : les tours Claude seront enregistrés par le serveur lui-même (le coût et
+    # l'alerte ne doivent pas reposer sur un chiffre qu'un client peut inventer). Les lus du cache ne dépassent jamais l'entrée.
+    if row["model"].startswith("claude"):
+        raise HTTPException(status_code=422, detail="Les tours Claude sont enregistrés par le serveur.")
+    row["cached_tokens"] = min(row["cached_tokens"], row["input_tokens"])
+    pool = get_pool()
+    await usage_repo.add_usage(pool, uid, row)
+    today = await pool.fetchval("SELECT (now() AT TIME ZONE 'America/Toronto')::date::text")
+    await cost_alert.maybe_alert(pool, today)
 
 
 @app.get("/logs")

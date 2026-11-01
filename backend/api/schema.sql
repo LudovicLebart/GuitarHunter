@@ -613,6 +613,8 @@ CREATE INDEX IF NOT EXISTS llm_usage_model_action_idx ON llm_usage (model, actio
 -- Les tokens d'un appel qui a répondu mais dont le JSON était invalide sont conservés : ils ont été
 -- facturés. Fournisseur local (Dell/Ollama) étiqueté `local`.
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS error_type TEXT;
+-- 2026-11-01 : tokens ÉCRITS dans le cache de prompt (Anthropic, facturés 1,25 × ou 2 × l'entrée), inclus dans input_tokens.
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS cache_write_tokens INTEGER NOT NULL DEFAULT 0;
 
 -- ============================================================================================
 -- Base de connaissances « univers des guitares » (2026-09-28) — voir docs/management/plans/

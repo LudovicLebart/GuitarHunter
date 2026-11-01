@@ -21,6 +21,7 @@ const STATUS_COLOR = {
 };
 
 const AdminDashboard = ({ onClose }) => {
+    const [chatCost, setChatCost] = useState(null);
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -67,7 +68,6 @@ const AdminDashboard = ({ onClose }) => {
         }
     };
 
-    const [chatCost, setChatCost] = useState(null);
     const money = (v) => `${(v ?? 0).toFixed(2)} $`;
 
     useEffect(() => { loadData(); }, []);
@@ -122,7 +122,7 @@ const AdminDashboard = ({ onClose }) => {
                                     {chatCost.byUser.slice(0, 5).map((u) => <div key={u.uid}>{u.email || u.uid.slice(0, 8)} : {money(u.cost)} ({u.calls} appels)</div>)}
                                 </div>
                             </div>
-                            {chatCost.unpricedCalls > 0 && <div className="mt-1 text-xs text-amber-400">{chatCost.unpricedCalls} appels sans tarif connu (non chiffrés).</div>}
+                            {chatCost.estimatedCalls > 0 && <div className="mt-1 text-xs text-amber-400">{chatCost.estimatedCalls} appels estimés au tarif le plus haut connu (modèle sans tarif : {chatCost.unpricedModels.join(', ')}).</div>}
                         </div>
                     )}
 

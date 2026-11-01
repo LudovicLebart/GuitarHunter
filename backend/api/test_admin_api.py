@@ -90,7 +90,8 @@ class TestAdminAPI(unittest.TestCase):
         body = resp.json()
         sonnet = next(m for m in body["byModel"] if m["model"] == "claude-sonnet-5-5")
         self.assertGreaterEqual(sonnet["cost"], 3.0)
-        self.assertGreaterEqual(body["unpricedCalls"], 1)
+        self.assertGreaterEqual(body["estimatedCalls"], 1)
+        self.assertIn("modele-inconnu", body["unpricedModels"])
         user = next(u for u in body["byUser"] if u["uid"] == TARGET_UID)
         self.assertEqual(user["email"], "cible@example.com")
         self.assertTrue(body["today"]["alert"])
@@ -160,6 +161,53 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class _FakePool:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def fetch(self, *_a):
+        return self.rows
+
+
+class TestCostAlert(unittest.TestCase):
+    ROW = {"model": "claude-sonnet-5-5", "input_tokens": 1_000_000, "cached_tokens": 0, "cache_write_tokens": 0,
+           "output_tokens": 100_000}  # 3 $ : au-dessus du seuil de 2 $
+
+    def setUp(self):
+        from backend.api import cost_alert
+        self.cost_alert = cost_alert
+        cost_alert._alerted_on = None
+        self.sent = []
+        self.patches = [patch.object(cost_alert, "_send_ntfy", lambda t, ti, m: self.sent.append((t, ti, m))),
+                        patch.dict("os.environ", {"NTFY_TOPIC": "topic-test"})]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.cost_alert._alerted_on = None
+
+    def test_alert_sent_once_per_day_when_threshold_exceeded(self):
+        pool = _FakePool([self.ROW])
+        self.assertTrue(asyncio.run(self.cost_alert.maybe_alert(pool, "2026-11-01")))
+        self.assertFalse(asyncio.run(self.cost_alert.maybe_alert(pool, "2026-11-01")))  # déjà prévenu aujourd'hui
+        self.assertEqual(len(self.sent), 1)
+        self.assertTrue(asyncio.run(self.cost_alert.maybe_alert(pool, "2026-11-02")))  # nouveau jour, nouvelle alerte
+        self.assertEqual(len(self.sent), 2)
+
+    def test_no_alert_below_threshold_or_without_topic(self):
+        small = dict(self.ROW, input_tokens=1000, output_tokens=100)
+        self.assertFalse(asyncio.run(self.cost_alert.maybe_alert(_FakePool([small]), "2026-11-01")))
+        with patch.dict("os.environ", {"NTFY_TOPIC": ""}):
+            self.assertFalse(asyncio.run(self.cost_alert.maybe_alert(_FakePool([self.ROW]), "2026-11-03")))
+        self.assertEqual(self.sent, [])
+
+    def test_unknown_model_counts_at_highest_known_price(self):
+        pool = _FakePool([dict(self.ROW, model="gemini-2.5-pro", input_tokens=600_000, output_tokens=0)])  # 2,4 $ au tarif Opus
+        self.assertTrue(asyncio.run(self.cost_alert.maybe_alert(pool, "2026-11-04")))
+
+
 class TestLlmPricing(unittest.TestCase):
     def test_cost_usd_uses_cache_factor_and_ignores_unknown_models(self):
         from backend.api import llm_pricing
@@ -167,6 +215,14 @@ class TestLlmPricing(unittest.TestCase):
         # 800 k tokens lus dans le cache à 5 % du prix d'entrée de l'Opus (4 $) : 200 k × 4 + 800 k × 0,2 + 10 k × 20, en millionièmes.
         self.assertAlmostEqual(llm_pricing.cost_usd("claude-opus-5-5", 1_000_000, 800_000, 10_000), 0.8 + 0.16 + 0.2)
         self.assertIsNone(llm_pricing.cost_usd("modele-inconnu", 10, 0, 10))
+        # Repli prudent : tarif de l'Opus (le plus haut), jamais 0 $.
+        self.assertAlmostEqual(llm_pricing.cost_usd("modele-inconnu", 1_000_000, 0, 0, fallback=True), 4.0)
+
+    def test_cache_write_is_billed_above_input_price(self):
+        from backend.api import llm_pricing
+        # 1 M tokens d'entrée tous écrits dans le cache (TTL 5 min) sur Sonnet : 2 $ × 1,25 = 2,50 $ (pas 2 $).
+        self.assertAlmostEqual(llm_pricing.cost_usd("claude-sonnet-5-5", 1_000_000, 0, 0, cache_write_tokens=1_000_000), 2.5)
+        self.assertAlmostEqual(llm_pricing.cost_usd("claude-sonnet-5-5", 1_000_000, 0, 0, cache_write_tokens=1_000_000, cache_ttl="1h"), 4.0)
 
     def test_provider_of(self):
         from backend.api.usage_repo import provider_of

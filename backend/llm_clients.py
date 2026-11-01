@@ -352,7 +352,7 @@ class LLMClientsMixin:
                             f"out={_out} cached={_read} total={_fresh + _read + _write + _out}"
                         )
                         usage_row.update(input_tokens=_fresh + _read + _write, cached_tokens=_read,
-                                         output_tokens=_out, thoughts_tokens=0)
+                                         output_tokens=_out, thoughts_tokens=0, cache_write_tokens=_write)
                     if not (tools and tool_handler and not last_round
                             and getattr(response, "stop_reason", None) == "tool_use"):
                         break

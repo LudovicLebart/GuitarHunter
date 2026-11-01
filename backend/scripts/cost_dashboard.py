@@ -44,6 +44,9 @@ import sys
 from collections import Counter, defaultdict
 from datetime import datetime, date, timedelta
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "api"))
+import llm_pricing  # noqa: E402  (module autonome : source unique des tarifs Claude / Gemini Pro)
+
 # ---------------------------------------------------------------------------
 # Tarifs ($ par million de tokens). `cached` = facteur appliqué aux tokens lus depuis le cache
 # implicite (ils sont INCLUS dans `in`). `from`/`until` = validité (date incluse).
@@ -57,13 +60,13 @@ PRICING = {
         {"in": 1.50, "out": 7.50, "cached": 0.10, "from": "2027-01-01"},
     ],
     "gemini-3.6-flash": [{"in": 1.50, "out": 7.50, "cached": 0.10}],
-    "gemini-3.1-pro-preview": [{"in": 2.00, "out": 12.00, "cached": 0.25}],
+    "gemini-3.1-pro-preview": [dict(llm_pricing.PRICING["gemini-3.1-pro-preview"])],
     # Anthropic (doc tarifs vérifiée 2026-10-13) : lecture de cache = 5 % de l'entrée sur Sonnet 5.5. `out` inclut
     # déjà le raisonnement (`thoughts` enregistré à 0 par `_call_claude_json`).
-    "claude-sonnet-5-5": [{"in": 2.00, "out": 10.00, "cached": 0.05}],
+    "claude-sonnet-5-5": [dict(llm_pricing.PRICING["claude-sonnet-5-5"])],
     # Opus 5.5 (page de tarifs Anthropic relue 2026-11-01) : 4 $ / 20 $ par million, lecture de cache 0,20 $ (5 %). Écriture de cache :
     # 1,25 × l'entrée (TTL 5 min) ou 2 × (1 h), NON comptée ici (les tokens écrits sont facturés au prix d'entrée normal).
-    "claude-opus-5-5": [{"in": 4.00, "out": 20.00, "cached": 0.05}],
+    "claude-opus-5-5": [dict(llm_pricing.PRICING["claude-opus-5-5"])],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
     "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
     "qwen3-vl:8b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # le bon tag (Instruct, pas Thinking)
@@ -79,7 +82,6 @@ ROLE = {
     "gemini-3.6-flash": "T2 Analyste (ancien)",
     "gemini-3.1-pro-preview": "T3 Expert Pro",
     "claude-sonnet-5-5": "T3 Expert Pro (Claude)",
-    "claude-opus-5-5": "Opus (consultation du chat)",
     "qwen3-vl:8b": "Local (Dell)",
     "qwen3-vl:8b-instruct": "T1 Portier local (Dell)",
     "qwen3-vl:4b-instruct": "Local (Dell)",
