@@ -5,7 +5,7 @@ import {
     markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides, recordLlmUsage, fetchDealFiches,
 } from '../services/apiService';
 import {
-    getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
+    DEFAULT_CHAT_MODEL, getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
     buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
     buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal,
 } from '../services/geminiChatService';
@@ -301,7 +301,10 @@ const FIRESTORE_DOC_SIZE_WARNING_BYTES = 900_000;
 // tableau que `useRestorationPlan`, monté dans DealAnalysisModal.jsx — pas ici, ce hook n'écrit
 // jamais dans la sous-collection lui-même hors application d'une proposition IA) — utilisé pour
 // injecter le contexte du plan dans chaque tour tant que l'annonce est achetée.
-export const useDealChat = (deal, user, modelName, restorationItems) => {
+export const useDealChat = (deal, user, configuredModelName, restorationItems) => {
+    // Modèle réellement utilisé : sans `analysisConfig.expertModel` (3 comptes sur 8), `getDealChatModel` retombait sur le défaut
+    // mais `modelName` restait vide, et `logTokenUsage`/`logChatFailure` n'enregistraient RIEN dans `llm_usage` (2026-11-01).
+    const modelName = configuredModelName || DEFAULT_CHAT_MODEL;
     const [messages, setMessages] = useState([]);
     const [loading, setLoading] = useState(true);
     const [sending, setSending] = useState(false);
