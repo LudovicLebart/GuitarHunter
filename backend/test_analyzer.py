@@ -219,6 +219,14 @@ class TestClassifyError(unittest.TestCase):
         self.assertEqual(llm_usage.classify_error(Exception("Connection refused")), "connection")
         self.assertEqual(llm_usage.classify_error(type("APIStatusError", (Exception,), {})("x")), "http")
 
+    def test_credit_exhausted_is_its_own_category(self):
+        low = Exception("Error code: 400 - Your credit balance is too low to access the Anthropic API.")
+        self.assertTrue(llm_usage.is_credit_error(low))
+        self.assertEqual(llm_usage.classify_error(low), "no_credit")
+        billing = type("BillingError", (Exception,), {"status_code": 402})("payment required")
+        self.assertEqual(llm_usage.classify_error(billing), "no_credit")
+        self.assertFalse(llm_usage.is_credit_error(Exception("overloaded")))
+
 
 class TestT1Knowledge(unittest.TestCase):
     """Branchement de la base de connaissances au Portier : interrupteur, ordre du prompt, traçabilité, échec ouvert."""

@@ -31,11 +31,21 @@ def is_model_unavailable(error_text):
     return any(marker in needle for marker in MODEL_UNAVAILABLE_MARKERS)
 
 
+def is_credit_error(exc):
+    """Crédit Anthropic épuisé : l'API répond 402 (`billing_error`) ou 400 « Your credit balance is too low... »."""
+    if getattr(exc, "status_code", None) == 402:
+        return True
+    text = str(exc).lower()
+    return "credit balance" in text or "billing_error" in text
+
+
 def classify_error(exc):
     """Type d'échec, pour distinguer une panne fournisseur (timeout/http/connection, à compter
     dans le coupe-circuit) d'un JSON invalide (le modèle a répondu, souvent une boucle de répétition)
     ou d'un modèle retiré (`model_unavailable`, à traiter autrement qu'une panne transitoire)."""
     import json as _json
+    if is_credit_error(exc):
+        return "no_credit"
     name = type(exc).__name__.lower()
     text = str(exc).lower()
     if isinstance(exc, _json.JSONDecodeError):

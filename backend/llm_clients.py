@@ -415,6 +415,10 @@ class LLMClientsMixin:
                 if usage_row.get("latency_ms") is None:
                     usage_row["latency_ms"] = int((time.monotonic() - t_call) * 1000)
                 llm_usage.record(**usage_row, ok=False, error_type=llm_usage.classify_error(e))
+                if llm_usage.is_credit_error(e):
+                    msg = "Crédit Anthropic insuffisant : recharge le compte (console Anthropic, Plans & Billing), puis réessaie. En attendant, Gemini reste disponible dans la configuration."
+                    self.logger.error(f"❌ {msg}")
+                    return None, msg
                 self.logger.error(f"❌ Erreur avec le modèle {model_name}: {e}")
                 if self._is_model_unavailable_error(e):
                     self._notify_model_unavailable(model_name, str(e), user_email)

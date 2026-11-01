@@ -197,6 +197,22 @@ class TestEventStream(unittest.TestCase):
         self.assertEqual(events[-1]["status"], 424)
         self.assertEqual(pool.executed[0][11], "no_key")
 
+    def test_exhausted_credit_gives_an_explicit_402_and_one_ntfy_per_day(self):
+        from backend.api import cost_alert
+        error = RuntimeError("Error code: 400 - Your credit balance is too low to access the Anthropic API.")
+        error.status_code = 400
+        sent = []
+        cost_alert._notified.clear()
+        with patch.object(cost_alert, "_send_ntfy", lambda t, ti, m: sent.append((t, ti))), \
+                patch.dict("os.environ", {"NTFY_TOPIC": "topic-test"}):
+            events, pool = self._stream(SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: FakeStream([], None, error))))
+            self._stream(SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: FakeStream([], None, error))))
+        cost_alert._notified.clear()
+        self.assertEqual(events[-1]["status"], 402)
+        self.assertIn("Crédit Anthropic insuffisant", events[-1]["message"])
+        self.assertEqual(pool.executed[0][11], "no_credit")
+        self.assertEqual(len(sent), 1)  # une seule notification malgré deux échecs le même jour
+
     def test_failure_emits_error_event_and_records_a_failed_row(self):
         error = RuntimeError("surcharge")
         error.status_code = 529

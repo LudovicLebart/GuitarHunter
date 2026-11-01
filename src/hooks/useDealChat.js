@@ -471,8 +471,8 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 //    désactivation DURABLE (`toolsUnsupportedRef`) seulement si l'erreur ressemble
                 //    vraiment à un rejet du function calling (looksLikeToolsUnsupportedError).
                 const kind = classifyChatError(sendError);
-                // `http_424` : chat Claude non configuré sur le serveur (clé absente) — aucune nouvelle tentative ni repli, le message est explicite.
-                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424') throw sendError;
+                // `http_424` : chat Claude non configuré (clé absente) ; `http_402` : crédit Anthropic épuisé — aucune nouvelle tentative ni repli, le message est explicite.
+                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424' || kind === 'http_402') throw sendError;
                 if (isTransientChatError(kind)) {
                     console.warn(`Erreur transitoire (${kind}), nouvelle tentative à l'identique dans ${CHAT_RETRY_DELAY_MS / 1000}s:`, sendError);
                     await abortableDelay(CHAT_RETRY_DELAY_MS, controller.signal);

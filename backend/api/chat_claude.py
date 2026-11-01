@@ -61,6 +61,18 @@ class ChatRequestError(ValueError):
     """Requête refusée avant tout appel à Claude (422 côté route)."""
 
 
+CREDIT_MESSAGE = ("Crédit Anthropic insuffisant : recharge le compte (console Anthropic, Plans & Billing), puis réessaie. "
+                  "En attendant, Gemini reste disponible dans la configuration.")
+
+
+def is_credit_error(exc: Exception) -> bool:
+    """Crédit épuisé : l'API répond 402 (`billing_error`) ou 400 « Your credit balance is too low... »."""
+    if getattr(exc, "status_code", None) == 402:
+        return True
+    text = str(exc).lower()
+    return "credit balance" in text or "billing_error" in text
+
+
 class ChatConfigError(RuntimeError):
     """Chat Claude non configuré sur le serveur (clé absente) : erreur NON transitoire, jamais réessayée par le navigateur."""
 
@@ -227,6 +239,14 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
     except Exception as e:
         ok = False
         usage = _partial_usage(holder["stream"]) if "stream" in holder else None
+        if is_credit_error(e):
+            # Incident à traiter par l'administrateur : message explicite pour l'utilisateur (402, jamais réessayé) + ntfy.
+            error_type = "no_credit"
+            log.error("[chat_claude] crédit Anthropic insuffisant : %s", e)
+            await queue.put({"type": "error", "status": 402, "message": CREDIT_MESSAGE})
+            await cost_alert.notify_once("no_credit", time.strftime("%Y-%m-%d"), "Credit Anthropic epuise",
+                                         "Le chat et l'Expert sont bloqués : recharger le compte Anthropic.")
+            return
         status_code = getattr(e, "status_code", None)
         error_type = f"http_{status_code}" if status_code else type(e).__name__[:30]
         log.warning("[chat_claude] échec (%s) : %s", error_type, e)
