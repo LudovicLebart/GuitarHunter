@@ -551,6 +551,17 @@ export const validateRestorationStepProposal = (args, allowedFicheSlugs) => {
 // cette fonction doit rester disponible indépendamment du plan de restauration. Les deux jeux de
 // tools/addenda se composent librement (aucun, l'un, l'autre, ou les deux) ; comportement du chat
 // inchangé à zéro risque quand les deux sont `false`.
+// Nom lisible du modèle réellement utilisé par le chat (affiché dans l'en-tête) : « gemini-3.1-pro-preview » → « Gemini 3.1 Pro ».
+export const chatModelLabel = (modelName = DEFAULT_CHAT_MODEL) => {
+    const tokens = String(modelName || DEFAULT_CHAT_MODEL).replace(/-preview$/, '').split('-');
+    const out = [];
+    for (const t of tokens) {
+        if (/^\d+$/.test(t) && /^\d+(\.\d+)*$/.test(out[out.length - 1] || '')) out[out.length - 1] += `.${t}`;
+        else out.push(/^\d/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1));
+    }
+    return out.join(' ');
+};
+
 export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false, withPhotoRecall = false, withRequalification = false } = {}) => {
     if (!ai) throw new Error("Firebase AI Logic n'est pas initialisé (voir src/services/firebase.js).");
     const functionDeclarations = [

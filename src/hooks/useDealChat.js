@@ -683,7 +683,10 @@ export const useDealChat = (deal, user, modelName, restorationItems) => {
                 }
             }
             const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
-            const isFirstMessage = messages.length === 0;
+            // « Premier message » = aucune réponse du modèle encore dans l'historique rejouable, PAS « fil vide » : après des
+            // échecs, le fil contient des tours utilisateur sans réponse (ignorés par sanitizeHistory) et l'annonce
+            // (contexte + photos) n'était alors jamais envoyée au modèle (2026-11-01).
+            const isFirstMessage = sanitizeHistory(messages).length === 0;
             // Recherche des fiches lancée TOUT DE SUITE : elle se déroule pendant la préparation des photos, pas après.
             const fichesLookup = lookupFiches(deal.id, trimmed);
 

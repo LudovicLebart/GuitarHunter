@@ -4,7 +4,7 @@ import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRest
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
-import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS } from '../../services/geminiChatService';
+import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS, chatModelLabel } from '../../services/geminiChatService';
 import { NEW_VERDICTS } from '../../constants';
 import { useFichesCatalog } from '../../hooks/useFichesCatalog';
 import { ficheHref, fichesSharedInMessages } from '../../utils/fiches';
@@ -507,7 +507,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                     <ArrowLeft size={16} />
                 </button>
                 <div className="min-w-0">
-                    <h3 className="text-sm font-black text-white truncate">Discuter avec Gemini</h3>
+                    <h3 className="text-sm font-black text-white truncate">Discuter avec {chatModelLabel(analysisConfig?.expertModel)}</h3>
                     <p className="text-[11px] text-slate-500 truncate">{deal.title}</p>
                 </div>
             </div>
