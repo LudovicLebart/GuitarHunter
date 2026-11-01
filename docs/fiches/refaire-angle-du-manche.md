@@ -48,7 +48,7 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 
 ## Ordre des opérations (manche collé)
 
-1. Décoller la rallonge de touche de la table (fiche à venir).
+1. Décoller la rallonge de touche de la table : voir [Décoller la rallonge de touche de la table](decoller-la-touche.md).
 2. Déposer le manche (fiche à venir).
 3. Retailler le talon à la nouvelle inclinaison (fiche à venir).
 4. Essayer le manche à blanc et mesurer l'écart sous la rallonge, puis recoller le manche (fiche à venir).

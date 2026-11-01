@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 280" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Où la colle résiste sous la rallonge</title>
+  <desc id="d">Vue de dessus de la rallonge : le bout et les côtés se décollent facilement, une zone plus dure se trouve vers le centre, près du joint avec le manche.</desc>
+  <rect width="820" height="280" fill="#f8fafc"/>
+<text x="410" y="36" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Vue de dessus de la rallonge</text>
+  <rect x="60" y="90" width="150" height="80" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="210" y="90" width="520" height="80" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+  <ellipse cx="300" cy="130" rx="70" ry="28" fill="#b91c1c" opacity="0.6"/>
+  <path d="M730 130 H680 M720 98 H680 M720 162 H680" stroke="#15803d" stroke-width="4" fill="none"/>
+  <text x="130" y="80" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">Manche</text>
+  <text x="700" y="80" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">Bout et côtés : cèdent facilement</text>
+  <text x="300" y="200" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">Zone plus dure, près du joint : chauffer encore</text>
+  <text x="410" y="252" font-size="14" fill="#334155" text-anchor="middle">Se fier à la résistance de la lame sur la guitare, pas au dessin.</text>
+</svg>

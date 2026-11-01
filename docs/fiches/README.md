@@ -39,10 +39,10 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Structurel | 1/5 | brouillon |
 | [Refaire l'angle du manche (neck reset)](refaire-angle-du-manche.md) | Structurel | 4/5 | brouillon |
 | [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structurel | 3/5 | brouillon |
+| [Décoller la rallonge de touche de la table](decoller-la-touche.md) | Structurel | 3/5 | brouillon |
 
 ## Fiches envisagées
 
-- Décoller la rallonge de touche
 - Manche vissé : cale ou ponçage du talon
 - Neck reset d'un manche collé
 - Convertir un manche collé en vissé

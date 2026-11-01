@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 330" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Chauffer la rallonge de touche par-dessus</title>
+  <desc id="d">Coupe latérale : une cale de bois, une source de chaleur et une feuille d'aluminium posées sur la rallonge.</desc>
+  <rect width="820" height="330" fill="#f8fafc"/>
+<rect x="20" y="161" width="170" height="79" fill="#7c4a1e"/><rect x="20" y="152" width="650" height="9" fill="#1e293b" stroke="#475569" stroke-width="2"/><rect x="190" y="161" width="480" height="9" fill="#fbbf24" stroke="#a16207" stroke-width="2"/><rect x="190" y="170" width="570" height="14" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="210" y="140" width="440" height="10" fill="#cbd5e1" stroke="#475569" stroke-width="2"/>
+  <rect x="210" y="104" width="440" height="34" rx="6" fill="#dc2626" stroke="#475569" stroke-width="2"/>
+  <rect x="210" y="82" width="440" height="20" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <circle cx="90" cy="56" r="15" fill="#0f172a"/><text x="90" y="62" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="90" cy="100" r="15" fill="#0f172a"/><text x="90" y="106" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <circle cx="90" cy="144" r="15" fill="#0f172a"/><text x="90" y="150" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+  <text x="112" y="62" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Cale de bois : serrage léger</text>
+  <text x="112" y="106" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Couverture chauffante, ou fer et bloc d'aluminium</text>
+  <text x="112" y="150" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Feuille d'aluminium</text>
+  <text x="410" y="28" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Chauffer par-dessus, quelques minutes, sans appui fort</text>
+  <text x="410" y="262" font-size="14" fill="#334155" text-anchor="middle">Ne jamais laisser la couverture chauffante reposer sur le vernis de la guitare.</text>
+  <text x="410" y="284" font-size="14" fill="#334155" text-anchor="middle">Les incrustations de touche peuvent roussir ou fondre : les couvrir d'aluminium.</text>
+</svg>
