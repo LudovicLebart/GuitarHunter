@@ -96,6 +96,19 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(chat_claude.ChatRequestError):
             chat_claude.validate_chat("s", [], [big], chat_claude.SONNET)
 
+    def test_chat_route_refuses_opus_and_drops_blank_text(self):
+        with self.assertRaises(chat_claude.ChatRequestError):
+            chat_claude.validate_chat("s", [], [_msg()], chat_claude.OPUS)  # Opus : consultation seulement
+        req = chat_claude.validate_chat("s", [], [
+            {"role": "assistant", "content": [{"type": "text", "text": "orphelin"}]},  # tour initial non utilisateur : écarté
+            {"role": "user", "content": [{"type": "text", "text": "   "}]},  # texte blanc seul : message écarté
+            _msg("Question"),
+        ], chat_claude.SONNET)
+        self.assertEqual(len(req["messages"]), 1)
+        self.assertEqual(req["messages"][0]["content"][0]["text"], "Question")
+        with self.assertRaises(chat_claude.ChatRequestError):
+            chat_claude.validate_chat("s", [], [{"role": "user", "content": [{"type": "text", "text": " "}]}], chat_claude.SONNET)
+
     def test_consult_is_opus_without_tools_and_bounded(self):
         req = chat_claude.validate_consult("Dossier", [_image()])
         self.assertEqual(req["model"], chat_claude.OPUS)
@@ -156,6 +169,34 @@ class TestEventStream(unittest.TestCase):
         self.assertEqual(seen["model"], chat_claude.OPUS)
         self.assertNotIn("cache_control", seen["system"][0])
 
+    def test_interrupted_stream_records_the_partial_usage_that_was_billed(self):
+        partial = SimpleNamespace(input_tokens=300, cache_read_input_tokens=0, cache_creation_input_tokens=0, output_tokens=42)
+        error = RuntimeError("coupure")
+        stream = FakeStream(["a"], None)
+        stream.current_message_snapshot = SimpleNamespace(usage=partial)
+
+        async def boom():
+            raise error
+        stream.get_final_message = boom
+        events, pool = self._stream(SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: stream)))
+        self.assertEqual(events[-1]["type"], "error")
+        (args,) = pool.executed
+        self.assertFalse(args[10])
+        self.assertEqual(args[5:8], (300, 0, 42))  # tokens connus, pas zéro
+
+    def test_missing_key_is_a_non_transient_424_with_a_clear_message(self):
+        def no_key():
+            raise chat_claude.ChatConfigError("Le chat Claude n'est pas configuré")
+        pool = FakePool()
+        req = chat_claude.validate_chat("s", [], [_msg()], chat_claude.SONNET)
+
+        async def collect():
+            return [c async for c in chat_claude.event_stream(pool, "uid1", "deal1", "chat_turn", req)]
+        with patch.object(chat_claude, "_client", no_key):
+            events = _events(_run(collect()))
+        self.assertEqual(events[-1]["status"], 424)
+        self.assertEqual(pool.executed[0][11], "no_key")
+
     def test_failure_emits_error_event_and_records_a_failed_row(self):
         error = RuntimeError("surcharge")
         error.status_code = 529
@@ -198,6 +239,16 @@ class TestRoutes(unittest.TestCase):
         sep = chr(10) * 2  # séparateur d'événements SSE
         chunks = [c + sep for c in resp.text.split(sep) if c]
         self.assertEqual(_events(chunks)[-1]["type"], "final")
+
+    def test_usage_endpoint_refuses_claude_models_declared_by_the_browser(self):
+        usage = {"model": "claude-opus-5-5", "action": "chat_turn", "input_tokens": 5_000_000}
+        self.assertEqual(self.client.post("/usage", json=usage).status_code, 422)
+        self.assertEqual(self.pool.executed, [])
+        ok = self.client.post("/usage", json=dict(usage, model="gemini-3.1-pro-preview", input_tokens=10, cached_tokens=999))
+        self.assertEqual(ok.status_code, 204, ok.text)
+        (args,) = self.pool.executed
+        self.assertEqual(args[6], 10)  # les tokens lus du cache sont ramenés à l'entrée (jamais plus)
+        self.assertEqual(args[12], "gemini")
 
     def test_turn_rejects_a_forbidden_model_with_422(self):
         body = {"model": "claude-fable-5-1", "system": "s", "tools": [], "messages": [_msg()]}

@@ -92,3 +92,12 @@ test('sans dealId ou sans contenu, l\'envoi est refusé avant tout appel réseau
     await assert.rejects(session.sendMessageStream([{ text: '' }], { dealId: 'd1' }), /sans contenu/);
     assert.equal(t.calls.length, 0);
 });
+
+test('un flux abandonné par le lecteur coupe la requête (le serveur cesse de générer)', async () => {
+    const t = fakeTransport([{ type: 'text', delta: 'a' }, { type: 'text', delta: 'b' }, FINAL_TEXT]);
+    const session = makeSession(t.streamEvents);
+    const stream = await session.sendMessageStream([{ text: 'x' }], { dealId: 'd1' });
+    for await (const chunk of stream.stream) { void chunk; break; } // le lecteur s'arrête après le premier morceau
+    assert.equal(t.calls[0].signal.aborted, true);
+    assert.equal(session.messages.length, 0); // tour inachevé : la session n'a rien retenu
+});

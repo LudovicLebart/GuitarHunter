@@ -66,6 +66,8 @@ export class ClaudeChatSession {
                 throw error;
             } finally {
                 if (timer) clearTimeout(timer);
+                // Flux terminé OU abandonné par le lecteur : la requête est coupée, donc le serveur arrête de générer (et de facturer).
+                controller.abort();
             }
         }
         return { stream: events(), response };

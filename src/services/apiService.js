@@ -471,15 +471,19 @@ export async function* streamChatEvents(path, body, { signal } = {}) {
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const { events, rest } = parseSseBuffer(buffer);
-    buffer = rest;
-    for (const event of events) yield event;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const { events, rest } = parseSseBuffer(buffer);
+      buffer = rest;
+      for (const event of events) yield event;
+    }
+    for (const event of parseSseBuffer(`${buffer}\n\n`).events) yield event;
+  } finally {
+    reader.cancel().catch(() => {}); // lecteur parti avant la fin : la connexion est fermée, le serveur s'arrête
   }
-  for (const event of parseSseBuffer(`${buffer}\n\n`).events) yield event;
 }
 
 export const getAdminUsers = async () => apiFetch('/admin/users');

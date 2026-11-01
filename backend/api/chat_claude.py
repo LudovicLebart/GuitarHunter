@@ -23,7 +23,9 @@ log = logging.getLogger("chat_claude")
 
 SONNET = "claude-sonnet-5-5"
 OPUS = "claude-opus-5-5"
-ALLOWED_MODELS = (SONNET, OPUS)
+# La route du chat n'accepte que Sonnet : Opus n'est joignable que par la consultation (dossier borné, sans outils, réponse
+# plafonnée), jamais en conversation libre — sinon n'importe quel compte pourrait l'appeler directement.
+CHAT_MODELS = (SONNET,)
 
 # Bornes de validation : l'endpoint est authentifié mais il ne doit pas servir de passerelle Claude générique.
 MAX_SYSTEM_CHARS = 40_000
@@ -59,12 +61,18 @@ class ChatRequestError(ValueError):
     """Requête refusée avant tout appel à Claude (422 côté route)."""
 
 
+class ChatConfigError(RuntimeError):
+    """Chat Claude non configuré sur le serveur (clé absente) : erreur NON transitoire, jamais réessayée par le navigateur."""
+
+
 def _clean_block(block: dict, counters: dict) -> dict:
     if not isinstance(block, dict) or block.get("type") not in ALLOWED_BLOCK_TYPES:
         raise ChatRequestError("Bloc de message non autorisé.")
     kind = block["type"]
     if kind == "text":
         text = str(block.get("text", ""))
+        if not text.strip():
+            return None  # Anthropic refuse un bloc texte vide ou fait d'espaces : il est écarté par l'appelant
         counters["text"] += len(text)
         return {"type": "text", "text": text}
     if kind == "image":
@@ -89,7 +97,7 @@ def _clean_block(block: dict, counters: dict) -> dict:
 
 def validate_chat(system: str, tools: list, messages: list, model: str) -> dict:
     """Valide et nettoie une requête de chat ; retourne les arguments prêts pour l'API, plus `images` (compte)."""
-    if model not in ALLOWED_MODELS:
+    if model not in CHAT_MODELS:
         raise ChatRequestError("Modèle non autorisé.")
     if not isinstance(system, str) or not system.strip() or len(system) > MAX_SYSTEM_CHARS:
         raise ChatRequestError("Consigne système invalide.")
@@ -101,7 +109,7 @@ def validate_chat(system: str, tools: list, messages: list, model: str) -> dict:
             raise ChatRequestError("Outil invalide.")
         clean_tools.append({"name": str(tool["name"])[:80], "description": str(tool.get("description", ""))[:4000],
                             "input_schema": tool["input_schema"]})
-    if not isinstance(messages, list) or not messages or len(messages) > MAX_MESSAGES or messages[0].get("role") != "user":
+    if not isinstance(messages, list) or not messages or len(messages) > MAX_MESSAGES:
         raise ChatRequestError("Conversation invalide.")
     counters = {"text": 0, "images": 0, "b64": 0}
     clean = []
@@ -113,7 +121,13 @@ def validate_chat(system: str, tools: list, messages: list, model: str) -> dict:
             content = [{"type": "text", "text": content}]
         if not isinstance(content, list) or not content:
             raise ChatRequestError("Message vide.")
-        clean.append({"role": msg["role"], "content": [_clean_block(b, counters) for b in content]})
+        blocks = [b for b in (_clean_block(b, counters) for b in content) if b is not None]
+        if blocks:  # un message devenu vide (texte blanc seul) disparaît de la conversation
+            clean.append({"role": msg["role"], "content": blocks})
+    while clean and clean[0]["role"] != "user":
+        clean.pop(0)  # la conversation doit commencer par un tour utilisateur
+    if not clean:
+        raise ChatRequestError("Conversation vide.")
     if counters["images"] > MAX_IMAGES or counters["b64"] > MAX_TOTAL_B64_CHARS or counters["text"] > MAX_TEXT_CHARS:
         raise ChatRequestError("Conversation trop volumineuse.")
     return {"model": model, "system": system, "tools": clean_tools, "messages": clean, "images": counters["images"]}
@@ -126,7 +140,7 @@ def validate_consult(brief: str, images: list) -> dict:
     if not isinstance(images, list) or len(images) > MAX_CONSULT_IMAGES:
         raise ChatRequestError("Trop de photos jointes au dossier.")
     counters = {"text": 0, "images": 0, "b64": 0}
-    content = [_clean_block(b, counters) for b in images] + [{"type": "text", "text": brief}]
+    content = [b for b in (_clean_block(b, counters) for b in images) if b is not None] + [{"type": "text", "text": brief}]
     return {"model": OPUS, "system": CONSULT_SYSTEM, "tools": [], "messages": [{"role": "user", "content": content}],
             "images": counters["images"]}
 
@@ -156,11 +170,20 @@ def _usage_row(model: str, action: str, deal_id, images: int, usage, latency_ms:
             "latency_ms": latency_ms, "ok": ok, "error_type": error_type}
 
 
+def _partial_usage(stream):
+    """Usage connu d'un flux interrompu (entrée annoncée au début, sortie déjà générée) : Anthropic facture ces tokens."""
+    try:
+        return stream.current_message_snapshot.usage
+    except Exception:
+        return None
+
+
 def _client():
     import anthropic  # import tardif : l'API démarre même si le paquet manque (le chat Gemini n'en dépend pas)
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
-        raise RuntimeError("ANTHROPIC_API_KEY n'est pas configurée sur le serveur.")
+        raise ChatConfigError("Le chat Claude n'est pas configuré sur le serveur (clé Anthropic absente). "
+                              "Choisis Gemini dans la configuration en attendant.")
     return anthropic.AsyncAnthropic(api_key=key, timeout=CHAT_TIMEOUT_S)
 
 
@@ -169,6 +192,7 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
     """Appelle Claude et pousse les événements SSE dans `queue` ; enregistre l'usage (succès comme échec)."""
     started = time.monotonic()
     usage, ok, error_type = None, True, None
+    holder = {}  # le flux en cours, pour relever l'usage partiel en cas d'échec ou d'annulation
     try:
         client = _client()
         if use_cache:
@@ -180,6 +204,7 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
         if req["tools"]:
             args["tools"] = req["tools"]
         async with client.messages.stream(**args) as stream:
+            holder["stream"] = stream
             async for text in stream.text_stream:
                 await queue.put({"type": "text", "delta": text})
             final = await stream.get_final_message()
@@ -193,9 +218,15 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
                       "output": getattr(usage, "output_tokens", 0) or 0}})
     except asyncio.CancelledError:
         ok, error_type = False, "cancelled"
+        usage = _partial_usage(holder["stream"]) if "stream" in holder else None
         raise
+    except ChatConfigError as e:
+        ok, error_type = False, "no_key"
+        log.warning("[chat_claude] %s", e)
+        await queue.put({"type": "error", "status": 424, "message": str(e)})  # 424 : jamais réessayé par le navigateur
     except Exception as e:
         ok = False
+        usage = _partial_usage(holder["stream"]) if "stream" in holder else None
         status_code = getattr(e, "status_code", None)
         error_type = f"http_{status_code}" if status_code else type(e).__name__[:30]
         log.warning("[chat_claude] échec (%s) : %s", error_type, e)

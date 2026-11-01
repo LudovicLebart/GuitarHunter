@@ -471,7 +471,8 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 //    désactivation DURABLE (`toolsUnsupportedRef`) seulement si l'erreur ressemble
                 //    vraiment à un rejet du function calling (looksLikeToolsUnsupportedError).
                 const kind = classifyChatError(sendError);
-                if (controller.signal.aborted || kind === 'timeout') throw sendError;
+                // `http_424` : chat Claude non configuré sur le serveur (clé absente) — aucune nouvelle tentative ni repli, le message est explicite.
+                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424') throw sendError;
                 if (isTransientChatError(kind)) {
                     console.warn(`Erreur transitoire (${kind}), nouvelle tentative à l'identique dans ${CHAT_RETRY_DELAY_MS / 1000}s:`, sendError);
                     await abortableDelay(CHAT_RETRY_DELAY_MS, controller.signal);
@@ -891,7 +892,8 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
             });
             // eslint-disable-next-line no-unused-vars
             for await (const _chunk of briefStream.stream) { /* drainage */ }
-            const brief = (await briefStream.response).text().trim();
+            const briefResponse = await briefStream.response;
+            const brief = briefResponse.text().trim();
             if (!brief) throw new Error("Le dossier pour Opus est vide.");
 
             let final = null;
@@ -905,8 +907,10 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
             }
             const answer = final?.content?.filter(b => b.type === 'text').map(b => b.text).join('').trim();
             if (!answer) throw new Error("Opus n'a renvoyé aucune réponse.");
-            const cost = estimateCostUsd('claude-opus-5-5', final.usage);
-            const costText = cost == null ? '' : ` — coût estimé ≈ ${cost.toFixed(2)} $`;
+            // Coût complet : Opus + l'appel du modèle du chat qui a rédigé le dossier (il relit tout l'historique).
+            const opusCost = estimateCostUsd('claude-opus-5-5', final.usage);
+            const briefCost = estimateCostUsd(modelName, briefResponse.rawUsage);
+            const costText = opusCost == null ? '' : ` — coût estimé ≈ ${(opusCost + (briefCost || 0)).toFixed(2)} $ (Opus ${opusCost.toFixed(2)} $${briefCost == null ? '' : `, dossier ${briefCost.toFixed(2)} $`})`;
             const quotedBrief = brief.split('\n').map(line => `> ${line}`).join('\n');
             const text = `**Opus**${costText}\n\n${answer}\n\n---\n*Dossier transmis à Opus :*\n${quotedBrief}`;
             await addDealChatMessage(deal.id, 'model', [{ text }], text, user.uid);

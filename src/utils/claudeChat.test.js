@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     isClaudeModel, schemaToJsonSchema, declarationsToTools, historyToMessages, partsToUserContent,
-    wrapFinalResponse, parseSseBuffer, estimateCostUsd,
+    wrapFinalResponse, parseSseBuffer, estimateCostUsd, PRICES,
 } from './claudeChat.js';
+import { readFileSync } from 'node:fs';
 
 test('isClaudeModel reconnaît les modèles Claude uniquement', () => {
     assert.equal(isClaudeModel('claude-sonnet-5-5'), true);
@@ -74,4 +75,18 @@ test('estimateCostUsd reprend les tarifs du serveur (écriture 1,25 ×, lecture 
     const cached = estimateCostUsd('claude-opus-5-5', { input: 200_000, cache_read: 800_000, cache_write: 0, output: 10_000 });
     assert.ok(Math.abs(cached - (0.8 + 0.16 + 0.2)) < 1e-9);
     assert.equal(estimateCostUsd('inconnu', {}), null);
+});
+
+test('les tarifs JS reprennent exactement ceux du serveur (backend/api/llm_pricing.py)', () => {
+    const py = readFileSync(new URL('../../backend/api/llm_pricing.py', import.meta.url), 'utf-8');
+    for (const [model, price] of Object.entries(PRICES)) {
+        const m = py.match(new RegExp(`"${model}": \\{"in": ([\\d.]+), "out": ([\\d.]+), "cached": ([\\d.]+)\\}`));
+        assert.ok(m, `tarif de ${model} introuvable dans llm_pricing.py`);
+        assert.deepEqual([price.in, price.out, price.cached], [Number(m[1]), Number(m[2]), Number(m[3])], model);
+    }
+});
+
+test('un texte fait d\'espaces n\'est jamais envoyé (blocs refusés par Anthropic)', () => {
+    assert.deepEqual(partsToUserContent([{ text: '   ' }, { text: 'ok' }], []), [{ type: 'text', text: 'ok' }]);
+    assert.deepEqual(historyToMessages([{ role: 'user', parts: [{ text: ' ' }] }]), []);
 });

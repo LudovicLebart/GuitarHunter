@@ -35,7 +35,8 @@ export const declarationsToTools = (functionDeclarations = []) => functionDeclar
 }));
 
 const partToBlock = (part) => {
-    if (part?.text !== undefined && part.text !== '') return { type: 'text', text: String(part.text) };
+    // Anthropic refuse un bloc texte vide ou fait d'espaces : écarté ici (le serveur le refait par sécurité).
+    if (part?.text !== undefined && String(part.text).trim() !== '') return { type: 'text', text: String(part.text) };
     if (part?.inlineData?.data) {
         return { type: 'image', source: { type: 'base64', media_type: part.inlineData.mimeType || 'image/jpeg', data: part.inlineData.data } };
     }
@@ -89,6 +90,7 @@ export const wrapFinalResponse = (final) => {
         candidates: [{ finishReason: final?.stop_reason === 'max_tokens' ? 'MAX_TOKENS' : 'STOP' }],
         stopReason: final?.stop_reason,
         content,
+        rawUsage: usage, // { input, cache_read, cache_write, output } tel que renvoyé par le serveur (pour estimateCostUsd)
     };
 };
 
@@ -108,10 +110,11 @@ export const parseSseBuffer = (buffer) => {
 
 // Coût estimé (en $) d'un tour, d'après l'usage renvoyé par le serveur. Tarifs de `backend/api/llm_pricing.py` (à garder
 // synchronisés) : écriture de cache 1,25 × l'entrée (TTL 5 min), lecture 5 %.
-const PRICES = { 'claude-sonnet-5-5': { in: 2, out: 10 }, 'claude-opus-5-5': { in: 4, out: 20 } };
+// `claudeChat.test.js` compare ce tableau à `llm_pricing.py` : un prix changé d'un seul côté fait échouer le test.
+export const PRICES = { 'claude-sonnet-5-5': { in: 2, out: 10, cached: 0.05 }, 'claude-opus-5-5': { in: 4, out: 20, cached: 0.05 } };
 export const estimateCostUsd = (model, usage = {}) => {
     const price = PRICES[model];
     if (!price) return null;
-    return ((usage.input || 0) * price.in + (usage.cache_read || 0) * price.in * 0.05
+    return ((usage.input || 0) * price.in + (usage.cache_read || 0) * price.in * price.cached
         + (usage.cache_write || 0) * price.in * 1.25 + (usage.output || 0) * price.out) / 1e6;
 };
