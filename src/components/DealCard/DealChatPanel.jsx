@@ -4,7 +4,8 @@ import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRest
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
 import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
-import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS, chatModelLabel } from '../../services/geminiChatService';
+import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS, chatModelLabel, DEFAULT_CHAT_MODEL } from '../../services/geminiChatService';
+import { isClaudeModel } from '../../utils/claudeChat';
 import { NEW_VERDICTS } from '../../constants';
 import { useFichesCatalog } from '../../hooks/useFichesCatalog';
 import { ficheHref, fichesSharedInMessages } from '../../utils/fiches';
@@ -271,10 +272,10 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
     const { user } = useAuth();
     const { analysisConfig } = useBotConfigContext();
     const {
-        messages, loading, sending, error, sendMessage, retryMessage, cancelSending, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, consultOpus, cancelSending, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
         applyRequalificationProposal, dismissRequalificationProposal,
-    } = useDealChat(deal, user, analysisConfig?.expertModel, restorationItems);
+    } = useDealChat(deal, user, analysisConfig?.chatModel, restorationItems);
     // Catalogue des fiches techniques lu UNE fois pour tout le panneau (cartes de proposition, liens des bulles). Un lien
     // `[Titre](#fiche/slug)` n'est cliquable que vers une fiche du catalogue ou donnée au modèle dans cette conversation.
     const { fiches: catalogFiches } = useFichesCatalog();
@@ -479,6 +480,14 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
         setImagePreviews([]);
     };
 
+    // Consultation d'Opus (2026-11-01) : le texte saisi sert de question (sinon une question générique) ; le dossier envoyé à Opus
+    // est rédigé par le modèle du chat et reproduit dans la réponse. Payant : bouton distinct, jamais déclenché par l'envoi normal.
+    const handleConsultOpus = () => {
+        if (sending || loading || messages.length === 0) return;
+        const asked = input;
+        consultOpus(asked).then((started) => { if (started) setInput(prev => (prev === asked ? '' : prev)); });
+    };
+
     // Envoi déclenché UNIQUEMENT par ce bouton (2026-08-22) — jamais par la touche Entrée, pour
     // ne pas interférer avec la validation d'un caractère composé en saisie multilingue (IME :
     // chinois, japonais, coréen...), qui utilise elle aussi la touche Entrée.
@@ -507,7 +516,7 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                     <ArrowLeft size={16} />
                 </button>
                 <div className="min-w-0">
-                    <h3 className="text-sm font-black text-white truncate">Discuter avec {chatModelLabel(analysisConfig?.expertModel)}</h3>
+                    <h3 className="text-sm font-black text-white truncate">Discuter avec {chatModelLabel(analysisConfig?.chatModel)}</h3>
                     <p className="text-[11px] text-slate-500 truncate">{deal.title}</p>
                 </div>
             </div>
@@ -692,6 +701,16 @@ const DealChatPanel = ({ deal, onBack, onGalleryImageAdded, onAnalysisOverridesA
                         rows={1}
                         className="flex-1 resize-none bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all disabled:opacity-50"
                     />
+                    {isClaudeModel(analysisConfig?.chatModel || DEFAULT_CHAT_MODEL) && (
+                        <button
+                            onClick={handleConsultOpus}
+                            disabled={loading || sending || messages.length === 0}
+                            className="w-10 h-10 shrink-0 flex items-center justify-center rounded-xl bg-amber-600/90 hover:bg-amber-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            title="Consulter Opus : l'assistant prépare un dossier, Opus répond (avis d'expert plus coûteux)"
+                        >
+                            <Sparkles size={16} />
+                        </button>
+                    )}
                     <button
                         onClick={handleSend}
                         disabled={loading || sending || (!input.trim() && !imageFiles.length)}

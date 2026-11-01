@@ -9,6 +9,8 @@ import { createSuggestionKeyHandler } from './SearchSuggestions';
 import CollapsibleSection from './CollapsibleSection';
 import LogViewer from './LogViewer';
 import { useAuth } from '../hooks/useAuth';
+import { CHAT_MODEL_OPTIONS } from '../utils/claudeChat';
+import { DEFAULT_CHAT_MODEL } from '../services/geminiChatService';
 
 // --- COMPOSANT ÉDITEUR DE LISTE ---
 const PromptListEditor = ({ items, onChange, onSave, placeholder = "Nouvelle instruction..." }) => {
@@ -364,7 +366,7 @@ const AiConfigSection = () => {
       </div>
 
       <div className="space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
             <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-3">Modèle Portier</label>
             <select value={analysisConfig.gatekeeperModel} onChange={(e) => handleAnalysisConfigChange('gatekeeperModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.gatekeeperModel': analysisConfig.gatekeeperModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
@@ -382,6 +384,13 @@ const AiConfigSection = () => {
             <select value={analysisConfig.expertModel} onChange={(e) => handleAnalysisConfigChange('expertModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.expertModel': analysisConfig.expertModel })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
               {models.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
+          </div>
+          <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800">
+            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-3">Modèle du chat</label>
+            <select value={analysisConfig.chatModel || DEFAULT_CHAT_MODEL} onChange={(e) => handleAnalysisConfigChange('chatModel', e.target.value)} onBlur={() => saveConfig({ 'analysisConfig.chatModel': analysisConfig.chatModel || DEFAULT_CHAT_MODEL })} className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-200 outline-none focus:ring-2 focus:ring-purple-500/30">
+              {CHAT_MODEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="text-[10px] text-slate-500 mt-2 leading-relaxed">Opus se consulte à la demande depuis le chat.</p>
           </div>
         </div>
 

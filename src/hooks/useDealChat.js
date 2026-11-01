@@ -3,15 +3,17 @@ import {
     onDealChatUpdate, addDealChatMessage, replaceDealChatMessage, addImageToDealGallery, markChatMessageAddedToGallery,
     addRestorationItem, markChatMessageRestorationProposalStatus, reorderRestorationItems,
     markChatMessageRequalificationProposalStatus, applyManualAnalysisOverrides, recordLlmUsage, fetchDealFiches,
+    streamChatEvents,
 } from '../services/apiService';
 import {
-    DEFAULT_CHAT_MODEL, getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
+    DEFAULT_CHAT_MODEL, chatModelLabel, getDealChatModel, buildDealContextText, buildDealImageParts, filesToInlineParts,
     buildRestorationPlanContextText, validateRestorationStepProposal, resolveRestorationReorderProposal,
     buildPhotoRefIndex, resolvePhotoRefs, validateDealRequalificationProposal,
 } from '../services/geminiChatService';
 import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageService';
 import { buildFichesContextText, fichesSharedInMessages } from '../utils/fiches';
 import { createFichesLookup } from '../utils/fichesLookup';
+import { isClaudeModel, estimateCostUsd } from '../utils/claudeChat';
 import { getFichesCatalog } from './useFichesCatalog';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
@@ -222,7 +224,8 @@ const logTokenUsage = (label, response, { modelName, dealId, sentParts, latencyM
     const u = response?.usageMetadata;
     if (!u) return;
     console.log(`[tokens] ${label} — prompt=${u.promptTokenCount ?? '?'} cached=${u.cachedContentTokenCount ?? 0} réponse=${u.candidatesTokenCount ?? '?'} total=${u.totalTokenCount ?? '?'}`);
-    if (!modelName) return;
+    // Les tours Claude sont enregistrés par le serveur lui-même (POST /usage les refuse) : jamais de chiffre déclaré par le navigateur.
+    if (!modelName || isClaudeModel(modelName)) return;
     const input = u.promptTokenCount ?? 0;
     const output = u.candidatesTokenCount ?? 0;
     recordLlmUsage({
@@ -257,7 +260,7 @@ const classifyChatError = (error) => {
 // repli sans tools se déclenchait. Aucun token connu (l'API n'a rien renvoyé), mais la ligne donne
 // le taux, le type et la latence de l'échec.
 const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs, errorType } = {}) => {
-    if (!modelName) return;
+    if (!modelName || isClaudeModel(modelName)) return;
     recordLlmUsage({
         model: modelName,
         action: CHAT_USAGE_ACTIONS[label] || 'chat_other',
@@ -268,6 +271,19 @@ const logChatFailure = (label, error, { modelName, dealId, sentParts, latencyMs,
         error_type: errorType || classifyChatError(error),
     });
 };
+
+// Consultation d'Opus (2026-11-01) : Opus coûte cher, il ne reçoit donc PAS la conversation. Le modèle du chat rédige d'abord un
+// dossier autonome (cette consigne), qui est la seule chose envoyée à Opus.
+const BRIEF_REQUEST = (question) => [
+    "[Consultation d'Opus demandée par l'utilisateur.] Rédige maintenant un DOSSIER AUTONOME pour Opus, qui n'a pas accès à cette conversation ni aux photos.",
+    "Contenu, en français et en 400 mots maximum, sans préambule ni conclusion :",
+    "1. La question précise à trancher.",
+    "2. Les faits utiles de l'annonce (marque, modèle, année, prix, état, défauts constatés) et seulement ceux-là.",
+    "3. Ce qui est déjà établi dans la conversation (constats, chiffres, décisions).",
+    "4. Les points incertains ou sur lesquels tu hésites, avec les hypothèses en présence.",
+    "Ne réponds pas toi-même à la question, ne résume pas les photos au-delà des constats précis.",
+    `Question de l'utilisateur : ${question}`,
+].join('\n');
 
 // Délai maximal d'un appel Gemini du chat (le SDK attend 180 s par défaut, sans rien afficher) — Pro
 // avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
@@ -416,7 +432,11 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 // réflexion, jusqu'à ~2 min sans aucun octet en mode non-streamé, coupée par le réseau
                 // — voir llm_usage `connection`). On draine le flux, puis `stream.response` donne la
                 // même réponse agrégée qu'avant : le reste de la cascade est inchangé.
-                const stream = await session.sendMessageStream(payload, { signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS });
+                const stream = await session.sendMessageStream(payload, {
+                    signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS,
+                    // Session Claude : annonce et type de tour, pour que le serveur enregistre l'usage (ignoré par la session Gemini).
+                    ...(isClaudeModel(modelName) ? { dealId: deal?.id, action: CHAT_USAGE_ACTIONS[label] || 'chat_other' } : {}),
+                });
                 // eslint-disable-next-line no-unused-vars
                 for await (const _chunk of stream.stream) { /* drainage */ }
                 const response = { response: await stream.response };
@@ -629,7 +649,7 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
             // "Copier"), sans avoir à retrouver/retaper l'erreur brute de la console.
             const errorText = cancelled
                 ? '⛔ Réponse annulée.'
-                : `${timedOut ? `⏱️ Délai dépassé (${CHAT_REQUEST_TIMEOUT_MS / 1000} s) sans réponse de Gemini.` : '⚠️ Erreur lors de la génération de la réponse.'}\n[détail technique : ${e.message || 'erreur inconnue'}]`;
+                : `${timedOut ? `⏱️ Délai dépassé (${CHAT_REQUEST_TIMEOUT_MS / 1000} s) sans réponse de ${chatModelLabel(modelName)}.` : '⚠️ Erreur lors de la génération de la réponse.'}\n[détail technique : ${e.message || 'erreur inconnue'}]`;
             try {
                 if (replaceMessageId) {
                     await replaceDealChatMessage(deal.id, replaceMessageId, {
@@ -843,6 +863,71 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
         });
     }, [deal, user, messages, modelName, executeTurn, setSendingState]);
 
+    // Consultation d'Opus (2026-11-01) : 1) le modèle du chat rédige un dossier autonome à partir de la conversation ; 2) Opus
+    // répond à ce dossier seul (sans outils, réponse plafonnée) ; 3) question et réponse (avec le coût et le dossier) sont
+    // persistées dans le fil, donc relues par le modèle du chat aux tours suivants. Les deux appels sont comptés par le serveur.
+    const consultOpus = useCallback(async (question) => {
+        if (!deal?.id || !user || sendingRef.current || !isClaudeModel(modelName) || messages.length === 0) return false;
+        const asked = (question || '').trim() || "Quel est ton avis d'expert sur la situation actuelle de cette annonce ?";
+        const userText = `Consulter Opus — ${asked}`;
+        setSendingState(true);
+        setError(null);
+        const controller = new AbortController();
+        abortRef.current = controller;
+        userCancelledRef.current = false;
+        try {
+            await addDealChatMessage(deal.id, 'user', [{ text: userText }], userText, user.uid);
+        } catch (e) {
+            console.error('Erreur sauvegarde de la demande à Opus:', e);
+            setError("Impossible d'envoyer la demande.");
+            setSendingState(false);
+            return false;
+        }
+        try {
+            const photoRefIndex = buildPhotoRefIndex(deal, messages);
+            const writer = getDealChatModel(modelName, {}).startChat({ history: buildApiHistory(messages, { elide: true, photoRefIndex }) });
+            const briefStream = await writer.sendMessageStream([{ text: BRIEF_REQUEST(asked) }], {
+                signal: controller.signal, timeout: CHAT_REQUEST_TIMEOUT_MS, dealId: deal.id, action: 'chat_opus_brief',
+            });
+            // eslint-disable-next-line no-unused-vars
+            for await (const _chunk of briefStream.stream) { /* drainage */ }
+            const brief = (await briefStream.response).text().trim();
+            if (!brief) throw new Error("Le dossier pour Opus est vide.");
+
+            let final = null;
+            for await (const event of streamChatEvents(`/deals/${deal.id}/chat/consult-opus`, { brief, images: [] }, { signal: controller.signal })) {
+                if (event.type === 'final') final = event;
+                else if (event.type === 'error') {
+                    const err = new Error(event.message || "Erreur de la consultation d'Opus");
+                    err.customErrorData = { status: event.status || 500 };
+                    throw err;
+                }
+            }
+            const answer = final?.content?.filter(b => b.type === 'text').map(b => b.text).join('').trim();
+            if (!answer) throw new Error("Opus n'a renvoyé aucune réponse.");
+            const cost = estimateCostUsd('claude-opus-5-5', final.usage);
+            const costText = cost == null ? '' : ` — coût estimé ≈ ${cost.toFixed(2)} $`;
+            const quotedBrief = brief.split('\n').map(line => `> ${line}`).join('\n');
+            const text = `**Opus**${costText}\n\n${answer}\n\n---\n*Dossier transmis à Opus :*\n${quotedBrief}`;
+            await addDealChatMessage(deal.id, 'model', [{ text }], text, user.uid);
+        } catch (e) {
+            console.error("Erreur consultation d'Opus:", e);
+            const cancelled = userCancelledRef.current && controller.signal.aborted;
+            if (!cancelled) setError(e.message || "Erreur lors de la consultation d'Opus.");
+            // Toujours apparier une réponse au tour utilisateur déjà sauvegardé (alternance user/model exigée par l'API).
+            const errorText = cancelled ? '⛔ Consultation annulée.' : `⚠️ La consultation d'Opus a échoué.\n[détail technique : ${e.message || 'erreur inconnue'}]`;
+            try {
+                await addDealChatMessage(deal.id, 'model', [{ text: errorText }], errorText, user.uid, undefined, undefined, undefined, true);
+            } catch (e2) {
+                console.error("Erreur sauvegarde du message d'erreur:", e2);
+            }
+        } finally {
+            if (abortRef.current === controller) abortRef.current = null;
+            setSendingState(false);
+        }
+        return true;
+    }, [deal, user, messages, modelName, setSendingState]);
+
     // Ajoute à la galerie de l'annonce une photo jointe par l'utilisateur dans un message déjà
     // envoyé (2026-08-21, étendu 2026-08-22 pour cibler une photo précise parmi plusieurs par
     // message via `partIndex`) : upload Storage (voir storageService.js) puis écriture Firestore
@@ -947,7 +1032,7 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
     }, [deal, user]);
 
     return {
-        messages, loading, sending, error, sendMessage, retryMessage, cancelSending, addPhotoToGallery,
+        messages, loading, sending, error, sendMessage, retryMessage, consultOpus, cancelSending, addPhotoToGallery,
         applyRestorationProposal, dismissRestorationProposal,
         applyRequalificationProposal, dismissRequalificationProposal,
     };

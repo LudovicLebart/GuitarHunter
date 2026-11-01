@@ -19,13 +19,13 @@ import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_repo, cost_alert, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -536,6 +536,51 @@ async def _require_plan_access(pool, deal_id: str, uid: str) -> None:
 async def _require_deal_visible(pool, deal_id: str, uid: str) -> None:
     if not await chat_repo.is_deal_visible(pool, deal_id, uid):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+
+
+class ClaudeChatIn(BaseModel):
+    """Tour de chat sur Claude : la conversation arrive déjà au format Anthropic (voir `src/utils/claudeChat.js`)."""
+    model: str
+    system: str
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    messages: list[dict[str, Any]]
+    action: str = "chat_turn"
+
+
+class OpusConsultIn(BaseModel):
+    """Consultation d'Opus : un dossier autonome rédigé par Sonnet, jamais la conversation complète."""
+    brief: str
+    images: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# `Content-Encoding: identity` : GZipMiddleware ne touche pas à une réponse déjà « encodée » et ne retient donc pas le flux.
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Content-Encoding": "identity"}
+
+
+@app.post("/deals/{deal_id}/chat/claude")
+async def chat_claude_turn(deal_id: str, body: ClaudeChatIn, uid: str = Depends(get_current_uid)):
+    """Un tour de chat sur Claude, en SSE (texte au fil de l'eau, puis le message final et l'usage)."""
+    pool = get_pool()
+    await _require_deal_visible(pool, deal_id, uid)
+    try:
+        req = chat_claude.validate_chat(body.system, body.tools, body.messages, body.model)
+    except chat_claude.ChatRequestError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return StreamingResponse(chat_claude.event_stream(pool, uid, deal_id, body.action, req),
+                             media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@app.post("/deals/{deal_id}/chat/consult-opus")
+async def chat_consult_opus(deal_id: str, body: OpusConsultIn, uid: str = Depends(get_current_uid)):
+    """Consultation d'Opus sur le dossier préparé par l'assistant : sans outils, réponse plafonnée, en SSE."""
+    pool = get_pool()
+    await _require_deal_visible(pool, deal_id, uid)
+    try:
+        req = chat_claude.validate_consult(body.brief, body.images)
+    except chat_claude.ChatRequestError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return StreamingResponse(chat_claude.event_stream(pool, uid, deal_id, "chat_consult_opus", req, consult=True),
+                             media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @app.get("/deals/{deal_id}/chat")

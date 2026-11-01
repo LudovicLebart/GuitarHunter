@@ -3,12 +3,12 @@ import { ai } from './firebase';
 import { RESTORATION_CATEGORIES, RESTORATION_STATUS_LABELS } from '../constants/restorationPlan';
 import { NEW_VERDICTS } from '../constants';
 import { pickAllowedFicheSlug } from '../utils/fiches';
+import { isClaudeModel } from '../utils/claudeChat';
+import { getClaudeChatModel } from './claudeChatService';
 
-// Modèle par défaut si analysisConfig.expertModel n'est pas encore chargé — aligné sur
-// GEMINI_MODELS["default_expert"] (config.py), le même modèle que le Tier 3 Expert Pro du
-// pipeline d'analyse, pour une continuité de "personnalité"/capacité entre l'analyse
-// automatique et la conversation.
-export const DEFAULT_CHAT_MODEL = 'gemini-3.1-pro-preview';
+// Modèle du chat quand `analysisConfig.chatModel` est vide (décision du 2026-11-01 : Claude Sonnet 5.5 pour tout le monde,
+// Gemini 3.1 Pro restant disponible comme réglage de secours). Un nom `claude-*` passe par l'API (voir claudeChatService.js).
+export const DEFAULT_CHAT_MODEL = 'claude-sonnet-5-5';
 
 // Filet de sécurité (2026-08-23, Plan 1 tokens) — la consigne de concision dans SYSTEM_INSTRUCTION
 // est la règle de fond, ce plafond n'intervient qu'en cas de dérive (le modèle ignore la consigne
@@ -563,7 +563,7 @@ export const chatModelLabel = (modelName = DEFAULT_CHAT_MODEL) => {
 };
 
 export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorationTools = false, withPhotoRecall = false, withRequalification = false } = {}) => {
-    if (!ai) throw new Error("Firebase AI Logic n'est pas initialisé (voir src/services/firebase.js).");
+    if (!isClaudeModel(modelName) && !ai) throw new Error("Firebase AI Logic n'est pas initialisé (voir src/services/firebase.js).");
     const functionDeclarations = [
         ...(withPhotoRecall ? PHOTO_RECALL_FUNCTION_DECLARATIONS : []),
         ...(withRestorationTools ? RESTORATION_FUNCTION_DECLARATIONS : []),
@@ -575,6 +575,7 @@ export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorati
         withRestorationTools ? RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
         withRequalification ? REQUALIFICATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
     ].filter(Boolean).join(' ');
+    if (isClaudeModel(modelName)) return getClaudeChatModel(modelName, { systemInstruction, functionDeclarations });
     return getGenerativeModel(ai, {
         model: modelName,
         systemInstruction,

@@ -57,6 +57,8 @@
  */
 import { auth } from './firebase';
 
+import { parseSseBuffer } from '../utils/claudeChat';
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
 const API_TIMEOUT_MS = 20000;
@@ -449,6 +451,36 @@ export const getSharedDeal = async (dealId) => apiFetch(`/shared-deals/${dealId}
  * nouvel inscrit n'aurait jamais de bot. Remplace l'ancien document Firestore `users/{uid}`.
  */
 export const ensureUser = async () => apiFetch('/users/me', { method: 'POST' });
+
+// Flux SSE d'un POST (chat sur Claude, consultation d'Opus, 2026-11-01) : générateur d'événements JSON. Les erreurs HTTP portent
+// `status` et `customErrorData.status` (lu par classifyChatError de useDealChat) ; l'appelant fournit `signal` (annulation, délai).
+export async function* streamChatEvents(path, body, { signal } = {}) {
+  const resp = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getIdToken()}` },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    const error = new Error(`apiService: POST ${path} a échoué (${resp.status}) ${text}`);
+    error.status = resp.status;
+    error.customErrorData = { status: resp.status };
+    throw error;
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { events, rest } = parseSseBuffer(buffer);
+    buffer = rest;
+    for (const event of events) yield event;
+  }
+  for (const event of parseSseBuffer(`${buffer}\n\n`).events) yield event;
+}
 
 export const getAdminUsers = async () => apiFetch('/admin/users');
 export const getAdminChatCost = async (days = 30) => apiFetch(`/admin/chat-cost?days=${days}`);
