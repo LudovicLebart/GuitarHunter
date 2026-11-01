@@ -100,6 +100,12 @@ def record(*, provider, model, action, images=0, input_tokens=0, cached_tokens=0
            output_tokens=0, thoughts_tokens=0, latency_ms=None, ok=True, error_type=None,
            deal_id=None, user_ref=None, source="backend", cache_write_tokens=0):
     global _last_warning
+    if not ok:
+        try:  # alerte « modèle injoignable » (clé absente, crédit épuisé, panne répétée...), indépendante de la base
+            from backend.api import model_alerts
+            model_alerts.report_failure(provider, model, error_type, source="backend")
+        except Exception:
+            pass
     if _disabled:
         return
     try:

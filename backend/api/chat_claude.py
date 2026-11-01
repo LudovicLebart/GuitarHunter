@@ -17,7 +17,7 @@ import logging
 import os
 import time
 
-from backend.api import cost_alert, usage_repo
+from backend.api import cost_alert, model_alerts, usage_repo
 
 log = logging.getLogger("chat_claude")
 
@@ -190,6 +190,19 @@ def _partial_usage(stream):
         return None
 
 
+def _error_type(exc: Exception) -> str:
+    """Type d'échec d'un appel à Claude, au vocabulaire de `llm_usage.error_type` / `model_alerts`."""
+    status = getattr(exc, "status_code", None)
+    if status:
+        return f"http_{status}"
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return "timeout"
+    if "connection" in name:
+        return "connection"
+    return type(exc).__name__[:30]
+
+
 def _client():
     import anthropic  # import tardif : l'API démarre même si le paquet manque (le chat Gemini n'en dépend pas)
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
@@ -235,6 +248,7 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
     except ChatConfigError as e:
         ok, error_type = False, "no_key"
         log.warning("[chat_claude] %s", e)
+        model_alerts.report_failure("anthropic", req["model"], "no_key", source="chat")
         await queue.put({"type": "error", "status": 424, "message": str(e)})  # 424 : jamais réessayé par le navigateur
     except Exception as e:
         ok = False
@@ -244,11 +258,11 @@ async def _produce(queue: asyncio.Queue, pool, uid: str, deal_id: str, action: s
             error_type = "no_credit"
             log.error("[chat_claude] crédit Anthropic insuffisant : %s", e)
             await queue.put({"type": "error", "status": 402, "message": CREDIT_MESSAGE})
-            await cost_alert.notify_once("no_credit", time.strftime("%Y-%m-%d"), "Credit Anthropic epuise",
-                                         "Le chat et l'Expert sont bloqués : recharger le compte Anthropic.")
+            model_alerts.report_failure("anthropic", req["model"], "no_credit", source="chat")
             return
         status_code = getattr(e, "status_code", None)
-        error_type = f"http_{status_code}" if status_code else type(e).__name__[:30]
+        error_type = _error_type(e)
+        model_alerts.report_failure("anthropic", req["model"], error_type, source="chat")
         log.warning("[chat_claude] échec (%s) : %s", error_type, e)
         await queue.put({"type": "error", "status": status_code, "message": str(e)[:500]})
     finally:

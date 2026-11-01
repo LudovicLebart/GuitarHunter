@@ -25,7 +25,7 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -222,6 +222,8 @@ async def post_usage(body: UsageIn, uid: str = Depends(get_current_uid)):
     if row["model"].startswith("claude"):
         raise HTTPException(status_code=422, detail="Les tours Claude sont enregistrés par le serveur.")
     row["cached_tokens"] = min(row["cached_tokens"], row["input_tokens"])
+    if not row["ok"]:  # échec d'un modèle vu du navigateur : alerte si la cause est à traiter ou se répète
+        model_alerts.report_failure(usage_repo.provider_of(row["model"]), row["model"], row["error_type"], source="browser")
     pool = get_pool()
     await usage_repo.add_usage(pool, uid, row)
     today = await pool.fetchval("SELECT (now() AT TIME ZONE 'America/Toronto')::date::text")

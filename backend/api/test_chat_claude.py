@@ -198,20 +198,22 @@ class TestEventStream(unittest.TestCase):
         self.assertEqual(pool.executed[0][11], "no_key")
 
     def test_exhausted_credit_gives_an_explicit_402_and_one_ntfy_per_day(self):
-        from backend.api import cost_alert
+        from backend.api import model_alerts
         error = RuntimeError("Error code: 400 - Your credit balance is too low to access the Anthropic API.")
         error.status_code = 400
         sent = []
-        cost_alert._notified.clear()
-        with patch.object(cost_alert, "_send_ntfy", lambda t, ti, m: sent.append((t, ti))), \
-                patch.dict("os.environ", {"NTFY_TOPIC": "topic-test"}):
+        model_alerts.reset()
+        with patch.object(model_alerts, "send_ntfy", lambda t, ti, m: sent.append((t, ti))), \
+                patch.object(model_alerts, "_spawn", lambda target, args: target(*args)), \
+                patch.dict("os.environ", {"NTFY_TOPIC": "topic-test", "MODEL_ALERTS_TEST": "1"}):
             events, pool = self._stream(SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: FakeStream([], None, error))))
             self._stream(SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: FakeStream([], None, error))))
-        cost_alert._notified.clear()
+        model_alerts.reset()
         self.assertEqual(events[-1]["status"], 402)
         self.assertIn("Crédit Anthropic insuffisant", events[-1]["message"])
         self.assertEqual(pool.executed[0][11], "no_credit")
         self.assertEqual(len(sent), 1)  # une seule notification malgré deux échecs le même jour
+        self.assertIn("crédit épuisé", sent[0][1])
 
     def test_failure_emits_error_event_and_records_a_failed_row(self):
         error = RuntimeError("surcharge")
@@ -265,6 +267,21 @@ class TestRoutes(unittest.TestCase):
         (args,) = self.pool.executed
         self.assertEqual(args[6], 10)  # les tokens lus du cache sont ramenés à l'entrée (jamais plus)
         self.assertEqual(args[12], "gemini")
+
+    def test_browser_reported_gemini_failure_triggers_a_model_alert(self):
+        from backend.api import model_alerts
+        sent = []
+        model_alerts.reset()
+        with patch.object(model_alerts, "send_ntfy", lambda t, ti, m: sent.append(ti)), \
+                patch.object(model_alerts, "_spawn", lambda target, args: target(*args)), \
+                patch.dict("os.environ", {"NTFY_TOPIC": "topic-test", "MODEL_ALERTS_TEST": "1"}):
+            failed = {"model": "gemini-3.1-pro-preview", "action": "chat_turn", "ok": False, "error_type": "http_403"}
+            self.assertEqual(self.client.post("/usage", json=failed).status_code, 204)
+            offline = dict(failed, error_type="connection")  # coupure du navigateur : pas une alerte
+            self.assertEqual(self.client.post("/usage", json=offline).status_code, 204)
+        model_alerts.reset()
+        self.assertEqual(len(sent), 1)
+        self.assertIn("gemini-3.1-pro-preview", sent[0])
 
     def test_turn_rejects_a_forbidden_model_with_422(self):
         body = {"model": "claude-fable-5-1", "system": "s", "tools": [], "messages": [_msg()]}

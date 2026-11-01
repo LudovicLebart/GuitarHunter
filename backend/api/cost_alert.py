@@ -10,9 +10,8 @@ Module autonome (n'importe que `llm_pricing`) : l'API de production ne recopie q
 import asyncio
 import logging
 import os
-import urllib.request
 
-from backend.api import llm_pricing
+from backend.api import llm_pricing, model_alerts
 
 log = logging.getLogger("cost_alert")
 
@@ -26,31 +25,9 @@ GROUP BY model
 """
 
 _alerted_on = None  # date (str) de la dernière alerte envoyée par ce processus
-_notified = {}  # type d'incident -> date (str) de la dernière notification (crédit épuisé, etc.)
 
 
-def _send_ntfy(topic: str, title: str, message: str) -> None:
-    req = urllib.request.Request(
-        f"https://ntfy.sh/{topic}", data=message.encode("utf-8"),
-        headers={"Title": title, "Priority": "high", "Tags": "money_with_wings"}, method="POST")
-    urllib.request.urlopen(req, timeout=5).close()
-
-
-async def notify_once(kind: str, today: str, title: str, message: str) -> bool:
-    """Notification ntfy d'un incident (ex. crédit Anthropic épuisé), au plus une fois par jour et par type. Ne lève jamais."""
-    try:
-        if _notified.get(kind) == today:
-            return False
-        _notified[kind] = today
-        topic = os.getenv("NTFY_TOPIC", "").strip()
-        if not topic:
-            log.warning("[cost_alert] %s : NTFY_TOPIC est absent, aucune notification envoyée.", kind)
-            return False
-        await asyncio.to_thread(_send_ntfy, topic, title, message)
-        return True
-    except Exception as e:
-        log.warning("[cost_alert] notification impossible (ignorée) : %s", e)
-        return False
+_send_ntfy = model_alerts.send_ntfy  # même envoi que les alertes de modèle injoignable
 
 
 async def today_chat_cost(pool) -> float:
