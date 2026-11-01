@@ -109,6 +109,8 @@ Pour contourner la limite de taille et les coûts de lecture Firestore, le syst�
 
 ## 5.1 Chat Gemini (Collection `guitar_deals/{dealId}/chat`, 2026-07-31)
 Historique de conversation persisté par annonce, écrit **directement par le frontend** (aucun aller-retour backend Python — le chat appelle Gemini via Firebase AI Logic, côté client).
+- **Contexte envoyé au modèle (2026-11-01)** : l'annonce (contexte texte + photos) n'est jointe qu'au « premier message », défini comme **aucune réponse du modèle déjà dans l'historique rejouable** (`sanitizeHistory(messages).length === 0`), et non « fil vide » : après des échecs réseau, le fil contient des tours utilisateur sans réponse et l'annonce n'était plus jamais renvoyée.
+- **Coût** : chaque tour (réussi ou échoué) est posté à `POST /usage` → `llm_usage` (`source='chat'`) ; le modèle enregistré est celui réellement utilisé, y compris le défaut quand `analysisConfig.expertModel` est vide. Voir ARCHITECTURE « Instrument de coût du chat ».
 - **Chemin** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/{DEAL_ID}/chat/{MSG_ID}`.
 - **Couverte par les règles Firestore existantes** : `match /artifacts/{appId}/users/{userId}/{document=**}` (wildcard générique) — aucune règle dédiée nécessaire.
 - **Format de donnée** :

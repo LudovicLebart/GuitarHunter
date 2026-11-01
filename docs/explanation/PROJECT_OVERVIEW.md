@@ -27,7 +27,7 @@ Guitar Hunter AI est une application automatisée conçue pour surveiller, analy
 3. **Analyse IA:**
    - **Portier (Gatekeeper) :** Modèle rapide (Qwen3-VL en local sur le Dell, Qwen cloud en secours ; Gemini Flash-Lite jusqu'au 2026-09-29) pour filtrer le "bruit" (accessoires seuls, services, arnaques) et, avec la Recherche Active, ne promouvoir à l'Analyste que les familles recherchées.
    - **Analyste :** Modèle rapide (Gemini Flash) pour structurer les données et attribuer 5 scores critiques (Deal, Authenticité, État, Liquidité, Intérêt Restauration).
-   - **Expert Pro :** Modèle haute-précision (Gemini Pro) déclenché conditionnellement (prix élevé, anomalie de score, verdict 'COLLECTION') pour une expertise chirurgicale.
+   - **Expert Pro :** Modèle haute-précision (Claude Sonnet 5.5 depuis le 2026-10-31, Gemini Pro en secours via `T3_PROVIDER`) déclenché conditionnellement (prix élevé, anomalie de score, verdict 'COLLECTION') pour une expertise chirurgicale.
 4. **Stockage:** Les résultats sont écrits dans Postgres (table `guitar_deals`) ; les photos sont envoyées à Firebase Storage.
 5. **Affichage:** Le Frontend interroge l'API (REST) et reçoit un signal WebSocket quand quelque chose a changé ; il affiche les résultats sous forme de cartes interactives.
 6. **Actions:** L'utilisateur interagit (Favori, Rejet, Réanalyse, Stop Bot) via le Frontend, qui dépose des commandes par l'API (table `commands`), exécutées par le Backend.
