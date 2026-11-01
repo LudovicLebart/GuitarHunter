@@ -14,6 +14,7 @@ import { base64ToBlob, uploadChatPhotoToDealStorage } from '../services/storageS
 import { buildFichesContextText, fichesSharedInMessages } from '../utils/fiches';
 import { createFichesLookup } from '../utils/fichesLookup';
 import { isClaudeModel, estimateCostUsd } from '../utils/claudeChat';
+import { historyHasDealContext } from '../utils/dealContext';
 import { getFichesCatalog } from './useFichesCatalog';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
@@ -707,10 +708,10 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 }
             }
             const chat = chatRef.current; // capturé avant toute écriture Firestore (voir note ci-dessus)
-            // « Premier message » = aucune réponse du modèle encore dans l'historique rejouable, PAS « fil vide » : après des
-            // échecs, le fil contient des tours utilisateur sans réponse (ignorés par sanitizeHistory) et l'annonce
-            // (contexte + photos) n'était alors jamais envoyée au modèle (2026-11-01).
-            const isFirstMessage = sanitizeHistory(messages).length === 0;
+            // L'annonce (contexte + photos) est jointe tant que le modèle ne l'a PAS vue dans l'historique rejouable — et non
+            // « au premier message » : après des échecs, le fil contient des tours sans réponse (ignorés par sanitizeHistory),
+            // et une conversation dont le premier tour est parti sans contexte ne l'aurait jamais reçu (2026-11-01).
+            const isFirstMessage = !historyHasDealContext(sanitizeHistory(messages));
             // Recherche des fiches lancée TOUT DE SUITE : elle se déroule pendant la préparation des photos, pas après.
             const fichesLookup = lookupFiches(deal.id, trimmed);
 

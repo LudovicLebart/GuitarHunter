@@ -4,6 +4,7 @@ import { RESTORATION_CATEGORIES, RESTORATION_STATUS_LABELS } from '../constants/
 import { NEW_VERDICTS } from '../constants';
 import { pickAllowedFicheSlug } from '../utils/fiches';
 import { isClaudeModel } from '../utils/claudeChat';
+import { DEAL_CONTEXT_HEADER } from '../utils/dealContext';
 import { getClaudeChatModel } from './claudeChatService';
 
 // Modèle du chat quand `analysisConfig.chatModel` est vide (décision du 2026-11-01 : Claude Sonnet 5.5 pour tout le monde,
@@ -37,7 +38,7 @@ const SYSTEM_INSTRUCTION = [
 export const buildDealContextText = (deal) => {
     const a = deal.aiAnalysis || {};
     const lines = [
-        "Contexte de l'annonce (déjà analysée par Guitar Hunter AI) :",
+        DEAL_CONTEXT_HEADER,
         `Titre : ${deal.title || 'N/A'}`,
         `Prix demandé : ${deal.price != null ? `${deal.price}$` : 'N/A'}`,
     ];
