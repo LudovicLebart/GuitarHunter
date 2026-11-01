@@ -386,6 +386,15 @@ const PHOTO_RECALL_FUNCTION_DECLARATIONS = [{
     }),
 }];
 
+// Quand une demande mêle une question (avis, estimation, vérification) et une modification du plan ou une correction (2026-11-01) :
+// le texte écrit avant l'appel d'outil est conservé et affiché, la réponse ne doit donc pas être repoussée au tour suivant.
+const TOOL_TURN_ADDENDUM = [
+    "Si la demande de l'utilisateur contient à la fois une question (avis, estimation, vérification, explication) et une",
+    "modification (étape à ajouter, ordre du plan, correction de l'annonce), réponds D'ABORD complètement à la question dans ce",
+    "même message, puis appelle l'outil pour la modification. Le texte écrit avant l'appel est conservé et montré à",
+    "l'utilisateur. Après le retour de l'outil, n'écris qu'une courte phrase sur la proposition, sans répéter ta réponse.",
+].join(' ');
+
 const PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM = [
     "Certaines photos jointes plus tôt dans cette conversation ne sont plus affichées ici (remplacées",
     "par un texte '[Photo ... ref: ...]') pour alléger la conversation — leur contenu reste dans ce",
@@ -572,6 +581,7 @@ export const getDealChatModel = (modelName = DEFAULT_CHAT_MODEL, { withRestorati
     ];
     const systemInstruction = [
         SYSTEM_INSTRUCTION,
+        functionDeclarations.length ? TOOL_TURN_ADDENDUM : null,
         withPhotoRecall ? PHOTO_RECALL_SYSTEM_INSTRUCTION_ADDENDUM : null,
         withRestorationTools ? RESTORATION_SYSTEM_INSTRUCTION_ADDENDUM : null,
         withRequalification ? REQUALIFICATION_SYSTEM_INSTRUCTION_ADDENDUM : null,

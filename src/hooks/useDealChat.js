@@ -15,6 +15,7 @@ import { buildFichesContextText, fichesSharedInMessages } from '../utils/fiches'
 import { createFichesLookup } from '../utils/fichesLookup';
 import { isClaudeModel, estimateCostUsd } from '../utils/claudeChat';
 import { historyHasDealContext } from '../utils/dealContext';
+import { joinReplyTexts } from '../utils/chatReply';
 import { getFichesCatalog } from './useFichesCatalog';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
@@ -602,6 +603,10 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 const functionResponseParts = calls.map(call => ({
                     functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                 }));
+                // Texte écrit AVANT l'appel d'outil (Claude répond souvent à la question puis appelle l'outil dans le même tour) :
+                // il était jeté, seul le texte du tour de suite (une ligne sur la proposition) était gardé, d'où des réponses
+                // génériques « perdues » quand la demande mêlait une question et une modification du plan (2026-11-01).
+                const leadText = result.response.text?.()?.trim() || '';
                 const followUp = await sendLogged(chat, functionResponseParts, 'tour de suite (functionResponse)');
                 // Le modèle peut répondre à la functionResponse par de NOUVEAUX appels (2026-10-06,
                 // même filet que les chemins de rappel de photo) : sans ce traitement la proposition
@@ -613,9 +618,9 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                     const followUp2 = await sendLogged(chat, followUpCalls.map(call => ({
                         functionResponse: { name: call.name, response: { status: 'proposal_shown_to_user_pending_confirmation' } },
                     })), 'tour de suite (functionResponse)');
-                    responseText = followUp2.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                    responseText = joinReplyTexts(leadText, followUp.response.text(), followUp2.response.text());
                 } else {
-                    responseText = followUp.response.text()?.trim() || "J'ai préparé une proposition ci-dessous.";
+                    responseText = joinReplyTexts(leadText, followUp.response.text());
                 }
             } else {
                 responseText = result.response.text()?.trim() || "…";
