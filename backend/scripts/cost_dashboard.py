@@ -61,6 +61,9 @@ PRICING = {
     # Anthropic (doc tarifs vérifiée 2026-10-13) : lecture de cache = 5 % de l'entrée sur Sonnet 5.5. `out` inclut
     # déjà le raisonnement (`thoughts` enregistré à 0 par `_call_claude_json`).
     "claude-sonnet-5-5": [{"in": 2.00, "out": 10.00, "cached": 0.05}],
+    # Opus 5.5 (page de tarifs Anthropic relue 2026-11-01) : 4 $ / 20 $ par million, lecture de cache 0,20 $ (5 %). Écriture de cache :
+    # 1,25 × l'entrée (TTL 5 min) ou 2 × (1 h), NON comptée ici (les tokens écrits sont facturés au prix d'entrée normal).
+    "claude-opus-5-5": [{"in": 4.00, "out": 20.00, "cached": 0.05}],
     "qwen/qwen3.8-flash": [{"in": 0.15, "out": 0.47, "cached": 0.10}],
     "qwen3-vl:8b": [{"in": 0.0, "out": 0.0, "cached": 0.0}],
     "qwen3-vl:8b-instruct": [{"in": 0.0, "out": 0.0, "cached": 0.0}],   # le bon tag (Instruct, pas Thinking)
@@ -76,6 +79,7 @@ ROLE = {
     "gemini-3.6-flash": "T2 Analyste (ancien)",
     "gemini-3.1-pro-preview": "T3 Expert Pro",
     "claude-sonnet-5-5": "T3 Expert Pro (Claude)",
+    "claude-opus-5-5": "Opus (consultation du chat)",
     "qwen3-vl:8b": "Local (Dell)",
     "qwen3-vl:8b-instruct": "T1 Portier local (Dell)",
     "qwen3-vl:4b-instruct": "Local (Dell)",

@@ -892,6 +892,12 @@ async def admin_list_users(_admin: str = Depends(get_admin_uid)):
     return await admin_repo.list_admin_users(get_pool())
 
 
+@app.get("/admin/chat-cost")
+async def admin_chat_cost(days: int = Query(30, ge=1, le=365), _admin: str = Depends(get_admin_uid)):
+    """Instrument de coût du chat : par jour, modèle et utilisateur + alerte à 2 $ par jour (jamais bloquante)."""
+    return await admin_repo.chat_cost(get_pool(), days)
+
+
 @app.post("/admin/users/{target_uid}/pause", status_code=status.HTTP_202_ACCEPTED)
 async def admin_pause_user(target_uid: str, _admin: str = Depends(get_admin_uid)):
     if not await admin_repo.pause_user(get_pool(), target_uid):

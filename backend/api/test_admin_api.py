@@ -42,6 +42,7 @@ async def _seed():
 
 
 async def _cleanup():
+    await _run("DELETE FROM llm_usage WHERE action = 'chat_cost_test'")
     await _run("DELETE FROM user_deal_matches WHERE deal_id LIKE 'adm-deal-%'")
     await _run("DELETE FROM guitar_deals WHERE id LIKE 'adm-deal-%'")
     await _run("DELETE FROM commands WHERE user_id = ANY($1::text[])", [TARGET_UID, NEW_UID])
@@ -77,6 +78,23 @@ class TestAdminAPI(unittest.TestCase):
         self.assertEqual(row["reachedT2"], 3)   # 3 annonces passées par au moins 2 modèles (le backfill léger n'en fait pas partie)
         self.assertEqual(row["reachedT3"], 2)   # 1 modèle « pro » (Gemini) et 1 modèle « claude » (T3 Claude)
         self.assertGreater(row["estimatedDailyCost"], 0)
+
+    def test_chat_cost_by_model_user_and_alert(self):
+        # 1 M tokens d'entrée + 100 k de sortie sur Sonnet = 2 $ + 1 $ = 3 $ → dépasse le seuil de 2 $ du jour.
+        asyncio.run(_run(
+            "INSERT INTO llm_usage (source, provider, model, action, user_ref, input_tokens, output_tokens) "
+            "VALUES ('chat', 'anthropic', 'claude-sonnet-5-5', 'chat_cost_test', $1, 1000000, 100000), "
+            "('chat', 'gemini', 'modele-inconnu', 'chat_cost_test', $1, 10, 10)", TARGET_UID))
+        resp = self.client.get("/admin/chat-cost?days=7")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        sonnet = next(m for m in body["byModel"] if m["model"] == "claude-sonnet-5-5")
+        self.assertGreaterEqual(sonnet["cost"], 3.0)
+        self.assertGreaterEqual(body["unpricedCalls"], 1)
+        user = next(u for u in body["byUser"] if u["uid"] == TARGET_UID)
+        self.assertEqual(user["email"], "cible@example.com")
+        self.assertTrue(body["today"]["alert"])
+        self.assertEqual(body["today"]["threshold"], 2.0)
 
     def test_pause_creates_stop_bot_command(self):
         resp = self.client.post(f"/admin/users/{TARGET_UID}/pause")
@@ -140,3 +158,18 @@ class TestEnsureUser(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLlmPricing(unittest.TestCase):
+    def test_cost_usd_uses_cache_factor_and_ignores_unknown_models(self):
+        from backend.api import llm_pricing
+        self.assertAlmostEqual(llm_pricing.cost_usd("claude-sonnet-5-5", 1_000_000, 0, 100_000), 3.0)
+        # 800 k tokens lus dans le cache à 5 % du prix d'entrée de l'Opus (4 $) : 200 k × 4 + 800 k × 0,2 + 10 k × 20, en millionièmes.
+        self.assertAlmostEqual(llm_pricing.cost_usd("claude-opus-5-5", 1_000_000, 800_000, 10_000), 0.8 + 0.16 + 0.2)
+        self.assertIsNone(llm_pricing.cost_usd("modele-inconnu", 10, 0, 10))
+
+    def test_provider_of(self):
+        from backend.api.usage_repo import provider_of
+        self.assertEqual(provider_of("claude-opus-5-5"), "anthropic")
+        self.assertEqual(provider_of("gemini-3.1-pro-preview"), "gemini")
+

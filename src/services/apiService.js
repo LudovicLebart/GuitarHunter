@@ -451,6 +451,7 @@ export const getSharedDeal = async (dealId) => apiFetch(`/shared-deals/${dealId}
 export const ensureUser = async () => apiFetch('/users/me', { method: 'POST' });
 
 export const getAdminUsers = async () => apiFetch('/admin/users');
+export const getAdminChatCost = async (days = 30) => apiFetch(`/admin/chat-cost?days=${days}`);
 
 export const adminPauseUser = async (uid) => apiFetch(`/admin/users/${uid}/pause`, { method: 'POST' });
 

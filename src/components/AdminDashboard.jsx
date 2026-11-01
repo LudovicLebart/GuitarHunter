@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShieldCheck, RefreshCw, AlertTriangle, Pause, Clock, Trash2 } from 'lucide-react';
-import { getAdminUsers, adminPauseUser, adminSetScanFrequency, adminDeleteUser } from '../services/apiService';
+import { getAdminUsers, getAdminChatCost, adminPauseUser, adminSetScanFrequency, adminDeleteUser } from '../services/apiService';
 
 const formatDate = (ts) => {
     if (!ts) return '—';
@@ -33,6 +33,8 @@ const AdminDashboard = ({ onClose }) => {
         setError(null);
         try {
             setRows(await getAdminUsers());
+            // Instrument de coût du chat : un échec ici ne doit pas masquer la liste des utilisateurs.
+            getAdminChatCost(30).then(setChatCost).catch((e) => console.error('Erreur coût du chat:', e));
         } catch (e) {
             console.error('Erreur chargement AdminDashboard:', e);
             setError(e.message);
@@ -64,6 +66,9 @@ const AdminDashboard = ({ onClose }) => {
             runAction(() => adminDeleteUser(uid));
         }
     };
+
+    const [chatCost, setChatCost] = useState(null);
+    const money = (v) => `${(v ?? 0).toFixed(2)} $`;
 
     useEffect(() => { loadData(); }, []);
 
@@ -97,6 +102,27 @@ const AdminDashboard = ({ onClose }) => {
                         <div className="mb-4 flex items-center gap-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3 text-sm">
                             <AlertTriangle size={16} className="shrink-0" />
                             {error} — vérifie que le custom claim admin est posé (backend/scripts/set_admin_claim.py) et que l'API est joignable.
+                        </div>
+                    )}
+
+                    {chatCost && (
+                        <div className={`mb-5 rounded-xl border px-4 py-3 text-sm ${chatCost.today.alert ? 'border-rose-500/40 bg-rose-500/10' : 'border-slate-700 bg-slate-800/40'}`}>
+                            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                                <span className="font-black text-slate-100 uppercase tracking-wide text-xs">Coût du chat</span>
+                                <span className={chatCost.today.alert ? 'text-rose-300 font-bold' : 'text-slate-200 font-bold'}>
+                                    Aujourd'hui : {money(chatCost.today.cost)}{chatCost.today.alert ? ` — seuil de ${money(chatCost.today.threshold)} dépassé` : ` / seuil ${money(chatCost.today.threshold)}`}
+                                </span>
+                                <span className="text-slate-500 text-xs">{chatCost.days} derniers jours : {money(chatCost.byDay.reduce((t, d) => t + d.cost, 0))}</span>
+                            </div>
+                            <div className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 text-xs text-slate-400">
+                                <div>
+                                    {chatCost.byModel.map((m) => <div key={m.model}>{m.model} : {money(m.cost)} ({m.calls} appels)</div>)}
+                                </div>
+                                <div>
+                                    {chatCost.byUser.slice(0, 5).map((u) => <div key={u.uid}>{u.email || u.uid.slice(0, 8)} : {money(u.cost)} ({u.calls} appels)</div>)}
+                                </div>
+                            </div>
+                            {chatCost.unpricedCalls > 0 && <div className="mt-1 text-xs text-amber-400">{chatCost.unpricedCalls} appels sans tarif connu (non chiffrés).</div>}
                         </div>
                     )}
 
