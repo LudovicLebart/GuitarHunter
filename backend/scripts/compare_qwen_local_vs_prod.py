@@ -41,6 +41,7 @@ import argparse
 from collections import Counter
 import base64
 import json
+import copy
 import os
 import sys
 import time
@@ -55,6 +56,7 @@ from psycopg.rows import dict_row
 sys.path.insert(0, os.getcwd())
 
 from backend import guitar_knowledge
+from backend.taxonomy import taxonomy_paths
 from backend.t1_image_budget import fit_images_to_budget
 from backend.t1_prompt import build_t1_gatekeeper_prompt
 from backend.scripts.crop_manifest import images_for_deal, load_manifest
@@ -521,6 +523,9 @@ def main():
                               "manifeste, le Portier reçoit ces crops à la place des photos entières (banc « photos "
                               "entières contre crops », PARTS_DETECTOR_AND_CROPS_PLAN.md étape 6). Les autres annonces "
                               "gardent leurs photos entières. Rejouer deux fois (avec et sans) puis comparer les sorties.")
+    parser.add_argument("--classification-enum", action="store_true",
+                         help="Contraint `classification` aux chemins de la taxonomie (+ NULL), comme T1_CLASSIFICATION_ENUM=true "
+                              "en prod. Sans ce drapeau : chaîne libre, comme la prod par défaut.")
     parser.add_argument("--schema-variant", choices=SCHEMA_VARIANTS, default="baseline",
                          help="Variante du contrat JSON du Portier (baseline = prod). reasoning_first : `reasoning` avant "
                               "`status` ; reasoning_motif : + `motif_rejet` à liste fermée. Ajoute une phrase au prompt "
@@ -532,6 +537,10 @@ def main():
         parser.error("--with-knowledge exige --simplified-prompt (le prompt de prod du Portier)")
     global ACTIVE_T1_SCHEMA
     ACTIVE_T1_SCHEMA = build_t1_schema(args.schema_variant)
+    if args.classification_enum:
+        ACTIVE_T1_SCHEMA = copy.deepcopy(ACTIVE_T1_SCHEMA)
+        ACTIVE_T1_SCHEMA["json_schema"]["schema"]["properties"]["classification"] = {
+            "type": "string", "enum": taxonomy_paths(DEFAULT_TAXONOMY) + ["NULL"]}
     crops_manifest = load_manifest(args.crops_manifest) if args.crops_manifest else {}
     crops_base_dir = os.path.dirname(os.path.abspath(args.crops_manifest)) if args.crops_manifest else "."
     temperature = None if args.temperature < 0 else args.temperature     # -1 = réglages par défaut du modèle (comme la prod)

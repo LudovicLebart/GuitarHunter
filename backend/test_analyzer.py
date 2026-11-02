@@ -788,5 +788,92 @@ class TestClaudeExpertProvider(unittest.TestCase):
         self.a._call_gemini_json.assert_not_called()
 
 
+class T1ClassificationEnumTests(unittest.TestCase):
+    """`classification` du Portier contrainte aux chemins de la taxonomie (2026-11-02), Dell/Qwen seulement."""
+
+    def setUp(self):
+        from backend import llm_clients
+        self.llm_clients = llm_clients
+        llm_clients._t1_openai_schema_cache = (None, None)
+
+    def test_enum_is_taxonomy_paths_plus_null(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        from backend.taxonomy import build_index, taxonomy_paths
+        with patch.object(self.llm_clients, "T1_CLASSIFICATION_ENUM", True):
+            schema = self.llm_clients.t1_openai_schema(DEFAULT_TAXONOMY)
+        enum = schema["json_schema"]["schema"]["properties"]["classification"]["enum"]
+        known = {".".join(v) for v in build_index(DEFAULT_TAXONOMY)[0].values()}
+        paths = taxonomy_paths(DEFAULT_TAXONOMY)
+        self.assertTrue(paths and all(p in known for p in paths))
+        self.assertEqual(enum, paths + ["NULL"])
+        self.assertIn("guitare.acoustique_acier.specialites.Travel", enum)   # branche intermédiaire admise
+        self.assertNotIn("guitare", enum)                                      # racine seule exclue
+
+    def test_schema_cached_per_taxonomy_and_free_when_off(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        with patch.object(self.llm_clients, "T1_CLASSIFICATION_ENUM", True):
+            self.assertIs(self.llm_clients.t1_openai_schema(DEFAULT_TAXONOMY),
+                          self.llm_clients.t1_openai_schema(DEFAULT_TAXONOMY))
+            self.assertEqual(self.llm_clients.t1_openai_schema(None)["json_schema"]["schema"]["properties"]["classification"],
+                             {"type": "string"})
+        with patch.object(self.llm_clients, "T1_CLASSIFICATION_ENUM", False):
+            self.assertIs(self.llm_clients.t1_openai_schema(DEFAULT_TAXONOMY),
+                          self.llm_clients.T1_GATEKEEPER_OPENAI_JSON_SCHEMA)
+
+    def test_taxonomy_reaches_each_provider_schema(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        a = _make_analyzer()
+        with patch.object(self.llm_clients, "T1_CLASSIFICATION_ENUM", True),                 patch.object(a, "_call_openai_compatible_json", return_value=({}, None)) as oa,                 patch.object(a, "_call_gemini_json", return_value=({}, None)) as gm,                 patch.object(a, "_fit_t1_local_images", side_effect=lambda p, i: i):
+            a._call_t1_provider("local", "p", [], "g", taxonomy=DEFAULT_TAXONOMY)
+            a._call_t1_provider("qwen", "p", [], "g", taxonomy=DEFAULT_TAXONOMY)
+            a._call_t1_provider("gemini", "p", [], "g", taxonomy=DEFAULT_TAXONOMY)
+        for call in oa.call_args_list:
+            self.assertIn("NULL", call.kwargs["response_format"]["json_schema"]["schema"]["properties"]["classification"]["enum"])
+        self.assertEqual(gm.call_args.kwargs["response_schema"]["properties"]["classification"], {"type": "string"})
+
+
+class ActiveSearchRoutingTests(unittest.TestCase):
+    """Le routage et la repromotion comparent la classification NORMALISÉE (2026-11-02)."""
+
+    FAMILIES = ["guitare.acoustique_acier.specialites.Travel"]
+
+    def test_routing_classification_repairs_partial_path(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        from backend.taxonomy import routing_classification, matches_active_search_family
+        raw = "guitare.acoustique_acier.Travel.Baby / Mini"
+        self.assertFalse(matches_active_search_family(raw, self.FAMILIES))
+        fixed = routing_classification(raw, DEFAULT_TAXONOMY)
+        self.assertTrue(matches_active_search_family(fixed, self.FAMILIES))
+
+    def test_routing_classification_keeps_unknown_and_empty(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        from backend.taxonomy import routing_classification
+        self.assertEqual(routing_classification("NULL", DEFAULT_TAXONOMY), "NULL")
+        self.assertIsNone(routing_classification(None, DEFAULT_TAXONOMY))
+
+    def test_cascade_routes_partial_path_to_t2(self):
+        a = _make_analyzer()
+        a._get_taxonomy_index = MagicMock(side_effect=lambda t: __import__("backend.taxonomy", fromlist=["x"]).build_index(t))
+        from backend.analyzer import DEFAULT_TAXONOMY
+        t1 = {"status": "FAIR", "reasoning": "r", "brand": "Yamaha",
+              "classification": "guitare.acoustique_acier.Travel.Baby / Mini"}
+        a._t1_call_chain = MagicMock(return_value=(t1, "local", ["local"], {}))
+        out = a._run_t1_phase({"title": "t", "images": []}, {"activeSearchFamilies": self.FAMILIES, "taxonomy": DEFAULT_TAXONOMY},
+                              DEFAULT_TAXONOMY, [], None, "u", "g", [])
+        self.assertIsNone(out.early_result)
+
+    def test_cascade_still_discards_off_search_family(self):
+        from backend.analyzer import DEFAULT_TAXONOMY
+        from backend.taxonomy import build_index
+        a = _make_analyzer()
+        a._get_taxonomy_index = MagicMock(side_effect=build_index)
+        t1 = {"status": "FAIR", "reasoning": "r", "brand": "Yamaha",
+              "classification": "guitare.acoustique_acier.formes_standard.Dreadnought.Dreadnought Standard"}
+        a._t1_call_chain = MagicMock(return_value=(t1, "local", ["local"], {}))
+        out = a._run_t1_phase({"title": "t", "images": []}, {"activeSearchFamilies": self.FAMILIES},
+                              DEFAULT_TAXONOMY, [], None, "u", "g", [])
+        self.assertEqual(out.early_result["verdict"], "NOT_PROMOTED")
+
+
 if __name__ == "__main__":
     unittest.main()

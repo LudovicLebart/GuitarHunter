@@ -55,6 +55,7 @@ from backend.scraping.parser import ListingParser
 from backend.taxonomy import (
     build_index as build_taxonomy_index,
     canonicalize as canonicalize_classification,
+    routing_classification as routing_classification_for,
     matches_active_search_family,
 )
 
@@ -277,7 +278,7 @@ class DealAnalyzer(LLMClientsMixin):
 
 
 
-    def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None):
+    def _run_t1_shadow_observation(self, full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email=None, taxonomy=None):
         """Chantier H (porté depuis dev le 2026-09-22) — OBSERVATION EN MIROIR : rejoue le
         Portier avec EXACTEMENT le même prompt sur le fournisseur T1 qui N'EST PAS le décideur
         réel (`T1_GATEKEEPER_PROVIDER`), pour continuer à accumuler de la comparaison en
@@ -293,7 +294,7 @@ class DealAnalyzer(LLMClientsMixin):
             return {}
         prefix = "qwenGatekeeper" if shadow_provider == "qwen" else "flashliteGatekeeper"
         t0 = time.monotonic()
-        result, err = self._call_t1_provider(shadow_provider, full_prompt_t1, images, gatekeeper_model_name, user_email, action="t1_shadow")
+        result, err = self._call_t1_provider(shadow_provider, full_prompt_t1, images, gatekeeper_model_name, user_email, action="t1_shadow", taxonomy=taxonomy)
         latency_s = round(time.monotonic() - t0, 1)
         if err or not result:
             self.logger.warning(f"   🔬 [Observation T1/{shadow_provider}] échec (ignoré, n'affecte pas l'analyse) : {err}")
@@ -547,7 +548,7 @@ class DealAnalyzer(LLMClientsMixin):
             "model_used": " -> ".join(model_chain),
         }
 
-    def _t1_call_chain(self, full_prompt_t1, images, gatekeeper_model_name, user_email):
+    def _t1_call_chain(self, full_prompt_t1, images, gatekeeper_model_name, user_email, taxonomy=None):
         """Essaie chaque fournisseur de `T1_PROVIDER_CHAIN` dans l'ordre. Retourne
         `(result_t1, primary_provider, tried, chain_errors)` ; `result_t1` est None si TOUTE la chaîne échoue."""
         # Chantier I : essaie chaque fournisseur de T1_PROVIDER_CHAIN dans l'ordre. Un
@@ -571,7 +572,7 @@ class DealAnalyzer(LLMClientsMixin):
                 continue
             tried.append(candidate)
             candidate_result, candidate_err = self._call_t1_provider(
-                candidate, full_prompt_t1, images, gatekeeper_model_name, user_email
+                candidate, full_prompt_t1, images, gatekeeper_model_name, user_email, taxonomy=taxonomy
             )
             if candidate_err:
                 t1_circuit_breaker.record_failure(
@@ -624,14 +625,14 @@ class DealAnalyzer(LLMClientsMixin):
 
         def _observe_shadow():
             shadow_result_holder[0] = self._run_t1_shadow_observation(
-                full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email
+                full_prompt_t1, images, shadow_provider, gatekeeper_model_name, user_email, taxonomy=taxonomy
             )
 
         shadow_thread = threading.Thread(target=contextvars.copy_context().run, args=(_observe_shadow,), daemon=True)
         shadow_thread.start()
 
         result_t1, primary_provider, tried, chain_errors = self._t1_call_chain(
-            full_prompt_t1, images, gatekeeper_model_name, user_email
+            full_prompt_t1, images, gatekeeper_model_name, user_email, taxonomy=taxonomy
         )
 
         t1_real_model_name = (
@@ -715,7 +716,12 @@ class DealAnalyzer(LLMClientsMixin):
                 and gatekeeper_status not in T1_FILTER_BYPASS_VERDICTS
                 and gatekeeper_status not in T1_ERROR_STATUSES
             ):
-                matches_active_search = matches_active_search_family(gatekeeper_classification, active_search_families)
+                # Le chemin brut du Portier est parfois approximatif (segment manquant, ex.
+                # `acoustique_acier.Travel…` pour `…specialites.Travel…`) : on le normalise avant de
+                # comparer, sinon une annonce recherchée est écartée à tort (2026-11-02).
+                routing_classification = routing_classification_for(
+                    gatekeeper_classification, taxonomy, self._get_taxonomy_index(taxonomy))
+                matches_active_search = matches_active_search_family(routing_classification, active_search_families)
                 if not matches_active_search:
                     self.logger.info(
                         f"   🔎 Hors recherche active ({', '.join(active_search_families)}) "

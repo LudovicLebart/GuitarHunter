@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import firebase_admin.auth as fb_auth
 
 from config import (
+    DEFAULT_TAXONOMY,
     APP_ID_TARGET, USER_ID_TARGET,
     DEFAULT_EXCLUSION_KEYWORDS, DEFAULT_MAIN_PROMPT,
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
@@ -33,7 +34,7 @@ from backend.deal_mapping import GATEKEEPER_FIELD_TO_COLUMN
 from backend.services import ConfigManager
 from backend.notifications import NotificationService
 from backend import scrape_health
-from backend.taxonomy import matches_active_search_family
+from backend.taxonomy import matches_active_search_family, routing_classification
 
 class GuitarHunterBot:
     # Seuil de similarité (Jaccard sur les tokens du titre) au-delà duquel une annonce
@@ -1433,6 +1434,7 @@ class GuitarHunterBot:
 
         current_config = self.config_manager.current_config_snapshot
         active_families = (current_config.get('analysisConfig') or {}).get('activeSearchFamilies') or []
+        taxonomy = (current_config.get('analysisConfig') or {}).get('taxonomy', DEFAULT_TAXONOMY)
 
         self.set_status('reevaluating_not_promoted', task_name='reevaluate_not_promoted')
         try:
@@ -1447,7 +1449,9 @@ class GuitarHunterBot:
                 # Colonne plate (pas de nesting aiAnalysis côté Postgres, contrairement à
                 # Firestore) — voir pg_repository.py::get_not_promoted_listings.
                 classification = data.get('gatekeeper_classification')
-                matches_active_search = not active_families or matches_active_search_family(classification, active_families)
+                matches_active_search = not active_families or matches_active_search_family(
+                    routing_classification(classification, taxonomy, self.analyzer._get_taxonomy_index(taxonomy)),
+                    active_families)
                 if not matches_active_search:
                     continue
 

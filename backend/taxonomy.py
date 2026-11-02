@@ -188,3 +188,19 @@ def matches_active_search_family(classification, active_families):
         classification == family or classification.startswith(f"{family}.")
         for family in active_families
     )
+
+
+def routing_classification(classification, taxonomy, index=None):
+    """Classification à comparer aux familles de la Recherche Active : le chemin canonique si le chemin brut du Portier
+    se normalise (segment manquant, mauvaise casse…), sinon la valeur brute inchangée. Partagée par le routage
+    (`analyzer.py`) et la repromotion (`bot.py::reevaluate_not_promoted`) pour qu'ils ne divergent jamais."""
+    if not classification:
+        return classification
+    canonical, _ = canonicalize(classification, taxonomy, index)
+    return canonical or classification
+
+
+def taxonomy_paths(taxonomy):
+    """Tous les chemins complets (dot-notation) de la taxonomie, branches intermédiaires comprises, hors racines seules
+    (« guitare » ne se compare à aucune famille). Source de l'enum de `classification` du Portier."""
+    return [".".join(segments) for segments in build_index(taxonomy)[0].values() if len(segments) >= 2]

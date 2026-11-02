@@ -170,6 +170,10 @@ T1_LOCAL_TIMEOUT_SECONDS = int(os.getenv("T1_LOCAL_TIMEOUT_SECONDS", 60))
 # Les photos sont réduites (jamais retirées) seulement si elles dépassent le budget. 0 = correction désactivée.
 T1_LOCAL_CONTEXT_TOKENS = int(os.getenv("T1_LOCAL_CONTEXT_TOKENS", 8192))
 T1_LOCAL_RESPONSE_MARGIN_TOKENS = int(os.getenv("T1_LOCAL_RESPONSE_MARGIN_TOKENS", 600))
+# Contraint `classification` du Portier (schéma strict Dell/Qwen) aux chemins de la taxonomie (+ "NULL"), au
+# lieu d'une chaîne libre (2026-11-02). Dell/Qwen seulement. ÉTEINT par défaut : à allumer après un rejeu de non-régression
+# du Portier (`compare_qwen_local_vs_prod.py --classification-enum`, `t1_period_report.py`).
+T1_CLASSIFICATION_ENUM = os.getenv("T1_CLASSIFICATION_ENUM", "false").lower() in ("1", "true", "yes")
 
 # Coupe-circuit T1 : nombre d'échecs CONSÉCUTIFS avant de mettre un fournisseur en pause, et durée
 # de cette pause. Volontairement simple (pas de sondes dédiées) — voir t1_circuit_breaker.py.

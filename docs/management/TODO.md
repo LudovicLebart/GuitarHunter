@@ -11,6 +11,15 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔎 Recherche Active : suites du diagnostic (2026-11-02, codé, non déployé)
+
+- [ ] **Mesurer puis allumer `T1_CLASSIFICATION_ENUM`** (éteint par défaut) : rejeu `compare_qwen_local_vs_prod.py --classification-enum` contre le Portier de prod (`QWEN_LOCAL_MAX_IMAGES=8`, `--temperature -1`), puis `t1_period_report.py` ; vérifier latence du Dell, taux de rejet, classification `NULL`, et le comportement d'Ollama avec un enum de 201 valeurs.
+- [ ] **Précision du verdict `PEPITE` du Portier** : 30 pépites T1 sur 32 (14 jours, utilisateur `wbPlgZgk`) retombent en `FAIR`/`BAD_DEAL` à l'Analyste, et `PEPITE` contourne la Recherche Active (voulu) : chaque faux positif coûte un T2 hors filtre. Pas de changement de la règle de contournement (décision 2026-11-02) ; piste = mieux calibrer le Portier.
+- [ ] Éclaircir les annonces Kijiji `FAST_FLIP`/`CASE_WIN` hors filtre à classification courte (`Stratocaster`, `Etui_Rigide`) : même routage que Facebook ?
+- [ ] Annonces sans classification (`null`, 8 en 14 jours) : toujours écartées « Hors recherche » ; décider si elles doivent passer à l'Analyste (échec ouvert) ou rester écartées.
+
+---
+
 ## 📚 Base de connaissances : allumage au Portier, réparation, marché québécois (2026-10-25, rien codé)
 
 *Décision de l'utilisateur : la base sera allumée au Portier (session dédiée) ; le Portier filtre les pépites potentielles ; la base contiendra aussi des fiches de réparation et du savoir québécois/canadien. Avis après consultation d'Opus : `journal/2026-W43.md`, `STRATEGIE_IA.md` §3.8 ter.*

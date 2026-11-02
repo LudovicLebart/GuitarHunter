@@ -40,8 +40,11 @@ from config import (
     T1_LOCAL_TIMEOUT_SECONDS,
     T1_LOCAL_CONTEXT_TOKENS,
     T1_LOCAL_RESPONSE_MARGIN_TOKENS,
+    T1_CLASSIFICATION_ENUM,
 )
 import re
+import copy
+from backend.taxonomy import taxonomy_paths
 
 # Un seul Dell pour tous les threads utilisateurs : sémaphore au niveau du module (voir config.py).
 _T1_LOCAL_SEMAPHORE = threading.BoundedSemaphore(T1_LOCAL_MAX_CONCURRENCY)
@@ -114,6 +117,29 @@ T1_GATEKEEPER_OPENAI_JSON_SCHEMA = {
         },
     },
 }
+
+
+# Dernier schéma construit, avec la taxonomie (par identité) qui l'a produit : la taxonomie change rarement, inutile
+# de la reparcourir ni de recopier le schéma à chaque appel. Tuple remplacé d'un bloc : sûr entre threads.
+_t1_openai_schema_cache = (None, None)
+
+
+def t1_openai_schema(taxonomy=None):
+    """`response_format` OpenAI-compatible (Dell, Qwen) du Portier. Avec une taxonomie et `T1_CLASSIFICATION_ENUM`
+    actif, `classification` est contrainte aux chemins de la taxonomie + la valeur littérale "NULL" (incertitude, voir
+    plus haut) ; sinon schéma historique (chaîne libre). Gemini reste en chaîne libre : un enum de ~200 chemins n'y a
+    pas été validé contre l'API, et la normalisation en aval rattrape les chemins approximatifs."""
+    global _t1_openai_schema_cache
+    if not taxonomy or not T1_CLASSIFICATION_ENUM:
+        return T1_GATEKEEPER_OPENAI_JSON_SCHEMA
+    cached_taxonomy, cached_schema = _t1_openai_schema_cache
+    if cached_taxonomy is taxonomy:
+        return cached_schema
+    schema = copy.deepcopy(T1_GATEKEEPER_OPENAI_JSON_SCHEMA)
+    schema["json_schema"]["schema"]["properties"]["classification"] = {
+        "type": "string", "enum": taxonomy_paths(taxonomy) + ["NULL"]}
+    _t1_openai_schema_cache = (taxonomy, schema)
+    return schema
 
 
 class LLMClientsMixin:
@@ -533,7 +559,7 @@ class LLMClientsMixin:
             self.logger.warning(f"   ⚠️ [Portier] lecture des photos indisponible : {e}")
             return ""
 
-    def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper"):
+    def _call_t1_provider(self, provider, full_prompt_t1, images, gatekeeper_model_name, user_email=None, action="t1_gatekeeper", taxonomy=None):
         """Chantier H/I : point d'appel UNIQUE pour n'importe lequel des fournisseurs T1 ("local"
         Dell/Ollama, "qwen" via TokenRouter, ou "gemini" Flash-Lite), avec exactement le même
         prompt et le schéma structuré correspondant — réutilisé à la fois par la chaîne de
@@ -548,7 +574,7 @@ class LLMClientsMixin:
             with _T1_LOCAL_SEMAPHORE:
                 return self._call_openai_compatible_json(
                     full_prompt_t1, images, T1_LOCAL_MODEL, T1_LOCAL_API_KEY, T1_LOCAL_BASE_URL,
-                    response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
+                    response_format=t1_openai_schema(taxonomy), action=action,
                     provider_label="local", timeout=T1_LOCAL_TIMEOUT_SECONDS, max_retries=0,
                 )
         if provider == "qwen":
@@ -557,7 +583,7 @@ class LLMClientsMixin:
             # l'échec ne laisserait aucune ligne.
             return self._call_openai_compatible_json(
                 full_prompt_t1, images, T1_OBSERVATION_QWEN_MODEL, TOKENROUTER_API_KEY, TOKENROUTER_BASE_URL,
-                response_format=T1_GATEKEEPER_OPENAI_JSON_SCHEMA, action=action,
+                response_format=t1_openai_schema(taxonomy), action=action,
             )
         return self._call_gemini_json(
             gatekeeper_model_name, [full_prompt_t1] + images, user_email,
