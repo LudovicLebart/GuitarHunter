@@ -161,3 +161,48 @@ ecrire_svg("08-affleurer.svg", 820, 270, "Affleurer les côtés de la cale",
     texte(355, 220, "Reprendre au ras de la touche (racloir, lime plate),", 14, C["texte"], True),
     texte(355, 240, "sans toucher la finition de la table", 14, C["texte"], True),
 ])
+
+# 09 Fabriquer la cale en coin au rabot -------------------------------------------------------------------------------
+# Cas « s'annule à zéro » : bloc-guide de 2 x e placé à 2 x L du bout mince ; la semelle touche le bloc, le dessus du coin
+# (épaisseur e à L du bout mince), puis la base au bout mince.
+BASE, XT, LNG, EP = 245, 640, 200, 36           # dessus de la planche-support, bout mince, longueur L, épaisseur e
+XG = XT - 2 * LNG                                 # bloc-guide
+pente = (2 * EP) / (2 * LNG)
+ecrire_svg("09-fabriquer-au-rabot.svg", 820, 360, "Fabriquer la cale en coin au rabot",
+           "Coupe latérale : la pièce est fixée au double face sur une planche plane ; un bloc-guide de deux fois l'épaisseur du gros bout, placé à deux fois la longueur du coin, soutient l'arrière de la semelle du rabot ; le coin s'annule au bout mince.", [
+    texte(410, 28, "Le bloc-guide fixe la pente : la semelle repose sur lui et sur la planche, le coin s'arrête de lui-même", 15, C["texte_doux"], True, "middle"),
+    f'<rect x="130" y="{BASE}" width="620" height="32" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
+    f'<rect x="{XT - LNG}" y="{BASE - 4}" width="{LNG}" height="4" fill="{C["ruban"]}" stroke="{C["ruban_trait"]}" stroke-width="1"/>',
+    f'<rect x="{XT - LNG}" y="{BASE - 4 - EP}" width="{LNG}" height="{EP}" fill="none" stroke="{C["texte_doux"]}" stroke-width="2" stroke-dasharray="5 4"/>',
+    f'<polygon points="{XT - LNG},{BASE - 4} {XT},{BASE - 4} {XT - LNG},{BASE - 4 - EP}" fill="{C["manche"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="{XG - 15}" y="{BASE - 2 * EP}" width="30" height="{2 * EP}" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="2"/>',
+    f'<polygon points="{XG - 10},{BASE - 2 * EP - 10 * pente:.1f} {XT},{BASE - 2 * EP + 2 * LNG * pente:.1f} {XT},{BASE - 2 * EP + 2 * LNG * pente - 40:.1f} {XG - 10},{BASE - 2 * EP - 10 * pente - 40:.1f}" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2" opacity="0.85"/>',
+    texte(XG + 160, 112, "Rabot à longue semelle, lame très affûtée", 14, C["texte"], True, "middle"),
+    texte(XG - 24, BASE - EP, "Bloc-guide (2 × e)", 14, C["texte"], True, "end"),
+    texte(XT - LNG - 10, BASE - 14, "e", 14, C["texte"], True, "end"),
+    texte(XT + 18, BASE - 28, "bout mince", 14, C["texte"], True),
+    texte(XT + 18, BASE - 10, "(côté joint)", 14, C["texte"], True),
+    f'<path d="M{XT - LNG} 302 H{XT} M{XT - LNG} 296 v12 M{XT} 296 v12" stroke="{C["texte_doux"]}" stroke-width="2"/>',
+    f'<path d="M{XG} 322 H{XT} M{XG} 316 v12 M{XT} 316 v12" stroke="{C["texte_doux"]}" stroke-width="2"/>',
+    texte(XT - LNG / 2, 296, "L (longueur du coin)", 14, C["texte"], True, "middle"),
+    texte(XG + LNG, 340, "2 × L : distance du bloc-guide au bout mince", 14, C["texte"], True, "middle"),
+])
+
+# 10 Fabriquer la cale en coin à la ponceuse à bande ------------------------------------------------------------------
+ecrire_svg("10-fabriquer-a-la-ponceuse.svg", 820, 340, "Fabriquer la cale en coin à la ponceuse à bande",
+           "Coupe latérale : la planche support et la pièce, collées au double face, sont appuyées sur la bande ; l'appui est plus fort côté mince, qui est ponçu davantage.", [
+    texte(410, 28, "Ponceuse à bande : la pièce reste collée à la planche, qu'on appuie plus fort côté mince", 15, C["texte_doux"], True, "middle"),
+    f'<g transform="rotate(2.5 200 170)">'
+    f'<rect x="200" y="150" width="500" height="30" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>'
+    f'<rect x="250" y="180" width="320" height="4" fill="{C["ruban"]}" stroke="{C["ruban_trait"]}" stroke-width="1"/>'
+    f'<rect x="250" y="184" width="320" height="30" fill="{C["manche"]}" stroke="{C["trait"]}" stroke-width="2"/>'
+    '</g>',
+    f'<rect x="130" y="231" width="620" height="12" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="130" y="243" width="620" height="24" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
+    fleche(620, 98, 620, 160, C["alerte"]), fleche(260, 118, 260, 140, C["alerte"]),
+    texte(640, 120, "appui plus fort côté mince", 14, C["alerte"], True),
+    texte(130, 108, "appui léger", 14, C["texte"], True),
+    texte(440, 262, "Bande abrasive en mouvement", 14, C["texte"], True, "middle"),
+    texte(410, 296, "Planche plane, double face et pièce : le côté le plus appuyé est le plus ponçu, donc le plus mince.", 14, C["texte_doux"], False, "middle"),
+    texte(410, 318, "Poncer court, mesurer, recommencer. Finir à la main pour ne pas passer sous l'épaisseur voulue.", 14, C["texte_doux"], False, "middle"),
+])
