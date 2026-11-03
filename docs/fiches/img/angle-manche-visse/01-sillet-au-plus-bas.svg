@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 350" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Le signe d'un angle trop faible</title>
+  <desc id="d">Coupe latérale : le sillet de chevalet est déjà au plus bas, et la corde reste trop haute au-dessus des frettes.</desc>
+  <rect width="820" height="350" fill="#f8fafc"/>
+<text x="410" y="30" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Angle trop faible : même sillet de chevalet à fond, la corde reste haute</text>
+  <rect x="40" y="200" width="490" height="30" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="40" y="192" width="490" height="8" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+  <rect x="530" y="216" width="270" height="40" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="670" y="186" width="60" height="30" fill="#cbd5e1" stroke="#475569" stroke-width="2"/>
+  <line x1="40" y1="140" x2="700" y2="186" stroke="#475569" stroke-width="3"/>
+  <path d="M300 158 V192" stroke="#b91c1c" stroke-width="4"/>
+  <circle cx="326" cy="177.06060606060606" r="15" fill="#0f172a"/><text x="326" y="183.06060606060606" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="700" cy="156" r="15" fill="#0f172a"/><text x="700" y="162" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <circle cx="60" cy="270" r="15" fill="#0f172a"/><text x="60" y="276" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <text x="84" y="276" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Corde trop haute au-dessus des frettes</text>
+  <circle cx="60" cy="300" r="15" fill="#0f172a"/><text x="60" y="306" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <text x="84" y="306" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Sillet de chevalet déjà au plus bas</text>
+  <text x="410" y="336" font-size="13" fill="#334155" text-anchor="middle">Relief correct, sillet à fond, action encore haute : l'angle du manche est en cause (dessin exagéré).</text>
+</svg>

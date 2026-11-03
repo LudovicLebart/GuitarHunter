@@ -5,7 +5,7 @@ categorie: structurel
 difficulte: 4
 duree: variable selon le cas
 statut: brouillon
-revision: 2026-10-30
+revision: 2026-11-02
 alias: neck reset, refaire l'angle du manche, remise en angle du manche, angle du manche trop faible, sillet au minimum et action haute, manche qui s'est affaissé, corriger l'angle du manche
 ---
 
@@ -38,7 +38,7 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 
 | Fixation du manche | Opération | Fiche |
 |---|---|---|
-| Vissé (électrique, quelques acoustiques) | Cale pleine poche ou ponçage du talon | fiche à venir |
+| Vissé (électrique, quelques acoustiques) | Cale pleine poche ou ponçage du talon | [Corriger l'angle d'un manche vissé](angle-manche-visse.md) |
 | Collé (queue d'aronde ou tenon) | Déposer le manche, retailler, recoller | fiche à venir |
 | Collé, converti en vissé | Modifier le joint pour le visser | fiche à venir |
 
@@ -76,7 +76,7 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 - [Forsyth Music Shop : Workshop Diary, Resetting The Neck On A Fylde Guitar](https://www.forsyths.co.uk/blog/814-workshop-diary-resetting-the-neck-on-a-fylde-guitar) : relief au truss rod, puis sillet, avant un reset ; raboter chevalet ou touche déconseillé ; dépose à la vapeur d'un manche collé.
 - [Premier Guitar : Guitar Shop 101, How to Shim a Bolt-On Neck](https://www.premierguitar.com/gear/guitar-shop-101-how-to-shim-a-bolt-on-neck) : cale pleine poche, angle d'un manche vissé de 0 à 5 degrés ; ne pas improviser la cale.
 
-> Le contrôle de la table et du chevalet, le ponçage du talon, l'ordre des opérations et le choix du cas sont des plans d'atelier, d'après les sources ci-dessus. Les fiches détaillées (décoller la touche, manche vissé, manche collé, conversion, recoller la touche) sont à écrire.
+> Le contrôle de la table et du chevalet, le ponçage du talon, l'ordre des opérations et le choix du cas sont des plans d'atelier, d'après les sources ci-dessus. Les fiches détaillées déjà écrites sont citées plus haut ; manche collé, conversion et recoller la touche restent à écrire.
 
 ## Historique des révisions
 
@@ -84,3 +84,4 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 |------|------------|
 | 2026-10-30 | Création du brouillon (fiche maîtresse) ; renvois vers les fiches existantes, fiches détaillées à venir |
 | 2026-10-30 | Relecture : cas « converti » rangé sous « collé », contrôle table et chevalet ajouté, sources précisées |
+| 2026-11-02 | Lien vers la fiche du manche vissé (`angle-manche-visse`) |

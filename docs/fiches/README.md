@@ -40,10 +40,10 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Refaire l'angle du manche (neck reset)](refaire-angle-du-manche.md) | Structurel | 4/5 | brouillon |
 | [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structurel | 3/5 | brouillon |
 | [Décoller la rallonge de touche de la table](decoller-la-touche.md) | Structurel | 3/5 | brouillon |
+| [Corriger l'angle d'un manche vissé](angle-manche-visse.md) | Structurel | 2/5 | brouillon |
 
 ## Fiches envisagées
 
-- Manche vissé : cale ou ponçage du talon
 - Neck reset d'un manche collé
 - Convertir un manche collé en vissé
 - Recoller la rallonge de touche
