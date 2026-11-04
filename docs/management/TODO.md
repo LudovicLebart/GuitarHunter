@@ -11,6 +11,16 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## ⚡ Lenteur de `/deals/index` : suites (2026-11-04, paliers 1 à 3 + M0 à M3 poussés sur `dev`)
+
+Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md).
+
+- [ ] **Valider sur téléphone** : `?perf=1` puis `window.__dealsIndexPerf` (`bodyAndParseMs`, `mapMs`, `encodedKB`), réouverture (affichage immédiat depuis IndexedDB), absence de saccade à l'écriture du cache.
+- [ ] Confirmer que la CI et le déploiement de `dd20162` à `2d7e912` sont verts (non relu) ; `/health` < 100 ms pendant 3 index simultanés ; 304 réel via Funnel.
+- [ ] Mesurer la cause des 20 s restants si elle revient (socket mort après veille, redémarrage + afflux, chemin Funnel).
+- [ ] Repli d'image sur la carte géographique quand la vignette stockée est cassée (≈ 70 % des annonces n'ont que l'URL Facebook, qui expire : régénérer les vignettes ?).
+- [ ] Si encore insuffisant : index plus léger (titre/lien à la demande), puis pagination serveur **seulement** avec `resolved_path`/`interest_score` en base et un banc de parité JS↔SQL (avis Opus 2026-11-04).
+
 ## 🔎 Recherche Active : suites du diagnostic (2026-11-02, codé, non déployé)
 
 - [ ] **Mesurer puis allumer `T1_CLASSIFICATION_ENUM`** (éteint par défaut) : rejeu `compare_qwen_local_vs_prod.py --classification-enum` contre le Portier de prod (`QWEN_LOCAL_MAX_IMAGES=8`, `--temperature -1`), puis `t1_period_report.py` ; vérifier latence du Dell, taux de rejet, classification `NULL`, et le comportement d'Ollama avec un enum de 201 valeurs.

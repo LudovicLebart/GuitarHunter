@@ -35,6 +35,15 @@ Créé le 2026-11-03. Diagnostic mesuré sur le serveur + relecture Opus. **Pali
 - Ne déployer l'API de production que sur `master` (modification de `deploy.yml`, à confirmer).
 - **Critère** : relectures complètes ≈ 200/jour → < 30.
 
+## Suite décidée après consultation Opus (2026-11-04) — jalons M0 à M3, poussés sur `dev`
+
+La pagination serveur (chargement paresseux des annonces + fiche de résumé) a été **écartée** par Opus : stats (`StatsView`), explorateur et carte lisent tout l'inventaire ; les compteurs se filtrent entre eux (requêtes par facettes) ; la taxonomie floue (`findPathFuzzy`) n'existe qu'en JS ; coût estimé 2 à 3 semaines. Alternative retenue : garder le moteur côté client et alléger l'index.
+
+- **M0 (mesure, base de production en lecture seule)** : 8 457 annonces, 15,7 Mo ; ≈ 58 clés par ligne ≈ 8 Mo de noms répétés ; `image_urls` 21 % ; `scraped_by_node` nulle partout.
+- **M1a** : cinq colonnes inutilisées retirées, `image_urls` seulement sans vignette stockée → 13,3 Mo. **M1b** : `?format=columnar` → 7,1 Mo brut, 1 880 Ko gzippés (−12 % seulement).
+- **M2** : ETag/304 (`index_version.py`), triggers `DELETE`, TTL de sécurité 1 h. **M3** : cache IndexedDB (`indexCache.js`).
+- **Critères restants à mesurer** : transfert du premier chargement ≤ 600 Ko (non atteint par le seul gzip : 1,9 Mo), `bodyAndParseMs + mapMs` ÷ 4, relecture sans changement = 304, première carte < 300 ms depuis le cache.
+
 ## Palier 3 (si nécessaire)
 
 - Index plus léger (≈ 55 clés répétées par ligne), format colonne, ETag/304, cache serveur par utilisateur invalidé par NOTIFY.
