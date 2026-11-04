@@ -290,7 +290,21 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   const handleToggleFavorite = useCallback(async (dealId, currentStatus) => {
     if (!user) return;
-    try { await toggleDealFavorite(dealId, currentStatus, undefined, user.uid); } catch (e) { setError(e.message); }
+    // Mise à jour optimiste (2026-11-03) : `loadedDeals` PRIME sur l'index dans la fusion
+    // ({...deal, ...full}) et n'est pas temps réel — sans patch explicite, le cœur restait sur
+    // l'ancienne valeur tant que le doc complet n'était pas évincé (même cas que handleTogglePurchased).
+    // On patche aussi l'index pour ne pas dépendre de la notification WebSocket (perdue si coupure).
+    const patch = (value) => {
+      setDealsIndexMap(prev => prev[dealId] ? { ...prev, [dealId]: { ...prev[dealId], isFavorite: value } } : prev);
+      setLoadedDeals(prev => prev[dealId] ? { ...prev, [dealId]: { ...prev[dealId], isFavorite: value } } : prev);
+    };
+    patch(!currentStatus);
+    try {
+      await toggleDealFavorite(dealId, currentStatus, undefined, user.uid);
+    } catch (e) {
+      patch(!!currentStatus); // annule l'affichage optimiste
+      setError(e.message);
+    }
   }, [user, setError]);
 
   const handleTogglePurchased = useCallback(async (dealId, currentStatus, purchasePrice) => {
