@@ -31,12 +31,25 @@ _HEAVY_DEAL_COLUMNS = {
     "image_urls", "storage_image_urls", "storage_image_gs_uris", "ai_analysis_raw",
     "description", "manual_analysis_overrides", "sold_notes",
 }
-_LIGHT_DEAL_COLUMNS_SQL = ", ".join(f"gd.{c}" for c in DEAL_COLUMNS if c not in _HEAVY_DEAL_COLUMNS)
+# Colonnes absentes de l'INDEX seulement (2026-11-04, plan PERF_API_INDEX_PLAN.md M1) : aucun usage dans
+# `src/` hors du mappage de `apiService.js` (vérifié par grep), et `scraped_by_node` est nulle sur toutes
+# les lignes. Elles restent dans `GET /deals` et `GET /deals/{id}` (documents complets).
+_INDEX_UNUSED_COLUMNS = {
+    "scraped_by_node", "tier3_trigger", "published_at_raw", "gatekeeper_brand", "gatekeeper_classification",
+}
+_LIGHT_DEAL_COLUMNS_SQL = ", ".join(
+    f"gd.{c}" for c in DEAL_COLUMNS if c not in _HEAVY_DEAL_COLUMNS and c not in _INDEX_UNUSED_COLUMNS
+)
 
+# `image_urls` (URL Facebook, qui expirent) n'est que le REPLI de `storage_image_urls` côté client
+# (`DealCard`, `MapView` : `storageImageUrls` d'abord) : on ne l'envoie que si l'annonce n'a pas de
+# vignette stockée (mesuré 2026-11-04 : 3,35 Mo sur 15,7 Mo d'index, doublon pour presque toutes les lignes).
 _LIGHT_THUMBNAIL_SQL = """
     (CASE WHEN jsonb_typeof(gd.storage_image_urls) = 'array' AND jsonb_array_length(gd.storage_image_urls) > 0
           THEN jsonb_build_array(gd.storage_image_urls -> 0) ELSE '[]'::jsonb END) AS storage_image_urls,
-    (CASE WHEN jsonb_typeof(gd.image_urls) = 'array' AND jsonb_array_length(gd.image_urls) > 0
+    (CASE WHEN jsonb_typeof(gd.storage_image_urls) = 'array' AND jsonb_array_length(gd.storage_image_urls) > 0
+          THEN '[]'::jsonb
+          WHEN jsonb_typeof(gd.image_urls) = 'array' AND jsonb_array_length(gd.image_urls) > 0
           THEN jsonb_build_array(gd.image_urls -> 0) ELSE '[]'::jsonb END) AS image_urls
 """
 
