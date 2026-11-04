@@ -6,6 +6,7 @@ Ce service n'a besoin que de Firebase Auth, pas de Firestore/Storage — initial
 minimale et indépendante de `backend/database.py::DatabaseService` (qui reste, lui,
 utilisé par le bot tant que la bascule n'a pas eu lieu).
 """
+import asyncio
 import os
 
 import firebase_admin
@@ -63,7 +64,9 @@ async def get_admin_uid(authorization: str = Header(...)) -> str:
     if not authorization.startswith("Bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "En-tête Authorization manquant ou mal formé (attendu: 'Bearer <token>').")
     try:
-        decoded = verify_token_claims(authorization.removeprefix("Bearer ").strip())
+        # En thread (2026-11-03) : la vérification est synchrone (RSA + récupération réseau des certificats
+        # Google à l'expiration du cache) ; sur la boucle elle figeait TOUTES les requêtes de l'API.
+        decoded = await asyncio.to_thread(verify_token_claims, authorization.removeprefix("Bearer ").strip())
     except ValueError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))
     if decoded.get("admin") is not True:
@@ -82,6 +85,6 @@ async def get_current_uid(authorization: str = Header(...)) -> str:
 
     token = authorization.removeprefix("Bearer ").strip()
     try:
-        return verify_token(token)
+        return await asyncio.to_thread(verify_token, token)  # en thread : voir get_admin_uid
     except ValueError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(e))

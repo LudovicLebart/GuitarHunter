@@ -11,3 +11,4 @@ fastapi
 uvicorn[standard]
 asyncpg
 psycopg[binary,pool]
+orjson

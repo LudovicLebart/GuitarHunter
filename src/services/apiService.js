@@ -58,6 +58,7 @@
 import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
+import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws');
@@ -597,9 +598,15 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   let inFlight = false;
   let queued = false;
   let batchTimer = null;
+  let retryTimer = null;
+  let consecutiveFailures = 0;
 
   const fetchAndEmit = async () => {
     if (destroyed) return;
+    // Toute lecture (notification WS, retour au premier plan...) remplace une relance déjà programmée :
+    // sans cela, le minuteur d'un échec ancien relirait les 16 Mo juste après un succès.
+    clearTimeout(retryTimer);
+    retryTimer = null;
     if (inFlight) { queued = true; return; }
     inFlight = true;
     try {
@@ -636,11 +643,18 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
         window.__dealsIndexPerf = perf;
         console.info('[perf] /deals/index', perf);
       }
+      consecutiveFailures = 0;
       onUpdate(merged, rows.length);
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);
-      onError(error);
+      consecutiveFailures += 1;
+      // Relance automatique avec attente croissante (voir utils/retryBackoff.js) : sans elle, une lecture
+      // échouée laissait un écran vide jusqu'à la prochaine notification WebSocket.
+      const pageHidden = typeof document !== 'undefined' && document.hidden;
+      const willRetry = shouldRetryIndex(error, consecutiveFailures);
+      if (shouldReportIndexError(consecutiveFailures, pageHidden, willRetry)) onError(error);
+      if (willRetry) retryTimer = setTimeout(() => { retryTimer = null; fetchAndEmit(); }, nextIndexRetryDelayMs(consecutiveFailures));
     } finally {
       inFlight = false;
       if (queued && !destroyed) { queued = false; fetchAndEmit(); }
@@ -656,6 +670,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   return () => {
     destroyed = true;
     clearTimeout(batchTimer);
+    clearTimeout(retryTimer);
     closeSocket();
   };
 };

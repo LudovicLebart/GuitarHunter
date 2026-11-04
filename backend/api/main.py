@@ -8,6 +8,8 @@ l'instant — bascule décidée séparément une fois toutes les tranches valid�
 Lancement local : uvicorn backend.api.main:app --reload
 """
 import asyncio
+import decimal
+import gzip
 import json
 import logging
 import time
@@ -19,9 +21,14 @@ import asyncpg
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.middleware.gzip import GZipMiddleware
+
+try:  # orjson : 5 à 10x plus rapide que jsonable_encoder + json.dumps ; absent => repli identique en comportement
+    import orjson
+except ImportError:  # pragma: no cover - dépend de l'environnement
+    orjson = None
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
@@ -125,7 +132,7 @@ async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_
 @app.websocket("/ws/users/me/config")
 async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
     try:
-        uid = verify_token(token)
+        uid = await asyncio.to_thread(verify_token, token)  # en thread : bloquant (certificats Google), voir auth.py
     except ValueError:
         await websocket.close(code=1008)
         return
@@ -145,11 +152,11 @@ async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
 
         await listen_conn.add_listener("user_config_changes", _on_notify)
         listener_added = True
-        await websocket.send_json({"type": "ready"})
         try:
+            await websocket.send_json({"type": "ready"})
             while True:
                 await websocket.receive_text()
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
             pass
     finally:
         if listener_added:
@@ -242,11 +249,53 @@ async def list_logs(limit: int = Query(100, ge=1, le=1000), uid: str = Depends(g
 # toggleDealPurchased/setDealClassification (firestoreService.js). Chat et plan de
 # restauration : tranches suivantes, pas dans ce périmètre.
 
+def _json_default(value):
+    """`default` d'orjson : `Decimal` (colonnes NUMERIC) comme `jsonable_encoder` (float)."""
+    if isinstance(value, decimal.Decimal):
+        return float(value)
+    raise TypeError(f"Type non sérialisable : {type(value).__name__}")
+
+
+def encode_rows_json(rows, accept_gzip: bool) -> tuple[bytes, bool, int]:
+    """Corps JSON (éventuellement gzippé) d'une liste de lignes — CPU pur, à appeler HORS de la boucle
+    d'événements (`asyncio.to_thread`). Mesuré le 2026-11-03 sur 8 444 annonces (16,5 Mo) :
+    `jsonable_encoder` 0,95 s + gzip niveau 9 0,40 s bloquaient toute l'API (3 index simultanés =>
+    `/health` figé ~1,1 s par passage). Niveau 4 : ~3x moins cher pour une taille quasi identique.
+
+    orjson est strict (clé non-str, type inconnu => TypeError) : au moindre refus on retombe sur
+    `jsonable_encoder`, plus lent mais permissif, plutôt que de renvoyer une 500 sur toute la liste.
+    Retourne (corps, gzippé?, taille brute avant gzip)."""
+    data = [dict(r) for r in rows]
+    body = None
+    if orjson is not None:
+        try:
+            body = orjson.dumps(data, default=_json_default)
+        except (TypeError, ValueError):
+            logger.warning("encode_rows_json: orjson a refusé une valeur, repli sur jsonable_encoder", exc_info=True)
+    if body is None:
+        body = json.dumps(jsonable_encoder(data), ensure_ascii=False).encode("utf-8")
+    raw_len = len(body)
+    if accept_gzip:
+        return gzip.compress(body, 4), True, raw_len
+    return body, False, raw_len
+
+
+async def rows_json_response(request: Request, rows) -> tuple[Response, int]:
+    """Réponse JSON d'une liste de lignes SANS bloquer la boucle (voir `encode_rows_json`). `Content-Encoding`
+    posé ici : GZipMiddleware laisse passer une réponse déjà encodée (même principe que _SSE_HEADERS)."""
+    accept_gzip = "gzip" in request.headers.get("accept-encoding", "").lower()
+    body, gzipped, raw_len = await asyncio.to_thread(encode_rows_json, rows, accept_gzip)
+    headers = {"Vary": "Accept-Encoding"}
+    if gzipped:
+        headers["Content-Encoding"] = "gzip"
+    return Response(content=body, media_type="application/json", headers=headers), raw_len
+
+
 @app.get("/deals")
-async def list_deals(status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, uid: str = Depends(get_current_uid)):
+async def list_deals(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     rows = await deals_repo.list_deals(pool, uid, status=status_filter, favorite_only=favorite)
-    return [dict(r) for r in rows]
+    return (await rows_json_response(request, rows))[0]
 
 
 class DealIdsBody(BaseModel):
@@ -254,10 +303,10 @@ class DealIdsBody(BaseModel):
 
 
 @app.post("/deals/by-ids")
-async def get_deals_by_ids(body: DealIdsBody, uid: str = Depends(get_current_uid)):
+async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     rows = await deals_repo.get_deals_by_ids(pool, uid, body.ids)
-    return [dict(r) for r in rows]
+    return (await rows_json_response(request, rows))[0]
 
 
 # Déclaré AVANT /deals/{deal_id} : un chemin dynamique à un segment intercepterait sinon
@@ -279,15 +328,14 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     # pour tout autre utilisateur `?perf=1` est ignoré en silence (chemin normal, aucune erreur côté client).
     if perf and not await asyncio.to_thread(is_admin_uid, uid):
         perf = False
-    if not perf:
-        rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
-        return [dict(r) for r in rows]
     t0 = time.perf_counter()
     rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
+    if not perf:
+        return (await rows_json_response(request, rows))[0]
     t_sql = time.perf_counter()
-    response = JSONResponse(content=jsonable_encoder([dict(r) for r in rows]))
+    response, raw_bytes = await rows_json_response(request, rows)  # MÊME chemin que la production : la mesure décrit ce que reçoivent les clients
     t_ser = time.perf_counter()
-    sql_ms, ser_ms, raw_bytes = (t_sql - t0) * 1000, (t_ser - t_sql) * 1000, len(response.body)
+    sql_ms, ser_ms = (t_sql - t0) * 1000, (t_ser - t_sql) * 1000
     response.headers["Server-Timing"] = f'sql;dur={sql_ms:.0f}, ser;dur={ser_ms:.0f}, raw;desc="{raw_bytes}", rows;desc="{len(rows)}"'
     origin = request.headers.get("origin")
     if origin in ALLOWED_ORIGINS:       # la même liste que CORS : un front de test autorisé reçoit aussi ses mesures
@@ -418,7 +466,7 @@ async def delete_deal(deal_id: str, uid: str = Depends(get_current_uid)):
 @app.websocket("/ws/deals")
 async def ws_deals(websocket: WebSocket, token: str = Query(...)):
     try:
-        uid = verify_token(token)
+        uid = await asyncio.to_thread(verify_token, token)  # en thread : bloquant (certificats Google), voir auth.py
     except ValueError:
         await websocket.close(code=1008)  # policy violation
         return
@@ -502,11 +550,11 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
         # entre-temps ne serait jamais délivrée (Postgres ne rejoue pas les NOTIFY manqués).
         # Le client attend ce message avant de déclencher une action censée produire un push,
         # au lieu de deviner un délai arbitraire.
-        await websocket.send_json({"type": "ready"})
         try:
+            await websocket.send_json({"type": "ready"})
             while True:
                 await websocket.receive_text()  # ne sert qu'à détecter la déconnexion du client
-        except (WebSocketDisconnect, RuntimeError):
+        except (WebSocketDisconnect, RuntimeError, OSError):
             # RuntimeError : socket déjà fermé côté serveur (connexion LISTEN coupée, voir
             # `_on_pg_terminated`) — Starlette lève alors au lieu de WebSocketDisconnect.
             pass
@@ -690,7 +738,7 @@ async def mark_requalification_proposal(deal_id: str, message_id: int, body: Req
 @app.websocket("/ws/deals/{deal_id}/chat")
 async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(...)):
     try:
-        uid = verify_token(token)
+        uid = await asyncio.to_thread(verify_token, token)  # en thread : bloquant (certificats Google), voir auth.py
     except ValueError:
         await websocket.close(code=1008)
         return
@@ -718,11 +766,11 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
 
         await listen_conn.add_listener("chat_changes", _on_notify)
         listener_added = True
-        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
         try:
+            await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
             pass
     finally:
         if listener_added:
@@ -901,7 +949,7 @@ async def remove_restoration_photo(deal_id: str, item_id: int, body: Restoration
 @app.websocket("/ws/deals/{deal_id}/restoration-plan")
 async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Query(...)):
     try:
-        uid = verify_token(token)
+        uid = await asyncio.to_thread(verify_token, token)  # en thread : bloquant (certificats Google), voir auth.py
     except ValueError:
         await websocket.close(code=1008)
         return
@@ -926,11 +974,11 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
 
         await listen_conn.add_listener("restoration_plan_changes", _on_notify)
         listener_added = True
-        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
         try:
+            await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
             pass
     finally:
         if listener_added:
@@ -1032,7 +1080,7 @@ async def set_city_kijiji_radius(city_id: str, body: KijijiRadiusBody, uid: str 
 @app.websocket("/ws/cities")
 async def ws_cities(websocket: WebSocket, token: str = Query(...)):
     try:
-        uid = verify_token(token)
+        uid = await asyncio.to_thread(verify_token, token)  # en thread : bloquant (certificats Google), voir auth.py
     except ValueError:
         await websocket.close(code=1008)
         return
@@ -1062,11 +1110,11 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
         pref_listener_added = True
         await listen_conn.add_listener("cities_catalog_changes", _on_catalog_notify)
         catalog_listener_added = True
-        await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
         try:
+            await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
             pass
     finally:
         if pref_listener_added:

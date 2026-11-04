@@ -111,7 +111,8 @@ async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None 
         conditions.append("COALESCE(uds.is_favorite, false) = true")
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
-    query += ' ORDER BY gd."timestamp" DESC'
+    # Pas d'ORDER BY (2026-11-03) : le client retrie toutes les vues et indexe par id (l'ordre était déjà
+    # perdu) ; le tri coûtait 0,41 s (external merge sur disque, lignes de 764 octets).
     return await pool.fetch(query, *params)
 
 
