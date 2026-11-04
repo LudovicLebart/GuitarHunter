@@ -32,14 +32,17 @@ except ImportError:  # pragma: no cover - dépend de l'environnement
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
+    version_task = asyncio.create_task(index_version.run_listener(DATABASE_URL))  # ETag/304 de /deals/index
     yield
+    version_task.cancel()
+    await asyncio.gather(version_task, return_exceptions=True)
     await close_pool()
 
 
@@ -339,6 +342,14 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
     columnar = format == "columnar"
+    # ETag/304 (2026-11-04) : seulement pour la lecture COMPLÈTE sans filtre ni diagnostic. La version est lue AVANT le SQL :
+    # un changement survenu pendant la lecture donne une version plus récente au prochain appel, jamais un 304 à tort.
+    etag = None
+    if ids is None and status_filter is None and not favorite and not perf:
+        etag = index_version.etag_for(uid, "col" if columnar else "obj")
+    cache_headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"} if etag else {}
+    if etag and index_version.matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=cache_headers)
     id_list = None
     if ids is not None:  # `?ids=a,b,c` : synchronisation incrémentale (le client ne relit que les annonces notifiées)
         id_list = [i.strip() for i in ids.split(",") if i.strip()]
@@ -351,7 +362,9 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     t0 = time.perf_counter()
     rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite, ids=id_list)
     if not perf:
-        return (await rows_json_response(request, rows, columnar))[0]
+        response = (await rows_json_response(request, rows, columnar))[0]
+        response.headers.update(cache_headers)
+        return response
     t_sql = time.perf_counter()
     response, raw_bytes = await rows_json_response(request, rows, columnar)  # MÊME chemin que la production : la mesure décrit ce que reçoivent les clients
     t_ser = time.perf_counter()

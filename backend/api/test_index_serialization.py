@@ -99,6 +99,41 @@ class DealsRoutesTests(unittest.TestCase):
         payload = resp.json()
         self.assertEqual([r[payload["cols"].index("id")] for r in payload["rows"]], ["1", "2"])
 
+    def test_index_etag_304_sans_sql_et_invalidation(self):
+        """M2 : même ETag => 304 sans SQL ; une notification, un autre format ou un autre utilisateur => 200."""
+        from backend.api import index_version
+        repo = AsyncMock(return_value=_rows())
+        with patch.object(index_version, "_healthy", True), patch.object(main.deals_repo, "list_deals_index", repo):
+            first = self.client.get("/deals/index?format=columnar")
+            etag = first.headers["etag"]
+            self.assertEqual(first.headers["cache-control"], "private, no-cache")
+            again = self.client.get("/deals/index?format=columnar", headers={"If-None-Match": etag})
+            self.assertEqual(again.status_code, 304)
+            self.assertEqual(repo.await_count, 1)  # le 304 n'a pas touché la base
+            index_version.bump()  # une notification deal_changes
+            self.assertEqual(self.client.get("/deals/index?format=columnar", headers={"If-None-Match": etag}).status_code, 200)
+            self.assertEqual(self.client.get("/deals/index", headers={"If-None-Match": etag}).status_code, 200)  # autre format
+            main.app.dependency_overrides[main.get_current_uid] = lambda: "uid-2"
+            self.assertEqual(self.client.get("/deals/index?format=columnar", headers={"If-None-Match": etag}).status_code, 200)
+
+    def test_index_sans_etag_si_ecoute_coupee_ou_requete_filtree(self):
+        from backend.api import index_version
+        with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):
+            with patch.object(index_version, "_healthy", False):
+                self.assertNotIn("etag", self.client.get("/deals/index").headers)
+            with patch.object(index_version, "_healthy", True):
+                self.assertNotIn("etag", self.client.get("/deals/index?ids=1,2").headers)
+                self.assertNotIn("etag", self.client.get("/deals/index?favorite=true").headers)
+
+    def test_etag_change_a_chaque_tranche_de_ttl(self):
+        from backend.api import index_version
+        with patch.object(index_version, "_healthy", True):
+            a = index_version.etag_for("u", "col", now=1000)
+            self.assertEqual(a, index_version.etag_for("u", "col", now=1000 + 10))
+            self.assertNotEqual(a, index_version.etag_for("u", "col", now=1000 + index_version.TTL_SECONDS))
+            self.assertTrue(index_version.matches('"x", ' + a, a))
+            self.assertFalse(index_version.matches(None, a))
+
     def test_index_sans_accept_encoding_reste_en_clair(self):
         with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):
             resp = self.client.get("/deals/index", headers={"Accept-Encoding": "identity"})
