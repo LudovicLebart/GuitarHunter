@@ -265,7 +265,7 @@ def to_columnar(data: list[dict]) -> dict:
     Mesuré le 2026-11-04 : ~58 noms de clés (17 octets en moyenne) répétés à chaque ligne = plus de 8 Mo
     sur 15,7 Mo d'index. Le client (`src/utils/indexColumnar.js`) reconstruit exactement les mêmes objets."""
     cols = list(data[0].keys()) if data else []
-    return {"cols": cols, "rows": [[d[c] for c in cols] for d in data]}
+    return {"cols": cols, "rows": [[d.get(c) for c in cols] for d in data]}  # .get : une ligne aux clés différentes donne null, pas une 500
 
 
 def encode_rows_json(rows, accept_gzip: bool, columnar: bool = False) -> tuple[bytes, bool, int]:
@@ -327,7 +327,7 @@ async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depen
 # silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
 # .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
 @app.get("/deals/index")
-async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), format: Optional[str] = Query(None), uid: str = Depends(get_current_uid)):
+async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), fmt: Optional[str] = Query(None, alias="format"), uid: str = Depends(get_current_uid)):
     """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
     texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
     téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
@@ -341,7 +341,9 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     `?perf=1` (2026-10-13, diagnostic opt-in) : réponse mesurée — en-têtes `Server-Timing` (`sql`,
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
-    columnar = format == "columnar"
+    if fmt not in (None, "objects", "columnar"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "format : 'columnar' ou 'objects'.")
+    columnar = fmt == "columnar"
     # ETag/304 (2026-11-04) : seulement pour la lecture COMPLÈTE sans filtre ni diagnostic. La version est lue AVANT le SQL :
     # un changement survenu pendant la lecture donne une version plus récente au prochain appel, jamais un 304 à tort.
     etag = None

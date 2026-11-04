@@ -46,6 +46,10 @@ class IndexBodyTests(unittest.TestCase):
         self.assertEqual(rebuilt, json.loads(json.dumps(jsonable_encoder(_rows()))))
         self.assertLess(raw_len, len(main.encode_rows_json(_rows(), accept_gzip=False)[0]) + 1)
 
+    def test_colonnaire_ligne_aux_cles_differentes_donne_null_pas_une_500(self):
+        out = main.to_columnar([{"id": "1", "a": 1}, {"id": "2"}])
+        self.assertEqual(out, {"cols": ["id", "a"], "rows": [["1", 1], ["2", None]]})
+
     def test_colonnaire_liste_vide(self):
         body, _, _ = main.encode_rows_json([], accept_gzip=False, columnar=True)
         self.assertEqual(json.loads(body), {"cols": [], "rows": []})
@@ -133,6 +137,25 @@ class DealsRoutesTests(unittest.TestCase):
             self.assertNotEqual(a, index_version.etag_for("u", "col", now=1000 + index_version.TTL_SECONDS))
             self.assertTrue(index_version.matches('"x", ' + a, a))
             self.assertFalse(index_version.matches(None, a))
+
+    def test_format_inconnu_refuse(self):
+        with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):
+            self.assertEqual(self.client.get("/deals/index?format=colonar").status_code, 400)
+            self.assertEqual(self.client.get("/deals/index?format=objects").status_code, 200)
+
+    def test_perte_de_connexion_retire_l_etag_tout_de_suite(self):
+        from backend.api import index_version
+        with patch.object(index_version, "_healthy", True):
+            before = index_version.etag_for("u", "col")
+            index_version._on_connection_lost(None)  # écouteur de terminaison asyncpg
+            self.assertIsNone(index_version.etag_for("u", "col"))
+        self.assertIsNotNone(before)
+
+    def test_le_compteur_demarre_a_l_heure_courante(self):
+        """Un redémarrage ne doit pas refaire valider un ancien ETag : le compteur ne repart pas de 0."""
+        import time
+        from backend.api import index_version
+        self.assertGreater(index_version._version, int(time.time() * 1e9) - 3600 * int(1e9))
 
     def test_index_sans_accept_encoding_reste_en_clair(self):
         with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):

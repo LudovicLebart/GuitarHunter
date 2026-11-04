@@ -139,7 +139,7 @@ CREATE TRIGGER user_deal_state_notify
 -- l'INSERT du lien lui-même ferme les deux cas (même fonction/canal que `user_deal_state`).
 DROP TRIGGER IF EXISTS user_deal_matches_notify ON user_deal_matches;
 CREATE TRIGGER user_deal_matches_notify
-    AFTER INSERT ON user_deal_matches
+    AFTER INSERT OR DELETE ON user_deal_matches
     FOR EACH ROW EXECUTE FUNCTION notify_user_deal_state_change();
 
 -- `purchased_by_user_id` : absente d'une base déjà initialisée avant le 2026-09-19 (comme
@@ -414,16 +414,18 @@ CREATE TRIGGER restoration_plan_items_notify
 -- changement sur une annonce concerne potentiellement PLUSIEURS utilisateurs (tous ceux avec une
 -- ligne dans `user_deal_matches` pour cet id) ; c'est à la couche WS (backend/api/main.py) de
 -- déterminer qui est concerné en interrogeant cette table, pas au trigger de le décider.
+-- 2026-11-04 : couvre aussi DELETE (ETag de GET /deals/index, voir index_version.py : sans cela une suppression
+-- laissait un 304 valide). `ws_deals` ignore l'id d'une annonce devenue invisible, donc aucun effet côté WebSocket.
 CREATE OR REPLACE FUNCTION notify_deal_change() RETURNS trigger AS $$
 BEGIN
-    PERFORM pg_notify('deal_changes', json_build_object('id', NEW.id)::text);
-    RETURN NEW;
+    PERFORM pg_notify('deal_changes', json_build_object('id', COALESCE(NEW.id, OLD.id))::text);
+    RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS guitar_deals_notify ON guitar_deals;
 CREATE TRIGGER guitar_deals_notify
-    AFTER INSERT OR UPDATE ON guitar_deals
+    AFTER INSERT OR UPDATE OR DELETE ON guitar_deals
     FOR EACH ROW EXECUTE FUNCTION notify_deal_change();
 
 -- Bus de commandes Frontend -> Backend (première tranche migrée, voir §3 du plan).

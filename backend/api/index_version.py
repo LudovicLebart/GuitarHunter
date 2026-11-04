@@ -8,8 +8,10 @@ SQL ni sérialisation.
 Garde-fous (un 304 à tort ferait afficher un index périmé) :
 - tant que la connexion LISTEN n'est pas établie (démarrage, coupure Postgres), AUCUN ETag n'est émis ; le compteur
   est aussi incrémenté à chaque (re)connexion, car des notifications ont pu être perdues entre-temps ;
-- les suppressions ne sont pas notifiées (pas de trigger DELETE) : l'ETag change aussi à chaque tranche de 10 minutes
-  (`TTL_SECONDS`), ce qui borne le retard à celui de la relecture complète déjà faite par le client ;
+- les suppressions sont notifiées (triggers DELETE de `schema.sql`) ; `TTL_SECONDS` n'est qu'un filet de sécurité
+  (écriture qui échapperait aux triggers) : l'ETag change aussi à chaque tranche d'une heure ;
+- le compteur démarre à l'heure courante (ns) : après un redémarrage de l'API un ancien ETag ne peut pas redevenir valide ;
+- la coupure de la connexion LISTEN retire l'ETag immédiatement (écouteur de terminaison), sans attendre le sondage ;
 - l'ETag est propre à l'utilisateur (empreinte de l'uid) : un autre compte sur le même navigateur ne peut pas
   valider le cache du premier.
 """
@@ -23,9 +25,9 @@ import asyncpg
 logger = logging.getLogger(__name__)
 
 CHANNELS = ("deal_changes", "restoration_plan_changes")
-TTL_SECONDS = 600
+TTL_SECONDS = 3600
 
-_version = 0
+_version = time.time_ns()
 _healthy = False
 
 
@@ -55,6 +57,12 @@ def matches(if_none_match: str | None, etag: str | None) -> bool:
     return any(part.strip().removeprefix("W/") == wanted for part in if_none_match.split(","))
 
 
+def _on_connection_lost(_connection) -> None:
+    global _healthy
+    _healthy = False
+    bump()
+
+
 async def run_listener(dsn: str) -> None:
     """Boucle de fond : se (re)connecte tant que l'API tourne. À lancer avec `asyncio.create_task`, annuler à l'arrêt."""
     global _healthy
@@ -63,6 +71,7 @@ async def run_listener(dsn: str) -> None:
         conn = None
         try:
             conn = await asyncpg.connect(dsn)
+            conn.add_termination_listener(_on_connection_lost)
             for channel in CHANNELS:
                 await conn.add_listener(channel, lambda *_: bump())
             bump()  # des notifications ont pu être manquées pendant l'absence

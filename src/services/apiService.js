@@ -60,7 +60,7 @@ import { auth } from './firebase';
 import { parseSseBuffer } from '../utils/claudeChat';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
-import { loadIndexCache, saveIndexCache } from '../utils/indexCache';
+import { hashShape, loadIndexCache, saveIndexCache } from '../utils/indexCache';
 import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -584,6 +584,9 @@ export const onCommandUpdate = (commandId, callback, _userId) => {
 
 // --- Deals ---
 
+// Empreinte du code de `dealFromRow` : un changement de forme des objets invalide le cache IndexedDB (utils/indexCache.js).
+const INDEX_SHAPE = hashShape(dealFromRow);
+
 export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // /deals/index (2026-09-26, remplace /deals) : colonnes lourdes exclues (images, texte de
   // raisonnement IA) — mesuré à 34 Mo/7210 annonces sur /deals, téléchargés et parsés en entier
@@ -607,6 +610,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // ids notifiés depuis la dernière lecture ; seule une lecture COMPLÈTE (premier chargement, `bulk`, reconnexion,
   // retour après une longue absence, échec, relecture de sécurité) relit les ~8 400 annonces.
   let currentMap = null;
+  let lastSavedEtag = null;
   let fullNeeded = true;
   const pendingIds = new Set();
 
@@ -637,8 +641,12 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
       const t0 = performance.now();
       let tHeaders = t0;
       let serverTiming = null;
+      let etag = null;
       const payload = await apiFetch(perfOn ? '/deals/index?format=columnar&perf=1' : '/deals/index?format=columnar', {
-        onResponse: perfOn ? (resp) => { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); } : undefined,
+        onResponse: (resp) => {
+          etag = resp.headers.get('etag'); // identique après un 304 (le navigateur rejoue la réponse en cache)
+          if (perfOn) { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); }
+        },
       });
       if (destroyed) return;
       const t1 = performance.now();
@@ -668,7 +676,13 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
       consecutiveFailures = 0;
       currentMap = merged;
       onUpdate(merged, rows.length);
-      saveIndexCache(_userId, merged); // affichage immédiat à la prochaine ouverture (voir utils/indexCache.js)
+      // Affichage immédiat à la prochaine ouverture (voir utils/indexCache.js). Pas de réécriture (clonage de ~8 400
+      // objets) quand le serveur a confirmé le même ETag que la dernière écriture : le contenu n'a pas changé.
+      if (!etag || etag !== lastSavedEtag) {
+        lastSavedEtag = etag;
+        const save = () => saveIndexCache(_userId, INDEX_SHAPE, merged);
+        if (typeof requestIdleCallback === 'function') requestIdleCallback(save, { timeout: 5000 }); else setTimeout(save, 0);
+      }
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);
@@ -696,7 +710,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
 
   // Affichage provisoire depuis le disque : jamais si la lecture réseau a déjà répondu, et sans toucher `currentMap`
   // (la première lecture réseau reste COMPLÈTE : le cache peut contenir des annonces supprimées depuis).
-  loadIndexCache(_userId).then((cached) => {
+  loadIndexCache(_userId, INDEX_SHAPE).then((cached) => {
     if (!cached || destroyed || currentMap !== null) return;
     onUpdate(cached, Object.keys(cached).length);
   });
