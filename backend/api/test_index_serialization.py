@@ -76,7 +76,7 @@ class DealsRoutesTests(unittest.TestCase):
             resp = self.client.get("/deals/index", headers={"Accept-Encoding": "gzip"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["content-encoding"], "gzip")
-        self.assertEqual(resp.headers["vary"], "Accept-Encoding")
+        self.assertIn("Accept-Encoding", resp.headers["vary"])  # CORS peut y ajouter Origin
         self.assertEqual(len(resp.json()), 800)  # un double gzip rendrait un corps illisible
 
     def test_index_sans_accept_encoding_reste_en_clair(self):
