@@ -257,7 +257,15 @@ def _json_default(value):
     raise TypeError(f"Type non sérialisable : {type(value).__name__}")
 
 
-def encode_rows_json(rows, accept_gzip: bool) -> tuple[bytes, bool, int]:
+def to_columnar(data: list[dict]) -> dict:
+    """Forme colonnaire d'une liste de lignes de MÊMES clés : `{"cols": [...], "rows": [[...], ...]}`.
+    Mesuré le 2026-11-04 : ~58 noms de clés (17 octets en moyenne) répétés à chaque ligne = plus de 8 Mo
+    sur 15,7 Mo d'index. Le client (`src/utils/indexColumnar.js`) reconstruit exactement les mêmes objets."""
+    cols = list(data[0].keys()) if data else []
+    return {"cols": cols, "rows": [[d[c] for c in cols] for d in data]}
+
+
+def encode_rows_json(rows, accept_gzip: bool, columnar: bool = False) -> tuple[bytes, bool, int]:
     """Corps JSON (éventuellement gzippé) d'une liste de lignes — CPU pur, à appeler HORS de la boucle
     d'événements (`asyncio.to_thread`). Mesuré le 2026-11-03 sur 8 444 annonces (16,5 Mo) :
     `jsonable_encoder` 0,95 s + gzip niveau 9 0,40 s bloquaient toute l'API (3 index simultanés =>
@@ -267,6 +275,8 @@ def encode_rows_json(rows, accept_gzip: bool) -> tuple[bytes, bool, int]:
     `jsonable_encoder`, plus lent mais permissif, plutôt que de renvoyer une 500 sur toute la liste.
     Retourne (corps, gzippé?, taille brute avant gzip)."""
     data = [dict(r) for r in rows]
+    if columnar:
+        data = to_columnar(data)
     body = None
     if orjson is not None:
         try:
@@ -281,11 +291,11 @@ def encode_rows_json(rows, accept_gzip: bool) -> tuple[bytes, bool, int]:
     return body, False, raw_len
 
 
-async def rows_json_response(request: Request, rows) -> tuple[Response, int]:
+async def rows_json_response(request: Request, rows, columnar: bool = False) -> tuple[Response, int]:
     """Réponse JSON d'une liste de lignes SANS bloquer la boucle (voir `encode_rows_json`). `Content-Encoding`
     posé ici : GZipMiddleware laisse passer une réponse déjà encodée (même principe que _SSE_HEADERS)."""
     accept_gzip = "gzip" in request.headers.get("accept-encoding", "").lower()
-    body, gzipped, raw_len = await asyncio.to_thread(encode_rows_json, rows, accept_gzip)
+    body, gzipped, raw_len = await asyncio.to_thread(encode_rows_json, rows, accept_gzip, columnar)
     headers = {"Vary": "Accept-Encoding"}
     if gzipped:
         headers["Content-Encoding"] = "gzip"
@@ -314,7 +324,7 @@ async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depen
 # silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
 # .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
 @app.get("/deals/index")
-async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), uid: str = Depends(get_current_uid)):
+async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), format: Optional[str] = Query(None), uid: str = Depends(get_current_uid)):
     """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
     texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
     téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
@@ -322,9 +332,13 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     restent chargés à la demande via `POST /deals/by-ids`, seulement pour les annonces visibles
     (mécanisme déjà existant côté frontend, `useDealsManager.js::loadedDeals`).
 
+    `?format=columnar` (2026-11-04) : `{"cols": [...], "rows": [[...]]}` au lieu d'un tableau d'objets
+    (sans les noms de clés répétés par ligne) ; sans ce paramètre, l'ancienne forme est inchangée.
+
     `?perf=1` (2026-10-13, diagnostic opt-in) : réponse mesurée — en-têtes `Server-Timing` (`sql`,
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
+    columnar = format == "columnar"
     id_list = None
     if ids is not None:  # `?ids=a,b,c` : synchronisation incrémentale (le client ne relit que les annonces notifiées)
         id_list = [i.strip() for i in ids.split(",") if i.strip()]
@@ -337,9 +351,9 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     t0 = time.perf_counter()
     rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite, ids=id_list)
     if not perf:
-        return (await rows_json_response(request, rows))[0]
+        return (await rows_json_response(request, rows, columnar))[0]
     t_sql = time.perf_counter()
-    response, raw_bytes = await rows_json_response(request, rows)  # MÊME chemin que la production : la mesure décrit ce que reçoivent les clients
+    response, raw_bytes = await rows_json_response(request, rows, columnar)  # MÊME chemin que la production : la mesure décrit ce que reçoivent les clients
     t_ser = time.perf_counter()
     sql_ms, ser_ms = (t_sql - t0) * 1000, (t_ser - t_sql) * 1000
     response.headers["Server-Timing"] = f'sql;dur={sql_ms:.0f}, ser;dur={ser_ms:.0f}, raw;desc="{raw_bytes}", rows;desc="{len(rows)}"'

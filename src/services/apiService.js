@@ -59,6 +59,7 @@ import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
+import { decodeIndexRows } from '../utils/indexColumnar';
 import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -622,7 +623,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
     fullNeeded = false;
     try {
       if (deltaIds) {
-        const rows = await apiFetch(`/deals/index?ids=${encodeURIComponent(deltaIds.join(','))}`);
+        const rows = decodeIndexRows(await apiFetch(`/deals/index?format=columnar&ids=${encodeURIComponent(deltaIds.join(','))}`));
         if (destroyed) return;
         currentMap = mergeIndexDelta(currentMap, deltaIds, rows.map(dealFromRow));
         consecutiveFailures = 0;
@@ -635,11 +636,12 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
       const t0 = performance.now();
       let tHeaders = t0;
       let serverTiming = null;
-      const rows = await apiFetch(perfOn ? '/deals/index?perf=1' : '/deals/index', {
+      const payload = await apiFetch(perfOn ? '/deals/index?format=columnar&perf=1' : '/deals/index?format=columnar', {
         onResponse: perfOn ? (resp) => { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); } : undefined,
       });
       if (destroyed) return;
       const t1 = performance.now();
+      const rows = decodeIndexRows(payload);
       const merged = {};
       rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
       if (perfOn) {

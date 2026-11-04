@@ -37,6 +37,19 @@ class IndexBodyTests(unittest.TestCase):
         self.assertEqual(raw_len, len(body))
         self.assertEqual(json.loads(body), json.loads(json.dumps(jsonable_encoder(_rows()))))
 
+    def test_colonnaire_reconstruit_les_memes_lignes(self):
+        """`?format=columnar` : mêmes valeurs que la forme objets, sans répéter les noms de clés."""
+        body, _, raw_len = main.encode_rows_json(_rows(), accept_gzip=False, columnar=True)
+        payload = json.loads(body)
+        self.assertEqual(set(payload), {"cols", "rows"})
+        rebuilt = [dict(zip(payload["cols"], values)) for values in payload["rows"]]
+        self.assertEqual(rebuilt, json.loads(json.dumps(jsonable_encoder(_rows()))))
+        self.assertLess(raw_len, len(main.encode_rows_json(_rows(), accept_gzip=False)[0]) + 1)
+
+    def test_colonnaire_liste_vide(self):
+        body, _, _ = main.encode_rows_json([], accept_gzip=False, columnar=True)
+        self.assertEqual(json.loads(body), {"cols": [], "rows": []})
+
     def test_repli_sans_orjson_identique(self):
         with patch.object(main, "orjson", None):
             body, _, _ = main.encode_rows_json(_rows(), accept_gzip=False)
@@ -78,6 +91,13 @@ class DealsRoutesTests(unittest.TestCase):
         self.assertEqual(resp.headers["content-encoding"], "gzip")
         self.assertIn("Accept-Encoding", resp.headers["vary"])  # CORS peut y ajouter Origin
         self.assertEqual(len(resp.json()), 800)  # un double gzip rendrait un corps illisible
+
+    def test_index_format_colonnaire_route(self):
+        with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):
+            resp = self.client.get("/deals/index?format=columnar", headers={"Accept-Encoding": "gzip"})
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual([r[payload["cols"].index("id")] for r in payload["rows"]], ["1", "2"])
 
     def test_index_sans_accept_encoding_reste_en_clair(self):
         with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())):
