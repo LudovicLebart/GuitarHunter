@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 # Regroupement des notifications `deal_changes` par socket (voir `ws_deals`).
 _NOTIFY_BATCH_DELAY_S = 0.25
 _NOTIFY_BULK_THRESHOLD = 50
+_INDEX_IDS_MAX = 200  # > _NOTIFY_BULK_THRESHOLD : au-delà de 50 ids le serveur envoie `bulk` (relecture complète)
 
 # Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
 # du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
@@ -313,7 +314,7 @@ async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depen
 # silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
 # .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
 @app.get("/deals/index")
-async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, uid: str = Depends(get_current_uid)):
+async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), uid: str = Depends(get_current_uid)):
     """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
     texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
     téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
@@ -324,12 +325,17 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     `?perf=1` (2026-10-13, diagnostic opt-in) : réponse mesurée — en-têtes `Server-Timing` (`sql`,
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
+    id_list = None
+    if ids is not None:  # `?ids=a,b,c` : synchronisation incrémentale (le client ne relit que les annonces notifiées)
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        if len(id_list) > _INDEX_IDS_MAX:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Au plus {_INDEX_IDS_MAX} ids par lecture incrémentale.")
     # Le diagnostic coûte une sérialisation tamponnée en mémoire sur l'unique worker : réservé aux ADMINS (claim `admin`) ;
     # pour tout autre utilisateur `?perf=1` est ignoré en silence (chemin normal, aucune erreur côté client).
     if perf and not await asyncio.to_thread(is_admin_uid, uid):
         perf = False
     t0 = time.perf_counter()
-    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite)
+    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite, ids=id_list)
     if not perf:
         return (await rows_json_response(request, rows))[0]
     t_sql = time.perf_counter()

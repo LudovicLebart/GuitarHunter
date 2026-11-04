@@ -94,12 +94,44 @@ class DealsRoutesTests(unittest.TestCase):
             resp = self.client.get("/deals", headers={"Accept-Encoding": "identity"})
         self.assertEqual(len(resp.json()), 2)
 
+    def test_index_incremental_transmet_les_ids(self):
+        mock = AsyncMock(return_value=_rows()[:1])
+        with patch.object(main.deals_repo, "list_deals_index", mock):
+            resp = self.client.get("/deals/index", params={"ids": " 1, 2 ,,3"}, headers={"Accept-Encoding": "identity"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(mock.await_args.kwargs["ids"], ["1", "2", "3"])
+        with patch.object(main.deals_repo, "list_deals_index", mock):
+            self.client.get("/deals/index")
+        self.assertIsNone(mock.await_args.kwargs["ids"])  # sans ?ids= : lecture complète comme avant
+
+    def test_index_incremental_refuse_trop_d_ids(self):
+        ids = ",".join(str(i) for i in range(main._INDEX_IDS_MAX + 1))
+        with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=[])) as mock:
+            resp = self.client.get("/deals/index", params={"ids": ids})
+        self.assertEqual(resp.status_code, 400)
+        mock.assert_not_awaited()
+
     def test_perf_mesure_le_meme_chemin(self):
         with patch.object(main.deals_repo, "list_deals_index", AsyncMock(return_value=_rows())),              patch.object(main, "is_admin_uid", return_value=True):
             resp = self.client.get("/deals/index", params={"perf": 1}, headers={"Accept-Encoding": "gzip"})
         self.assertEqual(resp.headers["content-encoding"], "gzip")
         self.assertIn("ser;dur=", resp.headers["server-timing"])
         self.assertIn('rows;desc="2"', resp.headers["server-timing"])
+
+
+class IndexQueryTests(unittest.TestCase):
+    def test_filtre_ids_garde_la_jointure_de_visibilite(self):
+        """Un id notifié mais non visible pour l'utilisateur ne doit pas sortir : la jointure `user_deal_matches` reste."""
+        from backend.api import deals_repo
+        pool = MagicMock()
+        pool.fetch = AsyncMock(return_value=[])
+        asyncio.run(deals_repo.list_deals_index(pool, "uid-1", ids=["a", "b"]))
+        query, *params = pool.fetch.await_args.args
+        self.assertIn("JOIN user_deal_matches udm", query)
+        self.assertIn("gd.id = ANY($2::text[])", query)
+        self.assertEqual(params, ["uid-1", ["a", "b"]])
+        asyncio.run(deals_repo.list_deals_index(pool, "uid-1"))
+        self.assertNotIn("ANY(", pool.fetch.await_args.args[0])
 
 
 class WebSocketDisconnectTests(unittest.TestCase):

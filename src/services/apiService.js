@@ -58,6 +58,7 @@
 import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
+import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -223,7 +224,7 @@ function openChangeSocket(path, onChange, onError) {
           hasConnectedOnce = true;
           return;
         }
-        onChange();
+        onChange(data); // notification : les canaux qui n'ont pas besoin du message l'ignorent
       };
       sock.onerror = () => { if (sock === ws) reportError(new Error(`apiService: connexion WebSocket ${path} interrompue.`)); };
       sock.onclose = () => { if (sock === ws) scheduleRetry(); }; // couvre aussi bien une erreur (le close event suit) qu'un arrêt serveur propre
@@ -600,6 +601,12 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   let batchTimer = null;
   let retryTimer = null;
   let consecutiveFailures = 0;
+  // Synchronisation incrémentale (2026-11-03, voir utils/indexDelta.js) : on garde le dernier index émis et les
+  // ids notifiés depuis la dernière lecture ; seule une lecture COMPLÈTE (premier chargement, `bulk`, reconnexion,
+  // retour après une longue absence, échec, relecture de sécurité) relit les ~8 400 annonces.
+  let currentMap = null;
+  let fullNeeded = true;
+  const pendingIds = new Set();
 
   const fetchAndEmit = async () => {
     if (destroyed) return;
@@ -609,7 +616,19 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
     retryTimer = null;
     if (inFlight) { queued = true; return; }
     inFlight = true;
+    const mode = chooseIndexRefresh({ hasIndex: currentMap !== null, fullNeeded, pendingCount: pendingIds.size });
+    const deltaIds = mode === 'delta' ? [...pendingIds] : null;
+    pendingIds.clear(); // une notification reçue PENDANT la lecture est ré-ajoutée puis traitée par la lecture en attente (`queued`)
+    fullNeeded = false;
     try {
+      if (deltaIds) {
+        const rows = await apiFetch(`/deals/index?ids=${encodeURIComponent(deltaIds.join(','))}`);
+        if (destroyed) return;
+        currentMap = mergeIndexDelta(currentMap, deltaIds, rows.map(dealFromRow));
+        consecutiveFailures = 0;
+        onUpdate(currentMap, Object.keys(currentMap).length);
+        return;
+      }
       // Diagnostic opt-in (2026-10-13) : `?perf=1` dans l'URL de la page, ou
       // `localStorage.gh_perf = '1'` — sans cela, aucune mesure ni en-tête supplémentaire.
       const perfOn = isPerfEnabled();
@@ -644,10 +663,12 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
         console.info('[perf] /deals/index', perf);
       }
       consecutiveFailures = 0;
+      currentMap = merged;
       onUpdate(merged, rows.length);
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);
+      fullNeeded = true; // un échec (surtout incrémental) laisse l'index incertain : la prochaine lecture est complète
       consecutiveFailures += 1;
       // Relance automatique avec attente croissante (voir utils/retryBackoff.js) : sans elle, une lecture
       // échouée laissait un écran vide jusqu'à la prochaine notification WebSocket.
@@ -660,15 +681,25 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
       if (queued && !destroyed) { queued = false; fetchAndEmit(); }
     }
   };
-  const scheduleFetch = () => {
+  // `msg` : notification du serveur (`{id}` pour une annonce, `{type:'bulk'}` pour une rafale) ; sans message
+  // (reconnexion, retour au premier plan après une longue absence) : relecture complète.
+  const scheduleFetch = (msg) => {
+    const id = deltaIdFromMessage(msg);
+    if (id) pendingIds.add(id); else fullNeeded = true;
     if (destroyed || batchTimer !== null) return;
     batchTimer = setTimeout(() => { batchTimer = null; fetchAndEmit(); }, REFRESH_BATCH_DELAY_MS);
   };
 
   fetchAndEmit();
   const closeSocket = openChangeSocket('/ws/deals', scheduleFetch, onError);
+  // Filet de sécurité : suppressions et frais de restauration ne notifient pas — relecture complète périodique (page visible seulement).
+  const fullRefreshTimer = setInterval(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    scheduleFetch();
+  }, FULL_REFRESH_INTERVAL_MS);
   return () => {
     destroyed = true;
+    clearInterval(fullRefreshTimer);
     clearTimeout(batchTimer);
     clearTimeout(retryTimer);
     closeSocket();

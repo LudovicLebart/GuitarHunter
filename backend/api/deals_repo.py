@@ -92,10 +92,15 @@ async def list_deals(pool: asyncpg.Pool, user_id: str, status: str | None = None
     return await pool.fetch(query, *params)
 
 
-async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False):
+async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False,
+                           ids: list[str] | None = None):
     """Version allégée de `list_deals()` (colonnes lourdes exclues, voir `_HEAVY_DEAL_COLUMNS`,
     vignette unique via `_LIGHT_THUMBNAIL_SQL`) — même filtrage/tri, pour peupler la liste sans
-    le poids des documents complets."""
+    le poids des documents complets.
+
+    `ids` (2026-11-03, synchronisation incrémentale) : ne renvoie que ces annonces — et seulement si elles
+    sont VISIBLES pour l'utilisateur (la jointure `user_deal_matches` reste) ; un id absent du résultat veut
+    donc dire « supprimé ou plus visible », ce que le client déduit pour le retirer de sa liste."""
     query = f"""
         SELECT {_LIGHT_DEAL_COLUMNS_SQL}, {_USER_SALE_SQL}, {_restoration_spent_sql('$1')}, {_LIGHT_THUMBNAIL_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
@@ -107,6 +112,9 @@ async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None 
     if status is not None:
         params.append(status)
         conditions.append(f"gd.status = ${len(params)}")
+    if ids is not None:
+        params.append(ids)
+        conditions.append(f"gd.id = ANY(${len(params)}::text[])")
     if favorite_only:
         conditions.append("COALESCE(uds.is_favorite, false) = true")
     if conditions:

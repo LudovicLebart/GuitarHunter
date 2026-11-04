@@ -24,7 +24,10 @@ Créé le 2026-11-03. Diagnostic mesuré sur le serveur + relecture Opus. **Pali
 - **Critères** : `/health` < 100 ms pendant 3 index simultanés ; première réponse < 0,8 s (1 requête) ; aucun écran vide qui ne se répare pas seul en < 30 s ; lignes d'erreur WS /10 sur 24 h.
 - `orjson` ajouté à `requirements.txt` ; le venv de prod est celui de `~/GuitareHunter` (installé par le déploiement).
 
-## Palier 2 (volume)
+## Palier 2 (volume) — synchronisation incrémentale codée 2026-11-03, NON déployée ni validée
+
+- **Fait** : `GET /deals/index?ids=a,b,c` (≤ 200 ids, jointure de visibilité conservée) ; client (`utils/indexDelta.js`, `onDealsIndexUpdate`) : notification `{id}` → lecture incrémentale ; relecture complète sur `bulk`, reconnexion, retour > 30 s, échec, > 50 ids, et toutes les 10 min (page visible). Tests : `test_index_serialization.py`, `indexDelta.test.js`.
+- **Reste** : triggers NOTIFY (DELETE, `restoration_plan_items`) ; IndexedDB ; déploiement de l'API de production sur `master` seulement (`deploy.yml`, à confirmer).
 
 - Le client demande seulement les annonces modifiées (`GET /deals/index?ids=`), fusionne, retire les ids absents ; relecture complète seulement sur `bulk`, après reconnexion, ou retour > 30 s.
 - Trou existant : pas de NOTIFY sur DELETE ni sur `restoration_plan_items` → triggers ou relecture complète périodique (10 min).
