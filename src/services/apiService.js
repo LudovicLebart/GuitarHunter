@@ -60,6 +60,7 @@ import { auth } from './firebase';
 import { parseSseBuffer } from '../utils/claudeChat';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
+import { loadIndexCache, saveIndexCache } from '../utils/indexCache';
 import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -667,6 +668,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
       consecutiveFailures = 0;
       currentMap = merged;
       onUpdate(merged, rows.length);
+      saveIndexCache(_userId, merged); // affichage immédiat à la prochaine ouverture (voir utils/indexCache.js)
     } catch (error) {
       if (destroyed) return;
       console.error("Error listening to deals index:", error);
@@ -692,6 +694,12 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
     batchTimer = setTimeout(() => { batchTimer = null; fetchAndEmit(); }, REFRESH_BATCH_DELAY_MS);
   };
 
+  // Affichage provisoire depuis le disque : jamais si la lecture réseau a déjà répondu, et sans toucher `currentMap`
+  // (la première lecture réseau reste COMPLÈTE : le cache peut contenir des annonces supprimées depuis).
+  loadIndexCache(_userId).then((cached) => {
+    if (!cached || destroyed || currentMap !== null) return;
+    onUpdate(cached, Object.keys(cached).length);
+  });
   fetchAndEmit();
   const closeSocket = openChangeSocket('/ws/deals', scheduleFetch, onError);
   // Filet de sécurité : suppressions et frais de restauration ne notifient pas — relecture complète périodique (page visible seulement).

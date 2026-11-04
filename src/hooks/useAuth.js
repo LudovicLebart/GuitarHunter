@@ -1,3 +1,4 @@
+import { clearIndexCache } from '../utils/indexCache';
 import { useState, useEffect } from 'react';
 import { 
   signInWithEmailAndPassword,
@@ -85,6 +86,7 @@ export const useAuth = () => {
   };
 
   const signOut = async () => {
+    await clearIndexCache(); // le cache de l'index ne doit pas survivre à la déconnexion (appareil partagé)
     await firebaseSignOut(auth);
     setAuthStatus({ status: 'unauthenticated', msg: 'Déconnecté' });
   };
