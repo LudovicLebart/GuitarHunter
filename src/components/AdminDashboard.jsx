@@ -63,7 +63,7 @@ const AdminDashboard = ({ onClose }) => {
     };
 
     const handleDeleteUser = (uid, email) => {
-        if (window.confirm(`Voulez-vous vraiment supprimer les données de l'utilisateur ${email || uid} (uid: ${uid}) ?\n(Ceci ne supprime pas son compte Firebase Auth. Son bot doit être en pause.)`)) {
+        if (window.confirm(`Supprimer les données de ${email || uid} (uid : ${uid}) ?\n\nSupprimés : son profil, ses villes, ses favoris, ses correspondances, ses commandes et son plan de restauration.\nConservé : son compte de connexion Firebase (il pourra se reconnecter et repartir de zéro ; pour l'effacer, utiliser la console Firebase > Authentication).\n\nImpossible si son bot est en train de scanner : le mettre d'abord en pause.`)) {
             runAction(() => adminDeleteUser(uid));
         }
     };
