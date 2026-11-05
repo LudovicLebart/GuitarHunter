@@ -4,58 +4,58 @@
 Écrit les .svg dans docs/fiches/img/caler-la-rallonge-de-touche/.
 Coupe latérale : le manche est à gauche, la table à droite. Le manche est tourné autour du joint (écart exagéré).
 """
-import math
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kit import C, bon_mauvais, boite, fleche, repere, texte  # noqa: E402
+from coupe import RALLONGE, TOUCHE, Coupe  # noqa: E402
+from kit import C, bon_mauvais, boite, cote, etiquette, fleche, repere, texte  # noqa: E402
 from kit import ecrire as kit_ecrire  # noqa: E402
 
 SLUG = "caler-la-rallonge-de-touche"
-YT = 170            # dessus de la table
-LONG = 220          # longueur de la rallonge
+YT = 130            # dessus de la table
 ANGLE = 8.8         # degrés, exagéré
-SA, CA = math.sin(math.radians(ANGLE)), math.cos(math.radians(ANGLE))
+OUIE = (190, 330)   # la rosace est reculée : le bout de la rallonge repose sur la table, le serre-joint passe par la rosace
 
 
-def coupe(x0, cale=0.0):
-    """Manche + table. `cale` : 0 = pas de cale ; 1 = cale pleine ; entre les deux = cale trop mince (jour).
-    Renvoie (svg, joint, bout_x, bout_y) : bout = dessous de la rallonge à son extrémité."""
-    joint = x0 + 110
-    bx, by = joint + LONG * CA, YT - LONG * SA
-    p = [
-        f'<g transform="rotate(-{ANGLE} {joint} {YT})">'
-        f'<rect x="{x0}" y="{YT}" width="{joint - x0}" height="70" fill="{C["manche"]}"/>'
-        f'<rect x="{x0}" y="{YT - 9}" width="{joint - x0 + LONG}" height="9" fill="{C["noir"]}" stroke="{C["trait"]}" stroke-width="2"/>'
-        '</g>',
-        f'<rect x="{joint}" y="{YT}" width="{LONG + 70}" height="14" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
-    ]
+def coupe(jx, cale=0.0, yt=YT, corps=200):
+    """La coupe commune (`coupe.py`), manche tourné de ANGLE autour du joint. `cale` : 0 = pas de cale ; 1 = cale pleine ;
+    entre les deux = cale trop mince (jour, en pointillés). Renvoie (Coupe, dessin, bout_x, bout_y) : bout = dessous de la rallonge à son extrémité."""
+    c = Coupe(jx=jx, yt=yt, angle=ANGLE, longueur=100, corps=corps, ouie=OUIE)
+    bx, by = c.pt(RALLONGE, 0)
+    p = [c.corps(vide=False, legende_ouie=False), c.manche()]
     if cale:
-        haut = YT - (YT - by) * cale
-        p.append(f'<polygon points="{joint},{YT} {bx:.1f},{YT} {bx:.1f},{haut:.1f}" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="2"/>')
+        haut = yt - (yt - by) * cale
+        p.append(f'<polygon points="{jx},{yt} {bx:.1f},{yt} {bx:.1f},{haut:.1f}" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="2"/>')
         if cale < 1:
-            p.append(f'<polygon points="{joint},{YT} {bx:.1f},{haut:.1f} {bx:.1f},{by:.1f}" fill="none" stroke="{C["alerte"]}" stroke-width="2" stroke-dasharray="5 4"/>')
-    return "".join(p), joint, bx, by
+            p.append(f'<polygon points="{jx},{yt} {bx:.1f},{haut:.1f} {bx:.1f},{by:.1f}" fill="none" stroke="{C["alerte"]}" stroke-width="2" stroke-dasharray="5 4"/>')
+    return c, "".join(p), bx, by
 
 
 def ecrire_svg(nom, largeur, hauteur, titre, desc, morceaux):
     kit_ecrire(SLUG, nom, largeur, hauteur, titre, desc, morceaux)
 
 
+def sur_rallonge(c, u, haut=6):
+    """Point au-dessus de la rallonge, à l'abscisse u du manche."""
+    return c.pt(u, -TOUCHE - haut)
+
+
 # 01 Vue d'ensemble : vide, puis cale ---------------------------------------------------------------------------------
-g1, j1, bx1, by1 = coupe(20)
-g2, j2, bx2, by2 = coupe(440, 1)
-ecrire_svg("01-vide-sous-la-rallonge.svg", 820, 350, "Vide sous la rallonge de touche après un neck reset",
+c1, g1, bx1, by1 = coupe(140)
+c2, g2, bx2, by2 = coupe(520, 1)
+ecrire_svg("01-vide-sous-la-rallonge.svg", 820, 375, "Vide sous la rallonge de touche après un neck reset",
            "Coupe latérale : à gauche la rallonge décolle de la table après le reset ; à droite une cale en coin du même bois que la touche comble le vide.", [
+    texte(190, 42, "Après le reset : la rallonge décolle", 16, C["texte"], True, "middle"),
+    texte(610, 42, "Une cale en coin comble le vide", 16, C["ok"], True, "middle"),
     g1, g2,
-    texte(210, 42, "Après le reset : la rallonge décolle", 16, C["texte"], True, "middle"),
-    texte(630, 42, "Une cale en coin comble le vide", 16, C["ok"], True, "middle"),
-    repere(1, j1 + 120, 100), repere(2, bx1 + 30, YT - 14), repere(3, bx2 + 30, YT - 14),
-    texte(40, 285, "1  Rallonge de touche", 14, C["texte"], True),
-    texte(40, 305, "2  Vide qui grandit vers le bout", 14, C["texte"], True),
-    texte(440, 285, "3  Cale : même bois que la touche, amincie vers le joint", 14, C["texte"], True),
-    texte(410, 338, "Écart exagéré sur le dessin. Au-delà de la tolérance, on cale plutôt que de forcer la rallonge à plat.", 14, C["texte_doux"], False, "middle"),
+    etiquette(1, c1.jx + 20, YT - 52, *sur_rallonge(c1, 60)),
+    etiquette(2, bx1 + 42, YT - 6, bx1 - 8, (by1 + YT) / 2 + 2),
+    etiquette(3, bx2 + 42, YT - 6, bx2 - 12, YT - 4),
+    texte(40, 305, "1  Rallonge de touche", 14, C["texte"], True),
+    texte(40, 325, "2  Vide qui grandit vers le bout", 14, C["texte"], True),
+    texte(440, 305, "3  Cale : même bois que la touche, amincie vers le joint", 14, C["texte"], True),
+    texte(410, 358, "Écart exagéré sur le dessin. Au-delà de la tolérance, on cale plutôt que de forcer la rallonge à plat.", 14, C["texte_doux"], False, "middle"),
 ])
 
 # 02 Ordre des opérations ---------------------------------------------------------------------------------------------
@@ -72,16 +72,15 @@ ecrire_svg("02-ordre-des-operations.svg", 820, 235, "Ordre des opérations pour 
            "Six étapes : mesurer l'écart, tailler le coin, préparer les surfaces, ajuster à blanc, coller, affleurer.", morceaux)
 
 # 03 Étape 1 : mesurer l'écart ----------------------------------------------------------------------------------------
-g, j, bx, by = coupe(230)
-ecrire_svg("03-mesurer-l-ecart.svg", 820, 335, "Mesurer l'écart sous le bout de la rallonge",
+c, g, bx, by = coupe(300)
+ecrire_svg("03-mesurer-l-ecart.svg", 820, 375, "Mesurer l'écart sous le bout de la rallonge",
            "Coupe latérale : l'écart se mesure entre le dessous du bout de la rallonge et la table, manche serré à blanc.", [
-    g,
-    f'<path d="M{bx:.1f} {by:.1f} V{YT}" stroke="{C["alerte"]}" stroke-width="3"/>',
-    f'<path d="M{bx - 9:.1f} {by:.1f} h18 M{bx - 9:.1f} {YT} h18" stroke="{C["alerte"]}" stroke-width="3"/>',
-    repere(1, bx + 70, (by + YT) / 2), texte(bx + 95, (by + YT) / 2 + 6, "Écart au bout", 14, C["texte"], True),
     texte(410, 30, "Manche serré à blanc, comme il le sera au collage", 16, C["texte_doux"], True, "middle"),
-    texte(410, 290, "Mesurer côté graves et côté aigus (cales d'épaisseur ou petits coins).", 14, C["texte_doux"], False, "middle"),
-    texte(410, 312, "Si l'écart diffère d'un côté à l'autre : revoir l'alignement du manche avant de caler.", 14, C["texte_doux"], False, "middle"),
+    g,
+    cote(bx + 14, by, bx + 14, YT, C["alerte"], dehors=True),
+    etiquette(1, bx + 70, YT - 56, bx + 14, (by + YT) / 2), texte(bx + 92, YT - 50, "Écart au bout", 14, C["texte"], True),
+    texte(410, 320, "Mesurer côté graves et côté aigus (cales d'épaisseur ou petits coins).", 14, C["texte_doux"], False, "middle"),
+    texte(410, 342, "Si l'écart diffère d'un côté à l'autre : revoir l'alignement du manche avant de caler.", 14, C["texte_doux"], False, "middle"),
 ])
 
 # 04 Étape 2 : tailler le coin ----------------------------------------------------------------------------------------
@@ -99,47 +98,48 @@ ecrire_svg("04-tailler-le-coin.svg", 820, 270, "Tailler le coin dans le bois de 
 ])
 
 # 05 Étape 3 : préparer les surfaces ----------------------------------------------------------------------------------
-g, j, bx, by = coupe(110)
-ecrire_svg("05-preparer-les-surfaces.svg", 820, 290, "Préparer les surfaces avant collage",
+c, g, bx, by = coupe(300)
+ecrire_svg("05-preparer-les-surfaces.svg", 820, 375, "Préparer les surfaces avant collage",
            "Coupe latérale : l'ancienne colle est retirée sous la rallonge et sur la table, sans toucher à la finition de la table autour.", [
-    g,
-    repere(1, j + 130, 108), repere(2, j + 120, 232),
-    f'<path d="M{j + 130:.0f} 124 L{j + 150:.0f} {YT - 38:.0f}" stroke="{C["texte_doux"]}" stroke-width="2" stroke-dasharray="5 4" fill="none"/>',
-    f'<path d="M{j + 120:.0f} 216 L{j + 120:.0f} {YT + 18:.0f}" stroke="{C["texte_doux"]}" stroke-width="2" stroke-dasharray="5 4" fill="none"/>',
-    texte(j + 156, 112, "Dessous de la rallonge : retirer l'ancienne colle", 14, C["texte"], True),
-    texte(j + 146, 238, "Table : même chose, vernis intact autour", 14, C["texte"], True),
     texte(410, 30, "Surfaces propres et saines avant d'essayer la cale", 16, C["texte_doux"], True, "middle"),
+    g,
+    etiquette(1, c.jx + 90, YT - 56, *c.pt(110, 0)),
+    etiquette(2, c.jx + 120, YT + 76, c.jx + 120, YT + 6),
+    texte(c.jx + 112, YT - 50, "Dessous de la rallonge : retirer l'ancienne colle", 14, C["texte"], True),
+    texte(c.jx + 142, YT + 82, "Table : même chose, vernis intact autour", 14, C["texte"], True),
 ])
 
 # 06 Étape 4 : ajuster à blanc ----------------------------------------------------------------------------------------
-g1, j1, bx1, by1 = coupe(20, 1)
-g2, j2, bx2, by2 = coupe(440, 0.55)
-ecrire_svg("06-ajuster-a-blanc.svg", 820, 340, "Ajuster la cale à blanc",
+c1, g1, bx1, by1 = coupe(140, 1)
+c2, g2, bx2, by2 = coupe(520, 0.55)
+ecrire_svg("06-ajuster-a-blanc.svg", 820, 375, "Ajuster la cale à blanc",
            "Deux coupes : à gauche la cale épouse le dessous de la rallonge sans jour ; à droite la cale est trop mince et laisse un jour.", [
-    g1, g2,
     texte(190, 42, "Cale ajustée : aucun jour", 16, C["ok"], True, "middle"),
     texte(610, 42, "Cale trop mince : jour sous la rallonge", 16, C["ko"], True, "middle"),
-    bon_mauvais(bx1 + 40, 70, True), bon_mauvais(bx2 + 40, 70, False),
-    texte(410, 285, "Serrer à blanc, sans colle : la rallonge repose sur la cale sur toute sa longueur,", 14, C["texte_doux"], False, "middle"),
-    texte(410, 308, "sans être relevée ni forcée. Si la table est bombée, courber un peu le dessous de la cale.", 14, C["texte_doux"], False, "middle"),
+    g1, g2,
+    bon_mauvais(bx1 + 50, YT - 40, True), bon_mauvais(bx2 + 50, YT - 40, False),
+    texte(410, 318, "Serrer à blanc, sans colle : la rallonge repose sur la cale sur toute sa longueur,", 14, C["texte_doux"], False, "middle"),
+    texte(410, 341, "sans être relevée ni forcée. Si la table est bombée, courber un peu le dessous de la cale.", 14, C["texte_doux"], False, "middle"),
 ])
 
 # 07 Étape 5 : coller et serrer ---------------------------------------------------------------------------------------
-g, j, bx, by = coupe(120, 1)
-cx = bx - 30
-ecrire_svg("07-coller-et-serrer.svg", 820, 330, "Coller la cale et serrer par la rosace",
+Y7 = 170
+c, g, bx, by = coupe(300, 1, yt=Y7, corps=380)
+cx = c.jx + 150                                      # le serre-joint appuie à cet endroit de la rallonge
+ht = by - 76                                         # barre du haut du serre-joint
+ecrire_svg("07-coller-et-serrer.svg", 820, 400, "Coller la cale et serrer par la rosace",
            "Coupe latérale : un serre-joint en C appuie sur le bout de la rallonge et, par la rosace, sur une cale de serrage sous la table.", [
+    texte(410, 28, "La colle de peau chaude fige vite : tout est préparé et répété à blanc avant d'encoller", 15, C["texte_doux"], True, "middle"),
     g,
-    f'<rect x="{cx - 50:.0f}" y="{YT + 14}" width="100" height="16" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    f'<path d="M{cx:.0f} {by - 76:.0f} H{bx + 70:.0f} V{YT + 78} H{cx:.0f}" stroke="{C["trait"]}" stroke-width="7" fill="none" stroke-linejoin="round"/>',
-    fleche(cx, by - 76, cx, by - 16, C["alerte"]), fleche(cx, YT + 78, cx, YT + 34, C["alerte"]),
-    repere(1, j + 85, 118), repere(2, bx + 120, YT + 150), repere(3, bx + 120, by - 100),
-    f'<path d="M{j + 85:.0f} 134 L{j + 110:.0f} {YT - 12:.0f}" stroke="{C["texte_doux"]}" stroke-width="2" stroke-dasharray="5 4" fill="none"/>',
-    texte(j - 60, 100, "Colle de peau : cale, puis rallonge", 14, C["texte"], True),
-    texte(bx + 145, YT + 150, "Cale de serrage sous la table", 14, C["texte"], True, "start"),
-    texte(bx + 145, YT + 170, "(passée par la rosace)", 14, C["texte"], True, "start"),
-    texte(bx + 145, by - 94, "Serre-joint en C", 14, C["texte"], True),
-    texte(410, 30, "La colle de peau chaude fige vite : tout est préparé et répété à blanc avant d'encoller", 15, C["texte_doux"], True, "middle"),
+    f'<rect x="{cx - 50}" y="{Y7 + 12}" width="100" height="16" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<path d="M{cx} {ht:.0f} H{c.jx + 250} V{Y7 + 90} H{cx}" stroke="{C["trait"]}" stroke-width="7" fill="none" stroke-linejoin="round"/>',
+    fleche(cx, ht, cx, c.pt(150, -TOUCHE - 6)[1] - 4, C["alerte"]), fleche(cx, Y7 + 90, cx, Y7 + 32, C["alerte"]),
+    etiquette(1, c.jx - 180, Y7 - 84, c.jx + 100, Y7 - 12),
+    etiquette(2, c.jx + 60, Y7 + 116, cx - 20, Y7 + 22),
+    etiquette(3, c.jx + 290, ht - 14, c.jx + 250, ht),
+    texte(c.jx - 158, Y7 - 78, "Colle de peau : cale, puis rallonge", 14, C["texte"], True),
+    texte(c.jx + 82, Y7 + 122, "Cale de serrage sous la table (passée par la rosace)", 14, C["texte"], True),
+    texte(c.jx + 312, ht - 8, "Serre-joint en C", 14, C["texte"], True),
 ])
 
 # 08 Étape 6 : affleurer ----------------------------------------------------------------------------------------------

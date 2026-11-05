@@ -51,6 +51,6 @@ Tout nouvel élément utile à plusieurs fiches (sillet, truss rod, touche, barr
 2. Regarder le résultat, ajuster, relancer.
 3. Référencer l'image dans l'étape qu'elle sert ; ajouter une ligne à l'historique de la fiche.
 
-Scripts : `build_retrouver_humidite.py` (sac et hygromètre), `build_reglage.py` (ordre des réglages, sillet, action, relief, truss rod, déblocage), `build_neck_reset_colle.py` (série neck reset, sur `coupe.py`). `build_decoller_touche.py` et `build_cale_rallonge.py` ont encore leur propre petite coupe locale : à ramener sur `coupe.py` quand on les retouchera.
+Scripts : `build_retrouver_humidite.py` (sac et hygromètre), `build_reglage.py` (ordre des réglages, sillet, action, relief, truss rod, déblocage), `build_neck_reset_colle.py`, `build_decoller_touche.py` et `build_cale_rallonge.py` (série neck reset, tous sur `coupe.py` ; leurs schémas de dessus ou d'outils, sans coupe latérale, restent dessinés à part). `Coupe(ouie=(début, fin))` recule la rosace pour que le bout de la rallonge repose sur la table (schémas centrés sur la rallonge).
 
 Les trois premiers schémas de la fiche « Réparer une fissure dans la table » et celui de « Nettoyer avant collage » sont encore des fichiers dessinés à la main : à reconstruire avec la banque quand on les retouchera.

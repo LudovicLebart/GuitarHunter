@@ -5,7 +5,7 @@ categorie: structurel
 difficulte: 3
 duree: 1 à 2 h
 statut: brouillon
-revision: 2026-11-01
+revision: 2026-11-05
 alias: cale de rallonge de touche, rallonge de touche décollée, touche qui lève après neck reset, cale sous la touche, touche au-dessus de la table, kick-down de la touche
 ---
 
@@ -145,3 +145,4 @@ Reprendre les côtés de la cale au ras de la touche (racloir ou lime plate), sa
 | 2026-10-30 | Relecture : contradiction « plier » corrigée, étape de préparation des surfaces, un schéma par étape, divergences des sources signalées |
 | 2026-11-01 | Sous-section « Fabriquer la cale en coin » (rabot, ponceuse, scie, finition) avec 2 schémas ; deux sources Luthiers Forum ajoutées, dont les seules valeurs chiffrées lues |
 | 2026-11-01 | Relecture Opus : règle du bloc-guide complétée (bout non nul, longueur de semelle), « rabot à longue semelle », schémas 09 et 10 redessinés, sécurité et sens du fil ajoutés, attributions précisées, outils et seuils harmonisés |
+| 2026-11-05 | Schémas 01, 03, 05, 06 et 07 redessinés sur la coupe commune (`_banque/coupe.py`) : même manche, même table, même rosace que le reste de la série |

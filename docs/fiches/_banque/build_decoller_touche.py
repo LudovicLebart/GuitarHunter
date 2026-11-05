@@ -8,27 +8,31 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kit import C, boite, fleche, repere, texte  # noqa: E402
+from coupe import RALLONGE, TASSEAU, Coupe  # noqa: E402
+from kit import C, boite, etiquette, fleche, repere, texte  # noqa: E402
 from kit import ecrire as kit_ecrire  # noqa: E402
 
 SLUG = "decoller-la-touche"
-YT = 170            # dessus de la table
-JOINT = 190         # joint manche / corps
-FIN = 670           # bout de la rallonge
+YT = 150            # dessus de la table
+OUIE = (190, 330)   # la rosace est reculée : le bout de la rallonge repose sur la table, la lame entre par la rosace
+BAS = YT + 150      # sous le fond de la caisse : début des légendes du bas
 
 
 def ecrire(nom, largeur, hauteur, titre, desc, morceaux):
     kit_ecrire(SLUG, nom, largeur, hauteur, titre, desc, morceaux)
 
 
-def coupe(x0=20):
-    """Manche, rallonge posée sur la table, table (écart entre la rallonge et la table : colle)."""
-    return "".join([
-        f'<rect x="{x0}" y="{YT - 9}" width="{JOINT - x0}" height="79" fill="{C["manche"]}"/>',
-        f'<rect x="{x0}" y="{YT - 18}" width="{FIN - x0}" height="9" fill="{C["noir"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-        f'<rect x="{JOINT}" y="{YT - 9}" width="{FIN - JOINT}" height="9" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="2"/>',
-        f'<rect x="{JOINT}" y="{YT}" width="{FIN + 90 - JOINT}" height="14" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
-    ])
+def coupe():
+    """La coupe commune (`coupe.py`), manche droit : renvoie (Coupe, dessin). La colle est la couche jaune entre la rallonge et la table."""
+    c = Coupe(yt=YT, ouie=OUIE)
+    x0, x1 = c.jx + TASSEAU, c.jx + RALLONGE
+    colle = f'<rect x="{x0}" y="{YT - 3}" width="{x1 - x0}" height="3" fill="{C["colle"]}" stroke="{C["ruban_trait"]}" stroke-width="1"/>'
+    return c, c.corps(vide=False) + c.manche() + colle
+
+
+def pied(lignes, y0=BAS + 36):
+    """Légende du bas : une ligne par entrée."""
+    return [texte(410, y0 + 22 * i, ligne, 14, C["texte_doux"], False, "middle") for i, ligne in enumerate(lignes)]
 
 
 # 01 Ordre des opérations ---------------------------------------------------------------------------------------------
@@ -45,50 +49,51 @@ ecrire("01-ordre-des-operations.svg", 820, 235, "Ordre des opérations pour déc
        "Cinq étapes : vérifier les boulons, protéger, chauffer, tester, décoller de la ouïe vers le joint.", morceaux)
 
 # 02 Étape 1 : vérifier les boulons -----------------------------------------------------------------------------------
-bx = JOINT + 200
-ecrire("02-verifier-les-boulons.svg", 820, 290, "Chercher un boulon sous la rallonge",
+c, dessin = coupe()
+bx = c.jx + 100                                      # boulon éventuel, au milieu de la rallonge
+ecrire("02-verifier-les-boulons.svg", 820, 400, "Chercher un boulon sous la rallonge",
        "Coupe latérale : certaines guitares ont un ou deux boulons qui tiennent la rallonge à la table ; on regarde avec un miroir avant de chauffer.", [
-    coupe(),
-    f'<rect x="{bx}" y="{YT - 9}" width="12" height="40" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    f'<rect x="{bx - 8}" y="{YT + 14}" width="28" height="8" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    repere(1, bx + 6, YT + 72),
-    f'<path d="M{bx + 6} {YT + 58} V{YT + 34}" stroke="{C["texte_doux"]}" stroke-width="2" stroke-dasharray="5 4"/>',
-    texte(bx + 30, YT + 78, "Boulon éventuel, vu depuis l'intérieur de la caisse", 14, C["texte"], True),
     texte(410, 30, "Avant de chauffer : chercher un boulon qui tient la rallonge", 16, C["texte_doux"], True, "middle"),
-    texte(410, 262, "Regarder avec un miroir et une lampe par la rosace. Avec un boulon, la rallonge se dévisse.", 14, C["texte_doux"], False, "middle"),
-])
+    dessin,
+    f'<rect x="{bx - 5}" y="{YT - 10}" width="10" height="40" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="{bx - 14}" y="{YT + 14}" width="28" height="8" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    etiquette(1, bx + 20, YT + 78, bx, YT + 18),
+    texte(bx + 40, YT + 84, "Boulon éventuel, vu depuis l'intérieur de la caisse", 14, C["texte"], True),
+] + pied(["Regarder avec un miroir et une lampe par la rosace. Avec un boulon, la rallonge se dévisse."]))
 
 # 03 Étape 3 : chauffer -----------------------------------------------------------------------------------------------
-ecrire("03-chauffer.svg", 820, 330, "Chauffer la rallonge de touche par-dessus",
+c, dessin = coupe()
+x0, x1 = c.jx + 10, c.jx + RALLONGE - 6
+ecrire("03-chauffer.svg", 820, 400, "Chauffer la rallonge de touche par-dessus",
        "Coupe latérale : une cale de bois, une source de chaleur et une feuille d'aluminium posées sur la rallonge.", [
-    coupe(),
-    f'<rect x="{JOINT + 20}" y="{YT - 30}" width="{FIN - JOINT - 40}" height="10" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    f'<rect x="{JOINT + 20}" y="{YT - 66}" width="{FIN - JOINT - 40}" height="34" rx="6" fill="{C["alerte"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    f'<rect x="{JOINT + 20}" y="{YT - 88}" width="{FIN - JOINT - 40}" height="20" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
-    repere(1, 90, 56), repere(2, 90, 100), repere(3, 90, 144),
-    texte(112, 62, "Cale de bois : serrage léger", 14, C["texte"], True),
-    texte(112, 106, "Couverture chauffante, ou fer et bloc d'aluminium", 14, C["texte"], True),
-    texte(112, 150, "Feuille d'aluminium", 14, C["texte"], True),
-    texte(410, 28, "Chauffer par-dessus, quelques minutes, sans appui fort", 16, C["texte_doux"], True, "middle"),
-    texte(410, 262, "Ne jamais laisser la couverture chauffante reposer sur le vernis de la guitare.", 14, C["texte_doux"], False, "middle"),
-    texte(410, 284, "Les incrustations de touche peuvent roussir ou fondre : les couvrir d'aluminium.", 14, C["texte_doux"], False, "middle"),
-])
+    texte(410, 30, "Chauffer par-dessus, quelques minutes, sans appui fort", 16, C["texte_doux"], True, "middle"),
+    dessin,
+    f'<rect x="{x0}" y="{YT - 22}" width="{x1 - x0}" height="6" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="{x0}" y="{YT - 48}" width="{x1 - x0}" height="26" rx="6" fill="{C["alerte"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="{x0}" y="{YT - 68}" width="{x1 - x0}" height="20" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
+    etiquette(1, 540, 56, x1 - 30, YT - 58), etiquette(2, 540, 92, x1 - 30, YT - 35), etiquette(3, 540, 128, x1 - 30, YT - 19),
+    texte(562, 62, "Cale de bois : serrage léger", 14, C["texte"], True),
+    texte(562, 98, "Couverture chauffante (ou fer)", 14, C["texte"], True),
+    texte(562, 134, "Feuille d'aluminium", 14, C["texte"], True),
+] + pied(["Source de chaleur : couverture chauffante, ou fer à souder sur un bloc d'aluminium.",
+          "Ne jamais laisser la couverture chauffante reposer sur le vernis de la guitare.",
+          "Les incrustations de touche peuvent roussir ou fondre : les couvrir d'aluminium."]))
 
 # 04 Étapes 4 et 5 : glisser la lame ----------------------------------------------------------------------------------
-ly = YT - 4
-ecrire("04-glisser-la-lame.svg", 820, 320, "Glisser la lame sous la rallonge",
-       "Coupe latérale : une spatule fine est glissée entre la rallonge et la table, de la ouïe vers le joint, en restant à plat.", [
-    coupe(),
-    f'<polygon points="{FIN + 20},{ly - 4} 360,{ly - 2} 360,{ly + 2} {FIN + 20},{ly + 4}" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
-    f'<rect x="{FIN + 20}" y="{ly - 8}" width="70" height="16" rx="6" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
-    fleche(620, YT - 56, 460, YT - 56),
-    repere(1, 540, YT - 90), repere(2, 400, YT + 62),
-    texte(562, YT - 84, "Elle progresse vers le joint", 14, C["texte"], True),
-    texte(422, YT + 68, "Lame fine, à plat, sans entailler la table", 14, C["texte"], True),
-    texte(410, 28, "La lame doit entrer sans résistance : sinon, rechauffer", 16, C["texte_doux"], True, "middle"),
-    texte(410, 262, "Le bois de la table est plus tendre que la touche : une lame qui force l'entame ou l'arrache.", 14, C["texte_doux"], False, "middle"),
-    texte(410, 284, "Si la lame résiste, remettre la protection et rechauffer environ une minute.", 14, C["texte_doux"], False, "middle"),
-])
+c, dessin = coupe()
+fin = c.jx + RALLONGE                                # bout de la rallonge
+ecrire("04-glisser-la-lame.svg", 820, 400, "Glisser la lame sous la rallonge",
+       "Coupe latérale : une spatule fine est glissée entre la rallonge et la table, de la rosace vers le joint, en restant à plat.", [
+    texte(410, 30, "La lame doit entrer sans résistance : sinon, rechauffer", 16, C["texte_doux"], True, "middle"),
+    dessin,
+    f'<polygon points="{fin + 60},{YT - 3} {c.jx + 66},{YT - 2} {c.jx + 66},{YT} {fin + 60},{YT}" fill="{C["metal"]}" stroke="{C["trait"]}" stroke-width="2"/>',
+    f'<rect x="{fin + 60}" y="{YT - 14}" width="70" height="14" rx="6" fill="{C["bois"]}" stroke="{C["bois_trait"]}" stroke-width="2"/>',
+    fleche(fin + 40, YT - 44, fin - 70, YT - 44),
+    etiquette(1, fin + 100, YT - 76, fin - 30, YT - 44), etiquette(2, c.jx + 90, YT + 56, c.jx + 120, YT - 1),
+    texte(fin + 120, YT - 70, "Elle progresse vers le joint", 14, C["texte"], True),
+    texte(c.jx + 112, YT + 62, "Lame fine, à plat, sans entailler la table", 14, C["texte"], True),
+] + pied(["Le bois de la table est plus tendre que la touche : une lame qui force l'entame ou l'arrache.",
+          "Si la lame résiste, remettre la protection et rechauffer environ une minute."]))
 
 # 05 Vue de dessus : où la colle résiste ------------------------------------------------------------------------------
 ecrire("05-ou-la-colle-resiste.svg", 820, 280, "Où la colle résiste sous la rallonge",

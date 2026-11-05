@@ -36,8 +36,11 @@ BRIDE = 36          # hauteur du chevalet
 
 
 class Coupe:
-    def __init__(self, jx=330, yt=200, angle=0.0, longueur=290, corps=400):
+    def __init__(self, jx=330, yt=200, angle=0.0, longueur=290, corps=400, ouie=None):
+        """`ouie` : (début, fin) de la rosace comptés depuis le joint ; par défaut `OUIE`. Les schémas centrés sur la rallonge
+        la reculent (début > RALLONGE) pour que le bout de la rallonge repose sur la table."""
         self.jx, self.yt, self.angle, self.longueur, self.largeur_corps = jx, yt, angle, longueur, corps
+        self.ouie = ouie or OUIE
         self.P = (jx, yt)
         self.selle = (jx + SELLE, yt - BRIDE)            # haut du chevalet, à l'aplomb du milieu du sillet
         self.fond_y = yt + FOND
@@ -58,7 +61,7 @@ class Coupe:
         """Tasseau (sa mortaise reçoit la queue d'aronde, sous la touche), table interrompue par la rosace, fond, éclisse.
         `vide` : le vide au fond de la queue d'aronde."""
         x, y = self.jx, self.yt
-        o0, o1 = x + OUIE[0], x + OUIE[1]
+        o0, o1 = x + self.ouie[0], x + self.ouie[1]
         fin = x + self.largeur_corps
         bois, tr = C["bois"], C["bois_trait"]
         s = [
