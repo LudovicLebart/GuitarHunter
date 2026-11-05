@@ -83,11 +83,13 @@ Le système utilise **Firebase Authentication** pour gérer l'accès multi-utili
 Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `main.py`
-- **Point d'entrée:** Initialise le `GuitarHunterBot` et le `DatabaseService` (Firestore + Firebase Storage).
-- **Boucle principale:**
-  1. Vérifie les commandes dans Firestore (`sync_and_apply_config`).
-  2. Exécute les tâches planifiées (scan, nettoyage) via `TaskScheduler`.
-  3. Gère un `command_handlers` pour router les commandes Firestore vers les bonnes méthodes du bot.
+> **Référence à jour du bot (2026-11-05) : [`bot.md`](bot.md)**, vérifiée contre le code. Les sous-sections `main.py`, `backend/bot.py` et « Watchdog » ci-dessous gardent surtout l'historique des décisions ; leur vocabulaire Firestore (`DatabaseService` pour les données, `FirestoreHandler`, `deals_index` en chunks, collection `commands`) est celui d'avant septembre 2026.
+
+- **Point d'entrée:** initialise Firebase (Auth + Storage, `DatabaseService`), le pool Postgres, puis **un thread `main_loop` par utilisateur** (un `GuitarHunterBot` chacun).
+- **Boucle d'un utilisateur:**
+  1. Lit les commandes `pending` de la table Postgres `commands` (`sync_and_apply_config`), toutes les ≈ 5 s.
+  2. Exécute les tâches planifiées (scan, nettoyage, purge) via `TaskScheduler`.
+  3. Gère un `command_handlers` pour router les commandes vers les bonnes méthodes du bot.
 - **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
 - **Déploiement Tailscale (OAuth):** Le workflow de déploiement GitHub Actions utilise des identifiants OAuth Tailscale (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) pour se connecter au Tailnet et accéder au serveur via SSH.
 
@@ -232,7 +234,7 @@ isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRES
 - **`notify_scan_url_finished()` (2026-07-21)** : Message adapté au code de statut retourné par `handle_deal_found()` (`processed`, `duplicate_unchanged`, `duplicate_cross_platform`, `already_rejected`, `marked_sold`, `rejected_prefilter`, `scrape_failed`, `sold_marker`), capturé par `bot.py::scan_specific_url()`. Inclut un lien direct vers l'annonce dans Guitar Hunter (`?dealId={id}`, même schéma que `notify_deal()`) en plus du lien d'origine. **`source` (2026-07-27, défaut `"Facebook"`)** : étiquette correctement le message ("URL Facebook :"/"URL Kijiji :") — auparavant toujours "URL Facebook" même pour un scan Kijiji, symptôme du même bug que `scan_specific_url()` ci-dessus (dispatch absent).
 
 ### Suppression d'un utilisateur depuis le dashboard Administrateur (`DELETE /admin/users/{uid}`, `admin_repo.delete_user_data`)
-- **Périmètre (décision utilisateur 2026-11-05)** : ne supprime que les **données Postgres** (ligne `users` et, en cascade, villes, favoris, correspondances, commandes, plan de restauration) ; le **compte Firebase Auth est conservé** (la personne peut se reconnecter et repartir de zéro ; pour l'effacer : console Firebase > Authentication). Pas de suppression Auth dans l'app : accepté tant que le compte est arrêté.
+- **Périmètre (décision utilisateur 2026-11-05)** : ne supprime que les **données Postgres** : la ligne `users` et, en cascade (FK `ON DELETE CASCADE`), ses préférences de villes, favoris/rejets, correspondances, commandes, journaux (`logs`, `logs_archive`) et suivi de santé des scrapers. **Ne sont PAS supprimés** (corrigé le 2026-11-05 après relecture du schéma, voir `donnees.md`) : les étapes de son plan de restauration (`restoration_plan_items.user_id` n'a pas de clé étrangère, elles restent orphelines) et ses achats (`guitar_deals.purchased_by_user_id` passe à `NULL` mais `is_purchased` reste vrai) ; le **compte Firebase Auth est conservé** (la personne peut se reconnecter et repartir de zéro ; pour l'effacer : console Firebase > Authentication). Pas de suppression Auth dans l'app : accepté tant que le compte est arrêté.
 - **Garde-fous** : refusée (409) si le bot de l'utilisateur est en `scanning`/`scanning_url` (contrôle et suppression en une seule requête) ; un administrateur ne peut pas supprimer ses propres données. Le message de confirmation (`AdminDashboard.jsx::handleDeleteUser`) l'explique en toutes lettres.
 
 ### Instrument de coût du chat (2026-11-01, `backend/api/llm_pricing.py`, `cost_alert.py`, `admin_repo.chat_cost`)

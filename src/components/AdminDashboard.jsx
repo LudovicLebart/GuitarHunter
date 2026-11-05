@@ -63,7 +63,7 @@ const AdminDashboard = ({ onClose }) => {
     };
 
     const handleDeleteUser = (uid, email) => {
-        if (window.confirm(`Supprimer les données de ${email || uid} (uid : ${uid}) ?\n\nSupprimés : son profil, ses villes, ses favoris, ses correspondances, ses commandes et son plan de restauration.\nConservé : son compte de connexion Firebase (il pourra se reconnecter et repartir de zéro ; pour l'effacer, utiliser la console Firebase > Authentication).\n\nImpossible si son bot est en train de scanner : le mettre d'abord en pause.`)) {
+        if (window.confirm(`Supprimer les données de ${email || uid} (uid : ${uid}) ?\n\nSupprimés : son profil, ses villes, ses favoris et rejets, ses annonces visibles, ses commandes et ses journaux.\nConservés : les étapes de son plan de restauration et ses achats (l'annonce reste marquée achetée, sans acheteur), ainsi que son compte de connexion Firebase (il pourra se reconnecter et repartir de zéro ; pour l'effacer, utiliser la console Firebase > Authentication).\n\nImpossible si son bot est en train de scanner : le mettre d'abord en pause.`)) {
             runAction(() => adminDeleteUser(uid));
         }
     };

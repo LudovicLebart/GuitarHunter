@@ -1,5 +1,21 @@
 # Flux de Données - Guitar Hunter
 
+> **État de ce fichier (passe « deepdocument », 2026-11-05)** : les tables, colonnes, canaux de notification et états réels sont dans **[`donnees.md`](donnees.md)** (référence à jour, vérifiée contre le code) et les formes d'objets dans [`STATE_MODELS.md`](STATE_MODELS.md). Ce fichier garde la logique métier et l'historique des décisions ; son vocabulaire (`Firestore`, `onSnapshot`, `deals_index` en 20 chunks, `firestoreService.js`, `repository.py`, `FirestoreHandler`) est **celui d'avant septembre 2026**.
+>
+> | Section | Statut | Où lire l'état réel |
+> |---|---|---|
+> | §1 Déclenchement, §2 Commande | Historique (Firestore) | `donnees.md` (`commands`), `apiService.js` |
+> | §3 Interception par le Backend | Logique valable (dispatch, threads, `set_status`) ; **l'écoute n'est plus Firestore** | `donnees.md` (commandes), section 2 de la passe pour `main.py` |
+> | §4 Résultats (`guitar_deals`) | Étapes de création valables ; format de document **remplacé** | `donnees.md` (« Cycle d'une annonce »), `STATE_MODELS.md` |
+> | §5 `deals_index` en chunks | **Supprimé** : remplacé par `GET /deals/index` (colonnes allégées, ETag, cache IndexedDB) | `donnees.md` (« Index léger »), `plans/PERF_API_INDEX_PLAN.md` |
+> | §5.1 Chat, §5.2 Plan de restauration | Contenu des champs valable ; chemins Firestore **remplacés** par les tables `deal_chat` et `restoration_plan_items` | `donnees.md` |
+> | §6 Mise à jour et lazy loading | **Historique** : le client charge l'index complet puis le tient à jour par WebSocket + lecture incrémentale | section 7 de la passe (frontend) |
+> | §6 Flux d'interactions UI | Valable dans l'esprit ; à revérifier | section 7 |
+> | §7 Logs | Partiellement à jour (Postgres décrit) ; les passages `FirestoreHandler`/TTL sont historiques | `donnees.md` (rétention) |
+> | §7.1 Santé des scrapers, §7.2 ID Facebook de ville | Valables (à revérifier avec le scraping) | section 3 |
+>
+> **Ancien avertissement (2026-10-03)** :
+>
 > ⚠️ **Document en partie historique (2026-10-03)** : depuis la bascule de septembre 2026, **la base n'est plus Firestore mais Postgres** (serveur du projet). Le Frontend appelle l'API FastAPI (`src/services/apiService.js` → `backend/api/`), qui lit et écrit Postgres ; les commandes (`REFRESH`, `ANALYZE_DEAL`…) sont des lignes de la table `commands`, exécutées par le bot ; un canal WebSocket signale au Frontend qu'il doit relire par REST (il n'y a plus d'`onSnapshot`). Les **noms de champs et de collections ont été conservés** (`guitar_deals`, `commands`, `botStatus`, `analysisConfig`…). Restent sur Firebase : **Auth** (connexion) et **Storage** (photos). Le Portier T1 tourne en local sur le Dell (Qwen3-VL) avec Qwen cloud en secours. Les sections ci-dessous décrivent le mécanisme **Firestore d'origine** ; elles restent valables pour la logique métier et les noms de champs, mais pas pour la couche de transport. **Réécriture à faire** (voir `TODO.md`, « Aligner `DATA_FLOW.md` et `ARCHITECTURE.md` sur Postgres/API »).
 
 Ce document décrit l'architecture événementielle et le cycle de vie des données entre le Frontend (React/JS) et le Backend (Python) via Firebase Firestore (modèle d'origine).
