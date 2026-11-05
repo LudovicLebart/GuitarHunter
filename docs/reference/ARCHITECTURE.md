@@ -252,6 +252,8 @@ isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRES
 ### Alerte « modèle injoignable » (2026-11-01, `backend/api/model_alerts.py`)
 - Appelée par `llm_usage.record` (robot, tout échec enregistré, même base injoignable), `chat_claude.py` et `POST /usage` (échecs du chat Gemini vus du navigateur). Causes à traiter (`no_key`, `no_credit`, `http_401/403`, `http_404`/`model_unavailable`) : ntfy immédiat, une fois par jour par (fournisseur, modèle, cause), avec la consigne ; pannes passagères (`timeout`, `http_429`, `http_5xx`, `connection` côté serveur) : seulement 5 échecs en 15 minutes, au plus une alerte par heure ; les coupures de connexion vues du navigateur sont ignorées. État en mémoire ; sans `NTFY_TOPIC`, rien n'est envoyé. Module autonome dans `backend/api/` (déployé avec l'API de production, importé aussi par le robot).
 
+> **Référence à jour du scraping (2026-11-05) : [`scraping.md`](scraping.md)**, vérifiée contre le code. Les sous-sections `backend/scraping/`, `kijiji/`, `CityFinder v2` et « Suivi de santé des scrapers » ci-dessous restent comme historique des décisions.
+
 ### `backend/scraping/`
 - **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 
     - **Détection des Baisses de Prix** : Avant analyse, si une annonce existe déjà en DB mais que son prix a baissé, elle est marquée comme une mise à jour. L'ancien prix est sauvegardé (`original_price`), la différence calculée (`price_drop_amount`), et l'annonce repasse dans le pipeline IA pour réévaluation (la marge évolue).

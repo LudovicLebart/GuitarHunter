@@ -17,7 +17,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | 0 | Cadrage | fait 2026-11-05 | ce fichier, `revue/README.md` | — |
 | 1 | Données et schéma Postgres | fait 2026-11-05 (commit `22e5a1b`) | `donnees.md` (nouveau, référence), `STATE_MODELS.md` (réécrit), `DATA_FLOW.md` (tableau de statut des sections, reste historique en dessous), `ARCHITECTURE.md` (périmètre de la suppression corrigé) | `revue/2026-donnees.md` (8 constats) |
 | 2 | Bot : orchestration | fait 2026-11-05 (commit `22e5a1b`) | `bot.md` (nouveau, référence), `ARCHITECTURE.md` (sous-section `main.py` corrigée + renvoi) ; `backend/ha/` renvoyé à la section 9 | `revue/2026-bot.md` (10 constats) |
-| 3 | Scraping | à faire | | |
+| 3 | Scraping | fait 2026-11-05 (commit `f1075b3`) | `scraping.md` (nouveau, référence), `ARCHITECTURE.md` (renvoi) ; `scrape_health.py` y est résumé, table `scrape_runs` dans `donnees.md` | `revue/2026-scraping.md` (11 constats) |
 | 4 | Pipeline IA 3 tiers | à faire | | |
 | 5 | Base de connaissances et fiches | à faire | | |
 | 6 | API FastAPI | à faire | | |
@@ -34,7 +34,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 |---|---|---|
 | `main.py`, `backend/bot.py`, `backend/services.py`, `config.py` (hors `T1_*`/`T3_*`) | `reference/bot.md` (référence) ; `ARCHITECTURE.md` §2 = historique | 2 |
 | `backend/ha/` | `ARCHITECTURE.md` (sous-section `backend/ha/`), `plans/DB_REDUNDANCY_DELL_PLAN.md` | 9 |
-| `backend/scraping/` (Facebook, Kijiji), `scraping_leboncoin/` | `ARCHITECTURE.md` (scraping, Kijiji, CityFinder, santé des scrapers) | 3 |
+| `backend/scraping/` (Facebook, Kijiji), `scraping_leboncoin/`, `scrape_health.py` | `reference/scraping.md` (référence) ; `ARCHITECTURE.md` = historique | 3 |
 | `backend/analyzer.py`, `llm_clients.py`, `t1_image_budget.py`, `prompts.json` | `ARCHITECTURE.md` (analyzer, §4 prompts), `plans/STRATEGIE_IA.md` | 4 |
 | `backend/guitar_knowledge.py`, `backend/knowledge/`, `docs/fiches/` | `how-to/FICHES_TECHNIQUES.md`, `STRATEGIE_IA.md` §3.8 | 5 |
 | `backend/pg_repository.py`, `pg_db.py`, `deal_mapping.py`, `api/schema.sql`, `api/db.py` | `reference/donnees.md` (référence), `STATE_MODELS.md` ; `DATA_FLOW.md` = historique + logique métier | 1 |
