@@ -41,9 +41,9 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structurel | 3/5 | brouillon |
 | [Décoller la rallonge de touche de la table](decoller-la-touche.md) | Structurel | 3/5 | brouillon |
 | [Corriger l'angle d'un manche vissé](angle-manche-visse.md) | Structurel | 2/5 | brouillon |
+| [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md) | Structurel | 5/5 | brouillon |
 
 ## Fiches envisagées
 
-- Neck reset d'un manche collé
 - Convertir un manche collé en vissé
 - Recoller la rallonge de touche

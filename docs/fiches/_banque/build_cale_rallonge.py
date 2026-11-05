@@ -9,20 +9,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kit import C, bon_mauvais, boite, fleche, repere, svg, texte  # noqa: E402
+from kit import C, bon_mauvais, boite, fleche, repere, texte  # noqa: E402
+from kit import ecrire as kit_ecrire  # noqa: E402
 
-IMG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "img", "caler-la-rallonge-de-touche")
+SLUG = "caler-la-rallonge-de-touche"
 YT = 170            # dessus de la table
 LONG = 220          # longueur de la rallonge
 ANGLE = 8.8         # degrés, exagéré
 SA, CA = math.sin(math.radians(ANGLE)), math.cos(math.radians(ANGLE))
-
-
-def ecrire(nom, contenu):
-    os.makedirs(IMG, exist_ok=True)
-    with open(os.path.join(IMG, nom), "w", encoding="utf-8", newline="\n") as f:
-        f.write(contenu)
-    print("écrit :", nom)
 
 
 def coupe(x0, cale=0.0):
@@ -46,7 +40,7 @@ def coupe(x0, cale=0.0):
 
 
 def ecrire_svg(nom, largeur, hauteur, titre, desc, morceaux):
-    ecrire(nom, svg(largeur, hauteur, titre, desc, "\n  ".join(morceaux)))
+    kit_ecrire(SLUG, nom, largeur, hauteur, titre, desc, morceaux)
 
 
 # 01 Vue d'ensemble : vide, puis cale ---------------------------------------------------------------------------------

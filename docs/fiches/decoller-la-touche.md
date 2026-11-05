@@ -68,7 +68,7 @@ Faire avancer la lame de la ouïe vers le joint avec le manche. Le bout et les c
 
 ### 6. Suite
 
-Une fois la rallonge libre, l'accès à la queue d'aronde se fait en retirant une frette au-dessus du joint (la 15e sur une guitare courante, la 13e sur un petit instrument comme un tenor) et en perçant la fente pour y glisser la vapeur : voir la fiche de dépose du manche (fiche à venir). Les frettes de vieux instruments plient facilement : les mettre de côté (Crawls Backward).
+Une fois la rallonge libre, l'accès à la queue d'aronde se fait en retirant une frette au-dessus du joint (la 15e sur une guitare courante, la 13e sur un petit instrument comme un tenor) et en perçant la fente pour y glisser la vapeur : voir [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md), étapes 2 à 4. Les frettes de vieux instruments plient facilement : les mettre de côté (Crawls Backward).
 
 ## Pièges et erreurs courantes
 

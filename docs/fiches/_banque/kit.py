@@ -9,6 +9,8 @@ Usage :
     corps = guitare_dessus(x=60, y=185, echelle=0.8)
     print(svg(820, 380, "Titre", "Description", corps + repere(1, 80, 300, "Guitare")))
 """
+import math
+import os
 from xml.sax.saxutils import escape
 
 # Palette commune (fond clair : les images s'affichent sur le thème sombre du site avec leur propre fond)
@@ -29,9 +31,20 @@ def svg(largeur, hauteur, titre, description, corps):
             f'  <rect width="{largeur}" height="{hauteur}" fill="{C["fond"]}"/>\n{corps}\n</svg>\n')
 
 
-def texte(x, y, t, taille=15, couleur=None, gras=False, ancre="start"):
+def ecrire(slug, nom, largeur, hauteur, titre, description, morceaux):
+    """Écrit `docs/fiches/img/<slug>/<nom>` : le point de sortie commun de tous les scripts `build_*.py`."""
+    dossier = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "img", slug)
+    os.makedirs(dossier, exist_ok=True)
+    with open(os.path.join(dossier, nom), "w", encoding="utf-8", newline="\n") as f:
+        f.write(svg(largeur, hauteur, titre, description, "\n  ".join(morceaux)))
+    print("écrit :", nom)
+
+
+def texte(x, y, t, taille=15, couleur=None, gras=False, ancre="start", halo=False):
+    """`halo` : liseré de la couleur du fond autour des lettres, pour un texte posé sur un dessin."""
     poids = ' font-weight="bold"' if gras else ""
-    return (f'<text x="{x}" y="{y}" font-size="{taille}" fill="{couleur or C["texte"]}"{poids} '
+    contour = f' stroke="{C["fond"]}" stroke-width="5" stroke-linejoin="round" paint-order="stroke"' if halo else ""
+    return (f'<text x="{x}" y="{y}" font-size="{taille}" fill="{couleur or C["texte"]}"{poids}{contour} '
             f'text-anchor="{ancre}">{escape(t)}</text>')
 
 
@@ -42,9 +55,32 @@ def repere(n, x, y, legende=None, couleur=None):
     return s + (texte(x + 25, y + 6, legende) if legende else "")
 
 
+def etiquette(n, x, y, cx, cy, couleur=None):
+    """Repère numéroté en (x, y), relié par un trait fin à l'élément qu'il désigne en (cx, cy) (marqué d'un point)."""
+    col = couleur or C["texte"]
+    return (f'<line x1="{x}" y1="{y}" x2="{cx}" y2="{cy}" stroke="{col}" stroke-width="1.5"/>'
+            f'<circle cx="{cx}" cy="{cy}" r="3.5" fill="{col}"/>' + repere(n, x, y, None, col))
+
+
+def rappel(x1, y1, x2, y2):
+    """Ligne de rappel d'une cote : fine, pointillée."""
+    return (f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{C["texte_doux"]}" stroke-width="1.3" '
+            f'stroke-dasharray="4 3"/>')
+
+
+def cote(x1, y1, x2, y2, couleur=None, epaisseur=2.5, dehors=False):
+    """Cote : trait avec une pointe à chaque bout. `dehors` : pour une cote trop courte, les pointes viennent de l'extérieur."""
+    col = couleur or C["texte"]
+    if not dehors:
+        return fleche(x1, y1, x2, y2, col, epaisseur) + fleche(x2, y2, x1, y1, col, epaisseur)
+    a = math.atan2(y2 - y1, x2 - x1)
+    d = 26
+    return (fleche(x1 - d * math.cos(a), y1 - d * math.sin(a), x1, y1, col, epaisseur)
+            + fleche(x2 + d * math.cos(a), y2 + d * math.sin(a), x2, y2, col, epaisseur))
+
+
 def fleche(x1, y1, x2, y2, couleur=None, epaisseur=3):
     """Flèche droite simple (tête triangulaire)."""
-    import math
     col = couleur or C["texte_doux"]
     a = math.atan2(y2 - y1, x2 - x1)
     p1 = (x2 - 14 * math.cos(a - 0.4), y2 - 14 * math.sin(a - 0.4))

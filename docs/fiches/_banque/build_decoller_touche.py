@@ -8,19 +8,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kit import C, boite, fleche, repere, svg, texte  # noqa: E402
+from kit import C, boite, fleche, repere, texte  # noqa: E402
+from kit import ecrire as kit_ecrire  # noqa: E402
 
-IMG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "img", "decoller-la-touche")
+SLUG = "decoller-la-touche"
 YT = 170            # dessus de la table
 JOINT = 190         # joint manche / corps
 FIN = 670           # bout de la rallonge
 
 
 def ecrire(nom, largeur, hauteur, titre, desc, morceaux):
-    os.makedirs(IMG, exist_ok=True)
-    with open(os.path.join(IMG, nom), "w", encoding="utf-8", newline="\n") as f:
-        f.write(svg(largeur, hauteur, titre, desc, "\n  ".join(morceaux)))
-    print("écrit :", nom)
+    kit_ecrire(SLUG, nom, largeur, hauteur, titre, desc, morceaux)
 
 
 def coupe(x0=20):

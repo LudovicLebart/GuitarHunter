@@ -5,7 +5,7 @@ categorie: structurel
 difficulte: 4
 duree: variable selon le cas
 statut: brouillon
-revision: 2026-11-02
+revision: 2026-11-03
 alias: neck reset, refaire l'angle du manche, remise en angle du manche, angle du manche trop faible, sillet au minimum et action haute, manche qui s'est affaissé, corriger l'angle du manche
 ---
 
@@ -39,7 +39,7 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 | Fixation du manche | Opération | Fiche |
 |---|---|---|
 | Vissé (électrique, quelques acoustiques) | Cale pleine poche ou ponçage du talon | [Corriger l'angle d'un manche vissé](angle-manche-visse.md) |
-| Collé (queue d'aronde ou tenon) | Déposer le manche, retailler, recoller | fiche à venir |
+| Collé (queue d'aronde ou tenon) | Déposer le manche, retailler, recoller | [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md) |
 | Collé, converti en vissé | Modifier le joint pour le visser | fiche à venir |
 
 **Manche vissé.** Le cas le plus simple. Une cale en coin pleine poche, en érable fin, est la méthode usuelle ; l'angle d'un manche vissé se situe généralement entre 0 et 5 degrés (Premier Guitar). Une cale partielle (carton, bout de plectre) laisse un vide sous le talon : le serrage des vis met le talon en contrainte et le contact manche-corps est moins bon. Le ponçage du talon est une pratique d'atelier, non sourcée ici. Haze Guitars range les Taylor NT parmi les guitares les plus faciles à remettre en angle.
@@ -49,10 +49,10 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 ## Ordre des opérations (manche collé)
 
 1. Décoller la rallonge de touche de la table : voir [Décoller la rallonge de touche de la table](decoller-la-touche.md).
-2. Déposer le manche (fiche à venir).
-3. Retailler le talon à la nouvelle inclinaison (fiche à venir).
-4. Essayer le manche à blanc et mesurer l'écart sous la rallonge, puis recoller le manche (fiche à venir).
-5. Recoller ou caler la rallonge de touche : voir [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md).
+2. Déposer le manche : voir [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md), étapes 2 à 5.
+3. Retailler le talon à la nouvelle inclinaison : même fiche, étape 6.
+4. Essayer le manche à blanc et mesurer l'écart sous la rallonge, puis recoller le manche : même fiche, étapes 7 et 8.
+5. Recoller la rallonge de touche à plat ou sur sa cale, décidée à l'étape 4 : voir [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md).
 6. Mettre le manche droit au truss rod, niveler les frettes, régler le relief puis l'action (voir [Ajuster l'action](reglage-action.md)).
 
 ## Pièges et erreurs courantes
@@ -76,7 +76,7 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 - [Forsyth Music Shop : Workshop Diary, Resetting The Neck On A Fylde Guitar](https://www.forsyths.co.uk/blog/814-workshop-diary-resetting-the-neck-on-a-fylde-guitar) : relief au truss rod, puis sillet, avant un reset ; raboter chevalet ou touche déconseillé ; dépose à la vapeur d'un manche collé.
 - [Premier Guitar : Guitar Shop 101, How to Shim a Bolt-On Neck](https://www.premierguitar.com/gear/guitar-shop-101-how-to-shim-a-bolt-on-neck) : cale pleine poche, angle d'un manche vissé de 0 à 5 degrés ; ne pas improviser la cale.
 
-> Le contrôle de la table et du chevalet, le ponçage du talon, l'ordre des opérations et le choix du cas sont des plans d'atelier, d'après les sources ci-dessus. Les fiches détaillées déjà écrites sont citées plus haut ; manche collé, conversion et recoller la touche restent à écrire.
+> Le contrôle de la table et du chevalet, le ponçage du talon, l'ordre des opérations et le choix du cas sont des plans d'atelier, d'après les sources ci-dessus. Les fiches détaillées déjà écrites sont citées plus haut ; conversion en vissé et recoller la touche restent à écrire.
 
 ## Historique des révisions
 
@@ -85,3 +85,5 @@ Forsyth Music Shop décrit ces essais : relief au truss rod, puis hauteur des co
 | 2026-10-30 | Création du brouillon (fiche maîtresse) ; renvois vers les fiches existantes, fiches détaillées à venir |
 | 2026-10-30 | Relecture : cas « converti » rangé sous « collé », contrôle table et chevalet ajouté, sources précisées |
 | 2026-11-02 | Lien vers la fiche du manche vissé (`angle-manche-visse`) |
+| 2026-11-02 | Lien vers la fiche du manche collé (`neck-reset-manche-colle`), étapes 2 à 4 de l'ordre des opérations renvoyées vers elle |
+| 2026-11-03 | Étape 5 de l'ordre des opérations (manche collé) : la rallonge se recolle à plat ou sur sa cale, décidée à l'étape 4 |
