@@ -82,6 +82,7 @@ jobs:
             backend.test_log_archive \
             backend.test_scrape_health \
             backend.test_bot \
+            backend.test_sold_markers_block \
             backend.scraping.test_city_finder \
             backend.scraping.test_city_verification \
             backend.scraping.test_zone \

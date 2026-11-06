@@ -15,7 +15,7 @@ from .locations import (
     load_location_lookup, load_city_coordinates, build_resolvable_hubs,
     resolve_location, nearest_resolvable_hub, build_search_url,
 )
-from backend.sold_markers import find_sold_marker
+from backend.sold_markers import find_sold_marker, is_block_page_url
 
 
 class KijijiScraper:
@@ -683,6 +683,7 @@ class KijijiScraper:
         périodique. Miroir de `FacebookScraper.check_listing_availability` : repli
         optimiste (annonce considérée disponible) en cas d'erreur/timeout."""
         self._ensure_session()
+        self.last_check_blocked = False
         is_available = True
         page = self.context.new_page()
         try:
@@ -695,6 +696,10 @@ class KijijiScraper:
                 self.logger.info(f"   🚫 Annonce supprimée (HTTP {response.status})")
                 return False
 
+            if is_block_page_url(page.url):
+                self.logger.warning(f"   ⚠️ Blocage détecté (URL: {page.url}) - disponibilité indéterminée, annonce conservée.")
+                self.last_check_blocked = True
+                return True
             if "/v-" not in page.url:
                 self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
                 return False

@@ -22,7 +22,7 @@ from .parser import ListingParser
 from .catchup import CatchUpTracker
 from .scroll import ScrollProgress
 from .zone import card_verdict, may_try_gps_fallback
-from backend.sold_markers import find_sold_marker
+from backend.sold_markers import find_sold_marker, is_block_page_url
 
 class FacebookScraper:
     # Mémoire (par processus) des annonces déjà écartées par le GPS : sans elle, une carte hors zone serait
@@ -753,6 +753,7 @@ class FacebookScraper:
 
     def check_listing_availability(self, url):
         self._ensure_session()
+        self.last_check_blocked = False
         is_available = True
         page = self.context.new_page()
         try:
@@ -770,6 +771,11 @@ class FacebookScraper:
 
             # 2. Vérification des redirections
             # Facebook redirige vers /marketplace/ (accueil) quand l'item est totalement supprimé
+            # Page de connexion/captcha/point de contrôle : la fiche n'a pas été vue, ce n'est PAS une suppression.
+            if is_block_page_url(page.url):
+                self.logger.warning(f"   ⚠️ Blocage détecté (URL: {page.url}) - disponibilité indéterminée, annonce conservée.")
+                self.last_check_blocked = True
+                return True
             if "/marketplace/item/" not in page.url:
                 self.logger.info(f"   🚫 Redirection détectée (URL actuelle: {page.url}) - Annonce supprimée.")
                 return False

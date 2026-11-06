@@ -1000,5 +1000,33 @@ class TestScrapeHealthWiringKijiji(unittest.TestCase):
         self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "error")
 
 
+class TestCheckListingsAvailability(unittest.TestCase):
+    """Revue R-3-2 : un blocage anti-bot (login/captcha) ne doit jamais marquer une annonce vendue,
+    et le nettoyage s'arrête après trois blocages d'affilée."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot.repo = MagicMock()
+        self.bot._is_stop_requested = MagicMock(return_value=False)
+        self.listings = [{"id": str(i), "url": f"https://x/{i}"} for i in range(6)]
+
+    @patch("backend.bot.time.sleep")
+    def test_annonce_indisponible_marquee_vendue(self, _sleep):
+        scraper = MagicMock(last_check_blocked=False)
+        scraper.check_listing_availability.side_effect = [False, True]
+        n = self.bot._check_listings_availability(scraper, self.listings[:2])
+        self.assertEqual(n, 1)
+        self.bot.repo.mark_deal_as_sold.assert_called_once()
+
+    @patch("backend.bot.time.sleep")
+    def test_blocages_repetes_arretent_le_nettoyage_sans_rien_marquer(self, _sleep):
+        scraper = MagicMock(last_check_blocked=True)
+        scraper.check_listing_availability.return_value = True
+        n = self.bot._check_listings_availability(scraper, self.listings)
+        self.assertEqual(n, 0)
+        self.assertEqual(scraper.check_listing_availability.call_count, 3)
+        self.bot.repo.mark_deal_as_sold.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

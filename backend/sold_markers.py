@@ -22,3 +22,14 @@ def find_sold_marker(text):
     ou `None`. `text` peut être `None` ou vide."""
     text_lower = (text or '').lower()
     return next((m for m in SOLD_MARKERS if m in text_lower), None)
+
+
+# Fragments d'URL d'une page de blocage (connexion, captcha, point de contrôle) : la fiche n'a
+# alors pas été vue, on ne sait rien de sa disponibilité (revue R-3-2, 2026-11-06).
+BLOCK_URL_MARKERS = ('/login', '/checkpoint', 'captcha', 'recaptcha', '/challenge', 'consent.')
+
+
+def is_block_page_url(url):
+    """True si `url` est une page de blocage anti-bot ou de connexion, pas une fiche."""
+    url_lower = (url or '').lower()
+    return any(m in url_lower for m in BLOCK_URL_MARKERS)

@@ -1348,12 +1348,21 @@ class GuitarHunterBot:
         marque vendue si indisponible. Ferme toujours `scraper` avant de retourner. Retourne
         le nombre d'annonces marquées vendues."""
         deleted_count = 0
+        consecutive_blocks = 0
         try:
             for item in listings:
                 if self._is_stop_requested():
                     self.logger.info("🛑 Nettoyage interrompu.")
                     break
-                if not scraper.check_listing_availability(item['url']):
+                available = scraper.check_listing_availability(item['url'])
+                if getattr(scraper, 'last_check_blocked', False):
+                    consecutive_blocks += 1
+                    if consecutive_blocks >= 3:
+                        self.logger.warning("⚠️ Blocage anti-bot répété pendant le nettoyage : arrêt, annonces conservées.")
+                        break
+                else:
+                    consecutive_blocks = 0
+                if not available:
                     self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
                     self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
                     deleted_count += 1
