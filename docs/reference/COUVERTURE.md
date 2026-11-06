@@ -24,7 +24,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | 7 | Frontend | fait 2026-11-06 (commit `48d8784`), **relecture partielle** des gros composants | `frontend.md` (nouveau, référence) ; `ARCHITECTURE.md` §3 reste l'historique | `revue/2026-frontend.md` (10 constats) |
 | 8 | Plan de restauration, chat, détecteur de pièces | fait 2026-11-06 (commit `267684b`) | `restauration_et_pieces.md` (nouveau : plan de restauration de bout en bout, mécanismes galerie et requalification, détecteur de parties) ; plans `RESTORATION_PLAN_PLAN.md` et `CHAT_GALLERY_REQUALIFICATION_PLAN.md` non relus | `revue/2026-restauration-pieces.md` (6 constats, dont R-8-1 haute) |
 | 9 | Exploitation (CI/CD, HA, secrets) | fait 2026-11-06 (commit `96fb034`) | `exploitation.md` (nouveau, avec l'état réel du serveur relevé en lecture seule) ; `scraping.md` (tests) corrigé | `revue/2026-exploitation.md` (11 constats, dont R-9-1 haute) + R-3-12 |
-| 10 | Scripts | à faire | | |
+| 10 | Scripts | fait 2026-11-06 (commit `7630193`), **inventaire, scripts non relus ligne à ligne** | `scripts.md` (nouveau : classement par famille, état Firestore, scripts absents) | `revue/2026-scripts.md` (7 constats) |
 | 11 | Plans, TODO, journal, aperçu | à faire | | |
 | 12 | Clôture | à faire | | |
 
@@ -42,7 +42,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | `src/`, `index.html`, `main.jsx`, `storage.rules` | `reference/frontend.md` (référence) ; `UI_UX_ANALYSIS.md` ; `ARCHITECTURE.md` §3 = historique | 7 |
 | `backend/api/restoration_repo.py`, `chat_*`, `backend/auto_annotation/`, `production_pipeline/`, `crop_description.py` | `reference/restauration_et_pieces.md` (référence) ; `plans/RESTORATION_PLAN_PLAN.md`, `PARTS_DETECTOR_AND_CROPS_PLAN.md` ; `ARCHITECTURE.md` §5 = historique | 8 |
 | `.github/workflows/*`, `backend/scripts/run_once.py`, `backend/ha/`, `run_ha_watchdog.py`, `backup_postgres.py`, `ha_return_to_normal.sh` | `reference/exploitation.md` (référence) ; `plans/DB_REDUNDANCY_DELL_PLAN.md`, `CUTOVER_RUNBOOK.md` ; `ARCHITECTURE.md` = historique | 9 |
-| `backend/scripts/`, `backend/benchmark/` | dispersé | 10 |
+| `backend/scripts/`, `backend/benchmark/`, `scripts/` | `reference/scripts.md` (référence) | 10 |
 | `docs/management/*`, `docs/explanation/*` | — | 11 |
 
 ## Branches actives (état relevé le 2026-11-05)
