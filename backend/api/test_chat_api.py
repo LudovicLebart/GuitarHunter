@@ -120,12 +120,12 @@ class TestChatAPI(unittest.TestCase):
 
         resp = self.client.patch(
             f"/deals/{self.DEAL_ID}/chat/{message_id}/gallery",
-            json={"partIndex": 2, "url": "https://storage.example/x.jpg"},
+            json={"partIndex": 2, "url": "https://storage.googleapis.com/test-bucket/x.jpg"},
         )
         self.assertEqual(resp.status_code, 200)
 
         listing = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()
-        self.assertEqual(listing[0]["added_to_gallery_urls"], {"2": "https://storage.example/x.jpg"})
+        self.assertEqual(listing[0]["added_to_gallery_urls"], {"2": "https://storage.googleapis.com/test-bucket/x.jpg"})
 
     def test_mark_restoration_proposal_status(self):
         create = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={
@@ -202,6 +202,44 @@ class TestChatAPI(unittest.TestCase):
         listing = self.client.get(f"/deals/{self.DEAL_ID}/chat").json()
         self.assertEqual(listing[0]["requalification_proposal"], {"status": "applied"})
 
+    def _match_other_user(self):
+        async def match():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("INSERT INTO user_deal_matches (user_id, deal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING", self.OTHER_UID, self.DEAL_ID)
+            finally:
+                await conn.close()
+        asyncio.run(match())
+
+    def test_each_user_has_their_own_thread_on_a_shared_deal(self):
+        """Revue R-6-5 : deux utilisateurs qui voient la même annonce ne lisent ni ne modifient le fil de l'autre."""
+        self._match_other_user()
+        mine = self.client.post(f"/deals/{self.DEAL_ID}/chat", json={"role": "user", "parts": [{"text": "a"}], "displayText": "secret"})
+        self.assertEqual(mine.status_code, 201, mine.text)
+        my_id = mine.json()["id"]
+
+        app.dependency_overrides[get_current_uid] = lambda: self.OTHER_UID
+        self.assertEqual(self.client.get(f"/deals/{self.DEAL_ID}/chat").json(), [])
+        replace = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{my_id}", json={"parts": [{"text": "x"}], "displayText": "hacked"})
+        self.assertEqual(replace.status_code, 404)
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+        self.assertEqual(self.client.get(f"/deals/{self.DEAL_ID}/chat").json()[0]["display_text"], "secret")
+
+    def test_legacy_messages_without_owner_stay_common(self):
+        """Décision du 2026-11-06 : les messages d'avant `user_id` (NULL) restent lisibles par tous ceux qui voient l'annonce."""
+        self._match_other_user()
+        async def legacy():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("INSERT INTO deal_chat (deal_id, role, parts, display_text) VALUES ($1, 'user', '[]'::jsonb, 'ancien')", self.DEAL_ID)
+            finally:
+                await conn.close()
+        asyncio.run(legacy())
+        for uid in (self.UID, self.OTHER_UID):
+            app.dependency_overrides[get_current_uid] = lambda uid=uid: uid
+            self.assertEqual([m["display_text"] for m in self.client.get(f"/deals/{self.DEAL_ID}/chat").json()], ["ancien"])
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+
     def test_chat_isolated_from_other_users_deal(self):
         resp = self.client.get("/deals/chat-deal-other/chat")
         self.assertEqual(resp.status_code, 404)
@@ -228,7 +266,7 @@ class TestChatAPI(unittest.TestCase):
         self.assertEqual(replace.status_code, 404)
 
         gallery = self.client.patch(f"/deals/{self.DEAL_ID}/chat/{other_message_id}/gallery", json={
-            "partIndex": 0, "url": "https://storage.example/hacked.jpg",
+            "partIndex": 0, "url": "https://storage.googleapis.com/test-bucket/hacked.jpg",
         })
         self.assertEqual(gallery.status_code, 404)
 

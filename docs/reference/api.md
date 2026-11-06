@@ -47,7 +47,7 @@ Un service **FastAPI** asynchrone (un seul processus uvicorn, pool asyncpg de 1 
 |---|---|---|
 | POST | `/deals/{id}/chat/claude` | Tour de chat sur Claude, flux SSE ; 429 au-delà de 2 $ de dépense du jour par utilisateur (`cost_alert.USER_DAILY_CAP_USD`, administrateur exempté) |
 | POST | `/deals/{id}/chat/consult-opus` | Consultation d'Opus sur un dossier rédigé par le modèle, flux SSE |
-| GET / POST | `/deals/{id}/chat` | Lit / ajoute un message ; **le fil est commun à tous les utilisateurs qui voient l'annonce** ; `role` limité à `user`/`model`, contenu borné à 2 Mo |
+| GET / POST | `/deals/{id}/chat` | Lit / ajoute un message ; **fil PAR utilisateur depuis le 2026-11-06** (`deal_chat.user_id` ; les messages d'avant, `user_id` NULL, restent communs, lisibles et modifiables par tous ceux qui voient l'annonce ; le WebSocket ne relaie que le fil de l'appelant et les messages communs) ; `role` limité à `user`/`model`, contenu borné à 2 Mo |
 | PATCH | `/deals/{id}/chat/{msg}` | Remplace un message (« Réessayer ») |
 | PATCH | `…/chat/{msg}/gallery`, `/restoration-proposal`, `/requalification-proposal` | Marque l'état d'une photo ajoutée, d'une proposition d'étape, d'une requalification |
 | GET | `/fiches`, `/fiches/{slug}` | Catalogue et fiche complète |

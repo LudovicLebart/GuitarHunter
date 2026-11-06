@@ -300,20 +300,20 @@ class TestDealsAPI(unittest.TestCase):
     def test_add_gallery_image_deduplicates_like_array_union(self):
         """Remplace `addImageToDealGallery` (arrayUnion Firestore) : la même URL ajoutée deux
         fois ne doit apparaître qu'une seule fois dans `storage_image_urls`."""
-        first = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.example/a.jpg"})
+        first = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.googleapis.com/test-bucket/a.jpg"})
         self.assertEqual(first.status_code, 200)
-        second = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.example/a.jpg"})
+        second = self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.googleapis.com/test-bucket/a.jpg"})
         self.assertEqual(second.status_code, 200)
 
         deal = self.client.get("/deals/deal-1").json()
-        self.assertEqual(deal["storage_image_urls"], ["https://storage.example/a.jpg"])
+        self.assertEqual(deal["storage_image_urls"], ["https://storage.googleapis.com/test-bucket/a.jpg"])
 
     def test_index_omits_unused_columns_and_fb_url_when_storage_thumbnail_exists(self):
         """M1 (2026-11-04) : l'index n'envoie ni les colonnes jamais lues par le front, ni `image_urls`
         quand une vignette stockée existe (repli seulement) ; le document complet reste intact."""
-        self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.example/a.jpg"})
+        self.client.post("/deals/deal-1/gallery", json={"url": "https://storage.googleapis.com/test-bucket/a.jpg"})
         row = next(r for r in self.client.get("/deals/index").json() if r["id"] == "deal-1")
-        self.assertEqual(row["storage_image_urls"], ["https://storage.example/a.jpg"])
+        self.assertEqual(row["storage_image_urls"], ["https://storage.googleapis.com/test-bucket/a.jpg"])
         self.assertEqual(row["image_urls"], [])
         for col in ("scraped_by_node", "tier3_trigger", "published_at_raw",
                     "gatekeeper_brand", "gatekeeper_classification"):
@@ -322,7 +322,7 @@ class TestDealsAPI(unittest.TestCase):
         self.assertIn("tier3_trigger", full)
 
     def test_add_gallery_image_on_other_users_deal_returns_404(self):
-        resp = self.client.post("/deals/deal-2/gallery", json={"url": "https://storage.example/a.jpg"})
+        resp = self.client.post("/deals/deal-2/gallery", json={"url": "https://storage.googleapis.com/test-bucket/a.jpg"})
         self.assertEqual(resp.status_code, 404)
 
 

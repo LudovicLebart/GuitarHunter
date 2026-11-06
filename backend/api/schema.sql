@@ -312,12 +312,18 @@ ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS requalification_proposal    JSONB
 
 CREATE INDEX IF NOT EXISTS idx_deal_chat_deal_id ON deal_chat(deal_id, created_at);
 
+-- 2026-11-06 (revue R-6-5) : fil de chat PAR UTILISATEUR. Avant, le fil d'une annonce était commun à tous ceux qui la
+-- voient (lecture, écriture et faux messages de rôle `model`). `user_id` NULL = message d'avant la colonne, gardé COMMUN
+-- (décision de l'utilisateur) : lisible et modifiable par quiconque voit l'annonce ; tout nouveau message porte son auteur.
+ALTER TABLE deal_chat ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(uid) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_deal_chat_deal_user ON deal_chat(deal_id, user_id, created_at);
+
 -- Temps réel du chat (remplace onDealChatUpdate) : canal séparé de deal_changes, filtré par
 -- deal_id côté serveur WS (pas par user_id — la propriété du deal est vérifiée une fois à la
 -- connexion, voir main.py::ws_deal_chat).
 CREATE OR REPLACE FUNCTION notify_chat_change() RETURNS trigger AS $$
 BEGIN
-    PERFORM pg_notify('chat_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id)::text);
+    PERFORM pg_notify('chat_changes', json_build_object('deal_id', NEW.deal_id, 'id', NEW.id, 'user_id', NEW.user_id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

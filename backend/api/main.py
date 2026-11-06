@@ -695,7 +695,7 @@ async def chat_consult_opus(deal_id: str, body: OpusConsultIn, uid: str = Depend
 async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    rows = await chat_repo.list_messages(pool, deal_id)
+    rows = await chat_repo.list_messages(pool, deal_id, uid)
     return [dict(r) for r in rows]
 
 
@@ -729,7 +729,7 @@ async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = 
     message_id = await chat_repo.add_message(
         pool, deal_id, body.role, body.parts, body.displayText,
         body.attachedImagePartIndices, body.restorationProposals,
-        body.photoRecall, body.isError, body.requalificationProposal,
+        body.photoRecall, body.isError, body.requalificationProposal, uid,
     )
     return {"id": message_id}
 
@@ -755,7 +755,7 @@ async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageR
     _check_chat_payload(None, body.parts)
     found = await chat_repo.replace_message(
         pool, deal_id, message_id, body.parts, body.displayText,
-        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
+        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal, uid,
     )
     await _require_chat_message_found(found)
     return {"status": "ok"}
@@ -772,7 +772,7 @@ async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)
+    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -790,7 +790,7 @@ class RestorationProposalStatusBody(BaseModel):
 async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId)
+    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -803,7 +803,7 @@ class RequalificationStatusBody(BaseModel):
 async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status)
+    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -835,6 +835,8 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
             data = json.loads(payload)
             if data.get("deal_id") != deal_id:
                 return  # canal partagé entre toutes les annonces, filtré ici
+            if data.get("user_id") not in (None, uid):
+                return  # fil d'un autre utilisateur (R-6-5) ; None = message commun d'avant le fil par utilisateur
             loop.create_task(websocket.send_json(data))
 
         await listen_conn.add_listener("chat_changes", _on_notify)

@@ -31,26 +31,28 @@ async def is_deal_visible(pool: asyncpg.Pool, deal_id: str, user_id: str) -> boo
     return row is not None
 
 
-async def list_messages(pool: asyncpg.Pool, deal_id: str):
+async def list_messages(pool: asyncpg.Pool, deal_id: str, user_id: str):
+    """Fil de CET utilisateur, plus les messages communs d'avant le fil par utilisateur (`user_id` NULL)."""
     return await pool.fetch(
-        "SELECT * FROM deal_chat WHERE deal_id = $1 ORDER BY created_at ASC", deal_id
+        "SELECT * FROM deal_chat WHERE deal_id = $1 AND (user_id = $2 OR user_id IS NULL) ORDER BY created_at ASC",
+        deal_id, user_id,
     )
 
 
 async def add_message(
     pool: asyncpg.Pool, deal_id: str, role: str, parts, display_text: str | None,
     attached_image_part_indices=None, restoration_proposals=None, photo_recall=None,
-    is_error: bool = False, requalification_proposal=None,
+    is_error: bool = False, requalification_proposal=None, user_id: str | None = None,
 ):
     row = await pool.fetchrow(
         """
         INSERT INTO deal_chat (deal_id, role, parts, display_text, attached_image_part_indices,
-                                restoration_proposals, photo_recall, is_error, requalification_proposal)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                                restoration_proposals, photo_recall, is_error, requalification_proposal, user_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
         """,
         deal_id, role, parts, display_text, attached_image_part_indices,
-        restoration_proposals, photo_recall, is_error, requalification_proposal,
+        restoration_proposals, photo_recall, is_error, requalification_proposal, user_id,
     )
     return row["id"]
 
@@ -58,7 +60,7 @@ async def add_message(
 async def replace_message(
     pool: asyncpg.Pool, deal_id: str, message_id: int, parts, display_text: str | None,
     restoration_proposals=None, photo_recall=None, is_error: bool = False,
-    requalification_proposal=None,
+    requalification_proposal=None, user_id: str | None = None,
 ) -> bool:
     """Remplace en place (bouton "Réessayer") — mêmes champs remis à NULL quand absents que
     `firestoreService.js::replaceDealChatMessage` (pas juste omis). Renvoie False si
@@ -68,30 +70,31 @@ async def replace_message(
         UPDATE deal_chat
         SET parts = $3, display_text = $4, restoration_proposals = $5,
             photo_recall = $6, is_error = $7, requalification_proposal = $8
-        WHERE id = $1 AND deal_id = $2
+        WHERE id = $1 AND deal_id = $2 AND (user_id = $9 OR user_id IS NULL)
         """,
         message_id, deal_id, parts, display_text, restoration_proposals,
-        photo_recall, is_error, requalification_proposal,
+        photo_recall, is_error, requalification_proposal, user_id,
     )
     return result.endswith("1")  # "UPDATE 0" ou "UPDATE 1" — id est la clé primaire
 
 
-async def mark_added_to_gallery(pool: asyncpg.Pool, deal_id: str, message_id: int, part_index: int, url: str) -> bool:
+async def mark_added_to_gallery(pool: asyncpg.Pool, deal_id: str, message_id: int, part_index: int, url: str,
+                                user_id: str | None = None) -> bool:
     result = await pool.execute(
         """
         UPDATE deal_chat
         SET added_to_gallery_urls = COALESCE(added_to_gallery_urls, '{}'::jsonb)
             || jsonb_build_object($3::text, $4::text)
-        WHERE id = $1 AND deal_id = $2
+        WHERE id = $1 AND deal_id = $2 AND (user_id = $5 OR user_id IS NULL)
         """,
-        message_id, deal_id, str(part_index), url,
+        message_id, deal_id, str(part_index), url, user_id,
     )
     return result.endswith("1")
 
 
 async def mark_restoration_proposal_status(
     pool: asyncpg.Pool, deal_id: str, message_id: int, proposal_index: int, new_status: str,
-    item_id: str | None = None,
+    item_id: str | None = None, user_id: str | None = None,
 ) -> bool:
     """`restoration_proposals` est un tableau JSON ; on met à jour l'élément `proposal_index`
     par fusion (jsonb_set), sans réécrire tout le tableau depuis l'application.
@@ -114,18 +117,19 @@ async def mark_restoration_proposal_status(
             )
             ELSE restoration_proposals
         END
-        WHERE id = $1 AND deal_id = $2
+        WHERE id = $1 AND deal_id = $2 AND (user_id = $5 OR user_id IS NULL)
         """,
-        message_id, deal_id, proposal_index, patch,
+        message_id, deal_id, proposal_index, patch, user_id,
     )
     return result.endswith("1")
 
 
-async def mark_requalification_proposal_status(pool: asyncpg.Pool, deal_id: str, message_id: int, new_status: str) -> bool:
+async def mark_requalification_proposal_status(pool: asyncpg.Pool, deal_id: str, message_id: int, new_status: str,
+                                               user_id: str | None = None) -> bool:
     """`||` est STRICT : si `requalification_proposal` est NULL, le résultat serait NULL et
     effacerait silencieusement la colonne — `COALESCE` garde un objet vide comme base neutre."""
     result = await pool.execute(
-        "UPDATE deal_chat SET requalification_proposal = COALESCE(requalification_proposal, '{}'::jsonb) || jsonb_build_object('status', $3::text) WHERE id = $1 AND deal_id = $2",
-        message_id, deal_id, new_status,
+        "UPDATE deal_chat SET requalification_proposal = COALESCE(requalification_proposal, '{}'::jsonb) || jsonb_build_object('status', $3::text) WHERE id = $1 AND deal_id = $2 AND (user_id = $4 OR user_id IS NULL)",
+        message_id, deal_id, new_status, user_id,
     )
     return result.endswith("1")

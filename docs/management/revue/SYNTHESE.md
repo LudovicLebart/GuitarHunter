@@ -18,7 +18,7 @@
 
 ## Lot 1 — À traiter en premier (sécurité, confidentialité, perte silencieuse)
 
-*Traité le 2026-11-06 (commits locaux, non poussés, non déployés) : R-8-1, R-3-2, R-4-1, R-4-2, R-6-1, R-6-2, R-6-3, R-6-4 (plafond par utilisateur ; la consigne système reste fournie par le client) et R-6-5 en partie (rôle et taille ; le fil reste commun, voir `journal/2026-W45.md`).*
+*Traité le 2026-11-06 (commits locaux, non poussés, non déployés) : R-8-1, R-3-2, R-4-1, R-4-2, R-6-1, R-6-2, R-6-3, R-6-4 (plafond par utilisateur ; la consigne système reste fournie par le client) et R-6-5 (rôle, taille, puis fil par utilisateur ; les anciens messages restent communs, décision du 2026-11-06).*
 1. **R-8-1** — photos d'annonces et fichiers de travail non suivis et non ignorés : un `git add -A` (que deux skills du projet exécutent) les publierait sur le dépôt **public**. Correction : `.gitignore` (quelques lignes).
 2. **R-6-1** — le scan d'une adresse accepte n'importe quelle URL, visitée par le navigateur du serveur (à confirmer par un essai contrôlé).
 3. **R-6-2** — une URL de photo ajoutée à une annonce partagée est téléchargée par le serveur et montrée à tous.
