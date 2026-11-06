@@ -362,6 +362,8 @@ if not ctx["thread"].is_alive():
 
 ## 3. ⚛️ Frontend (React)
 
+> **Référence à jour du frontend (2026-11-06) : [`frontend.md`](frontend.md)**, vérifiée contre le code (relecture partielle des gros composants, voir son en-tête). Les sous-sections ci-dessous gardent l'historique des décisions ; plusieurs parlent encore de Firestore (`firestoreService.js`, `onSnapshot`, `deals_index` en chunks).
+
 Le frontend est une Single Page Application (SPA) conçue pour être très réactive.
 
 ### `src/App.jsx`

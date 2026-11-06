@@ -21,7 +21,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | 4 | Pipeline IA 3 tiers | fait 2026-11-05 (commit `c499ca0`) | `ia.md` (nouveau, référence), `ARCHITECTURE.md` (renvoi) ; `STRATEGIE_IA.md` non touché (stratégie et mesures) | `revue/2026-ia.md` (11 constats) |
 | 5 | Base de connaissances et fiches | fait 2026-11-05 (commit `c5a5f05`) | `connaissances.md` (nouveau, référence, avec l'état mesuré de la base) ; `how-to/FICHES_TECHNIQUES.md` et `docs/fiches/README.md` relus, cohérents, non modifiés | `revue/2026-connaissances.md` (7 constats) |
 | 6 | API FastAPI | fait 2026-11-06 (commit `d9f919e`) | `api.md` (nouveau, référence : 54 routes, auth, WebSocket, chat Claude, alertes) | `revue/2026-api.md` (12 constats, dont 6 de sécurité) |
-| 7 | Frontend | à faire | | |
+| 7 | Frontend | fait 2026-11-06 (commit `48d8784`), **relecture partielle** des gros composants | `frontend.md` (nouveau, référence) ; `ARCHITECTURE.md` §3 reste l'historique | `revue/2026-frontend.md` (10 constats) |
 | 8 | Plan de restauration, chat, détecteur de pièces | à faire | | |
 | 9 | Exploitation (CI/CD, HA, secrets) | à faire | | |
 | 10 | Scripts | à faire | | |
@@ -39,7 +39,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | `backend/guitar_knowledge.py`, `api/fiches_repo.py`, `backend/knowledge/`, `docs/fiches/`, `seed_*`, `import_guitar_knowledge_wikidata.py`, `knowledge_*.py`, `t1_kb_paired_replay.py` | `reference/connaissances.md` (référence) ; `how-to/FICHES_TECHNIQUES.md` (guide) ; `STRATEGIE_IA.md` §3 (stratégie) | 5 |
 | `backend/pg_repository.py`, `pg_db.py`, `deal_mapping.py`, `api/schema.sql`, `api/db.py` | `reference/donnees.md` (référence), `STATE_MODELS.md` ; `DATA_FLOW.md` = historique + logique métier | 1 |
 | `backend/api/*` | `reference/api.md` (référence) ; `plans/PERF_API_INDEX_PLAN.md` ; `ARCHITECTURE.md` = historique | 6 |
-| `src/` | `ARCHITECTURE.md` §3, `UI_UX_ANALYSIS.md` | 7 |
+| `src/`, `index.html`, `main.jsx`, `storage.rules` | `reference/frontend.md` (référence) ; `UI_UX_ANALYSIS.md` ; `ARCHITECTURE.md` §3 = historique | 7 |
 | `backend/api/restoration_repo.py`, `chat_*`, `backend/auto_annotation/` | `plans/RESTORATION_PLAN_PLAN.md`, `ARCHITECTURE.md` §5 | 8 |
 | `.github/workflows/*`, `backend/scripts/run_once.py` | `ARCHITECTURE.md` (deploy.yml, run_script*) | 9 |
 | `backend/scripts/`, `backend/benchmark/` | dispersé | 10 |
