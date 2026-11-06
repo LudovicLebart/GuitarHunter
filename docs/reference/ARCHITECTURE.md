@@ -665,6 +665,8 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 
 ## 5. 🧠 Pipeline d'Auto-Annotation (YOLO-OBB)
 
+> **Référence à jour (2026-11-06) : [`restauration_et_pieces.md`](restauration_et_pieces.md) §3** — le détecteur n'est pas branché en production et aucun modèle n'est entraîné ; cette section garde l'historique du plan V2.1.
+
 > **Statut (2026-10-02)** : pipeline d'annotation non branché en production ; objectif, taxonomie commune à 10 classes (`headstock, neck, heel, body, bridge, saddle, nut, soundhole, pickups, plate` — `CLASS_NAMES` de `config.py`, `label_studio_template_obb.xml`, `classes.txt`) et étapes dans [`PARTS_DETECTOR_AND_CROPS_PLAN.md`](../management/plans/PARTS_DETECTOR_AND_CROPS_PLAN.md). Le neck reset est un chantier distinct qui consomme ce détecteur ([`NECK_RESET_VISION_PLAN.md`](../management/plans/NECK_RESET_VISION_PLAN.md)).
 
 Le module `backend/auto_annotation/` permet de générer des datasets de haute qualité pour la détection orientée (Oriented Bounding Boxes) à partir d'images d'annonces (stockées dans Firebase Storage, adresses en base Postgres). Le plan en vigueur part d'un **amorçage annoté à la main** (150 images, Label Studio) : les détecteurs zéro-shot testés (OWLv2, SAM 2.1, Gemini) n'étaient pas assez fiables pour une annotation sans supervision. Ce pipeline tourne en hors-ligne (ex: sur une machine GPU locale via Tailscale) pour préparer les entraînements de modèles.

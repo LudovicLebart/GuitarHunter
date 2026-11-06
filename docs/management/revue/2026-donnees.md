@@ -34,7 +34,7 @@ Relevés le 2026-11-05 pendant la passe « deepdocument » (commit `22e5a1b`). R
 ### R-1-6 — Modules sans importeur en production
 - Où : `backend/scraper.py` (4 lignes, lève `ImportError` volontairement), `backend/crop_description.py` (aucun import hors tests). `backend/database.py` n'est plus utilisé que par `main.py` et des scripts.
 - Catégorie : code-mort · Gravité : basse
-- Piste : supprimer `scraper.py` ; confirmer le sort de `crop_description.py` (branche vision ?) ; réduire `database.py` au bail HA et au Storage.
+- Piste : supprimer `scraper.py` ; `crop_description.py` appartient à la chaîne du détecteur de parties (il importe `auto_annotation`), non branchée : voir `restauration_et_pieces.md` §3 ; réduire `database.py` au bail HA et au Storage.
 
 ### R-1-7 — La purge des photos s'appuie sur le verdict et la date de dernière modification
 - Où : `backend/pg_repository.py:693-740`.
