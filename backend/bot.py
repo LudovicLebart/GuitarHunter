@@ -15,6 +15,7 @@ from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
     GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID, HA_NODE_ID
 )
+from backend.url_guard import is_listing_url
 from backend.analyzer import DealAnalyzer
 from backend.cities import normalize_city_key, format_city_label, pick_best_label
 from backend.sold_markers import find_sold_marker
@@ -1241,6 +1242,11 @@ class GuitarHunterBot:
         URL kijiji.ca — échec silencieux, "❓ Impossible de récupérer les informations..."
         générique, notification mal étiquetée "URL Facebook" — signalé par l'utilisateur).
         """
+        # Revue R-6-1 : défense en profondeur (l'API filtre déjà) — jamais de navigation vers autre chose
+        # qu'une annonce Facebook/Kijiji en https.
+        if not is_listing_url(url):
+            self.logger.error(f"❌ Scan URL refusé : adresse non autorisée ({str(url)[:120]})")
+            return
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
         if self._browser_semaphore:

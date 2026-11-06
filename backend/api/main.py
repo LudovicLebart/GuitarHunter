@@ -30,6 +30,7 @@ try:  # orjson : 5 à 10x plus rapide que jsonable_encoder + json.dumps ; absent
 except ImportError:  # pragma: no cover - dépend de l'environnement
     orjson = None
 
+from backend.url_guard import is_listing_url, is_storage_image_url
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
 from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
@@ -187,6 +188,10 @@ class CommandOut(BaseModel):
 @app.post("/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)
 async def create_command(body: CommandCreate, uid: str = Depends(get_current_uid)):
     """Équivalent HTTP de `firestoreService.js::addCommand()` — même contrat (type, payload)."""
+    # Revue R-6-1 : le bot ouvre cette adresse dans un navigateur du serveur ; seules les annonces
+    # Facebook/Kijiji en https sont acceptées.
+    if body.type == "SCAN_URL" and not is_listing_url(body.payload):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Adresse refusée : une annonce Facebook ou Kijiji en https est attendue.")
     pool = get_pool()
     command_id = await commands_repo.create_command(pool, uid, body.type, body.payload)
     return CommandOut(id=command_id, type=body.type, payload=body.payload, status="pending")
@@ -454,6 +459,8 @@ class GalleryImageBody(BaseModel):
 
 @app.post("/deals/{deal_id}/gallery")
 async def add_gallery_image(deal_id: str, body: GalleryImageBody, uid: str = Depends(get_current_uid)):
+    if not is_storage_image_url(body.url):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     found = await deals_repo.add_gallery_image(pool, uid, deal_id, body.url)
     if not found:
@@ -732,6 +739,8 @@ class GalleryMarkBody(BaseModel):
 
 @app.patch("/deals/{deal_id}/chat/{message_id}/gallery")
 async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
+    if not is_storage_image_url(body.url):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
     found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)

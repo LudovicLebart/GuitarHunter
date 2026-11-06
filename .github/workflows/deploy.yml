@@ -83,6 +83,7 @@ jobs:
             backend.test_scrape_health \
             backend.test_bot \
             backend.test_sold_markers_block \
+            backend.test_url_guard \
             backend.scraping.test_city_finder \
             backend.scraping.test_city_verification \
             backend.scraping.test_zone \
@@ -348,7 +349,7 @@ jobs:
             else
               mkdir -p ~/guitarhunter-api-prod/backend
               cp -r backend/api ~/guitarhunter-api-prod/backend/
-              cp backend/__init__.py backend/deal_mapping.py backend/funnel_cost.py backend/guitar_knowledge.py ~/guitarhunter-api-prod/backend/
+              cp backend/__init__.py backend/deal_mapping.py backend/funnel_cost.py backend/guitar_knowledge.py backend/url_guard.py ~/guitarhunter-api-prod/backend/
               if sudo -n systemctl restart guitarhunter-api-prod; then
                 echo "✅ Service guitarhunter-api-prod resynchronisé et redémarré avec succès (127.0.0.1:8001)."
               else
