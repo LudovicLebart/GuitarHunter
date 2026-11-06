@@ -128,12 +128,15 @@ async def get_my_config(uid: str = Depends(get_current_uid)):
 async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_uid)):
     patch = body.model_dump(exclude_unset=True)
     try:
-        config_guard.validate_config_patch(patch)  # revue R-6-3
+        # revue R-6-3 ; en thread : json.dumps d'un corps de plusieurs Mo bloquerait la boucle d'événements
+        await asyncio.to_thread(config_guard.validate_config_patch, patch)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
     try:
-        merged = await users_repo.update_user_config(pool, uid, body.model_dump(exclude_unset=True))
+        merged = await users_repo.update_user_config(pool, uid, patch, check_merged=config_guard.validate_merged_size)
+    except ValueError as e:  # configuration fusionnée trop grosse
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
     return merged

@@ -388,6 +388,8 @@ class NotificationService:
         "scrape_failed": "⚠️ Échec du scraping (fiche incomplète) — réessaie plus tard.",
         "sold_marker": "⏩ Annonce ignorée : marqueur de vente détecté : {title}",
         "gatekeeper_failed": "🛡️⚠️ Le Portier IA (Tier 1) a échoué sur cette annonce (panne/latence Qwen-TokenRouter) — rien n'a été analysé ni stocké. Réessaie dans quelques minutes.",
+        "analysis_failed": "🧠⚠️ L'Analyste IA (Tier 2) a échoué sur cette annonce — l'analyse n'a pas été enregistrée (le prix, lui, est à jour). Réessaie dans quelques minutes.",
+        "url_refused": "🚫 Adresse refusée : seules les annonces Facebook Marketplace et Kijiji (https) peuvent être scannées.",
     }
 
     @staticmethod

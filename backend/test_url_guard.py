@@ -12,7 +12,8 @@ class ListingUrlTest(unittest.TestCase):
     def test_refusees(self):
         for u in ("http://www.facebook.com/marketplace/item/1", "https://127.0.0.1:8000/marketplace/item/1",
                   "http://localhost/v-x/1", "https://100.94.33.54:11434/api", "https://kijiji.ca.evil.com/v-x/1",
-                  "https://evil.com/?u=kijiji.ca", "https://evilfacebook.com/x", "file:///etc/passwd",
+                  "https://evil.com/?u=kijiji.ca", "https://evilfacebook.com/x",
+                  "https://l.facebook.com/l.php?u=http%3A%2F%2F127.0.0.1", "https://lm.facebook.com/l.php?u=x", "file:///etc/passwd",
                   "", None, 123, "https://www.facebook.com/" + "a" * 2100):
             self.assertFalse(is_listing_url(u), u)
 
@@ -23,6 +24,17 @@ class StorageUrlTest(unittest.TestCase):
         self.assertTrue(is_storage_image_url(good, bucket="mon-bucket.app"))
         self.assertFalse(is_storage_image_url(good, bucket="autre.app"))
         self.assertTrue(is_storage_image_url("https://storage.googleapis.com/mon-bucket.app/x.jpg", bucket="mon-bucket.app"))
+
+    def test_bucket_par_defaut_sans_variable(self):
+        """Sans bucket explicite ni variable d'environnement, ce n'est PAS « tout bucket » qui passe."""
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("FIREBASE_STORAGE_BUCKET", None)
+            os.environ.pop("VITE_FIREBASE_STORAGE_BUCKET", None)
+            self.assertFalse(is_storage_image_url("https://storage.googleapis.com/bucket-de-quelquun-d-autre/x.jpg"))
+            self.assertFalse(is_storage_image_url("https://storage.googleapis.com/x/guitarehunter-d6e35.firebasestorage.app/y.jpg"))
+            self.assertTrue(is_storage_image_url("https://storage.googleapis.com/guitarehunter-d6e35.firebasestorage.app/y.jpg"))
 
     def test_hotes_refuses(self):
         for u in ("http://storage.googleapis.com/b/x.jpg", "https://evil.com/storage.googleapis.com/b/x.jpg",

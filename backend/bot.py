@@ -15,6 +15,7 @@ from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
     GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID, HA_NODE_ID
 )
+from urllib.parse import urlparse
 from backend.url_guard import is_listing_url
 from backend.analyzer import DealAnalyzer
 from backend.cities import normalize_city_key, format_city_label, pick_best_label
@@ -376,7 +377,7 @@ class GuitarHunterBot:
     # connu, traité...) EST marqué, comme avant.
     _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
         "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
-        "stopped", "error", "gatekeeper_failed",
+        "stopped", "error", "gatekeeper_failed", "analysis_failed",
     })
 
     def _handle_deal_found_unless_stopped(self, deal, source):
@@ -586,8 +587,12 @@ class GuitarHunterBot:
         # texte d'erreur et aucun score ; ce n'est pas une analyse. Ni notifiée ni stockée : retentée au
         # prochain cycle, comme un échec du Portier.
         if self._is_analysis_error(analysis):
-            self.logger.warning(f"⏩ [{source}] Analyste T2 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
-            return "gatekeeper_failed"
+            self.logger.warning(f"⏩ [{source}] Analyste T2 en échec pour '{listing_data.get('title')}' — analyse non enregistrée, sera retentée à la prochaine session.")
+            if is_update and not self.offline_mode:
+                # Le nouveau prix (et son historique) est un fait du scrape, pas de l'analyse : on le garde,
+                # l'analyse existante reste en place.
+                self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, None)
+            return "analysis_failed"
 
         # Garde-fou : une ré-analyse (mise à jour de prix) ne doit jamais déclasser une PEPITE en
         # NOT_PROMOTED — le Portier local n'est pas déterministe, et le routage par recherche
@@ -1246,6 +1251,9 @@ class GuitarHunterBot:
         # qu'une annonce Facebook/Kijiji en https.
         if not is_listing_url(url):
             self.logger.error(f"❌ Scan URL refusé : adresse non autorisée ({str(url)[:120]})")
+            NotificationService.notify_scan_url_finished(
+                str(url)[:200], user_email=self._user_email, logger=self.logger, outcome="url_refused",
+            )
             return
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
@@ -1268,7 +1276,7 @@ class GuitarHunterBot:
                     self.set_status('idle', task_name='scanning_url')
                 return
         try:
-            is_kijiji = "kijiji.ca" in url.lower()
+            is_kijiji = (urlparse(url.strip()).hostname or "").lower().endswith("kijiji.ca")
             source = "Kijiji" if is_kijiji else "Facebook"
             temp_scraper = KijijiScraper(logger=self.logger) if is_kijiji else FacebookScraper({}, {}, logger=self.logger)
             # Coordonnées des villes configurées, pour nearest_configured_city() — même
@@ -1445,8 +1453,9 @@ class GuitarHunterBot:
                     analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
                     if self._is_analysis_error(analysis):
                         # R-4-2 : ne pas écraser l'ancienne analyse par un résultat d'erreur.
-                        self.logger.warning(f"Réanalyse en échec pour {doc.id} : analyse existante conservée.")
-                        self.repo.update_deal_status(doc.id, 'analysis_failed', str(analysis.get('reasoning'))[:500])
+                        # Statut INCHANGÉ (`retry_analysis`) : l'annonce reste en file et sera retentée au prochain
+                        # cycle ; la passer en `analysis_failed` la sortirait des vues normales sur une panne passagère.
+                        self.logger.warning(f"Réanalyse en échec pour {doc.id} : analyse existante conservée, annonce laissée en file.")
                         continue
                     self.repo.update_deal_analysis(doc.id, analysis)
                 except Exception as e:

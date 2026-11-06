@@ -23,12 +23,18 @@ def _is_number(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def validate_merged_size(config):
+    """Lève `ValueError` si la configuration COMPLÈTE (après fusion) dépasse `MAX_CONFIG_BYTES` : des
+    patchs successifs sous la borne pourraient sinon faire grossir le JSONB sans limite."""
+    if len(json.dumps(config, default=str)) > MAX_CONFIG_BYTES:
+        raise ValueError("Configuration trop volumineuse.")
+
+
 def validate_config_patch(patch):
     """Lève `ValueError` (message lisible) si `patch` sort des bornes ; sinon ne fait rien."""
     if not isinstance(patch, dict):
         raise ValueError("La configuration doit être un objet.")
-    if len(json.dumps(patch, default=str)) > MAX_CONFIG_BYTES:
-        raise ValueError("Configuration trop volumineuse.")
+    validate_merged_size(patch)
 
     scan = patch.get("scanConfig")
     if scan is not None:

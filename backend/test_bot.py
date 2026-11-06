@@ -837,6 +837,50 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
         mock_notification_service.notify_deal.assert_called_once()
 
 
+@patch("backend.bot.NotificationService")
+class TestHandleDealFoundAnalystFailure(unittest.TestCase):
+    """Revue R-4-2 : un échec de l'Analyste (T2) n'est ni stocké ni notifié comme analyse ; pour une mise à
+    jour de prix, le nouveau prix est conservé."""
+    ERROR = {"verdict": "GOOD_DEAL", "reasoning": "Erreur Tier 2", "model_used": "a -> b (Error)"}
+
+    def test_nouvelle_annonce_ni_stockee_ni_notifiee(self, ns):
+        bot = _make_handle_deal_found_bot(dict(self.ERROR))
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+        self.assertEqual(outcome, "analysis_failed")
+        self.assertIn("analysis_failed", bot._NEVER_MARK_PROCESSED_OUTCOMES)
+        bot.repo.create_new_deal.assert_not_called()
+        bot.repo.update_deal_data_and_analysis.assert_not_called()
+        ns.notify_deal.assert_not_called()
+
+    def test_mise_a_jour_de_prix_gardee_sans_toucher_a_l_analyse(self, ns):
+        bot = _make_handle_deal_found_bot(dict(self.ERROR))
+        bot.repo.get_deal_by_id.return_value = {"id": "deal_1", "price": 400, "status": "analyzed", "verdict": "GOOD_DEAL"}
+        bot.repo.get_deals_index_snapshot.return_value = {"deal_1": {"price": 400, "status": "analyzed"}}
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+        self.assertEqual(outcome, "analysis_failed")
+        bot.repo.create_new_deal.assert_not_called()
+        ns.notify_deal.assert_not_called()
+        if bot.repo.update_deal_data_and_analysis.called:  # prix mis à jour, analyse laissée telle quelle (None)
+            self.assertIsNone(bot.repo.update_deal_data_and_analysis.call_args.args[2])
+
+
+@patch("backend.bot.NotificationService")
+class TestScanSpecificUrlRefusal(unittest.TestCase):
+    """Revue R-6-1 : une adresse hors Facebook/Kijiji n'est jamais visitée, et l'utilisateur en est informé."""
+
+    def test_adresse_refusee_notifiee_sans_navigation(self, ns):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot.set_status = MagicMock()
+        bot._user_email = ""
+        bot._browser_semaphore = MagicMock()
+        bot.scan_specific_url("https://l.facebook.com/l.php?u=http://127.0.0.1:8000/")
+        ns.notify_scan_url_finished.assert_called_once()
+        self.assertEqual(ns.notify_scan_url_finished.call_args.kwargs["outcome"], "url_refused")
+        bot._browser_semaphore.acquire.assert_not_called()
+        bot.set_status.assert_not_called()
+
+
 @patch("backend.bot.time.sleep")
 @patch("backend.bot.FacebookScraper")
 class TestFacebookScanUsesRealFacebookId(unittest.TestCase):
@@ -1062,7 +1106,8 @@ class TestRetryQueueRevue(unittest.TestCase):
         bot = self._bot_with_doc({"verdict": "PEPITE", "reasoning": "Erreur Tier 2", "model_used": "a -> b (Error)"})
         bot.process_retry_queue()
         bot.repo.update_deal_analysis.assert_not_called()
-        bot.repo.update_deal_status.assert_called_once()
+        # Statut inchangé : l'annonce reste en file (`retry_analysis`), pas de bascule en `analysis_failed`.
+        bot.repo.update_deal_status.assert_not_called()
 
     def test_is_analysis_error(self):
         self.assertTrue(GuitarHunterBot._is_analysis_error({"model_used": "x (Error)"}))

@@ -3,8 +3,11 @@ test_api.py/test_deals_api.py : vraie base Postgres, se saute proprement si injo
 """
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import patch
+
+os.environ.setdefault("FIREBASE_STORAGE_BUCKET", "test-bucket")  # url_guard.is_storage_image_url (R-6-2)
 
 import asyncpg
 import requests

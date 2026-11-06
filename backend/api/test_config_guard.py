@@ -1,5 +1,6 @@
 import unittest
 
+from backend.api import config_guard
 from backend.api.config_guard import validate_config_patch
 
 
@@ -25,6 +26,13 @@ class ConfigGuardTest(unittest.TestCase):
             validate_config_patch({"analysisConfig": {"junk": ["x" * 1000] * 400}})
         with self.assertRaises(ValueError):
             validate_config_patch({"scanConfig": "oops"})
+
+
+class MergedSizeTest(unittest.TestCase):
+    def test_config_fusionnee_trop_grosse_refusee(self):
+        config_guard.validate_merged_size({"a": "x" * 1000})
+        with self.assertRaises(ValueError):
+            config_guard.validate_merged_size({"a": "x" * (config_guard.MAX_CONFIG_BYTES + 1)})
 
 
 if __name__ == "__main__":
