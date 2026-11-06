@@ -20,8 +20,8 @@ Un service **FastAPI** asynchrone (un seul processus uvicorn, pool asyncpg de 1 
 | Méthode | Chemin | Rôle |
 |---|---|---|
 | POST | `/users/me` | Crée la ligne `users` au premier contact (idempotent) ; sans elle le bot ne démarre pas pour ce compte |
-| GET / PATCH | `/users/me/config` | Lit / fusionne (récursivement) la configuration ; corps libre (`extra="allow"`), **aucune validation des valeurs** |
-| POST | `/commands` (201) | Ajoute une commande `pending` ; `type` et `payload` libres, le bot rejette les types inconnus |
+| GET / PATCH | `/users/me/config` | Lit / fusionne (récursivement) la configuration ; corps libre (`extra="allow"`) ; depuis le 2026-11-06 `config_guard.py` refuse (422) une fréquence hors 5 à 1440 min, `max_ads` hors 1 à 500, `distance` hors 0 à 500, des prix hors 0 à 1 000 000, des seuils `proTrigger*` hors bornes, une chaîne de plus de 30 000 caractères ou un corps de plus de 200 Ko ; les autres clés restent libres |
+| POST | `/commands` (201) | Ajoute une commande `pending` ; `type` et `payload` libres, le bot rejette les types inconnus ; pour `SCAN_URL`, l'adresse doit être en https sur facebook.com ou kijiji.ca (sinon 422, `backend/url_guard.py`, revérifié par le bot) |
 | GET | `/commands/{id}` | État d'une commande de l'appelant (`status`, `error`) |
 | POST | `/usage` (204) | Enregistre l'usage d'un tour de chat **Gemini** posté par le navigateur ; bornes 0 à 5 000 000 par compteur, refus des modèles `claude*` (enregistrés par le serveur), déclenche l'alerte de coût |
 | GET | `/logs?limit=` (1 à 1 000) | Derniers journaux du bot de l'appelant |
@@ -40,14 +40,14 @@ Un service **FastAPI** asynchrone (un seul processus uvicorn, pool asyncpg de 1 
 | PATCH | `/deals/{id}/user-sale` | Revente par l'acheteur (409 sinon, prix négatif refusé) |
 | PATCH | `/deals/{id}/classification` | Correction manuelle de la classification, **globale** |
 | PATCH | `/deals/{id}/analysis-overrides` | Corrige des colonnes d'analyse (liste blanche `AI_ANALYSIS_COLUMNS`), **globale** ; valeurs non validées |
-| POST | `/deals/{id}/gallery` | Ajoute une URL de photo à `storage_image_urls`, **globale** ; URL non validée |
+| POST | `/deals/{id}/gallery` | Ajoute une URL de photo à `storage_image_urls`, **globale** ; seule une URL https du stockage Google/Firebase du projet est acceptée (422 sinon, aussi pour `…/chat/{msg}/gallery`) |
 
 ### Chat, fiches, plan de restauration
 | Méthode | Chemin | Rôle |
 |---|---|---|
-| POST | `/deals/{id}/chat/claude` | Tour de chat sur Claude, flux SSE |
+| POST | `/deals/{id}/chat/claude` | Tour de chat sur Claude, flux SSE ; 429 au-delà de 2 $ de dépense du jour par utilisateur (`cost_alert.USER_DAILY_CAP_USD`, administrateur exempté) |
 | POST | `/deals/{id}/chat/consult-opus` | Consultation d'Opus sur un dossier rédigé par le modèle, flux SSE |
-| GET / POST | `/deals/{id}/chat` | Lit / ajoute un message ; **le fil est commun à tous les utilisateurs qui voient l'annonce** |
+| GET / POST | `/deals/{id}/chat` | Lit / ajoute un message ; **le fil est commun à tous les utilisateurs qui voient l'annonce** ; `role` limité à `user`/`model`, contenu borné à 2 Mo |
 | PATCH | `/deals/{id}/chat/{msg}` | Remplace un message (« Réessayer ») |
 | PATCH | `…/chat/{msg}/gallery`, `/restoration-proposal`, `/requalification-proposal` | Marque l'état d'une photo ajoutée, d'une proposition d'étape, d'une requalification |
 | GET | `/fiches`, `/fiches/{slug}` | Catalogue et fiche complète |
