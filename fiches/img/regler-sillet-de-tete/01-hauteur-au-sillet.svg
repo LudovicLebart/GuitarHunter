@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 320" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Hauteur du sillet : bon et trop bas</title>
+  <desc id="d">Coupe du sillet : à gauche l'entaille laisse un petit jour au-dessus de la première frette, à droite elle est trop profonde et la corde touche la frette.</desc>
+  <rect width="820" height="320" fill="#f8fafc"/>
+<rect x="130" y="140" width="270" height="50" fill="#7c4a1e"/><rect x="100" y="118" width="30" height="72" fill="#fff" stroke="#475569" stroke-width="2"/><path d="M238 140 q12 -10 24 0z" fill="#cbd5e1" stroke="#475569" stroke-width="2"/><path d="M20 95 L115 128 L400 124" stroke="#94a3b8" stroke-width="3" fill="none"/><text x="115" y="108" font-size="13" fill="#334155" text-anchor="middle">sillet</text><text x="250" y="215" font-size="13" fill="#334155" text-anchor="middle">1re frette</text><circle cx="350" cy="60" r="16" fill="#15803d"/><text x="350" y="67" font-size="21" font-weight="bold" fill="#fff" text-anchor="middle">✓</text>
+  <rect x="540" y="140" width="270" height="50" fill="#7c4a1e"/><rect x="510" y="118" width="30" height="72" fill="#fff" stroke="#475569" stroke-width="2"/><path d="M648 140 q12 -10 24 0z" fill="#cbd5e1" stroke="#475569" stroke-width="2"/><path d="M430 95 L525 146 L810 140" stroke="#94a3b8" stroke-width="3" fill="none"/><text x="525" y="108" font-size="13" fill="#334155" text-anchor="middle">sillet</text><text x="660" y="215" font-size="13" fill="#334155" text-anchor="middle">1re frette</text><circle cx="760" cy="60" r="16" fill="#b91c1c"/><text x="760" y="67" font-size="21" font-weight="bold" fill="#fff" text-anchor="middle">✗</text>
+  <text x="200" y="40" font-size="16" fill="#15803d" font-weight="bold" text-anchor="middle">Entaille à la bonne profondeur</text>
+  <text x="610" y="40" font-size="16" fill="#b91c1c" font-weight="bold" text-anchor="middle">Entaille trop profonde (sillet trop bas)</text>
+  <text x="200" y="245" font-size="14" fill="#334155" text-anchor="middle">Petit jour au-dessus de la 1re frette</text>
+  <text x="200" y="264" font-size="14" fill="#334155" text-anchor="middle">(quelques dixièmes de mm)</text>
+  <text x="610" y="245" font-size="14" fill="#334155" text-anchor="middle">La corde touche la 1re frette :</text>
+  <text x="610" y="264" font-size="14" fill="#334155" text-anchor="middle">elle bourdonne à vide</text>
+  <text x="410" y="305" font-size="14" fill="#334155" text-anchor="middle">On ne peut pas remettre de matière : limer le fond de l'entaille lentement, mesurer souvent.</text>
+</svg>

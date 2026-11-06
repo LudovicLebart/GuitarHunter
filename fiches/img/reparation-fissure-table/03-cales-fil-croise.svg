@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 320" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Orientation des cales collées sous la fissure</title>
+  <desc id="d">Vue de l'intérieur de la caisse : la fissure suit le fil de la table et les cales, de même essence, sont posées en pont avec leur fil à environ 45 degrés.</desc>
+  <rect width="820" height="320" fill="#f8fafc"/>
+  <rect x="40" y="30" width="330" height="240" rx="8" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <g stroke="#7c4a1e" stroke-width="1" opacity=".4"><path d="M70 36v228M100 36v228M130 36v228M160 36v228M190 36v228M220 36v228M250 36v228M280 36v228M310 36v228M340 36v228"/></g>
+  <path d="M205 40 l5 45 l-5 45 l6 45 l-5 45 l3 40" fill="none" stroke="#111" stroke-width="2.5"/>
+  <g stroke="#475569" stroke-width="1.5" fill="#e0b97a">
+    <rect x="190" y="70" width="30" height="30" transform="rotate(45 205 85)"/><rect x="190" y="130" width="30" height="30" transform="rotate(45 205 145)"/><rect x="190" y="190" width="30" height="30" transform="rotate(45 205 205)"/>
+  </g>
+  <text x="205" y="292" font-size="13" fill="#334155" text-anchor="middle">Vue de l'intérieur</text>
+  <text x="205" y="22" font-size="13" fill="#334155" text-anchor="middle">fil de la table (vertical)</text>
+  <!-- détail -->
+  <rect x="430" y="60" width="150" height="150" rx="6" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <g stroke="#7c4a1e" stroke-width="1.2" opacity=".5"><path d="M455 62v146M480 62v146M505 62v146M530 62v146M555 62v146"/></g>
+  <path d="M505 62 l-2 146" stroke="#111" stroke-width="3"/>
+  <rect x="470" y="105" width="70" height="60" fill="#e0b97a" stroke="#475569" stroke-width="1.5" transform="rotate(45 505 135)"/>
+  <g stroke="#7c4a1e" stroke-width="1.2" opacity=".7" transform="rotate(45 505 135)"><path d="M488 105v60M505 105v60M522 105v60"/></g>
+  <path d="M505 62 v-0" />
+  <text x="600" y="100" font-size="13" fill="#0f172a">fissure</text><path d="M598 96 L508 100" stroke="#0f172a" fill="none"/>
+  <text x="600" y="140" font-size="13" fill="#0f172a">cale : fil à environ 45°</text><path d="M598 136 L535 135" stroke="#0f172a" fill="none"/>
+  <text x="600" y="180" font-size="13" fill="#0f172a">fil de la table</text>
+  <text x="620" y="236" font-size="12.5" fill="#334155" text-anchor="middle">Cale en épicéa, chants amincis</text>
+  <text x="620" y="254" font-size="12.5" fill="#334155" text-anchor="middle">(selon StewMac ; épaisseur 2,4 à 3,2 mm)</text>
+  <text x="620" y="290" font-size="13" fill="#b91c1c" text-anchor="middle">Pas de cale parallèle à la fissure : aucun renfort</text>
+</svg>
