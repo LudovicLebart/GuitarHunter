@@ -20,7 +20,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | 3 | Scraping | fait 2026-11-05 (commit `f1075b3`) | `scraping.md` (nouveau, référence), `ARCHITECTURE.md` (renvoi) ; `scrape_health.py` y est résumé, table `scrape_runs` dans `donnees.md` | `revue/2026-scraping.md` (11 constats) |
 | 4 | Pipeline IA 3 tiers | fait 2026-11-05 (commit `c499ca0`) | `ia.md` (nouveau, référence), `ARCHITECTURE.md` (renvoi) ; `STRATEGIE_IA.md` non touché (stratégie et mesures) | `revue/2026-ia.md` (11 constats) |
 | 5 | Base de connaissances et fiches | fait 2026-11-05 (commit `c5a5f05`) | `connaissances.md` (nouveau, référence, avec l'état mesuré de la base) ; `how-to/FICHES_TECHNIQUES.md` et `docs/fiches/README.md` relus, cohérents, non modifiés | `revue/2026-connaissances.md` (7 constats) |
-| 6 | API FastAPI | à faire | | |
+| 6 | API FastAPI | fait 2026-11-06 (commit `d9f919e`) | `api.md` (nouveau, référence : 54 routes, auth, WebSocket, chat Claude, alertes) | `revue/2026-api.md` (12 constats, dont 6 de sécurité) |
 | 7 | Frontend | à faire | | |
 | 8 | Plan de restauration, chat, détecteur de pièces | à faire | | |
 | 9 | Exploitation (CI/CD, HA, secrets) | à faire | | |
@@ -38,7 +38,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | `backend/analyzer.py`, `llm_clients.py`, `t1_*.py`, `t3_claude_tools.py`, `taxonomy.py`, `llm_usage.py`, `prompts.json`, `config.py` (`T1_*`/`T3_*`) | `reference/ia.md` (référence) ; `plans/STRATEGIE_IA.md` = stratégie et mesures ; `ARCHITECTURE.md` = historique | 4 |
 | `backend/guitar_knowledge.py`, `api/fiches_repo.py`, `backend/knowledge/`, `docs/fiches/`, `seed_*`, `import_guitar_knowledge_wikidata.py`, `knowledge_*.py`, `t1_kb_paired_replay.py` | `reference/connaissances.md` (référence) ; `how-to/FICHES_TECHNIQUES.md` (guide) ; `STRATEGIE_IA.md` §3 (stratégie) | 5 |
 | `backend/pg_repository.py`, `pg_db.py`, `deal_mapping.py`, `api/schema.sql`, `api/db.py` | `reference/donnees.md` (référence), `STATE_MODELS.md` ; `DATA_FLOW.md` = historique + logique métier | 1 |
-| `backend/api/*` | `ARCHITECTURE.md` (API, chat, coût), `plans/PERF_API_INDEX_PLAN.md` | 6 |
+| `backend/api/*` | `reference/api.md` (référence) ; `plans/PERF_API_INDEX_PLAN.md` ; `ARCHITECTURE.md` = historique | 6 |
 | `src/` | `ARCHITECTURE.md` §3, `UI_UX_ANALYSIS.md` | 7 |
 | `backend/api/restoration_repo.py`, `chat_*`, `backend/auto_annotation/` | `plans/RESTORATION_PLAN_PLAN.md`, `ARCHITECTURE.md` §5 | 8 |
 | `.github/workflows/*`, `backend/scripts/run_once.py` | `ARCHITECTURE.md` (deploy.yml, run_script*) | 9 |

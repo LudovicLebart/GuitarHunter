@@ -6,7 +6,7 @@ Relevés le 2026-11-05 pendant la passe « deepdocument » (commit `22e5a1b`). R
 - Où : `src/components/AdminDashboard.jsx:66` (message de confirmation) ; `backend/api/admin_repo.py:111-120` ; `backend/api/schema.sql:375` (`restoration_plan_items.user_id TEXT` sans clé étrangère).
 - Catégorie : doc-code (message affiché à l'utilisateur) · Gravité : moyenne
 - Constat : le message (reformulé le 2026-11-05) dit que le « plan de restauration » est supprimé. Seule la ligne `users` est supprimée ; les étapes de plan restent en base avec un `user_id` orphelin. Les achats de l'utilisateur restent aussi (`purchased_by_user_id` passe à `NULL` par `ON DELETE SET NULL`, mais `is_purchased` reste vrai).
-- Piste : corriger le texte du message (rapide) ; décider ensuite si `delete_user_data` doit aussi supprimer ces étapes et défaire les achats. À vérifier avant : comportement de `toggle_purchased` quand `is_purchased` est vrai et `purchased_by_user_id` nul.
+- Piste : corriger le texte du message (rapide) ; décider ensuite si `delete_user_data` doit aussi supprimer ces étapes et défaire les achats. Vérifié le 2026-11-06 (section 6) : `toggle_purchased` refuse alors tout le monde (409 « déjà achetée par un autre utilisateur ») ; voir R-6-9.
 
 ### R-1-2 — Le chat d'une annonce est partagé entre tous les utilisateurs qui la voient
 - Où : `backend/api/chat_repo.py:36` (`SELECT * FROM deal_chat WHERE deal_id = $1`), `schema.sql:297` (`deal_chat` sans `user_id`).
