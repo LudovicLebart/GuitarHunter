@@ -26,7 +26,7 @@ Objectif : la doc décrit **ce que fait réellement le code de `master`/`dev`**.
 | 9 | Exploitation (CI/CD, HA, secrets) | fait 2026-11-06 (commit `96fb034`) | `exploitation.md` (nouveau, avec l'état réel du serveur relevé en lecture seule) ; `scraping.md` (tests) corrigé | `revue/2026-exploitation.md` (11 constats, dont R-9-1 haute) + R-3-12 |
 | 10 | Scripts | fait 2026-11-06 (commit `3f4592b`), **inventaire, scripts non relus ligne à ligne** | `scripts.md` (nouveau : classement par famille, état Firestore, scripts absents) | `revue/2026-scripts.md` (7 constats) |
 | 11 | Plans, TODO, journal, aperçu | fait 2026-11-06, **plans non relus en entier** | `plans/README.md` (nouveau : état réel des 21 plans et des branches) ; `TODO.md` (lien cassé corrigé, item « dérive » mis à jour, pas de purge) ; `PROJECT_OVERVIEW.md` vérifié | `revue/2026-plans-todo.md` (7 constats) |
-| 12 | Clôture | à faire | | |
+| 12 | Clôture | fait 2026-11-06 | liens relatifs contrôlés (0 réellement cassé) ; fichiers cités absents inventoriés (voir `revue/SYNTHESE.md`) | `revue/SYNTHESE.md` (101 constats classés en 4 lots) |
 
 ## Carte module → doc
 
@@ -80,4 +80,4 @@ Chaque fichier de référence produit pendant la passe suit ce plan, dans cet or
 Plus gros blocs mesurés : `DealCard.jsx` 47 Ko, `analyzer.py` 25 Ko, `bot.py` 21 Ko, `useDealsManager.js` 13 Ko, Kijiji 12 Ko, scraping 8 Ko. Les sections « Firestore : cœur du système » et « Security Rules » décrivent l'état d'avant la bascule Postgres : à vérifier et à réécrire ou archiver en section 1.
 
 Le découpage se fait au fil des sections (un fichier par section, `ARCHITECTURE.md` devient un sommaire) :
-`reference/bot.md`, `scraping.md`, `ia.md`, `api.md`, `front.md`, `exploitation.md`, `donnees.md`.
+`reference/bot.md`, `scraping.md`, `ia.md`, `api.md`, `frontend.md`, `exploitation.md`, `donnees.md`.
