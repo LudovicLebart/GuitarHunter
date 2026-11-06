@@ -84,4 +84,4 @@ Fonctions pures. Après chaque scan d'ancrage, `bot._record_scrape_health` class
 - La session Playwright doit toujours être fermée (`close_session`), sinon le permis du sémaphore reste pris côté bot.
 
 ## Tests
-`backend/scraping/test_*.py` (zone, clustering, catch-up, défilement, boucle de scan, vérification de ville, CityFinder avec faux pilote), `kijiji/test_kijiji_core.py`, `kijiji/test_locations.py`. Aucun test n'exerce Facebook ou Kijiji en réel.
+Exécutés par la CI : `test_zone`, `test_catchup`, `test_scroll`, `test_city_verification`, `test_city_finder` (faux pilote). **Cinq fichiers ne peuvent pas s'exécuter** : `test_core`, `test_geo_clustering`, `test_scan_loop`, `kijiji/test_kijiji_core`, `kijiji/test_locations` importent `scraping.…` au lieu de `backend.scraping.…` et échouent à l'import (`No module named 'scraping'`, constat R-3-12). Aucun test n'exerce Facebook ou Kijiji en réel.

@@ -67,3 +67,9 @@ Relevés le 2026-11-05 pendant la passe « deepdocument » (commit `f1075b3`). R
 - Catégorie : robustesse · Gravité : basse
 - Constat : `last_scan` est un dictionnaire de classe ; seul `scan_search_url` le réinitialise sur l'instance. Un `scan_city` qui sort avant (aucun ancrage) pose bien un dictionnaire d'instance, mais toute lecture avant le premier scan voit l'état partagé de la classe. Sans effet aujourd'hui (instances à usage unique), fragile si le scraper est réutilisé.
 - Piste : le créer dans `__init__`.
+
+### R-3-12 — Cinq fichiers de test du scraping sont inexécutables (importent `scraping.…`)
+- Où : `backend/scraping/test_core.py:2`, `test_geo_clustering.py`, `test_scan_loop.py`, `kijiji/test_kijiji_core.py:5`, `kijiji/test_locations.py` (`from scraping.core import …`) ; absents de la liste du job `tests` de `deploy.yml`.
+- Catégorie : test · Gravité : moyenne
+- Constat (mesuré le 2026-11-06) : lancés par `python -m unittest backend.scraping…`, depuis `backend/` ou par `pytest`, ils échouent tous à l'import, car les modules importent eux-mêmes `backend.cities` et `backend.sold_markers` : aucun point de départ ne permet de satisfaire les deux chemins à la fois. Ce sont les tests des analyseurs Kijiji, de la résolution de lieux, de la boucle de scan et du regroupement en ancrages. Ils n'ont donc pas protégé le code depuis le passage aux imports `backend.…`, sans que la CI le signale puisqu'elle ne les lance pas.
+- Piste : remplacer `scraping.` par `backend.scraping.` dans ces cinq fichiers, les lancer en local, corriger ce qui a dérivé, puis les ajouter à la CI.

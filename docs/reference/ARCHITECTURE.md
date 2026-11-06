@@ -93,6 +93,8 @@ Le backend est un "worker" persistant qui tourne en boucle.
 - **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
 - **Déploiement Tailscale (OAuth):** Le workflow de déploiement GitHub Actions utilise des identifiants OAuth Tailscale (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) pour se connecter au Tailnet et accéder au serveur via SSH.
 
+> **Référence à jour de l'exploitation (2026-11-06) : [`exploitation.md`](exploitation.md)** (topologie réelle du serveur, déploiement, sauvegardes, haute disponibilité), vérifiée contre `deploy.yml` et un relevé en lecture seule du serveur. Les sous-sections ci-dessous gardent l'historique des décisions.
+
 ### `.github/workflows/deploy.yml`
 - **`deploy` (backend) :** Sur push `master`/`dev`, se connecte au serveur via Tailscale + SSH, `git reset --hard` sur la branche poussée, réinstalle les dépendances Python/Playwright, redémarre le service systemd `guitare-hunter`.
 - **`deploy-frontend` (2026-07-07) :** Job indépendant (en parallèle du backend), sur les mêmes branches. `npm ci` → écrit `.env` depuis `secrets.DOT_ENV` (**requis** : `src/services/firebase.js` lit `import.meta.env.VITE_FIREBASE_*` au build, sans quoi `initializeApp()` échoue et l'app entière plante avec `TypeError: Cannot read properties of undefined (reading 'onAuthStateChanged')` — vécu en production le 2026-07-07) → `npm run build` → publication de `dist/` sur la branche `gh-pages` via `peaceiris/actions-gh-pages@v4` (utilise le `GITHUB_TOKEN` intégré, `permissions: contents: write` scopé à ce job). Avant cet ajout, le déploiement frontend était **manuel** (`npm run deploy`) et le site en ligne pouvait accumuler plusieurs mois de retard sans que personne ne s'en aperçoive — c'est ce qui s'est produit (dernier déploiement manuel : 2026-05-06, redéployé manuellement le 2026-07-07 avant l'automatisation).
@@ -108,7 +110,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/ha/` — Redondance Dell (chantier en préparation, 2026-09-27)
 Voir `docs/management/plans/DB_REDUNDANCY_DELL_PLAN.md` pour le design complet et l'état
-d'avancement. **Aucun module de ce paquet n'est encore importé par un chemin de production** —
+d'avancement. **Correction 2026-11-06 : le démon `run_ha_watchdog.py` (qui importe ce paquet) tourne en service systemd sur le serveur ; le bot et l'API, eux, ne l'importent pas** (voir `exploitation.md`). Texte d'origine : aucun module de ce paquet n'est encore importé par un chemin de production —
 isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRESTORE_MIGRATION_PLAN.md`
 §5.1 : "construire sur une branche séparée, sans toucher au chemin existant").
 - **`lease.py`** — le "juge" : bail de leadership dans un document Firestore unique
