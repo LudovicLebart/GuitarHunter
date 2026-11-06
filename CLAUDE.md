@@ -150,7 +150,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `backend/api/admin_repo.py` | Dashboard Administrateur sur Postgres (`/admin/*`, claim Firebase `admin`) |
 | `src/hooks/useDealsManager.js` | Hook central — tri, filtres, actions |
 | `src/components/Dashboard.jsx` | Interface principale — vues Liste/Carte/Stats |
-| `src/components/DealCard.jsx` | Carte d'annonce avec analyse IA |
+| `src/components/DealCard/` | Carte d'annonce avec analyse IA (dossier : `DealCardActions.jsx`, `DealCardImage.jsx`, `DealAnalysisModal.jsx`…) |
 | `docs/fiches/` + `backend/scripts/seed_guitar_fiches.py` | Fiches techniques de restauration (source Markdown, chargeur vers la base commune), consultables sur le site (`#fiches`) et liées aux étapes/au chat |
 | `docs/how-to/` | Guides pratiques (Diataxis) ; `FICHES_TECHNIQUES.md` = comment lire, créer, valider et publier une fiche (`.html` généré depuis le `.md`) |
 | `docs/` (Diataxis : `reference/`, `explanation/`, `management/`) | **Source de vérité prioritaire** |
