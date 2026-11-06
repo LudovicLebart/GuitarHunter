@@ -24,6 +24,12 @@ WHERE source = 'chat' AND ok
 GROUP BY model
 """
 
+# Plafond de dépense du chat PAR UTILISATEUR et par jour (revue R-6-4, 2026-11-06) : refus (429) au-delà. Même valeur que le
+# seuil d'alerte global, décision de l'utilisateur ; un administrateur n'est pas plafonné.
+USER_DAILY_CAP_USD = llm_pricing.DAILY_ALERT_USD
+
+_USER_TODAY_SQL = _TODAY_SQL.replace("WHERE source = 'chat' AND ok", "WHERE source = 'chat' AND ok AND user_ref = $1")
+
 _alerted_on = None  # date (str) de la dernière alerte envoyée par ce processus
 
 
@@ -57,3 +63,10 @@ async def maybe_alert(pool, today: str) -> bool:
     except Exception as e:  # une alerte ne doit jamais faire échouer l'enregistrement d'un tour
         log.warning("[cost_alert] vérification impossible (ignorée) : %s", e)
         return False
+
+
+async def user_today_chat_cost(pool, uid: str) -> float:
+    rows = await pool.fetch(_USER_TODAY_SQL, uid)
+    return sum(llm_pricing.cost_usd(r["model"], int(r["input_tokens"] or 0), int(r["cached_tokens"] or 0),
+                                    int(r["output_tokens"] or 0), int(r["cache_write_tokens"] or 0), fallback=True)
+               for r in rows)

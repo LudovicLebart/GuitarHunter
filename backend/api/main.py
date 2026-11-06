@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover - dépend de l'environnement
 from backend.url_guard import is_listing_url, is_storage_image_url
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, config_guard, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -126,6 +126,11 @@ async def get_my_config(uid: str = Depends(get_current_uid)):
 
 @app.patch("/users/me/config")
 async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_uid)):
+    patch = body.model_dump(exclude_unset=True)
+    try:
+        config_guard.validate_config_patch(patch)  # revue R-6-3
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
     try:
         merged = await users_repo.update_user_config(pool, uid, body.model_dump(exclude_unset=True))
@@ -649,11 +654,21 @@ class OpusConsultIn(BaseModel):
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Content-Encoding": "identity"}
 
 
+async def _enforce_chat_cap(pool, uid: str) -> None:
+    """Revue R-6-4 : refuse (429) un tour de chat quand l'utilisateur a déjà dépensé son plafond du jour."""
+    if await cost_alert.user_today_chat_cost(pool, uid) >= cost_alert.USER_DAILY_CAP_USD:
+        if await asyncio.to_thread(is_admin_uid, uid):
+            return
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            f"Plafond de {cost_alert.USER_DAILY_CAP_USD:.0f} $ atteint pour aujourd'hui : le chat reprendra demain.")
+
+
 @app.post("/deals/{deal_id}/chat/claude")
 async def chat_claude_turn(deal_id: str, body: ClaudeChatIn, uid: str = Depends(get_current_uid)):
     """Un tour de chat sur Claude, en SSE (texte au fil de l'eau, puis le message final et l'usage)."""
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    await _enforce_chat_cap(pool, uid)
     try:
         req = chat_claude.validate_chat(body.system, body.tools, body.messages, body.model)
     except chat_claude.ChatRequestError as e:
@@ -667,6 +682,7 @@ async def chat_consult_opus(deal_id: str, body: OpusConsultIn, uid: str = Depend
     """Consultation d'Opus sur le dossier préparé par l'assistant : sans outils, réponse plafonnée, en SSE."""
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    await _enforce_chat_cap(pool, uid)
     try:
         req = chat_claude.validate_consult(body.brief, body.images)
     except chat_claude.ChatRequestError as e:
@@ -681,6 +697,17 @@ async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
     await _require_deal_visible(pool, deal_id, uid)
     rows = await chat_repo.list_messages(pool, deal_id)
     return [dict(r) for r in rows]
+
+
+MAX_CHAT_PARTS_BYTES = 2_000_000  # une photo base64 de 1024 px pèse ~200 ko ; large marge pour 6 photos
+
+
+def _check_chat_payload(role, parts) -> None:
+    """Revue R-6-5 : le rôle d'un message ne peut être que `user` ou `model`, et son contenu reste borné."""
+    if role is not None and role not in ("user", "model"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Rôle de message invalide.")
+    if len(json.dumps(parts, default=str)) > MAX_CHAT_PARTS_BYTES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message trop volumineux.")
 
 
 class ChatMessageCreate(BaseModel):
@@ -698,6 +725,7 @@ class ChatMessageCreate(BaseModel):
 async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    _check_chat_payload(body.role, body.parts)
     message_id = await chat_repo.add_message(
         pool, deal_id, body.role, body.parts, body.displayText,
         body.attachedImagePartIndices, body.restorationProposals,
@@ -724,6 +752,7 @@ async def _require_chat_message_found(found: bool) -> None:
 async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    _check_chat_payload(None, body.parts)
     found = await chat_repo.replace_message(
         pool, deal_id, message_id, body.parts, body.displayText,
         body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
