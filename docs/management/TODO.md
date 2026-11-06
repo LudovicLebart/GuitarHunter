@@ -193,7 +193,7 @@ Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md)
 
 ## 🎯 Priorité Immédiate — Chantiers C/I/V/M (2026-09-24)
 
-*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](../explanation/plan/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
+*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md)* — état de chaque plan : [`plans/README.md`](plans/README.md)
 
 **Objectif primaire : la facture.** Chaque chantier classé par ce qu'il rapporte en dollars. Chantiers sans gain économique direct (I — Qwen local, M — Mentor RAG) justifiés comme coût de plaisir/apprentissage, **jamais comme économies**.
 
@@ -404,7 +404,7 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 📚 Dérive documentaire connue (constatée par `/deepdocument`, 2026-10-03)
 
-- [ ] **Aligner `docs/reference/DATA_FLOW.md` et `docs/reference/ARCHITECTURE.md` sur Postgres/API** : ils décrivent encore Firestore (24 et 89 mentions, contre 2 et 5 pour Postgres) ; un bandeau d'avertissement a été ajouté en tête de chacun, mais la couche de transport (règles Firestore, `FirestoreRepository`, `onSnapshot`, commandes, TTL des journaux) reste à réécrire d'après `backend/pg_repository.py`, `backend/api/` et `src/services/apiService.js`. Gros chantier de rédaction, aucun impact sur le code.
+- [ ] **Aligner `docs/reference/DATA_FLOW.md` et `docs/reference/ARCHITECTURE.md` sur Postgres/API** : ils décrivent encore Firestore (24 et 89 mentions, contre 2 et 5 pour Postgres) ; un bandeau d'avertissement a été ajouté en tête de chacun, mais la couche de transport (règles Firestore, `FirestoreRepository`, `onSnapshot`, commandes, TTL des journaux) reste à réécrire d'après `backend/pg_repository.py`, `backend/api/` et `src/services/apiService.js`. Gros chantier de rédaction, aucun impact sur le code. *(2026-11-06 : la passe « deepdocument » a écrit les références vérifiées `donnees.md`, `bot.md`, `api.md`, etc. et corrigé les deux fichiers section par section ; il reste 32 et 79 mentions de Firestore dans `DATA_FLOW.md` et `ARCHITECTURE.md`, à trier lors de la section 12 — voir `reference/COUVERTURE.md`.)*
 - [ ] **Tenir `STATE_MODELS.md` à jour** des autres verdicts et statuts apparus depuis l'écriture initiale (vérifier `INCOMPLETE_DATA`, `GATEKEEPER_FAILED_SKIP`, statut `sold` ; `FAIR` et `NOT_PROMOTED` ajoutés le 2026-10-03).
 - [x] Journal découpé par semaine (`docs/management/journal/`, index dans `JOURNAL.md`), `CLAUDE.md`, `AI_BRIEFING.md`, `PROJECT_OVERVIEW.md` alignés sur la base Postgres et le Portier local (2026-10-03).
 
