@@ -1028,5 +1028,47 @@ class TestCheckListingsAvailability(unittest.TestCase):
         self.bot.repo.mark_deal_as_sold.assert_not_called()
 
 
+class TestRetryQueueRevue(unittest.TestCase):
+    """Revue R-4-1 / R-4-2 : la file de ré-analyse utilise les photos stockées et n'écrase pas
+    l'ancienne analyse par un résultat d'erreur."""
+
+    def _bot_with_doc(self, analysis):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot.set_status = MagicMock()
+        bot._is_stop_requested = MagicMock(return_value=False)
+        bot._check_exclusion = MagicMock(return_value=None)
+        bot.config_manager = MagicMock()
+        bot._user_email = ''
+        doc = MagicMock(id="42")
+        doc.to_dict.return_value = {
+            "title": "Strat", "imageUrls": ["https://fb/expire.jpg"],
+            "storageImageUrls": ["https://storage/ok.jpg"],
+        }
+        bot.repo = MagicMock()
+        bot.repo.get_retry_queue_listings.return_value = [doc]
+        bot.analyzer = MagicMock()
+        bot.analyzer.analyze_deal.return_value = analysis
+        return bot
+
+    def test_urls_stockees_preferees(self):
+        bot = self._bot_with_doc({"verdict": "GOOD_DEAL", "model_used": "a -> b"})
+        bot.process_retry_queue()
+        listing = bot.analyzer.analyze_deal.call_args.args[0]
+        self.assertEqual(listing["imageUrls"], ["https://storage/ok.jpg"])
+        bot.repo.update_deal_analysis.assert_called_once()
+
+    def test_analyse_en_erreur_non_enregistree(self):
+        bot = self._bot_with_doc({"verdict": "PEPITE", "reasoning": "Erreur Tier 2", "model_used": "a -> b (Error)"})
+        bot.process_retry_queue()
+        bot.repo.update_deal_analysis.assert_not_called()
+        bot.repo.update_deal_status.assert_called_once()
+
+    def test_is_analysis_error(self):
+        self.assertTrue(GuitarHunterBot._is_analysis_error({"model_used": "x (Error)"}))
+        self.assertFalse(GuitarHunterBot._is_analysis_error({"model_used": "x"}))
+        self.assertFalse(GuitarHunterBot._is_analysis_error(None))
+
+
 if __name__ == "__main__":
     unittest.main()

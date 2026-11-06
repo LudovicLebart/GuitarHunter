@@ -581,6 +581,13 @@ class GuitarHunterBot:
             self.logger.warning(f"⏩ [{source}] Portier T1 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
             return "gatekeeper_failed"
 
+        # Revue R-4-2 (2026-11-06) : un échec de l'Analyste (Tier 2) renvoie le verdict du Portier avec un
+        # texte d'erreur et aucun score ; ce n'est pas une analyse. Ni notifiée ni stockée : retentée au
+        # prochain cycle, comme un échec du Portier.
+        if self._is_analysis_error(analysis):
+            self.logger.warning(f"⏩ [{source}] Analyste T2 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
+            return "gatekeeper_failed"
+
         # Garde-fou : une ré-analyse (mise à jour de prix) ne doit jamais déclasser une PEPITE en
         # NOT_PROMOTED — le Portier local n'est pas déterministe, et le routage par recherche
         # active ne doit jamais cacher une pépite. On garde l'analyse existante, seul le prix bouge.
@@ -622,6 +629,12 @@ class GuitarHunterBot:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
         return "processed"
+
+    @staticmethod
+    def _is_analysis_error(analysis):
+        """True si `analysis` est le résultat d'un échec d'appel de modèle (`model_used` finit par
+        "(Error)", voir `analyzer._run_analysis_cascade_body`), pas une vraie analyse."""
+        return str((analysis or {}).get('model_used') or '').endswith('(Error)')
 
     def _is_stop_requested(self):
         """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
@@ -1410,7 +1423,8 @@ class GuitarHunterBot:
                 data = doc.to_dict()
                 self.logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
 
-                listing_data = self._build_listing_data_from_row(doc.id, data)
+                # R-4-1 : les URL Facebook du CDN expirent, les copies Firebase Storage non.
+                listing_data = self._build_listing_data_from_row(doc.id, data, prefer_storage_images=True)
 
                 current_config = self.config_manager.current_config_snapshot
                 
@@ -1423,6 +1437,11 @@ class GuitarHunterBot:
 
                 try:
                     analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+                    if self._is_analysis_error(analysis):
+                        # R-4-2 : ne pas écraser l'ancienne analyse par un résultat d'erreur.
+                        self.logger.warning(f"Réanalyse en échec pour {doc.id} : analyse existante conservée.")
+                        self.repo.update_deal_status(doc.id, 'analysis_failed', str(analysis.get('reasoning'))[:500])
+                        continue
                     self.repo.update_deal_analysis(doc.id, analysis)
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
