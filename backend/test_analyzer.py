@@ -706,6 +706,25 @@ class TestClaudeExpertProvider(unittest.TestCase):
 
     # --- Cache de prompt : le préfixe statique va dans `system`, jamais le texte propre à l'annonce ---
 
+    def test_cle_gemini_absente_est_reconnue_comme_erreur(self):
+        from backend.bot import GuitarHunterBot
+        with patch("backend.analyzer.GEMINI_API_KEY", None):
+            result = self.a._run_analysis_cascade({"id": "x"}, {}, None)
+        self.assertTrue(GuitarHunterBot._is_analysis_error(result))
+
+    def test_gabarit_expert_avec_accolades_litterales(self):
+        self.a._call_gemini_json = MagicMock(return_value=({"verdict": "FAIR"}, None))
+        seen = {}
+        orig = self.a._call_gemini_json
+        def spy(*args, **kw):
+            seen["prompt"] = args[1] if len(args) > 1 else kw.get("prompt")
+            return orig(*args, **kw)
+        self.a._call_gemini_json = spy
+        cfg = {"expertProContextInstruction": 'Statut {status}. Raison {reasoning}. Exemple JSON {"a": 1}'}
+        with patch("backend.analyzer.T3_PROVIDER", "gemini"):
+            self.a._run_t3_phase("base", [], cfg, "gemini-pro", None, ["m"], {"verdict": "FAIR", "summary": "RAS"}, "motif")
+        self.assertIn('Statut FAIR. Raison RAS. Exemple JSON {"a": 1}', str(seen.get("prompt")))
+
     def test_cached_prefix_moves_to_a_cached_system_block(self):
         self.client.messages.create.return_value = _claude_response('{"a": 1}')
         self.a._call_claude_json("claude-sonnet-5-5", ["STATIQUE\nDétails de l'annonce :\n- Titre : X"],

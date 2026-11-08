@@ -830,6 +830,7 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
 
+            found_deals = []
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
@@ -952,14 +953,16 @@ class GuitarHunterBot:
                         self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
                         found_deals = deals_in_radius
 
-                    # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
-                    self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
-
                 finally:
                     temp_scraper.close_session()
             finally:
                 if self._browser_semaphore:
                     self._browser_semaphore.release()
+
+            # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
+            # Hors du sémaphore et de la session Playwright : le scraping est fini, l'analyse IA
+            # (minutes) ne doit pas retenir un des emplacements navigateur des autres comptes.
+            self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
 
             time.sleep(2)
 
@@ -1123,6 +1126,7 @@ class GuitarHunterBot:
             "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
         }
 
+        pending_batches = []
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
@@ -1216,7 +1220,7 @@ class GuitarHunterBot:
                             continue
                         ready_deals.append(deal)
 
-                    self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
+                    pending_batches.append(ready_deals)
 
                     time.sleep(2)
             finally:
@@ -1224,6 +1228,10 @@ class GuitarHunterBot:
         finally:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
+
+        # Analyse IA hors du sémaphore et de la session Playwright (scraping terminé), comme côté Facebook.
+        for ready_deals in pending_batches:
+            self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
 
         self._purge_scrape_runs_safely()
         self.logger.info(
@@ -1513,6 +1521,9 @@ class GuitarHunterBot:
                     # aucun nouvel appel Portier ne les regénère), y compris quand elles valent
                     # légitimement None : ne pas le faire laisserait le placeholder MANUAL_RETRY
                     # écraser un gatekeeper_verdict correct mais vide.
+                    if self._is_analysis_error(analysis):
+                        self.logger.warning(f"Repromotion de {doc.id} en échec ({analysis.get('reasoning')}) : annonce laissée telle quelle.")
+                        continue
                     for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
                         analysis[key] = data.get(col)
                     # Chantier H (porté depuis dev le 2026-09-22) : restaure aussi l'observation
@@ -1796,6 +1807,10 @@ class GuitarHunterBot:
                 listing_data, firestore_config=current_config, force_expert=force_expert,
                 user_comment=user_comment, user_email=self._user_email
             )
+            if self._is_analysis_error(analysis):
+                # Même garde que process_retry_queue : un échec de modèle n'écrase pas l'analyse existante.
+                self.logger.warning(f"Analyse manuelle de {deal_id} en échec ({analysis.get('reasoning')}) : analyse existante conservée.")
+                return
             self.repo.update_deal_analysis(deal_id, analysis)
             self.logger.info(f"Analyse manuelle terminée pour {deal_id}.")
         except Exception as e:

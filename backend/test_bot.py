@@ -1115,5 +1115,24 @@ class TestRetryQueueRevue(unittest.TestCase):
         self.assertFalse(GuitarHunterBot._is_analysis_error(None))
 
 
+
+class TestManualAnalysisErrorGuard(unittest.TestCase):
+    """Revue pipeline #2 : une analyse manuelle ou une repromotion en échec n'écrase pas l'analyse existante."""
+    ERROR = {"verdict": "ERROR", "reasoning": "clé absente", "model_used": "gemini (Error)"}
+
+    def test_analyze_single_deal_conserve_l_analyse(self):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot._user_email = None
+        bot.repo = MagicMock()
+        bot.repo.get_deal_by_id.return_value = {"title": "Strat", "price": 500}
+        bot.config_manager = MagicMock()
+        bot.analyzer = MagicMock()
+        bot.analyzer.analyze_deal.return_value = dict(self.ERROR)
+        bot.analyze_single_deal({"dealId": "d1"})
+        bot.repo.update_deal_analysis.assert_not_called()
+        bot.repo.update_deal_status.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

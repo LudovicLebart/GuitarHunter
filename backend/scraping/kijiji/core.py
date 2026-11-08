@@ -129,10 +129,17 @@ class KijijiScraper:
         self.logger.info("Démarrage de la session Playwright (Kijiji)...")
         self.playwright = sync_playwright().start()
 
-        self.browser = self.playwright.chromium.launch(
-            headless=self.config.headless,
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-        )
+        try:
+            self.browser = self.playwright.chromium.launch(
+                headless=self.config.headless,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            )
+        except Exception:
+            # Le driver est déjà démarré : l'arrêter, sinon il fuit à chaque relance.
+            try: self.playwright.stop()
+            except Exception: pass
+            self.playwright = None
+            raise
 
         ua = random.choice(self._user_agents)
         vp = random.choice(self._viewports)
@@ -147,15 +154,15 @@ class KijijiScraper:
 
     def close_session(self):
         """Ferme proprement la session Playwright."""
-        if self.context:
-            self.context.close()
-            self.context = None
-        if self.browser:
-            self.browser.close()
-            self.browser = None
-        if self.playwright:
-            self.playwright.stop()
-            self.playwright = None
+        # Chaque étape est isolée : un contexte déjà mort ne doit pas empêcher d'arrêter le driver.
+        for attr, stop in (("context", "close"), ("browser", "close"), ("playwright", "stop")):
+            obj = getattr(self, attr, None)
+            setattr(self, attr, None)
+            if obj:
+                try:
+                    getattr(obj, stop)()
+                except Exception as e:
+                    self.logger.debug(f"Fermeture de {attr} en erreur (ignorée): {e}")
         self.logger.info("Session Playwright fermée (Kijiji).")
 
     def _ensure_session(self):
@@ -185,7 +192,7 @@ class KijijiScraper:
         (et non le feed/accueil suite à une redirection anti-bot). Compare l'ID exact
         du dernier segment de chemin plutôt qu'une simple sous-chaîne (un ID court comme
         "123" serait sinon "trouvé" par accident dans une URL contenant "45123")."""
-        if "/login" in page.url or "captcha" in page.url.lower():
+        if is_block_page_url(page.url):
             self.logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
             return False
         actual_id = KijijiListingParser.extract_kijiji_id(page.url)
@@ -277,7 +284,7 @@ class KijijiScraper:
                 self.logger.debug(f"Timeout networkidle après soumission recherche Kijiji: {e}")
             time.sleep(2)
 
-            if "/login" in page.url or "captcha" in page.url.lower():
+            if is_block_page_url(page.url):
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan Kijiji (Redirection {page.url}).")
                 return []
 
@@ -326,7 +333,7 @@ class KijijiScraper:
             page.goto(url, timeout=self.config.timeout_navigation, wait_until="domcontentloaded")
             self._accept_cookies(page)
 
-            if "/login" in page.url or "captcha" in page.url.lower():
+            if is_block_page_url(page.url):
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan Kijiji (Redirection {page.url}).")
                 self.last_scan["blocked"] = True
                 return []
@@ -627,7 +634,7 @@ class KijijiScraper:
                 self.logger.error("❌ ID Kijiji introuvable.")
                 return
 
-            if "/login" in page.url or "captcha" in page.url.lower():
+            if is_block_page_url(page.url):
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ (Redirection {page.url}).")
                 return
 
@@ -730,7 +737,8 @@ class KijijiScraper:
                 const elements = document.querySelectorAll('span, div, h1, h2');
                 for (const el of elements) {{
                     const text = el.innerText ? el.innerText.trim() : '';
-                    if (!text) continue;
+                    // Texte court seulement : un conteneur ancêtre porte toute la description.
+                    if (!text || text.length > 120) continue;
 
                     const style = window.getComputedStyle(el);
                     if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {{

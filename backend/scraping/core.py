@@ -97,15 +97,23 @@ class FacebookScraper:
         proxy_config = None
         if PROXIES:
             selected_proxy = random.choice(PROXIES)
-            self.logger.info(f"🌐 Utilisation du proxy : {selected_proxy}")
+            # Hôte seul dans le journal : l'URL peut contenir des identifiants (visibles dans le LogViewer).
+            self.logger.info(f"🌐 Utilisation du proxy : {urllib.parse.urlparse(selected_proxy).hostname or 'configuré'}")
             proxy_config = {"server": selected_proxy}
         # --- FIN AJOUT ---
-        
-        self.browser = self.playwright.chromium.launch(
-            headless=self.config.headless,
-            args=launch_args,
-            proxy=proxy_config  # Ajout de la configuration du proxy ici
-        )
+
+        try:
+            self.browser = self.playwright.chromium.launch(
+                headless=self.config.headless,
+                args=launch_args,
+                proxy=proxy_config  # Ajout de la configuration du proxy ici
+            )
+        except Exception:
+            # Le driver Playwright est déjà démarré : l'arrêter, sinon il fuit à chaque relance.
+            try: self.playwright.stop()
+            except Exception: pass
+            self.playwright = None
+            raise
         
         # Pick random UA and Viewport
         ua = random.choice(self._user_agents)
@@ -196,15 +204,15 @@ class FacebookScraper:
 
     def close_session(self):
         """Ferme proprement la session Playwright."""
-        if self.context:
-            self.context.close()
-            self.context = None
-        if self.browser:
-            self.browser.close()
-            self.browser = None
-        if self.playwright:
-            self.playwright.stop()
-            self.playwright = None
+        # Chaque étape est isolée : un contexte déjà mort ne doit pas empêcher d'arrêter le driver.
+        for attr, stop in (("context", "close"), ("browser", "close"), ("playwright", "stop")):
+            obj = getattr(self, attr, None)
+            setattr(self, attr, None)
+            if obj:
+                try:
+                    getattr(obj, stop)()
+                except Exception as e:
+                    self.logger.debug(f"Fermeture de {attr} en erreur (ignorée): {e}")
         self.logger.info("Session Playwright fermée.")
 
     def _ensure_session(self):
@@ -223,7 +231,7 @@ class FacebookScraper:
     def _is_valid_detail_page(self, page: Page, expected_fb_id: str) -> bool:
         """Vérifie que la page chargée est bien la fiche détail de l'annonce attendue
         (et non le feed/accueil Marketplace suite à une redirection anti-bot)."""
-        if "/login" in page.url or "captcha" in page.url.lower():
+        if is_block_page_url(page.url):
             self.logger.warning(f"🚨 Page détail invalide (redirection login/captcha): {page.url}")
             return False
         if f"/marketplace/item/{expected_fb_id}" not in page.url:
@@ -452,7 +460,7 @@ class FacebookScraper:
             page.goto(url, timeout=self.config.timeout_navigation)
             
             # --- ANTIBOT: Check for Captcha / Login redirect ---
-            if "/login" in page.url or "captcha" in page.url.lower():
+            if is_block_page_url(page.url):
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ sur le scan principal (Redirection {page.url}).")
                 return self._scan_result(anti_bot_blocked=True)
 
@@ -600,6 +608,7 @@ class FacebookScraper:
                     gps_pages_used += 1
 
                 details_page = self.context.new_page()
+                fallback_details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
                 try:
                     details_page.goto(clean_link, timeout=self.config.timeout_navigation)
                     self._close_login_popup(details_page)
@@ -613,7 +622,12 @@ class FacebookScraper:
                         details = self._parse_details_with_reload_retry(details_page, title, location, fb_id)
                     else:
                         self.logger.warning(f"   ⚠️ Fiche détail non chargée pour '{title}' — repli sur l'image de la carte uniquement.")
-                        details = {"description": f"Annonce Marketplace. {title}. Localisation: {location}", "imageUrls": [], "coordinates": None, "published_at_raw": None}
+                        details = fallback_details
+                except Exception as e:
+                    # Un timeout sur une fiche ne doit pas abandonner les cartes restantes du scan
+                    # (comportement déjà celui de Kijiji, carte par carte).
+                    self.logger.warning(f"   ⚠️ Fiche détail illisible pour '{title}' ({e}) — repli sur l'image de la carte uniquement.")
+                    details = fallback_details
                 finally:
                     details_page.close()
 
@@ -690,7 +704,7 @@ class FacebookScraper:
                 return
 
             # --- ANTIBOT: Check for Captcha / Login redirect ---
-            if "/login" in page.url or "captcha" in page.url.lower():
+            if is_block_page_url(page.url):
                 self.logger.error(f"🚨 BLOCAGE ANTI-BOT DÉTECTÉ (Redirection {page.url}). Session compromise.")
                 return
 
@@ -835,7 +849,9 @@ class FacebookScraper:
                     if (rect.width === 0 || rect.height === 0) continue;
 
                     for (const regex of patterns) {{
-                        if (regex.test(text) || regex.test(ariaLabel)) {{
+                        // Texte court seulement : un conteneur ancêtre porte toute la description, qui peut
+                        // contenir « plus disponible » sans que l'annonce soit vendue.
+                        if ((text.length <= 120 && regex.test(text)) || regex.test(ariaLabel)) {{
                             return text || ariaLabel;
                         }}
                     }}
