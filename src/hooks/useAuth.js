@@ -10,8 +10,9 @@ import {
 import { auth } from '../services/firebase';
 import { ensureUser } from '../services/apiService';
 
-// Attente maximale de l'initialisation de la ligne utilisateur avant d'ouvrir l'application.
-const ENSURE_USER_WAIT_MS = 4000;
+// Attente maximale de l'initialisation de la ligne utilisateur avant d'ouvrir l'application (au-delà, l'application s'ouvre
+// avec un avertissement : un compte tout neuf peut alors recevoir des 404 jusqu'au prochain rechargement).
+const ENSURE_USER_WAIT_MS = 10000;
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -44,7 +45,9 @@ export const useAuth = () => {
           console.error("Erreur initialisation de l'utilisateur:", e);
           initError = e;
         }).finally(() => { settled = true; });
-        await Promise.race([init, new Promise((resolve) => setTimeout(resolve, ENSURE_USER_WAIT_MS))]);
+        let waitTimer;
+        await Promise.race([init, new Promise((resolve) => { waitTimer = setTimeout(resolve, ENSURE_USER_WAIT_MS); })]);
+        clearTimeout(waitTimer);
         if (mine !== seq) return;
         // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
         const warn = () => ({ status: 'warning', msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${initError.message}` });

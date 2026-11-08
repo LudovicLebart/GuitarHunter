@@ -89,6 +89,9 @@ export const useBotConfig = (user) => {
   useEffect(() => {
     if (!user) return;
     const uid = user.uid;
+    // Valeurs liées au compte précédent : jamais réutilisées pour un autre utilisateur.
+    lastScanConfig.current = null;
+    localError.current = false;
 
     const handleUpdate = (data) => {
       console.log("🔄 useBotConfig: Received update", data);
@@ -262,10 +265,12 @@ export const useBotConfig = (user) => {
         }, user.uid);
       } catch (e) {
         console.error("Erreur lors du reset:", e);
-        setError(e.message);
+        fail(e);
+        return;
       }
+      succeed();
     }
-  }, [user]);
+  }, [user, fail, succeed]);
 
   return {
     configStatus, error, setError,

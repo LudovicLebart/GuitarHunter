@@ -14,6 +14,7 @@ import {
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore, isOffSearchPepite } from '../constants';
 // Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
 import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
+import { snapshotReanalysisState, restoreReanalysisState } from '../utils/reanalysisState';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 
@@ -51,8 +52,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [loadedDeals, setLoadedDeals] = useState({});
   const dealsIndexMapRef = useRef(dealsIndexMap);
   const loadedDealsRef = useRef(loadedDeals);
-  dealsIndexMapRef.current = dealsIndexMap;
-  loadedDealsRef.current = loadedDeals;
+  // Mises à jour après le rendu validé (jamais pendant le rendu) ; les gestionnaires ne les lisent qu'à l'appel.
+  useEffect(() => {
+    dealsIndexMapRef.current = dealsIndexMap;
+    loadedDealsRef.current = loadedDeals;
+  }, [dealsIndexMap, loadedDeals]);
   const [visibleCount, setVisibleCount] = useState(30);
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
@@ -200,21 +204,19 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   // Commande refusée (429, réseau…) : l'état « en analyse » posé de façon optimiste est restauré, sinon la carte
   // resterait bloquée sur « analyzing » sans que le bot ait rien reçu.
-  // Seuls le statut et le verdict sont restaurés : le reste de l'entrée a pu être mis à jour par le temps réel entre-temps.
+  // Seuls le statut et le verdict sont restaurés, carte par carte (l'index temps réel et le document complet en cache
+  // peuvent différer) : le reste de l'entrée a pu être mis à jour entre-temps. Les instantanés sont lus dans des refs, les
+  // gestionnaires gardent ainsi une identité stable (les cartes mémoïsées ne se redessinent pas à chaque rafraîchissement).
   const rollbackReanalysis = (dealId, before) => {
     pendingReanalysisIdsRef.current.delete(dealId);
-    const restore = (entry) => (entry && before
-      ? { ...entry, status: before.status, aiAnalysis: { ...entry.aiAnalysis, verdict: before.verdict } }
-      : entry);
-    setDealsIndexMap(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId]) } : prev));
-    setLoadedDeals(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId]) } : prev));
+    const restore = (entry, snap) => (entry && snap ? restoreReanalysisState(entry, snap) : entry);
+    setDealsIndexMap(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId], before.index) } : prev));
+    setLoadedDeals(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId], before.loaded) } : prev));
   };
-  // Instantané lu dans une ref : les gestionnaires gardent une identité stable (les cartes mémoïsées ne se redessinent pas
-  // à chaque rafraîchissement de l'index).
-  const snapshotDeal = (dealId) => {
-    const entry = loadedDealsRef.current[dealId] ?? dealsIndexMapRef.current[dealId];
-    return entry ? { status: entry.status, verdict: entry.aiAnalysis?.verdict } : null;
-  };
+  const snapshotDeal = (dealId) => ({
+    index: snapshotReanalysisState(dealsIndexMapRef.current[dealId]),
+    loaded: snapshotReanalysisState(loadedDealsRef.current[dealId]),
+  });
 
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;

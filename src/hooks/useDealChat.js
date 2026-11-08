@@ -16,6 +16,7 @@ import { createFichesLookup } from '../utils/fichesLookup';
 import { isClaudeModel, estimateCostUsd } from '../utils/claudeChat';
 import { historyHasDealContext } from '../utils/dealContext';
 import { joinReplyTexts } from '../utils/chatReply';
+import { looksLikeToolsUnsupportedError, classifyChatError, isTransientChatError, isFinalChatError } from '../utils/chatErrors';
 import { getFichesCatalog } from './useFichesCatalog';
 
 // Rétrocompatibilité (2026-08-22) — un message de chat écrit avant le support multi-photos ne
@@ -178,25 +179,6 @@ const buildApiHistory = (msgs, { elide, photoRefIndex }) =>
 const toolsSignature = (withPhotoRecall, withRestorationTools, withRequalification) =>
     `${withPhotoRecall ? 'p' : '-'}${withRestorationTools ? 'r' : '-'}${withRequalification ? 'q' : '-'}`;
 
-// Heuristique (2026-08-23, Plan 1 tokens, Lot B) — décide si un échec de `chat.sendMessage()` avec
-// tools actifs signale VRAIMENT que le modèle configuré ne supporte pas le function calling (auquel
-// cas désactiver durablement, `toolsUnsupportedRef`), ou si c'est une erreur transitoire quelconque
-// (réseau, 503, timeout) qui ne doit désactiver les tools que pour CE tour. Avant ce correctif,
-// n'importe quelle erreur pendant un tour avec tools actifs rendait `toolsUnsupportedRef` collant
-// pour le reste de la session (`useRef`, jamais remis à `false`) — bénin en soi, mais devient
-// critique avec le rappel de photos (Lot D) : une simple coupure réseau éteindrait alors la
-// capacité de Gemini à revoir des photos élidées pour le reste de la conversation. Best-effort —
-// à ajuster si un cas réel révèle un texte d'erreur différent (jamais vérifiable en environnement
-// de dev, sans accès Gemini/Firebase).
-const looksLikeToolsUnsupportedError = (error) => {
-    const haystack = `${error?.message || ''} ${error?.code || ''}`.toLowerCase();
-    const mentionsTools = haystack.includes('function') || haystack.includes('tool');
-    // Pas 'invalid' ni 'not allowed' (2026-10-06) : toute erreur de schéma de tool ou de signature de
-    // réflexion les contient, sans que le modèle soit pour autant incapable de function calling.
-    const mentionsRejection = haystack.includes('not support') || haystack.includes('unsupported') || haystack.includes('not enabled');
-    return mentionsTools && mentionsRejection;
-};
-
 // Instrumentation temporaire (2026-08-23, Plan 1 tokens, Lot B) — pas de UI, juste la console, pour
 // mesurer le vrai coût en tokens avant de juger de l'effet des optimisations suivantes (Lot C/D) au
 // lieu de le supposer. `cachedContentTokenCount` reflète le caching implicite déjà appliqué par
@@ -244,22 +226,6 @@ const logTokenUsage = (label, response, { modelName, dealId, sentParts, latencyM
     });
 };
 
-// Type d'échec d'un appel Gemini du chat (2026-10-06, lot 1 du chantier d'optimisation du chat) —
-// mêmes valeurs que `llm_usage.classify_error` côté backend, avec le code HTTP en plus quand le SDK
-// le fournit (`customErrorData.status`) : `http_503` et `http_429` n'appellent pas la même réponse.
-const classifyChatError = (error) => {
-    const text = `${error?.name || ''} ${error?.code || ''} ${error?.message || ''}`.toLowerCase();
-    if (error?.name === 'AbortError' || text.includes('timeout') || text.includes('timed out')) return 'timeout';
-    if (looksLikeToolsUnsupportedError(error)) return 'tools_rejected';
-    const status = error?.customErrorData?.status;
-    // 429 de l'API : le plafond de dépense du jour ne se lève pas en attendant (aucune nouvelle tentative) ; les autres 429
-    // (flux simultanés, quota Gemini à la minute) passent d'eux-mêmes.
-    if (status === 429 && text.includes('plafond de')) return 'daily_cap';
-    if (status) return `http_${status}`;
-    if (text.includes('failed to fetch') || text.includes('network')) return 'connection';
-    return 'other';
-};
-
 // Journalise un appel du chat ÉCHOUÉ : jusqu'ici seuls les succès écrivaient dans `llm_usage`
 // (`ok` toujours vrai, `error_type` toujours NULL pour le chat) — impossible de savoir pourquoi le
 // repli sans tools se déclenchait. Aucun token connu (l'API n'a rien renvoyé), mais la ligne donne
@@ -293,11 +259,9 @@ const BRIEF_REQUEST = (question) => [
 // Délai maximal d'un appel Gemini du chat (le SDK attend 180 s par défaut, sans rien afficher) — Pro
 // avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
 const CHAT_REQUEST_TIMEOUT_MS = 120_000;
-// Attente avant l'unique nouvelle tentative sur une erreur transitoire (429 hors plafond du jour, 5xx, réseau).
+// Attente avant l'unique nouvelle tentative sur une erreur transitoire (voir `isTransientChatError`).
 // 8 s (avant : 2 s, 2026-10-13) : une coupure réseau dure plus que 2 s (reprise à 95 ms en échec).
 const CHAT_RETRY_DELAY_MS = 8_000;
-
-const isTransientChatError = (kind) => kind === 'connection' || kind === 'http_429' || /^http_5\d\d$/.test(kind);
 
 const abortableDelay = (ms, signal) => new Promise((resolve, reject) => {
     if (signal.aborted) { reject(new DOMException('Annulé', 'AbortError')); return; }
@@ -477,7 +441,7 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 //    vraiment à un rejet du function calling (looksLikeToolsUnsupportedError).
                 const kind = classifyChatError(sendError);
                 // `http_424` : chat Claude non configuré (clé absente) ; `http_402` : crédit Anthropic épuisé — aucune nouvelle tentative ni repli, le message est explicite.
-                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424' || kind === 'http_402' || kind === 'daily_cap') throw sendError;
+                if (controller.signal.aborted || isFinalChatError(kind)) throw sendError;
                 if (isTransientChatError(kind)) {
                     console.warn(`Erreur transitoire (${kind}), nouvelle tentative à l'identique dans ${CHAT_RETRY_DELAY_MS / 1000}s:`, sendError);
                     await abortableDelay(CHAT_RETRY_DELAY_MS, controller.signal);

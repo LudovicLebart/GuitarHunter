@@ -735,8 +735,11 @@ async def _enforce_chat_cap(pool, uid: str) -> None:
     if await cost_alert.user_today_chat_cost(pool, uid) >= cost_alert.USER_DAILY_CAP_USD:
         if await asyncio.to_thread(is_admin_uid, uid):
             return
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
-                            f"Plafond de {cost_alert.USER_DAILY_CAP_USD:.0f} $ atteint pour aujourd'hui : le chat reprendra demain.")
+        # `code` : lu par le frontend (`classifyChatError`) pour ne pas relancer un refus qui ne se lève pas en attendant.
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, {
+            "code": "daily_cap",
+            "message": f"Plafond de {cost_alert.USER_DAILY_CAP_USD:.0f} $ atteint pour aujourd'hui : le chat reprendra demain.",
+        })
 
 
 _CHAT_MAX_CONCURRENT = 2

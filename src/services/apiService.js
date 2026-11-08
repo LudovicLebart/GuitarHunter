@@ -59,6 +59,7 @@ import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
 import { latestOnly } from '../utils/latestOnly';
+import { buildHttpError, commandRefusedMessage } from '../utils/httpError';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
 import { hashShape, loadIndexCache, saveIndexCache } from '../utils/indexCache';
@@ -131,9 +132,8 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false, onRespon
   if (resp.status === 404 && skipAuth) return null; // lecture publique (shared-deals) : absent = null, pas une erreur
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const error = new Error(`apiService: ${method} ${path} a échoué (${resp.status}) ${text}`);
-    error.status = resp.status; // permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
-    throw error;
+    // `status` permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
+    throw buildHttpError(method, path, resp.status, text);
   }
   onResponse?.(resp);
   if (resp.status === 204) return null;
@@ -468,8 +468,7 @@ export async function* streamChatEvents(path, body, { signal } = {}) {
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const error = new Error(`apiService: POST ${path} a échoué (${resp.status}) ${text}`);
-    error.status = resp.status;
+    const error = buildHttpError('POST', path, resp.status, text);
     error.customErrorData = { status: resp.status };
     throw error;
   }
@@ -539,13 +538,8 @@ const addCommand = async (type, payload) => {
     return await apiFetch('/commands', { method: 'POST', body: { type, payload } });
   } catch (error) {
     console.error(`Error adding command ${type}:`, error);
-    // 429 (trop de commandes en attente) et 422 (commande refusée) : l'utilisateur doit savoir que rien n'est parti.
-    // Le détail lisible du serveur (corps `{"detail": "…"}`) est repris tel quel quand il existe.
-    const detail = /"detail"\s*:\s*"([^"]+)"/.exec(error.message || '')?.[1];
-    const reason = detail || (error.status === 429 ? "trop de commandes sont déjà en attente, réessayez dans un moment"
-      : error.status === 422 ? "commande refusée par le serveur"
-      : null);
-    const wrapped = new Error(reason ? `Commande non envoyée : ${reason}.` : "Erreur lors de l'envoi de la commande.");
+    // Le détail lisible du serveur (429 trop de commandes en attente, 422 refusée) est conservé : rien n'est parti.
+    const wrapped = new Error(commandRefusedMessage(error));
     wrapped.status = error.status;
     throw wrapped;
   }
