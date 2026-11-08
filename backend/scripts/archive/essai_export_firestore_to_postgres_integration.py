@@ -3,7 +3,7 @@ Postgres local (même principe que backend/api/test_*.py : pas de mock côté Po
 proprement si injoignable). Le côté Firestore, lui, EST simulé ici (`_FakeDoc`/`_FakeCollection`
 ci-dessous) — cette session n'a aucun accès à un Firestore réel (voir docstring en tête de
 export_firestore_to_postgres.py) ; les tests purs de mapping (sans aucune notion de Postgres)
-sont dans test_export_firestore_to_postgres.py.
+sont dans essai_export_firestore_to_postgres.py.
 
 Objectif : vérifier ce que les tests purs ne peuvent pas attraper — que le SQL généré s'exécute
 réellement sans erreur (noms de colonnes, types, ordre des FK), que la résolution
@@ -21,7 +21,7 @@ from datetime import datetime
 import asyncpg
 
 from backend.api.db import DATABASE_URL, SCHEMA_PATH, _register_json_codecs
-from backend.scripts.export_firestore_to_postgres import (
+from backend.scripts.archive.export_firestore_to_postgres import (
     MigrationReport, _ensure_city_exists, _migrate_deal, _upsert, map_city,
 )
 

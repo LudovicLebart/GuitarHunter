@@ -9,7 +9,7 @@ Firestore (voir docstring en tête de export_firestore_to_postgres.py).
 import unittest
 from datetime import datetime
 
-from backend.scripts.export_firestore_to_postgres import (
+from backend.scripts.archive.export_firestore_to_postgres import (
     DEAL_COLUMNS, map_city, map_chat_message, map_deal, map_restoration_item,
 )
 

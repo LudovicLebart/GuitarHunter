@@ -7,8 +7,8 @@ Actions :
   3. Supprime les clés obsolètes dans analysisConfig.
 
 Usage:
-  python backend/scripts/migrate_firestore_prompts.py            # Interactif
-  python backend/scripts/migrate_firestore_prompts.py --dry-run  # Aperçu sans modifier
+  python backend/scripts/archive/migrate_firestore_prompts.py            # Interactif
+  python backend/scripts/archive/migrate_firestore_prompts.py --dry-run  # Aperçu sans modifier
 """
 
 import sys
@@ -19,7 +19,7 @@ from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
 # --- SETUP ---
-base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 root_dir = os.path.abspath(os.path.join(base_dir, '..'))
 sys.path.append(root_dir)
 

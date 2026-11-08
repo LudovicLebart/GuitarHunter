@@ -6,9 +6,9 @@ Pour chaque ville sans latitude/longitude dans artifacts/{APP_ID}/cities/,
 interroge Nominatim et écrit les coordonnées dans le catalogue (merge=True).
 
 Usage :
-  python -m backend.scripts.enrich_cities_coords            # Mode réel
-  python -m backend.scripts.enrich_cities_coords --dry-run  # Simulation
-  python -m backend.scripts.enrich_cities_coords --city-id 102183646490762  # Une seule ville
+  python -m backend.scripts.archive.enrich_cities_coords            # Mode réel
+  python -m backend.scripts.archive.enrich_cities_coords --dry-run  # Simulation
+  python -m backend.scripts.archive.enrich_cities_coords --city-id 102183646490762  # Une seule ville
 """
 
 import sys
