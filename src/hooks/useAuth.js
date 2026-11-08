@@ -16,10 +16,10 @@ export const useAuth = () => {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
+    let seq = 0;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
+      const mine = ++seq; // une connexion plus récente rend les suites de celle-ci caduques
       if (firebaseUser) {
-        setAuthStatus({ status: 'success', msg: `Connecté (${firebaseUser.email})` });
 
         // Vérification défensive côté client (custom claim) — la vraie protection est côté API
         // (`get_admin_uid`, routes `/admin/*`).
@@ -31,19 +31,24 @@ export const useAuth = () => {
           setIsAdmin(false);
         }
 
-        // S'assurer que la ligne utilisateur existe en base (idempotent) : le bot découvre les
-        // utilisateurs en lisant Postgres, un nouvel inscrit sans ligne n'aurait jamais de bot.
+        // S'assurer que la ligne utilisateur existe en base (idempotent) AVANT de publier `user` : les hooks de l'app
+        // appellent l'API dès qu'ils voient l'utilisateur, et un nouvel inscrit sans ligne recevrait un 404. Seul
+        // appel d'`ensureUser` : signIn/signUp passent par cet observateur.
+        let initError = null;
         try {
           await ensureUser();
         } catch (e) {
           console.error("Erreur initialisation de l'utilisateur:", e);
-          // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
-          setAuthStatus({
-            status: 'warning',
-            msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${e.message}`
-          });
+          initError = e;
         }
+        if (mine !== seq) return;
+        setUser(firebaseUser);
+        setAuthStatus(initError
+          // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
+          ? { status: 'warning', msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${initError.message}` }
+          : { status: 'success', msg: `Connecté (${firebaseUser.email})` });
       } else {
+        setUser(null);
         setAuthStatus({ status: 'unauthenticated', msg: 'Non connecté' });
         setIsAdmin(false);
       }
@@ -54,8 +59,7 @@ export const useAuth = () => {
   const signIn = async (email, password) => {
     setAuthStatus({ status: 'loading', msg: 'Connexion en cours...' });
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      await ensureUser();
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });
       throw err;
@@ -65,9 +69,7 @@ export const useAuth = () => {
   const signUp = async (email, password) => {
     setAuthStatus({ status: 'loading', msg: 'Création du compte...' });
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      await ensureUser();
-      setAuthStatus({ status: 'success', msg: 'Compte créé et initialisé' });
+      await createUserWithEmailAndPassword(auth, email, password); // l'observateur initialise la ligne en base
     } catch (err) {
       setAuthStatus({ status: 'error', msg: err.message });
       throw err;

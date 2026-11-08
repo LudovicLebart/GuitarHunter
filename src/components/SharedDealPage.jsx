@@ -4,6 +4,7 @@ import { getSharedDeal } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import VerdictBadge from './VerdictBadge';
 import ReasoningText from './DealCard/ReasoningText';
+import { safeUrl } from '../utils/fiches';
 
 const SCORE_LABELS = {
     price_score: 'Prix',
@@ -20,13 +21,16 @@ const SharedDealPage = ({ shareId }) => {
 
     useEffect(() => {
         if (!shareId) { setNotFound(true); setLoading(false); return; }
+        let cancelled = false;
         getSharedDeal(shareId)
             .then(data => {
+                if (cancelled) return;
                 if (!data) setNotFound(true);
                 else setDeal(data);
             })
-            .catch(() => setNotFound(true))
-            .finally(() => setLoading(false));
+            .catch(() => { if (!cancelled) setNotFound(true); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
     }, [shareId]);
 
     if (loading) {
@@ -50,12 +54,17 @@ const SharedDealPage = ({ shareId }) => {
         );
     }
 
-    const images = deal.storageImageUrls?.length ? deal.storageImageUrls : (deal.imageUrls || []);
-    const scores = deal.scores || {};
-    const scoreEntries = Object.entries(SCORE_LABELS).filter(([k]) => scores[k] != null);
-    const ai = deal.aiAnalysis || {};
-    const reasoning = ai.analysis || ai.reasoning || deal.analysis || null;
-    const summary = ai.summary || deal.tier3_summary || null;
+    // Instantané public écrit par un compte : rien n'est supposé du type (texte, liste, nombre) ni du schéma des liens.
+    const asText = (v) => (typeof v === 'string' && v.trim() ? v : null);
+    const asList = (v) => (Array.isArray(v) ? v.map(safeUrl).filter(Boolean) : []);
+    const storageImages = asList(deal.storageImageUrls);
+    const images = storageImages.length ? storageImages : asList(deal.imageUrls);
+    const scores = deal.scores && typeof deal.scores === 'object' ? deal.scores : {};
+    const scoreEntries = Object.entries(SCORE_LABELS).filter(([k]) => Number.isFinite(Number(scores[k])) && scores[k] != null);
+    const ai = deal.aiAnalysis && typeof deal.aiAnalysis === 'object' ? deal.aiAnalysis : {};
+    const reasoning = asText(ai.analysis) || asText(ai.reasoning) || asText(deal.analysis);
+    const summary = asText(ai.summary) || asText(deal.tier3_summary);
+    const link = safeUrl(deal.link);
     const estValue = ai.estimated_value ?? ai.estimated_guitar_value ?? null;
     const computedMargin = (estValue != null && deal.price != null) ? Math.round(estValue - deal.price) : null;
     const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;
@@ -70,7 +79,7 @@ const SharedDealPage = ({ shareId }) => {
         { label: 'Finition', value: ai.finish_application },
         { label: 'Brillance', value: ai.finish_texture },
         { label: 'Longueur manche', value: ai.neck_scale_length },
-    ].filter(spec => spec.value && !/^inconnu(e)?$/i.test(String(spec.value).trim()));
+    ].filter(spec => ['string', 'number'].includes(typeof spec.value) && spec.value !== '' && !/^inconnu(e)?$/i.test(String(spec.value).trim()));
 
     return (
         <div className="min-h-screen bg-slate-950 text-white">
@@ -181,9 +190,9 @@ const SharedDealPage = ({ shareId }) => {
 
                 {/* CTA */}
                 <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                    {deal.link && (
+                    {link && (
                         <a
-                            href={deal.link}
+                            href={link}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center justify-center gap-2 px-5 py-3 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold rounded-xl transition-colors"

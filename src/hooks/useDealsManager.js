@@ -194,8 +194,18 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     }
   }, [user, setError]);
 
+  // Commande refusée (429, réseau…) : l'état « en analyse » posé de façon optimiste est restauré, sinon la carte
+  // resterait bloquée sur « analyzing » sans que le bot ait rien reçu.
+  const rollbackReanalysis = (dealId, indexBefore, loadedBefore) => {
+    pendingReanalysisIdsRef.current.delete(dealId);
+    setDealsIndexMap(prev => (indexBefore ? { ...prev, [dealId]: indexBefore } : prev));
+    setLoadedDeals(prev => (loadedBefore ? { ...prev, [dealId]: loadedBefore } : prev));
+  };
+
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
+    const indexBefore = dealsIndexMap[dealId];
+    const loadedBefore = loadedDeals[dealId];
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -215,11 +225,16 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       return next;
     });
     pendingReanalysisIdsRef.current.add(dealId);
-    try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
-  }, [user, setError]);
+    try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) {
+      rollbackReanalysis(dealId, indexBefore, loadedBefore);
+      setError(e.message);
+    }
+  }, [user, setError, dealsIndexMap, loadedDeals]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
+    const indexBefore = dealsIndexMap[dealId];
+    const loadedBefore = loadedDeals[dealId];
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -235,8 +250,11 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       return next;
     });
     pendingReanalysisIdsRef.current.add(dealId);
-    try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
-  }, [user, setError]);
+    try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) {
+      rollbackReanalysis(dealId, indexBefore, loadedBefore);
+      setError(e.message);
+    }
+  }, [user, setError, dealsIndexMap, loadedDeals]);
 
   // Correction manuelle de la catégorie (null = annuler et revenir à la classification de l'IA).
   const handleSetClassification = useCallback(async (dealId, classificationPath) => {

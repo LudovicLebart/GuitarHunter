@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import CITY_COORDINATES from '../../backend/resources/city_coordinates.json';
+import { safeUrl } from '../utils/fiches';
+
+// Le gabarit de l'InfoWindow est une chaîne HTML : tout texte venu d'une annonce (titre, verdict, URL, id) y est échappé.
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // Mapping des couleurs pour Google Maps (Hexadécimal requis)
 const VERDICT_COLORS = {
@@ -243,20 +247,20 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
         
         // Note IA et taxonomie
         const score = deal.aiAnalysis?.deal_score;
-        const scoreDisplay = score ? `${score}/10` : (deal.aiAnalysis?.verdict || 'Analyse en attente');
+        const scoreDisplay = esc(score ? `${score}/10` : (deal.aiAnalysis?.verdict || 'Analyse en attente'));
 
         // Un design très proche de l'original, compact et simple
         const contentStr = `
-          <div id="info-window-card" data-id="${deal.id}" onmouseleave="window.closeMapPopup()" style="width: 240px; font-family: ui-sans-serif, system-ui, sans-serif; cursor: pointer;">
+          <div id="info-window-card" data-id="${esc(deal.id)}" onmouseleave="window.closeMapPopup()" style="width: 240px; font-family: ui-sans-serif, system-ui, sans-serif; cursor: pointer;">
             <div style="height: 140px; width: 100%; background: #1e293b; position: relative;">
-              <img src="${imageSrc || placeholderImg}" style="width: 100%; height: 100%; object-fit: cover;" alt="Deal" />
+              <img src="${esc(safeUrl(imageSrc) || placeholderImg)}" style="width: 100%; height: 100%; object-fit: cover;" alt="Deal" />
               <div style="position: absolute; bottom: 8px; right: 8px; background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(4px); color: #10b981; font-weight: 900; font-size: 15px; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);">
-                $${price}
+                $${esc(price)}
               </div>
             </div>
             <div style="padding: 12px 16px;">
               <h3 style="font-size: 14px; font-weight: 700; color: #f8fafc; margin: 0 0 10px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;">
-                ${deal.title}
+                ${esc(deal.title)}
               </h3>
               
               <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;">
@@ -267,11 +271,11 @@ const MapView = ({ deals, onDealSelect, selectedDealId }) => {
                 ${estValue > 0 ? `
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                   <span style="color: #94a3b8;">Valeur Est.</span>
-                  <span style="color: #e2e8f0; font-weight: 600;">$${estValue}</span>
+                  <span style="color: #e2e8f0; font-weight: 600;">$${esc(estValue)}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                   <span style="color: #94a3b8;">Marge potentielle</span>
-                  <span style="color: ${marginColor}; font-weight: 700;">${margin > 0 ? '+' : ''}$${margin}</span>
+                  <span style="color: ${marginColor}; font-weight: 700;">${margin > 0 ? '+' : ''}$${esc(margin)}</span>
                 </div>
                 ` : `
                 <div style="display: flex; justify-content: space-between; align-items: center;">

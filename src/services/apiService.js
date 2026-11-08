@@ -517,18 +517,36 @@ export const updateUserConfig = async (newConfig, _userId) => {
   }
 };
 
-export const onBotConfigUpdate = (onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
+// Lecture « la plus récente gagne » : une réponse plus lente qu'une lecture lancée après elle, ou arrivée après la
+// désinscription, est ignorée (sinon une réponse ancienne écrasait l'état récent, ou mettait à jour un composant démonté).
+const latestOnly = (load, emit, fail) => {
+  let seq = 0;
+  let closed = false;
+  const run = async () => {
+    const mine = ++seq;
     try {
-      const config = await apiFetch('/users/me/config');
-      onUpdate(config);
+      const result = await load();
+      if (!closed && mine === seq) emit(result);
     } catch (error) {
-      console.error("Error fetching bot config:", error);
-      onError({ message: "Dossier Python introuvable" });
+      if (!closed && mine === seq) fail(error);
     }
   };
+  run.close = () => { closed = true; };
+  return run;
+};
+
+export const onBotConfigUpdate = (onUpdate, onError, _userId) => {
+  const fetchAndEmit = latestOnly(
+    () => apiFetch('/users/me/config'),
+    onUpdate,
+    (error) => {
+      console.error("Error fetching bot config:", error);
+      onError({ message: "Dossier Python introuvable" });
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket('/ws/users/me/config', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/users/me/config', fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 // --- Commands ---
@@ -538,7 +556,13 @@ const addCommand = async (type, payload) => {
     return await apiFetch('/commands', { method: 'POST', body: { type, payload } });
   } catch (error) {
     console.error(`Error adding command ${type}:`, error);
-    throw new Error("Erreur lors de l'envoi de la commande.");
+    // 429 (trop de commandes en attente) et 422 (commande refusée) : l'utilisateur doit savoir que rien n'est parti.
+    const reason = error.status === 429 ? "trop de commandes sont déjà en attente, réessayez dans un moment"
+      : error.status === 422 ? "commande refusée par le serveur"
+      : null;
+    const wrapped = new Error(reason ? `Commande non envoyée : ${reason}.` : "Erreur lors de l'envoi de la commande.");
+    wrapped.status = error.status;
+    throw wrapped;
   }
 };
 
@@ -845,17 +869,17 @@ export const addImageToDealGallery = async (dealId, url, _userId) => {
 // --- Chat IA ---
 
 export const onDealChatUpdate = (dealId, onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch(`/deals/${dealId}/chat`);
-      onUpdate(rows.map(chatMessageFromRow));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch(`/deals/${dealId}/chat`)).map(chatMessageFromRow),
+    onUpdate,
+    (error) => {
       console.error(`Error listening to chat for deal ${dealId}:`, error);
       onError?.(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket(`/ws/deals/${dealId}/chat`, fetchAndEmit, onError);
+  const closeSocket = openChangeSocket(`/ws/deals/${dealId}/chat`, fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 export const addDealChatMessage = async (dealId, role, parts, displayText, _userId, attachedImagePartIndices, restorationProposals, photoRecall, isError, requalificationProposal) => {
@@ -939,15 +963,14 @@ const refreshRestorationPlan = (dealId) =>
   Promise.all([...(restorationPlanRefreshers.get(dealId) || [])].map((refresh) => refresh()));
 
 export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch(`/deals/${dealId}/restoration-plan`);
-      onUpdate(rows.map(restorationItemFromRow));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch(`/deals/${dealId}/restoration-plan`)).map(restorationItemFromRow),
+    onUpdate,
+    (error) => {
       console.error(`Error listening to restoration plan for deal ${dealId}:`, error);
       onError?.(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
   // Rafraîchissement direct après nos propres écritures (voir `refreshRestorationPlan`) : ne dépend
   // plus du seul WebSocket pour qu'une étape ajoutée apparaisse.
@@ -956,6 +979,7 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
   const closeSocket = openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
   return () => {
     restorationPlanRefreshers.get(dealId)?.delete(fetchAndEmit);
+    fetchAndEmit.close();
     closeSocket();
   };
 };
@@ -1059,17 +1083,17 @@ export const fetchFiche = async (slug) => {
 };
 
 export const onCitiesUpdate = (onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch('/cities');
-      onUpdate(rows.map(cityFromRow).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch('/cities')).map(cityFromRow).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    onUpdate,
+    (error) => {
       console.error("Error listening to cities:", error);
       onError(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket('/ws/cities', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/cities', fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 export const requestAddCity = (cityPayload, _userId) => addCommand('ADD_CITY', cityPayload);
