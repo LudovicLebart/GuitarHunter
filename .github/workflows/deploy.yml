@@ -106,6 +106,7 @@ jobs:
             backend.api.test_model_alerts \
             backend.api.test_index_serialization \
             backend.api.test_config_guard \
+            backend.api.test_input_guard \
             backend.api.test_chat_cap \
             backend.api.test_prod_sync
 

@@ -30,6 +30,7 @@ CHAT_MODELS = (SONNET,)
 # Bornes de validation : l'endpoint est authentifié mais il ne doit pas servir de passerelle Claude générique.
 MAX_SYSTEM_CHARS = 40_000
 MAX_TOOLS = 8
+MAX_TOOL_SCHEMA_CHARS = 20_000
 MAX_MESSAGES = 400
 MAX_IMAGES = 40
 MAX_IMAGE_B64_CHARS = 6_000_000  # un JPEG de 1024 px pèse ~150 ko ; 6 M caractères base64 ≈ 4,5 Mo
@@ -97,6 +98,8 @@ def _clean_block(block: dict, counters: dict) -> dict:
         counters["b64"] += len(data)
         return {"type": "image", "source": {"type": "base64", "media_type": src["media_type"], "data": data}}
     if kind == "tool_use":
+        if isinstance(block.get("input"), dict):
+            counters["text"] += len(json.dumps(block["input"], default=str))  # compté : sinon un gros `input` contournait la borne
         return {"type": "tool_use", "id": str(block.get("id", ""))[:80], "name": str(block.get("name", ""))[:80],
                 "input": block.get("input") if isinstance(block.get("input"), dict) else {}}
     if kind == "tool_result":
@@ -104,6 +107,7 @@ def _clean_block(block: dict, counters: dict) -> dict:
         counters["text"] += len(str(content))
         return {"type": "tool_result", "tool_use_id": str(block.get("tool_use_id", ""))[:80], "content": str(content)}
     # thinking / redacted_thinking : à renvoyer TELS QUELS (signature) pendant la boucle d'outils d'un même tour.
+    counters["text"] += len(json.dumps(block, default=str))  # idem : un bloc de réflexion est facturé comme du texte d'entrée
     return dict(block)
 
 
@@ -119,6 +123,8 @@ def validate_chat(system: str, tools: list, messages: list, model: str) -> dict:
     for tool in tools:
         if not isinstance(tool, dict) or not tool.get("name") or not isinstance(tool.get("input_schema"), dict):
             raise ChatRequestError("Outil invalide.")
+        if len(json.dumps(tool["input_schema"], default=str)) > MAX_TOOL_SCHEMA_CHARS:
+            raise ChatRequestError("Outil trop volumineux.")
         clean_tools.append({"name": str(tool["name"])[:80], "description": str(tool.get("description", ""))[:4000],
                             "input_schema": tool["input_schema"]})
     if not isinstance(messages, list) or not messages or len(messages) > MAX_MESSAGES:

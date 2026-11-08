@@ -33,7 +33,7 @@ async def _seed():
     await _run("INSERT INTO users (uid, config) VALUES ($1, $2) ON CONFLICT (uid) DO NOTHING",
                ADMIN_UID, {})
     await _run("INSERT INTO users (uid, bot_status, config) VALUES ($1, 'idle', $2) ON CONFLICT (uid) DO UPDATE SET bot_status='idle', config=$2",
-               TARGET_UID, {"scanConfig": {"frequency": 60, "max_listings": 5}})
+               TARGET_UID, {"scanConfig": {"frequency": 60, "max_ads": 5}})
     await _run("INSERT INTO guitar_deals (id, title, model_used) VALUES ('adm-deal-1','x','flash-lite -> flash'), "
                "('adm-deal-2','x','flash-lite -> flash -> gemini-pro'), ('adm-deal-3','x','flash-lite'), "
                "('adm-deal-4','x','flash-lite -> flash -> claude-sonnet-5-5'), ('adm-deal-5','x','backfill_leger -> flash') ON CONFLICT (id) DO UPDATE SET model_used = EXCLUDED.model_used")
@@ -107,7 +107,11 @@ class TestAdminAPI(unittest.TestCase):
         resp = self.client.patch(f"/admin/users/{TARGET_UID}/scan-frequency", json={"minutes": 15})
         self.assertEqual(resp.status_code, 200, resp.text)
         config = asyncio.run(_run("SELECT config FROM users WHERE uid = $1", TARGET_UID))[0]["config"]
-        self.assertEqual(config["scanConfig"], {"frequency": 15, "max_listings": 5})
+        self.assertEqual(config["scanConfig"], {"frequency": 15, "max_ads": 5})
+
+    def test_set_scan_frequency_respects_account_bounds(self):
+        for minutes in (1, 4, 1441):
+            self.assertEqual(self.client.patch(f"/admin/users/{TARGET_UID}/scan-frequency", json={"minutes": minutes}).status_code, 422)
 
     def test_set_scan_frequency_rejects_zero(self):
         self.assertEqual(self.client.patch(f"/admin/users/{TARGET_UID}/scan-frequency", json={"minutes": 0}).status_code, 422)

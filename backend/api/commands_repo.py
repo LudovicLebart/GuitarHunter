@@ -22,6 +22,10 @@ async def create_command(pool: asyncpg.Pool, user_id: str, type_: str, payload) 
     return row["id"]
 
 
+async def count_pending(pool: asyncpg.Pool, user_id: str) -> int:
+    return await pool.fetchval("SELECT count(*) FROM commands WHERE user_id = $1 AND status = 'pending'", user_id)
+
+
 async def get_command(pool: asyncpg.Pool, user_id: str, command_id: int):
     return await pool.fetchrow(
         "SELECT id, type, payload, status, error_message, created_at, completed_at "
