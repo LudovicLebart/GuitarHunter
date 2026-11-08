@@ -10,6 +10,9 @@ import {
 import { auth } from '../services/firebase';
 import { ensureUser } from '../services/apiService';
 
+// Attente maximale de l'initialisation de la ligne utilisateur avant d'ouvrir l'application.
+const ENSURE_USER_WAIT_MS = 4000;
+
 export const useAuth = () => {
   const [user, setUser] = useState(null);
   const [authStatus, setAuthStatus] = useState({ status: 'loading', msg: 'Vérification de la session...' });
@@ -23,30 +26,32 @@ export const useAuth = () => {
 
         // Vérification défensive côté client (custom claim) — la vraie protection est côté API
         // (`get_admin_uid`, routes `/admin/*`).
+        let admin = false;
         try {
           const tokenResult = await firebaseUser.getIdTokenResult();
-          setIsAdmin(tokenResult.claims?.admin === true);
+          admin = tokenResult.claims?.admin === true;
         } catch (e) {
           console.error("Erreur lecture du token (claims admin):", e);
-          setIsAdmin(false);
         }
 
         // S'assurer que la ligne utilisateur existe en base (idempotent) AVANT de publier `user` : les hooks de l'app
         // appellent l'API dès qu'ils voient l'utilisateur, et un nouvel inscrit sans ligne recevrait un 404. Seul
         // appel d'`ensureUser` : signIn/signUp passent par cet observateur.
+        // L'attente est bornée : une API lente ne doit pas bloquer l'accès à l'application (avertissement affiché ensuite).
         let initError = null;
-        try {
-          await ensureUser();
-        } catch (e) {
+        let settled = false;
+        const init = ensureUser().then(() => {}, (e) => {
           console.error("Erreur initialisation de l'utilisateur:", e);
           initError = e;
-        }
+        }).finally(() => { settled = true; });
+        await Promise.race([init, new Promise((resolve) => setTimeout(resolve, ENSURE_USER_WAIT_MS))]);
         if (mine !== seq) return;
+        // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
+        const warn = () => ({ status: 'warning', msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${initError.message}` });
+        setIsAdmin(admin);
         setUser(firebaseUser);
-        setAuthStatus(initError
-          // Signaler à l'UI : connecté à Firebase Auth mais absent de la base → pas de bot.
-          ? { status: 'warning', msg: `Connecté (${firebaseUser.email}) — ⚠️ Utilisateur non initialisé côté serveur : ${initError.message}` }
-          : { status: 'success', msg: `Connecté (${firebaseUser.email})` });
+        setAuthStatus(initError ? warn() : { status: 'success', msg: `Connecté (${firebaseUser.email})` });
+        if (!settled) init.then(() => { if (mine === seq && initError) setAuthStatus(warn()); });
       } else {
         setUser(null);
         setAuthStatus({ status: 'unauthenticated', msg: 'Non connecté' });

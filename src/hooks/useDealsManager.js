@@ -49,6 +49,10 @@ const normalizeLoose = (str) => {
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [dealsIndexMap, setDealsIndexMap] = useState({});
   const [loadedDeals, setLoadedDeals] = useState({});
+  const dealsIndexMapRef = useRef(dealsIndexMap);
+  const loadedDealsRef = useRef(loadedDeals);
+  dealsIndexMapRef.current = dealsIndexMap;
+  loadedDealsRef.current = loadedDeals;
   const [visibleCount, setVisibleCount] = useState(30);
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
@@ -196,16 +200,25 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
 
   // Commande refusée (429, réseau…) : l'état « en analyse » posé de façon optimiste est restauré, sinon la carte
   // resterait bloquée sur « analyzing » sans que le bot ait rien reçu.
-  const rollbackReanalysis = (dealId, indexBefore, loadedBefore) => {
+  // Seuls le statut et le verdict sont restaurés : le reste de l'entrée a pu être mis à jour par le temps réel entre-temps.
+  const rollbackReanalysis = (dealId, before) => {
     pendingReanalysisIdsRef.current.delete(dealId);
-    setDealsIndexMap(prev => (indexBefore ? { ...prev, [dealId]: indexBefore } : prev));
-    setLoadedDeals(prev => (loadedBefore ? { ...prev, [dealId]: loadedBefore } : prev));
+    const restore = (entry) => (entry && before
+      ? { ...entry, status: before.status, aiAnalysis: { ...entry.aiAnalysis, verdict: before.verdict } }
+      : entry);
+    setDealsIndexMap(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId]) } : prev));
+    setLoadedDeals(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId]) } : prev));
+  };
+  // Instantané lu dans une ref : les gestionnaires gardent une identité stable (les cartes mémoïsées ne se redessinent pas
+  // à chaque rafraîchissement de l'index).
+  const snapshotDeal = (dealId) => {
+    const entry = loadedDealsRef.current[dealId] ?? dealsIndexMapRef.current[dealId];
+    return entry ? { status: entry.status, verdict: entry.aiAnalysis?.verdict } : null;
   };
 
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
-    const indexBefore = dealsIndexMap[dealId];
-    const loadedBefore = loadedDeals[dealId];
+    const before = snapshotDeal(dealId);
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -226,15 +239,14 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     });
     pendingReanalysisIdsRef.current.add(dealId);
     try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) {
-      rollbackReanalysis(dealId, indexBefore, loadedBefore);
+      rollbackReanalysis(dealId, before);
       setError(e.message);
     }
-  }, [user, setError, dealsIndexMap, loadedDeals]);
+  }, [user, setError]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
-    const indexBefore = dealsIndexMap[dealId];
-    const loadedBefore = loadedDeals[dealId];
+    const before = snapshotDeal(dealId);
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -251,10 +263,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     });
     pendingReanalysisIdsRef.current.add(dealId);
     try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) {
-      rollbackReanalysis(dealId, indexBefore, loadedBefore);
+      rollbackReanalysis(dealId, before);
       setError(e.message);
     }
-  }, [user, setError, dealsIndexMap, loadedDeals]);
+  }, [user, setError]);
 
   // Correction manuelle de la catégorie (null = annuler et revenir à la classification de l'IA).
   const handleSetClassification = useCallback(async (dealId, classificationPath) => {

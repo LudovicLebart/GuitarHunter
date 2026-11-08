@@ -10,6 +10,7 @@ import {
   resetBotConfigToDefaults,
 } from '../services/apiService';
 import promptsData from '../../prompts.json';
+import { sanitizeScanNumbers, mergeServerScanConfig } from '../utils/scanConfig';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
 const ensureArray = (val) => {
@@ -40,18 +41,14 @@ export const useBotConfig = (user) => {
 
   // --- NOUVELLE GESTION DE LA CONFIGURATION ---
   const [isNewUser, setIsNewUser] = useState(false);
-  const [scanConfig, setScanConfigState] = useState({
+  const [scanConfig, setScanConfig] = useState({
     max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
-  // Dernière valeur connue du serveur : sert à remplacer un champ numérique vidé (jamais enregistré à 0), et la saisie
-  // en cours (`scanDirty`) n'est pas écrasée par une mise à jour poussée par le serveur (état du bot, etc.).
+  // Dernière valeur connue du serveur : remplace un champ numérique vidé (jamais enregistré à 0) et distingue, champ par
+  // champ, une saisie non enregistrée (valeur locale ≠ dernière valeur du serveur) que les mises à jour poussées par le
+  // serveur (état du bot, autre appareil…) ne doivent pas écraser.
   const lastScanConfig = useRef(null);
-  const scanDirty = useRef(false);
   const localError = useRef(false);
-  const setScanConfig = useCallback((val) => {
-    scanDirty.current = true;
-    setScanConfigState(val);
-  }, []);
   const [exclusionKeywords, setExclusionKeywords] = useState(DEFAULT_EXCLUSION_KEYWORDS);
 
   // Mise à jour des modèles par défaut pour correspondre au backend
@@ -101,8 +98,9 @@ export const useBotConfig = (user) => {
         setIsNewUser(true);
       } else {
         setIsNewUser(false);
-        lastScanConfig.current = { ...lastScanConfig.current, ...data.scanConfig };
-        if (!scanDirty.current) setScanConfigState(prev => ({ ...prev, ...data.scanConfig }));
+        const known = lastScanConfig.current;
+        lastScanConfig.current = { ...known, ...data.scanConfig };
+        setScanConfig(prev => mergeServerScanConfig(prev, data.scanConfig, known));
       }
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
 
@@ -133,6 +131,7 @@ export const useBotConfig = (user) => {
       // pas propre à ce hook), pas seulement un scanError qui aurait disparu côté serveur.
       // Une erreur locale (sauvegarde ou commande refusée) reste affichée jusqu'à la prochaine action réussie.
       if (data.scanError) {
+        localError.current = false; // le message appartient désormais au serveur : il s'efface quand il disparaît
         setError(data.scanError);
       } else if (!localError.current) {
         setError(null);
@@ -173,34 +172,25 @@ export const useBotConfig = (user) => {
     }
   }, []);
 
-  const SCAN_NUMBERS = ['max_ads', 'frequency', 'distance', 'min_price', 'max_price'];
   const saveConfig = useCallback(async (newVal) => {
     if (!user) return;
     let payload = newVal;
     if (newVal && newVal.scanConfig) {
       // Un champ numérique vidé reprend la dernière valeur connue du serveur au lieu d'être enregistré à 0.
-      const clean = { ...newVal.scanConfig };
-      for (const key of SCAN_NUMBERS) {
-        if (clean[key] === '' || clean[key] == null || !Number.isFinite(Number(clean[key]))) {
-          if (lastScanConfig.current && key in lastScanConfig.current) clean[key] = lastScanConfig.current[key];
-          else delete clean[key];
-        }
-      }
-      setScanConfigState(prev => ({ ...prev, ...clean }));
+      const clean = sanitizeScanNumbers(newVal.scanConfig, lastScanConfig.current);
+      setScanConfig(prev => ({ ...prev, ...clean }));
       payload = { ...newVal, scanConfig: clean };
     }
     try {
       await updateUserConfig(payload, user.uid);
       if (payload.scanConfig) {
         lastScanConfig.current = { ...lastScanConfig.current, ...payload.scanConfig };
-        scanDirty.current = false;
       }
       succeed();
     } catch (e) {
       if (payload.scanConfig) {
         // Saisie refusée : on revient à la dernière valeur connue du serveur (l'erreur reste affichée).
-        scanDirty.current = false;
-        if (lastScanConfig.current) setScanConfigState(prev => ({ ...prev, ...lastScanConfig.current }));
+        if (lastScanConfig.current) setScanConfig(prev => ({ ...prev, ...lastScanConfig.current }));
       }
       fail(e);
     }

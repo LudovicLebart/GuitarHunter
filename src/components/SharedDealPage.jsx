@@ -56,15 +56,17 @@ const SharedDealPage = ({ shareId }) => {
 
     // Instantané public écrit par un compte : rien n'est supposé du type (texte, liste, nombre) ni du schéma des liens.
     const asText = (v) => (typeof v === 'string' && v.trim() ? v : null);
-    const asList = (v) => (Array.isArray(v) ? v.map(safeUrl).filter(Boolean) : []);
+    // Page publique : seules des adresses https sont suivies ou chargées (le serveur n'en écrit pas d'autres).
+    const httpsUrl = (v) => { const u = safeUrl(v); return u && /^https:\/\//i.test(u) ? u : null; };
+    const asList = (v) => (Array.isArray(v) ? v.map(httpsUrl).filter(Boolean) : []);
     const storageImages = asList(deal.storageImageUrls);
     const images = storageImages.length ? storageImages : asList(deal.imageUrls);
     const scores = deal.scores && typeof deal.scores === 'object' ? deal.scores : {};
-    const scoreEntries = Object.entries(SCORE_LABELS).filter(([k]) => Number.isFinite(Number(scores[k])) && scores[k] != null);
+    const scoreEntries = Object.entries(SCORE_LABELS).filter(([k]) => Number.isFinite(scores[k]));
     const ai = deal.aiAnalysis && typeof deal.aiAnalysis === 'object' ? deal.aiAnalysis : {};
     const reasoning = asText(ai.analysis) || asText(ai.reasoning) || asText(deal.analysis);
     const summary = asText(ai.summary) || asText(deal.tier3_summary);
-    const link = safeUrl(deal.link);
+    const link = httpsUrl(deal.link);
     const estValue = ai.estimated_value ?? ai.estimated_guitar_value ?? null;
     const computedMargin = (estValue != null && deal.price != null) ? Math.round(estValue - deal.price) : null;
     const margin = ai.estimated_gross_margin !== undefined ? ai.estimated_gross_margin : computedMargin;

@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import CITY_COORDINATES from '../../backend/resources/city_coordinates.json';
 import { safeUrl } from '../utils/fiches';
-
-// Le gabarit de l'InfoWindow est une chaîne HTML : tout texte venu d'une annonce (titre, verdict, URL, id) y est échappé.
-const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+import { esc } from '../utils/htmlEscape'; // l'InfoWindow est un gabarit HTML : tout texte d'annonce (titre, verdict, URL, id) y est échappé
 
 // Mapping des couleurs pour Google Maps (Hexadécimal requis)
 const VERDICT_COLORS = {

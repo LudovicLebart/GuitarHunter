@@ -252,6 +252,9 @@ const classifyChatError = (error) => {
     if (error?.name === 'AbortError' || text.includes('timeout') || text.includes('timed out')) return 'timeout';
     if (looksLikeToolsUnsupportedError(error)) return 'tools_rejected';
     const status = error?.customErrorData?.status;
+    // 429 de l'API : le plafond de dépense du jour ne se lève pas en attendant (aucune nouvelle tentative) ; les autres 429
+    // (flux simultanés, quota Gemini à la minute) passent d'eux-mêmes.
+    if (status === 429 && text.includes('plafond de')) return 'daily_cap';
     if (status) return `http_${status}`;
     if (text.includes('failed to fetch') || text.includes('network')) return 'connection';
     return 'other';
@@ -290,12 +293,11 @@ const BRIEF_REQUEST = (question) => [
 // Délai maximal d'un appel Gemini du chat (le SDK attend 180 s par défaut, sans rien afficher) — Pro
 // avec réflexion et 8 à 10 photos peut être long, mais au-delà de 2 minutes l'appel est perdu.
 const CHAT_REQUEST_TIMEOUT_MS = 120_000;
-// Attente avant l'unique nouvelle tentative sur une erreur transitoire (5xx, réseau). Pas de 429 : c'est le plafond
-// de coût journalier ou de flux simultanés de l'API, une nouvelle tentative renverrait toute la conversation pour rien.
+// Attente avant l'unique nouvelle tentative sur une erreur transitoire (429 hors plafond du jour, 5xx, réseau).
 // 8 s (avant : 2 s, 2026-10-13) : une coupure réseau dure plus que 2 s (reprise à 95 ms en échec).
 const CHAT_RETRY_DELAY_MS = 8_000;
 
-const isTransientChatError = (kind) => kind === 'connection' || /^http_5\d\d$/.test(kind);
+const isTransientChatError = (kind) => kind === 'connection' || kind === 'http_429' || /^http_5\d\d$/.test(kind);
 
 const abortableDelay = (ms, signal) => new Promise((resolve, reject) => {
     if (signal.aborted) { reject(new DOMException('Annulé', 'AbortError')); return; }
@@ -475,7 +477,7 @@ export const useDealChat = (deal, user, configuredModelName, restorationItems) =
                 //    vraiment à un rejet du function calling (looksLikeToolsUnsupportedError).
                 const kind = classifyChatError(sendError);
                 // `http_424` : chat Claude non configuré (clé absente) ; `http_402` : crédit Anthropic épuisé — aucune nouvelle tentative ni repli, le message est explicite.
-                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424' || kind === 'http_402' || kind === 'http_429') throw sendError;
+                if (controller.signal.aborted || kind === 'timeout' || kind === 'http_424' || kind === 'http_402' || kind === 'daily_cap') throw sendError;
                 if (isTransientChatError(kind)) {
                     console.warn(`Erreur transitoire (${kind}), nouvelle tentative à l'identique dans ${CHAT_RETRY_DELAY_MS / 1000}s:`, sendError);
                     await abortableDelay(CHAT_RETRY_DELAY_MS, controller.signal);

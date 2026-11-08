@@ -58,6 +58,7 @@
 import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
+import { latestOnly } from '../utils/latestOnly';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
 import { hashShape, loadIndexCache, saveIndexCache } from '../utils/indexCache';
@@ -517,24 +518,6 @@ export const updateUserConfig = async (newConfig, _userId) => {
   }
 };
 
-// Lecture « la plus récente gagne » : une réponse plus lente qu'une lecture lancée après elle, ou arrivée après la
-// désinscription, est ignorée (sinon une réponse ancienne écrasait l'état récent, ou mettait à jour un composant démonté).
-const latestOnly = (load, emit, fail) => {
-  let seq = 0;
-  let closed = false;
-  const run = async () => {
-    const mine = ++seq;
-    try {
-      const result = await load();
-      if (!closed && mine === seq) emit(result);
-    } catch (error) {
-      if (!closed && mine === seq) fail(error);
-    }
-  };
-  run.close = () => { closed = true; };
-  return run;
-};
-
 export const onBotConfigUpdate = (onUpdate, onError, _userId) => {
   const fetchAndEmit = latestOnly(
     () => apiFetch('/users/me/config'),
@@ -557,9 +540,11 @@ const addCommand = async (type, payload) => {
   } catch (error) {
     console.error(`Error adding command ${type}:`, error);
     // 429 (trop de commandes en attente) et 422 (commande refusée) : l'utilisateur doit savoir que rien n'est parti.
-    const reason = error.status === 429 ? "trop de commandes sont déjà en attente, réessayez dans un moment"
+    // Le détail lisible du serveur (corps `{"detail": "…"}`) est repris tel quel quand il existe.
+    const detail = /"detail"\s*:\s*"([^"]+)"/.exec(error.message || '')?.[1];
+    const reason = detail || (error.status === 429 ? "trop de commandes sont déjà en attente, réessayez dans un moment"
       : error.status === 422 ? "commande refusée par le serveur"
-      : null;
+      : null);
     const wrapped = new Error(reason ? `Commande non envoyée : ${reason}.` : "Erreur lors de l'envoi de la commande.");
     wrapped.status = error.status;
     throw wrapped;
