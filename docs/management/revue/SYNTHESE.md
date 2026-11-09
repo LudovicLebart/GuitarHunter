@@ -28,9 +28,9 @@
 7. **R-4-1, R-4-2** — ré-analyse en file avec des URL Facebook périmées ; échec de l'Analyste enregistré comme analyse finale.
 
 ## Lot 2 — Fiabilité de l'exploitation
-**Sous-lot 2A fait le 2026-11-08** (non encore observé en production) : R-9-1, R-9-4 (côté serveur), R-9-5, R-10-2. Reste : 2B (R-2-1, R-9-10) et 2C (R-9-2, R-9-3, R-9-6, R-10-1).
+**Sous-lot 2A fait le 2026-11-08** (non encore observé en production) : R-9-1, R-9-4 (côté serveur), R-9-5, R-10-2. **Sous-lot 2B fait le 2026-11-09** (local, non poussé, non observé) : R-2-1, R-9-10. Reste : 2C (R-9-2, R-9-3, R-9-6, R-10-1).
 - **R-9-1** — déploiement vert même si le redémarrage d'un service échoue (aucune vérification `/health`). *2A : fait — vérification finale (bot actif, `/health` des deux API) et `exit 1`.*
-- **R-2-1** — planificateur `schedule` global partagé entre threads utilisateur.
+- **R-2-1** — planificateur `schedule` global partagé entre threads utilisateur. *2B : fait — un `schedule.Scheduler()` par bot, `close()` à l'arrêt du thread, tâches enveloppées (exception journalisée et job replanifié).*
 - **R-9-2, R-9-3, R-9-4, R-9-6** — un seul environnement (`dev` déploie en production), unités systemd hors dépôt, secret Tailscale recopié sur le serveur, dépendances non figées.
 - **R-9-5** — 22 fichiers de test sur 66 hors de la CI, dont 5 inexécutables.
 - **R-10-1, R-10-2** — onze scripts sur Firestore figé ; l'export de migration pourrait écraser la production s'il est relancé.
@@ -38,7 +38,7 @@
 ## Lot 3 — Bugs moyens et cohérence
 - Scraping : **R-3-1** (`import time` local qui plante), autres constats de `2026-scraping.md`.
 - Bot, IA, connaissances, restauration/pièces, frontend : voir chaque fichier ; aucun n'est classé haute en dehors de ceux ci-dessus.
-- **R-9-8, R-9-9, R-9-10** — watchdog HA sans condition d'état du bot, dépendance Firestore résiduelle, journal bruyant « Scan config updated ».
+- **R-9-8, R-9-9, R-9-10** — watchdog HA sans condition d'état du bot, dépendance Firestore résiduelle, journal bruyant « Scan config updated » (R-9-10 : fait en 2B le 2026-11-09).
 
 ## Lot 4 — Hygiène, code mort, documentation
 - Code mort et scripts périmés : R-10-3 à R-10-6 (essais manuels nommés `test_*`, `migrate_images.py`, reliquat de `run_once.py`).

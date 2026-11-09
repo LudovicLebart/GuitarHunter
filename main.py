@@ -81,12 +81,14 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
         'START_BOT': lambda _: start_event.set(),
     }
 
+    scheduler = None
     try:
         scheduler = TaskScheduler(
             scan_func=bot.run_scan,
             cleanup_func=bot.cleanup_sold_listings,
             initial_frequency=bot.config_manager.get_valid_scan_frequency(),
-            purge_func=bot.purge_rejected_images
+            purge_func=bot.purge_rejected_images,
+            bot_logger=bot.logger,
         )
         while True:
             try:
@@ -192,6 +194,8 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
                 time.sleep(15)
     finally:
         logger.info("Arrêt de la boucle principale. Nettoyage...")
+        if scheduler:
+            scheduler.close()
         if pg_handler:
             pg_handler.close()
 
