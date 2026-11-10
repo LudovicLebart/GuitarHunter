@@ -60,6 +60,8 @@
 Terminée en septembre 2026. Depuis le 2026-11-08 (R-10-2), `export_firestore_to_postgres.py`, `compare_firestore_postgres.py`, `migrate_cities_to_shared_catalog.py`, `migrate_firestore_prompts.py`, `enrich_cities_coords.py` et les deux essais de l'export (renommés `essai_export_firestore_to_postgres*.py`) sont dans `backend/scripts/archive/` (voir son `README.md` : **ne pas les relancer**). Reste en place : `migrate_images.py` (**import cassé** : `backend.repository` n'existe plus).
 **Scripts qui interrogent encore Firestore pour des données qui vivent maintenant dans Postgres** (`CLAUDE.md` signale ce piège : ils lisent des données figées ou vides) : `analyze_funnel_by_user.py`, `audit_rejected_gems.py`, `check_active_search_filter_logs.py`, `compare_image_resolution_by_source.py`, `compare_qwen_flashlite_agreement.py`, `export_dataset_a.py`, `export_neck_reset_sample.py`, `fetch_deal.py`, `find_deal_by_id.py`, `list_users.py`, et `scripts/build_deals_index.py` à la racine (reconstruit l'ancien index en 20 blocs Firestore, supprimé).
 
+Depuis le 2026-11-10 (R-10-1), ces onze scripts portent un avertissement en tête et l'affichent sur `stderr` à l'exécution ; aucun n'a été porté sur Postgres ni archivé.
+
 ## 8. Tests dans ce dossier
 `test_repair_fb_city_ids.py` (dans la CI) ; les trois essais manuels du §6 ne sont pas des tests (liste d'exclusion explicite dans `backend/test_ci_coverage.py`).
 

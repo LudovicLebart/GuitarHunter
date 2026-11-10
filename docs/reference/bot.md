@@ -75,7 +75,7 @@ Toutes les 30 s le thread principal : `list(user_contexts)`, redémarre tout thr
 
 Utilise la bibliothèque `schedule` : scan toutes les `fréquence ± 20 %` minutes (intervalle aléatoire tiré à chaque exécution, `SCAN_FREQUENCY_JITTER_RATIO = 0.2`, contre la régularité robotique), nettoyage des annonces vendues toutes les 6 h, purge des photos d'annonces rejetées chaque semaine. `ConfigManager.get_valid_scan_frequency` renvoie 60 si la fréquence est absente ou invalide.
 
-**Attention : ces jobs sont enregistrés dans le planificateur global de la bibliothèque, partagé par tous les threads** (voir constat R-2-1).
+Depuis le 2026-11-09 (R-2-1), chaque `TaskScheduler` possède **son propre `schedule.Scheduler()`** : `run_pending()`, `update_scan_frequency` et `close()` (appelé dans le `finally` de `main_loop`) ne touchent que les jobs de son bot. Chaque tâche est enveloppée : une exception est journalisée sur le logger du bot (visible dans le LogViewer) et le job est replanifié. Après une pause du bot, les tâches échues partent une fois chacune à la reprise. Le planificateur global ne sert plus qu'aux deux jobs de logs du thread principal.
 
 ## Traitement d'une annonce (`handle_deal_found`)
 
