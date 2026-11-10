@@ -1,5 +1,6 @@
 # ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
 # Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
+import sys as _sys; print("ATTENTION (R-10-1) : ce script lit FIRESTORE, figé depuis septembre 2026 ; ses résultats sont périmés (données vivantes : Postgres).", file=_sys.stderr)
 """
 Export à l'échelle du Dataset A (docs/management/plans/NECK_RESET_VISION_PLAN.md §3/§3ter) :
 manifeste de toutes les annonces guitare (acoustique, classique, électrique, basse — tous
