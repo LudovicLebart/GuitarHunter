@@ -1,3 +1,5 @@
+# ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
+# Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
 """
 Diagnostic ponctuel : compare la résolution réelle des images stockées (Firebase Storage)
 selon la plateforme d'origine de l'annonce (Facebook vs Kijiji).

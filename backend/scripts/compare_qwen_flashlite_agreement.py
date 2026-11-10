@@ -1,3 +1,5 @@
+# ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
+# Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
 """
 Diagnostic en lecture seule, SANS appel Gemini (Chantier H, suite à `audit_rejected_gems.py`
 et sa discussion du 2026-09-19) : compare directement les métadonnées déjà stockées sur chaque

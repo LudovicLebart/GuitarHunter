@@ -11,6 +11,14 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🚦 Séparer `dev` et la production (R-9-2, 2026-11-10, tâche dédiée, rien codé)
+
+Aujourd'hui chaque push sur `dev` redéploie le bot et **les deux API (production comprise)** dans le même dossier `~/GuitareHunter`, avec le même venv et le même `.env`. Décision de l'utilisateur (2026-11-10) : en faire une tâche à part, non traitée dans le lot 2C.
+- [ ] Choisir le modèle : `dev` déployé dans un autre dossier / autre port / autre venv, production déployée seulement depuis `master`.
+- [ ] Prévoir les unités systemd (versionnées dans `deploy/systemd/`) et le `.env` de chaque environnement.
+- [ ] Adapter `deploy.yml` (branches, dossiers, vérification finale) et le site (URL de l'API de test).
+- Contexte : `revue/2026-exploitation.md` R-9-2, `PERF_API_INDEX_PLAN.md`.
+
 ## ⚡ Lenteur de `/deals/index` : suites (2026-11-04, paliers 1 à 3 + M0 à M3 poussés sur `dev`)
 
 Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md).

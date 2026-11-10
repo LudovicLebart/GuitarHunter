@@ -57,7 +57,7 @@ jobs:
 
       - name: Dépendances Python
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt -c constraints.txt
           pip install httpx websockets
 
       - name: Tests Python (base de connaissances, fiches, API, Portier, journaux)
@@ -164,7 +164,7 @@ jobs:
           fi
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_KEY" > /tmp/firebase-sa.json
           export GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-sa.json
-          npx firebase-tools@latest deploy --only storage --force
+          npx firebase-tools@15.35.0 deploy --only storage --force
           rm -f /tmp/firebase-sa.json
 
       - name: Deploy to GitHub Pages
@@ -263,7 +263,7 @@ jobs:
             python3 -m venv venv || echo "Venv already exists or failed to create"
             source venv/bin/activate
             echo "Installing requirements..."
-            pip install -r requirements.txt
+            pip install -r requirements.txt -c constraints.txt
             echo "Installing Playwright browsers..."
             python3 -m playwright install chromium
 

@@ -7,6 +7,7 @@ Relevés le 2026-11-06 pendant la passe « deepdocument » (commit `7630193`), p
 - Catégorie : doc-code / bug · Gravité : moyenne
 - Constat : `CLAUDE.md` le dit explicitement (« ne plus appeler `.collection()` côté Python : ce sont des restes qui plantent ou lisent des données figées »). Les annonces et les analyses de ces scripts s'arrêtent à septembre 2026 ou sont vides. Les plus sensibles sont ceux qui nourrissent une décision : `export_dataset_a.py` et `export_neck_reset_sample.py` (jeu de données du projet vision), `find_deal_by_id.py` (outil de diagnostic courant), `analyze_funnel_by_user.py` (entonnoir par utilisateur ; `cost_dashboard.py` lit, lui, Postgres).
 - Piste : les porter sur `pg_db` ou les archiver ; ajouter un avertissement en tête de ceux qui restent.
+- **Corrigé en partie le 2026-11-10** (local, non poussé) : un avertissement en tête des 11 scripts (aucun archivé ni porté : `export_dataset_a.py` est encore cité par `run_script.yml`).
 
 ### R-10-2 — Les scripts de la migration terminée peuvent écraser des données vivantes avec des données figées
 - Où : `export_firestore_to_postgres.py` (upsert `ON CONFLICT DO UPDATE` via `deal_mapping.build_deal_upsert_sql`, 35 mentions de Firestore), `migrate_cities_to_shared_catalog.py`, `migrate_firestore_prompts.py`, `enrich_cities_coords.py`.

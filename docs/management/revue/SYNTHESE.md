@@ -28,7 +28,7 @@
 7. **R-4-1, R-4-2** — ré-analyse en file avec des URL Facebook périmées ; échec de l'Analyste enregistré comme analyse finale.
 
 ## Lot 2 — Fiabilité de l'exploitation
-**Sous-lot 2A fait le 2026-11-08** (non encore observé en production) : R-9-1, R-9-4 (côté serveur), R-9-5, R-10-2. **Sous-lot 2B fait le 2026-11-09** (local, non poussé, non observé) : R-2-1, R-9-10. Reste : 2C (R-9-2, R-9-3, R-9-6, R-10-1).
+**Sous-lot 2A fait le 2026-11-08** (non encore observé en production) : R-9-1, R-9-4 (côté serveur), R-9-5, R-10-2. **Sous-lot 2B fait le 2026-11-09** (local, non poussé, non observé) : R-2-1, R-9-10. **Sous-lot 2C fait le 2026-11-10** (local, non poussé) : R-10-1, R-9-3, R-9-6 (versions figées dans `constraints.txt`) ; R-9-2 devient une tâche dédiée (`TODO.md`).
 - **R-9-1** — déploiement vert même si le redémarrage d'un service échoue (aucune vérification `/health`). *2A : fait — vérification finale (bot actif, `/health` des deux API) et `exit 1`.*
 - **R-2-1** — planificateur `schedule` global partagé entre threads utilisateur. *2B : fait — un `schedule.Scheduler()` par bot, `close()` à l'arrêt du thread, tâches enveloppées (exception journalisée et job replanifié).*
 - **R-9-2, R-9-3, R-9-4, R-9-6** — un seul environnement (`dev` déploie en production), unités systemd hors dépôt, secret Tailscale recopié sur le serveur, dépendances non figées.

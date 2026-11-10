@@ -1,3 +1,5 @@
+# ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
+# Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
 """
 Diagnostic one-off (Chantier G, validation avant tout code de routage) — script B du plan
 approuvé le 2026-09-12 : le Tier 1 (Portier) ne calcule jamais de `deal_score` (score

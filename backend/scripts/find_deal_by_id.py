@@ -1,3 +1,5 @@
+# ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
+# Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
 """
 Diagnostic : recherche une annonce par son ID (le numéro dans l'URL Facebook/Kijiji) à travers
 TOUS les utilisateurs, et rapporte si/où elle existe en base.

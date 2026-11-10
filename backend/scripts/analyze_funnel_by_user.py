@@ -1,3 +1,5 @@
+# ATTENTION (R-10-1, 2026-11-10) : ce script lit FIRESTORE, figé depuis la bascule vers Postgres (septembre 2026).
+# Les données vivantes sont dans Postgres : ses résultats sont périmés. Le porter sur `pg_db` avant tout usage.
 """
 Analyse retroactive du funnel IA (Portier -> Analyste -> Expert Pro) a partir
 du champ aiAnalysis.model_used deja stocke sur chaque annonce existante.
