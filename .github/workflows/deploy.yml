@@ -214,7 +214,8 @@ jobs:
             else
               # Les variables TS_* (secret OAuth Tailscale de la CI) n'ont aucun usage sur le serveur : jamais recopiées ici
               # (R-9-4). Les retirer aussi du secret DOT_ENV lui-même, dans les paramètres GitHub.
-              printf '%s' "$DOT_ENV" | grep -v '^TS_' > .env
+              # Tolère espaces de tête et préfixe `export` (formes valides d'un fichier .env).
+              printf '%s' "$DOT_ENV" | grep -Ev '^[[:space:]]*(export[[:space:]]+)?TS_' > .env
               echo "✅ Fichier .env mis à jour."
             fi
 
@@ -248,7 +249,7 @@ jobs:
             fi
 
             # ANCIEN bloc "Chantier A : synchronisation backend/api/*" retiré (2026-09-26) :
-            # écrasait backend/api/*, deal_mapping.py et export_firestore_to_postgres.py avec la
+            # écrasait backend/api/*, deal_mapping.py et export_firestore_to_postgres.py (aujourd'hui dans backend/scripts/archive/) avec la
             # branche claude/firestore-postgres-migration à CHAQUE déploiement, sur l'hypothèse
             # qu'ils n'étaient pas encore mergés sur dev — devenue fausse depuis la fusion de la
             # migration le 2026-09-23 (voir JOURNAL.md), mais le bloc n'avait jamais été retiré.
@@ -379,13 +380,17 @@ jobs:
             echo "--- Vérification finale (R-9-1) ---"
             # Un `systemctl restart` réussi ne prouve pas que le service tient : une API dont un import casse (ImportError)
             # redémarre en boucle. Le bot doit être actif, chaque API redémarrée doit répondre à /health (jusqu'à 30 s).
-            sleep 5
-            if systemctl is-active --quiet guitare-hunter; then
-              echo "✅ guitare-hunter est actif."
-            else
+            # Le bot est contrôlé deux fois : juste après le redémarrage, puis après les contrôles /health (≥ 5 s plus tard) —
+            # un bot qui plante au démarrage et que `Restart=always` relance en boucle est « actif » à un instant donné.
+            check_bot() {
+              if systemctl is-active --quiet guitare-hunter; then
+                return 0
+              fi
               echo "❌ guitare-hunter n'est pas actif après le déploiement (journalctl -u guitare-hunter)."
-              DEPLOY_FAILED=1
-            fi
+              return 1
+            }
+            sleep 5
+            check_bot || DEPLOY_FAILED=1
             check_health() {
               for _ in $(seq 1 15); do
                 if curl -fsS --max-time 3 "http://127.0.0.1:$2/health" > /dev/null 2>&1; then
@@ -399,6 +404,9 @@ jobs:
             }
             if [ "$API_TEST_RESTARTED" = 1 ]; then check_health guitarhunter-api 8000 || DEPLOY_FAILED=1; fi
             if [ "$API_PROD_RESTARTED" = 1 ]; then check_health guitarhunter-api-prod 8001 || DEPLOY_FAILED=1; fi
+            sleep 5
+            check_bot || DEPLOY_FAILED=1
+            [ "$DEPLOY_FAILED" = 1 ] || echo "✅ guitare-hunter est resté actif."
             if [ "$DEPLOY_FAILED" = 1 ]; then
               echo "❌ Déploiement en échec : voir les messages ❌ ci-dessus."
               exit 1

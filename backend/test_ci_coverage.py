@@ -53,8 +53,12 @@ def ci_entries():
 
 def repo_test_files():
     """Fichiers `test_*.py` suivis par Git : ni `venv/`, ni brouillons locaux (un nouveau fichier est vu dès son `git add`)."""
-    out = subprocess.run(["git", "ls-files", "--cached", "--", "*test_*.py"],
-                         cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    try:
+        out = subprocess.run(["git", "ls-files", "--cached", "--", "*test_*.py"],
+                             cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError) as exc:
+        # Pas de Git (archive téléchargée, outil absent) : le garde-fou ne peut pas juger, il ne doit pas casser la suite.
+        raise unittest.SkipTest(f"git indisponible ou dépôt absent : {exc}")
     return {line.strip() for line in out.splitlines() if os.path.basename(line.strip()).startswith("test_")}
 
 

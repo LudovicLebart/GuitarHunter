@@ -1,12 +1,12 @@
 """Correspondance document Firestore <-> colonnes Postgres pour `guitar_deals`/`deal_chat`/
-`restoration_plan_items`/`cities` — extrait de `backend/scripts/export_firestore_to_postgres.py`
+`restoration_plan_items`/`cities` — extrait de `backend/scripts/archive/export_firestore_to_postgres.py`
 (2026-09-10) pour être partagé avec `backend/pg_repository.py` (accès Postgres du bot, Phase A.1
 de la bascule, voir `docs/management/plans/FIRESTORE_MIGRATION_PLAN.md` §5.3) : les deux ont
 besoin exactement du même mapping, dupliquer aurait signifié corriger deux fois chaque futur
 champ Firestore découvert.
 
 Fonctions pures — dict Python en entrée, dict de colonnes en sortie, aucune dépendance
-Firestore/Postgres réelle. Testées isolément dans `backend/scripts/test_export_firestore_to_postgres.py`.
+Firestore/Postgres réelle. Testées isolément dans `backend/scripts/archive/essai_export_firestore_to_postgres.py`.
 """
 from datetime import datetime
 
@@ -115,7 +115,7 @@ AI_ANALYSIS_COLUMNS = list(_AI_ANALYSIS_FIELDS.values())
 # cross-tenant qui était nécessaire tant que deux utilisateurs pouvaient se disputer la même
 # ligne (le bug corrigé le même jour disparaît par construction avec ce changement de schéma).
 # Source SQL UNIQUE réutilisée par `pg_repository.py::create_new_deal` (psycopg, placeholders
-# `%s`) et `export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`).
+# `%s`) et `archive/export_firestore_to_postgres.py::_upsert_deal` (asyncpg, placeholders `$1..$n`).
 # Colonnes d'achat (fait GLOBAL, décidé le 2026-09-19 : une guitare achetée l'est pour tous les
 # utilisateurs) — jamais écrasées par un upsert générique qui fusionne plusieurs sources
 # possibles pour la même annonce partagée (voir `preserve_purchase_columns` ci-dessous).
@@ -127,7 +127,7 @@ def build_deal_upsert_sql(placeholder, preserve_purchase_columns: bool = False) 
     driver appelant (`lambda i: "%s"` pour psycopg, `lambda i: f"${i}"` pour asyncpg).
 
     `preserve_purchase_columns=True` (correctif 2026-09-20, revue de code) : exclut
-    `PURCHASE_COLUMNS` du `SET` du `DO UPDATE` — nécessaire pour `export_firestore_to_postgres.py`,
+    `PURCHASE_COLUMNS` du `SET` du `DO UPDATE` — nécessaire pour `archive/export_firestore_to_postgres.py`,
     où plusieurs documents Firestore per-user peuvent migrer vers la MÊME ligne partagée ; sans
     ça, le document d'un utilisateur qui n'a PAS acheté l'annonce écraserait silencieusement
     `is_purchased`/`purchased_by_user_id` déjà correctement posés par le document de l'acheteur,
@@ -147,7 +147,7 @@ def build_deal_upsert_sql(placeholder, preserve_purchase_columns: bool = False) 
 def build_deal_match_upsert_sql(placeholder) -> str:
     """Source SQL unique pour l'upsert `user_deal_matches` (correctif 2026-09-20, revue de code)
     — réutilisée par `pg_repository.py::record_deal_match` (psycopg) et
-    `export_firestore_to_postgres.py::_migrate_deal` (asyncpg), qui écrivaient chacun leur propre
+    `archive/export_firestore_to_postgres.py::_migrate_deal` (asyncpg), qui écrivaient chacun leur propre
     copie de ce même `INSERT ... ON CONFLICT DO NOTHING`."""
     return (
         f"INSERT INTO user_deal_matches (user_id, deal_id) VALUES ({placeholder(1)}, {placeholder(2)}) "
@@ -198,7 +198,7 @@ def map_deal(deal_id: str, data: dict) -> tuple[dict, list[str]]:
     n'a pas d'équivalent direct dans un document Firestore per-user (`isPurchased` y est un booléen
     local à CE document) : reste à `None` ici, rempli par l'appelant qui connaît l'utilisateur du
     contexte d'itération quand `isPurchased` est vrai (voir `pg_repository.py::toggle_purchased`,
-    `export_firestore_to_postgres.py::_migrate_deal`).
+    `archive/export_firestore_to_postgres.py::_migrate_deal`).
     Retourne aussi la liste des clés de premier niveau non reconnues (voir `ai_analysis_raw`)."""
     row = {"id": deal_id, "purchased_by_user_id": None}
 
