@@ -365,24 +365,8 @@ function dealFromRow(row) {
   };
 }
 
-// Le serveur fusionne l'état (applied/dismissed, itemId) DANS la proposition elle-même
-// (chat_repo.py::mark_*_proposal_status) ; l'interface lit `restorationProposalStates[i]` et
-// `requalificationProposalState` (voir useDealChat.js::get*ProposalState) — on les dérive ici, sinon
-// le bouton Appliquer ne change jamais et reste cliquable après application.
-function chatProposalStatesFromRow(row) {
-  const restorationProposalStates = {};
-  (row.restoration_proposals || []).forEach((p, i) => {
-    if (p?.status) restorationProposalStates[i] = { status: p.status, ...(p.itemId ? { itemId: p.itemId } : {}) };
-  });
-  return {
-    restorationProposalStates: Object.keys(restorationProposalStates).length ? restorationProposalStates : undefined,
-    requalificationProposalState: row.requalification_proposal?.status ? { status: row.requalification_proposal.status } : undefined,
-  };
-}
-
 function chatMessageFromRow(row) {
   return {
-    ...chatProposalStatesFromRow(row),
     id: row.id,
     role: row.role,
     parts: row.parts,
@@ -392,7 +376,9 @@ function chatMessageFromRow(row) {
     restorationProposals: row.restoration_proposals ?? undefined,
     photoRecall: row.photo_recall ?? undefined,
     isError: row.is_error,
-    requalificationProposal: row.requalification_proposal ?? undefined,
+    // Un PATCH de statut sur un message sans proposition crée `{status}` seul (chat_repo.py, COALESCE
+    // voulu) : sans `fields`, ce n'est pas une proposition — on ne l'expose pas (sinon carte fantôme).
+    requalificationProposal: row.requalification_proposal?.fields ? row.requalification_proposal : undefined,
     createdAt: row.created_at,
   };
 }

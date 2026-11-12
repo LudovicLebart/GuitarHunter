@@ -35,12 +35,18 @@ export const getAddedToGalleryUrl = (message, partIndex) =>
 
 // État (appliquée/ignorée) d'une proposition de restauration portée par un message (2026-08-22,
 // Lot B) — persisté sur le message (voir markChatMessageRestorationProposalStatus), pas en état
-// React local, pour qu'un reload ne réactive jamais un bouton déjà cliqué.
-export const getRestorationProposalState = (message, index) => message.restorationProposalStates?.[index];
+// React local, pour qu'un reload ne réactive jamais un bouton déjà cliqué. Le serveur fusionne
+// `status`/`itemId` DANS la proposition (chat_repo.py::mark_restoration_proposal_status) : c'est
+// l'unique source de vérité, lue ici sans copie intermédiaire.
+export const getRestorationProposalState = (message, index) => {
+    const p = Array.isArray(message.restorationProposals) ? message.restorationProposals[index] : undefined;
+    return p?.status ? { status: p.status, itemId: p.itemId } : undefined;
+};
 
 // État (appliquée/ignorée) de la proposition de requalification portée par un message (2026-08-27,
 // Lot 2) — au plus une par tour, contrairement aux propositions de restauration (tableau indexé).
-export const getRequalificationProposalState = (message) => message.requalificationProposalState;
+export const getRequalificationProposalState = (message) =>
+    message.requalificationProposal?.status ? { status: message.requalificationProposal.status } : undefined;
 
 // Reconstruit un historique garanti alterné (user, model, user, model, ...) à partir de la liste
 // brute Firestore, qui peut contenir des tours 'user' isolés (appel Gemini jamais résolu — ex.
