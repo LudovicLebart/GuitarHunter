@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 235" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Ordre des opérations pour décoller la rallonge de touche</title>
+  <desc id="d">Cinq étapes : vérifier les boulons, protéger, chauffer, tester, décoller de la ouïe vers le joint.</desc>
+  <rect width="820" height="235" fill="#f8fafc"/>
+<text x="410" y="42" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Dans cet ordre, sans jamais forcer la lame</text>
+  <rect x="10" y="80" width="148" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="84.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">1  Vérifier</text><text x="84.0" y="130" font-size="13" fill="#334155" text-anchor="middle">boulons sous</text><text x="84.0" y="148" font-size="13" fill="#334155" text-anchor="middle">la rallonge</text>
+  <path d="M160 125 L170 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="170,125 157.1,130.5 157.1,119.5" fill="#334155"/>
+  <rect x="172" y="80" width="148" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="246.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">2  Protéger</text><text x="246.0" y="130" font-size="13" fill="#334155" text-anchor="middle">incrustations,</text><text x="246.0" y="148" font-size="13" fill="#334155" text-anchor="middle">joints, table</text>
+  <path d="M322 125 L332 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="332,125 319.1,130.5 319.1,119.5" fill="#334155"/>
+  <rect x="334" y="80" width="148" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="408.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">3  Chauffer</text><text x="408.0" y="130" font-size="13" fill="#334155" text-anchor="middle">la rallonge,</text><text x="408.0" y="148" font-size="13" fill="#334155" text-anchor="middle">par-dessus</text>
+  <path d="M484 125 L494 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="494,125 481.1,130.5 481.1,119.5" fill="#334155"/>
+  <rect x="496" y="80" width="148" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="570.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">4  Tester</text><text x="570.0" y="130" font-size="13" fill="#334155" text-anchor="middle">la lame entre-t-elle</text><text x="570.0" y="148" font-size="13" fill="#334155" text-anchor="middle">sans forcer ?</text>
+  <path d="M646 125 L656 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="656,125 643.1,130.5 643.1,119.5" fill="#334155"/>
+  <rect x="658" y="80" width="148" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="732.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">5  Décoller</text><text x="732.0" y="130" font-size="13" fill="#334155" text-anchor="middle">de la ouïe</text><text x="732.0" y="148" font-size="13" fill="#334155" text-anchor="middle">vers le joint</text>
+  <text x="410" y="210" font-size="14" fill="#334155" text-anchor="middle">Si la lame résiste : chauffer encore, puis retester. La rallonge est décollée avant de déposer le manche.</text>
+</svg>

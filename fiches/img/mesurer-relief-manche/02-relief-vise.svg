@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 390" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Relief visé par type d'instrument et style de jeu</title>
+  <desc id="d">Barres horizontales en pouces et millimètres : électrique 0,004 à 0,008, acoustique 0,006 à 0,012, basse 0,008 à 0,015, classique 0,008 à 0,010, jeu léger à médium environ 0,010, jeu agressif ou capo 0,015 à 0,020.</desc>
+  <rect width="820" height="390" fill="#f8fafc"/>
+<text x="410" y="32" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Relief visé (valeurs de départ ; sources et frettes de mesure différentes)</text>
+  <path d="M250 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="250" y="50" font-size="12" fill="#334155" text-anchor="middle">0,000 po</text>
+  <text x="250" y="327" font-size="12" fill="#334155" text-anchor="middle">0,00 mm</text>
+  <path d="M354 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="354" y="50" font-size="12" fill="#334155" text-anchor="middle">0,005 po</text>
+  <text x="354" y="327" font-size="12" fill="#334155" text-anchor="middle">0,13 mm</text>
+  <path d="M458 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="458" y="50" font-size="12" fill="#334155" text-anchor="middle">0,010 po</text>
+  <text x="458" y="327" font-size="12" fill="#334155" text-anchor="middle">0,25 mm</text>
+  <path d="M562 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="562" y="50" font-size="12" fill="#334155" text-anchor="middle">0,015 po</text>
+  <text x="562" y="327" font-size="12" fill="#334155" text-anchor="middle">0,38 mm</text>
+  <path d="M666 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="666" y="50" font-size="12" fill="#334155" text-anchor="middle">0,020 po</text>
+  <text x="666" y="327" font-size="12" fill="#334155" text-anchor="middle">0,51 mm</text>
+  <path d="M770 55 V310" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="770" y="50" font-size="12" fill="#334155" text-anchor="middle">0,025 po</text>
+  <text x="770" y="327" font-size="12" fill="#334155" text-anchor="middle">0,64 mm</text>
+  <text x="238" y="89" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Électrique</text>
+  <rect x="333" y="70" width="83" height="26" rx="5" fill="#2563eb" opacity=".85"/>
+  <text x="428" y="89" font-size="12" fill="#334155" text-anchor="start">StewMac</text>
+  <text x="238" y="129" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Acoustique</text>
+  <rect x="375" y="110" width="125" height="26" rx="5" fill="#16a34a" opacity=".85"/>
+  <text x="512" y="129" font-size="12" fill="#334155" text-anchor="start">StewMac</text>
+  <text x="238" y="169" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Basse</text>
+  <rect x="416" y="150" width="146" height="26" rx="5" fill="#7c3aed" opacity=".85"/>
+  <text x="574" y="169" font-size="12" fill="#334155" text-anchor="start">StewMac</text>
+  <text x="238" y="209" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Classique (nylon)</text>
+  <rect x="416" y="190" width="42" height="26" rx="5" fill="#b45309" opacity=".85"/>
+  <text x="470" y="209" font-size="12" fill="#334155" text-anchor="start">luthiers, forums</text>
+  <text x="238" y="249" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Jeu léger à médium</text>
+  <rect x="448" y="230" width="21" height="26" rx="5" fill="#0891b2" opacity=".85"/>
+  <text x="480" y="249" font-size="12" fill="#334155" text-anchor="start">Premier Guitar : environ 0,010</text>
+  <text x="238" y="289" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="end">Jeu agressif ou capo</text>
+  <rect x="562" y="270" width="104" height="26" rx="5" fill="#dc2626" opacity=".85"/>
+  <text x="678" y="289" font-size="12" fill="#334155" text-anchor="start">Premier Guitar</text>
+  <text x="410" y="372" font-size="13" fill="#334155" text-anchor="middle">Les frettes de mesure diffèrent selon les sources (6e à 8e) ; aucune source lue ne cite la 10e.</text>
+</svg>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Les quatre niveaux de gravité d'une fissure de table</title>
+  <desc id="d">Vue de dessus de quatre tables avec une fissure de plus en plus grave : fine, ouverte, décalée, au chevalet.</desc>
+  <rect width="820" height="300" fill="#f8fafc"/>
+  <g stroke="#475569" fill="#f1dcb0" stroke-width="2">
+    <rect x="15" y="40" width="185" height="200" rx="10"/><rect x="220" y="40" width="185" height="200" rx="10"/>
+    <rect x="425" y="40" width="185" height="200" rx="10"/><rect x="630" y="40" width="175" height="200" rx="10"/>
+  </g>
+  <g fill="none" stroke="#7c4a1e" stroke-width="1" opacity=".35">
+    <path d="M40 50v180M65 50v180M90 50v180M115 50v180M140 50v180M165 50v180M245 50v180M270 50v180M295 50v180M320 50v180M345 50v180M370 50v180M450 50v180M475 50v180M500 50v180M525 50v180M550 50v180M575 50v180M655 50v180M680 50v180M705 50v180M730 50v180M755 50v180M780 50v180"/>
+  </g>
+  <!-- 1 : fine -->
+  <path d="M110 80 l4 40 l-3 35" fill="none" stroke="#111" stroke-width="1.5"/>
+  <!-- 2 : ouverte, longue -->
+  <path d="M300 62 l-6 40 l7 40 l-6 40 l5 36" fill="none" stroke="#111" stroke-width="4"/>
+  <!-- 3 : décalée -->
+  <path d="M510 70 l5 45 l-4 45 l4 40" fill="none" stroke="#111" stroke-width="3"/>
+  <path d="M515 70 l5 45 l-4 45 l4 40" fill="none" stroke="#dc2626" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <!-- 4 : chevalet + rosace -->
+  <circle cx="717" cy="100" r="28" fill="#1e293b"/>
+  <rect x="680" y="175" width="75" height="14" rx="4" fill="#7c4a1e"/>
+  <path d="M700 60 l6 40 l-3 60 l8 40 l-4 40" fill="none" stroke="#111" stroke-width="3"/>
+  <g font-size="15" font-weight="bold" fill="#0f172a" text-anchor="middle">
+    <text x="107" y="25">Niveau 1</text><text x="312" y="25">Niveau 2</text><text x="517" y="25">Niveau 3</text><text x="717" y="25">Niveau 4</text>
+  </g>
+  <g font-size="12.5" fill="#334155" text-anchor="middle">
+    <text x="107" y="262">Fine, se referme</text><text x="107" y="280">Colle seule</text>
+    <text x="312" y="262">Reste ouverte, longue</text><text x="312" y="280">Colle + cales</text>
+    <text x="517" y="262">Lèvres décalées, ancienne</text><text x="517" y="280">Niveau, colle, renfort</text>
+    <text x="717" y="262">Chevalet, rosace, choc</text><text x="717" y="280">Luthier</text>
+  </g>
+  <text x="530" y="215" font-size="11" fill="#dc2626">pointillé rouge : lèvre plus haute</text>
+</svg>

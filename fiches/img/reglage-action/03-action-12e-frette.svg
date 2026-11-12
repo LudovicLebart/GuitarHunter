@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 375" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Mesure de l'action à la 12e frette</title>
+  <desc id="d">Zoom sur la 12e frette : la hauteur entre le dessus de la frette et le dessous de la corde est l'action.</desc>
+  <rect width="820" height="375" fill="#f8fafc"/>
+<g transform="translate(300 195) scale(2.2)"><rect x="-70" y="0" width="140" height="30" fill="#7c4a1e"/><path d="M-14 0 q14 -12 28 0z" fill="#cbd5e1" stroke="#475569" stroke-width="2"/><circle cx="0" cy="-41" r="6" fill="#94a3b8" stroke="#475569" stroke-width="2"/><path d="M44 -9 V-41" stroke="#dc2626" stroke-width="3"/><path d="M36 -9 h16 M36 -41 h16" stroke="#dc2626" stroke-width="3"/></g>
+  <circle cx="90" cy="100" r="15" fill="#0f172a"/><text x="90" y="106" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <text x="115" y="106" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Corde</text>
+  <path d="M160 100 L285 100" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <circle cx="300" cy="300" r="15" fill="#0f172a"/><text x="300" y="306" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <text x="325" y="306" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Dessus de la 12e frette</text>
+  <path d="M300 282 L300 208" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <circle cx="600" cy="140" r="15" fill="#0f172a"/><text x="600" y="146" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+  <text x="625" y="146" font-size="15" fill="#dc2626" font-weight="bold" text-anchor="start">Action = espace mesuré</text>
+  <path d="M600 155 L400 160" stroke="#dc2626" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <text x="410" y="40" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Mesure à la 12e frette : du dessus de la frette au dessous de la corde</text>
+  <text x="410" y="338" font-size="14" fill="#334155" text-anchor="middle">La frette de mesure (12e, 14e ou 17e) dépend de la source suivie.</text>
+  <text x="410" y="358" font-size="14" fill="#334155" text-anchor="middle">Valeurs cibles par type d'instrument : fiche « Régler la hauteur des cordes au chevalet ».</text>
+</svg>

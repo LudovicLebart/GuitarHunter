@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 270" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Tailler le coin dans le bois de la touche</title>
+  <desc id="d">À gauche le coin vu de profil : épaisseur égale à l'écart mesuré au gros bout, presque nulle au joint. À droite le coin vu de dessus, un peu plus grand que la rallonge.</desc>
+  <rect width="820" height="270" fill="#f8fafc"/>
+<text x="200" y="42" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">Vu de profil</text>
+  <polygon points="60,160 340,160 340,100" fill="#fbbf24" stroke="#a16207" stroke-width="3"/>
+  <text x="60" y="185" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">≈ 0 côté joint</text>
+  <text x="340" y="185" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="end">épaisseur = écart mesuré</text>
+  <path d="M358 100 V160 M350 100 h16 M350 160 h16" stroke="#dc2626" stroke-width="3"/>
+  <text x="620" y="42" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">Vu de dessus</text>
+  <rect x="480" y="90" width="280" height="76" rx="3" fill="#fbbf24" stroke="#a16207" stroke-width="3"/>
+  <text x="620" y="134" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">un peu plus grand que la rallonge</text>
+  <text x="410" y="232" font-size="14" fill="#334155" text-anchor="middle">Même bois que la touche. On le coupe à sa taille seulement une fois ajusté.</text>
+</svg>

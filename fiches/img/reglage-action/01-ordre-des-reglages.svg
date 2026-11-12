@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 390" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Ordre des réglages de l'action</title>
+  <desc id="d">Guitare vue de dessus avec trois repères : 1 relief du manche au truss rod, 2 sillet, 3 hauteur au chevalet.</desc>
+  <rect width="820" height="390" fill="#f8fafc"/>
+<g transform="translate(40 215) scale(0.9)"><path d="M0 0 C0 -75 40 -150 105 -150 C160 -150 185 -112 205 -100 C225 -88 245 -118 280 -118 C320 -118 335 -85 345 -50 L345 50 C335 85 320 118 280 118 C245 118 225 88 205 100 C185 112 160 150 105 150 C40 150 0 75 0 0 Z" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="4"/><circle cx="262" cy="0" r="38" fill="#1e293b"/><circle cx="262" cy="0" r="42" fill="none" stroke="#7c4a1e" stroke-width="3"/><rect x="88" y="-42" width="18" height="84" rx="4" fill="#7c4a1e"/><rect x="342" y="-19" width="300" height="38" fill="#7c4a1e"/><path d="M642 -19 L730 -34 L730 34 L642 19 Z" fill="#7c4a1e"/><circle cx="672" cy="-18" r="6" fill="#cbd5e1"/><circle cx="672" cy="0" r="6" fill="#cbd5e1"/><circle cx="672" cy="18" r="6" fill="#cbd5e1"/><circle cx="705" cy="-18" r="6" fill="#cbd5e1"/><circle cx="705" cy="0" r="6" fill="#cbd5e1"/><circle cx="705" cy="18" r="6" fill="#cbd5e1"/></g>
+  <path d="M480 150 L480 196" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <circle cx="480" cy="128" r="15" fill="#0f172a"/><text x="480" y="134" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <text x="505" y="134" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Relief du manche (truss rod)</text>
+  <path d="M618 90 L618 192" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <circle cx="618" cy="68" r="15" fill="#0f172a"/><text x="618" y="74" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <text x="643" y="74" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Sillet</text>
+  <path d="M127 258 L195 338" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
+  <circle cx="215" cy="348" r="15" fill="#0f172a"/><text x="215" y="354" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+  <text x="240" y="354" font-size="15" fill="#0f172a" font-weight="bold" text-anchor="start">Hauteur au chevalet</text>
+  <text x="410" y="30" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Toujours dans cet ordre : du manche vers le chevalet</text>
+  <text x="410" y="376" font-size="14" fill="#334155" text-anchor="middle">On mesure à chaque étape, cordes accordées à leur tension de jeu.</text>
+</svg>

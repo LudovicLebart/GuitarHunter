@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 330" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Cale partielle ou cale pleine poche</title>
+  <desc id="d">Coupe latérale du talon dans sa poche : une cale courte laisse un vide que la vis comble en tirant le talon ; une cale en coin sur toute la poche garde un contact complet.</desc>
+  <rect width="820" height="330" fill="#f8fafc"/>
+<text x="190" y="70" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">Cale partielle : à éviter</text>
+  <rect x="10" y="214" width="360" height="26" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="20" y="200" width="250" height="14" fill="#b91c1c" opacity="0.35"/>
+  <rect x="270" y="200" width="90" height="14" fill="#fbbf24" stroke="#a16207" stroke-width="2"/>
+  <rect x="20" y="116" width="340" height="84" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <line x1="315" y1="104" x2="315" y2="234" stroke="#cbd5e1" stroke-width="5" stroke-dasharray="6 4"/>
+  <text x="28" y="152" font-size="13" fill="#ffffff" text-anchor="start">vers la tête</text>
+  <text x="352" y="152" font-size="13" fill="#ffffff" text-anchor="end">vers le chevalet</text>
+  <text x="610" y="70" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">Cale pleine poche : en coin</text>
+  <rect x="430" y="214" width="360" height="26" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <polygon points="440,214 780,214 780,200" fill="#fbbf24" stroke="#a16207" stroke-width="2"/>
+  <polygon points="440,214 780,200 780,130 440,130" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <line x1="735" y1="104" x2="735" y2="234" stroke="#cbd5e1" stroke-width="5" stroke-dasharray="6 4"/>
+  <text x="448" y="152" font-size="13" fill="#ffffff" text-anchor="start">vers la tête</text>
+  <text x="772" y="152" font-size="13" fill="#ffffff" text-anchor="end">vers le chevalet</text>
+  <text x="190" y="282" font-size="13" fill="#0f172a" font-weight="bold" text-anchor="middle">Vide sous le talon : la vis le tire</text>
+  <text x="190" y="302" font-size="13" fill="#0f172a" font-weight="bold" text-anchor="middle">et la fin de la touche se bosse</text>
+  <text x="610" y="282" font-size="13" fill="#0f172a" font-weight="bold" text-anchor="middle">Contact complet sur toute la poche :</text>
+  <text x="610" y="302" font-size="13" fill="#0f172a" font-weight="bold" text-anchor="middle">épais côté chevalet, nul côté tête</text>
+  <text x="410" y="28" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Coupe latérale du talon dans sa poche (épaisseurs exagérées)</text>
+</svg>
