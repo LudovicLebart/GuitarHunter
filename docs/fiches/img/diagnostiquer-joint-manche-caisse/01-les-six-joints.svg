@@ -1,39 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 440" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
-  <title id="t">Les six joints possibles d'un talon qui se décolle</title>
-  <desc id="d">Deux coupes simplifiées d'une guitare acoustique : dans l'axe et vue de dessus. Six joints numérotés : queue d'aronde et bloc, bloc et table, bloc et dos, talon et bloc, talon et éclisse, bloc et éclisse.</desc>
-  <rect width="820" height="440" fill="#f8fafc"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 465" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Les joints autour du talon d'une acoustique</title>
+  <desc id="d">Deux coupes simplifiées d'une guitare acoustique à manche en queue d'aronde, dans l'axe et vue de dessus. L'éclisse passe entre le talon et le bloc, traversée par le tenon. Six joints numérotés : tenon et bloc, bloc et table, bloc et dos, rallonge de touche et table, talon et éclisse, bloc et éclisse.</desc>
+  <rect width="820" height="465" fill="#f8fafc"/>
 <text x="210" y="34" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">A. Coupe dans l'axe de la guitare</text>
-  <rect x="20" y="95" width="120" height="40" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
-  <rect x="100" y="95" width="40" height="205" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
-  <rect x="140" y="120" width="70" height="170" fill="#e5c98f" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="20" y="110" width="80" height="30" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="100" y="110" width="40" height="190" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
   <rect x="140" y="110" width="250" height="10" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
   <rect x="140" y="290" width="250" height="10" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
-  <polygon points="140,140 195,150 195,215 140,225" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
-  <text x="272" y="205" font-size="14" fill="#334155" text-anchor="middle">caisse vide</text>
-  <circle cx="168" cy="183" r="15" fill="#dc2626"/><text x="168" y="189" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
-  <circle cx="250" cy="100" r="15" fill="#dc2626"/><text x="250" y="106" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
-  <circle cx="250" cy="316" r="15" fill="#dc2626"/><text x="250" y="322" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
-  <circle cx="122" cy="260" r="15" fill="#dc2626"/><text x="122" y="266" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">4</text>
-  <text x="155" y="142" font-size="13" fill="#334155" text-anchor="start">queue d'aronde</text>
+  <rect x="140" y="120" width="20" height="170" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="160" y="120" width="70" height="170" fill="#e5c98f" stroke="#7c4a1e" stroke-width="2"/>
+  <polygon points="140,150 215,145 215,215 140,210" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="20" y="95" width="260" height="15" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+  <text x="60" y="107" font-size="12" fill="#fff" font-weight="bold" text-anchor="middle">touche</text>
+  <text x="305" y="205" font-size="14" fill="#334155" text-anchor="middle">caisse vide</text>
+  <text x="185" y="188" font-size="13" fill="#fff" font-weight="bold" text-anchor="middle">tenon</text>
+  <circle cx="190" cy="165" r="15" fill="#dc2626"/><text x="190" y="171" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="195" cy="120" r="15" fill="#dc2626"/><text x="195" y="126" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <circle cx="195" cy="290" r="15" fill="#dc2626"/><text x="195" y="296" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text>
+  <circle cx="262" cy="110" r="15" fill="#dc2626"/><text x="262" y="116" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">4</text>
+  <circle cx="140" cy="248" r="15" fill="#dc2626"/><text x="140" y="254" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text>
+  <circle cx="160" cy="272" r="15" fill="#dc2626"/><text x="160" y="278" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text>
   <text x="615" y="34" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">B. Coupe horizontale, vue de dessus</text>
-  <rect x="380" y="150" width="90" height="70" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
-  <rect x="470" y="120" width="50" height="130" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
-  <rect x="520" y="120" width="70" height="130" fill="#e5c98f" stroke="#7c4a1e" stroke-width="2"/>
-  <rect x="470" y="108" width="320" height="12" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
-  <rect x="470" y="250" width="320" height="12" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
-  <polygon points="520,140 575,148 575,222 520,230" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="5 4"/>
+  <rect x="380" y="150" width="70" height="70" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="450" y="120" width="40" height="130" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="490" y="120" width="20" height="130" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="510" y="120" width="70" height="130" fill="#e5c98f" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="490" y="108" width="300" height="12" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="490" y="250" width="300" height="12" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <polygon points="490,168 570,145 570,225 490,202" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <text x="530" y="191" font-size="13" fill="#fff" font-weight="bold" text-anchor="middle">tenon</text>
   <text x="690" y="192" font-size="14" fill="#334155" text-anchor="middle">caisse vide</text>
-  <circle cx="495" cy="100" r="15" fill="#dc2626"/><text x="495" y="106" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text>
-  <circle cx="555" cy="100" r="15" fill="#dc2626"/><text x="555" y="106" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text>
-  <circle cx="495" cy="270" r="15" fill="#dc2626"/><text x="495" y="276" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text>
-  <circle cx="555" cy="270" r="15" fill="#dc2626"/><text x="555" y="276" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text>
-  <circle cx="40" cy="350" r="15" fill="#dc2626"/><text x="40" y="356" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text><text x="65" y="356" font-size="15" fill="#0f172a" text-anchor="start">queue d'aronde / bloc</text>
+  <circle cx="530" cy="152" r="15" fill="#dc2626"/><text x="530" y="158" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="490" cy="130" r="15" fill="#dc2626"/><text x="490" y="136" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text>
+  <circle cx="510" cy="240" r="15" fill="#dc2626"/><text x="510" y="246" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text>
+  <circle cx="40" cy="350" r="15" fill="#dc2626"/><text x="40" y="356" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text><text x="65" y="356" font-size="15" fill="#0f172a" text-anchor="start">tenon (queue d'aronde) / bloc</text>
   <circle cx="40" cy="382" r="15" fill="#dc2626"/><text x="40" y="388" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text><text x="65" y="388" font-size="15" fill="#0f172a" text-anchor="start">bloc / table</text>
   <circle cx="40" cy="414" r="15" fill="#dc2626"/><text x="40" y="420" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">3</text><text x="65" y="420" font-size="15" fill="#0f172a" text-anchor="start">bloc / dos</text>
-  <circle cx="310" cy="350" r="15" fill="#dc2626"/><text x="310" y="356" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">4</text><text x="335" y="356" font-size="15" fill="#0f172a" text-anchor="start">talon / bloc</text>
-  <circle cx="310" cy="382" r="15" fill="#dc2626"/><text x="310" y="388" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text><text x="335" y="388" font-size="15" fill="#0f172a" text-anchor="start">talon / éclisse</text>
-  <circle cx="310" cy="414" r="15" fill="#dc2626"/><text x="310" y="420" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text><text x="335" y="420" font-size="15" fill="#0f172a" text-anchor="start">bloc / éclisse</text>
-  <text x="560" y="358" font-size="14" fill="#334155" text-anchor="start">Chaque numéro est un joint collé</text>
-  <text x="560" y="378" font-size="14" fill="#334155" text-anchor="start">qui peut lâcher. Lequel ?</text>
-  <text x="560" y="410" font-size="13" fill="#334155" text-anchor="start">Schéma simplifié, hors proportions.</text>
+  <circle cx="340" cy="350" r="15" fill="#dc2626"/><text x="340" y="356" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">4</text><text x="365" y="356" font-size="15" fill="#0f172a" text-anchor="start">rallonge de touche / table</text>
+  <circle cx="340" cy="382" r="15" fill="#dc2626"/><text x="340" y="388" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">5</text><text x="365" y="388" font-size="15" fill="#0f172a" text-anchor="start">talon / éclisse</text>
+  <circle cx="340" cy="414" r="15" fill="#dc2626"/><text x="340" y="420" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">6</text><text x="365" y="420" font-size="15" fill="#0f172a" text-anchor="start">bloc / éclisse</text>
+  <text x="640" y="358" font-size="14" fill="#334155" text-anchor="start">Chaque numéro est</text>
+  <text x="640" y="378" font-size="14" fill="#334155" text-anchor="start">un joint collé qui</text>
+  <text x="640" y="398" font-size="14" fill="#334155" text-anchor="start">peut lâcher.</text>
+  <text x="410" y="445" font-size="13" fill="#334155" text-anchor="middle">Le joint dos / éclisse près du talon peut aussi lâcher. Schéma simplifié, hors proportions.</text>
 </svg>

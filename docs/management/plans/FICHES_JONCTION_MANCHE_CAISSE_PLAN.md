@@ -1,6 +1,6 @@
 # Plan — fiches « jonction manche/caisse décollée » (talon, éclisses, bloc de manche)
 
-**Date** : 2026-11-14 · **Statut** : plan proposé, rien de rédigé · **Origine** : réparation en cours d'une guitare acoustique (Fender Tim Armstrong Hellcat) dont le talon se décolle d'une éclisse, l'autre éclisse s'ouvrant un peu, le manche ne reprenant plus exactement sa place. Avis de luthier-conseil obtenu (Opus) ; **les sources ne sont pas encore vérifiées** et l'avis reste à confirmer par un luthier avant de passer une fiche en `validee`.
+**Date** : 2026-11-14 · **Statut** : fiche de diagnostic rédigée et relue (brouillon, 2026-11-14), les autres restent à faire · **Origine** : réparation en cours d'une guitare acoustique (Fender Tim Armstrong Hellcat) dont le talon se décolle d'une éclisse, l'autre éclisse s'ouvrant un peu, le manche ne reprenant plus exactement sa place. Avis de luthier-conseil obtenu (Opus) ; **les sources ne sont pas encore vérifiées** et l'avis reste à confirmer par un luthier avant de passer une fiche en `validee`.
 
 ## 1. Constat (d'après photos, à confirmer)
 
@@ -11,9 +11,11 @@
 
 ## 2. Diagnostic (test décisif)
 
-Témoins au crayon qui traversent chaque joint (talon/éclisse, liseré du dos, trapèze → bloc, bloc → dos), photo de référence, puis accordage un ton plus bas 10-15 minutes et nouvelle photo : le trait qui se casse désigne le joint qui travaille. Compléter par : humidité (45-50 %), lampe dans la caisse, miroir/endoscope, cales d'épaisseur à trois hauteurs cordes détendues puis tendues, règle sur les frettes, mesure de la bande de liseré découverte.
+Témoins au crayon qui traversent chaque joint (talon/éclisse, liseré du dos, tenon → bloc si le tenon affleure, bloc → dos, bloc → table, bloc → éclisse ; crayon gras blanc ou ruban de masquage sur fini noir), photo de référence, puis, dans **une seule fenêtre de tension de 10 à 15 minutes** (un ton plus bas, environ 80 % de la tension), nouvelle photo : le trait qui se casse désigne le joint qui travaille. Compléter par : humidité (45-55 %), lampe dans la caisse, miroir/endoscope, cales d'épaisseur à trois hauteurs (cordes détendues, puis pendant la fenêtre de tension), règle sur les frettes (elle doit atterrir sur le haut du chevalet ; une règle trop basse indique un angle refermé, donc un neck reset même sans trait cassé), mesure de la bande de liseré découverte.
 
 ## 3. Branches de réparation
+
+Correspondance avec l'arbre de décision de la fiche : tenon/bloc → branche 2 ; bloc/dos/éclisses → branche 1 ; table → branche 3 ; angle refermé → neck reset (fiche existante) ; talon/éclisse seul → branche 1 (collage léger). Sens de rotation : sous la tension, le manche pivote vers l'avant et le jour s'ouvre côté dos.
 
 1. **Queue d'aronde saine, bloc/éclisses/dos décollés** : nettoyer, serrer à blanc (si le désalignement ne disparaît pas à blanc, ne pas le forcer), recoller à la colle aliphatique (ou colle de peau liquide fraîche), attendre 24-48 h avant la tension.
 2. **Queue d'aronde lâche** : dépose du manche, regarnissage des joues, recollage à la colle de peau ; ou conversion en manche vissé. Ne jamais injecter de colle dans une queue d'aronde lâche sans dépose, ni époxy dans ce joint.
@@ -27,11 +29,11 @@ Existant à réutiliser par renvoi : `retrouver-humidite-normale`, `nettoyer-ava
 
 | P | Slug | Titre | Catégorie | Diff. | Durée | Notes |
 |---|------|-------|-----------|:-----:|-------|-------|
-| 1 | `diagnostiquer-joint-manche-caisse` | Diagnostiquer un talon ou une éclisse qui se décolle | Structurel | 2/5 | 1 h + 24-48 h | Fiche maîtresse, arbre de décision, tests ci-dessus |
+| 1 | `diagnostiquer-joint-manche-caisse` | Diagnostiquer un talon ou une éclisse qui se décolle | Structurel | 2/5 | 1 h, après stabilisation de l'humidité | Fiche maîtresse, arbre de décision, tests ci-dessus |
 | 1 | `choisir-sa-colle` | Choisir sa colle : peau, aliphatique, époxy, cyanoacrylate | Autre | 1/5 | 15 min | Évite de répéter le tableau dans chaque fiche de collage |
 | 1 | `recoller-eclisse-dos` | Recoller un joint dos/éclisse ou table/éclisse ouvert | Structurel | 3/5 | 1-2 h + 24 h | Bois massif et contreplaqué ; cales profilées, pinces de bord |
 | 2 | `recoller-bloc-de-manche` | Recoller un bloc de manche décollé | Structurel | 4/5 | 2 h + 24 h | Serrage par la rosace, cales attachées |
-| 2 | `recoller-un-liseret` | Recoller un liseré et nettoyer ses traces | Cosmétique | 2/5 | 1 h | Test ABS/celluloïd, ruban tendu |
+| 2 | `recoller-un-lisere` | Recoller un liseré et nettoyer ses traces | Cosmétique | 2/5 | 1 h | Test ABS/celluloïd, ruban tendu |
 | 2 | `retoucher-un-vernis-noir` | Retoucher un éclat de vernis noir | Cosmétique | 3/5 | 2 h + séchage | S'entraîner sur une planchette |
 | 3 | `deposer-manche-colle` | Déposer un manche collé (vapeur/chaleur) | Structurel | 5/5 | demi-journée | Remplace « Neck reset d'un manche collé » des fiches envisagées |
 | 3 | `regarnir-queue-d-aronde` | Regarnir et recoller une queue d'aronde | Structurel | 4/5 | — | Suite de la dépose |
@@ -53,6 +55,6 @@ Fusionnée d'abord dans la fiche de diagnostic (sortir seulement si une 3e fiche
 ## 6. Étapes proposées
 
 1. Valider ce plan (et l'ordre de priorité).
-2. Faire le diagnostic sur la guitare (tests T0 à T8) : le résultat dit quelles fiches de priorité 1-2 sont utiles tout de suite ; la branche 2 (priorité 3) ne sera écrite que si elle est nécessaire.
+2. Faire le diagnostic sur la guitare (étapes 1 à 8 de la fiche) : le résultat dit quelles fiches de priorité 1-2 sont utiles tout de suite ; la branche 2 (priorité 3) ne sera écrite que si elle est nécessaire.
 3. Rédiger les fiches de priorité 1 au fil de la réparation, en documentant par des photos ; passage en `en_revision` puis `validee` après la réparation et, si besoin, relecture par le luthier.
 4. Étape 3 du protocole du projet (journal, TODO, index README) à la validation.

@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 390" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 395" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
   <title id="t">Mesurer le jour du joint à trois hauteurs</title>
   <desc id="d">Vue de côté du joint entre le talon et l'éclisse : un jour en coin, plus large côté dos. Trois points de mesure aux cales d'épaisseur, du côté de la table au côté du dos.</desc>
-  <rect width="820" height="390" fill="#f8fafc"/>
+  <rect width="820" height="395" fill="#f8fafc"/>
 <text x="410" y="34" font-size="16" fill="#0f172a" font-weight="bold" text-anchor="middle">Mesurer le jour du joint talon / éclisse à trois hauteurs</text>
   <rect x="150" y="70" width="190" height="260" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
   <polygon points="342,70 562,70 562,330 372,330" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
@@ -17,14 +17,16 @@
   <text x="60" y="210" font-size="14" fill="#334155" text-anchor="start">milieu</text>
   <text x="60" y="310" font-size="14" fill="#334155" text-anchor="start">côté dos</text>
   <path d="M115 120 L115 295" stroke="#475569" stroke-width="2" fill="none"/><polygon points="115,295 109.5,282.1 120.5,282.1" fill="#475569"/>
-  <text x="660" y="105" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Exemple de relevé</text>
-  <text x="660" y="130" font-size="14" fill="#334155" text-anchor="start">1 : 0,2 mm</text>
-  <text x="660" y="155" font-size="14" fill="#334155" text-anchor="start">2 : 0,6 mm</text>
-  <text x="660" y="180" font-size="14" fill="#334155" text-anchor="start">3 : 1,1 mm</text>
-  <text x="660" y="215" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Plus large côté dos :</text>
-  <text x="660" y="237" font-size="14" fill="#334155" text-anchor="start">le manche a basculé.</text>
-  <text x="660" y="270" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Égal partout :</text>
-  <text x="660" y="292" font-size="14" fill="#334155" text-anchor="start">translation ou</text>
-  <text x="660" y="312" font-size="14" fill="#334155" text-anchor="start">bloc arraché.</text>
-  <text x="410" y="365" font-size="14" fill="#334155" text-anchor="middle">Relever à droite et à gauche, cordes détendues puis tendues (ou un ton plus bas).</text>
+  <text x="655" y="105" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Exemple de relevé</text>
+  <text x="655" y="130" font-size="14" fill="#334155" text-anchor="start">1 : 0,2 mm</text>
+  <text x="655" y="155" font-size="14" fill="#334155" text-anchor="start">2 : 0,5 mm</text>
+  <text x="655" y="180" font-size="14" fill="#334155" text-anchor="start">3 : 0,9 mm</text>
+  <text x="655" y="215" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Plus large côté dos :</text>
+  <text x="655" y="235" font-size="13" fill="#334155" text-anchor="start">le manche a pu pivoter</text>
+  <text x="655" y="253" font-size="13" fill="#334155" text-anchor="start">vers l'avant (angle</text>
+  <text x="655" y="271" font-size="13" fill="#334155" text-anchor="start">refermé), à confirmer.</text>
+  <text x="655" y="305" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Égal partout : piste</text>
+  <text x="655" y="325" font-size="13" fill="#334155" text-anchor="start">à vérifier (joint ouvert,</text>
+  <text x="655" y="343" font-size="13" fill="#334155" text-anchor="start">sec, déplacement).</text>
+  <text x="410" y="370" font-size="14" fill="#334155" text-anchor="middle">Relever à droite et à gauche, pendant la fenêtre de tension de l'étape 5.</text>
 </svg>
