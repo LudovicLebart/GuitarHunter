@@ -61,8 +61,8 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined
           if (/node_modules\/(react|react-dom|scheduler|react-is|use-sync-external-store)\//.test(id)) return 'vendor-react'
-          if (id.includes('firebase') || id.includes('@firebase')) return 'vendor-firebase'
-          if (id.includes('recharts') || id.includes('/d3-') || id.includes('victory-vendor')) return 'vendor-charts'
+          if (/node_modules\/(firebase|@firebase)\//.test(id)) return 'vendor-firebase'
+          if (/node_modules\/(recharts|victory-vendor|d3-[^/]+|internmap|decimal\.js-light|eventemitter3|immer|redux|react-redux|reselect|@reduxjs|es-toolkit|tiny-invariant)\//.test(id)) return 'vendor-charts'
           return undefined
         },
       },

@@ -1,21 +1,23 @@
-import React, { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useRef, lazy } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart, AlertTriangle } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
 import FilterDrawer from './FilterDrawer';
-// Chargés à la demande : stats (recharts), carte, configuration, admin et aide ne pèsent pas sur le premier affichage.
-const StatsView = lazy(() => import('./StatsView'));
-const ConfigPanel = lazy(() => import('./ConfigPanel'));
-const MapView = lazy(() => import('./MapView'));
-const HelpOverlay = lazy(() => import('./HelpOverlay'));
-const AdminDashboard = lazy(() => import('./AdminDashboard'));
-const LazyFallback = () => <div className="py-20 text-center text-slate-500 text-xs font-bold uppercase tracking-widest">Chargement…</div>;
 import SearchSuggestions, { createSuggestionKeyHandler } from './SearchSuggestions';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
 // Contexts & hooks
 import { useDealsContext } from '../context/DealsContext';
 import { useBotConfigContext } from '../context/BotConfigContext';
+
+import LazyBoundary from './LazyBoundary';
+
+// Chargés à la demande : stats (recharts), carte, configuration, admin et aide ne pèsent pas sur le premier affichage.
+const StatsView = lazy(() => import('./StatsView'));
+const ConfigPanel = lazy(() => import('./ConfigPanel'));
+const MapView = lazy(() => import('./MapView'));
+const HelpOverlay = lazy(() => import('./HelpOverlay'));
+const AdminDashboard = lazy(() => import('./AdminDashboard'));
 
 // Remove obsolete buildDealCounts
 // ============================================================
@@ -156,6 +158,9 @@ const MapViewOverlay = ({ deals, renderDealCard, selectedDeal, onDealSelect, onC
 const Dashboard = ({ onClose }) => {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [showConfig, setShowConfig] = useState(false);
+    // Le panneau (chargé à la demande) reste monté après sa première ouverture : son état (agrandi, journaux) survit à la fermeture.
+    const configMounted = useRef(false);
+    if (showConfig) configMounted.current = true;
     const [viewMode, setViewMode] = useState('LIST');
     const [openSections, setOpenSections] = useState({ radar: true, market: true, archive: false });
     const [showHelp, setShowHelp] = useState(false);
@@ -388,7 +393,7 @@ const Dashboard = ({ onClose }) => {
                 onOpenHelp={() => setShowHelp(true)}
             />
 
-            {showAdmin && <Suspense fallback={null}><AdminDashboard onClose={() => setShowAdmin(false)} /></Suspense>}
+            {showAdmin && <LazyBoundary overlay onClose={() => setShowAdmin(false)}><AdminDashboard onClose={() => setShowAdmin(false)} /></LazyBoundary>}
 
             {/* Error Banner */}
             {error && (
@@ -411,7 +416,7 @@ const Dashboard = ({ onClose }) => {
                 </div>
             )}
 
-            {showHelp && <Suspense fallback={null}><HelpOverlay onClose={() => setShowHelp(false)} /></Suspense>}
+            {showHelp && <LazyBoundary overlay onClose={() => setShowHelp(false)}><HelpOverlay onClose={() => setShowHelp(false)} /></LazyBoundary>}
 
             <FilterDrawer
                 open={drawerOpen}
@@ -426,7 +431,7 @@ const Dashboard = ({ onClose }) => {
             />
 
             {/* Real ConfigPanel — opens via gear icon */}
-            {showConfig && <Suspense fallback={null}><ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} onOpenAdmin={() => { setShowConfig(false); setShowAdmin(true); }} /></Suspense>}
+            {configMounted.current && <LazyBoundary overlay hidden={!showConfig} onClose={() => setShowConfig(false)}><ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} onOpenAdmin={() => { setShowConfig(false); setShowAdmin(true); }} /></LazyBoundary>}
 
             <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8">
 
@@ -521,9 +526,9 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <Suspense fallback={<LazyFallback />}><StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} /></Suspense>
+                    <LazyBoundary><StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} /></LazyBoundary>
                 ) : viewMode === 'MAP' ? (
-                    <Suspense fallback={<LazyFallback />}>
+                    <LazyBoundary>
                         <MapViewOverlay
                             deals={totalFilteredDeals}
                             renderDealCard={renderDealCard}
@@ -531,7 +536,7 @@ const Dashboard = ({ onClose }) => {
                             onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
                             onClearSelection={() => dealActions.handleSelectDeal(null)}
                         />
-                    </Suspense>
+                    </LazyBoundary>
                 ) : (
                     <>
                         {/* ─── Sections ─── */}
