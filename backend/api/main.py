@@ -327,7 +327,7 @@ async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depen
 # silencieusement "index" comme un deal_id (même piège déjà rencontré sur PATCH .../order vs
 # .../{item_id}, tranche 4 restauration — voir JOURNAL.md).
 @app.get("/deals/index")
-async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), fmt: Optional[str] = Query(None, alias="format"), uid: str = Depends(get_current_uid)):
+async def list_deals_index(request: Request, status_filter: Optional[str] = Query(None, alias="status"), favorite: bool = False, perf: bool = False, ids: Optional[str] = Query(None), fmt: Optional[str] = Query(None, alias="format"), tier: Optional[str] = Query(None), uid: str = Depends(get_current_uid)):
     """Version allégée de `GET /deals` (2026-09-26) : exclut les colonnes lourdes (images,
     texte de raisonnement IA, overrides détaillés) — mesuré à 34 Mo/7210 annonces sur `GET /deals`,
     téléchargés et parsés en entier à chaque chargement de page. `apiService.js::onDealsIndexUpdate`
@@ -338,17 +338,22 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     `?format=columnar` (2026-11-04) : `{"cols": [...], "rows": [[...]]}` au lieu d'un tableau d'objets
     (sans les noms de clés répétés par ligne) ; sans ce paramètre, l'ancienne forme est inchangée.
 
+    `?tier=live|archive` (2026-11-17) : une moitié de l'index (voir `deals_repo._ARCHIVE_CONDITION_SQL`) ; le client lit
+    `live` (écran d'accueil, ~200 annonces) puis `archive` en arrière-plan. Sans ce paramètre, tout l'index.
+
     `?perf=1` (2026-10-13, diagnostic opt-in) : réponse mesurée — en-têtes `Server-Timing` (`sql`,
     `ser`, `raw`, `rows`) et une ligne de log. Sans ce paramètre, chemin et en-têtes inchangés."""
     pool = get_pool()
     if fmt not in (None, "objects", "columnar"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "format : 'columnar' ou 'objects'.")
     columnar = fmt == "columnar"
+    if tier is not None and (tier not in deals_repo.INDEX_TIERS or ids is not None):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "tier : 'live' ou 'archive' (incompatible avec ids).")
     # ETag/304 (2026-11-04) : seulement pour la lecture COMPLÈTE sans filtre ni diagnostic. La version est lue AVANT le SQL :
     # un changement survenu pendant la lecture donne une version plus récente au prochain appel, jamais un 304 à tort.
     etag = None
     if ids is None and status_filter is None and not favorite and not perf:
-        etag = index_version.etag_for(uid, "col" if columnar else "obj")
+        etag = index_version.etag_for(uid, ("col" if columnar else "obj") + (f"-{tier}" if tier else ""))
     cache_headers = {"ETag": etag, "Cache-Control": "private, no-cache", "Vary": "Accept-Encoding"} if etag else {}
     if etag and index_version.matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=cache_headers)
@@ -362,7 +367,7 @@ async def list_deals_index(request: Request, status_filter: Optional[str] = Quer
     if perf and not await asyncio.to_thread(is_admin_uid, uid):
         perf = False
     t0 = time.perf_counter()
-    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite, ids=id_list)
+    rows = await deals_repo.list_deals_index(pool, uid, status=status_filter, favorite_only=favorite, ids=id_list, tier=tier)
     if not perf:
         response = (await rows_json_response(request, rows, columnar))[0]
         response.headers.update(cache_headers)

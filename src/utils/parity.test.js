@@ -26,3 +26,10 @@ test('slug : même motif côté serveur (guitar_knowledge.FICHE_SLUG_RE) et côt
     assert.ok(m, 'FICHE_SLUG_RE introuvable côté Python');
     assert.equal(FICHE_SLUG_RE.source, `^${m[1]}$`);
 });
+
+test('archive : mêmes verdicts côté serveur (lots de /deals/index) et côté site (ARCHIVE_GROUP)', async () => {
+    const { ARCHIVE_GROUP } = await import('../constants.js');
+    const m = /^ARCHIVE_VERDICTS = \[([^\]]*)\]/m.exec(read('backend/api/deals_repo.py'));
+    assert.ok(m, 'ARCHIVE_VERDICTS introuvable côté Python');
+    assert.deepEqual([...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort(), [...ARCHIVE_GROUP].sort());
+});

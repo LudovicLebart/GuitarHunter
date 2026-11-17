@@ -173,6 +173,7 @@ const Dashboard = ({ onClose }) => {
     // ── Real data & actions ──────────────────────────────────
     const {
         loading,
+        archivePending,
         deals,
         filteredDeals,
         totalFilteredDeals = [],
@@ -393,6 +394,13 @@ const Dashboard = ({ onClose }) => {
                 onOpenHelp={() => setShowHelp(true)}
             />
 
+            {archivePending && !loading && (
+                <div className="w-full bg-blue-500/10 border-b border-blue-500/20 py-2 px-4 text-center text-[11px] font-bold uppercase tracking-wide text-blue-300">
+                    <RefreshCw size={12} className="inline animate-spin mr-2 -mt-0.5" />
+                    Chargement de l'archive (vendues, rejetées, trop chères…) — compteurs et stats incomplets pour l'instant
+                </div>
+            )}
+
             {showAdmin && <LazyBoundary overlay onClose={() => setShowAdmin(false)}><AdminDashboard onClose={() => setShowAdmin(false)} /></LazyBoundary>}
 
             {/* Error Banner */}
@@ -526,7 +534,7 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <LazyBoundary><StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} /></LazyBoundary>
+                    <LazyBoundary><StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} partial={archivePending} /></LazyBoundary>
                 ) : viewMode === 'MAP' ? (
                     <LazyBoundary>
                         <MapViewOverlay

@@ -327,6 +327,76 @@ class TestDealsAPI(unittest.TestCase):
 
 
 @unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
+class TestDealsIndexTiers(unittest.TestCase):
+    """Lots de l'index (2026-11-17) : `?tier=live` (écran d'accueil) et `?tier=archive` (vendu, rejeté, trop cher…)."""
+    UID = "test-uid-tiers-1"
+    # id -> (champs de guitar_deals, favori, rejet manuel, lot attendu)
+    CASES = {
+        "tier-radar": ({"verdict": "PEPITE"}, False, False, "live"),
+        "tier-fair": ({"verdict": "FAIR"}, False, False, "live"),
+        "tier-error": ({"verdict": "ERROR_GATEKEEPER"}, False, False, "live"),
+        "tier-null-verdict": ({"verdict": None}, False, False, "live"),
+        "tier-bad-deal": ({"verdict": "BAD_DEAL"}, False, False, "archive"),
+        "tier-rejected-item": ({"verdict": "REJECTED_ITEM"}, False, False, "archive"),
+        "tier-not-promoted": ({"verdict": "NOT_PROMOTED"}, False, False, "archive"),
+        "tier-sold": ({"status": "sold", "verdict": "FAIR"}, False, False, "archive"),
+        "tier-auto-rejected": ({"status": "rejected"}, False, False, "archive"),
+        "tier-manual-rejected": ({"verdict": "PEPITE"}, False, True, "archive"),
+        "tier-sold-favorite": ({"status": "sold", "verdict": "SOLD"}, True, False, "live"),
+        "tier-bad-deal-favorite": ({"verdict": "BAD_DEAL"}, True, False, "live"),
+        "tier-purchased": ({"status": "sold", "verdict": "SOLD", "is_purchased": True}, False, False, "live"),
+        "tier-reanalysis": ({"status": "analyzing", "verdict": "BAD_DEAL"}, False, False, "live"),
+        "tier-offsearch-pepite": ({"verdict": "NOT_PROMOTED", "gatekeeper_verdict": "PEPITE"}, False, False, "live"),
+    }
+
+    def setUp(self):
+        app.dependency_overrides[get_current_uid] = lambda: self.UID
+        self.client = TestClient(app)
+        self.client.__enter__()
+        async def seed():
+            for deal_id, (fields, favorite, rejected, _tier) in self.CASES.items():
+                await _seed_deal(deal_id, self.UID, **fields)
+                if favorite or rejected:
+                    conn = await asyncpg.connect(DATABASE_URL)
+                    try:
+                        await conn.execute(
+                            "INSERT INTO user_deal_state (user_id, deal_id, is_favorite, is_rejected) VALUES ($1, $2, $3, $4) "
+                            "ON CONFLICT (user_id, deal_id) DO UPDATE SET is_favorite = EXCLUDED.is_favorite, is_rejected = EXCLUDED.is_rejected",
+                            self.UID, deal_id, favorite, rejected)
+                    finally:
+                        await conn.close()
+        asyncio.run(seed())
+
+    def tearDown(self):
+        app.dependency_overrides.clear()
+        self.client.__exit__(None, None, None)
+        asyncio.run(_cleanup(deal_ids=list(self.CASES), user_ids=[self.UID]))
+
+    def _ids(self, tier=None):
+        url = "/deals/index" + (f"?tier={tier}" if tier else "")
+        return {r["id"] for r in self.client.get(url).json()}
+
+    def test_every_deal_is_in_exactly_one_tier(self):
+        everything, live, archive = self._ids(), self._ids("live"), self._ids("archive")
+        self.assertFalse(live & archive, "une annonce ne doit pas être dans les deux lots")
+        self.assertEqual(live | archive, everything, "aucune annonce ne doit manquer")
+        self.assertTrue(set(self.CASES) <= everything)
+
+    def test_tier_membership_rules(self):
+        live, archive = self._ids("live"), self._ids("archive")
+        for deal_id, (_f, _fav, _rej, tier) in self.CASES.items():
+            self.assertIn(deal_id, live if tier == "live" else archive, f"{deal_id} devrait être dans le lot {tier}")
+
+    def test_columnar_tier_and_invalid_tier(self):
+        body = self.client.get("/deals/index?format=columnar&tier=live").json()
+        ids = {row[body["cols"].index("id")] for row in body["rows"]}
+        self.assertIn("tier-radar", ids)
+        self.assertNotIn("tier-bad-deal", ids)
+        self.assertEqual(self.client.get("/deals/index?tier=nope").status_code, 400)
+        self.assertEqual(self.client.get("/deals/index?tier=live&ids=a").status_code, 400)
+
+
+@unittest.skipUnless(_pg_reachable(), f"Postgres non joignable via DATABASE_URL ({DATABASE_URL}) depuis cet environnement.")
 class TestDealsWebSocket(unittest.TestCase):
     """Test séparé de `TestDealsAPI` (pas de `TestClient`) : le pool asyncpg créé par le
     lifespan du TestClient est lié à SA boucle asyncio interne — un vrai serveur uvicorn

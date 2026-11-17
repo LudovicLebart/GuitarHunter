@@ -105,15 +105,38 @@ async def list_deals(pool: asyncpg.Pool, user_id: str, status: str | None = None
     return await pool.fetch(query, *params)
 
 
+# Lots de l'index (2026-11-17) : « vivant » (ce que l'écran d'accueil affiche) puis « archive » (vendu, rejeté, trop cher…,
+# ~95 % des lignes), chargée en arrière-plan. MÊME liste que `ARCHIVE_GROUP` de `src/constants.js` (parité testée par
+# `src/utils/parity.test.js`) : à modifier des deux côtés.
+ARCHIVE_VERDICTS = ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA", "REJECTED", "SOLD", "NOT_PROMOTED"]
+INDEX_TIERS = ("live", "archive")
+
+# Condition « archive » : booléen JAMAIS nul (COALESCE partout) — `NOT (...)` donne alors exactement le lot « vivant », donc
+# chaque annonce est dans un lot et un seul. Reste vivant, même avec un verdict d'archive : un favori, un achat, une
+# (ré)analyse en cours, et une annonce mise de côté que le Portier jugeait pépite (filtre « Pépites », `isOffSearchPepite`).
+_ARCHIVE_CONDITION_SQL = """(
+        NOT COALESCE(uds.is_favorite, false)
+        AND NOT COALESCE(gd.is_purchased, false)
+        AND COALESCE(gd.status, '') NOT IN ('analyzing', 'analyzing_expert')
+        AND NOT (COALESCE(gd.verdict, '') = 'NOT_PROMOTED' AND COALESCE(gd.gatekeeper_verdict, '') = 'PEPITE')
+        AND (COALESCE(uds.is_rejected, false)
+             OR COALESCE(gd.status, '') IN ('sold', 'rejected')
+             OR COALESCE(gd.verdict, '') = ANY({verdicts}::text[]))
+    )"""
+
+
 async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None = None, favorite_only: bool = False,
-                           ids: list[str] | None = None):
+                           ids: list[str] | None = None, tier: str | None = None):
     """Version allégée de `list_deals()` (colonnes lourdes exclues, voir `_HEAVY_DEAL_COLUMNS`,
     vignette unique via `_LIGHT_THUMBNAIL_SQL`) — même filtrage/tri, pour peupler la liste sans
     le poids des documents complets.
 
     `ids` (2026-11-03, synchronisation incrémentale) : ne renvoie que ces annonces — et seulement si elles
     sont VISIBLES pour l'utilisateur (la jointure `user_deal_matches` reste) ; un id absent du résultat veut
-    donc dire « supprimé ou plus visible », ce que le client déduit pour le retirer de sa liste."""
+    donc dire « supprimé ou plus visible », ce que le client déduit pour le retirer de sa liste.
+
+    `tier` (2026-11-17) : `live` ou `archive`, les deux moitiés disjointes de l'index (voir `_ARCHIVE_CONDITION_SQL`) ;
+    absent, tout l'index."""
     query = f"""
         SELECT {_LIGHT_DEAL_COLUMNS_SQL}, {_USER_SALE_SQL}, {_restoration_spent_sql('$1')}, {_LIGHT_THUMBNAIL_SQL}, {_PREFERENCE_SELECT}
         FROM guitar_deals gd
@@ -130,6 +153,12 @@ async def list_deals_index(pool: asyncpg.Pool, user_id: str, status: str | None 
         conditions.append(f"gd.id = ANY(${len(params)}::text[])")
     if favorite_only:
         conditions.append("COALESCE(uds.is_favorite, false) = true")
+    if tier is not None:
+        if tier not in INDEX_TIERS:
+            raise ValueError(f"tier : {INDEX_TIERS}")
+        params.append(ARCHIVE_VERDICTS)
+        archive = _ARCHIVE_CONDITION_SQL.format(verdicts=f"${len(params)}")
+        conditions.append(archive if tier == "archive" else f"NOT {archive}")
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
     # Pas d'ORDER BY (2026-11-03) : le client retrie toutes les vues et indexe par id (l'ordre était déjà

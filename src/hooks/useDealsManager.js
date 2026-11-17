@@ -51,6 +51,8 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [loadedDeals, setLoadedDeals] = useState({});
   const [visibleCount, setVisibleCount] = useState(30);
   const [loading, setLoading] = useState(true);
+  // Lot « archive » (vendu, rejeté, trop cher…) pas encore arrivé : compteurs et stats incomplets (voir apiService.onDealsIndexUpdate).
+  const [archivePending, setArchivePending] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [dbStatus, setDbStatus] = useState({ status: 'pending', msg: 'En attente' });
   // Ref pour tracker les IDs en cours de fetch et éviter les double-appels réseau au scroll rapide
@@ -140,8 +142,9 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     if (!user) return;
     const uid = user.uid;
     const unsubscribe = onDealsIndexUpdate(
-      (indexMap, count) => {
+      (indexMap, count, meta) => {
         setDealsIndexMap(indexMap);
+        setArchivePending(!!meta?.archivePending);
         setLoading(false);
         setDbStatus({ status: 'success', msg: `${count} annonces` });
         setError(null); // efface un bandeau d'erreur laissé par une coupure désormais résolue
@@ -761,6 +764,7 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   return {
     deals,
     loading,
+    archivePending,
     dbStatus,
     loadedDeals,
     selectedDeal: finalSelectedDeal,

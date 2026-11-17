@@ -85,7 +85,7 @@ const resolveCategoryLabel = (classification) => {
     return CATEGORY_LABELS[key] || (path[0] === 'guitare' ? 'Autre Guitare' : path[0]);
 };
 
-const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
+const StatsView = ({ deals, allDeals, loadedDeals = {}, partial = false }) => {
     const { user } = useAuth();
 
     // ─── Jeu de données unique : l'inventaire complet, jamais l'onglet actif ──
@@ -503,6 +503,12 @@ const StatsView = ({ deals, allDeals, loadedDeals = {} }) => {
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+            {partial && (
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-xs font-bold text-blue-300">
+                    Statistiques partielles : l'archive (annonces vendues, rejetées, trop chères…) est encore en cours de chargement.
+                </div>
+            )}
 
             <div className="flex items-center justify-between">
                 <div>

@@ -61,6 +61,7 @@ import { parseSseBuffer } from '../utils/claudeChat';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
 import { hashShape, loadIndexCache, saveIndexCache } from '../utils/indexCache';
+import { combineWithProvisional, combinedEtag, joinTiers } from '../utils/indexTiers';
 import { nextIndexRetryDelayMs, shouldReportIndexError, shouldRetryIndex } from '../utils/retryBackoff';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
@@ -587,6 +588,45 @@ export const onCommandUpdate = (commandId, callback, _userId) => {
 // Empreinte du code de `dealFromRow` : un changement de forme des objets invalide le cache IndexedDB (utils/indexCache.js).
 const INDEX_SHAPE = hashShape(dealFromRow);
 
+// Lit un lot de l'index (`live` ou `archive`) : lignes décodées, annonces mappées par id, ETag, et mesures si `?perf=1`.
+async function readIndexTier(tier, perfOn) {
+  const t0 = performance.now();
+  let tHeaders = t0;
+  let serverTiming = null;
+  let etag = null;
+  const payload = await apiFetch(`/deals/index?format=columnar&tier=${tier}${perfOn ? '&perf=1' : ''}`, {
+    onResponse: (resp) => {
+      etag = resp.headers.get('etag'); // identique après un 304 (le navigateur rejoue la réponse en cache)
+      if (perfOn) { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); }
+    },
+  });
+  const t1 = performance.now();
+  const rows = decodeIndexRows(payload);
+  const map = {};
+  rows.forEach((row) => { map[row.id] = dealFromRow(row); });
+  let perf = null;
+  if (perfOn) {
+    perf = {
+      tier,
+      rows: rows.length,
+      toHeadersMs: Math.round(tHeaders - t0), // jeton Firebase + attente du serveur (SQL + sérialisation)
+      bodyAndParseMs: Math.round(t1 - tHeaders), // téléchargement du corps + parse JSON
+      mapMs: Math.round(performance.now() - t1), // reconstruction des objets (`dealFromRow`)
+      serverTiming,
+    };
+    try {
+      const entry = performance.getEntriesByType('resource').filter((e) => e.startTime >= t0 && e.name.includes('/deals/index')).pop();
+      if (entry) Object.assign(perf, {
+        ttfbMs: Math.round(entry.responseStart - entry.requestStart),
+        downloadMs: Math.round(entry.responseEnd - entry.responseStart),
+        encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
+      });
+      performance.clearResourceTimings(); // le tampon (≈250 entrées) se remplit sinon et ne renvoie plus l'entrée courante
+    } catch { /* API Performance indisponible : mesure partielle */ }
+  }
+  return { rows, map, etag, perf };
+}
+
 export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // /deals/index (2026-09-26, remplace /deals) : colonnes lourdes exclues (images, texte de
   // raisonnement IA) — mesuré à 34 Mo/7210 annonces sur /deals, téléchargés et parsés en entier
@@ -610,6 +650,7 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // ids notifiés depuis la dernière lecture ; seule une lecture COMPLÈTE (premier chargement, `bulk`, reconnexion,
   // retour après une longue absence, échec, relecture de sécurité) relit les ~8 400 annonces.
   let currentMap = null;
+  let cachedMap = null; // dernier index du disque (affiché en attendant le réseau) : sert de base provisoire à l'archive
   let lastSavedEtag = null;
   let fullNeeded = true;
   const pendingIds = new Set();
@@ -635,49 +676,33 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
         onUpdate(currentMap, Object.keys(currentMap).length);
         return;
       }
-      // Diagnostic opt-in (2026-10-13) : `?perf=1` dans l'URL de la page, ou
-      // `localStorage.gh_perf = '1'` — sans cela, aucune mesure ni en-tête supplémentaire.
+      // Lecture complète en deux lots (2026-11-17) : `live` (écran d'accueil, ~200 annonces) s'affiche dès son arrivée, puis
+      // `archive` (vendu, rejeté, trop cher…, l'essentiel des lignes) est lue ensuite. Lecture déjà affichée (relecture
+      // périodique, reconnexion, rafale) : les deux lots sont lus puis émis ENSEMBLE, une seule mise à jour de l'interface.
       const perfOn = isPerfEnabled();
-      const t0 = performance.now();
-      let tHeaders = t0;
-      let serverTiming = null;
-      let etag = null;
-      const payload = await apiFetch(perfOn ? '/deals/index?format=columnar&perf=1' : '/deals/index?format=columnar', {
-        onResponse: (resp) => {
-          etag = resp.headers.get('etag'); // identique après un 304 (le navigateur rejoue la réponse en cache)
-          if (perfOn) { tHeaders = performance.now(); serverTiming = resp.headers.get('server-timing'); }
-        },
-      });
+      const firstLoad = currentMap === null;
+      const provisional = currentMap ?? cachedMap;
+      const live = await readIndexTier('live', perfOn);
       if (destroyed) return;
-      const t1 = performance.now();
-      const rows = decodeIndexRows(payload);
-      const merged = {};
-      rows.forEach((row) => { merged[row.id] = dealFromRow(row); });
+      if (firstLoad) {
+        currentMap = combineWithProvisional(provisional, live.map);
+        consecutiveFailures = 0;
+        onUpdate(currentMap, Object.keys(currentMap).length, { archivePending: !provisional });
+      }
+      const archive = await readIndexTier('archive', perfOn);
+      if (destroyed) return;
+      const merged = joinTiers(live.map, archive.map);
       if (perfOn) {
-        const perf = {
-          rows: rows.length,
-          toHeadersMs: Math.round(tHeaders - t0), // jeton Firebase + attente du serveur (SQL + sérialisation)
-          bodyAndParseMs: Math.round(t1 - tHeaders), // téléchargement du corps + parse JSON
-          mapMs: Math.round(performance.now() - t1), // reconstruction des objets (`dealFromRow`)
-          serverTiming,
-        };
-        try {
-          const entry = performance.getEntriesByType('resource').filter((e) => e.startTime >= t0 && e.name.includes('/deals/index')).pop();
-          if (entry) Object.assign(perf, {
-            ttfbMs: Math.round(entry.responseStart - entry.requestStart),
-            downloadMs: Math.round(entry.responseEnd - entry.responseStart),
-            encodedKB: entry.encodedBodySize ? Math.round(entry.encodedBodySize / 1024) : null,
-          });
-          performance.clearResourceTimings(); // le tampon (≈250 entrées) se remplit sinon et ne renvoie plus l'entrée courante
-        } catch { /* API Performance indisponible : mesure partielle */ }
+        const perf = { ...live.perf, rows: live.rows.length + archive.rows.length, archive: archive.perf };
         window.__dealsIndexPerf = perf;
         console.info('[perf] /deals/index', perf);
       }
       consecutiveFailures = 0;
       currentMap = merged;
-      onUpdate(merged, rows.length);
+      onUpdate(merged, live.rows.length + archive.rows.length, { archivePending: false });
       // Affichage immédiat à la prochaine ouverture (voir utils/indexCache.js). Pas de réécriture (clonage de ~8 400
-      // objets) quand le serveur a confirmé le même ETag que la dernière écriture : le contenu n'a pas changé.
+      // objets) quand le serveur a confirmé les mêmes ETag que la dernière écriture : le contenu n'a pas changé.
+      const etag = combinedEtag(live.etag, archive.etag);
       if (!etag || etag !== lastSavedEtag) {
         lastSavedEtag = etag;
         const save = () => saveIndexCache(_userId, INDEX_SHAPE, merged);
@@ -712,7 +737,8 @@ export const onDealsIndexUpdate = (onUpdate, onError, _userId) => {
   // (la première lecture réseau reste COMPLÈTE : le cache peut contenir des annonces supprimées depuis).
   loadIndexCache(_userId, INDEX_SHAPE).then((cached) => {
     if (!cached || destroyed || currentMap !== null) return;
-    onUpdate(cached, Object.keys(cached).length);
+    cachedMap = cached;
+    onUpdate(cached, Object.keys(cached).length, { archivePending: false });
   });
   fetchAndEmit();
   const closeSocket = openChangeSocket('/ws/deals', scheduleFetch, onError);
