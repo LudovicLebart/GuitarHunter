@@ -169,3 +169,12 @@ test('safeUrl : refuse les schémas dangereux et les URL protocole-relatives, ac
         assert.equal(safeUrl(good), good, good);
     }
 });
+
+test('catégories : cosmetique (ancienne valeur) reste affichable mais n’est plus proposé', async () => {
+    const { RESTORATION_CATEGORIES, RESTORATION_CATEGORY_LABELS, restorationCategoryLabel } = await import('../constants/restorationPlan.js');
+    assert.ok(!RESTORATION_CATEGORIES.includes('cosmetique'));
+    assert.ok(!('cosmetique' in RESTORATION_CATEGORY_LABELS));
+    assert.equal(restorationCategoryLabel('cosmetique'), 'Finition et cosmétique');
+    assert.equal(restorationCategoryLabel('manche'), 'Manche et frettes');
+    assert.equal(restorationCategoryLabel('inconnue'), 'inconnue');
+});

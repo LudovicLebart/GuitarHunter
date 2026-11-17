@@ -1,7 +1,7 @@
 ---
 slug: nom-de-la-fiche            # = nom du fichier sans .md ; sert d'adresse (#/fiches/<slug>)
 titre: Titre de la fiche
-categorie: reglage               # structurel | cosmetique | electronique | quincaillerie | reglage | autre
+categorie: reglage               # evaluation | reglage | manche | structurel | finition | electronique | quincaillerie | lutherie-base | autre
 difficulte: 1                    # 1 (débutant) à 5 (luthier confirmé)
 duree: 30 min
 statut: brouillon                # brouillon | en_revision | validee

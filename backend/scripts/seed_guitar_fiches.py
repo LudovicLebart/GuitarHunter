@@ -43,7 +43,7 @@ from backend.scripts.seed_guitar_knowledge import SeedError  # noqa: E402
 FICHES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "docs", "fiches")
 # Mêmes valeurs que `RESTORATION_CATEGORIES` (src/constants/restorationPlan.js) : une fiche se range dans la
 # catégorie de l'étape de restauration à laquelle elle sert.
-CATEGORIES = {"structurel", "cosmetique", "electronique", "quincaillerie", "reglage", "autre"}
+CATEGORIES = {"evaluation", "reglage", "manche", "structurel", "finition", "electronique", "quincaillerie", "lutherie-base", "autre"}
 STATUTS = {"brouillon", "en_revision", "validee"}
 LIST_KEYS = {"alias"}
 REQUIRED_KEYS = ("slug", "titre", "categorie", "difficulte", "duree", "statut", "revision")

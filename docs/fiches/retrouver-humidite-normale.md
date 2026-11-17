@@ -1,7 +1,7 @@
 ---
 slug: retrouver-humidite-normale
 titre: Laisser une guitare retrouver une humidité normale
-categorie: structurel
+categorie: lutherie-base
 difficulte: 1
 duree: une nuit (méthode du sac) à plusieurs semaines (instrument très sec)
 statut: brouillon

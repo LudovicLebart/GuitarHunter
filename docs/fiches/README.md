@@ -29,19 +29,19 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | Fiche | Catégorie | Difficulté | Statut |
 |-------|-----------|:----------:|--------|
 | [Ajuster l'action](reglage-action.md) | Réglage | 2/5 | brouillon |
-| [Ajuster le truss rod](reglage-truss-rod.md) | Réglage | 2/5 | brouillon |
-| [Débloquer un truss rod coincé](debloquer-truss-rod.md) | Réglage | 3/5 | brouillon |
-| [Mesurer le relief du manche](mesurer-relief-manche.md) | Réglage | 1/5 | brouillon |
-| [Régler la hauteur des cordes au sillet de tête](regler-sillet-de-tete.md) | Réglage | 3/5 | brouillon |
+| [Ajuster le truss rod](reglage-truss-rod.md) | Manche | 2/5 | brouillon |
+| [Débloquer un truss rod coincé](debloquer-truss-rod.md) | Manche | 3/5 | brouillon |
+| [Mesurer le relief du manche](mesurer-relief-manche.md) | Diagnostic et évaluation | 1/5 | brouillon |
+| [Régler la hauteur des cordes au sillet de tête](regler-sillet-de-tete.md) | Manche | 3/5 | brouillon |
 | [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md) | Réglage | 3/5 | brouillon |
-| [Réparer une fissure dans la table](reparation-fissure-table.md) | Structurel | 3/5 (2 à 5 selon l'état) | en_revision |
-| [Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md) | Structurel | 1/5 | brouillon |
-| [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Structurel | 1/5 | brouillon |
-| [Refaire l'angle du manche (neck reset)](refaire-angle-du-manche.md) | Structurel | 4/5 | brouillon |
-| [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structurel | 3/5 | brouillon |
-| [Décoller la rallonge de touche de la table](decoller-la-touche.md) | Structurel | 3/5 | brouillon |
-| [Corriger l'angle d'un manche vissé](angle-manche-visse.md) | Structurel | 2/5 | brouillon |
-| [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md) | Structurel | 5/5 | brouillon |
+| [Réparer une fissure dans la table](reparation-fissure-table.md) | Structure et bois | 3/5 (2 à 5 selon l'état) | en_revision |
+| [Nettoyer et dégraisser une fissure avant collage](nettoyer-avant-collage.md) | Techniques de base | 1/5 | brouillon |
+| [Laisser une guitare retrouver une humidité normale](retrouver-humidite-normale.md) | Techniques de base | 1/5 | brouillon |
+| [Refaire l'angle du manche (neck reset)](refaire-angle-du-manche.md) | Structure et bois | 4/5 | brouillon |
+| [Caler la rallonge de touche après un neck reset](caler-la-rallonge-de-touche.md) | Structure et bois | 3/5 | brouillon |
+| [Décoller la rallonge de touche de la table](decoller-la-touche.md) | Structure et bois | 3/5 | brouillon |
+| [Corriger l'angle d'un manche vissé](angle-manche-visse.md) | Structure et bois | 2/5 | brouillon |
+| [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md) | Structure et bois | 5/5 | brouillon |
 
 ## Fiches envisagées
 

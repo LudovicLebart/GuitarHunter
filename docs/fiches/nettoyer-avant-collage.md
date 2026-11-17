@@ -1,7 +1,7 @@
 ---
 slug: nettoyer-avant-collage
 titre: Nettoyer et dégraisser une fissure avant collage
-categorie: structurel
+categorie: lutherie-base
 difficulte: 1
 duree: 15 min
 statut: brouillon

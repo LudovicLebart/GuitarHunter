@@ -162,7 +162,7 @@ Checklist structurée des étapes de réparation/finition d'une annonce achetée
   ```json
   {
     "label": "Recoller le binding décollé",
-    "category": "structurel | cosmetique | electronique | quincaillerie | reglage | autre",
+    "category": "evaluation | reglage | manche | structurel | finition | electronique | quincaillerie | lutherie-base | autre",
     "status": "pending | waiting | in_progress | done | skipped",
     "estimatedCost": 40,
     "actualCost": 45,

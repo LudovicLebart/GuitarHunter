@@ -726,7 +726,7 @@ ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS relevance_override TEXT;
 CREATE TABLE IF NOT EXISTS guitar_knowledge_fiche (
     knowledge_id    TEXT PRIMARY KEY REFERENCES guitar_knowledge(id) ON DELETE CASCADE,
     body_md         TEXT NOT NULL,
-    categorie       TEXT NOT NULL,             -- catégories du plan de restauration (RESTORATION_CATEGORIES)
+    categorie       TEXT NOT NULL,             -- evaluation|reglage|manche|structurel|finition|electronique|quincaillerie|lutherie-base|autre (RESTORATION_CATEGORIES)
     difficulte      SMALLINT,
     duree           TEXT,
     statut          TEXT NOT NULL DEFAULT 'brouillon',   -- 'brouillon' | 'en_revision' | 'validee'

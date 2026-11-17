@@ -1,7 +1,7 @@
 ---
 slug: regler-sillet-de-tete
 titre: Régler la hauteur des cordes au sillet de tête
-categorie: reglage
+categorie: manche
 difficulte: 3
 duree: 30 min à 1 h
 statut: brouillon
