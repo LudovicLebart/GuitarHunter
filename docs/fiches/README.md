@@ -31,7 +31,7 @@ Destinées à être affichées sur le site et liées depuis les étapes du plan 
 | [Ajuster l'action](reglage-action.md) | Réglage | 2/5 | brouillon |
 | [Ajuster le truss rod](reglage-truss-rod.md) | Manche | 2/5 | brouillon |
 | [Débloquer un truss rod coincé](debloquer-truss-rod.md) | Manche | 3/5 | brouillon |
-| [Mesurer le relief du manche](mesurer-relief-manche.md) | Diagnostic | 1/5 | brouillon |
+| [Mesurer le relief du manche](mesurer-relief-manche.md) | Diagnostic et évaluation | 1/5 | brouillon |
 | [Régler la hauteur des cordes au sillet de tête](regler-sillet-de-tete.md) | Manche | 3/5 | brouillon |
 | [Régler la hauteur des cordes au chevalet](regler-hauteur-chevalet.md) | Réglage | 3/5 | brouillon |
 | [Réparer une fissure dans la table](reparation-fissure-table.md) | Structure et bois | 3/5 (2 à 5 selon l'état) | en_revision |

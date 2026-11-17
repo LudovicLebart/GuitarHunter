@@ -8,7 +8,7 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
+import { RESTORATION_CATEGORY_LABELS as CATEGORY_LABELS, restorationCategoryLabel, RESTORATION_STATUS_LABELS as STATUS_LABELS } from '../../constants/restorationPlan';
 import { ImageLightbox } from '../ImageGallery';
 import { useFichesCatalog } from '../../hooks/useFichesCatalog';
 import { categoryForFiche, ficheHref, fichesForCategory, filterFiches } from '../../utils/fiches';
@@ -118,7 +118,7 @@ const ItemForm = ({ initial, onCancel, onSubmit, submitLabel, fiches }) => {
                         const { same, others } = fichesForCategory(shown, form.category);
                         return (
                             <>
-                                {same.length > 0 && <optgroup label={`Fiches « ${CATEGORY_LABELS[form.category] || form.category} »`}>{same.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
+                                {same.length > 0 && <optgroup label={`Fiches « ${restorationCategoryLabel(form.category)} »`}>{same.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
                                 {others.length > 0 && <optgroup label="Autres fiches">{others.map(f => <option key={f.slug} value={f.slug}>{f.titre}</option>)}</optgroup>}
                             </>
                         );
@@ -281,7 +281,7 @@ const RestorationItem = ({ item, onUpdate, onDelete, onAskInChat, onAddPhoto, on
                             <div className="text-sm font-bold text-slate-200 break-words">{item.label}</div>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 uppercase font-bold tracking-wide">
-                                    {CATEGORY_LABELS[item.category] || item.category}
+                                    {restorationCategoryLabel(item.category)}
                                 </span>
                                 {item.estimatedCost != null && (
                                     <span className="text-[10px] text-slate-500">≈ {item.estimatedCost}$ estimé</span>
@@ -448,7 +448,7 @@ const DEFAULT_ATELIER_PHRASING = { button: 'cette étape', prompt: 'cette étape
 
 const buildAtelierAdvicePrompt = (item) => {
     const { prompt: statusPhrase } = ATELIER_STEP_PHRASING[item.status] ?? DEFAULT_ATELIER_PHRASING;
-    return `Donne-moi un conseil d'atelier concret pour ${statusPhrase}, "${item.label}" (${CATEGORY_LABELS[item.category] || item.category}) : comment procéder, dans quel ordre, et les pièges à éviter.`;
+    return `Donne-moi un conseil d'atelier concret pour ${statusPhrase}, "${item.label}" (${restorationCategoryLabel(item.category)}) : comment procéder, dans quel ordre, et les pièges à éviter.`;
 };
 
 const RestorationPlanPanel = ({ deal, plan, onBack, onAskInChat, onQuickPrompt }) => {

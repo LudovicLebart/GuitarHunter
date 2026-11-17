@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, BookOpen, Clock, Gauge, Search } from 'lucide-react';
 import { fetchFiche, fetchFiches } from '../services/apiService';
-import { RESTORATION_CATEGORIES, RESTORATION_CATEGORY_LABELS } from '../constants/restorationPlan';
+import { RESTORATION_CATEGORIES, restorationCategoryLabel } from '../constants/restorationPlan';
 import {
     CONFIDENCE_HINTS, CONFIDENCE_LABELS, FICHES_HREF, HISTORY_ID, HISTORY_TITLE, STATUT_HINTS, STATUT_LABELS, difficultyLabel, ficheHref,
     filterFiches, groupByCategory, needsWarning, parseFicheHash, resolveFicheHref, resolveFicheImage, splitFicheHistory,
@@ -32,7 +32,7 @@ export const ConfidenceBadge = ({ confidence }) => (
     <span className={`${BADGE} ${CONFIDENCE_STYLES[confidence] || CONFIDENCE_STYLES.single_source}`} title={CONFIDENCE_HINTS[confidence]}>{CONFIDENCE_LABELS[confidence] || confidence}</span>
 );
 
-const categoryLabel = (c) => RESTORATION_CATEGORY_LABELS[c] || c;
+const categoryLabel = restorationCategoryLabel;
 
 // Chargement asynchrone lié à `deps`. Le résultat est rattaché au jeu de dépendances qui l'a produit (`token`) : dès que
 // les dépendances changent (autre fiche), l'ancien résultat n'est plus renvoyé — pas un seul rendu avec la fiche précédente.

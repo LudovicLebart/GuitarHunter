@@ -15,10 +15,13 @@ export const RESTORATION_CATEGORY_LABELS = {
     autre: 'Autre',
 };
 
-// Catégories proposées (fiches, étapes, chat). `cosmetique` (avant 2026-11-17) n'en fait plus partie
-// mais reste affichable sur les étapes de plan déjà enregistrées.
+// Catégories proposées (fiches, étapes, chat).
 export const RESTORATION_CATEGORIES = Object.keys(RESTORATION_CATEGORY_LABELS);
-RESTORATION_CATEGORY_LABELS.cosmetique = 'Finition et cosmétique';
+
+// Valeurs d'avant le 2026-11-17, encore présentes sur des étapes déjà enregistrées : affichables, jamais proposées.
+const LEGACY_CATEGORY_LABELS = { cosmetique: 'Finition et cosmétique' };
+
+export const restorationCategoryLabel = (c) => RESTORATION_CATEGORY_LABELS[c] || LEGACY_CATEGORY_LABELS[c] || c;
 
 export const RESTORATION_STATUS_LABELS = {
     pending: 'À faire',
