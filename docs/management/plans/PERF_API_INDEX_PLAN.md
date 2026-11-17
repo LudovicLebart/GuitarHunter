@@ -44,6 +44,13 @@ La pagination serveur (chargement paresseux des annonces + fiche de résumé) a 
 - **M2** : ETag/304 (`index_version.py`), triggers `DELETE`, TTL de sécurité 1 h. **M3** : cache IndexedDB (`indexCache.js`).
 - **Critères restants à mesurer** : transfert du premier chargement ≤ 600 Ko (non atteint par le seul gzip : 1,9 Mo), `bodyAndParseMs + mapMs` ÷ 4, relecture sans changement = 304, première carte < 300 ms depuis le cache.
 
+## Chargement initial : bundle et index en deux lots (2026-11-17, codé sur `dev`, non déployé ni mesuré)
+
+- **Bundle** : Stats, Carte, Config, Admin et Aide chargés à la demande (`LazyBoundary`), blocs `vendor-react`/`vendor-firebase`/`vendor-charts` : ≈ 200 Ko gzip au démarrage (350 avant).
+- **Index en deux lots** : `GET /deals/index?tier=live|archive`. Vivant = tout sauf l'archive (verdicts de `ARCHIVE_GROUP`, vendu, rejeté), avec favoris, achats, analyses en cours et pépites du Portier mises de côté gardés dans le vivant. Le client affiche le vivant d'abord, lit l'archive en arrière-plan ; bandeau et Stats « partielles » tant qu'elle manque (sans cache disque). ETag par lot ; le cache IndexedDB reste celui de l'index complet.
+- **Critères à mesurer** : lot vivant ≈ 200 annonces ; première carte < 300 ms depuis le cache, < 1 s en réseau ; `__dealsIndexPerf.archive` (parse + map) n'occupe plus le démarrage.
+- Écarté pour l'instant : flux NDJSON et Web Worker pour le parse JSON (à reprendre si l'archive gêne encore l'interface).
+
 ## Palier 3 (si nécessaire)
 
 - Index plus léger (≈ 55 clés répétées par ligne), format colonne, ETag/304, cache serveur par utilisateur invalidé par NOTIFY.

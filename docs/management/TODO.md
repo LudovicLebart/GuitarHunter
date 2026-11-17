@@ -15,6 +15,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md).
 
+- [ ] **Index en deux lots + bundle allégé (2026-11-17, codé, non déployé)** : mesurer sur téléphone la taille réelle du lot vivant (≈ 200 annonces attendues) et le temps jusqu'à la première carte ; vérifier le bandeau « archive en chargement », les Stats partielles et le chargement à la demande de Stats/Carte/Config (connexion lente, après un déploiement). Décision à confirmer : annonce vendue mais favorite → reste dans le lot vivant (choix retenu).
 - [ ] **Valider sur téléphone** : `?perf=1` puis `window.__dealsIndexPerf` (`bodyAndParseMs`, `mapMs`, `encodedKB`), réouverture (affichage immédiat depuis IndexedDB), absence de saccade à l'écriture du cache.
 - [ ] Confirmer que la CI et le déploiement de `dd20162` à `2d7e912` sont verts (non relu) ; `/health` < 100 ms pendant 3 index simultanés ; 304 réel via Funnel.
 - [ ] Mesurer la cause des 20 s restants si elle revient (socket mort après veille, redémarrage + afflux, chemin Funnel).
