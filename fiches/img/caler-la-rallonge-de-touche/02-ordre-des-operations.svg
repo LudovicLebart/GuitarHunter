@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 235" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Ordre des opérations pour caler une rallonge de touche</title>
+  <desc id="d">Six étapes : mesurer l'écart, tailler le coin, préparer les surfaces, ajuster à blanc, coller, affleurer.</desc>
+  <rect width="820" height="235" fill="#f8fafc"/>
+<text x="410" y="42" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Dans cet ordre, avec la rallonge serrée à blanc avant toute colle</text>
+  <rect x="10" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="70.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">1  Mesurer</text><text x="70.0" y="130" font-size="13" fill="#334155" text-anchor="middle">écart au bout</text>
+  <path d="M132 125 L143 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="143,125 130.1,130.5 130.1,119.5" fill="#334155"/>
+  <rect x="145" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="205.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">2  Tailler</text><text x="205.0" y="130" font-size="13" fill="#334155" text-anchor="middle">coin, même bois</text><text x="205.0" y="148" font-size="13" fill="#334155" text-anchor="middle">que la touche</text>
+  <path d="M267 125 L278 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="278,125 265.1,130.5 265.1,119.5" fill="#334155"/>
+  <rect x="280" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="340.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">3  Préparer</text><text x="340.0" y="130" font-size="13" fill="#334155" text-anchor="middle">surfaces</text><text x="340.0" y="148" font-size="13" fill="#334155" text-anchor="middle">propres</text>
+  <path d="M402 125 L413 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="413,125 400.1,130.5 400.1,119.5" fill="#334155"/>
+  <rect x="415" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="475.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">4  Ajuster</text><text x="475.0" y="130" font-size="13" fill="#334155" text-anchor="middle">à blanc,</text><text x="475.0" y="148" font-size="13" fill="#334155" text-anchor="middle">sans jour</text>
+  <path d="M537 125 L548 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="548,125 535.1,130.5 535.1,119.5" fill="#334155"/>
+  <rect x="550" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="610.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">5  Coller</text><text x="610.0" y="130" font-size="13" fill="#334155" text-anchor="middle">cale, puis</text><text x="610.0" y="148" font-size="13" fill="#334155" text-anchor="middle">rallonge</text>
+  <path d="M672 125 L683 125" stroke="#334155" stroke-width="3" fill="none"/><polygon points="683,125 670.1,130.5 670.1,119.5" fill="#334155"/>
+  <rect x="685" y="80" width="120" height="90" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="745.0" y="108" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">6  Affleurer</text><text x="745.0" y="130" font-size="13" fill="#334155" text-anchor="middle">côtés de la</text><text x="745.0" y="148" font-size="13" fill="#334155" text-anchor="middle">cale</text>
+  <text x="410" y="210" font-size="14" fill="#334155" text-anchor="middle">Ne pas couper la cale à sa taille avant d'avoir vérifié qu'elle s'ajuste.</text>
+</svg>

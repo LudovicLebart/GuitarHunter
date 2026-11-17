@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 300" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Mise de niveau des lèvres d'une fissure avant collage</title>
+  <desc id="d">Coupe de la table : à gauche les lèvres décalées, à droite les lèvres de niveau, maintenues par une cale extérieure avec papier ciré et un serre-joint.</desc>
+  <rect width="820" height="300" fill="#f8fafc"/>
+  <text x="205" y="30" font-size="16" font-weight="bold" fill="#b91c1c" text-anchor="middle">Mauvais : lèvres décalées</text>
+  <text x="615" y="30" font-size="16" font-weight="bold" fill="#15803d" text-anchor="middle">Bon : lèvres de niveau, calées</text>
+  <!-- gauche -->
+  <polygon points="30,170 195,170 195,195 30,195" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <polygon points="205,160 380,160 380,185 205,185" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <path d="M195 160 v10" stroke="#dc2626" stroke-width="3"/>
+  <text x="205" y="225" font-size="13" fill="#334155" text-anchor="middle">marche : collée telle quelle, elle reste visible</text>
+  <!-- droite -->
+  <polygon points="440,175 605,175 605,200 440,200" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <polygon points="613,175 790,175 790,200 613,200" fill="#f1dcb0" stroke="#475569" stroke-width="2"/>
+  <rect x="520" y="150" width="190" height="14" fill="#cbd5e1" stroke="#475569" stroke-width="1.5"/>
+  <rect x="520" y="164" width="190" height="4" fill="#fde68a" stroke="#a16207" stroke-width=".8"/>
+  <path d="M609 175 v25" stroke="#92400e" stroke-width="3"/>
+  <path d="M615 100 v50 M590 100 h50" stroke="#0f172a" stroke-width="3" fill="none"/>
+  <text x="615" y="90" font-size="12.5" fill="#334155" text-anchor="middle">serre-joint</text>
+  <text x="725" y="146" font-size="12.5" fill="#334155">cale rigide</text>
+  <text x="725" y="170" font-size="12.5" fill="#a16207">papier ciré</text>
+  <text x="610" y="230" font-size="13" fill="#334155" text-anchor="middle">colle injectée dans la fissure, excès essuyé</text>
+  <text x="410" y="275" font-size="13" fill="#334155" text-anchor="middle">Coupe de la table (épaisseur exagérée). Le papier ciré empêche la cale de coller à la table.</text>
+</svg>
