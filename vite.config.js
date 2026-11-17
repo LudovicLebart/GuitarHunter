@@ -53,5 +53,19 @@ const missingFicheImages = () => {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), ficheImages()],
-  base: BASE
+  base: BASE,
+  build: {
+    rollupOptions: {
+      output: {
+        // Bibliothèques stables séparées du code applicatif : téléchargées en parallèle et gardées en cache entre deux déploiements.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (/node_modules\/(react|react-dom|scheduler|react-is|use-sync-external-store)\//.test(id)) return 'vendor-react'
+          if (id.includes('firebase') || id.includes('@firebase')) return 'vendor-firebase'
+          if (id.includes('recharts') || id.includes('/d3-') || id.includes('victory-vendor')) return 'vendor-charts'
+          return undefined
+        },
+      },
+    },
+  }
 })

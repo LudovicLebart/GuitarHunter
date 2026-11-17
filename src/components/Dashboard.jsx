@@ -1,13 +1,15 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { Target, ShoppingBag, Archive, Search, ChevronDown, Check, X, List, Map as MapIcon, Activity, RefreshCw, Heart, AlertTriangle } from 'lucide-react';
 import Navbar from './Navbar';
 import DealCard from './DealCard';
 import FilterDrawer from './FilterDrawer';
-import StatsView from './StatsView';
-import ConfigPanel from './ConfigPanel';
-import MapView from './MapView';
-import HelpOverlay from './HelpOverlay';
-import AdminDashboard from './AdminDashboard';
+// Chargés à la demande : stats (recharts), carte, configuration, admin et aide ne pèsent pas sur le premier affichage.
+const StatsView = lazy(() => import('./StatsView'));
+const ConfigPanel = lazy(() => import('./ConfigPanel'));
+const MapView = lazy(() => import('./MapView'));
+const HelpOverlay = lazy(() => import('./HelpOverlay'));
+const AdminDashboard = lazy(() => import('./AdminDashboard'));
+const LazyFallback = () => <div className="py-20 text-center text-slate-500 text-xs font-bold uppercase tracking-widest">Chargement…</div>;
 import SearchSuggestions, { createSuggestionKeyHandler } from './SearchSuggestions';
 import { FILTER_ORDER, ALL_FILTERS_CONFIG, RADAR_GROUP, MARKET_GROUP } from '../constants';
 
@@ -386,7 +388,7 @@ const Dashboard = ({ onClose }) => {
                 onOpenHelp={() => setShowHelp(true)}
             />
 
-            {showAdmin && <AdminDashboard onClose={() => setShowAdmin(false)} />}
+            {showAdmin && <Suspense fallback={null}><AdminDashboard onClose={() => setShowAdmin(false)} /></Suspense>}
 
             {/* Error Banner */}
             {error && (
@@ -409,7 +411,7 @@ const Dashboard = ({ onClose }) => {
                 </div>
             )}
 
-            {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
+            {showHelp && <Suspense fallback={null}><HelpOverlay onClose={() => setShowHelp(false)} /></Suspense>}
 
             <FilterDrawer
                 open={drawerOpen}
@@ -424,7 +426,7 @@ const Dashboard = ({ onClose }) => {
             />
 
             {/* Real ConfigPanel — opens via gear icon */}
-            <ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} onOpenAdmin={() => { setShowConfig(false); setShowAdmin(true); }} />
+            {showConfig && <Suspense fallback={null}><ConfigPanel showConfig={showConfig} onClose={() => setShowConfig(false)} onOpenAdmin={() => { setShowConfig(false); setShowAdmin(true); }} /></Suspense>}
 
             <div className="w-full max-w-7xl mx-auto px-4 py-6 md:py-8">
 
@@ -519,15 +521,17 @@ const Dashboard = ({ onClose }) => {
                         <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">Synchronisation...</p>
                     </div>
                 ) : viewMode === 'STATS' ? (
-                    <StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} />
+                    <Suspense fallback={<LazyFallback />}><StatsView deals={totalFilteredDeals} allDeals={deals} loadedDeals={loadedDeals} /></Suspense>
                 ) : viewMode === 'MAP' ? (
-                    <MapViewOverlay
-                        deals={totalFilteredDeals}
-                        renderDealCard={renderDealCard}
-                        selectedDeal={selectedDeal}
-                        onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
-                        onClearSelection={() => dealActions.handleSelectDeal(null)}
-                    />
+                    <Suspense fallback={<LazyFallback />}>
+                        <MapViewOverlay
+                            deals={totalFilteredDeals}
+                            renderDealCard={renderDealCard}
+                            selectedDeal={selectedDeal}
+                            onDealSelect={(deal) => dealActions.handleSelectDeal(deal)}
+                            onClearSelection={() => dealActions.handleSelectDeal(null)}
+                        />
+                    </Suspense>
                 ) : (
                     <>
                         {/* ─── Sections ─── */}
