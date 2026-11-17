@@ -4,15 +4,21 @@
 // chat, sans dupliquer la liste à trois endroits.
 
 export const RESTORATION_CATEGORY_LABELS = {
-    structurel: 'Structurel',
-    cosmetique: 'Cosmétique',
+    evaluation: 'Diagnostic et évaluation',
+    reglage: 'Réglage et setup',
+    manche: 'Manche et frettes',
+    structurel: 'Structure et bois',
+    finition: 'Finition et cosmétique',
     electronique: 'Électronique',
     quincaillerie: 'Quincaillerie',
-    reglage: 'Réglage',
+    'lutherie-base': 'Techniques de base',
     autre: 'Autre',
 };
 
+// Catégories proposées (fiches, étapes, chat). `cosmetique` (avant 2026-11-17) n'en fait plus partie
+// mais reste affichable sur les étapes de plan déjà enregistrées.
 export const RESTORATION_CATEGORIES = Object.keys(RESTORATION_CATEGORY_LABELS);
+RESTORATION_CATEGORY_LABELS.cosmetique = 'Finition et cosmétique';
 
 export const RESTORATION_STATUS_LABELS = {
     pending: 'À faire',

@@ -1,7 +1,7 @@
 ---
 slug: debloquer-truss-rod
 titre: Débloquer un truss rod coincé
-categorie: reglage
+categorie: manche
 difficulte: 3
 duree: 30 min à plusieurs heures (selon le temps d'action du lubrifiant)
 statut: brouillon

@@ -34,7 +34,7 @@ Un slug inconnu est refusé par l'API (422) ; si une fiche disparaît, le lien n
    | Champ | Valeur |
    |---|---|
    | `slug`, `titre` | identifiant et titre |
-   | `categorie` | `structurel`, `cosmetique`, `electronique`, `quincaillerie`, `reglage`, `autre` |
+   | `categorie` | `evaluation`, `reglage`, `manche`, `structurel`, `finition`, `electronique`, `quincaillerie`, `lutherie-base`, `autre` (une seule catégorie par fiche, pas de sous-catégories) |
    | `difficulte` | 1 (débutant) à 5 (luthier confirmé), **obligatoire** |
    | `duree` | texte libre, **obligatoire** |
    | `statut` | `brouillon` → `en_revision` → `validee` |

@@ -1,7 +1,7 @@
 ---
 slug: mesurer-relief-manche
 titre: Mesurer le relief du manche
-categorie: reglage
+categorie: evaluation
 difficulte: 1
 duree: 10 min
 statut: brouillon
