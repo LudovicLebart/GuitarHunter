@@ -54,12 +54,15 @@ class LeafRepository:
                 original = old["original_price"] if old and old["original_price"] is not None else price
                 params = {**{k: (Jsonb(v) if isinstance(v, (dict, list)) else v) for k, v in row.items()},
                           "id": deal_id, "price": price, "original_price": original, "price_drop_amount": drop}
+                bump = action != "unchanged"          # `timestamp` = dernier VRAI changement, pas le dernier passage
                 cols = list(params)
                 updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price"))
                 conn.execute(
                     f"INSERT INTO vehicle_deals ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) "
-                    f"ON CONFLICT (id) DO UPDATE SET {updates}, status = 'active', sold_at = NULL, "
-                    f"last_seen_at = now(), \"timestamp\" = now()", params)
+                    f"ON CONFLICT (id) DO UPDATE SET {updates}, "
+                    f"\"timestamp\" = CASE WHEN %(bump)s OR vehicle_deals.status <> 'active' THEN now() "
+                    f"ELSE vehicle_deals.\"timestamp\" END, status = 'active', sold_at = NULL, last_seen_at = now()",
+                    {**params, "bump": bump})
                 if action in ("new", "price_drop", "price_up") and price is not None:
                     conn.execute("INSERT INTO vehicle_price_history (deal_id, price) VALUES (%s, %s)", (deal_id, price))
         return {"action": action, "previous_price": previous}
@@ -79,6 +82,17 @@ class LeafRepository:
         with self.pool.connection() as conn:
             return conn.execute("UPDATE vehicle_deals SET last_seen_at = now(), status = 'active', sold_at = NULL "
                                 "WHERE id = ANY(%s)", (ids,)).rowcount
+
+    def mark_rejected(self, deal_ids: Iterable[str]) -> int:
+        """Annonces déjà stockées qui, revues, ne passent plus les filtres/règles (prix hors budget, mot « accident »,
+        SOH sous le seuil...) : retirées de la vue active (statut `rejected`) au lieu de garder des données périmées.
+        Elles redeviennent actives si une lecture ultérieure les retient de nouveau (`upsert_listing`)."""
+        ids = list(deal_ids)
+        if not ids:
+            return 0
+        with self.pool.connection() as conn:
+            return conn.execute("UPDATE vehicle_deals SET status = 'rejected', last_seen_at = now(), \"timestamp\" = now() "
+                                "WHERE id = ANY(%s) AND status = 'active'", (ids,)).rowcount
 
     def mark_sold(self, deal_ids: Iterable[str]) -> int:
         ids = list(deal_ids)
@@ -134,7 +148,7 @@ class LeafRepository:
                                 "ORDER BY created_at DESC, id DESC LIMIT %s", (user_id, f"leaf_{source}", limit)).fetchall()
         return [r["outcome"] for r in rows]
 
-    def mark_stale_sold(self, days: int = 7) -> int:
+    def mark_stale_sold(self, days: int = 14) -> int:
         """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`)."""
         with self.pool.connection() as conn:
             return conn.execute("UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() "

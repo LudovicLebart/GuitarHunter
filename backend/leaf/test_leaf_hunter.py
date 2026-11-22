@@ -162,16 +162,77 @@ class TestHunter(unittest.TestCase):
         self.assertIsNone(self.hunter.run_scan())
 
     def test_commands_fail_clearly_when_server_disabled_and_cleanup_works(self):
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
         handlers = self.hunter.command_handlers()
         self.assertEqual(set(handlers), {"LEAF_REFRESH", "LEAF_CLEANUP"})
         self.hunter.run_scan()
         with self.pool.connection() as conn:
-            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '10 days'")
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")
         handlers["LEAF_CLEANUP"](None)
         self.assertEqual(self.repo.active_ids(), [])
         with mock.patch.dict(os.environ, {"LEAF_ENABLED": "false"}):
             with self.assertRaises(RuntimeError):
                 handlers["LEAF_REFRESH"](None)
+
+    def test_cleanup_waits_when_a_source_is_not_healthy(self):
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
+        self.hunter.run_scan()
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")
+        self.runs, self.raws = [{"source": "kijiji", "outcome": "blocked", "detail": "429"}], []
+        self.hunter.run_scan()
+        self.assertEqual(self.hunter.cleanup(), 0)
+        self.assertEqual(self.repo.active_ids(), ["leaf_test_1"])
+
+    def test_known_listing_that_no_longer_passes_is_withdrawn_then_restored(self):
+        self.hunter.run_scan()
+        self.raws = [raw("leaf_test_1", price=9000)]                   # hors budget : « ignorée »
+        self.hunter.run_scan()
+        self.assertEqual(self.repo.active_ids(), [])
+        self.assertEqual(self.repo.get_vehicle("leaf_test_1")["status"], "rejected")
+        self.assertEqual(self.repo.comparables(), [])
+        self.raws = [raw("leaf_test_1", price=6000)]
+        self.hunter.run_scan()
+        self.assertEqual(self.repo.active_ids(), ["leaf_test_1"])
+
+    def test_refresh_command_fails_loudly_on_error_or_overlap(self):
+        refresh = self.hunter.command_handlers()["LEAF_REFRESH"]
+        self.hunter._lock.acquire()
+        try:
+            with self.assertRaises(RuntimeError):
+                refresh(None)
+        finally:
+            self.hunter._lock.release()
+
+        def boom(scan):
+            raise RuntimeError("base injoignable")
+        self.hunter._collector = boom
+        with self.assertRaises(RuntimeError):
+            refresh(None)
+
+    def test_unchanged_pass_does_not_bump_timestamp_nor_notify(self):
+        import psycopg
+        self.hunter.run_scan()
+        before = self.repo.get_vehicle("leaf_test_1")["timestamp"]
+        with psycopg.connect(URL, autocommit=True) as listener:
+            listener.execute("LISTEN vehicle_changes")
+            self.hunter.run_scan()
+            events = list(listener.notifies(timeout=0.5))
+        self.assertEqual(self.repo.get_vehicle("leaf_test_1")["timestamp"], before)
+        self.assertEqual(events, [])
+
+    def test_background_loop_is_started_once_per_user(self):
+        from backend.leaf import hunter as hmod
+        stop = __import__("threading").Event()
+        stop.set()                                   # le fil démarre puis sort aussitôt
+        self.assertTrue(self.hunter.ensure_background(stop))
+        hmod._BACKGROUND[self.UID].join(2)
+        self.assertTrue(self.hunter.ensure_background(stop))        # fil terminé : un nouveau peut démarrer
+        hmod._BACKGROUND[self.UID].join(2)
+        live = type("T", (), {"is_alive": lambda self: True})()
+        hmod._BACKGROUND[self.UID] = live
+        self.addCleanup(hmod._BACKGROUND.pop, self.UID, None)
+        self.assertFalse(self.hunter.ensure_background(stop))       # déjà vivant : pas de doublon
 
 
 if __name__ == "__main__":

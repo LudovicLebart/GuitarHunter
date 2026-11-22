@@ -1,6 +1,8 @@
 """Active Leaf Hunter pour les utilisateurs du bot (`leafConfig.enabled = true`) — IDEMPOTENT.
 
-Ne touche QUE `users.config.leafConfig` : `enabled` passe à true, `scanConfig.home` reçoit Saint-Bruno-de-Montarville
+Ne touche QUE `users.config.leafConfig` : `enabled` passe à true SEULEMENT s'il n'a jamais été défini (un choix explicite
+de l'utilisateur, même « désactivé », n'est jamais écrasé : rejouer ce script à chaque déploiement est donc sans effet),
+`scanConfig.home` reçoit Saint-Bruno-de-Montarville
 (décision utilisateur 2026-11-22) s'il n'a pas déjà un point de repère ; le reste de `leafConfig` (réglages posés
 ensuite par l'utilisateur) est conservé. Utilisateurs visés : `USER_IDS_TARGET` (.env du bot).
 
@@ -39,6 +41,9 @@ def run(dry_run: bool = False) -> int:
             if home.get("latitude") is None or home.get("longitude") is None:
                 scan["home"] = {"latitude": DEFAULT_HOME["latitude"], "longitude": DEFAULT_HOME["longitude"],
                                 "name": DEFAULT_HOME["name"]}
+            if "enabled" in leaf:
+                print(f"[enable_leaf] {uid[:8]} : leafConfig.enabled déjà défini ({leaf['enabled']}), rien à faire.")
+                continue
             leaf.update({"enabled": True, "scanConfig": scan})
             print(f"[enable_leaf] {uid[:8]} : leafConfig.enabled = true, ville de référence "
                   f"{(scan['home'].get('name') or 'personnalisée')}{' (simulation)' if dry_run else ''}.")

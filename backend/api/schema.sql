@@ -833,6 +833,11 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION notify_vehicle_deal_change() RETURNS trigger AS $$
 BEGIN
+    -- Une annonce simplement REVUE (seul `last_seen_at` change) ne notifie pas : sinon chaque passage ferait
+    -- rafraîchir tous les clients connectés pour rien.
+    IF TG_OP = 'UPDATE' AND (to_jsonb(NEW) - 'last_seen_at') = (to_jsonb(OLD) - 'last_seen_at') THEN
+        RETURN NEW;
+    END IF;
     PERFORM pg_notify('vehicle_changes', json_build_object('id', COALESCE(NEW.id, OLD.id))::text);
     RETURN COALESCE(NEW, OLD);
 END;

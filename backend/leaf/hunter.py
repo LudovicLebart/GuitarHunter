@@ -13,6 +13,9 @@ from backend.leaf import pipeline, scoring
 from backend.leaf.sources import BlockedError, autohebdo, fetch_html, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher
 
+LOOP_TICK_S = 60                # la boucle de fond relit la config chaque minute (fréquence modifiable à chaud)
+CLEANUP_EVERY_S = 6 * 3600
+STALE_DAYS = 14                 # une annonce non revue depuis 14 jours (sources saines) est marquée vendue
 ALERT_AFTER_FAILURES = 3        # alerte santé : au 3e échec consécutif d'une source (une fois par série)
 MAX_INDIVIDUAL_NOTIFICATIONS = 5
 
@@ -60,6 +63,16 @@ def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_ht
     return raws, runs
 
 
+_LOCKS: Dict[str, threading.Lock] = {}          # un verrou PAR UTILISATEUR, partagé entre boucle de fond et commandes
+_LOCKS_GUARD = threading.Lock()
+_BACKGROUND: Dict[str, threading.Thread] = {}   # une seule boucle de fond par utilisateur (le watchdog relance main_loop)
+
+
+def _lock_for(user_id: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(user_id, threading.Lock())
+
+
 class LeafHunter:
     def __init__(self, repo, user_id: str, logger: Optional[logging.Logger] = None,
                  collector: Optional[Callable[[Dict[str, Any]], Tuple[list, list]]] = None,
@@ -70,7 +83,7 @@ class LeafHunter:
         self._collector = collector or collect_sources
         self._detail_factory = detail_fetcher_factory or DetailFetcher
         self._notify = notifier
-        self._lock = threading.Lock()      # verrou anti-chevauchement (job planifié + commande manuelle)
+        self._lock = _lock_for(user_id)    # anti-chevauchement (boucle de fond + commande manuelle, même verrou)
 
     # ------------------------------------------------------------------ configuration
 
@@ -82,9 +95,10 @@ class LeafHunter:
 
     # ------------------------------------------------------------------ passage
 
-    def run_scan(self, force: bool = False) -> Optional[Dict[str, Any]]:
+    def run_scan(self, force: bool = False, strict: bool = False) -> Optional[Dict[str, Any]]:
         """Un passage complet. None si désactivé / déjà en cours ; sinon un bilan. `force` (commande manuelle)
-        ignore seulement l'interrupteur par utilisateur, jamais celui du serveur."""
+        ignore seulement l'interrupteur par utilisateur, jamais celui du serveur. `strict` (commande) : une erreur
+        ou un passage déjà en cours LÈVE au lieu de renvoyer None, pour que la commande soit marquée échouée."""
         try:
             if not leaf_config.server_enabled():
                 return None
@@ -93,6 +107,8 @@ class LeafHunter:
                 return None
             if not self._lock.acquire(blocking=False):
                 self.log.info("[Leaf] Passage déjà en cours, ignoré.")
+                if strict:
+                    raise RuntimeError("Un passage Leaf est déjà en cours.")
                 return None
             try:
                 return self._scan(cfg)
@@ -100,6 +116,8 @@ class LeafHunter:
                 self._lock.release()
         except Exception as e:
             self.log.error(f"[Leaf] Passage interrompu : {e}", exc_info=True)
+            if strict:
+                raise
             return None
 
     def _scan(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,6 +146,10 @@ class LeafHunter:
             self.repo.record_match(self.user_id, listing["id"])
             if outcome["action"] in ("new", "price_drop"):
                 events.append((outcome["action"], listing, outcome["previous_price"]))
+        # Annonce déjà stockée mais qui ne passe plus les filtres/règles : retirée de la vue active (données périmées).
+        withdrawn = self.repo.mark_rejected([l["id"] for l in result["rejected"] + result["ignored"] if l.get("id")])
+        if withdrawn:
+            self.log.info(f"[Leaf] {withdrawn} annonce(s) déjà stockée(s) ne passent plus les filtres : retirée(s) de la vue.")
         stats = {"read": len(raws), "kept": len(result["kept"]), "rejected": len(result["rejected"]),
                  "ignored": len(result["ignored"]), "new": sum(1 for e in events if e[0] == "new"),
                  "price_drops": sum(1 for e in events if e[0] == "price_drop")}
@@ -180,11 +202,53 @@ class LeafHunter:
     # ------------------------------------------------------------------ commandes
 
     def cleanup(self) -> int:
+        """Marque « vendues » les annonces non revues depuis STALE_DAYS — SEULEMENT si le dernier passage de chaque
+        source activée a répondu `ok` (une source bloquée ou en panne ne prouve rien sur les annonces)."""
         if not leaf_config.server_enabled():
             return 0
-        n = self.repo.mark_stale_sold(7)
-        self.log.info(f"[Leaf] Nettoyage : {n} annonce(s) non revues depuis 7 jours marquée(s) vendues.")
+        for source in self.config()["scan"]["sources"]:
+            last = self.repo.recent_outcomes(self.user_id, source, 1)
+            if not last or last[0] != "ok":
+                self.log.info(f"[Leaf] Nettoyage reporté : la source {source} n'a pas répondu normalement au dernier passage.")
+                return 0
+        n = self.repo.mark_stale_sold(STALE_DAYS)
+        self.log.info(f"[Leaf] Nettoyage : {n} annonce(s) non revues depuis {STALE_DAYS} jours marquée(s) vendues.")
         return n
+
+    # ------------------------------------------------------------------ boucle de fond
+
+    def run_background(self, stop_event: Optional[threading.Event] = None) -> None:
+        """Boucle d'un fil dédié : chaque minute, relit la config (fréquence modifiable à chaud) et lance un passage
+        quand l'échéance est atteinte ; nettoyage toutes les 6 h. Un passage long ne bloque donc ni le watchdog ni
+        les tâches planifiées du bot."""
+        stop = stop_event or threading.Event()
+        last_scan = last_cleanup = 0.0
+        stop.wait(30)                     # laisse le bot finir de démarrer
+        while not stop.is_set():
+            try:
+                if self.is_enabled():
+                    now = time.time()
+                    if now - last_scan >= self.config()["scan"]["frequency"] * 60:
+                        last_scan = now
+                        self.run_scan()
+                    if now - last_cleanup >= CLEANUP_EVERY_S:
+                        last_cleanup = now
+                        self.cleanup()
+            except Exception as e:
+                self.log.error(f"[Leaf] Erreur de la boucle de fond : {e}", exc_info=True)
+            stop.wait(LOOP_TICK_S)
+
+    def ensure_background(self, stop_event: Optional[threading.Event] = None) -> bool:
+        """Démarre la boucle de fond de cet utilisateur si elle ne tourne pas déjà (idempotent : `main_loop` est relancé
+        par le watchdog). True si un nouveau fil a été créé."""
+        with _LOCKS_GUARD:
+            t = _BACKGROUND.get(self.user_id)
+            if t and t.is_alive():
+                return False
+            t = threading.Thread(target=self.run_background, args=(stop_event,), daemon=True, name=f"leaf-{self.user_id[:8]}")
+            _BACKGROUND[self.user_id] = t
+        t.start()
+        return True
 
     def command_handlers(self) -> Dict[str, Callable[[Any], Any]]:
         """Handlers des commandes `LEAF_*`. Échec CLAIR si Leaf est désactivé sur le serveur (la commande est marquée
@@ -195,7 +259,7 @@ class LeafHunter:
 
         def refresh(_):
             need_server()
-            self.run_scan(force=True)
+            self.run_scan(force=True, strict=True)
 
         def clean(_):
             need_server()
