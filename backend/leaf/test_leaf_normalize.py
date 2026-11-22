@@ -101,3 +101,25 @@ class TestNormalizeListing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReviewFixes(unittest.TestCase):
+    def test_french_negations_are_not_accidents(self):
+        for t in ("Carfax propre, pas d'accident", "aucun historique d'accident", "jamais eu d'accident",
+                  "sans accident", "pas d’accident"):
+            self.assertEqual(n.accident_flags(t), [], t)
+        self.assertEqual(n.accident_flags("voiture accidentée"), ["accident"])
+        self.assertEqual(n.accident_flags("compas accident"), ["accident"])
+
+    def test_km_after_year(self):
+        self.assertEqual(n.parse_km("Nissan Leaf 2017 120 000 km"), 120000)
+        self.assertEqual(n.parse_km("2017 85 000 km"), 85000)
+
+    def test_12v_battery_is_not_traction_battery(self):
+        self.assertFalse(n.detect_mentions("batterie 12v neuve")["battery_replaced"])
+        self.assertFalse(n.detect_mentions("nouvelle batterie 12 v")["battery_replaced"])
+        self.assertTrue(n.detect_mentions("batterie remplacée en 2024")["battery_replaced"])
+
+    def test_negated_kwh_is_not_stated(self):
+        self.assertEqual(n.battery_info(2018, "SV", "batterie 40 kWh, pas la 24 kWh")[:3], (40, 40, "stated"))
+        self.assertEqual(n.battery_info(2018, "SV", "pas de 24 kWh ici")[2], "inferred")

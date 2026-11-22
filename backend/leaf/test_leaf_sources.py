@@ -6,7 +6,6 @@ import unittest
 from backend.leaf import dry_run, pipeline
 from backend.leaf.sources import BlockedError, autohebdo, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher, merge_detail
-from backend.scraping.kijiji.parser import KijijiListingParser
 
 
 def _kijiji_html(entries):
@@ -55,6 +54,10 @@ class TestKijijiAutos(unittest.TestCase):
 
 class TestGuitarParserNonRegression(unittest.TestCase):
     def test_default_prefix_still_reads_standard_listings_only(self):
+        try:
+            from backend.scraping.kijiji.parser import KijijiListingParser
+        except ImportError:
+            self.skipTest("Playwright absent : le parseur Guitar Hunter n'est pas importable ici")
         data = json.loads(_kijiji_html([_autos_entry()]).split('type="application/json">')[1].split("</script>")[0])
         picked = KijijiListingParser._pick_all_standard_listings(data)
         self.assertEqual(list(picked), ["777"])

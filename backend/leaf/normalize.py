@@ -31,7 +31,7 @@ def parse_year(text: Optional[str]) -> Optional[int]:
     return None
 
 
-_KM_RE = re.compile(r"(\d{1,3}(?:[ .,]\d{3})+|\d{4,6})\s*km\b")
+_KM_RE = re.compile(r"(?<![\d.,])(\d{1,3}(?:[ .,]\d{3})+|\d{4,6})\s*km\b")
 
 
 def parse_km(text: Optional[str]) -> Optional[int]:
@@ -60,8 +60,12 @@ def battery_info(year: Optional[int], trim: Optional[str], text: Optional[str] =
                  ) -> Tuple[Optional[int], Optional[int], str]:
     """(kwh_bas, kwh_haut, source). source : 'stated' | 'inferred' | 'unknown'.
     2016 S (ou trim inconnu) : 24 ou 30 kWh possibles -> (24, 30)."""
-    m = re.search(r"\b(24|30|40|62)\s*kwh\b", normalize_text(text))
-    if m:
+    t = normalize_text(text)
+    for m in re.finditer(r"\b(24|30|40|62)\s*kwh\b", t):
+        if _NEGATION.search(t[max(0, m.start() - 30):m.start()]) or re.search(
+                r"(?:contrairement|comparativement|versus|vs\.?|plutot que|au lieu)\s+(?:aux?\s+|a\s+la\s+|la\s+|les\s+)?$",
+                t[max(0, m.start() - 30):m.start()]):
+            continue
         k = int(m.group(1))
         return k, k, "stated"
     if year == 2018:
@@ -104,7 +108,7 @@ def extract_capacity_bars(text: Optional[str]) -> Optional[Tuple[int, str]]:
 
 _ACCIDENT_WORDS = ("accident", "reconstruit", "vgr", "salvage", "pour pieces", "a reparer",
                    "non roulante", "dommages importants")
-_NEGATION = re.compile(r"(jamais|sans|aucun|aucune|pas d'?|non|0|never|no)\s+(?:\w+\s+){0,2}$")
+_NEGATION = re.compile(r"\b(?:jamais|sans|aucun|aucune|pas|non|0|never|no)(?:['\s]+(?:\w+['\s]+){0,3}?)?$")
 
 
 def accident_flags(text: Optional[str]) -> List[str]:
@@ -129,9 +133,10 @@ _MENTIONS = {
     "heated_seats": r"sieges? chauffants?|bancs? chauffants?|heated seats?",
     "heated_wheel": r"volant chauffant|heated (?:steering )?wheel",
     "carfax": r"carfax",
-    "battery_replaced": r"batterie\s+(?:\S+\s+){0,3}?(?:neuve|remplacee|changee)|nouvelle batterie"
-                        r"|remplacement (?:de la |de )?batterie|batterie (?:remplacee|changee)"
-                        r"|(?:battery|batt)\s+(?:was\s+)?replaced|replaced (?:the )?battery|new battery",
+    "battery_replaced": r"batterie\s+(?!12\s*v)(?:(?!12\s*v)\S+\s+){0,3}?(?:neuve|remplacee|changee)"
+                        r"|nouvelle batterie(?!\s*(?:de\s*)?12\s*v)"
+                        r"|remplacement (?:de la |de )?batterie(?!\s*(?:de\s*)?12\s*v)"
+                        r"|(?:battery|batt)\s+(?:was\s+)?replaced|replaced (?:the )?battery|new battery(?!\s*12\s*v)",
 }
 
 

@@ -5,7 +5,6 @@ de la catégorie guitares. Parseurs purs : testables sans réseau.
 """
 from typing import Any, Dict, List, Optional
 
-from backend.scraping.kijiji.parser import KijijiListingParser
 from backend.leaf.sources import extract_next_data
 
 AUTOS_CATEGORY_ID = 174
@@ -59,11 +58,22 @@ def entry_to_listing(entry: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _pick_autos_listings(next_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """`AutosListing:{id}` de l'état Apollo, indexés par id (logique pure, sans dépendre du scraper Playwright)."""
+    state = ((next_data.get("props") or {}).get("pageProps") or {}).get("__APOLLO_STATE__")
+    results: Dict[str, Dict[str, Any]] = {}
+    if isinstance(state, dict):
+        for key, value in state.items():
+            if key.startswith("AutosListing:") and isinstance(value, dict) and value.get("id"):
+                results[str(value["id"])] = value
+    return results
+
+
 def parse_search_page(html: str) -> List[Dict[str, Any]]:
     data = extract_next_data(html)
     if not data:
         return []
-    entries = KijijiListingParser._pick_all_standard_listings(data, prefixes=("AutosListing:",))
+    entries = _pick_autos_listings(data)
     return [entry_to_listing(e) for e in entries.values()]
 
 
@@ -73,7 +83,7 @@ def parse_detail_page(html: str, source_id: Optional[str] = None) -> Optional[Di
     data = extract_next_data(html)
     if not data:
         return None
-    entries = KijijiListingParser._pick_all_standard_listings(data, prefixes=("AutosListing:",))
+    entries = _pick_autos_listings(data)
     entry = entries.get(str(source_id)) if source_id is not None else None
     entry = entry or next(iter(entries.values()), None)
     if not entry:

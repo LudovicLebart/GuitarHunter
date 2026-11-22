@@ -5,7 +5,7 @@ ce n'est pas une « mauvaise annonce » à archiver.
 """
 from typing import Any, Dict, Optional, Tuple
 
-from backend.scraping.utils import calculate_distance
+from backend.leaf.geo import calculate_distance
 
 DEFAULT_CRITERIA: Dict[str, Any] = {
     "years": (2016, 2017, 2018),

@@ -6,7 +6,7 @@ jamais à jeter l'annonce (les concessionnaires publient sur plusieurs sites, l'
 """
 from typing import Any, Dict
 
-from backend.scraping.utils import calculate_distance
+from backend.leaf.geo import calculate_distance
 
 KM_TOLERANCE = 0.01          # ±1 %
 MAX_DISTANCE_KM = 10.0

@@ -195,3 +195,13 @@ class TestPipeline(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPipelineMissingId(unittest.TestCase):
+    def test_listings_without_id_are_not_merged(self):
+        raws = [{"id": None, "url": f"u{i}", "title": "Nissan Leaf 2017", "price": 6000, "km": 80000}
+                for i in range(2)]
+        out = pipeline.evaluate_listings(raws, {})
+        if out is not None:
+            total = sum(len(out[k]) for k in ("kept", "rejected", "ignored"))
+            self.assertEqual(total, 2)

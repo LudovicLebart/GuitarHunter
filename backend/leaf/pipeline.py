@@ -26,9 +26,11 @@ def evaluate_listings(raws: Sequence[Dict[str, Any]], criteria: Optional[Dict[st
     seen_ids = set()
 
     for raw in raws:
-        if raw.get("id") in seen_ids:
-            continue
-        seen_ids.add(raw.get("id"))
+        key = raw.get("id") or raw.get("url")
+        if key is not None:
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
         listing = normalize.normalize_listing(raw)
 
         ok, reason = filters.passes_criteria(listing, criteria)
