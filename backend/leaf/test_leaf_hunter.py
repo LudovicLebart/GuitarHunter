@@ -16,7 +16,7 @@ class TestConfig(unittest.TestCase):
         c = lc.normalize_config(None)
         self.assertFalse(c["enabled"])
         self.assertEqual((c["scan"]["frequency"], c["scan"]["min_price"], c["scan"]["max_price"]), (120, 1500, 7500))
-        self.assertIsNone(c["scan"]["home"])
+        self.assertEqual(c["scan"]["home"], {"latitude": 45.5333, "longitude": -73.35, "max_km": 150})   # Saint-Bruno
 
     def test_enabled_only_when_exactly_true(self):
         self.assertTrue(lc.normalize_config({"enabled": True})["enabled"])
@@ -30,8 +30,10 @@ class TestConfig(unittest.TestCase):
         self.assertEqual((c["min_price"], c["max_price"]), (2000, 2000))     # le plafond ne passe jamais sous le plancher
         self.assertEqual((c["sources"], c["max_km"]), (["kijiji", "autohebdo"], 150000))
 
-    def test_home_needs_both_coordinates(self):
-        self.assertIsNone(lc.normalize_config({"scanConfig": {"home": {"latitude": 45.5}}})["scan"]["home"])
+    def test_incomplete_home_falls_back_to_saint_bruno(self):
+        home = lc.normalize_config({"scanConfig": {"home": {"latitude": 45.5}}})["scan"]["home"]
+        self.assertEqual((home["latitude"], home["longitude"]), (45.5333, -73.35))
+    def test_custom_home_and_radius(self):
         home = lc.normalize_config({"scanConfig": {"home": {"latitude": 45.5, "longitude": -73.5}, "radius_km": 80}})["scan"]["home"]
         self.assertEqual(home["max_km"], 80)
 

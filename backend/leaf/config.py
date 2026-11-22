@@ -11,6 +11,9 @@ MIN_FREQUENCY_MIN = 60          # plancher de politesse : jamais plus d'un passa
 DEFAULT_FREQUENCY_MIN = 120
 DEFAULT_RADIUS_KM = 150
 VALID_SOURCES = ("kijiji", "autohebdo")
+# Ville de référence (décision utilisateur 2026-11-22) : Saint-Bruno-de-Montarville, coordonnées du catalogue
+# `backend/resources/city_coordinates.json`. Remplaçable par `scanConfig.home` ({latitude, longitude}).
+DEFAULT_HOME = {"name": "Saint-Bruno-de-Montarville", "latitude": 45.5333, "longitude": -73.3500}
 
 
 def server_enabled() -> bool:
@@ -39,7 +42,8 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     max_price = max(_num(scan.get("max_price"), d["max_price"], 0), min_price)
     home = scan.get("home") if isinstance(scan.get("home"), dict) else {}
     lat, lon = home.get("latitude"), home.get("longitude")
-    has_home = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon))
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon)):
+        lat, lon = DEFAULT_HOME["latitude"], DEFAULT_HOME["longitude"]     # point de repère incomplet : ville par défaut
     return {
         "enabled": raw.get("enabled") is True,
         "scan": {
@@ -52,7 +56,7 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "sources": sources,
             "read_details": scan.get("read_details") is not False,
             "home": {"latitude": lat, "longitude": lon,
-                     "max_km": _num(scan.get("radius_km"), DEFAULT_RADIUS_KM, 1)} if has_home else None,
+                     "max_km": _num(scan.get("radius_km"), DEFAULT_RADIUS_KM, 1)},
         },
         "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
                    "price_drop": notify.get("price_drop") is not False},

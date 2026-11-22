@@ -212,6 +212,9 @@ jobs:
             else
               printf '%s' "$DOT_ENV" > .env
               echo "✅ Fichier .env mis à jour."
+              # Leaf Hunter (2026-11-22) : interrupteur SERVEUR activé ici (le secret DOT_ENV n'a pas à le porter).
+              # Reste actif par utilisateur seulement si leafConfig.enabled ; sujet ntfy : LEAF_NTFY_TOPIC dans DOT_ENV.
+              grep -q '^LEAF_ENABLED=' .env || printf '\nLEAF_ENABLED=true\n' >> .env
             fi
 
             # Création/Mise à jour de la clé Firebase

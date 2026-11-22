@@ -25,7 +25,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = False
+ACTIVE = True   # 2026-11-22 : activation de Leaf Hunter (enable_leaf) — À REPASSER À False juste après le déploiement
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -136,9 +136,12 @@ def run():
     2026-10-05 : villes du catalogue sans coordonnées (Chambly, McMasterville…, scan ignoré /
     ancrage Kijiji impossible) — voir `backend/scripts/fix_cities_missing_coords.py`. Idempotent.
     EXÉCUTÉ (run #595, dev) : 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable. Désarmé.
+
+    2026-11-22 : activation de Leaf Hunter (`leafConfig.enabled = true` + ville de référence Saint-Bruno-de-Montarville)
+    pour `USER_IDS_TARGET`, voir `backend/scripts/enable_leaf.py` (idempotent). ARMÉ : désarmer après le déploiement.
     """
-    from backend.scripts.fix_cities_missing_coords import run as fix_cities_missing_coords
-    fix_cities_missing_coords()
+    from backend.scripts.enable_leaf import run as enable_leaf
+    enable_leaf()
 
 
 if __name__ == "__main__":
