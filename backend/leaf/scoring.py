@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 NOMINAL_RANGE_KM = {24: 135, 30: 172, 40: 241}
 COLD_FACTOR_MILD = 0.75    # -15 °C
 COLD_FACTOR_SEVERE = 0.55  # -25 °C
+SOH_REPLACED_LOW, SOH_REPLACED_HIGH = 95.0, 100.0   # batterie remplacée annoncée, preuve à confirmer
 SOH_ASSUMED_LOW, SOH_ASSUMED_HIGH = 75.0, 90.0   # quand le SOH est inconnu : fourchette, jamais une valeur
 DEFAULT_DAILY_KM = 50
 DEFAULT_MARGIN = 1.5
@@ -36,8 +37,10 @@ def winter_fit(listing: Dict[str, Any], daily_km: float = DEFAULT_DAILY_KM,
         return {"low_km": None, "high_km": None, "needed_km": needed, "verdict": "inconnu",
                 "soh_assumed": None}
     soh = listing.get("soh_announced")
-    soh_low = soh if soh is not None else SOH_ASSUMED_LOW
-    soh_high = soh if soh is not None else SOH_ASSUMED_HIGH
+    replaced = bool((listing.get("mentions") or {}).get("battery_replaced"))
+    a_low, a_high = (SOH_REPLACED_LOW, SOH_REPLACED_HIGH) if replaced else (SOH_ASSUMED_LOW, SOH_ASSUMED_HIGH)
+    soh_low = soh if soh is not None else a_low
+    soh_high = soh if soh is not None else a_high
     low = round(NOMINAL_RANGE_KM[k_low] * soh_low / 100 * COLD_FACTOR_SEVERE)
     high = round(NOMINAL_RANGE_KM[k_high] * soh_high / 100 * COLD_FACTOR_MILD)
     if low >= needed:
@@ -47,7 +50,7 @@ def winter_fit(listing: Dict[str, Any], daily_km: float = DEFAULT_DAILY_KM,
     else:
         verdict = "insuffisant"
     return {"low_km": low, "high_km": high, "needed_km": needed, "verdict": verdict,
-            "soh_assumed": None if soh is not None else (SOH_ASSUMED_LOW, SOH_ASSUMED_HIGH)}
+            "soh_assumed": None if soh is not None else (a_low, a_high)}
 
 
 def equipment_score(listing: Dict[str, Any]) -> Dict[str, Any]:
@@ -71,7 +74,9 @@ def risk_flags(listing: Dict[str, Any]) -> List[str]:
     if listing.get("km") is None:
         flags.append("km_unknown")
     if listing.get("battery_kwh_low") == 24:
-        flags.append("battery_24_possible")
+        replaced = (listing.get("mentions") or {}).get("battery_replaced")
+        flags.append("battery_24_replaced" if replaced and listing.get("battery_source") == "stated"
+                     else "battery_24_possible")
     return flags
 
 

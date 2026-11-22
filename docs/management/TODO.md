@@ -19,7 +19,7 @@ Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](pl
 - [x] **Phase 1** : bibliothèque pure `backend/leaf/` (normalisation, filtres, règles, scores, doublons, pipeline, sources Kijiji + AutoHebdo, `dry_run`) — 55 tests.
 - [x] **Phase 1b** : lecture des fiches d'annonces (description complète, GPS, dommages) — 73 tests au total.
 - [ ] **Ouvrir une pull request** vers `dev` et vérifier que la CI passe (`backend.leaf.test_leaf_*` sont dans le job `tests` de `deploy.yml`).
-- [ ] **Décision** : une batterie 24 kWh *remplacée récemment* doit-elle rester un rejet (règle actuelle) ou devenir un drapeau ? Les 24 kWh d'origine restent rejetées.
+- [x] **Décision (2026-11-22)** : une batterie 24 kWh *remplacée* n'est plus rejetée : drapeau `battery_24_replaced`, SOH supposé 95-100 % pour l'autonomie hivernale ; les 24 kWh d'origine restent rejetées. Intéressante surtout sous ≈ 5 000 $ avec preuve du remplacement (facture/garantie Nissan) : à demander au vendeur (phase 6).
 - [ ] **Décision** : rayon de distance autour de la ville de référence (150 km par défaut ; réserve de l'utilisateur, « on verra après »).
 - [ ] **Phase 2** : tables `vehicle_deals`, `user_vehicle_matches`, `user_vehicle_state`, `vehicle_price_history` (`schema.sql`, ajouts idempotents) + dépôts de données (`backend/leaf/repository.py` côté bot, `backend/api/leaf_repo.py` côté API, autonome : voir le piège de l'API de production).
 - [ ] **Phase 3** : intégration au bot (`main.py`, job planifié, commandes `LEAF_*`, `leafConfig`, logger `bot.{uid8}.leaf`, ntfy sur sujet séparé), double interrupteur `LEAF_ENABLED` + `leafConfig.enabled`.

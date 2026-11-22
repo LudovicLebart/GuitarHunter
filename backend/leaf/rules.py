@@ -15,8 +15,13 @@ def gatekeeper_rules(listing: Dict[str, Any], soh_min_reject: float = DEFAULT_SO
     reasons: List[str] = []
     flags: List[str] = []
 
+    replaced = bool((listing.get("mentions") or {}).get("battery_replaced"))
     if listing.get("battery_source") == "stated" and listing.get("battery_kwh_high") == 24:
-        reasons.append("battery_24kwh")
+        if replaced:
+            # Batterie 24 kWh remplacée : pas un rejet (décision utilisateur 2026-11-22), preuve à demander.
+            flags.append("battery_24_replaced")
+        else:
+            reasons.append("battery_24kwh")
     elif listing.get("battery_kwh_low") == 24:
         flags.append("battery_24_possible")
 

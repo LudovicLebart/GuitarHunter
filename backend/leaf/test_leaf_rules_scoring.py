@@ -53,6 +53,19 @@ class TestRules(unittest.TestCase):
         self.assertEqual(decision, "REJECT")
         self.assertIn("battery_24kwh", reasons)
 
+    def test_24kwh_replaced_is_flagged_not_rejected(self):
+        for desc in ("batterie 24 kWh remplacée en janvier 2024", "24 kWh, nouvelle batterie installée",
+                     "24 kWh battery replaced by Nissan"):
+            decision, reasons, flags = rules.gatekeeper_rules(L(description=desc))
+            self.assertEqual((decision, reasons), ("PASS", []), desc)
+            self.assertIn("battery_24_replaced", flags)
+
+    def test_24kwh_replaced_winter_fit_assumes_new_battery(self):
+        wf = scoring.winter_fit(L(description="24 kWh, batterie remplacée en 2024"))
+        self.assertEqual(wf["soh_assumed"], (95.0, 100.0))
+        self.assertEqual((wf["low_km"], wf["high_km"], wf["verdict"]), (71, 101, "juste"))
+        self.assertIn("battery_24_replaced", scoring.risk_flags(L(description="24 kWh, batterie remplacée")))
+
     def test_2016_s_is_only_flagged(self):
         decision, _, flags = rules.gatekeeper_rules(L(title="2016 Nissan Leaf S"))
         self.assertEqual(decision, "PASS")

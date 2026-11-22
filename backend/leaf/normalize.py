@@ -129,6 +129,9 @@ _MENTIONS = {
     "heated_seats": r"sieges? chauffants?|bancs? chauffants?|heated seats?",
     "heated_wheel": r"volant chauffant|heated (?:steering )?wheel",
     "carfax": r"carfax",
+    "battery_replaced": r"batterie\s+(?:\S+\s+){0,3}?(?:neuve|remplacee|changee)|nouvelle batterie"
+                        r"|remplacement (?:de la |de )?batterie|batterie (?:remplacee|changee)"
+                        r"|(?:battery|batt)\s+(?:was\s+)?replaced|replaced (?:the )?battery|new battery",
 }
 
 
