@@ -109,3 +109,34 @@ class LeafRepository:
             rows = conn.execute("SELECT year, km, price FROM vehicle_deals WHERE status = 'active' AND year IS NOT NULL "
                                 "AND km IS NOT NULL AND price IS NOT NULL").fetchall()
         return [{"year": r["year"], "km": r["km"], "price": float(r["price"])} for r in rows]
+
+    # ------------------------------------------------------------------ passages et configuration
+
+    def get_leaf_config(self, user_id: str) -> Dict[str, Any]:
+        """`users.config.leafConfig` brut ({} si absent : Leaf désactivé)."""
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT config FROM users WHERE uid = %s", (user_id,)).fetchone()
+        cfg = (row or {}).get("config") or {}
+        return cfg.get("leafConfig") or {}
+
+    def record_run(self, user_id: str, source: str, outcome: str, detail: Optional[str] = None,
+                   cards_seen: Optional[int] = None, kept: Optional[int] = None,
+                   duration_ms: Optional[int] = None) -> None:
+        """Un passage d'une source dans `scrape_runs` (source `leaf_<nom>`, distincte de `facebook`/`kijiji`)."""
+        with self.pool.connection() as conn:
+            conn.execute("INSERT INTO scrape_runs (user_id, source, outcome, detail, cards_seen, kept, duration_ms) "
+                         "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                         (user_id, f"leaf_{source}", outcome, detail, cards_seen, kept, duration_ms))
+
+    def recent_outcomes(self, user_id: str, source: str, limit: int = 5) -> List[str]:
+        with self.pool.connection() as conn:
+            rows = conn.execute("SELECT outcome FROM scrape_runs WHERE user_id = %s AND source = %s "
+                                "ORDER BY created_at DESC, id DESC LIMIT %s", (user_id, f"leaf_{source}", limit)).fetchall()
+        return [r["outcome"] for r in rows]
+
+    def mark_stale_sold(self, days: int = 7) -> int:
+        """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`)."""
+        with self.pool.connection() as conn:
+            return conn.execute("UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() "
+                                "WHERE status = 'active' AND last_seen_at < now() - make_interval(days => %s)",
+                                (days,)).rowcount

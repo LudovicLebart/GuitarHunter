@@ -81,6 +81,23 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
         'START_BOT': lambda _: start_event.set(),
     }
 
+    # Leaf Hunter (2026-11-22) : job planifié + commandes LEAF_*. Désactivé par défaut (double interrupteur :
+    # LEAF_ENABLED côté serveur + leafConfig.enabled par utilisateur) ; toute erreur y est capturée.
+    leaf_hunter = None
+    try:
+        from backend.leaf import config as leaf_config
+        if leaf_config.server_enabled():
+            from backend.leaf.hunter import LeafHunter
+            from backend.leaf.repository import LeafRepository
+            leaf_hunter = LeafHunter(LeafRepository(bot.repo.pool, bot.logger.getChild('leaf')), bot.repo.user_id,
+                                     bot.logger.getChild('leaf'))
+            command_handlers.update(leaf_hunter.command_handlers())
+            schedule.every(leaf_hunter.config()["scan"]["frequency"]).minutes.do(leaf_hunter.run_scan).tag('leaf')
+            schedule.every(6).hours.do(leaf_hunter.cleanup).tag('leaf')
+            bot.logger.info("[Leaf] Module activé côté serveur (actif par utilisateur selon leafConfig.enabled).")
+    except Exception as e:
+        bot.logger.error(f"[Leaf] Initialisation impossible, module ignoré : {e}", exc_info=True)
+
     try:
         scheduler = TaskScheduler(
             scan_func=bot.run_scan,
@@ -118,7 +135,7 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
                                     with in_flight_lock:
                                         in_flight_command_ids.discard(cid)
 
-                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY', 'REEVALUATE_NOT_PROMOTED']:
+                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY', 'REEVALUATE_NOT_PROMOTED', 'LEAF_REFRESH', 'LEAF_CLEANUP']:
                                 bot.logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
                                 threading.Thread(
                                     target=execute_command_async,

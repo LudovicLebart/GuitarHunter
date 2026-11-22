@@ -1,0 +1,59 @@
+"""Configuration Leaf (`users.config.leafConfig`) : valeurs par défaut et bornes. Fonction PURE.
+
+Double interrupteur : `LEAF_ENABLED` (variable d'environnement du serveur) ET `leafConfig.enabled` (par utilisateur,
+faux par défaut). Un `leafConfig` absent = Leaf désactivé : le comportement du bot guitare ne change pas."""
+import os
+from typing import Any, Dict, Optional
+
+from backend.leaf.filters import DEFAULT_CRITERIA
+
+MIN_FREQUENCY_MIN = 60          # plancher de politesse : jamais plus d'un passage par heure
+DEFAULT_FREQUENCY_MIN = 120
+DEFAULT_RADIUS_KM = 150
+VALID_SOURCES = ("kijiji", "autohebdo")
+
+
+def server_enabled() -> bool:
+    return os.getenv("LEAF_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _num(value, default, low=None, high=None):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    if low is not None and value < low:
+        return low
+    if high is not None and value > high:
+        return high
+    return value
+
+
+def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """`leafConfig` brut -> configuration complète et bornée (jamais d'exception sur une valeur absurde)."""
+    raw = raw if isinstance(raw, dict) else {}
+    scan = raw.get("scanConfig") if isinstance(raw.get("scanConfig"), dict) else {}
+    notify = raw.get("notify") if isinstance(raw.get("notify"), dict) else {}
+    d = DEFAULT_CRITERIA
+    years = [y for y in (scan.get("years") or []) if isinstance(y, int) and not isinstance(y, bool) and 2010 <= y <= 2030]
+    sources = [s for s in (scan.get("sources") or VALID_SOURCES) if s in VALID_SOURCES] or list(VALID_SOURCES)
+    min_price = _num(scan.get("min_price"), d["min_price"], 0)
+    max_price = max(_num(scan.get("max_price"), d["max_price"], 0), min_price)
+    home = scan.get("home") if isinstance(scan.get("home"), dict) else {}
+    lat, lon = home.get("latitude"), home.get("longitude")
+    has_home = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (lat, lon))
+    return {
+        "enabled": raw.get("enabled") is True,
+        "scan": {
+            "frequency": int(_num(scan.get("frequency"), DEFAULT_FREQUENCY_MIN, MIN_FREQUENCY_MIN, 24 * 60)),
+            "years": years or list(d["years"]),
+            "min_price": min_price,
+            "max_price": max_price,
+            "max_km": _num(scan.get("max_km"), d["max_km"], 1),
+            "pages": int(_num(scan.get("pages"), 2, 1, 3)),
+            "sources": sources,
+            "read_details": scan.get("read_details") is not False,
+            "home": {"latitude": lat, "longitude": lon,
+                     "max_km": _num(scan.get("radius_km"), DEFAULT_RADIUS_KM, 1)} if has_home else None,
+        },
+        "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
+                   "price_drop": notify.get("price_drop") is not False},
+    }
