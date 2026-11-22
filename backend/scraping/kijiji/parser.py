@@ -327,9 +327,11 @@ class KijijiListingParser:
         return KijijiListingParser._pick_all_standard_listings(data, log)
 
     @staticmethod
-    def _pick_all_standard_listings(next_data: Dict[str, Any], log: logging.Logger = None) -> Dict[str, Dict[str, Any]]:
+    def _pick_all_standard_listings(next_data: Dict[str, Any], log: logging.Logger = None,
+                                    prefixes: tuple = ("StandardListing:",)) -> Dict[str, Dict[str, Any]]:
         """Logique pure (testable sans Page réelle) : extrait tous les `StandardListing:{id}`
-        de l'état Apollo déjà parsé, indexés par ID."""
+        de l'état Apollo déjà parsé, indexés par ID. `prefixes` (défaut inchangé) permet à Leaf Hunter
+        de lire les `AutosListing:{id}` de la catégorie autos avec la même logique."""
         log = log or _module_logger
         results: Dict[str, Dict[str, Any]] = {}
         try:
@@ -337,7 +339,7 @@ class KijijiListingParser:
             if not isinstance(apollo_state, dict):
                 return results
             for key, value in apollo_state.items():
-                if key.startswith("StandardListing:") and isinstance(value, dict):
+                if key.startswith(prefixes) and isinstance(value, dict):
                     listing_id = value.get("id")
                     if listing_id:
                         results[str(listing_id)] = value

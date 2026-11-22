@@ -85,6 +85,9 @@ jobs:
             backend.scraping.test_city_finder \
             backend.scraping.test_city_verification \
             backend.scraping.test_zone \
+            backend.leaf.test_leaf_normalize \
+            backend.leaf.test_leaf_rules_scoring \
+            backend.leaf.test_leaf_sources \
             backend.scraping.test_catchup \
             backend.scraping.test_scroll \
             backend.test_pricing \
