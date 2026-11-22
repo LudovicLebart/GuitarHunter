@@ -11,6 +11,23 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
+## 🔌 Leaf Hunter : extension « Nissan Leaf d'occasion » (2026-11-22, phases 1 et 1b codées sur `feature/leaf-hunter-phase1`, non déployées)
+
+Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](plans/LEAF_HUNTER_PLAN.md). Besoin : Leaf 2016-2018, budget bas (5 000 à 7 500 $, viser le bas), ~50 km/jour en hiver au Québec.
+
+- [x] **Phase 0** : plan Opus, décisions par défaut validées par l'utilisateur.
+- [x] **Phase 1** : bibliothèque pure `backend/leaf/` (normalisation, filtres, règles, scores, doublons, pipeline, sources Kijiji + AutoHebdo, `dry_run`) — 55 tests.
+- [x] **Phase 1b** : lecture des fiches d'annonces (description complète, GPS, dommages) — 73 tests au total.
+- [ ] **Ouvrir une pull request** vers `dev` et vérifier que la CI passe (`backend.leaf.test_leaf_*` sont dans le job `tests` de `deploy.yml`).
+- [ ] **Décision** : une batterie 24 kWh *remplacée récemment* doit-elle rester un rejet (règle actuelle) ou devenir un drapeau ? Les 24 kWh d'origine restent rejetées.
+- [ ] **Décision** : rayon de distance autour de la ville de référence (150 km par défaut ; réserve de l'utilisateur, « on verra après »).
+- [ ] **Phase 2** : tables `vehicle_deals`, `user_vehicle_matches`, `user_vehicle_state`, `vehicle_price_history` (`schema.sql`, ajouts idempotents) + dépôts de données (`backend/leaf/repository.py` côté bot, `backend/api/leaf_repo.py` côté API, autonome : voir le piège de l'API de production).
+- [ ] **Phase 3** : intégration au bot (`main.py`, job planifié, commandes `LEAF_*`, `leafConfig`, logger `bot.{uid8}.leaf`, ntfy sur sujet séparé), double interrupteur `LEAF_ENABLED` + `leafConfig.enabled`.
+- [ ] **Phase 4** : API `/leaf/*` + page `#leaf` minimale (fin de la tranche utile : scraping → base → liste → ntfy, sans IA).
+- [ ] **Phases 5 à 9** : IA niveaux 1 et 2 avec garde-fou des preuves, Expert et questions au vendeur, marché/historique/nettoyage, options (Facebook, URL manuelles), documentation.
+- [ ] Le VIN n'est exposé par aucune des deux sources : vérifier si la fiche Kijiji ou AutoHebdo le donne (dédup par VIN inopérant tant qu'il manque).
+- [ ] CarGurus et AutoTrader : non automatisés (HTTP 406, conditions d'utilisation) ; décision de principe à confirmer.
+
 ## ⚡ Lenteur de `/deals/index` : suites (2026-11-04, paliers 1 à 3 + M0 à M3 poussés sur `dev`)
 
 Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md).
