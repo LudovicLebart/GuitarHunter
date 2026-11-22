@@ -141,7 +141,8 @@ def normalize_listing(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Complète une annonce brute (sortie d'une source) : champs absents déduits du titre/description,
     plus les champs dérivés (batterie, SOH annoncé + preuve, drapeaux). Ne modifie pas `raw`."""
     listing = dict(raw)
-    text = f"{raw.get('title') or ''} {raw.get('description') or ''}"
+    equipment = " ".join(raw.get("equipment") or [])
+    text = f"{raw.get('title') or ''} {raw.get('description') or ''} {equipment}"
     listing["year"] = raw.get("year") or parse_year(raw.get("title")) or parse_year(text)
     listing["km"] = raw.get("km") if raw.get("km") is not None else parse_km(text)
     listing["trim"] = raw.get("trim") or parse_trim(text)
@@ -152,5 +153,10 @@ def normalize_listing(raw: Dict[str, Any]) -> Dict[str, Any]:
     bars = extract_capacity_bars(text)
     listing["capacity_bars"], listing["capacity_bars_evidence"] = (bars if bars else (None, None))
     listing["accident_flags"] = accident_flags(text)
+    # Indicateurs STRUCTURÉS de la fiche (AutoHebdo) : seul `True` compte ; `None`/`False` = pas d'information fiable.
+    if raw.get("had_accident") is True:
+        listing["accident_flags"].append("declared_accident")
+    if raw.get("currently_damaged") is True:
+        listing["accident_flags"].append("declared_damage")
     listing["mentions"] = detect_mentions(text)
     return listing

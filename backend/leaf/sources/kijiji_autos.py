@@ -23,9 +23,10 @@ def build_search_url(page: int = 1, min_price: Optional[int] = None, max_price: 
 
 
 def _attrs(entry: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Attributs `canonicalName -> première valeur` (repli sur `values` : c'est là que vit `cartrim`)."""
     out: Dict[str, Optional[str]] = {}
     for a in ((entry.get("attributes") or {}).get("all") or []):
-        values = a.get("canonicalValues") or [None]
+        values = a.get("canonicalValues") or a.get("values") or [None]
         out[a.get("canonicalName")] = values[0]
     return out
 
@@ -47,6 +48,7 @@ def entry_to_listing(entry: Dict[str, Any]) -> Dict[str, Any]:
         "year": int(year) if (year or "").isdigit() else None,
         "km": int(km) if (km or "").isdigit() else None,
         "model": attrs.get("carmodel"),
+        "trim": None,                              # la liste ne le donne pas : lu sur la fiche (`cartrim`)
         "seller_type": attrs.get("forsaleby"),     # 'ownr' (particulier) / 'delr' (commerçant)
         "city": (loc.get("address") or loc.get("name") or "").strip(),
         "latitude": coords.get("latitude"),
@@ -63,3 +65,25 @@ def parse_search_page(html: str) -> List[Dict[str, Any]]:
         return []
     entries = KijijiListingParser._pick_all_standard_listings(data, prefixes=("AutosListing:",))
     return [entry_to_listing(e) for e in entries.values()]
+
+
+def parse_detail_page(html: str, source_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Fiche d'une annonce : description COMPLÈTE (la liste la tronque), trim, GPS, type de vendeur.
+    None si la page n'a pas d'état Apollo exploitable."""
+    data = extract_next_data(html)
+    if not data:
+        return None
+    entries = KijijiListingParser._pick_all_standard_listings(data, prefixes=("AutosListing:",))
+    entry = entries.get(str(source_id)) if source_id is not None else None
+    entry = entry or next(iter(entries.values()), None)
+    if not entry:
+        return None
+    full = entry_to_listing(entry)
+    trim = (_attrs(entry).get("cartrim") or "").strip().upper()
+    return {
+        "description": full["description"],
+        "trim": trim or None,
+        "city": full["city"], "latitude": full["latitude"], "longitude": full["longitude"],
+        "seller_type": full["seller_type"],
+        "year": full["year"], "km": full["km"],
+    }

@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 from backend.leaf import filters, pipeline
 from backend.leaf.sources import BlockedError, fetch_html, autohebdo, kijiji_autos
+from backend.leaf.sources.detail import DetailFetcher
 
 
 def collect(years, min_price: int, max_price: int, pages: int, fetch=fetch_html) -> List[Dict[str, Any]]:
@@ -46,13 +47,18 @@ def main(argv=None) -> int:
     ap.add_argument("--max-price", type=int, default=d["max_price"])
     ap.add_argument("--max-km", type=int, default=d["max_km"])
     ap.add_argument("--pages", type=int, default=2, help="pages de résultats Kijiji")
+    ap.add_argument("--no-detail", action="store_true", help="ne lit pas les fiches (liste seulement)")
     args = ap.parse_args(argv)
 
     criteria = {"min_price": args.min_price, "max_price": args.max_price, "max_km": args.max_km}
     raws = collect(d["years"], args.min_price, args.max_price, args.pages)
-    result = pipeline.evaluate_listings(raws, criteria)
+    fetcher = None if args.no_detail else DetailFetcher()
+    result = pipeline.evaluate_listings(raws, criteria, detail_fetcher=fetcher)
     print(f"{len(raws)} annonces lues : {len(result['kept'])} retenues, {len(result['rejected'])} rejetées "
           f"par les règles, {len(result['ignored'])} hors périmètre.")
+    if fetcher:
+        print(f"Fiches lues : {fetcher.fetched}, illisibles : {fetcher.failed}"
+              + (" — site bloqué, arrêt des lectures." if fetcher.blocked else "") + ".")
     for a in result["kept"]:
         wf = a["winter_fit"]
         winter = f"{wf['low_km']}-{wf['high_km']} km" if wf["low_km"] else "?"

@@ -78,3 +78,44 @@ def parse_results_page(page_html: str, page_year: Optional[int] = None) -> List[
                 "vin": item.get("vehicleIdentificationNumber"),
             })
     return listings
+
+
+_NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', re.S)
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _clean_text(value: Any) -> str:
+    """Description du vendeur : balises retirées, entités HTML décodées, espaces compactés."""
+    text = html_lib.unescape(_TAG.sub(" ", str(value or "")))
+    return re.sub(r"[ \t\r\f\v]+", " ", text).strip()
+
+
+def parse_detail_page(page_html: str) -> Optional[Dict[str, Any]]:
+    """Fiche d'une annonce : description du vendeur, équipement, ville + GPS, type de vendeur, indicateurs de
+    dommages. Les champs absents restent None (jamais devinés). None si `listingDetails` est introuvable."""
+    m = _NEXT_DATA.search(page_html or "")
+    if not m:
+        return None
+    try:
+        details = json.loads(m.group(1))["props"]["pageProps"]["listingDetails"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    vehicle = details.get("vehicle") or {}
+    loc = details.get("location") or {}
+    seller = details.get("seller") or {}
+    damage = ((vehicle.get("rawData") or {}).get("condition") or {}).get("damage") or {}
+    equipment: List[str] = []
+    for group in (vehicle.get("equipment") or {}).values():
+        if isinstance(group, list):
+            equipment += [str(e.get("id")) for e in group if isinstance(e, dict) and e.get("id")]
+    return {
+        "description": _clean_text(details.get("description")),
+        "equipment": equipment,
+        "city": (loc.get("city") or "").title(),
+        "latitude": loc.get("latitude"), "longitude": loc.get("longitude"),
+        "seller_type": "delr" if seller.get("isDealer") else ("ownr" if seller.get("isDealer") is False else None),
+        "had_accident": vehicle.get("hadAccident"),
+        "currently_damaged": damage.get("isCurrentlyDamaged"),
+        "year": _to_int(vehicle.get("modelYear")),
+        "km": _to_int(vehicle.get("mileageInKmRaw")),
+    }
