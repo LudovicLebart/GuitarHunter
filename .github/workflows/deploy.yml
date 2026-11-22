@@ -88,6 +88,7 @@ jobs:
             backend.leaf.test_leaf_normalize \
             backend.leaf.test_leaf_rules_scoring \
             backend.leaf.test_leaf_sources \
+            backend.leaf.test_leaf_repository \
             backend.scraping.test_catchup \
             backend.scraping.test_scroll \
             backend.test_pricing \

@@ -745,3 +745,105 @@ ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_status TEXT;
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS review_note TEXT;
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_digest TEXT;
 ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+
+-- ============================================================================================
+-- Leaf Hunter (2026-11-22, phase 2) : annonces de Nissan Leaf d'occasion. Tables DÉDIÉES, aucune colonne ajoutée aux
+-- tables guitares (voir docs/management/plans/LEAF_HUNTER_PLAN.md §1 : option B). Ajouts idempotents uniquement ;
+-- retour arrière = DROP des 4 tables. Aucune donnée réelle dans le dépôt (public) : seulement ce schéma.
+-- ============================================================================================
+-- `vehicle_deals` : fait GLOBAL sur l'annonce (comme `guitar_deals`) ; qui la voit et ce que l'utilisateur en pense
+-- vivent dans `user_vehicle_matches` / `user_vehicle_state`. `id` = `leaf_<source>_<id source>`. `status` :
+-- 'active' | 'sold'. Les champs dérivés par le code (scores, drapeaux, mentions) sont dans `analysis` (JSONB).
+CREATE TABLE IF NOT EXISTS vehicle_deals (
+    id                TEXT PRIMARY KEY,
+    source            TEXT NOT NULL,
+    source_id         TEXT,
+    link              TEXT,
+    title             TEXT,
+    description       TEXT,
+    price             NUMERIC,
+    original_price    NUMERIC,
+    price_drop_amount NUMERIC,
+    year              SMALLINT,
+    trim              TEXT,
+    km                INTEGER,
+    battery_kwh_low   SMALLINT,
+    battery_kwh_high  SMALLINT,
+    battery_source    TEXT,
+    soh_announced     NUMERIC,
+    soh_evidence      TEXT,
+    capacity_bars     SMALLINT,
+    vin               TEXT,
+    seller_type       TEXT,
+    location          TEXT,
+    latitude          DOUBLE PRECISION,
+    longitude         DOUBLE PRECISION,
+    distance_km       DOUBLE PRECISION,
+    image_urls        JSONB,
+    flags             JSONB,
+    analysis          JSONB,
+    verdict           TEXT,
+    duplicate_of      TEXT,
+    status            TEXT NOT NULL DEFAULT 'active',
+    first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sold_at           TIMESTAMPTZ,
+    "timestamp"       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_vehicle_deals_status ON vehicle_deals(status, price);
+CREATE INDEX IF NOT EXISTS idx_vehicle_deals_vin ON vehicle_deals(vin) WHERE vin IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS user_vehicle_matches (
+    user_id     TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    deal_id     TEXT NOT NULL REFERENCES vehicle_deals(id) ON DELETE CASCADE,
+    matched_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, deal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_vehicle_matches_user ON user_vehicle_matches(user_id, matched_at DESC);
+
+-- Préférences PERSONNELLES (absence de ligne = ni favori, ni rejeté, sans note).
+CREATE TABLE IF NOT EXISTS user_vehicle_state (
+    user_id      TEXT NOT NULL REFERENCES users(uid) ON DELETE CASCADE,
+    deal_id      TEXT NOT NULL REFERENCES vehicle_deals(id) ON DELETE CASCADE,
+    is_favorite  BOOLEAN NOT NULL DEFAULT false,
+    is_rejected  BOOLEAN NOT NULL DEFAULT false,
+    notes        TEXT,
+    checklist    JSONB,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, deal_id)
+);
+
+-- Un point par changement de prix constaté (le premier prix vu inclus).
+CREATE TABLE IF NOT EXISTS vehicle_price_history (
+    id       BIGSERIAL PRIMARY KEY,
+    deal_id  TEXT NOT NULL REFERENCES vehicle_deals(id) ON DELETE CASCADE,
+    price    NUMERIC NOT NULL,
+    seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_vehicle_price_history_deal ON vehicle_price_history(deal_id, seen_at);
+
+-- Temps réel : canal DÉDIÉ `vehicle_changes` (le canal `deal_changes` des guitares reste intact).
+CREATE OR REPLACE FUNCTION notify_vehicle_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('vehicle_changes', json_build_object('id', COALESCE(NEW.deal_id, OLD.deal_id))::text);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION notify_vehicle_deal_change() RETURNS trigger AS $$
+BEGIN
+    PERFORM pg_notify('vehicle_changes', json_build_object('id', COALESCE(NEW.id, OLD.id))::text);
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS vehicle_deals_notify ON vehicle_deals;
+CREATE TRIGGER vehicle_deals_notify AFTER INSERT OR UPDATE OR DELETE ON vehicle_deals
+    FOR EACH ROW EXECUTE FUNCTION notify_vehicle_deal_change();
+DROP TRIGGER IF EXISTS user_vehicle_matches_notify ON user_vehicle_matches;
+CREATE TRIGGER user_vehicle_matches_notify AFTER INSERT OR DELETE ON user_vehicle_matches
+    FOR EACH ROW EXECUTE FUNCTION notify_vehicle_change();
+DROP TRIGGER IF EXISTS user_vehicle_state_notify ON user_vehicle_state;
+CREATE TRIGGER user_vehicle_state_notify AFTER INSERT OR UPDATE ON user_vehicle_state
+    FOR EACH ROW EXECUTE FUNCTION notify_vehicle_change();
