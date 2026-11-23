@@ -25,7 +25,7 @@ import logging
 
 sys.path.insert(0, os.getcwd())
 
-ACTIVE = True   # 2026-11-22 : activation de Leaf Hunter (enable_leaf) — À REPASSER À False juste après le déploiement
+ACTIVE = False
 
 
 # Fichiers du Chantier A (Phase A.2, branche claude/firestore-postgres-migration) — jamais
@@ -138,7 +138,7 @@ def run():
     EXÉCUTÉ (run #595, dev) : 3 villes corrigées (Chambly, Longueuil, McMasterville), 0 introuvable. Désarmé.
 
     2026-11-22 : activation de Leaf Hunter (`leafConfig.enabled = true` + ville de référence Saint-Bruno-de-Montarville)
-    pour `USER_IDS_TARGET`, voir `backend/scripts/enable_leaf.py` (idempotent). ARMÉ : désarmer après le déploiement.
+    pour `USER_IDS_TARGET`, voir `backend/scripts/enable_leaf.py` (idempotent). Exécuté au déploiement du 2026-11-23 ; désarmé.
     """
     from backend.scripts.enable_leaf import run as enable_leaf
     enable_leaf()
