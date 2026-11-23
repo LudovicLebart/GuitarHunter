@@ -11,19 +11,25 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
-## 🔌 Leaf Hunter : extension « Nissan Leaf d'occasion » (2026-11-22, phases 1 et 1b codées sur `feature/leaf-hunter-phase1`, non déployées)
+## 🔌 Leaf Hunter : extension « Nissan Leaf d'occasion » (2026-11-23, phases 1 à 4 codées et poussées sur `ccr-53ac32f1-id7v2n`, **non déployées**)
 
 Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](plans/LEAF_HUNTER_PLAN.md). Besoin : Leaf 2016-2018, budget bas (5 000 à 7 500 $, viser le bas), ~50 km/jour en hiver au Québec.
 
 - [x] **Phase 0** : plan Opus, décisions par défaut validées par l'utilisateur.
 - [x] **Phase 1** : bibliothèque pure `backend/leaf/` (normalisation, filtres, règles, scores, doublons, pipeline, sources Kijiji + AutoHebdo, `dry_run`) — 55 tests.
 - [x] **Phase 1b** : lecture des fiches d'annonces (description complète, GPS, dommages) — 73 tests au total.
-- [ ] **Ouvrir une pull request** vers `dev` et vérifier que la CI passe (`backend.leaf.test_leaf_*` sont dans le job `tests` de `deploy.yml`).
+- [x] ~~Ouvrir une pull request~~ : **pas de PR** (décision de l'utilisateur, 2026-11-22). Les commits sont sur la branche de session ; reste à les pousser sur `dev` (déploiement) et à vérifier que la CI passe (`backend.leaf.test_leaf_*` et `backend.api.test_leaf_api` sont dans le job `tests`).
 - [x] **Décision (2026-11-22)** : une batterie 24 kWh *remplacée* n'est plus rejetée : drapeau `battery_24_replaced`, SOH supposé 95-100 % pour l'autonomie hivernale ; les 24 kWh d'origine restent rejetées. Intéressante surtout sous ≈ 5 000 $ avec preuve du remplacement (facture/garantie Nissan) : à demander au vendeur (phase 6).
-- [ ] **Décision** : rayon de distance autour de la ville de référence (150 km par défaut ; réserve de l'utilisateur, « on verra après »).
-- [ ] **Phase 2** : tables `vehicle_deals`, `user_vehicle_matches`, `user_vehicle_state`, `vehicle_price_history` (`schema.sql`, ajouts idempotents) + dépôts de données (`backend/leaf/repository.py` côté bot, `backend/api/leaf_repo.py` côté API, autonome : voir le piège de l'API de production).
-- [ ] **Phase 3** : intégration au bot (`main.py`, job planifié, commandes `LEAF_*`, `leafConfig`, logger `bot.{uid8}.leaf`, ntfy sur sujet séparé), double interrupteur `LEAF_ENABLED` + `leafConfig.enabled`.
-- [ ] **Phase 4** : API `/leaf/*` + page `#leaf` minimale (fin de la tranche utile : scraping → base → liste → ntfy, sans IA).
+- [x] Ville de référence : **Saint-Bruno-de-Montarville** (décision 2026-11-22).
+- [ ] **Décision** : rayon de distance autour de cette ville (150 km par défaut ; réserve de l'utilisateur, « on verra après »).
+- [x] **Phase 2** (`ce44ab7`) : tables `vehicle_deals`, `user_vehicle_matches` (+ `withdrawn` par utilisateur), `user_vehicle_state`, `vehicle_price_history`, canal `vehicle_changes` ; dépôts `backend/leaf/repository.py` (bot) et `backend/api/leaf_repo.py` (API, autonome).
+- [x] **Phase 3** (`724b24a`) : `LeafHunter` (boucle de fond par utilisateur, commandes `LEAF_REFRESH`/`LEAF_CLEANUP`, `leafConfig`, logger `bot.{uid8}.leaf`, ntfy sur sujet séparé, alerte santé), double interrupteur `LEAF_ENABLED` + `leafConfig.enabled`.
+- [x] **Phase 4** (`5706cf5`) : API `/leaf/*` (liste, détail, état, passages) + page `#leaf` (liste triable, fiche, checklist d'inspection, notes). **Fin de la tranche utile.**
+- [x] Revues de code n° 1 à 3 corrigées (`f3d759d`, `7f3119a`, `dc455f1`).
+- [ ] **Déployer** : pousser sur `dev` (le déploiement écrit `LEAF_ENABLED=true` et `LEAF_NTFY_TOPIC` dans le `.env` du serveur et exécute `enable_leaf`), puis **désarmer `backend/scripts/run_once.py` (`ACTIVE = False`) dans un commit séparé**. S'abonner au sujet ntfy défini dans `deploy.yml`.
+- [ ] **Vérifier en réel** après le déploiement : premier passage (logs `[Leaf]` dans l'app, lignes `leaf_*` dans `scrape_runs`, annonces dans `#leaf`), apparence mobile de la page, résumé ntfy du premier passage.
+- [ ] **Décision** : le sujet ntfy est dans le dépôt public (choix de l'utilisateur) — n'importe qui peut s'abonner ou publier ; à reprendre si cela gêne (le déplacer dans `DOT_ENV`).
+- [ ] Panneau de réglage `leafConfig` dans l'app (aujourd'hui : valeurs par défaut ou base), graphique de marché, `LEAF_SCAN_URL` (saisie manuelle), temps réel de la page (canal `vehicle_changes` posé, non consommé).
 - [ ] **Phases 5 à 9** : IA niveaux 1 et 2 avec garde-fou des preuves, Expert et questions au vendeur, marché/historique/nettoyage, options (Facebook, URL manuelles), documentation.
 - [ ] Le VIN n'est exposé par aucune des deux sources : vérifier si la fiche Kijiji ou AutoHebdo le donne (dédup par VIN inopérant tant qu'il manque).
 - [ ] CarGurus et AutoTrader : non automatisés (HTTP 406, conditions d'utilisation) ; décision de principe à confirmer.

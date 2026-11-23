@@ -100,7 +100,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 3. **Tier 3 — Expert Pro** (**`claude-sonnet-5-5` par défaut depuis 2026-10-31**, `T3_PROVIDER=claude` ; Gemini `gemini-3.1-pro-preview` si `T3_PROVIDER=gemini`) : analyse exhaustive (conditionnel). **Le chat tourne aussi sur Claude Sonnet 5.5 par défaut (depuis le 2026-11-01)** via l'API (`backend/api/chat_claude.py`), Gemini restant un réglage de secours (`analysisConfig.chatModel`) ; Opus se consulte à la demande (dossier rédigé par le modèle du chat). **`ANTHROPIC_API_KEY` doit être dans le `.env` du serveur** (secret GitHub `DOT_ENV`, écrit à chaque déploiement) : sans elle le chat Claude et l'Expert échouent. Voir `docs/management/plans/COUT_SONNET_CHAT_OPUS_PLAN.md`
 
 ### Commandes Backend
-`REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP`
+`REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP` | `LEAF_REFRESH` | `LEAF_CLEANUP`
 
 ---
 
@@ -151,7 +151,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `src/hooks/useDealsManager.js` | Hook central — tri, filtres, actions |
 | `src/components/Dashboard.jsx` | Interface principale — vues Liste/Carte/Stats |
 | `src/components/DealCard.jsx` | Carte d'annonce avec analyse IA |
-| `backend/leaf/` | **Leaf Hunter** (Nissan Leaf d'occasion 2016-2018) : bibliothèque PURE (normalisation, règles du Portier, scores, doublons, sources Kijiji Autos/AutoHebdo, `dry_run`), **non branchée** au bot/API/frontend (phases 1-1b, branche `feature/leaf-hunter-phase1`) ; plan : `docs/management/plans/LEAF_HUNTER_PLAN.md`. Tests sur données inventées uniquement (dépôt public) |
+| `backend/leaf/` | **Leaf Hunter** (Nissan Leaf d'occasion 2016-2018, tranche utile **codée, non déployée** au 2026-11-23) : bibliothèque pure (normalisation, règles du Portier, scores, doublons, sources Kijiji Autos/AutoHebdo, `dry_run`) + `repository.py`/`hunter.py`/`config.py`/`notify.py` (bot) ; API `backend/api/leaf_repo.py` + `/leaf/*` ; page `#leaf` (`src/components/LeafPage.jsx`). Commandes `LEAF_REFRESH`/`LEAF_CLEANUP`, **double interrupteur** `LEAF_ENABLED` (serveur) + `users.config.leafConfig.enabled`, sujet ntfy `LEAF_NTFY_TOPIC` distinct, sources `scrape_runs` `leaf_*`. `backend/api/leaf_repo.py` doit rester **autonome** (API de production). Plan : `docs/management/plans/LEAF_HUNTER_PLAN.md`. Tests sur données inventées uniquement (dépôt public) ; `run_once.py` est armé pour `enable_leaf` : le désarmer après le déploiement |
 | `docs/fiches/` + `backend/scripts/seed_guitar_fiches.py` | Fiches techniques de restauration (source Markdown, chargeur vers la base commune), consultables sur le site (`#fiches`) et liées aux étapes/au chat |
 | `docs/how-to/` | Guides pratiques (Diataxis) ; `FICHES_TECHNIQUES.md` = comment lire, créer, valider et publier une fiche (`.html` généré depuis le `.md`) |
 | `docs/` (Diataxis : `reference/`, `explanation/`, `management/`) | **Source de vérité prioritaire** |

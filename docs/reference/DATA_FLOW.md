@@ -208,3 +208,9 @@ Flux : `bot.py::_run_facebook_scan` / `_run_kijiji_scan` → résultat technique
 
 ### 7.2 ID Facebook de la ville d'ancrage (`cities.fb_location_id`, 2026-10-23)
 `cities` (catalogue partagé) → `PostgresRepository.get_cities()` (`id`, `fbLocationId`, coordonnées…) → `compute_anchor_clusters` (rayon 80 km) → pour chaque ancrage, `city_mapping = {nom normalisé: fbLocationId or id}` → URL `/marketplace/<ID>/search/?query=…` du `FacebookScraper`. L'ID est écrit à l'ajout d'une ville (`add_city_auto` → `CityFinder` v2, vérifié par sonde) ou corrigé en lot par `repair_fb_city_ids.py` (rapport relu, puis `--apply`) ; il n'est jamais deviné ni écrit sans vérification de la géographie des cartes de la page.
+
+## 8. Leaf Hunter (2026-11-23)
+
+Flux d'un passage (`LeafHunter.run_scan`, boucle de fond par utilisateur ou commande `LEAF_REFRESH`) : `leafConfig` (`users.config`) → `collect_sources` (Kijiji Autos puis AutoHebdo, HTTP simple, ≥ 2 s entre requêtes, arrêt au 403/429) → `scrape_runs` (`leaf_<source>`, résultat `ok|no_cards|blocked|error`) → `pipeline.evaluate_listings` (normalisation, filtres, lecture des fiches, règles du Portier, scores, doublons) → pour chaque annonce retenue : `vehicle_deals` (upsert, `vehicle_price_history` si le prix change) + `user_vehicle_matches` → pour chaque annonce vue mais écartée : `touch_seen` + `withdrawn = true` pour cet utilisateur → ntfy (`LEAF_NTFY_TOPIC`) : nouvelle annonce, baisse de prix (résumé unique au-delà de 5), panne d'une source (3e échec consécutif).
+
+Lecture : `GET /leaf/*` (jointure `user_vehicle_matches` → `vehicle_deals` → `user_vehicle_state`) → `apiService.js` → `LeafPage`. Écriture utilisateur : `PATCH /leaf/deals/{id}/state` → `user_vehicle_state`. Aucun passage par `guitar_deals`, `deal_changes` ni `NTFY_TOPIC`.
