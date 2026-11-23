@@ -157,11 +157,13 @@ class TestLeafAPI(unittest.TestCase):
 
     def test_ai_settings_are_off_by_default_validated_and_stored_for_the_bot(self):
         c = self.client.get("/leaf/config").json()
-        self.assertEqual(c["analysis"], {"enabled": False, "max_calls_per_day": 30, "max_expert_per_day": 5, "providers": ["local", "gemini"]})
-        ok = {**self.BODY, "analysis": {"enabled": True, "max_calls_per_day": 12, "max_expert_per_day": 3, "providers": ["gemini"]}}
+        self.assertEqual(c["analysis"], {"enabled": False, "max_calls_per_day": 30, "max_expert_per_day": 5, "photos": False,
+                                       "max_photo_calls_per_day": 20, "providers": ["local", "gemini"]})
+        ok = {**self.BODY, "analysis": {"enabled": True, "max_calls_per_day": 12, "max_expert_per_day": 3, "photos": True,
+                                        "max_photo_calls_per_day": 9, "providers": ["gemini"]}}
         self.assertEqual(self.client.put("/leaf/config", json=ok).status_code, 200)
         self.assertEqual(self.client.get("/leaf/config").json()["analysis"], ok["analysis"])
-        for bad in ({"max_calls_per_day": 0}, {"max_calls_per_day": 501}, {"max_expert_per_day": 0}, {"max_expert_per_day": 51}, {"providers": []}, {"providers": ["gpt"]}):
+        for bad in ({"max_calls_per_day": 0}, {"max_calls_per_day": 501}, {"max_expert_per_day": 0}, {"max_expert_per_day": 51}, {"max_photo_calls_per_day": 0}, {"max_photo_calls_per_day": 201}, {"providers": []}, {"providers": ["gpt"]}):
             self.assertEqual(self.client.put("/leaf/config", json={**self.BODY, "analysis": {"enabled": True, **bad}}).status_code, 422, bad)
 
         async def read():

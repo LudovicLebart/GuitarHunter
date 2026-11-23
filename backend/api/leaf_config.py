@@ -16,6 +16,7 @@ DEFAULT_RADIUS_KM = 150
 AI_PROVIDERS = ("local", "gemini")
 DEFAULT_AI_MAX_CALLS = 30
 DEFAULT_EXPERT_MAX_CALLS = 5
+DEFAULT_PHOTO_MAX_CALLS = 20          # appels de lecture de photos (tri + lecture) par 24 h
 
 
 class HomeIn(BaseModel):
@@ -57,6 +58,8 @@ class AnalysisIn(BaseModel):
     enabled: bool = False
     max_calls_per_day: int = Field(DEFAULT_AI_MAX_CALLS, ge=1, le=500)
     max_expert_per_day: int = Field(DEFAULT_EXPERT_MAX_CALLS, ge=1, le=50)
+    photos: bool = False
+    max_photo_calls_per_day: int = Field(DEFAULT_PHOTO_MAX_CALLS, ge=1, le=200)
     providers: List[str] = Field(default_factory=lambda: list(AI_PROVIDERS), min_length=1)
 
     @model_validator(mode="after")
@@ -123,5 +126,7 @@ def effective(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "analysis": {"enabled": analysis.get("enabled") is True,
                      "max_calls_per_day": int(_num(analysis.get("max_calls_per_day"), DEFAULT_AI_MAX_CALLS, 1, 500)),
                      "max_expert_per_day": int(_num(analysis.get("max_expert_per_day"), DEFAULT_EXPERT_MAX_CALLS, 1, 50)),
+                     "photos": analysis.get("photos") is True,
+                     "max_photo_calls_per_day": int(_num(analysis.get("max_photo_calls_per_day"), DEFAULT_PHOTO_MAX_CALLS, 1, 200)),
                      "providers": providers},
     }

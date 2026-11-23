@@ -29,6 +29,9 @@ def compute_verdict(listing: Dict[str, Any]) -> Dict[str, Any]:
 
     if soh is not None and soh < SOH_DOUBTFUL_BELOW:
         return {"verdict": "BATTERIE_DOUTEUSE", "reasons": [f"SOH annoncé {soh:.0f} % (sous {SOH_DOUBTFUL_BELOW:.0f} %)"]}
+    photo_soh = ((listing.get("photos") or {}).get("facts") or {}).get("soh_photo")          # lu sur une photo : alerte seulement
+    if soh is None and photo_soh and photo_soh["value"] < SOH_DOUBTFUL_BELOW:
+        return {"verdict": "BATTERIE_DOUTEUSE", "reasons": [f"SOH {photo_soh['value']:.0f} % lu sur la photo n°{photo_soh['photo']} (à confirmer)"]}
     bars = listing.get("capacity_bars")
     if soh is None and bars is not None and bars <= BARS_DOUBTFUL_AT_OR_BELOW:
         return {"verdict": "BATTERIE_DOUTEUSE", "reasons": [f"jauge de capacité : {bars} barres sur 12 au tableau de bord"]}
@@ -44,7 +47,9 @@ def compute_verdict(listing: Dict[str, Any]) -> Dict[str, Any]:
         reasons.append(f"SOH annoncé {soh:.0f} %" if strong_battery else "batterie remplacée (preuve à demander)")
         reasons.append(f"autonomie hivernale {winter}")
         return {"verdict": "CANDIDAT_FORT", "reasons": reasons}
-    if soh is None:
+    if soh is None and photo_soh:
+        reasons.append(f"SOH {photo_soh['value']:.0f} % lu sur la photo n°{photo_soh['photo']} : à confirmer avec LeafSpy")
+    elif soh is None:
         reasons.append("SOH inconnu : à mesurer avec LeafSpy")
     if has_accident_flag:
         reasons.append("mention d'accident ou de dommage")

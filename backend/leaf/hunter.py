@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.leaf import config as leaf_config
 from backend.leaf import notify as leaf_notify
-from backend.leaf import ai_extract, expert as leaf_expert, pipeline, scoring, verdict
+from backend.leaf import ai_extract, expert as leaf_expert, photo_extract, pipeline, scoring, verdict
 from backend.leaf.sources import BlockedError, autohebdo, fetch_html, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher
 
@@ -254,12 +254,13 @@ class LeafHunter:
     def _ai_budget(self, acfg: Dict[str, Any]) -> Dict[str, int]:
         """Appels restants aujourd'hui (fenêtre de 24 h, tous les appels `leaf_t2` comptent, réussis ou non)."""
         if not acfg["enabled"] or self._ai is None:
-            return {"left": 0}
+            return {"left": 0, "photo_left": 0}
         try:
-            return {"left": max(0, acfg["max_calls_per_day"] - self.repo.count_ai_calls())}
+            return {"left": max(0, acfg["max_calls_per_day"] - self.repo.count_ai_calls()),
+                    "photo_left": max(0, acfg["max_photo_calls_per_day"] - self.repo.count_ai_calls("leaf_photo")) if acfg["photos"] else 0}
         except Exception as e:           # compteur illisible : par prudence, aucun appel
             self.log.error(f"[Leaf] IA : plafond illisible ({e}), analyses suspendues.")
-            return {"left": 0}
+            return {"left": 0, "photo_left": 0}
 
     def _enrich(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int], force_ai: bool = False) -> Dict[str, Any]:
         """Applique l'analyse IA (en cache si le texte et le prix n'ont pas changé, sinon un appel dans la limite du plafond),
@@ -296,6 +297,7 @@ class LeafHunter:
                 listing["risk_flags"] = scoring.risk_flags(listing)
         except Exception as e:
             self.log.error(f"[Leaf] IA : enrichissement ignoré ({e}).", exc_info=True)
+        listing = self._enrich_photos(listing, acfg, budget, force_ai)
         v = verdict.compute_verdict(listing)
         listing["verdict"], listing["verdict_reasons"] = v["verdict"], v["reasons"]
         return listing
@@ -315,6 +317,41 @@ class LeafHunter:
                 listing["image_urls"] = list(stable)
         except Exception as e:
             self.log.warning(f"[Leaf] Photos Facebook non copiées vers le stockage ({e}) : adresses d'origine conservées (elles expirent).")
+
+    def _enrich_photos(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int], force: bool = False) -> Dict[str, Any]:
+        """Lecture des captures d'écran (SOH LeafSpy...) : seulement si l'option est active, que le SOH est ENCORE inconnu après le texte
+        (règles et IA), que la fiche a été lue et qu'il reste du budget. En cache tant que les photos ne changent pas (`analysis.photos`,
+        conservée par les passages) ; une lecture déjà faite est appliquée gratuitement même si l'option est ensuite éteinte. Ne lève jamais."""
+        try:
+            urls = photo_extract.photo_urls(listing)
+            if not urls:
+                return listing
+            fp = photo_extract.fingerprint(urls)
+            stored = self.repo.get_photos(listing["id"])
+            can_read = (acfg["enabled"] and acfg["photos"] and self._ai is not None and listing.get("soh_announced") is None
+                        and not listing.get("detail_unavailable"))
+            photos = None
+            if stored and stored.get("fingerprint") == fp and not (force and can_read):
+                photos = stored                                           # photos inchangées : rien à relire
+            elif can_read:
+                if budget.get("photo_left", 0) >= 2:                      # un tri et une lecture : jusqu'à 2 appels
+                    budget["photo_left"] -= 2
+                    photos, err = self._ai.read_photos(listing, acfg["providers"])
+                    if err:
+                        self.log.warning(f"[Leaf] Photos : lecture impossible ({err}).")
+                else:
+                    self.log.info("[Leaf] Photos : plafond quotidien de lectures atteint, les suivantes attendent.")
+            if photos:
+                if photos is not stored:
+                    listing = {**listing, "photos": photos}
+                else:
+                    listing = {**listing, "photos": stored}
+                flags = list(listing.get("flags") or [])
+                flags += [f for f in photos.get("flags") or [] if f not in flags]
+                listing["flags"] = flags
+        except Exception as e:
+            self.log.error(f"[Leaf] Photos : lecture ignorée ({e}).", exc_info=True)
+        return listing
 
     def _notify_cap(self, acfg: Dict[str, Any]) -> None:
         today = time.strftime("%Y-%m-%d")
@@ -456,6 +493,23 @@ class LeafHunter:
         self.log.info(f"[Leaf] Ré-analyse terminée ({deal_id[-12:]}) : verdict {listing.get('verdict')}.")
         return listing
 
+    def _expert_photos(self, listing: Dict[str, Any], acfg: Dict[str, Any]) -> Tuple[list, list]:
+        """Photos jointes à l'Expert (option « lire aussi les photos » seulement) : les captures retenues par le tri (`analysis.photos.selected`)
+        et la première photo, au plus 4, en haute résolution. Ne lève jamais : sans photo, l'Expert travaille sur le texte seul."""
+        if not acfg.get("photos") or self._ai is None:
+            return [], []
+        try:
+            urls = photo_extract.photo_urls(listing)
+            order = [n for n in ((listing.get("photos") or {}).get("selected") or []) if 1 <= n <= len(urls)]
+            if urls and 1 not in order:
+                order.append(1)
+            order = (order or list(range(1, min(len(urls), 3) + 1)))[:leaf_expert.MAX_EXPERT_PHOTOS]
+            images = self._ai.analyzer._download_images([photo_extract.sized_url(urls[n - 1], "large") for n in order])
+            return (images, order) if len(images) == len(order) else ([], [])
+        except Exception as e:
+            self.log.warning(f"[Leaf] Expert : photos non jointes ({e}).")
+            return [], []
+
     def analyze_deal(self, deal_id: str) -> Dict[str, Any]:
         """Analyse approfondie (Expert, niveau 3) d'UNE annonce, à la demande. Échec CLAIR (la commande est marquée échouée) si
         l'IA est éteinte, le plafond atteint, l'annonce introuvable ou le modèle en panne : le bouton affiche la cause."""
@@ -473,7 +527,9 @@ class LeafHunter:
             used = self.repo.count_ai_calls("leaf_t3", ok_only=True)
             if used >= acfg["max_expert_per_day"]:
                 raise RuntimeError(f"Plafond atteint : {used} analyses approfondies sur 24 h (maximum {acfg['max_expert_per_day']}, réglable).")
-            opinion, err = self._ai.expert(leaf_expert.row_to_listing(row))
+            listing = leaf_expert.row_to_listing(row)
+            images, numbers = self._expert_photos(listing, acfg)
+            opinion, err = self._ai.expert(listing, images, numbers)
             if opinion is None:
                 raise RuntimeError(f"L'Expert n'a pas répondu : {err}")
             self.repo.store_expert(deal_id, opinion)

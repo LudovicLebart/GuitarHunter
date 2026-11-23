@@ -109,6 +109,12 @@ const LeafSettings = ({ api, cities = [] }) => {
                                         ))}
                                     </div>
                                 </div>
+                                <Check checked={form.aiPhotos} onChange={(v) => set({ aiPhotos: v })}>Lire aussi les photos (captures LeafSpy, tableau de bord) quand le SOH n'est pas écrit</Check>
+                                {form.aiPhotos && (
+                                    <Field label="Lectures de photos par jour (plafond)" hint="1 à 200 ; Qwen local (gratuit) d'abord, Gemini en secours ; un fait lu sur photo est toujours « à confirmer »">
+                                        <input className={FIELD} inputMode="numeric" value={form.aiPhotoMax} onChange={(e) => set({ aiPhotoMax: e.target.value })} />
+                                    </Field>
+                                )}
                                 <p className="text-[10px] text-slate-500">Éteinte par défaut. Un fait sans citation retrouvée mot pour mot dans l'annonce est écarté ; en cas de contradiction, les règles l'emportent.</p>
                             </div>
                             <div className="space-y-1.5">

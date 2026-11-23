@@ -9,11 +9,13 @@ from typing import Any, Dict, List, Optional
 
 from backend.leaf import ai_extract, normalize
 
-EXPERT_VERSION = 1
+EXPERT_VERSION = 2          # 2 : photos jointes (observations)
 WORTH = ("oui", "peut-etre", "non")
 MAX_QUESTIONS = 8
 MAX_POINTS = 8
 MAX_RISKS = 5
+MAX_PHOTO_NOTES = 5
+MAX_EXPERT_PHOTOS = 4
 LEAFSPY_QUESTION = "Pouvez-vous faire lire l'état de santé de la batterie (SOH) avec LeafSpy, ou me laisser le faire, avant que je me déplace ?"
 BATTERY_PROOF_QUESTION = "Avez-vous la facture ou la garantie Nissan du remplacement de la batterie de traction (date, concessionnaire, numéro de série) ?"
 
@@ -29,7 +31,11 @@ Règles strictes :
 
 Réponds UNIQUEMENT avec un objet JSON :
 {"opinion": "3 à 5 phrases argumentées", "worth_visiting": "oui|peut-etre|non", "seller_questions": ["..."], "inspection_points": ["..."],
- "price_ceiling": {"amount": null, "reasoning": "..."}, "risks": [{"text": "...", "evidence": "citation exacte"}]}
+ "price_ceiling": {"amount": null, "reasoning": "..."}, "risks": [{"text": "...", "evidence": "citation exacte"}],
+ "photo_observations": [{"photo": 1, "text": "ce que montre la photo n°1, en une phrase"}]}
+
+Si des PHOTOS sont jointes (« Image 1 », « Image 2 »…) : décris seulement ce qu'elles montrent de façon visible (état de la carrosserie, de l'intérieur, écran de batterie lisible), dans "photo_observations" ;
+ce sont des observations à vérifier, pas des faits : ne les utilise pas comme preuve d'un risque. Sans photo jointe, laisse la liste vide.
 
 """
 
@@ -48,7 +54,7 @@ def row_to_listing(row: Dict[str, Any]) -> Dict[str, Any]:
         "soh_evidence": row.get("soh_evidence"), "flags": flags, "accident_flags": [f[9:] for f in flags if f.startswith("accident:")],
         "mentions": analysis.get("mentions") or {}, "winter_fit": analysis.get("winter_fit"), "equipment": analysis.get("equipment"),
         "price_fit": analysis.get("price_fit"), "verdict": row.get("verdict"), "verdict_reasons": analysis.get("verdict_reasons") or [],
-        "ai": analysis.get("ai"), "equipment_list": [],
+        "ai": analysis.get("ai"), "photos": analysis.get("photos"), "equipment_list": [], "image_urls": list(row.get("image_urls") or []),
     }
 
 
@@ -89,7 +95,7 @@ def _strings(value: Any, limit: int, width: int = 220) -> List[str]:
     return out[:limit]
 
 
-def apply_guardrails(raw: Any, listing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def apply_guardrails(raw: Any, listing: Dict[str, Any], photo_count: int = 0) -> Optional[Dict[str, Any]]:
     """Réponse brute -> avis de l'Expert ACCEPTÉ, ou None si inutilisable. Voir le docstring du module pour les garde-fous."""
     if not isinstance(raw, dict) or not isinstance(raw.get("opinion"), str) or not raw["opinion"].strip():
         return None
@@ -114,7 +120,16 @@ def apply_guardrails(raw: Any, listing: Dict[str, Any]) -> Optional[Dict[str, An
         and (not fit.get("expected") or amount <= 1.1 * fit["expected"])
     if isinstance(amount, (int, float)) and not valid:
         dropped += 1                                                                  # plafond incohérent : écarté, jamais affiché
+    notes = []
+    for n in raw.get("photo_observations") if isinstance(raw.get("photo_observations"), list) else []:
+        # Une observation doit viser une photo RÉELLEMENT jointe (numéro de 1 à `photo_count`) ; sinon elle est écartée.
+        if isinstance(n, dict) and isinstance(n.get("photo"), int) and not isinstance(n.get("photo"), bool) \
+                and 1 <= n["photo"] <= photo_count and isinstance(n.get("text"), str) and n["text"].strip():
+            notes.append({"photo": n["photo"], "text": n["text"].strip()[:200]})
+        else:
+            dropped += 1
     return {
+        "photo_observations": notes[:MAX_PHOTO_NOTES],
         "opinion": raw["opinion"].strip()[:900],
         "worth_visiting": raw.get("worth_visiting") if raw.get("worth_visiting") in WORTH else "peut-etre",
         "seller_questions": questions,

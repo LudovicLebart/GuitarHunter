@@ -5,7 +5,7 @@ import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
-    aiFactLines, expertView, formatPrice as fmtPrice, leafImages, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
+    aiFactLines, expertView, formatPrice as fmtPrice, leafImages, photoFactLines, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
 } from '../utils/leaf';
 
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
@@ -152,6 +152,7 @@ const LeafDetail = ({ id, api }) => {
     const [saved, setSaved] = useState(true);
     const [expertState, setExpertState] = useState({ running: false, error: null });
     const [reState, setReState] = useState({ running: false, error: null, done: false });
+    const [galleryStart, setGalleryStart] = useState(0);
     const stopWatching = useRef(null);
     useEffect(() => () => { if (stopWatching.current) stopWatching.current(); }, []);
 
@@ -206,6 +207,7 @@ const LeafDetail = ({ id, api }) => {
     const ai = d.analysis?.ai;
     const aiLines = aiFactLines(ai);
     const expert = expertView(d.analysis?.expert);
+    const photoLines = photoFactLines(d.analysis?.photos);
     const photos = leafImages(d.image_urls, 'medium');
     const photosLarge = leafImages(d.image_urls, 'large');
     return (
@@ -245,7 +247,24 @@ const LeafDetail = ({ id, api }) => {
             {photos.length > 0 && (
                 // Même galerie que les guitares (ImageGallery) : photos moyennes à l'écran, HAUTE résolution en plein écran.
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden h-72 sm:h-96" title="Cliquer pour agrandir">
-                    <ImageGallery images={photos} fullImages={photosLarge} title={`${d.year || ''} Leaf ${d.trim || ''}`} />
+                    <ImageGallery key={galleryStart} initialIndex={galleryStart} images={photos} fullImages={photosLarge} title={`${d.year || ''} Leaf ${d.trim || ''}`} />
+                </div>
+            )}
+
+            {photoLines.length > 0 && (
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-2">
+                    <h3 className="text-sm font-black text-amber-200">Lu sur les photos (à confirmer)</h3>
+                    <ul className="space-y-1.5">
+                        {photoLines.map((l) => (
+                            <li key={l.key} className="text-sm text-slate-300">
+                                <span className="font-bold">{l.label} : {l.value}</span>
+                                {l.photo && <button onClick={() => { setGalleryStart(l.photo - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                    className="ml-2 text-xs font-bold text-blue-400 hover:text-blue-300">voir la photo n°{l.photo}</button>}
+                                {l.evidence && <blockquote className="mt-0.5 border-l-2 border-slate-700 pl-2 text-xs italic text-slate-400">« {l.evidence} »</blockquote>}
+                            </li>
+                        ))}
+                    </ul>
+                    <p className="text-[10px] text-slate-500">Recopié par un modèle depuis l'image, confiance faible : jamais utilisé pour rejeter une annonce ni pour la classer « candidat fort ». Vérifiez la photo.</p>
                 </div>
             )}
 

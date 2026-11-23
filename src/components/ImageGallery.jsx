@@ -99,9 +99,10 @@ export const ImageLightbox = ({ images, currentIndex, title, onNext, onPrev, onC
     );
 };
 
+// `initialIndex` (facultatif, 0 par défaut) : photo affichée au départ (Leaf : ouvrir la photo citée par une lecture).
 // `fullImages` (facultatif) : mêmes photos en haute résolution pour le plein écran (Leaf Hunter) ; sans elle, `images` sert aux deux.
-const ImageGallery = ({ images, title, fullImages }) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
+const ImageGallery = ({ images, title, fullImages, initialIndex = 0 }) => {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
   if (!images || images.length === 0) {

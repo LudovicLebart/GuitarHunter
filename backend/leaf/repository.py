@@ -11,10 +11,10 @@ _COLUMNS = ("source", "source_id", "link", "title", "description", "year", "trim
             "battery_kwh_high", "battery_source", "soh_announced", "soh_evidence", "capacity_bars", "vin",
             "seller_type", "location", "latitude", "longitude", "distance_km", "verdict", "duplicate_of")
 _ANALYSIS_KEYS = ("battery_score", "winter_fit", "equipment", "risk_flags", "mentions", "capacity_bars_evidence",
-                  "detail_unavailable", "price_fit", "ai", "ai_stale", "verdict_reasons")
+                  "detail_unavailable", "price_fit", "ai", "ai_stale", "photos", "verdict_reasons")
 # `analysis.expert` (niveau 3) n'est jamais produit par le passage : il est CONSERVÉ d'un passage à l'autre ; `analysis.ai` aussi
 # tant que le passage n'en fournit pas de nouvelle (IA éteinte, plafond atteint).
-_PRESERVED_ANALYSIS = ("ai", "expert")
+_PRESERVED_ANALYSIS = ("ai", "expert", "photos")
 
 
 def listing_to_row(listing: Dict[str, Any]) -> Dict[str, Any]:
@@ -210,6 +210,12 @@ class LeafRepository:
         with self.pool.connection() as conn:
             row = conn.execute("SELECT analysis->'ai' AS ai FROM vehicle_deals WHERE id = %s", (deal_id,)).fetchone()
         return (row or {}).get("ai")
+
+    def get_photos(self, deal_id: str) -> Optional[Dict[str, Any]]:
+        """`analysis.photos` stockée (lecture des captures d'écran), None si jamais lue."""
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT analysis->'photos' AS p FROM vehicle_deals WHERE id = %s", (deal_id,)).fetchone()
+        return (row or {}).get("p")
 
     def count_ai_calls(self, action: str = "leaf_t2", hours: int = 24, ok_only: bool = False) -> int:
         """Appels du modèle des dernières `hours` heures, pour le plafond quotidien. Par défaut tous (une tentative échouée est

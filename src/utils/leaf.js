@@ -27,6 +27,7 @@ export const FLAG_LABELS = {
     ai_unsupported_claim: 'IA : un fait sans preuve dans l\'annonce a été écarté',
     ai_conflict: 'IA : contredite par les règles (les règles sont retenues)',
     ai_accident_mentioned: 'Accident ou dommage mentionné (lu par l\'IA)',
+    photo_km_mismatch: 'Kilométrage d\'une photo différent de celui de l\'annonce',
 };
 /** Libellé d'un drapeau ; `accident:<mot>` -> « Mot d'alerte : <mot> » ; un drapeau inconnu est affiché tel quel. */
 export const flagLabel = (flag) => {
@@ -166,6 +167,8 @@ export const configToForm = (cfg) => ({
     aiEnabled: !!cfg?.analysis?.enabled,
     aiMax: String(cfg?.analysis?.max_calls_per_day ?? 30),
     aiExpertMax: String(cfg?.analysis?.max_expert_per_day ?? 5),
+    aiPhotos: !!cfg?.analysis?.photos,
+    aiPhotoMax: String(cfg?.analysis?.max_photo_calls_per_day ?? 20),
     aiProviders: Object.fromEntries(AI_PROVIDERS.map(([key]) => [key, (cfg?.analysis?.providers || ['local', 'gemini']).includes(key)])),
 });
 
@@ -187,6 +190,7 @@ export const validateLeafForm = (form) => {
     const lon = toNum(form.lon);
     const aiMax = toInt(form.aiMax);
     const aiExpertMax = toInt(form.aiExpertMax);
+    const aiPhotoMax = toInt(form.aiPhotoMax);
     const aiProviders = AI_PROVIDERS.map(([key]) => key).filter((key) => form.aiProviders?.[key]);
     if (!(frequency >= 60 && frequency <= 1440)) errors.push('Fréquence : entre 60 et 1 440 minutes.');
     if (!(minPrice >= 0)) errors.push('Prix minimum : un nombre positif.');
@@ -200,6 +204,7 @@ export const validateLeafForm = (form) => {
     if (!(radius >= 1 && radius <= 2000)) errors.push('Rayon : de 1 à 2 000 km.');
     if (!(aiMax >= 1 && aiMax <= 500)) errors.push('Analyses IA par jour : de 1 à 500.');
     if (!(aiExpertMax >= 1 && aiExpertMax <= 50)) errors.push('Analyses approfondies par jour : de 1 à 50.');
+    if (!(aiPhotoMax >= 1 && aiPhotoMax <= 200)) errors.push('Lectures de photos par jour : de 1 à 200.');
     if (aiProviders.length === 0) errors.push('Analyse IA : choisissez au moins un fournisseur.');
     if (errors.length) return { errors, body: null };
     const home = { latitude: lat, longitude: lon };
@@ -213,7 +218,7 @@ export const validateLeafForm = (form) => {
                 sources, read_details: !!form.readDetails, home, radius_km: radius,
             },
             notify: { enabled: !!form.notifyEnabled, new: !!form.notifyNew, price_drop: !!form.notifyDrop },
-            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, max_expert_per_day: aiExpertMax, providers: aiProviders },
+            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, max_expert_per_day: aiExpertMax, photos: !!form.aiPhotos, max_photo_calls_per_day: aiPhotoMax, providers: aiProviders },
         },
     };
 };
@@ -239,3 +244,13 @@ export const expertView = (expert) => {
 };
 /** Texte à copier pour envoyer les questions au vendeur (une par ligne, numérotées). */
 export const questionsText = (questions) => (questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n');
+
+/** Lectures faites sur les PHOTOS (`analysis.photos`) : SOH et capacité lus sur une capture, avec le numéro de la photo (à partir de 1) et la
+ *  transcription recopiée. Toujours présentés comme « à confirmer » : un fait lu sur photo n'est jamais une preuve. */
+export const photoFactLines = (photos) => {
+    const labels = { soh_photo: ['SOH lu sur photo', (v) => `${v} %`], ahr_photo: ['Capacité lue sur photo', (v) => `${v} Ah`] };
+    return Object.entries(labels).filter(([key]) => photos?.facts?.[key] && Number.isFinite(photos.facts[key].value)).map(([key, [label, fmt]]) => {
+        const f = photos.facts[key];
+        return { key, label, value: fmt(f.value), photo: Number.isInteger(f.photo) ? f.photo : null, evidence: f.evidence || '' };
+    });
+};

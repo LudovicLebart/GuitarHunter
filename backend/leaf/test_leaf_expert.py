@@ -98,6 +98,23 @@ class TestPrompt(unittest.TestCase):
         self.assertEqual(ex.row_to_listing({**row, "analysis": None})["mentions"], {})
 
 
+class TestPhotoObservations(unittest.TestCase):
+    def test_observations_must_target_a_photo_really_sent(self):
+        out = ex.apply_guardrails(raw(photo_observations=[{"photo": 1, "text": "Capture LeafSpy lisible"}, {"photo": 5, "text": "invalide"},
+                                                          {"photo": 0, "text": "zéro"}, {"photo": "1", "text": "chaîne"}, {"photo": 2, "text": ""}]),
+                                  listing(), photo_count=2)
+        self.assertEqual(out["photo_observations"], [{"photo": 1, "text": "Capture LeafSpy lisible"}])
+        self.assertEqual(out["dropped"], 4)
+
+    def test_no_photo_sent_means_no_observation_accepted(self):
+        out = ex.apply_guardrails(raw(photo_observations=[{"photo": 1, "text": "x"}]), listing())
+        self.assertEqual((out["photo_observations"], out["dropped"]), ([], 1))
+
+    def test_prompt_asks_for_observations_not_facts(self):
+        self.assertIn("photo_observations", ex.PROMPT)
+        self.assertIn("pas des faits", ex.PROMPT)
+
+
 class FakeClaude:
     def __init__(self, result=None, error=None, boom=False):
         self.result, self.error, self.boom, self.calls = result, error, boom, []
@@ -123,6 +140,14 @@ class TestLeafAiExpert(unittest.TestCase):
         self.assertEqual((analyzer.calls[0][1], opinion["model"], opinion["version"]), ("leaf_t3", analyzer.calls[0][0], ex.EXPERT_VERSION))
         self.assertIn("claude", opinion["model"])
         self.assertIn("TEXTE DE L'ANNONCE", analyzer.calls[0][2][0])
+
+    def test_photos_are_attached_and_observations_are_renumbered_to_the_listing_photos(self):
+        analyzer = FakeClaude(raw(photo_observations=[{"photo": 2, "text": "Capture de batterie"}]))
+        imgs = [object(), object()]
+        opinion, err = ai.LeafAI(analyzer).expert(listing(), imgs, [4, 1])
+        self.assertIsNone(err)
+        self.assertEqual(analyzer.calls[0][2][1:], imgs)                                 # images jointes après le prompt
+        self.assertEqual((opinion["photo_observations"], opinion["photos_sent"]), ([{"photo": 1, "text": "Capture de batterie"}], [4, 1]))
 
     def test_failures_are_reported_never_raised(self):
         self.assertEqual(ai.LeafAI(FakeClaude(None, "ANTHROPIC_API_KEY n'est pas configurée.")).expert(listing()),

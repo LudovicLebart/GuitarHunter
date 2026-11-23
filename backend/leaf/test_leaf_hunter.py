@@ -491,6 +491,79 @@ class TestHunter(unittest.TestCase):
         self.hunter.run_scan()
         self.assertEqual([t for t, _ in self.sent], ["Leaf : candidat fort"])
 
+    # --- Lecture des photos (captures LeafSpy) -------------------------------------------------------
+    def _with_photos(self, photos=True, max_calls=20, text="LeafSpy SOH 61,2 %", urls=None):
+        from backend.leaf import ai as leaf_ai
+        from backend.leaf.test_leaf_photos import FakeVision
+        self.vision = FakeVision(triage={"indices": [1]}, readings={"readings": [{"photo": 0, "transcript": text}]})
+        self.hunter._ai = leaf_ai.LeafAI(self.vision)
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]},
+                          "analysisConfig": {"enabled": True, "photos": photos, "max_photo_calls_per_day": max_calls}})
+        urls = urls or [f"https://media.kijiji.ca/api/v1/x/images/p{i}?rule=kijijica-200-jpg" for i in range(3)]
+        self.raws = [raw("leaf_test_1", image_urls=urls)]
+        self.addCleanup(lambda: self._purge_usage("leaf_photo"))
+
+    def _vision_calls(self):
+        return len([c for c in self.vision.calls if c[2] == "leaf_photo"])
+
+    def test_photo_soh_is_stored_with_its_photo_number_and_only_alerts(self):
+        self._with_photos()
+        self.hunter.run_scan()
+        row = self._ai_of()
+        photos = row["analysis"]["photos"]
+        self.assertEqual((photos["facts"]["soh_photo"]["value"], photos["facts"]["soh_photo"]["photo"], photos["selected"]), (61.2, 2, [2]))
+        self.assertIsNone(row["soh_announced"])                                           # une lecture de photo ne devient JAMAIS le SOH annoncé
+        self.assertEqual(row["verdict"], "BATTERIE_DOUTEUSE")
+        self.assertIn("photo n°2", " ".join(row["analysis"]["verdict_reasons"]))
+
+    def test_a_good_photo_soh_never_makes_a_strong_candidate(self):
+        self._with_photos(text="LeafSpy SOH 93 %")
+        self.hunter.run_scan()
+        row = self._ai_of()
+        self.assertEqual(row["verdict"], "A_VERIFIER")
+        self.assertIn("à confirmer", " ".join(row["analysis"]["verdict_reasons"]))
+
+    def test_unchanged_photos_are_never_reread_but_new_photos_are(self):
+        self._with_photos()
+        self.hunter.run_scan()
+        self.hunter.run_scan()
+        self.assertEqual(self._vision_calls(), 2)                                         # un tri et une lecture, une seule fois
+        self._with_photos(urls=[f"https://media.kijiji.ca/api/v1/x/images/autre{i}?rule=kijijica-200-jpg" for i in range(3)])
+        self.hunter.run_scan()
+        self.assertEqual(self._vision_calls(), 2)                                         # nouvel analyseur : tri + lecture refaits
+
+    def test_photos_are_skipped_when_the_soh_is_already_known_from_the_text(self):
+        self._with_photos()
+        self.raws = [raw("leaf_test_1", description="SOH 88 % mesuré avec LeafSpy.", image_urls=self.raws[0]["image_urls"])]
+        self.hunter.run_scan()
+        self.assertEqual(self._vision_calls(), 0)
+
+    def test_option_off_applies_the_cache_for_free_and_never_reads_again(self):
+        self._with_photos()
+        self.hunter.run_scan()
+        first = self.vision
+        self._with_photos(photos=False)
+        self.hunter.run_scan()
+        self.assertEqual((len([c for c in first.calls if c[2] == "leaf_photo"]), self._vision_calls()), (2, 0))
+        self.assertEqual(self._ai_of()["verdict"], "BATTERIE_DOUTEUSE")                   # lecture déjà faite : toujours appliquée
+
+    def test_daily_cap_and_reanalysis(self):
+        self._with_photos(max_calls=1)                                                    # un tri + une lecture = 2 appels : trop pour 1
+        self.hunter.run_scan()
+        self.assertEqual(self._vision_calls(), 0)
+        self.assertNotIn("photos", self._ai_of()["analysis"])
+        self._with_photos(max_calls=20)
+        self.hunter.run_scan()
+        self.assertEqual(self._vision_calls(), 2)
+        self.hunter._detail_factory = lambda: (lambda r: {"description": "Voiture propre."})
+        self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertEqual(self._vision_calls(), 4)                                         # la ré-analyse relit les photos
+
+    def test_photo_km_mismatch_becomes_a_flag(self):
+        self._with_photos(text="Odo 148 000 km")
+        self.hunter.run_scan()
+        self.assertIn("photo_km_mismatch", self._ai_of()["flags"])
+
     # --- Expert (niveau 3) : commande LEAF_ANALYZE ------------------------------------------------
     def _expert_hunter(self, enabled=True, max_expert=5, result=None, error=None):
         from backend.leaf import ai as leaf_ai
@@ -511,6 +584,22 @@ class TestHunter(unittest.TestCase):
         self.assertEqual(self.claude.calls[0][1], "leaf_t3")
         self.hunter.run_scan()
         self.assertEqual(self._ai_of()["analysis"]["expert"]["opinion"], stored["opinion"])
+
+    def test_expert_gets_the_selected_photos_only_when_the_photo_option_is_on(self):
+        urls = [f"https://media.kijiji.ca/api/v1/x/images/e{i}?rule=kijijica-200-jpg" for i in range(6)]
+        self._expert_hunter()
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET image_urls = %s::jsonb, analysis = analysis || %s::jsonb",
+                         (__import__("json").dumps(urls), __import__("json").dumps({"photos": {"selected": [3, 5], "facts": {}}})))
+        downloads = []
+        self.claude._download_images = lambda u: downloads.append(list(u)) or [object() for _ in u]
+        self.hunter.analyze_deal("leaf_test_1")
+        self.assertEqual(downloads, [])                                                   # option « photos » éteinte : texte seul
+        self.assertEqual(len(self.claude.calls[-1][2]), 1)
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}, "analysisConfig": {"enabled": True, "photos": True}})
+        self.hunter.analyze_deal("leaf_test_1")
+        self.assertEqual(downloads[0], [f"https://media.kijiji.ca/api/v1/x/images/e{i}?rule=kijijica-1600-jpg" for i in (2, 4, 0)])   # captures 3 et 5, puis la photo 1
+        self.assertEqual(len(self.claude.calls[-1][2]), 4)                                # prompt + 3 images
 
     def test_expert_refusals_are_explicit(self):
         handler = lambda: self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_1"})
