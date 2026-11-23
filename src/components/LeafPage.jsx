@@ -5,7 +5,7 @@ import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
-    leafImages, priceTrend, winterRange, winterVerdict,
+    aiFactLines, leafImages, priceTrend, verdictInfo, winterRange, winterVerdict,
 } from '../utils/leaf';
 
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
@@ -34,6 +34,11 @@ const WinterBadge = ({ analysis }) => {
     );
 };
 
+const VerdictBadge = ({ code, reasons }) => {
+    const info = verdictInfo(code);
+    return info ? <span className={`${BADGE} ${info.style}`} title={(reasons || []).join(' · ') || undefined}>{info.label}</span> : null;
+};
+
 const Flags = ({ flags }) => (flags?.length ? (
     <div className="flex flex-wrap gap-1.5">
         {flags.map((f) => <span key={f} className={`${BADGE} bg-slate-800 border-slate-700 text-slate-300`}>{flagLabel(f)}</span>)}
@@ -58,7 +63,7 @@ const DealRow = ({ deal, onToggle }) => (
                 {deal.price_drop_amount > 0 ? <span className="text-amber-300"> · baisse de {formatPrice(deal.price_drop_amount)}</span> : null}
                 {deal.duplicate_of ? ' · doublon probable' : ''}
             </div>
-            <WinterBadge analysis={deal.analysis} />
+            <div className="flex flex-wrap gap-1.5"><VerdictBadge code={deal.verdict} reasons={deal.analysis?.verdict_reasons} /><WinterBadge analysis={deal.analysis} /></div>
             <Flags flags={deal.flags} />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -160,6 +165,8 @@ const LeafDetail = ({ id, api }) => {
     const trend = priceTrend(d.priceHistory);
     const progress = checklistProgress(d.checklist);
     const equipment = d.analysis?.equipment;
+    const ai = d.analysis?.ai;
+    const aiLines = aiFactLines(ai);
     const photos = leafImages(d.image_urls, 'medium');
     const photosLarge = leafImages(d.image_urls, 'large');
     return (
@@ -171,7 +178,8 @@ const LeafDetail = ({ id, api }) => {
                     <span className="text-emerald-300 font-black text-lg">{formatPrice(d.price)}</span>
                 </div>
                 <p className="text-sm text-slate-300">{formatKm(d.km)} · {d.location || 'lieu ?'}{d.seller_type ? ` · vendeur : ${d.seller_type === 'delr' ? 'commerçant' : d.seller_type === 'ownr' ? 'particulier' : d.seller_type}` : ''}</p>
-                <WinterBadge analysis={d.analysis} />
+                <div className="flex flex-wrap gap-1.5"><VerdictBadge code={d.verdict} reasons={d.analysis?.verdict_reasons} /><WinterBadge analysis={d.analysis} /></div>
+                {d.analysis?.verdict_reasons?.length > 0 && <p className="text-xs text-slate-400">Verdict calculé par le code : {d.analysis.verdict_reasons.join(' · ')}.</p>}
                 <div className="text-xs text-slate-400 space-y-0.5">
                     <p>Batterie : {d.battery_kwh_low ? (d.battery_kwh_low === d.battery_kwh_high ? `${d.battery_kwh_low} kWh` : `${d.battery_kwh_low} ou ${d.battery_kwh_high} kWh`) : 'inconnue'}
                         {d.battery_source === 'inferred' ? ' (déduite de l\'année)' : ''}</p>
@@ -193,6 +201,40 @@ const LeafDetail = ({ id, api }) => {
                 // Même galerie que les guitares (ImageGallery) : photos moyennes à l'écran, HAUTE résolution en plein écran.
                 <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden h-72 sm:h-96" title="Cliquer pour agrandir">
                     <ImageGallery images={photos} fullImages={photosLarge} title={`${d.year || ''} Leaf ${d.trim || ''}`} />
+                </div>
+            )}
+
+            {ai && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-black text-slate-200">Analyse IA</h3>
+                        <span className="text-[10px] text-slate-500">{ai.model} · {ai.provider === 'local' ? 'Dell' : 'Gemini'}{ai.at ? ` · ${new Date(ai.at).toLocaleDateString('fr-CA')}` : ''}</span>
+                    </div>
+                    {ai.stale && <p className="text-xs text-amber-300">Analyse périmée : le texte ou le prix de l'annonce a changé depuis ; elle n'est pas appliquée.</p>}
+                    {ai.summary && <p className="text-sm text-slate-300">{ai.summary}</p>}
+                    {aiLines.length > 0 && (
+                        <ul className="space-y-2">
+                            {aiLines.map((l) => (
+                                <li key={l.key} className="text-sm text-slate-300">
+                                    <span className="font-bold">{l.label} : {l.value}</span> <span className="text-[10px] text-slate-500">({l.confidence})</span>
+                                    {l.evidence && <blockquote className="mt-0.5 border-l-2 border-slate-700 pl-2 text-xs italic text-slate-400">« {l.evidence} »</blockquote>}
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                    {ai.attention?.length > 0 && (
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 mb-1">À vérifier</p>
+                            <ul className="space-y-1.5">
+                                {ai.attention.map((a) => (
+                                    <li key={a.text} className="text-sm text-slate-300">{a.text}
+                                        {a.evidence && <blockquote className="mt-0.5 border-l-2 border-slate-700 pl-2 text-xs italic text-slate-400">« {a.evidence} »</blockquote>}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                    <p className="text-[10px] text-slate-500">Seuls les faits dont la citation est retrouvée dans l'annonce sont affichés ; le résumé est un texte libre de l'IA, à lire avec recul.{ai.rejected ? ` ${ai.rejected} fait(s) sans preuve écarté(s).` : ''}</p>
                 </div>
             )}
 

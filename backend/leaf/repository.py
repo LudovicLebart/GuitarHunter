@@ -11,7 +11,10 @@ _COLUMNS = ("source", "source_id", "link", "title", "description", "year", "trim
             "battery_kwh_high", "battery_source", "soh_announced", "soh_evidence", "capacity_bars", "vin",
             "seller_type", "location", "latitude", "longitude", "distance_km", "verdict", "duplicate_of")
 _ANALYSIS_KEYS = ("battery_score", "winter_fit", "equipment", "risk_flags", "mentions", "capacity_bars_evidence",
-                  "detail_unavailable")
+                  "detail_unavailable", "price_fit", "ai", "verdict_reasons")
+# `analysis.expert` (niveau 3) n'est jamais produit par le passage : il est CONSERVÉ d'un passage à l'autre ; `analysis.ai` aussi
+# tant que le passage n'en fournit pas de nouvelle (IA éteinte, plafond atteint).
+_PRESERVED_ANALYSIS = ("ai", "expert")
 
 
 def listing_to_row(listing: Dict[str, Any]) -> Dict[str, Any]:
@@ -65,7 +68,9 @@ class LeafRepository:
                     params = {**{k: (Jsonb(v) if isinstance(v, (dict, list)) else v) for k, v in row.items()},
                               "id": deal_id, "price": price, "original_price": original, "price_drop_amount": drop}
                     cols = list(params)
-                    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price"))
+                    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price", "analysis"))
+                    updates += (", analysis = jsonb_strip_nulls(jsonb_build_object('ai', vehicle_deals.analysis->'ai', "
+                                "'expert', vehicle_deals.analysis->'expert')) || EXCLUDED.analysis")
                     conn.execute(
                         f"INSERT INTO vehicle_deals ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) "
                         f"ON CONFLICT (id) DO UPDATE SET {updates}, "
@@ -193,3 +198,18 @@ class LeafRepository:
                 return False
             conn.execute("INSERT INTO user_vehicle_matches (user_id, deal_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, deal_id))
             return True
+
+    # ------------------------------------------------------------------ IA (niveau 2)
+
+    def get_ai(self, deal_id: str) -> Optional[Dict[str, Any]]:
+        """`analysis.ai` stockée de l'annonce (None si jamais analysée)."""
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT analysis->'ai' AS ai FROM vehicle_deals WHERE id = %s", (deal_id,)).fetchone()
+        return (row or {}).get("ai")
+
+    def count_ai_calls(self, action: str = "leaf_t2", hours: int = 24) -> int:
+        """Appels du modèle (réussis ou non : tous sont facturables) des dernières `hours` heures, pour le plafond quotidien."""
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT count(*) AS n FROM llm_usage WHERE action = %s AND created_at >= now() - make_interval(hours => %s)",
+                               (action, hours)).fetchone()
+        return int(row["n"])

@@ -24,6 +24,9 @@ export const FLAG_LABELS = {
     battery_24_possible: 'Batterie 24 kWh possible',
     battery_24_replaced: 'Batterie 24 kWh remplacée (preuve à demander)',
     detail_unavailable: 'Fiche de l\'annonce illisible',
+    ai_unsupported_claim: 'IA : un fait sans preuve dans l\'annonce a été écarté',
+    ai_conflict: 'IA : contredite par les règles (les règles sont retenues)',
+    ai_accident_mentioned: 'Accident ou dommage mentionné (lu par l\'IA)',
 };
 /** Libellé d'un drapeau ; `accident:<mot>` -> « Mot d'alerte : <mot> » ; un drapeau inconnu est affiché tel quel. */
 export const flagLabel = (flag) => {
@@ -31,6 +34,32 @@ export const flagLabel = (flag) => {
     if (f.startsWith('accident:')) return `Mot d'alerte : ${f.slice('accident:'.length)}`;
     return FLAG_LABELS[f] || f;
 };
+
+// Verdict calculé EN CODE (backend/leaf/verdict.py), jamais par l'IA.
+export const VERDICTS = {
+    CANDIDAT_FORT: { label: 'Candidat fort', style: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+    A_VERIFIER: { label: 'À vérifier', style: 'bg-sky-500/15 text-sky-300 border-sky-500/30' },
+    BATTERIE_DOUTEUSE: { label: 'Batterie douteuse', style: 'bg-rose-500/15 text-rose-300 border-rose-500/30' },
+    TROP_CHER: { label: 'Trop cher', style: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+    INCOMPLET: { label: 'Infos incomplètes', style: 'bg-slate-700/50 text-slate-300 border-slate-600' },
+};
+export const verdictInfo = (code) => VERDICTS[code] || null;
+
+// Faits extraits par l'IA (niveau 2) : seuls les faits PROUVÉS par une citation de l'annonce sont stockés.
+export const AI_FACT_LABELS = {
+    soh_pct: 'SOH annoncé', battery_replaced: 'Batterie de traction remplacée', accident_mentioned: 'Accident ou dommage mentionné',
+    heat_pump: 'Pompe à chaleur', winter_tires: 'Pneus d\'hiver', chademo: 'Charge rapide CHAdeMO', charging_cable: 'Câble de recharge',
+};
+export const CONFIDENCE_LABELS = { high: 'confiance élevée', medium: 'confiance moyenne', low: 'confiance faible' };
+/** Lignes affichables [{ key, label, value, evidence, confidence }] des faits de `analysis.ai`, dans l'ordre de AI_FACT_LABELS. */
+export const aiFactLines = (ai) => Object.entries(AI_FACT_LABELS)
+    .filter(([key]) => ai?.facts?.[key] && ai.facts[key].value != null)
+    .map(([key, label]) => {
+        const f = ai.facts[key];
+        return { key, label, value: typeof f.value === 'number' ? `${f.value} %` : (f.value ? 'Oui' : 'Non'), evidence: f.evidence || '',
+            confidence: CONFIDENCE_LABELS[f.confidence] || CONFIDENCE_LABELS.low };
+    });
+export const AI_PROVIDERS = [['local', 'Qwen local (Dell)'], ['gemini', 'Gemini Flash']];
 
 export const WINTER_LABELS = { ok: 'Suffisante', juste: 'Juste', insuffisant: 'Insuffisante', inconnu: 'Inconnue' };
 /** « 75–110 km » (autonomie hivernale estimée) ou null si inconnue. */
@@ -134,6 +163,9 @@ export const configToForm = (cfg) => ({
     notifyEnabled: cfg?.notify?.enabled !== false,
     notifyNew: cfg?.notify?.new !== false,
     notifyDrop: cfg?.notify?.price_drop !== false,
+    aiEnabled: !!cfg?.analysis?.enabled,
+    aiMax: String(cfg?.analysis?.max_calls_per_day ?? 30),
+    aiProviders: Object.fromEntries(AI_PROVIDERS.map(([key]) => [key, (cfg?.analysis?.providers || ['local', 'gemini']).includes(key)])),
 });
 
 const toInt = (s) => (/^\s*-?\d+\s*$/.test(String(s)) ? parseInt(s, 10) : NaN);
@@ -152,6 +184,8 @@ export const validateLeafForm = (form) => {
     const sources = LEAF_SOURCES.map(([key]) => key).filter((key) => form.sources?.[key]);
     const lat = toNum(form.lat);
     const lon = toNum(form.lon);
+    const aiMax = toInt(form.aiMax);
+    const aiProviders = AI_PROVIDERS.map(([key]) => key).filter((key) => form.aiProviders?.[key]);
     if (!(frequency >= 60 && frequency <= 1440)) errors.push('Fréquence : entre 60 et 1 440 minutes.');
     if (!(minPrice >= 0)) errors.push('Prix minimum : un nombre positif.');
     if (!(maxPrice >= 0)) errors.push('Prix maximum : un nombre positif.');
@@ -162,6 +196,8 @@ export const validateLeafForm = (form) => {
     if (sources.length === 0) errors.push('Choisissez au moins une source.');
     if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180)) errors.push('Ville de référence : latitude et longitude valides.');
     if (!(radius >= 1 && radius <= 2000)) errors.push('Rayon : de 1 à 2 000 km.');
+    if (!(aiMax >= 1 && aiMax <= 500)) errors.push('Analyses IA par jour : de 1 à 500.');
+    if (aiProviders.length === 0) errors.push('Analyse IA : choisissez au moins un fournisseur.');
     if (errors.length) return { errors, body: null };
     const home = { latitude: lat, longitude: lon };
     if (String(form.homeName).trim()) home.name = String(form.homeName).trim().slice(0, 80);
@@ -174,6 +210,7 @@ export const validateLeafForm = (form) => {
                 sources, read_details: !!form.readDetails, home, radius_km: radius,
             },
             notify: { enabled: !!form.notifyEnabled, new: !!form.notifyNew, price_drop: !!form.notifyDrop },
+            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, providers: aiProviders },
         },
     };
 };

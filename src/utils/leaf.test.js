@@ -74,7 +74,7 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
 
-import { configToForm, leafImageUrl, leafImages, validateLeafForm } from './leaf.js';
+import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo } from './leaf.js';
 
 test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
     const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
@@ -98,7 +98,7 @@ test('leafImages : sans doublon, https seulement, taille appliquée', () => {
 
 const CFG = { enabled: true, scan: { frequency: 180, min_price: 2000, max_price: 6500, max_km: 130000, pages: 2, years: [2017, 2018],
     sources: ['kijiji'], read_details: true, home: { latitude: 45.5333, longitude: -73.35, name: 'Saint-Bruno' }, radius_km: 90 },
-    notify: { enabled: true, new: false, price_drop: true } };
+    notify: { enabled: true, new: false, price_drop: true }, analysis: { enabled: true, max_calls_per_day: 12, providers: ['gemini'] } };
 
 test('configToForm puis validateLeafForm : aller-retour sans perte', () => {
     const { errors, body } = validateLeafForm(configToForm(CFG));
@@ -116,6 +116,8 @@ test('validateLeafForm : refuse les valeurs hors bornes avec un message par prob
     assert.match(bad({ lat: '200' }).errors[0], /latitude/);
     assert.match(bad({ lat: '' }).errors[0], /latitude/);
     assert.match(bad({ radius: '0' }).errors[0], /Rayon/);
+    assert.match(bad({ aiMax: '0' }).errors[0], /Analyses IA/);
+    assert.match(bad({ aiProviders: { local: false, gemini: false } }).errors[0], /fournisseur/);
     assert.equal(bad({ frequency: '5' }).body, null);
     assert.equal(bad({}).errors.length, 0);
 });
@@ -131,4 +133,29 @@ test('configToForm : valeurs par défaut si la configuration est vide', () => {
     assert.equal(f.frequency, '120');
     assert.equal(f.enabled, false);
     assert.deepEqual(f.sources, { kijiji: false, autohebdo: false, facebook: false });
+    assert.equal(f.aiEnabled, false);                                       // IA éteinte par défaut
+});
+
+test('verdictInfo : libellé connu ou null', () => {
+    assert.equal(verdictInfo('CANDIDAT_FORT').label, 'Candidat fort');
+    assert.equal(verdictInfo('TROP_CHER').label, 'Trop cher');
+    assert.equal(verdictInfo('AUTRE'), null);
+    assert.equal(verdictInfo(undefined), null);
+});
+
+test('aiFactLines : seulement les faits connus, valeurs lisibles et citation conservée', () => {
+    const ai = { facts: { soh_pct: { value: 91, evidence: 'SOH 91 %', confidence: 'high' }, heat_pump: { value: true, evidence: 'Pompe à chaleur', confidence: 'weird' },
+        winter_tires: { value: null, evidence: null }, chademo: { value: false, evidence: 'pas de CHAdeMO', confidence: 'medium' }, inconnu: { value: true } } };
+    const lines = aiFactLines(ai);
+    assert.deepEqual(lines.map((l) => l.key), ['soh_pct', 'heat_pump', 'chademo']);
+    assert.deepEqual(lines.map((l) => l.value), ['91 %', 'Oui', 'Non']);
+    assert.equal(lines[0].evidence, 'SOH 91 %');
+    assert.equal(lines[1].confidence, 'confiance faible');            // confiance inconnue : jamais présentée comme élevée
+    assert.deepEqual(aiFactLines(null), []);
+});
+
+test('flagLabel : drapeaux de l\'IA', () => {
+    assert.match(flagLabel2('ai_unsupported_claim'), /sans preuve/);
+    assert.match(flagLabel2('ai_conflict'), /règles/);
+    assert.match(flagLabel2('year_unknown'), /Année inconnue/);
 });

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.leaf import config as leaf_config
 from backend.leaf import notify as leaf_notify
-from backend.leaf import pipeline, scoring
+from backend.leaf import ai_extract, pipeline, scoring, verdict
 from backend.leaf.sources import BlockedError, autohebdo, fetch_html, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher
 
@@ -143,9 +143,14 @@ class LeafHunter:
                  collector: Optional[Callable[[Dict[str, Any]], Tuple[list, list]]] = None,
                  detail_fetcher_factory: Optional[Callable[[], Any]] = None,
                  notifier: Callable[..., bool] = leaf_notify.send, browser_guard: Optional[Any] = None,
-                 stop_events: Tuple[Any, ...] = ()):
+                 stop_events: Tuple[Any, ...] = (), analyzer: Optional[Any] = None, ai: Optional[Any] = None):
         self.repo, self.user_id = repo, user_id
         self.log = logger or logging.getLogger(__name__)
+        if ai is None and analyzer is not None:
+            from backend.leaf.ai import LeafAI
+            ai = LeafAI(analyzer, self.log)
+        self._ai = ai                      # niveau 2 (IA) : absent = jamais d'appel de modèle
+        self._cap_notified_day = None
         self._stop = _AnyStop(stop_events)
         self._collector = collector or (lambda scan: collect_sources(
             scan, logger=self.log, browser_guard=browser_guard, stop_event=self._stop,
@@ -208,10 +213,12 @@ class LeafHunter:
         # `price_fit` seulement quand assez d'annonces connues (sinon None : « marché insuffisant »).
         comparables = self.repo.comparables()
         events: List[Tuple[str, Dict[str, Any], Optional[float]]] = []
-        for listing in result["kept"]:
+        budget = self._ai_budget(cfg["analysis"])
+        for i, listing in enumerate(result["kept"]):
             fit = scoring.price_fit(listing, comparables)
             if fit:
                 listing["price_fit"] = fit
+            listing = result["kept"][i] = self._enrich(listing, cfg["analysis"], budget)
             outcome = self.repo.upsert_listing(listing)
             self.repo.record_match(self.user_id, listing["id"])
             if outcome["action"] in ("new", "price_drop"):
@@ -231,6 +238,60 @@ class LeafHunter:
         if notify_cfg["enabled"]:
             self._notify_events(events, notify_cfg)
         return stats
+
+    # ------------------------------------------------------------------ IA (niveau 2) et verdict
+
+    def _ai_budget(self, acfg: Dict[str, Any]) -> Dict[str, int]:
+        """Appels restants aujourd'hui (fenêtre de 24 h, tous les appels `leaf_t2` comptent, réussis ou non)."""
+        if not acfg["enabled"] or self._ai is None:
+            return {"left": 0}
+        try:
+            return {"left": max(0, acfg["max_calls_per_day"] - self.repo.count_ai_calls())}
+        except Exception as e:           # compteur illisible : par prudence, aucun appel
+            self.log.error(f"[Leaf] IA : plafond illisible ({e}), analyses suspendues.")
+            return {"left": 0}
+
+    def _enrich(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int]) -> Dict[str, Any]:
+        """Applique l'analyse IA (en cache si le texte et le prix n'ont pas changé, sinon un appel dans la limite du plafond),
+        recalcule les scores avec les faits PROUVÉS, puis calcule le verdict EN CODE. Ne lève jamais : sans IA, le verdict
+        reste calculé sur les règles seules."""
+        try:
+            stored = self.repo.get_ai(listing["id"])
+            fp = ai_extract.fingerprint(listing)
+            ai = None
+            if stored and stored.get("fingerprint") == fp:
+                ai = stored                                              # gratuit : texte et prix inchangés
+            elif acfg["enabled"] and self._ai is not None:
+                if budget["left"] > 0:
+                    budget["left"] -= 1
+                    ai, err = self._ai.extract(listing, acfg["providers"])
+                    if err:
+                        self.log.warning(f"[Leaf] IA : analyse impossible ({err}).")
+                else:
+                    self._notify_cap(acfg)
+            if ai is None and stored:
+                listing = {**listing, "ai": {**stored, "stale": True}}   # ancienne analyse, affichée comme périmée, jamais appliquée
+            if ai is not None:
+                listing = ai_extract.apply_to_listing(listing, ai)
+                listing["ai"] = ai
+                listing["battery_score"] = scoring.battery_score(listing.get("soh_announced"))
+                listing["winter_fit"] = scoring.winter_fit(listing)
+                listing["equipment"] = scoring.equipment_score(listing)
+                listing["risk_flags"] = scoring.risk_flags(listing)
+        except Exception as e:
+            self.log.error(f"[Leaf] IA : enrichissement ignoré ({e}).", exc_info=True)
+        v = verdict.compute_verdict(listing)
+        listing["verdict"], listing["verdict_reasons"] = v["verdict"], v["reasons"]
+        return listing
+
+    def _notify_cap(self, acfg: Dict[str, Any]) -> None:
+        today = time.strftime("%Y-%m-%d")
+        if self._cap_notified_day == today:
+            return
+        self._cap_notified_day = today
+        self.log.warning(f"[Leaf] IA : plafond de {acfg['max_calls_per_day']} analyses atteint, les suivantes attendent.")
+        self._notify("Leaf : plafond d'analyses IA atteint", f"{acfg['max_calls_per_day']} analyses sur 24 h. Les prochaines annonces "
+                     "sont affichées sans résumé IA ; le plafond se règle dans les réglages.", logger=self.log)
 
     def _with_facebook_city(self, scan: Dict[str, Any]) -> Dict[str, Any]:
         """Facebook cherche par ville : on prend la ville du catalogue la plus proche du point de référence (dans son rayon).
@@ -266,8 +327,10 @@ class LeafHunter:
             return
         for action, listing, previous in wanted:
             if action == "new":
-                self._notify("Leaf : nouvelle annonce", self._describe(listing), click_url=listing.get("url"),
-                             tags=["car"], logger=self.log)
+                strong = listing.get("verdict") == "CANDIDAT_FORT"
+                self._notify("Leaf : candidat fort" if strong else "Leaf : nouvelle annonce", self._describe(listing),
+                             priority="high" if strong else "default", click_url=listing.get("url"),
+                             tags=["star" if strong else "car"], logger=self.log)
             else:
                 self._notify(f"Leaf : baisse de prix ({previous:.0f} → {listing['price']:.0f} $)",
                              self._describe(listing), priority="high", click_url=listing.get("url"),

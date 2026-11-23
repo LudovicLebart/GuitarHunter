@@ -59,6 +59,7 @@ def evaluate_listings(raws: Sequence[Dict[str, Any]], criteria: Optional[Dict[st
             rejected.append({**listing, "reject_reasons": reject_reasons})
             continue
 
+        listing["equipment_list"] = list(raw.get("equipment") or [])       # texte lu par l'IA (`equipment` devient le score ci-dessous)
         listing["battery_score"] = scoring.battery_score(listing.get("soh_announced"))
         listing["winter_fit"] = scoring.winter_fit(listing, daily_km=daily_km)
         listing["equipment"] = scoring.equipment_score(listing)

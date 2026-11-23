@@ -1,5 +1,6 @@
 """API Leaf Hunter (`/leaf/*`) : vraie base Postgres, se saute si injoignable. Données INVENTÉES (dépôt public)."""
 import asyncio
+import json
 import os
 import unittest
 from unittest import mock
@@ -123,7 +124,7 @@ class TestLeafAPI(unittest.TestCase):
         async def seed_extra():
             conn = await asyncpg.connect(DATABASE_URL)
             try:
-                await conn.execute("UPDATE users SET config = '{\"leafConfig\": {\"analysisConfig\": {\"x\": 1}}, \"scanConfig\": {\"keep\": true}}' "
+                await conn.execute("UPDATE users SET config = '{\"leafConfig\": {\"autreCle\": {\"x\": 1}}, \"scanConfig\": {\"keep\": true}}' "
                                    "WHERE uid = $1", ME)
             finally:
                 await conn.close()
@@ -139,7 +140,7 @@ class TestLeafAPI(unittest.TestCase):
         import json as _json
         stored = _json.loads(asyncio.run(read()))
         self.assertEqual(stored["leafConfig"]["scanConfig"]["max_price"], 6500)
-        self.assertEqual(stored["leafConfig"]["analysisConfig"], {"x": 1})      # clé voisine de leafConfig conservée
+        self.assertEqual(stored["leafConfig"]["autreCle"], {"x": 1})            # clé voisine de leafConfig conservée
         self.assertEqual(stored["scanConfig"], {"keep": True})                  # configuration des guitares intacte
 
     def test_config_out_of_bounds_is_refused(self):
@@ -153,6 +154,36 @@ class TestLeafAPI(unittest.TestCase):
         self.assertEqual(put(sources=[]), 422)
         self.assertEqual(put(home={"latitude": 200, "longitude": 0}), 422)
         self.assertEqual(put(), 200)
+
+    def test_ai_settings_are_off_by_default_validated_and_stored_for_the_bot(self):
+        c = self.client.get("/leaf/config").json()
+        self.assertEqual(c["analysis"], {"enabled": False, "max_calls_per_day": 30, "providers": ["local", "gemini"]})
+        ok = {**self.BODY, "analysis": {"enabled": True, "max_calls_per_day": 12, "providers": ["gemini"]}}
+        self.assertEqual(self.client.put("/leaf/config", json=ok).status_code, 200)
+        self.assertEqual(self.client.get("/leaf/config").json()["analysis"], ok["analysis"])
+        for bad in ({"max_calls_per_day": 0}, {"max_calls_per_day": 501}, {"providers": []}, {"providers": ["gpt"]}):
+            self.assertEqual(self.client.put("/leaf/config", json={**self.BODY, "analysis": {"enabled": True, **bad}}).status_code, 422, bad)
+
+        async def read():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                return await conn.fetchval("SELECT config->'leafConfig'->'analysisConfig'->>'max_calls_per_day' FROM users WHERE uid = $1", ME)
+            finally:
+                await conn.close()
+        self.assertEqual(asyncio.run(read()), "12")                      # clé `analysisConfig`, celle que lit le bot
+
+    def test_list_and_detail_expose_verdict_and_ai_analysis(self):
+        async def seed():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("UPDATE vehicle_deals SET verdict = 'CANDIDAT_FORT', analysis = $1::text::jsonb WHERE id = 'leaf_api_1'",
+                                   json.dumps({"verdict_reasons": ["SOH annoncé 91 %"], "ai": {"summary": "Annonce claire.", "facts": {}, "model": "m", "provider": "local"}}))
+            finally:
+                await conn.close()
+        asyncio.run(seed())
+        row = self.client.get("/leaf/deals").json()[0]
+        self.assertEqual((row["verdict"], row["analysis"]["verdict_reasons"]), ("CANDIDAT_FORT", ["SOH annoncé 91 %"]))
+        self.assertEqual(self.client.get("/leaf/deals/leaf_api_1").json()["analysis"]["ai"]["summary"], "Annonce claire.")
 
     def test_config_respects_the_allow_list(self):
         with mock.patch.dict(os.environ, {"LEAF_ALLOWED_UIDS": OTHER}):

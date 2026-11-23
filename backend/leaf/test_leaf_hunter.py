@@ -218,6 +218,103 @@ class TestHunter(unittest.TestCase):
             self.assertTrue(conn.execute("SELECT withdrawn FROM user_vehicle_matches WHERE user_id=%s AND deal_id='leaf_facebook_7'",
                                          (self.UID,)).fetchone()["withdrawn"])                # retrait conservé
 
+    # --- IA niveau 2 -------------------------------------------------------------------------
+    AI_TEXT = "Pompe à chaleur. Capacité résiduelle de la batterie : 91 % (mesurée)."      # SOH écrit comme les règles ne le lisent pas
+    AI_ANSWER = {"summary": "Annonce claire.", "attention": [], "facts": {
+        "soh_pct": {"value": 91.0, "evidence": "Capacité résiduelle de la batterie : 91 %", "confidence": "high"},
+        "heat_pump": {"value": True, "evidence": "Pompe à chaleur", "confidence": "high"},
+        "chademo": {"value": True, "evidence": "port CHAdeMO neuf", "confidence": "high"}}}     # citation absente : doit être écartée
+
+    def _with_ai(self, enabled=True, max_calls=30, answer=None):
+        from backend.leaf import ai as leaf_ai
+        from backend.leaf.test_leaf_ai import FakeAnalyzer
+        self.analyzer = FakeAnalyzer(local=answer if answer is not None else self.AI_ANSWER)
+        self.hunter._ai = leaf_ai.LeafAI(self.analyzer)
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]},
+                          "analysisConfig": {"enabled": enabled, "max_calls_per_day": max_calls}})
+        self.raws = [raw("leaf_test_1", description=self.AI_TEXT)]
+
+    def _ai_of(self, deal_id="leaf_test_1"):
+        return self.repo.get_vehicle(deal_id)
+
+    def test_ai_analysis_is_stored_applied_with_proofs_only_and_gives_a_verdict(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        row = self._ai_of()
+        ai = row["analysis"]["ai"]
+        self.assertEqual(set(ai["facts"]), {"soh_pct", "heat_pump"})                    # CHAdeMO sans citation retrouvée : écarté
+        self.assertEqual(ai["flags"], ["ai_unsupported_claim"])
+        self.assertEqual((float(row["soh_announced"]), row["soh_evidence"]), (91.0, "Capacité résiduelle de la batterie : 91 %"))
+        self.assertNotIn("soh_unknown", row["flags"])
+        self.assertEqual(row["verdict"], "CANDIDAT_FORT")
+        self.assertEqual(self.analyzer.calls, [("local", "leaf_t2")])
+
+    def test_unchanged_text_and_price_costs_nothing_but_a_new_price_is_reanalyzed(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        self.hunter.run_scan()
+        self.assertEqual(len(self.analyzer.calls), 1)                                    # empreinte identique : cache
+        self.raws = [raw("leaf_test_1", description=self.AI_TEXT, price=5500)]
+        self.hunter.run_scan()
+        self.assertEqual(len(self.analyzer.calls), 2)
+
+    def test_ai_off_applies_the_cache_for_free_and_never_calls_the_model(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        first = self.analyzer
+        self._with_ai(enabled=False)
+        self.hunter.run_scan()
+        self.assertEqual((len(first.calls), self.analyzer.calls), (1, []))               # IA éteinte : aucun appel de plus
+        self.assertEqual(self._ai_of()["verdict"], "CANDIDAT_FORT")                      # l'analyse en cache reste appliquée
+        self._with_ai(enabled=False)
+        self.raws = [raw("leaf_test_1", description="Texte tout autre.")]
+        self.hunter.run_scan()
+        row = self._ai_of()
+        self.assertTrue(row["analysis"]["ai"]["stale"])                                  # ancienne analyse : affichée comme périmée
+        self.assertIsNone(row["soh_announced"])                                          # et NON appliquée au texte modifié
+
+    def test_daily_cap_stops_the_calls_and_notifies_once(self):
+        self._with_ai(max_calls=2)
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM llm_usage WHERE action = 'leaf_t2'")
+            conn.execute("INSERT INTO llm_usage (source, provider, model, action) VALUES ('backend','local','m','leaf_t2'),('backend','gemini','m','leaf_t2')")
+        self.addCleanup(lambda: self._purge_usage())
+        self.raws = [raw(f"leaf_test_{i}", price=5000 + i, description=self.AI_TEXT) for i in range(2)]
+        self.hunter.run_scan()
+        self.hunter.run_scan()
+        self.assertEqual(self.analyzer.calls, [])                                        # plafond déjà atteint par les appels des 24 h
+        self.assertEqual([t for t, _ in self.sent if "plafond" in t].__len__(), 1)       # une seule alerte par jour
+        self.assertEqual(self._ai_of()["verdict"], "A_VERIFIER")                         # verdict calculé sans IA
+
+    def _purge_usage(self):
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM llm_usage WHERE action = 'leaf_t2'")
+
+    def test_all_models_failing_keeps_the_scan_and_the_verdict(self):
+        self._with_ai(answer=(None, "hors ligne"))
+        self.analyzer.gemini = (None, "quota")
+        stats = self.hunter.run_scan()
+        self.assertEqual(stats["kept"], 1)
+        row = self._ai_of()
+        self.assertNotIn("ai", row["analysis"])
+        self.assertEqual(row["verdict"], "A_VERIFIER")
+
+    def test_expert_analysis_and_ai_survive_the_next_pass(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET analysis = analysis || '{\"expert\": {\"verdict\": \"ok\"}}'::jsonb")
+        self._with_ai(enabled=False)
+        self.hunter.run_scan()
+        analysis = self._ai_of()["analysis"]
+        self.assertEqual(analysis["expert"], {"verdict": "ok"})
+        self.assertIn("ai", analysis)
+
+    def test_strong_candidate_gets_a_priority_notification(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        self.assertEqual([t for t, _ in self.sent], ["Leaf : candidat fort"])
+
     def test_collector_crash_is_swallowed(self):
         def boom(scan):
             raise RuntimeError("réseau")

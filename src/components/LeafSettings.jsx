@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Save } from 'lucide-react';
 import CollapsibleSection from './CollapsibleSection';
-import { LEAF_SOURCES, configToForm, validateLeafForm } from '../utils/leaf';
+import { AI_PROVIDERS, LEAF_SOURCES, configToForm, validateLeafForm } from '../utils/leaf';
 
 // Réglages de recherche Leaf (enregistrés dans `users.config.leafConfig` par `PUT /leaf/config`, relus par le bot à chaque
 // passage). Réutilise `CollapsibleSection` ; la liste de villes (catalogue partagé de Guitar Hunter) sert à choisir la ville de
@@ -89,6 +89,22 @@ const LeafSettings = ({ api, cities = [] }) => {
                                     <Field label="Longitude"><input className={FIELD} inputMode="decimal" value={form.lon} onChange={(e) => set({ lon: e.target.value, homeName: '' })} /></Field>
                                     <Field label="Rayon (km)"><input className={FIELD} inputMode="numeric" value={form.radius} onChange={(e) => set({ radius: e.target.value })} /></Field>
                                 </div>
+                            </div>
+                            <div className="space-y-2">
+                                <span className={LABEL}>Analyse IA des annonces (niveau 2)</span>
+                                <Check checked={form.aiEnabled} onChange={(v) => set({ aiEnabled: v })}>Activer (résumé, faits prouvés par une citation, points d'attention)</Check>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <Field label="Analyses par jour (plafond)" hint="1 à 500 ; une annonce n'est ré-analysée que si son texte ou son prix change">
+                                        <input className={FIELD} inputMode="numeric" value={form.aiMax} onChange={(e) => set({ aiMax: e.target.value })} />
+                                    </Field>
+                                    <div className="space-y-1.5">
+                                        <span className={LABEL}>Modèles, dans l'ordre d'essai</span>
+                                        {AI_PROVIDERS.map(([key, label]) => (
+                                            <Check key={key} checked={!!form.aiProviders[key]} onChange={(v) => set({ aiProviders: { ...form.aiProviders, [key]: v } })}>{label}</Check>
+                                        ))}
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-500">Éteinte par défaut. Un fait sans citation retrouvée mot pour mot dans l'annonce est écarté ; en cas de contradiction, les règles l'emportent.</p>
                             </div>
                             <div className="space-y-1.5">
                                 <span className={LABEL}>Notifications (ntfy)</span>

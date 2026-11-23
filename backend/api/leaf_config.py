@@ -13,6 +13,8 @@ DEFAULT_SCAN = {"frequency": 120, "min_price": 1500, "max_price": 7500, "max_km"
                 "years": [2016, 2017, 2018], "sources": list(DEFAULT_SOURCES), "read_details": True}
 DEFAULT_HOME = {"name": "Saint-Bruno-de-Montarville", "latitude": 45.5333, "longitude": -73.3500}
 DEFAULT_RADIUS_KM = 150
+AI_PROVIDERS = ("local", "gemini")
+DEFAULT_AI_MAX_CALLS = 30
 
 
 class HomeIn(BaseModel):
@@ -50,10 +52,23 @@ class NotifyIn(BaseModel):
     price_drop: bool = True
 
 
+class AnalysisIn(BaseModel):
+    enabled: bool = False
+    max_calls_per_day: int = Field(DEFAULT_AI_MAX_CALLS, ge=1, le=500)
+    providers: List[str] = Field(default_factory=lambda: list(AI_PROVIDERS), min_length=1)
+
+    @model_validator(mode="after")
+    def _valid_providers(self):
+        if any(p not in AI_PROVIDERS for p in self.providers):
+            raise ValueError(f"Fournisseurs valides : {', '.join(AI_PROVIDERS)}.")
+        return self
+
+
 class LeafConfigIn(BaseModel):
     enabled: bool = False
     scan: ScanIn = Field(default_factory=ScanIn)
     notify: NotifyIn = Field(default_factory=NotifyIn)
+    analysis: AnalysisIn = Field(default_factory=AnalysisIn)
 
 
 def to_stored(cfg: LeafConfigIn) -> Dict[str, Any]:
@@ -61,7 +76,7 @@ def to_stored(cfg: LeafConfigIn) -> Dict[str, Any]:
     scan = cfg.scan.model_dump(exclude={"home"})
     if cfg.scan.home:
         scan["home"] = cfg.scan.home.model_dump(exclude_none=True)
-    return {"enabled": cfg.enabled, "scanConfig": scan, "notify": cfg.notify.model_dump()}
+    return {"enabled": cfg.enabled, "scanConfig": scan, "notify": cfg.notify.model_dump(), "analysisConfig": cfg.analysis.model_dump()}
 
 
 def _num(value, default, low, high):
@@ -75,6 +90,8 @@ def effective(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     scan = raw.get("scanConfig") if isinstance(raw.get("scanConfig"), dict) else {}
     notify = raw.get("notify") if isinstance(raw.get("notify"), dict) else {}
+    analysis = raw.get("analysisConfig") if isinstance(raw.get("analysisConfig"), dict) else {}
+    providers = [p for p in (analysis.get("providers") or AI_PROVIDERS) if p in AI_PROVIDERS] or list(AI_PROVIDERS)
     years = [y for y in (scan.get("years") or []) if isinstance(y, int) and not isinstance(y, bool) and 2010 <= y <= 2030]
     sources = [s for s in (scan.get("sources") or DEFAULT_SOURCES) if s in VALID_SOURCES] or list(DEFAULT_SOURCES)
     min_price = _num(scan.get("min_price"), DEFAULT_SCAN["min_price"], 0, 10**9)
@@ -101,4 +118,7 @@ def effective(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         },
         "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
                    "price_drop": notify.get("price_drop") is not False},
+        "analysis": {"enabled": analysis.get("enabled") is True,
+                     "max_calls_per_day": int(_num(analysis.get("max_calls_per_day"), DEFAULT_AI_MAX_CALLS, 1, 500)),
+                     "providers": providers},
     }
