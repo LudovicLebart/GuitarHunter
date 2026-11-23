@@ -1126,6 +1126,9 @@ export const fetchLeafRuns = (limit = 10) => apiFetch(`/leaf/runs?limit=${limit}
 export const fetchLeafConfig = () => apiFetch('/leaf/config');
 /** `body` : voir `validateLeafForm` (utils/leaf.js). Le serveur refuse (422) une valeur hors bornes. */
 export const saveLeafConfig = (body) => apiFetch('/leaf/config', { method: 'PUT', body });
+/** Prompts de l'IA de Leaf : `{ prompts: {extract, expert, photo} (null = défaut), defaults }`. Seules les INSTRUCTIONS sont éditables (le format JSON et le garde-fou restent imposés par le bot). */
+export const fetchLeafPrompts = () => apiFetch('/leaf/prompts');
+export const saveLeafPrompts = (prompts) => apiFetch('/leaf/prompts', { method: 'PUT', body: prompts });
 /** `forceAi` : refait aussi l'analyse IA de chaque annonce retenue (dans le plafond quotidien), même si rien n'a changé. */
 export const triggerLeafRefresh = (forceAi = false) => addCommand('LEAF_REFRESH', forceAi ? { forceAi: true } : null);
 /** Ré-analyse UNE annonce : relit sa fiche, refait règles, scores, verdict et IA avec le code actuel. */

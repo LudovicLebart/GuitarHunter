@@ -1020,6 +1020,22 @@ async def leaf_put_config(body: leaf_config.LeafConfigIn, uid: str = Depends(_le
     return leaf_config.effective(await leaf_repo.get_config(pool, uid))
 
 
+@app.get("/leaf/prompts")
+async def leaf_get_prompts(uid: str = Depends(_leaf_uid)):
+    """Prompts personnalisés (`null` = défaut) et prompts par défaut, pour l'éditeur de la page. Seules les INSTRUCTIONS sont éditables : le
+    format JSON et le garde-fou des preuves sont toujours ajoutés/appliqués par le bot."""
+    stored = (await leaf_repo.get_config(get_pool(), uid)).get("prompts")
+    return {"prompts": leaf_config.normalize_prompts(stored), "defaults": leaf_config.DEFAULT_PROMPTS}
+
+
+@app.put("/leaf/prompts")
+async def leaf_put_prompts(body: leaf_config.PromptsIn, uid: str = Depends(_leaf_uid)):
+    pool = get_pool()
+    await leaf_repo.set_config(pool, uid, {"prompts": leaf_config.normalize_prompts(body.model_dump())})
+    stored = (await leaf_repo.get_config(pool, uid)).get("prompts")
+    return {"prompts": leaf_config.normalize_prompts(stored), "defaults": leaf_config.DEFAULT_PROMPTS}
+
+
 class LeafStateBody(BaseModel):
     isFavorite: Optional[bool] = None
     isRejected: Optional[bool] = None

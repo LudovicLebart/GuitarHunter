@@ -74,7 +74,7 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
 
-import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines } from './leaf.js';
+import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines, promptToValue, validatePrompts, MAX_PROMPT_CHARS } from './leaf.js';
 
 test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
     const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
@@ -187,4 +187,20 @@ test('photoFactLines : faits lus sur photo avec numéro et transcription, valeur
     assert.equal(lines[0].evidence, 'SOH 61.2 %');
     assert.deepEqual(photoFactLines({ facts: { soh_photo: { value: null } } }), []);
     assert.deepEqual(photoFactLines(null), []);
+});
+
+test('promptToValue : vide ou identique au défaut = null, sinon le texte nettoyé', () => {
+    assert.equal(promptToValue('', 'Défaut'), null);
+    assert.equal(promptToValue('   ', 'Défaut'), null);
+    assert.equal(promptToValue('Défaut', 'Défaut'), null);
+    assert.equal(promptToValue('  Défaut  ', 'Défaut'), null);
+    assert.equal(promptToValue('  Ma consigne ', 'Défaut'), 'Ma consigne');
+    assert.equal(promptToValue(null, 'Défaut'), null);
+});
+
+test('validatePrompts : refuse un texte trop long, accepte la limite', () => {
+    assert.deepEqual(validatePrompts({ extract: 'x'.repeat(MAX_PROMPT_CHARS), expert: '', photo: undefined }), []);
+    const errs = validatePrompts({ extract: 'x'.repeat(MAX_PROMPT_CHARS + 1), photo: 'y'.repeat(9000) });
+    assert.equal(errs.length, 2);
+    assert.match(errs[0], /8000 caractères/);
 });

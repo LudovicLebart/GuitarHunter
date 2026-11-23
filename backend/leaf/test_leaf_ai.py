@@ -111,6 +111,29 @@ class TestApply(unittest.TestCase):
         self.assertEqual(enriched["soh_announced"], 84.0)
 
 
+class TestEditablePrompts(unittest.TestCase):
+    def test_custom_instructions_replace_only_the_rules_never_the_json_contract(self):
+        p = ax.build_prompt(listing(), "Consigne perso unique")
+        self.assertIn("Consigne perso unique", p)
+        self.assertNotIn("Règles strictes", p)
+        self.assertIn(ax.CONTRACT.strip()[:40], p)                                    # le format JSON est toujours imposé par le code
+        self.assertTrue(p.rstrip().endswith(ax.listing_text(listing()).rstrip()))
+        self.assertEqual(ax.build_prompt(listing()), ax.build_prompt(listing(), "   "))   # vide = défaut
+        self.assertEqual(ax.build_prompt(listing()), ax.PROMPT + ax.listing_text(listing()))
+
+    def test_fingerprint_changes_with_a_custom_prompt_but_not_with_the_default_one(self):
+        base = ax.fingerprint(listing())
+        self.assertEqual(base, ax.fingerprint(listing(), None))
+        self.assertEqual(base, ax.fingerprint(listing(), ax.DEFAULT_INSTRUCTIONS))      # défaut explicite : pas de réanalyse
+        custom = ax.fingerprint(listing(), "Autre consigne")
+        self.assertNotEqual(base, custom)
+        self.assertNotEqual(custom, ax.fingerprint(listing(), "Encore une autre"))
+
+    def test_the_guardrail_still_applies_whatever_the_prompt_says(self):
+        parsed = ax.parse_response(response(chademo=fact(True, "CHAdeMO neuf")))
+        self.assertEqual(ax.apply_guardrails(parsed, listing())["facts"], {})
+
+
 class TestFingerprint(unittest.TestCase):
     def test_changes_with_text_or_price_but_not_with_unrelated_fields(self):
         a = ax.fingerprint(listing())

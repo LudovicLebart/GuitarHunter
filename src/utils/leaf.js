@@ -254,3 +254,20 @@ export const photoFactLines = (photos) => {
         return { key, label, value: fmt(f.value), photo: Number.isInteger(f.photo) ? f.photo : null, evidence: f.evidence || '' };
     });
 };
+
+// --- Prompts de l'IA (éditeur « avancé » des réglages) : `null` = prompt par défaut du bot.
+export const PROMPT_LABELS = {
+    extract: ['Lecture du texte de l\'annonce (niveau 2)', 'Règles données au modèle pour extraire les faits du texte. Le format JSON et la preuve par citation restent imposés.'],
+    photo: ['Lecture des photos (captures LeafSpy)', 'Consigne de recopie des chiffres lisibles sur les images. La forme de la réponse est imposée par un schéma strict.'],
+    expert: ['Analyse approfondie (Expert)', 'Consigne de l\'Expert. Le format JSON, la règle des photos et les garde-fous (citations, prix plafond, question LeafSpy) restent imposés.'],
+};
+export const MAX_PROMPT_CHARS = 8000;
+/** Texte du formulaire -> valeur à envoyer : vide ou identique au défaut = null (le défaut du bot s'applique et suit ses mises à jour). */
+export const promptToValue = (text, defaultText) => {
+    const t = String(text ?? '').trim();
+    return !t || t === String(defaultText ?? '').trim() ? null : t;
+};
+/** Messages d'erreur du formulaire des prompts ([] si valide). */
+export const validatePrompts = (texts) => Object.keys(PROMPT_LABELS)
+    .filter((key) => String(texts?.[key] ?? '').length > MAX_PROMPT_CHARS)
+    .map((key) => `${PROMPT_LABELS[key][0]} : ${MAX_PROMPT_CHARS} caractères au plus.`);

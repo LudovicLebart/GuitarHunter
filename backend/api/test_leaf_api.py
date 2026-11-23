@@ -187,6 +187,26 @@ class TestLeafAPI(unittest.TestCase):
         self.assertEqual((row["verdict"], row["analysis"]["verdict_reasons"]), ("CANDIDAT_FORT", ["SOH annoncé 91 %"]))
         self.assertEqual(self.client.get("/leaf/deals/leaf_api_1").json()["analysis"]["ai"]["summary"], "Annonce claire.")
 
+    def test_prompts_default_save_reset_and_survive_a_settings_save(self):
+        r = self.client.get("/leaf/prompts").json()
+        self.assertEqual(r["prompts"], {"extract": None, "expert": None, "photo": None})
+        self.assertIn("Règles strictes", r["defaults"]["extract"])
+        self.assertNotIn("Réponds UNIQUEMENT", r["defaults"]["extract"])                   # le contrat JSON n'est pas éditable
+        saved = self.client.put("/leaf/prompts", json={"extract": "  Consigne perso  ", "expert": "", "photo": None}).json()
+        self.assertEqual(saved["prompts"], {"extract": "Consigne perso", "expert": None, "photo": None})
+        self.client.put("/leaf/config", json=self.BODY)                                    # enregistrer les réglages ne doit pas effacer les prompts
+        self.assertEqual(self.client.get("/leaf/prompts").json()["prompts"]["extract"], "Consigne perso")
+        self.assertEqual(self.client.get("/leaf/config").json()["prompts"]["extract"], "Consigne perso")
+        reset = self.client.put("/leaf/prompts", json={}).json()
+        self.assertEqual(reset["prompts"], {"extract": None, "expert": None, "photo": None})
+
+    def test_prompts_are_bounded_and_respect_the_allow_list(self):
+        self.assertEqual(self.client.put("/leaf/prompts", json={"extract": "x" * 8001}).status_code, 422)
+        self.assertEqual(self.client.put("/leaf/prompts", json={"extract": "x" * 8000}).status_code, 200)
+        with mock.patch.dict(os.environ, {"LEAF_ALLOWED_UIDS": OTHER}):
+            self.assertEqual(self.client.get("/leaf/prompts").status_code, 403)
+            self.assertEqual(self.client.put("/leaf/prompts", json={}).status_code, 403)
+
     def test_leaf_commands_are_accepted_by_the_api_and_the_analyze_payload_is_checked(self):
         # Régression (2026-11-23) : la liste blanche de `input_guard` refusait LEAF_REFRESH, donc « Actualiser » échouait en 422.
         for type_, payload in (("LEAF_REFRESH", None), ("LEAF_CLEANUP", None), ("LEAF_ANALYZE", {"dealId": "leaf_kijiji_123"}),

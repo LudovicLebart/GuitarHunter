@@ -19,6 +19,33 @@ DEFAULT_EXPERT_MAX_CALLS = 5
 DEFAULT_PHOTO_MAX_CALLS = 20          # appels de lecture de photos (tri + lecture) par 24 h
 
 
+# Prompts par DÉFAUT affichés dans l'éditeur (copie de `backend/leaf/ai_extract.py`, `expert.py`, `photo_extract.py` : l'API de production n'importe pas
+# `backend/leaf/`). Le test de parité `backend/leaf/test_leaf_config_parity.py` vérifie qu'ils sont IDENTIQUES à ceux du bot.
+MAX_PROMPT_CHARS = 8000
+DEFAULT_PROMPTS = {
+    "extract": 'Tu analyses l\'annonce d\'une Nissan Leaf d\'occasion. Extrais UNIQUEMENT ce que le TEXTE ci-dessous dit explicitement.\nRègles strictes :\n- Pour chaque fait, donne "evidence" : la phrase ou le morceau de phrase COPIÉ MOT POUR MOT du texte. Sans citation exacte, mets "value": null.\n- Ne déduis rien (ni de l\'année, ni du modèle, ni de ce qui est « habituel »). Si le texte ne le dit pas : "value": null.\n- "battery_replaced" concerne la batterie de TRACTION (haute tension), pas la batterie 12 V.\n- "accident_mentioned" = true seulement si le texte dit que la voiture a subi un accident ou un dommage ; false seulement si le texte le nie explicitement.\n- "soh_pct" : l\'état de santé de la batterie en pourcentage, seulement s\'il est écrit (SOH, état de santé, LeafSpy).\n- "confidence" : "high" si la citation est sans ambiguïté, "medium" ou "low" sinon.\n- "summary" : 2 à 3 phrases en français sur ce que dit (et ne dit pas) l\'annonce, sans rien inventer.\n- "attention" : jusqu\'à 5 points à vérifier, chacun avec sa citation exacte ("evidence").',
+    "expert": 'Tu es un expert en achat de Nissan Leaf d\'occasion au Québec. L\'acheteur cherche une voiture pour environ 50 km par jour, hiver compris.\nOn te donne l\'annonce et des FAITS ÉTABLIS PAR LE CODE (scores, verdict, faits déjà prouvés par citation) : traite-les comme exacts, sans les refaire.\n\nRègles strictes :\n- N\'invente aucun fait sur la voiture. Ce que l\'annonce ne dit pas est « inconnu » : dis-le, et transforme-le en question pour le vendeur.\n- Chaque risque doit citer l\'annonce MOT POUR MOT ("evidence"). Sans citation exacte, ne le mentionne pas.\n- "price_ceiling" : le prix maximum raisonnable à payer, en dollars. Appuie-toi sur le prix de marché estimé s\'il est fourni ; sinon laisse "amount": null.\n- "worth_visiting" : "oui", "peut-etre" ou "non". Un SOH inconnu n\'est pas une raison de refuser : c\'est une mesure à faire.\n- Réponds en français.',
+    "photo": "Ces images sont des captures d'écran ou des tableaux de bord d'une voiture électrique à vendre. Pour chaque image, recopie UNIQUEMENT les textes et les chiffres que tu lis clairement (états de la batterie, SOH, pourcentages, Ah, kilométrage, barres), EXACTEMENT comme écrits, une courte transcription par image (80 caractères au plus). N'invente rien, ne complète pas un chiffre à moitié lisible, ne calcule rien, ne commente pas. Si rien n'est lisible sur une image, ne renvoie rien pour elle. Le champ « photo » est le numéro de l'image (à partir de 0, dans l'ordre reçu).",
+}
+
+
+def normalize_prompts(raw: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """Textes personnalisés (None = prompt par défaut), mêmes règles que `backend/leaf/config.py::normalize_prompts`."""
+    prompts = raw if isinstance(raw, dict) else {}
+    out: Dict[str, Optional[str]] = {}
+    for key in DEFAULT_PROMPTS:
+        value = prompts.get(key)
+        out[key] = value.strip() if isinstance(value, str) and value.strip() and len(value) <= MAX_PROMPT_CHARS else None
+    return out
+
+
+class PromptsIn(BaseModel):
+    """Corps de `PUT /leaf/prompts` : `null` ou texte vide = prompt par défaut ; au plus 8 000 caractères."""
+    extract: Optional[str] = Field(None, max_length=MAX_PROMPT_CHARS)
+    expert: Optional[str] = Field(None, max_length=MAX_PROMPT_CHARS)
+    photo: Optional[str] = Field(None, max_length=MAX_PROMPT_CHARS)
+
+
 class HomeIn(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
@@ -121,6 +148,7 @@ def effective(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "home": {"latitude": lat, "longitude": lon, "name": name},
             "radius_km": _num(scan.get("radius_km"), DEFAULT_RADIUS_KM, 1, 10**9),
         },
+        "prompts": normalize_prompts(raw.get("prompts")),
         "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
                    "price_drop": notify.get("price_drop") is not False},
         "analysis": {"enabled": analysis.get("enabled") is True,

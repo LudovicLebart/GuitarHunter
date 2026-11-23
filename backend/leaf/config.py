@@ -35,6 +35,21 @@ def _num(value, default, low=None, high=None):
     return value
 
 
+MAX_PROMPT_CHARS = 8000
+PROMPT_KEYS = ("extract", "expert", "photo")
+
+
+def normalize_prompts(raw: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    """`leafConfig.prompts` -> {extract, expert, photo} : texte personnalisé, ou None = prompt par défaut du code. Un texte vide, trop long
+    ou qui n'est pas une chaîne est ignoré (jamais d'exception)."""
+    prompts = raw if isinstance(raw, dict) else {}
+    out: Dict[str, Optional[str]] = {}
+    for key in PROMPT_KEYS:
+        value = prompts.get(key)
+        out[key] = value.strip() if isinstance(value, str) and value.strip() and len(value) <= MAX_PROMPT_CHARS else None
+    return out
+
+
 def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """`leafConfig` brut -> configuration complète et bornée (jamais d'exception sur une valeur absurde)."""
     raw = raw if isinstance(raw, dict) else {}
@@ -72,6 +87,7 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                      "photos": analysis.get("photos") is True,
                      "max_photo_calls_per_day": int(_num(analysis.get("max_photo_calls_per_day"), DEFAULT_PHOTO_MAX_CALLS, 1, 200)),
                      "providers": providers},
+        "prompts": normalize_prompts(raw.get("prompts")),
         "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
                    "price_drop": notify.get("price_drop") is not False},
     }

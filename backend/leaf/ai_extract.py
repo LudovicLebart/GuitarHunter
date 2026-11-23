@@ -29,7 +29,9 @@ FACT_FIELDS: Dict[str, Tuple[str, str]] = {
 }
 CONFIDENCES = ("high", "medium", "low")
 
-PROMPT = """Tu analyses l'annonce d'une Nissan Leaf d'occasion. Extrais UNIQUEMENT ce que le TEXTE ci-dessous dit explicitement.
+# Les INSTRUCTIONS (règles de lecture) sont éditables dans l'app (`leafConfig.prompts.extract`) ; le CONTRAT (forme JSON attendue) est toujours
+# ajouté par le code : un prompt modifié ne peut pas changer le format de la réponse ni contourner le garde-fou des preuves (appliqué après).
+DEFAULT_INSTRUCTIONS = """Tu analyses l'annonce d'une Nissan Leaf d'occasion. Extrais UNIQUEMENT ce que le TEXTE ci-dessous dit explicitement.
 Règles strictes :
 - Pour chaque fait, donne "evidence" : la phrase ou le morceau de phrase COPIÉ MOT POUR MOT du texte. Sans citation exacte, mets "value": null.
 - Ne déduis rien (ni de l'année, ni du modèle, ni de ce qui est « habituel »). Si le texte ne le dit pas : "value": null.
@@ -38,13 +40,16 @@ Règles strictes :
 - "soh_pct" : l'état de santé de la batterie en pourcentage, seulement s'il est écrit (SOH, état de santé, LeafSpy).
 - "confidence" : "high" si la citation est sans ambiguïté, "medium" ou "low" sinon.
 - "summary" : 2 à 3 phrases en français sur ce que dit (et ne dit pas) l'annonce, sans rien inventer.
-- "attention" : jusqu'à 5 points à vérifier, chacun avec sa citation exacte ("evidence").
+- "attention" : jusqu'à 5 points à vérifier, chacun avec sa citation exacte ("evidence")."""
 
-Réponds UNIQUEMENT avec un objet JSON de cette forme :
+CONTRACT = """Réponds UNIQUEMENT avec un objet JSON de cette forme :
 {"summary": "...", "facts": {"soh_pct": {"value": null, "evidence": null, "confidence": "low"}, "battery_replaced": {...}, "accident_mentioned": {...}, "heat_pump": {...}, "winter_tires": {...}, "chademo": {...}, "charging_cable": {...}}, "attention": [{"text": "...", "evidence": "..."}]}
 
 TEXTE DE L'ANNONCE :
 """
+
+PROMPT = DEFAULT_INSTRUCTIONS + "\n\n" + CONTRACT      # prompt par défaut complet
+MAX_PROMPT_CHARS = 8000
 
 
 def listing_text(listing: Dict[str, Any]) -> str:
@@ -54,14 +59,16 @@ def listing_text(listing: Dict[str, Any]) -> str:
     return text[:MAX_TEXT_CHARS]
 
 
-def build_prompt(listing: Dict[str, Any]) -> str:
-    return PROMPT + listing_text(listing)
+def build_prompt(listing: Dict[str, Any], instructions: Optional[str] = None) -> str:
+    return (((instructions or "").strip() or DEFAULT_INSTRUCTIONS).rstrip() + "\n\n" + CONTRACT) + listing_text(listing)
 
 
-def fingerprint(listing: Dict[str, Any]) -> str:
+def fingerprint(listing: Dict[str, Any], instructions: Optional[str] = None) -> str:
     """Empreinte de ce que l'IA lit (texte, équipement, prix arrondi, version du garde-fou) : l'analyse n'est refaite que si elle change."""
     price = listing.get("price")
     payload = {"v": AI_VERSION, "t": listing_text(listing), "p": round(price) if isinstance(price, (int, float)) else None}
+    if instructions and instructions.strip() != DEFAULT_INSTRUCTIONS.strip():       # prompt personnalisé : une modification relance l'analyse (sous le plafond)
+        payload["i"] = hashlib.sha1(instructions.strip().encode("utf-8")).hexdigest()[:8]
     return hashlib.sha1(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
 
 

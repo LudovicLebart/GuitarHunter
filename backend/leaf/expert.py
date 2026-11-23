@@ -19,7 +19,8 @@ MAX_EXPERT_PHOTOS = 4
 LEAFSPY_QUESTION = "Pouvez-vous faire lire l'état de santé de la batterie (SOH) avec LeafSpy, ou me laisser le faire, avant que je me déplace ?"
 BATTERY_PROOF_QUESTION = "Avez-vous la facture ou la garantie Nissan du remplacement de la batterie de traction (date, concessionnaire, numéro de série) ?"
 
-PROMPT = """Tu es un expert en achat de Nissan Leaf d'occasion au Québec. L'acheteur cherche une voiture pour environ 50 km par jour, hiver compris.
+# INSTRUCTIONS éditables dans l'app (`leafConfig.prompts.expert`) ; CONTRAT (forme JSON, règle des photos) toujours ajouté par le code.
+DEFAULT_INSTRUCTIONS = """Tu es un expert en achat de Nissan Leaf d'occasion au Québec. L'acheteur cherche une voiture pour environ 50 km par jour, hiver compris.
 On te donne l'annonce et des FAITS ÉTABLIS PAR LE CODE (scores, verdict, faits déjà prouvés par citation) : traite-les comme exacts, sans les refaire.
 
 Règles strictes :
@@ -27,9 +28,9 @@ Règles strictes :
 - Chaque risque doit citer l'annonce MOT POUR MOT ("evidence"). Sans citation exacte, ne le mentionne pas.
 - "price_ceiling" : le prix maximum raisonnable à payer, en dollars. Appuie-toi sur le prix de marché estimé s'il est fourni ; sinon laisse "amount": null.
 - "worth_visiting" : "oui", "peut-etre" ou "non". Un SOH inconnu n'est pas une raison de refuser : c'est une mesure à faire.
-- Réponds en français.
+- Réponds en français."""
 
-Réponds UNIQUEMENT avec un objet JSON :
+CONTRACT = """Réponds UNIQUEMENT avec un objet JSON :
 {"opinion": "3 à 5 phrases argumentées", "worth_visiting": "oui|peut-etre|non", "seller_questions": ["..."], "inspection_points": ["..."],
  "price_ceiling": {"amount": null, "reasoning": "..."}, "risks": [{"text": "...", "evidence": "citation exacte"}],
  "photo_observations": [{"photo": 1, "text": "ce que montre la photo n°1, en une phrase"}]}
@@ -38,6 +39,8 @@ Si des PHOTOS sont jointes (« Image 1 », « Image 2 »…) : décris seulement
 ce sont des observations à vérifier, pas des faits : ne les utilise pas comme preuve d'un risque. Sans photo jointe, laisse la liste vide.
 
 """
+
+PROMPT = DEFAULT_INSTRUCTIONS + "\n\n" + CONTRACT
 
 
 def row_to_listing(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -80,8 +83,8 @@ def known_facts(listing: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_prompt(listing: Dict[str, Any]) -> str:
-    return (PROMPT + "FAITS ÉTABLIS PAR LE CODE :\n" + json.dumps(known_facts(listing), ensure_ascii=False, default=str)
+def build_prompt(listing: Dict[str, Any], instructions: Optional[str] = None) -> str:
+    return (((instructions or "").strip() or DEFAULT_INSTRUCTIONS).rstrip() + "\n\n" + CONTRACT + "FAITS ÉTABLIS PAR LE CODE :\n" + json.dumps(known_facts(listing), ensure_ascii=False, default=str)
             + "\n\nTEXTE DE L'ANNONCE :\n" + ai_extract.listing_text(listing))
 
 

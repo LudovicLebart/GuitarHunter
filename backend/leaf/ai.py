@@ -41,10 +41,11 @@ class LeafAI:
         import config
         t1_circuit_breaker.record_failure("local", config.T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, config.T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS)
 
-    def extract(self, listing: Dict[str, Any], providers: Sequence[str] = PROVIDERS) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def extract(self, listing: Dict[str, Any], providers: Sequence[str] = PROVIDERS, instructions: Optional[str] = None
+                ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         if self.analyzer is None:
             return None, "Analyseur indisponible (bot hors ligne)."
-        prompt = ai_extract.build_prompt(listing)
+        prompt = ai_extract.build_prompt(listing, instructions)
         last_error = "aucun fournisseur configuré"
         for provider in providers:
             call = {"local": self._call_local, "gemini": self._call_gemini}.get(provider)
@@ -72,22 +73,22 @@ class LeafAI:
                 self.log.warning(f"[Leaf] IA : réponse de {provider} inutilisable, fournisseur suivant.")
                 continue
             ai = ai_extract.apply_guardrails(parsed, listing)
-            ai.update({"provider": provider, "model": model, "fingerprint": ai_extract.fingerprint(listing), "version": ai_extract.AI_VERSION,
+            ai.update({"provider": provider, "model": model, "fingerprint": ai_extract.fingerprint(listing, instructions), "version": ai_extract.AI_VERSION,
                        "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
             if ai["rejected"]:
                 self.log.info(f"[Leaf] IA : {ai['rejected']} fait(s) sans citation retrouvée dans l'annonce, écarté(s).")
             return ai, None
         return None, last_error
 
-    def expert(self, listing: Dict[str, Any], images: Optional[list] = None, photo_numbers: Optional[list] = None
-               ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def expert(self, listing: Dict[str, Any], images: Optional[list] = None, photo_numbers: Optional[list] = None,
+               instructions: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """Niveau 3 : avis de l'Expert (Claude, `T3_CLAUDE_MODEL`) sur UNE annonce, à la demande. Ne lève jamais.
         Aucun repli sur un autre modèle : un Expert qui échoue échoue visiblement (comme pour les guitares)."""
         if self.analyzer is None:
             return None, "Analyseur indisponible (bot hors ligne)."
         import config
         try:
-            raw, err = self.analyzer._call_claude_json(config.T3_CLAUDE_MODEL, [expert.build_prompt(listing), *(images or [])], action="leaf_t3")
+            raw, err = self.analyzer._call_claude_json(config.T3_CLAUDE_MODEL, [expert.build_prompt(listing, instructions), *(images or [])], action="leaf_t3")
         except Exception as e:
             self.log.error(f"[Leaf] Expert : {e}")
             return None, str(e)
@@ -122,7 +123,8 @@ class LeafAI:
             t1_circuit_breaker.record_success("local")
         return result, err
 
-    def read_photos(self, listing: Dict[str, Any], providers: Sequence[str] = PROVIDERS) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def read_photos(self, listing: Dict[str, Any], providers: Sequence[str] = PROVIDERS, instructions: Optional[str] = None
+                    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """Lit les chiffres visibles sur les photos de l'annonce. Ne lève jamais : (lecture | None, erreur | None).
 
         Dell : TRI sur des vignettes (toutes les photos, quelques centaines de tokens) puis LECTURE des 3 captures retenues en haute
@@ -131,6 +133,7 @@ class LeafAI:
         if self.analyzer is None:
             return None, "Analyseur indisponible (bot hors ligne)."
         urls = photo_extract.photo_urls(listing)
+        read_prompt = instructions or photo_extract.READ_PROMPT
         if not urls:
             return None, "aucune photo"
         last_error = "aucun fournisseur configuré"
@@ -153,7 +156,7 @@ class LeafAI:
                         if len(big) != len(chosen):
                             last_error = "local : photos en haute résolution incomplètes"
                             continue
-                        raw, err = self._local_vision(photo_extract.READ_PROMPT, big, photo_extract.READ_JSON_SCHEMA)
+                        raw, err = self._local_vision(read_prompt, big, photo_extract.READ_JSON_SCHEMA)
                         if err or raw is None:
                             last_error = f"local : {err or 'lecture sans réponse'}"
                             continue
@@ -169,7 +172,7 @@ class LeafAI:
                         last_error = "gemini : photos incomplètes"
                         continue
                     model = config.GEMINI_MODELS["default_analyst"]
-                    raw, err = self.analyzer._call_gemini_json(model, [photo_extract.READ_PROMPT, *images], action="leaf_photo")
+                    raw, err = self.analyzer._call_gemini_json(model, [read_prompt, *images], action="leaf_photo")
                     if raw is None:
                         last_error = f"gemini : {err or 'lecture sans réponse'}"
                         continue

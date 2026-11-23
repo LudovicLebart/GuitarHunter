@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
-import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafAnalyze, triggerLeafReanalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
+import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, fetchLeafPrompts, saveLeafPrompts, setLeafState, triggerLeafAnalyze, triggerLeafReanalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
+import LeafPrompts from './LeafPrompts';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
     aiFactLines, expertView, formatPrice as fmtPrice, leafImages, photoFactLines, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
@@ -11,7 +12,7 @@ import {
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
 
-const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, triggerLeafReanalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
+const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, triggerLeafReanalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig, fetchLeafPrompts, saveLeafPrompts };
 const WINTER_STYLES = {
     ok: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     juste: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -116,6 +117,7 @@ const LeafList = ({ api, cities }) => {
     return (
         <div className="space-y-4">
             <LeafSettings api={api} cities={cities} />
+            <LeafPrompts api={api} />
             <div className="flex flex-wrap items-center gap-2">
                 <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (ville, version…)"
                     className="flex-1 min-w-[10rem] bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-200" />

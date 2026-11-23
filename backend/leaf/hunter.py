@@ -222,12 +222,13 @@ class LeafHunter:
         # `price_fit` seulement quand assez d'annonces connues (sinon None : « marché insuffisant »).
         comparables = self.repo.comparables()
         events: List[Tuple[str, Dict[str, Any], Optional[float]]] = []
-        budget = self._ai_budget(cfg["analysis"])
+        acfg = {**cfg["analysis"], "prompts": cfg["prompts"]}
+        budget = self._ai_budget(acfg)
         for i, listing in enumerate(result["kept"]):
             fit = scoring.price_fit(listing, comparables)
             if fit:
                 listing["price_fit"] = fit
-            listing = result["kept"][i] = self._enrich(listing, cfg["analysis"], budget, force_ai)
+            listing = result["kept"][i] = self._enrich(listing, acfg, budget, force_ai)
             self._stabilize_photos(listing)
             outcome = self.repo.upsert_listing(listing)
             self.repo.record_match(self.user_id, listing["id"])
@@ -268,7 +269,8 @@ class LeafHunter:
         reste calculé sur les règles seules."""
         try:
             stored = self.repo.get_ai(listing["id"])
-            fp = ai_extract.fingerprint(listing)
+            instructions = (acfg.get("prompts") or {}).get("extract")
+            fp = ai_extract.fingerprint(listing, instructions)
             ai = None
             if stored and stored.get("fingerprint") == fp and not (force_ai and acfg["enabled"] and self._ai is not None
                                                                    and not listing.get("detail_unavailable")):
@@ -280,7 +282,7 @@ class LeafHunter:
             elif acfg["enabled"] and self._ai is not None:
                 if budget["left"] > 0:
                     budget["left"] -= 1
-                    ai, err = self._ai.extract(listing, acfg["providers"])
+                    ai, err = self._ai.extract(listing, acfg["providers"], instructions)
                     if err:
                         self.log.warning(f"[Leaf] IA : analyse impossible ({err}).")
                 else:
@@ -336,7 +338,7 @@ class LeafHunter:
             elif can_read:
                 if budget.get("photo_left", 0) >= 2:                      # un tri et une lecture : jusqu'à 2 appels
                     budget["photo_left"] -= 2
-                    photos, err = self._ai.read_photos(listing, acfg["providers"])
+                    photos, err = self._ai.read_photos(listing, acfg["providers"], (acfg.get("prompts") or {}).get("photo"))
                     if err:
                         self.log.warning(f"[Leaf] Photos : lecture impossible ({err}).")
                 else:
@@ -486,8 +488,9 @@ class LeafHunter:
         fit = scoring.price_fit(listing, self.repo.comparables())
         if fit:
             listing["price_fit"] = fit
-        budget = self._ai_budget(cfg["analysis"])
-        listing = self._enrich(listing, cfg["analysis"], budget, force_ai=True)
+        acfg = {**cfg["analysis"], "prompts": cfg["prompts"]}
+        budget = self._ai_budget(acfg)
+        listing = self._enrich(listing, acfg, budget, force_ai=True)
         self.repo.upsert_listing(listing)
         self.repo.record_match(self.user_id, deal_id)                    # lève un retrait antérieur : l'annonce repasse les règles
         self.log.info(f"[Leaf] Ré-analyse terminée ({deal_id[-12:]}) : verdict {listing.get('verdict')}.")
@@ -513,7 +516,8 @@ class LeafHunter:
     def analyze_deal(self, deal_id: str) -> Dict[str, Any]:
         """Analyse approfondie (Expert, niveau 3) d'UNE annonce, à la demande. Échec CLAIR (la commande est marquée échouée) si
         l'IA est éteinte, le plafond atteint, l'annonce introuvable ou le modèle en panne : le bouton affiche la cause."""
-        acfg = self.config()["analysis"]
+        full = self.config()
+        acfg = {**full["analysis"], "prompts": full["prompts"]}
         if not acfg["enabled"]:
             raise RuntimeError("L'analyse IA est éteinte : activez-la dans les réglages de Leaf.")
         if self._ai is None:
@@ -529,7 +533,7 @@ class LeafHunter:
                 raise RuntimeError(f"Plafond atteint : {used} analyses approfondies sur 24 h (maximum {acfg['max_expert_per_day']}, réglable).")
             listing = leaf_expert.row_to_listing(row)
             images, numbers = self._expert_photos(listing, acfg)
-            opinion, err = self._ai.expert(listing, images, numbers)
+            opinion, err = self._ai.expert(listing, images, numbers, acfg["prompts"]["expert"])
             if opinion is None:
                 raise RuntimeError(f"L'Expert n'a pas répondu : {err}")
             self.repo.store_expert(deal_id, opinion)

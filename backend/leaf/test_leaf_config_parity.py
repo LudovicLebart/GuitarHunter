@@ -18,6 +18,9 @@ CASES = [
     {"analysisConfig": {"enabled": True, "max_calls_per_day": 9999, "providers": ["gemini", "x"]}},
     {"analysisConfig": {"enabled": "oui", "max_calls_per_day": 0, "providers": []}},
     {"analysisConfig": {"max_calls_per_day": True}},
+    {"prompts": {"extract": "  Consigne perso  ", "expert": "", "photo": 3}},
+    {"prompts": {"extract": "x" * 8001, "expert": "ok"}},
+    {"prompts": "pas un objet"},
 ]
 
 
@@ -27,7 +30,7 @@ def bot_view(raw):
     return {"enabled": c["enabled"], "frequency": s["frequency"], "years": s["years"], "min_price": s["min_price"],
             "max_price": s["max_price"], "max_km": s["max_km"], "pages": s["pages"], "sources": s["sources"],
             "read_details": s["read_details"], "lat": s["home"]["latitude"], "lon": s["home"]["longitude"],
-            "radius": s["home"]["max_km"], "notify": c["notify"], "analysis": c["analysis"]}
+            "radius": s["home"]["max_km"], "notify": c["notify"], "analysis": c["analysis"], "prompts": c["prompts"]}
 
 
 def api_view(raw):
@@ -36,13 +39,19 @@ def api_view(raw):
     return {"enabled": c["enabled"], "frequency": s["frequency"], "years": s["years"], "min_price": s["min_price"],
             "max_price": s["max_price"], "max_km": s["max_km"], "pages": s["pages"], "sources": s["sources"],
             "read_details": s["read_details"], "lat": s["home"]["latitude"], "lon": s["home"]["longitude"],
-            "radius": s["radius_km"], "notify": c["notify"], "analysis": c["analysis"]}
+            "radius": s["radius_km"], "notify": c["notify"], "analysis": c["analysis"], "prompts": c["prompts"]}
 
 
 class TestParity(unittest.TestCase):
     def test_same_effective_settings(self):
         for raw in CASES:
             self.assertEqual(api_view(raw), bot_view(raw), raw)
+
+    def test_default_prompts_served_by_the_api_are_identical_to_the_bots(self):
+        from backend.leaf import ai_extract, expert, photo_extract
+        self.assertEqual(api_cfg.DEFAULT_PROMPTS, {"extract": ai_extract.DEFAULT_INSTRUCTIONS, "expert": expert.DEFAULT_INSTRUCTIONS,
+                                                   "photo": photo_extract.READ_PROMPT})
+        self.assertEqual((api_cfg.MAX_PROMPT_CHARS, bot_cfg.MAX_PROMPT_CHARS, ai_extract.MAX_PROMPT_CHARS), (8000, 8000, 8000))
 
     def test_ai_defaults_and_providers_match(self):
         self.assertEqual(api_cfg.AI_PROVIDERS, bot_cfg.AI_PROVIDERS)

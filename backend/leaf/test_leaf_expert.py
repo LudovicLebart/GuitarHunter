@@ -98,6 +98,15 @@ class TestPrompt(unittest.TestCase):
         self.assertEqual(ex.row_to_listing({**row, "analysis": None})["mentions"], {})
 
 
+class TestExpertPrompt(unittest.TestCase):
+    def test_custom_instructions_keep_the_contract_and_the_established_facts(self):
+        p = ex.build_prompt(listing(), "Sois bref.")
+        for needle in ("Sois bref.", "photo_observations", "FAITS ÉTABLIS PAR LE CODE", "TEXTE DE L'ANNONCE"):
+            self.assertIn(needle, p)
+        self.assertNotIn("Tu es un expert", p)
+        self.assertEqual(ex.build_prompt(listing()), ex.PROMPT + "FAITS ÉTABLIS PAR LE CODE :\n" + ex.build_prompt(listing()).split("FAITS ÉTABLIS PAR LE CODE :\n", 1)[1])
+
+
 class TestPhotoObservations(unittest.TestCase):
     def test_observations_must_target_a_photo_really_sent(self):
         out = ex.apply_guardrails(raw(photo_observations=[{"photo": 1, "text": "Capture LeafSpy lisible"}, {"photo": 5, "text": "invalide"},

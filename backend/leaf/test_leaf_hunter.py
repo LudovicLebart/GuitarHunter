@@ -265,6 +265,22 @@ class TestHunter(unittest.TestCase):
         self.assertEqual(row["verdict"], "CANDIDAT_FORT")
         self.assertEqual(self.analyzer.calls, [("local", "leaf_t2")])
 
+    def test_custom_prompt_is_used_and_changing_it_reanalyzes_under_the_cap(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        self.assertEqual(len(self.analyzer.calls), 1)
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}, "analysisConfig": {"enabled": True},
+                          "prompts": {"extract": "Consigne perso unique"}})
+        seen = []
+        original = self.analyzer._call_openai_compatible_json
+        self.analyzer._call_openai_compatible_json = lambda prompt, *a, **k: seen.append(prompt) or original(prompt, *a, **k)
+        self.hunter.run_scan()
+        self.assertEqual(len(seen), 1)                                                     # prompt modifié : nouvelle analyse
+        self.assertIn("Consigne perso unique", seen[0])
+        self.assertIn("Réponds UNIQUEMENT", seen[0])                                       # contrat JSON toujours présent
+        self.hunter.run_scan()
+        self.assertEqual(len(seen), 1)                                                     # puis cache
+
     def test_unchanged_text_and_price_costs_nothing_but_a_new_price_is_reanalyzed(self):
         self._with_ai()
         self.hunter.run_scan()

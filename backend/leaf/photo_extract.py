@@ -25,6 +25,7 @@ TRIAGE_PROMPT = (
     "écran de batterie. Ne retiens ni les photos de la carrosserie, ni de l'intérieur sans écran, ni du moteur. Au plus 3 numéros ; une liste vide "
     "si aucune photo ne convient. Ne décris rien."
 )
+# Éditable dans l'app (`leafConfig.prompts.photo`) : le schéma JSON strict (READ_JSON_SCHEMA) impose la forme de la réponse.
 READ_PROMPT = (
     "Ces images sont des captures d'écran ou des tableaux de bord d'une voiture électrique à vendre. Pour chaque image, recopie UNIQUEMENT les "
     "textes et les chiffres que tu lis clairement (états de la batterie, SOH, pourcentages, Ah, kilométrage, barres), EXACTEMENT comme écrits, "
