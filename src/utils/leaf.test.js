@@ -98,7 +98,7 @@ test('leafImages : sans doublon, https seulement, taille appliquée', () => {
 
 const CFG = { enabled: true, scan: { frequency: 180, min_price: 2000, max_price: 6500, max_km: 130000, pages: 2, years: [2017, 2018],
     sources: ['kijiji'], read_details: true, home: { latitude: 45.5333, longitude: -73.35, name: 'Saint-Bruno' }, radius_km: 90 },
-    notify: { enabled: true, new: false, price_drop: true }, analysis: { enabled: true, max_calls_per_day: 12, max_expert_per_day: 3, photos: true, max_photo_calls_per_day: 7, providers: ['gemini'] } };
+    notify: { enabled: true, new: false, price_drop: true }, analysis: { enabled: true, max_calls_per_day: 12, max_expert_per_day: 3, max_photo_calls_per_day: 7, providers: ['gemini'] } };
 
 test('configToForm puis validateLeafForm : aller-retour sans perte', () => {
     const { errors, body } = validateLeafForm(configToForm(CFG));
@@ -136,7 +136,7 @@ test('configToForm : valeurs par défaut si la configuration est vide', () => {
     assert.equal(f.enabled, false);
     assert.deepEqual(f.sources, { kijiji: false, autohebdo: false, facebook: false });
     assert.equal(f.aiEnabled, false);                                       // IA éteinte par défaut
-    assert.equal(f.aiPhotos, false);                                        // lecture des photos éteinte par défaut
+    assert.equal('aiPhotos' in f, false);                                   // la lecture des photos n'est plus une option
 });
 
 test('verdictInfo : libellé connu ou null', () => {

@@ -508,13 +508,13 @@ class TestHunter(unittest.TestCase):
         self.assertEqual([t for t, _ in self.sent], ["Leaf : candidat fort"])
 
     # --- Lecture des photos (captures LeafSpy) -------------------------------------------------------
-    def _with_photos(self, photos=True, max_calls=20, text="LeafSpy SOH 61,2 %", urls=None):
+    def _with_photos(self, ai_on=True, max_calls=20, text="LeafSpy SOH 61,2 %", urls=None):
         from backend.leaf import ai as leaf_ai
         from backend.leaf.test_leaf_photos import FakeVision
         self.vision = FakeVision(triage={"indices": [1]}, readings={"readings": [{"photo": 0, "transcript": text}]})
         self.hunter._ai = leaf_ai.LeafAI(self.vision)
         self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]},
-                          "analysisConfig": {"enabled": True, "photos": photos, "max_photo_calls_per_day": max_calls}})
+                          "analysisConfig": {"enabled": ai_on, "max_photo_calls_per_day": max_calls}})
         urls = urls or [f"https://media.kijiji.ca/api/v1/x/images/p{i}?rule=kijijica-200-jpg" for i in range(3)]
         self.raws = [raw("leaf_test_1", image_urls=urls)]
         self.addCleanup(lambda: self._purge_usage("leaf_photo"))
@@ -554,11 +554,11 @@ class TestHunter(unittest.TestCase):
         self.hunter.run_scan()
         self.assertEqual(self._vision_calls(), 0)
 
-    def test_option_off_applies_the_cache_for_free_and_never_reads_again(self):
+    def test_ai_off_applies_the_cache_for_free_and_never_reads_again(self):
         self._with_photos()
         self.hunter.run_scan()
         first = self.vision
-        self._with_photos(photos=False)
+        self._with_photos(ai_on=False)
         self.hunter.run_scan()
         self.assertEqual((len([c for c in first.calls if c[2] == "leaf_photo"]), self._vision_calls()), (2, 0))
         self.assertEqual(self._ai_of()["verdict"], "BATTERIE_DOUTEUSE")                   # lecture déjà faite : toujours appliquée
@@ -601,7 +601,7 @@ class TestHunter(unittest.TestCase):
         self.hunter.run_scan()
         self.assertEqual(self._ai_of()["analysis"]["expert"]["opinion"], stored["opinion"])
 
-    def test_expert_gets_the_selected_photos_only_when_the_photo_option_is_on(self):
+    def test_expert_always_gets_the_selected_photos(self):
         urls = [f"https://media.kijiji.ca/api/v1/x/images/e{i}?rule=kijijica-200-jpg" for i in range(6)]
         self._expert_hunter()
         with self.pool.connection() as conn:
@@ -609,10 +609,6 @@ class TestHunter(unittest.TestCase):
                          (__import__("json").dumps(urls), __import__("json").dumps({"photos": {"selected": [3, 5], "facts": {}}})))
         downloads = []
         self.claude._download_images = lambda u: downloads.append(list(u)) or [object() for _ in u]
-        self.hunter.analyze_deal("leaf_test_1")
-        self.assertEqual(downloads, [])                                                   # option « photos » éteinte : texte seul
-        self.assertEqual(len(self.claude.calls[-1][2]), 1)
-        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}, "analysisConfig": {"enabled": True, "photos": True}})
         self.hunter.analyze_deal("leaf_test_1")
         self.assertEqual(downloads[0], [f"https://media.kijiji.ca/api/v1/x/images/e{i}?rule=kijijica-1600-jpg" for i in (2, 4, 0)])   # captures 3 et 5, puis la photo 1
         self.assertEqual(len(self.claude.calls[-1][2]), 4)                                # prompt + 3 images

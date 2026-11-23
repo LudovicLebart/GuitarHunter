@@ -167,7 +167,6 @@ export const configToForm = (cfg) => ({
     aiEnabled: !!cfg?.analysis?.enabled,
     aiMax: String(cfg?.analysis?.max_calls_per_day ?? 30),
     aiExpertMax: String(cfg?.analysis?.max_expert_per_day ?? 5),
-    aiPhotos: !!cfg?.analysis?.photos,
     aiPhotoMax: String(cfg?.analysis?.max_photo_calls_per_day ?? 20),
     aiProviders: Object.fromEntries(AI_PROVIDERS.map(([key]) => [key, (cfg?.analysis?.providers || ['local', 'gemini']).includes(key)])),
 });
@@ -218,7 +217,7 @@ export const validateLeafForm = (form) => {
                 sources, read_details: !!form.readDetails, home, radius_km: radius,
             },
             notify: { enabled: !!form.notifyEnabled, new: !!form.notifyNew, price_drop: !!form.notifyDrop },
-            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, max_expert_per_day: aiExpertMax, photos: !!form.aiPhotos, max_photo_calls_per_day: aiPhotoMax, providers: aiProviders },
+            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, max_expert_per_day: aiExpertMax, max_photo_calls_per_day: aiPhotoMax, providers: aiProviders },
         },
     };
 };

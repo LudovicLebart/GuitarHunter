@@ -258,7 +258,7 @@ class LeafHunter:
             return {"left": 0, "photo_left": 0}
         try:
             return {"left": max(0, acfg["max_calls_per_day"] - self.repo.count_ai_calls()),
-                    "photo_left": max(0, acfg["max_photo_calls_per_day"] - self.repo.count_ai_calls("leaf_photo")) if acfg["photos"] else 0}
+                    "photo_left": max(0, acfg["max_photo_calls_per_day"] - self.repo.count_ai_calls("leaf_photo"))}
         except Exception as e:           # compteur illisible : par prudence, aucun appel
             self.log.error(f"[Leaf] IA : plafond illisible ({e}), analyses suspendues.")
             return {"left": 0, "photo_left": 0}
@@ -321,16 +321,17 @@ class LeafHunter:
             self.log.warning(f"[Leaf] Photos Facebook non copiées vers le stockage ({e}) : adresses d'origine conservées (elles expirent).")
 
     def _enrich_photos(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int], force: bool = False) -> Dict[str, Any]:
-        """Lecture des captures d'écran (SOH LeafSpy...) : seulement si l'option est active, que le SOH est ENCORE inconnu après le texte
-        (règles et IA), que la fiche a été lue et qu'il reste du budget. En cache tant que les photos ne changent pas (`analysis.photos`,
-        conservée par les passages) ; une lecture déjà faite est appliquée gratuitement même si l'option est ensuite éteinte. Ne lève jamais."""
+        """Lecture des captures d'écran (SOH LeafSpy...) : fait PARTIE de l'analyse IA (pas d'option séparée : le SOH peut n'être visible que sur une
+        capture), quand l'IA est active, que le SOH est ENCORE inconnu après le texte (règles et IA), que la fiche a été lue et qu'il reste du
+        budget (plafond quotidien de lectures). En cache tant que les photos ne changent pas (`analysis.photos`, conservée par les passages) ;
+        une lecture déjà faite est appliquée gratuitement même si l'IA est ensuite éteinte. Ne lève jamais."""
         try:
             urls = photo_extract.photo_urls(listing)
             if not urls:
                 return listing
             fp = photo_extract.fingerprint(urls)
             stored = self.repo.get_photos(listing["id"])
-            can_read = (acfg["enabled"] and acfg["photos"] and self._ai is not None and listing.get("soh_announced") is None
+            can_read = (acfg["enabled"] and self._ai is not None and listing.get("soh_announced") is None
                         and not listing.get("detail_unavailable"))
             photos = None
             if stored and stored.get("fingerprint") == fp and not (force and can_read):
@@ -497,9 +498,9 @@ class LeafHunter:
         return listing
 
     def _expert_photos(self, listing: Dict[str, Any], acfg: Dict[str, Any]) -> Tuple[list, list]:
-        """Photos jointes à l'Expert (option « lire aussi les photos » seulement) : les captures retenues par le tri (`analysis.photos.selected`)
-        et la première photo, au plus 4, en haute résolution. Ne lève jamais : sans photo, l'Expert travaille sur le texte seul."""
-        if not acfg.get("photos") or self._ai is None:
+        """Photos jointes à l'Expert : les captures retenues par le tri (`analysis.photos.selected`) et la première photo, au plus 4, en haute
+        résolution. Ne lève jamais : sans photo, l'Expert travaille sur le texte seul."""
+        if self._ai is None:
             return [], []
         try:
             urls = photo_extract.photo_urls(listing)

@@ -84,7 +84,6 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "analysis": {"enabled": analysis.get("enabled") is True,
                      "max_calls_per_day": int(_num(analysis.get("max_calls_per_day"), DEFAULT_AI_MAX_CALLS, 1, 500)),
                      "max_expert_per_day": int(_num(analysis.get("max_expert_per_day"), DEFAULT_EXPERT_MAX_CALLS, 1, 50)),
-                     "photos": analysis.get("photos") is True,
                      "max_photo_calls_per_day": int(_num(analysis.get("max_photo_calls_per_day"), DEFAULT_PHOTO_MAX_CALLS, 1, 200)),
                      "providers": providers},
         "prompts": normalize_prompts(raw.get("prompts")),
