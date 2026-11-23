@@ -286,9 +286,9 @@ class TestHunter(unittest.TestCase):
         self.assertEqual([t for t, _ in self.sent if "plafond" in t].__len__(), 1)       # une seule alerte par jour
         self.assertEqual(self._ai_of()["verdict"], "A_VERIFIER")                         # verdict calculé sans IA
 
-    def _purge_usage(self):
+    def _purge_usage(self, action="leaf_t2"):
         with self.pool.connection() as conn:
-            conn.execute("DELETE FROM llm_usage WHERE action = 'leaf_t2'")
+            conn.execute("DELETE FROM llm_usage WHERE action = %s", (action,))
 
     def test_all_models_failing_keeps_the_scan_and_the_verdict(self):
         self._with_ai(answer=(None, "hors ligne"))
@@ -315,6 +315,63 @@ class TestHunter(unittest.TestCase):
         self.hunter.run_scan()
         self.assertEqual([t for t, _ in self.sent], ["Leaf : candidat fort"])
 
+    # --- Expert (niveau 3) : commande LEAF_ANALYZE ------------------------------------------------
+    def _expert_hunter(self, enabled=True, max_expert=5, result=None, error=None):
+        from backend.leaf import ai as leaf_ai
+        from backend.leaf.test_leaf_expert import FakeClaude, raw as expert_raw
+        self.claude = FakeClaude(result if result is not None else expert_raw(), error)
+        self.hunter._ai = leaf_ai.LeafAI(self.claude)
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]},
+                          "analysisConfig": {"enabled": enabled, "max_expert_per_day": max_expert}})
+        self.raws = [raw("leaf_test_1", description="Facture disponible pour la batterie. Pompe à chaleur.")]
+        self.hunter.run_scan()
+
+    def test_expert_stores_its_opinion_and_it_survives_the_next_pass(self):
+        self._expert_hunter()
+        opinion = self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_1"})
+        stored = self._ai_of()["analysis"]["expert"]
+        self.assertEqual(stored["opinion"], "Annonce sérieuse, batterie récente.")
+        self.assertIn("leafspy", " ".join(stored["seller_questions"]).lower())           # question LeafSpy ajoutée par le code
+        self.assertEqual(self.claude.calls[0][1], "leaf_t3")
+        self.hunter.run_scan()
+        self.assertEqual(self._ai_of()["analysis"]["expert"]["opinion"], stored["opinion"])
+
+    def test_expert_refusals_are_explicit(self):
+        handler = lambda: self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_1"})
+        self._expert_hunter(enabled=False)
+        with self.assertRaisesRegex(RuntimeError, "éteinte"):
+            handler()
+        self.assertEqual(self.claude.calls, [])                                          # aucun appel payant
+        self._expert_hunter(max_expert=1)
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM llm_usage WHERE action = 'leaf_t3'")
+            conn.execute("INSERT INTO llm_usage (source, provider, model, action) VALUES ('backend','anthropic','m','leaf_t3')")
+        self.addCleanup(lambda: self._purge_usage("leaf_t3"))
+        with self.assertRaisesRegex(RuntimeError, "Plafond"):
+            handler()
+        with self.assertRaisesRegex(RuntimeError, "introuvable"):
+            self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_inconnue"})
+        with self.assertRaisesRegex(RuntimeError, "non précisée"):
+            self.hunter.command_handlers()["LEAF_ANALYZE"]({})
+
+    def test_expert_failure_fails_the_command_and_stores_nothing(self):
+        self._expert_hunter(result=None, error="ANTHROPIC_API_KEY n'est pas configurée.")
+        self.claude.result = None
+        with self.assertRaisesRegex(RuntimeError, "ANTHROPIC_API_KEY"):
+            self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertNotIn("expert", self._ai_of()["analysis"])
+
+    def test_expert_only_for_listings_the_user_can_see(self):
+        self._expert_hunter()
+        with self.pool.connection() as conn:
+            conn.execute("DELETE FROM user_vehicle_matches WHERE deal_id = 'leaf_test_1'")
+        with self.assertRaisesRegex(RuntimeError, "introuvable"):
+            self.hunter.command_handlers()["LEAF_ANALYZE"]({"dealId": "leaf_test_1"})
+
+    def test_every_leaf_handler_is_an_accepted_api_command_type(self):
+        from backend.api import input_guard
+        self.assertTrue(set(self.hunter.command_handlers()) <= input_guard.COMMAND_TYPES)
+
     def test_collector_crash_is_swallowed(self):
         def boom(scan):
             raise RuntimeError("réseau")
@@ -329,7 +386,7 @@ class TestHunter(unittest.TestCase):
     def test_commands_fail_clearly_when_server_disabled_and_cleanup_works(self):
         self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
         handlers = self.hunter.command_handlers()
-        self.assertEqual(set(handlers), {"LEAF_REFRESH", "LEAF_CLEANUP"})
+        self.assertEqual(set(handlers), {"LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE"})
         self.hunter.run_scan()
         with self.pool.connection() as conn:
             conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")

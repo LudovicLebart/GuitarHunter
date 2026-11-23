@@ -213,3 +213,15 @@ class LeafRepository:
             row = conn.execute("SELECT count(*) AS n FROM llm_usage WHERE action = %s AND created_at >= now() - make_interval(hours => %s)",
                                (action, hours)).fetchone()
         return int(row["n"])
+
+    def get_visible_vehicle(self, user_id: str, deal_id: str) -> Optional[Dict[str, Any]]:
+        """Annonce telle que l'utilisateur la voit (lien `user_vehicle_matches` obligatoire), ou None."""
+        with self.pool.connection() as conn:
+            return conn.execute("SELECT d.* FROM vehicle_deals d JOIN user_vehicle_matches m ON m.deal_id = d.id AND m.user_id = %s "
+                                "WHERE d.id = %s", (user_id, deal_id)).fetchone()
+
+    def store_expert(self, deal_id: str, opinion: Dict[str, Any]) -> None:
+        """`analysis.expert` : conservé par les passages suivants (voir `_PRESERVED_ANALYSIS`)."""
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET analysis = COALESCE(analysis, '{}'::jsonb) || jsonb_build_object('expert', %s::jsonb), "
+                         "\"timestamp\" = now() WHERE id = %s", (Jsonb(opinion), deal_id))

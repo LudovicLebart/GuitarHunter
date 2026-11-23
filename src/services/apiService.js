@@ -1127,5 +1127,7 @@ export const fetchLeafConfig = () => apiFetch('/leaf/config');
 /** `body` : voir `validateLeafForm` (utils/leaf.js). Le serveur refuse (422) une valeur hors bornes. */
 export const saveLeafConfig = (body) => apiFetch('/leaf/config', { method: 'PUT', body });
 export const triggerLeafRefresh = () => addCommand('LEAF_REFRESH', null);
+/** Analyse approfondie (Expert) d'UNE annonce : commande `LEAF_ANALYZE`, suivie par `watchLeafCommand` ; le serveur refuse si l'IA est éteinte ou le plafond atteint. */
+export const triggerLeafAnalyze = (dealId) => addCommand('LEAF_ANALYZE', { dealId });
 /** Suit une commande jusqu'à sa sortie de `pending` (`callback(commande)` à chaque observation) ; renvoie la fonction d'annulation. */
 export const watchLeafCommand = (commandId, callback) => onCommandUpdate(commandId, callback);

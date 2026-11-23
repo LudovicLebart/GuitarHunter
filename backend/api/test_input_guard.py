@@ -18,7 +18,12 @@ class CommandTest(unittest.TestCase):
 
     def test_types_du_bot_acceptes(self):
         for t in input_guard.COMMAND_TYPES:
-            input_guard.validate_command(t, None)
+            input_guard.validate_command(t, {"dealId": "leaf_kijiji_123"} if t == "LEAF_ANALYZE" else None)
+
+    def test_leaf_analyze_exige_un_id_d_annonce_leaf(self):
+        for bad in (None, {}, {"dealId": "guitare_1"}, {"dealId": 5}):
+            with self.assertRaises(ValueError):
+                input_guard.validate_command("LEAF_ANALYZE", bad)
 
     def test_charge_trop_grosse_refusee(self):
         with self.assertRaises(ValueError):

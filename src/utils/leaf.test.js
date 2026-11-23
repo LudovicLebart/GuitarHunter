@@ -74,7 +74,7 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
 
-import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo } from './leaf.js';
+import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText } from './leaf.js';
 
 test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
     const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
@@ -98,7 +98,7 @@ test('leafImages : sans doublon, https seulement, taille appliquée', () => {
 
 const CFG = { enabled: true, scan: { frequency: 180, min_price: 2000, max_price: 6500, max_km: 130000, pages: 2, years: [2017, 2018],
     sources: ['kijiji'], read_details: true, home: { latitude: 45.5333, longitude: -73.35, name: 'Saint-Bruno' }, radius_km: 90 },
-    notify: { enabled: true, new: false, price_drop: true }, analysis: { enabled: true, max_calls_per_day: 12, providers: ['gemini'] } };
+    notify: { enabled: true, new: false, price_drop: true }, analysis: { enabled: true, max_calls_per_day: 12, max_expert_per_day: 3, providers: ['gemini'] } };
 
 test('configToForm puis validateLeafForm : aller-retour sans perte', () => {
     const { errors, body } = validateLeafForm(configToForm(CFG));
@@ -117,6 +117,7 @@ test('validateLeafForm : refuse les valeurs hors bornes avec un message par prob
     assert.match(bad({ lat: '' }).errors[0], /latitude/);
     assert.match(bad({ radius: '0' }).errors[0], /Rayon/);
     assert.match(bad({ aiMax: '0' }).errors[0], /Analyses IA/);
+    assert.match(bad({ aiExpertMax: '51' }).errors[0], /approfondies/);
     assert.match(bad({ aiProviders: { local: false, gemini: false } }).errors[0], /fournisseur/);
     assert.equal(bad({ frequency: '5' }).body, null);
     assert.equal(bad({}).errors.length, 0);
@@ -158,4 +159,21 @@ test('flagLabel : drapeaux de l\'IA', () => {
     assert.match(flagLabel2('ai_unsupported_claim'), /sans preuve/);
     assert.match(flagLabel2('ai_conflict'), /règles/);
     assert.match(flagLabel2('year_unknown'), /Année inconnue/);
+});
+
+test('expertView : avis complet, valeurs manquantes tolérées, rien sans avis', () => {
+    assert.equal(expertView(null), null);
+    assert.equal(expertView({ opinion: '' }), null);
+    const v = expertView({ opinion: 'Bonne piste.', worth_visiting: 'oui', seller_questions: ['Q1', 'Q2'], inspection_points: ['P1'],
+        price_ceiling: { amount: 5200, basis: 'marché estimé' }, risks: [{ text: 'r', evidence: 'e' }], model: 'claude-sonnet-5-5' });
+    assert.equal(v.worth.label, 'À visiter');
+    assert.deepEqual([v.questions.length, v.inspection.length, v.risks.length, v.ceiling.amount], [2, 1, 1, 5200]);
+    const minimal = expertView({ opinion: 'Avis.', worth_visiting: 'inconnu', price_ceiling: { amount: null } });
+    assert.equal(minimal.worth.label, 'Peut-être');
+    assert.deepEqual([minimal.questions, minimal.inspection, minimal.risks, minimal.ceiling], [[], [], [], null]);
+});
+
+test('questionsText : numérotées, une par ligne', () => {
+    assert.equal(questionsText(['A ?', 'B ?']), '1. A ?\n2. B ?');
+    assert.equal(questionsText(null), '');
 });

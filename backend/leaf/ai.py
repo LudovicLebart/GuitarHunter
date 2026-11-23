@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Sequence, Tuple
 
-from backend.leaf import ai_extract
+from backend.leaf import ai_extract, expert
 
 ACTION = "leaf_t2"
 PROVIDERS = ("local", "gemini")
@@ -61,3 +61,21 @@ class LeafAI:
                 self.log.info(f"[Leaf] IA : {ai['rejected']} fait(s) sans citation retrouvée dans l'annonce, écarté(s).")
             return ai, None
         return None, last_error
+
+    def expert(self, listing: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """Niveau 3 : avis de l'Expert (Claude, `T3_CLAUDE_MODEL`) sur UNE annonce, à la demande. Ne lève jamais.
+        Aucun repli sur un autre modèle : un Expert qui échoue échoue visiblement (comme pour les guitares)."""
+        if self.analyzer is None:
+            return None, "Analyseur indisponible (bot hors ligne)."
+        import config
+        try:
+            raw, err = self.analyzer._call_claude_json(config.T3_CLAUDE_MODEL, [expert.build_prompt(listing)], action="leaf_t3")
+        except Exception as e:
+            self.log.error(f"[Leaf] Expert : {e}")
+            return None, str(e)
+        opinion = expert.apply_guardrails(raw, listing)
+        if opinion is None:
+            return None, err or "réponse de l'Expert inutilisable"
+        opinion.update({"model": config.T3_CLAUDE_MODEL, "version": expert.EXPERT_VERSION, "fingerprint": ai_extract.fingerprint(listing),
+                        "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        return opinion, None

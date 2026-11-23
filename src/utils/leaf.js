@@ -165,6 +165,7 @@ export const configToForm = (cfg) => ({
     notifyDrop: cfg?.notify?.price_drop !== false,
     aiEnabled: !!cfg?.analysis?.enabled,
     aiMax: String(cfg?.analysis?.max_calls_per_day ?? 30),
+    aiExpertMax: String(cfg?.analysis?.max_expert_per_day ?? 5),
     aiProviders: Object.fromEntries(AI_PROVIDERS.map(([key]) => [key, (cfg?.analysis?.providers || ['local', 'gemini']).includes(key)])),
 });
 
@@ -185,6 +186,7 @@ export const validateLeafForm = (form) => {
     const lat = toNum(form.lat);
     const lon = toNum(form.lon);
     const aiMax = toInt(form.aiMax);
+    const aiExpertMax = toInt(form.aiExpertMax);
     const aiProviders = AI_PROVIDERS.map(([key]) => key).filter((key) => form.aiProviders?.[key]);
     if (!(frequency >= 60 && frequency <= 1440)) errors.push('Fréquence : entre 60 et 1 440 minutes.');
     if (!(minPrice >= 0)) errors.push('Prix minimum : un nombre positif.');
@@ -197,6 +199,7 @@ export const validateLeafForm = (form) => {
     if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180)) errors.push('Ville de référence : latitude et longitude valides.');
     if (!(radius >= 1 && radius <= 2000)) errors.push('Rayon : de 1 à 2 000 km.');
     if (!(aiMax >= 1 && aiMax <= 500)) errors.push('Analyses IA par jour : de 1 à 500.');
+    if (!(aiExpertMax >= 1 && aiExpertMax <= 50)) errors.push('Analyses approfondies par jour : de 1 à 50.');
     if (aiProviders.length === 0) errors.push('Analyse IA : choisissez au moins un fournisseur.');
     if (errors.length) return { errors, body: null };
     const home = { latitude: lat, longitude: lon };
@@ -210,7 +213,29 @@ export const validateLeafForm = (form) => {
                 sources, read_details: !!form.readDetails, home, radius_km: radius,
             },
             notify: { enabled: !!form.notifyEnabled, new: !!form.notifyNew, price_drop: !!form.notifyDrop },
-            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, providers: aiProviders },
+            analysis: { enabled: !!form.aiEnabled, max_calls_per_day: aiMax, max_expert_per_day: aiExpertMax, providers: aiProviders },
         },
     };
 };
+
+// --- Analyse approfondie (Expert, niveau 3) : avis stocké dans `analysis.expert`.
+export const WORTH_LABELS = {
+    oui: { label: 'À visiter', style: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+    'peut-etre': { label: 'Peut-être', style: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+    non: { label: 'À éviter', style: 'bg-rose-500/15 text-rose-300 border-rose-500/30' },
+};
+/** Avis de l'Expert prêt à afficher, ou null. Les listes absentes deviennent [] ; un « à visiter » inconnu devient « peut-être ». */
+export const expertView = (expert) => {
+    if (!expert || typeof expert.opinion !== 'string' || !expert.opinion) return null;
+    return {
+        opinion: expert.opinion,
+        worth: WORTH_LABELS[expert.worth_visiting] || WORTH_LABELS['peut-etre'],
+        questions: Array.isArray(expert.seller_questions) ? expert.seller_questions : [],
+        inspection: Array.isArray(expert.inspection_points) ? expert.inspection_points : [],
+        risks: Array.isArray(expert.risks) ? expert.risks : [],
+        ceiling: expert.price_ceiling && Number.isFinite(expert.price_ceiling.amount) ? expert.price_ceiling : null,
+        model: expert.model || '', at: expert.at || '',
+    };
+};
+/** Texte à copier pour envoyer les questions au vendeur (une par ligne, numérotées). */
+export const questionsText = (questions) => (questions || []).map((q, i) => `${i + 1}. ${q}`).join('\n');

@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.leaf import config as leaf_config
 from backend.leaf import notify as leaf_notify
-from backend.leaf import ai_extract, pipeline, scoring, verdict
+from backend.leaf import ai_extract, expert as leaf_expert, pipeline, scoring, verdict
 from backend.leaf.sources import BlockedError, autohebdo, fetch_html, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher
 
@@ -387,6 +387,27 @@ class LeafHunter:
         t.start()
         return True
 
+    def analyze_deal(self, deal_id: str) -> Dict[str, Any]:
+        """Analyse approfondie (Expert, niveau 3) d'UNE annonce, à la demande. Échec CLAIR (la commande est marquée échouée) si
+        l'IA est éteinte, le plafond atteint, l'annonce introuvable ou le modèle en panne : le bouton affiche la cause."""
+        acfg = self.config()["analysis"]
+        if not acfg["enabled"]:
+            raise RuntimeError("L'analyse IA est éteinte : activez-la dans les réglages de Leaf.")
+        if self._ai is None:
+            raise RuntimeError("Analyseur indisponible (bot hors ligne).")
+        row = self.repo.get_visible_vehicle(self.user_id, deal_id)
+        if row is None:
+            raise RuntimeError("Annonce introuvable.")
+        used = self.repo.count_ai_calls("leaf_t3")
+        if used >= acfg["max_expert_per_day"]:
+            raise RuntimeError(f"Plafond atteint : {used} analyses approfondies sur 24 h (maximum {acfg['max_expert_per_day']}, réglable).")
+        opinion, err = self._ai.expert(leaf_expert.row_to_listing(row))
+        if opinion is None:
+            raise RuntimeError(f"L'Expert n'a pas répondu : {err}")
+        self.repo.store_expert(deal_id, opinion)
+        self.log.info(f"[Leaf] Analyse approfondie terminée ({deal_id[-12:]}) : à visiter = {opinion['worth_visiting']}.")
+        return opinion
+
     def command_handlers(self) -> Dict[str, Callable[[Any], Any]]:
         """Handlers des commandes `LEAF_*`. Échec CLAIR si Leaf est désactivé sur le serveur (la commande est marquée
         échouée au lieu de réussir sans rien faire)."""
@@ -401,4 +422,10 @@ class LeafHunter:
         def clean(_):
             need_server()
             self.cleanup()
-        return {"LEAF_REFRESH": refresh, "LEAF_CLEANUP": clean}
+        def analyze(payload):
+            need_server()
+            deal_id = payload.get("dealId") if isinstance(payload, dict) else None
+            if not isinstance(deal_id, str):
+                raise RuntimeError("Annonce non précisée.")
+            self.analyze_deal(deal_id)
+        return {"LEAF_REFRESH": refresh, "LEAF_CLEANUP": clean, "LEAF_ANALYZE": analyze}

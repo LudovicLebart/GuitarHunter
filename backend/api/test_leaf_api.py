@@ -157,11 +157,11 @@ class TestLeafAPI(unittest.TestCase):
 
     def test_ai_settings_are_off_by_default_validated_and_stored_for_the_bot(self):
         c = self.client.get("/leaf/config").json()
-        self.assertEqual(c["analysis"], {"enabled": False, "max_calls_per_day": 30, "providers": ["local", "gemini"]})
-        ok = {**self.BODY, "analysis": {"enabled": True, "max_calls_per_day": 12, "providers": ["gemini"]}}
+        self.assertEqual(c["analysis"], {"enabled": False, "max_calls_per_day": 30, "max_expert_per_day": 5, "providers": ["local", "gemini"]})
+        ok = {**self.BODY, "analysis": {"enabled": True, "max_calls_per_day": 12, "max_expert_per_day": 3, "providers": ["gemini"]}}
         self.assertEqual(self.client.put("/leaf/config", json=ok).status_code, 200)
         self.assertEqual(self.client.get("/leaf/config").json()["analysis"], ok["analysis"])
-        for bad in ({"max_calls_per_day": 0}, {"max_calls_per_day": 501}, {"providers": []}, {"providers": ["gpt"]}):
+        for bad in ({"max_calls_per_day": 0}, {"max_calls_per_day": 501}, {"max_expert_per_day": 0}, {"max_expert_per_day": 51}, {"providers": []}, {"providers": ["gpt"]}):
             self.assertEqual(self.client.put("/leaf/config", json={**self.BODY, "analysis": {"enabled": True, **bad}}).status_code, 422, bad)
 
         async def read():
@@ -184,6 +184,23 @@ class TestLeafAPI(unittest.TestCase):
         row = self.client.get("/leaf/deals").json()[0]
         self.assertEqual((row["verdict"], row["analysis"]["verdict_reasons"]), ("CANDIDAT_FORT", ["SOH annoncé 91 %"]))
         self.assertEqual(self.client.get("/leaf/deals/leaf_api_1").json()["analysis"]["ai"]["summary"], "Annonce claire.")
+
+    def test_leaf_commands_are_accepted_by_the_api_and_the_analyze_payload_is_checked(self):
+        # Régression (2026-11-23) : la liste blanche de `input_guard` refusait LEAF_REFRESH, donc « Actualiser » échouait en 422.
+        for type_, payload in (("LEAF_REFRESH", None), ("LEAF_CLEANUP", None), ("LEAF_ANALYZE", {"dealId": "leaf_kijiji_123"}),
+                               ("LEAF_ANALYZE", {"dealId": "leaf_autohebdo_my-2017_ab12"})):
+            r = self.client.post("/commands", json={"type": type_, "payload": payload})
+            self.assertEqual(r.status_code, 201, (type_, r.text))
+        for bad in (None, {}, {"dealId": 3}, {"dealId": "guitare_1"}, {"dealId": "leaf_x_" + "a" * 200}, "leaf_kijiji_1"):
+            self.assertEqual(self.client.post("/commands", json={"type": "LEAF_ANALYZE", "payload": bad}).status_code, 422, bad)
+        asyncio.run(self._clear_commands())
+
+    async def _clear_commands(self):
+        conn = await asyncpg.connect(DATABASE_URL)
+        try:
+            await conn.execute("DELETE FROM commands WHERE user_id = $1", ME)
+        finally:
+            await conn.close()
 
     def test_config_respects_the_allow_list(self):
         with mock.patch.dict(os.environ, {"LEAF_ALLOWED_UIDS": OTHER}):

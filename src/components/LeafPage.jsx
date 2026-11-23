@@ -1,17 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
-import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
+import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafAnalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
-    aiFactLines, leafImages, priceTrend, verdictInfo, winterRange, winterVerdict,
+    aiFactLines, expertView, formatPrice as fmtPrice, leafImages, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
 } from '../utils/leaf';
 
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
 
-const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
+const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
 const WINTER_STYLES = {
     ok: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     juste: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -145,6 +145,9 @@ const LeafDetail = ({ id, api }) => {
     const [state, setState] = useState({ loading: true, error: null, deal: null });
     const [notes, setNotes] = useState('');
     const [saved, setSaved] = useState(true);
+    const [expertState, setExpertState] = useState({ running: false, error: null });
+    const stopWatching = useRef(null);
+    useEffect(() => () => { if (stopWatching.current) stopWatching.current(); }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -159,6 +162,20 @@ const LeafDetail = ({ id, api }) => {
         catch (error) { setState((s) => ({ ...s, error })); return false; }
     };
 
+    // Analyse approfondie : commande suivie par son statut ; un refus (IA éteinte, plafond atteint) s'affiche tel quel.
+    const runExpert = async () => {
+        setExpertState({ running: true, error: null });
+        try {
+            const command = await api.triggerLeafAnalyze(id);
+            stopWatching.current = api.watchLeafCommand(command.id, async (c) => {
+                if (c.status === 'pending') return;
+                if (c.status === 'failed') { setExpertState({ running: false, error: c.error || "L'analyse approfondie a échoué." }); return; }
+                try { const deal = await api.fetchLeafDeal(id); setState((s) => ({ ...s, deal })); setExpertState({ running: false, error: null }); }
+                catch (error) { setExpertState({ running: false, error: String(error.message || error) }); }
+            });
+        } catch (error) { setExpertState({ running: false, error: String(error.message || error) }); }
+    };
+
     if (state.loading) return <Message>Chargement…</Message>;
     if (state.error && !state.deal) return <Message tone="error">{String(state.error.message || state.error)}</Message>;
     const d = state.deal;
@@ -167,6 +184,7 @@ const LeafDetail = ({ id, api }) => {
     const equipment = d.analysis?.equipment;
     const ai = d.analysis?.ai;
     const aiLines = aiFactLines(ai);
+    const expert = expertView(d.analysis?.expert);
     const photos = leafImages(d.image_urls, 'medium');
     const photosLarge = leafImages(d.image_urls, 'large');
     return (
@@ -237,6 +255,47 @@ const LeafDetail = ({ id, api }) => {
                     <p className="text-[10px] text-slate-500">Seuls les faits dont la citation est retrouvée dans l'annonce sont affichés ; le résumé est un texte libre de l'IA, à lire avec recul.{ai.rejected ? ` ${ai.rejected} fait(s) sans preuve écarté(s).` : ''}</p>
                 </div>
             )}
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-black text-slate-200">Analyse approfondie (Expert)</h3>
+                    <button onClick={runExpert} disabled={expertState.running}
+                        className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-200 text-xs font-bold disabled:opacity-50">
+                        {expertState.running ? 'Analyse en cours…' : (expert ? 'Refaire l\'analyse' : 'Analyse approfondie')}
+                    </button>
+                </div>
+                {expertState.error && <p className="text-sm text-rose-300">{expertState.error}</p>}
+                {!expert && !expertState.running && !expertState.error && (
+                    <p className="text-xs text-slate-500">À la demande seulement (appel payant à Claude Sonnet 5.5, plafonné par jour dans les réglages) : avis argumenté, questions à poser au vendeur, points d'inspection et prix plafond.</p>
+                )}
+                {expert && (
+                    <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className={`${BADGE} ${expert.worth.style}`}>{expert.worth.label}</span>
+                            {expert.ceiling && <span className="text-sm text-slate-300">Prix plafond : <b>{fmtPrice(expert.ceiling.amount)}</b> <span className="text-[10px] text-slate-500">({expert.ceiling.basis})</span></span>}
+                        </div>
+                        <p className="text-sm text-slate-300">{expert.opinion}</p>
+                        {expert.ceiling?.reasoning && <p className="text-xs text-slate-400">{expert.ceiling.reasoning}</p>}
+                        {expert.questions.length > 0 && (
+                            <div>
+                                <div className="flex items-center justify-between"><p className="text-xs font-bold text-slate-400 mb-1">Questions à poser au vendeur</p>
+                                    <button onClick={() => navigator.clipboard?.writeText(questionsText(expert.questions))} className="text-[11px] font-bold text-blue-400 hover:text-blue-300">Copier</button></div>
+                                <ol className="list-decimal list-inside space-y-1 text-sm text-slate-300">{expert.questions.map((q) => <li key={q}>{q}</li>)}</ol>
+                            </div>
+                        )}
+                        {expert.inspection.length > 0 && (
+                            <div><p className="text-xs font-bold text-slate-400 mb-1">À inspecter sur place</p>
+                                <ul className="list-disc list-inside space-y-1 text-sm text-slate-300">{expert.inspection.map((p) => <li key={p}>{p}</li>)}</ul></div>
+                        )}
+                        {expert.risks.length > 0 && (
+                            <div><p className="text-xs font-bold text-slate-400 mb-1">Risques relevés dans l'annonce</p>
+                                <ul className="space-y-1.5">{expert.risks.map((r) => (
+                                    <li key={r.text} className="text-sm text-slate-300">{r.text}<blockquote className="mt-0.5 border-l-2 border-slate-700 pl-2 text-xs italic text-slate-400">« {r.evidence} »</blockquote></li>))}</ul></div>
+                        )}
+                        <p className="text-[10px] text-slate-500">{expert.model}{expert.at ? ` · ${new Date(expert.at).toLocaleDateString('fr-CA')}` : ''} — un risque sans citation exacte de l'annonce est écarté ; le prix plafond reste cohérent avec le prix demandé et le marché estimé.</p>
+                    </div>
+                )}
+            </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-2">
                 <h3 className="text-sm font-black text-slate-200">Checklist d'inspection ({progress.done}/{progress.total})</h3>

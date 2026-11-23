@@ -4,6 +4,7 @@ Les routes authentifiées acceptaient des corps libres : un compte pouvait écra
 nombre illimité de commandes ou écrire des valeurs absurdes dans le catalogue commun. Chaque fonction lève `ValueError`
 (message lisible, renvoyé en 422) ; aucune ne corrige en silence. Sans dépendance : testé sans base."""
 import json
+import re
 import math
 
 from backend.url_guard import MAX_URL_LENGTH, is_listing_url
@@ -21,7 +22,9 @@ MAX_LONG_TEXT = 5_000
 COMMAND_TYPES = frozenset({
     "REFRESH", "CLEANUP", "REANALYZE_ALL", "SCAN_URL", "ADD_CITY", "ANALYZE_DEAL",
     "REEVALUATE_NOT_PROMOTED", "CLEAR_LOGS", "STOP_BOT", "STOP_SCAN", "START_BOT",
+    "LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE",      # Leaf Hunter (2026-11-23)
 })
+LEAF_DEAL_ID_RE = re.compile(r"^leaf_[a-z0-9]{1,20}_[A-Za-z0-9_-]{1,100}$")
 
 # Colonnes de score (smallint) corrigeables à la main : entiers de 0 à 10.
 SCORE_COLUMNS = frozenset({
@@ -55,6 +58,9 @@ def validate_command(type_, payload):
         raise ValueError("Type de commande inconnu.")
     if _size(payload) > MAX_COMMAND_PAYLOAD_BYTES:
         raise ValueError("Charge de la commande trop volumineuse.")
+    if type_ == "LEAF_ANALYZE" and not (isinstance(payload, dict) and isinstance(payload.get("dealId"), str)
+                                        and LEAF_DEAL_ID_RE.match(payload["dealId"])):
+        raise ValueError("LEAF_ANALYZE : {dealId} d'une annonce Leaf attendu.")
 
 
 def validate_deal_ids(ids):

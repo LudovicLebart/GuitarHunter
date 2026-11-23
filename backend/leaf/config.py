@@ -12,6 +12,7 @@ DEFAULT_FREQUENCY_MIN = 120
 DEFAULT_RADIUS_KM = 150
 AI_PROVIDERS = ("local", "gemini")           # chaîne d'analyse IA : Qwen local (Dell) puis Gemini Flash
 DEFAULT_AI_MAX_CALLS = 30
+DEFAULT_EXPERT_MAX_CALLS = 5          # analyses approfondies (Sonnet 5.5) par 24 h
 VALID_SOURCES = ("kijiji", "autohebdo", "facebook")
 DEFAULT_SOURCES = ("kijiji", "autohebdo")     # Facebook (navigateur, expérimental) : à activer explicitement
 # Ville de référence (décision utilisateur 2026-11-22) : Saint-Bruno-de-Montarville, coordonnées du catalogue
@@ -66,6 +67,7 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         # IA niveau 2 : ÉTEINTE par défaut (coût) ; `providers` = ordre d'essai.
         "analysis": {"enabled": analysis.get("enabled") is True,
                      "max_calls_per_day": int(_num(analysis.get("max_calls_per_day"), DEFAULT_AI_MAX_CALLS, 1, 500)),
+                     "max_expert_per_day": int(_num(analysis.get("max_expert_per_day"), DEFAULT_EXPERT_MAX_CALLS, 1, 50)),
                      "providers": providers},
         "notify": {"enabled": notify.get("enabled") is not False, "new": notify.get("new") is not False,
                    "price_drop": notify.get("price_drop") is not False},

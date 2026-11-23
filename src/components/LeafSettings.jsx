@@ -94,9 +94,14 @@ const LeafSettings = ({ api, cities = [] }) => {
                                 <span className={LABEL}>Analyse IA des annonces (niveau 2)</span>
                                 <Check checked={form.aiEnabled} onChange={(v) => set({ aiEnabled: v })}>Activer (résumé, faits prouvés par une citation, points d'attention)</Check>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <Field label="Analyses par jour (plafond)" hint="1 à 500 ; une annonce n'est ré-analysée que si son texte ou son prix change">
-                                        <input className={FIELD} inputMode="numeric" value={form.aiMax} onChange={(e) => set({ aiMax: e.target.value })} />
-                                    </Field>
+                                    <div className="space-y-3">
+                                        <Field label="Analyses par jour (plafond)" hint="1 à 500 ; une annonce n'est ré-analysée que si son texte ou son prix change">
+                                            <input className={FIELD} inputMode="numeric" value={form.aiMax} onChange={(e) => set({ aiMax: e.target.value })} />
+                                        </Field>
+                                        <Field label="Analyses approfondies par jour (Sonnet 5.5)" hint="1 à 50 ; seulement à la demande, bouton « Analyse approfondie »">
+                                            <input className={FIELD} inputMode="numeric" value={form.aiExpertMax} onChange={(e) => set({ aiExpertMax: e.target.value })} />
+                                        </Field>
+                                    </div>
                                     <div className="space-y-1.5">
                                         <span className={LABEL}>Modèles, dans l'ordre d'essai</span>
                                         {AI_PROVIDERS.map(([key, label]) => (
