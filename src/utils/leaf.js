@@ -114,7 +114,7 @@ export const leafImages = (urls, size = 'medium') => {
 };
 
 // --- Réglages de recherche (panneau de la page Leaf) : le formulaire manipule des chaînes, l'API attend des nombres.
-export const LEAF_SOURCES = [['kijiji', 'Kijiji Autos'], ['autohebdo', 'AutoHebdo']];
+export const LEAF_SOURCES = [['kijiji', 'Kijiji Autos'], ['autohebdo', 'AutoHebdo'], ['facebook', 'Facebook Marketplace (navigateur, expérimental)']];
 
 export const configToForm = (cfg) => ({
     enabled: !!cfg?.enabled,

@@ -7,9 +7,10 @@ from pydantic import BaseModel, Field, model_validator
 
 MIN_FREQUENCY_MIN = 60
 MAX_FREQUENCY_MIN = 24 * 60
-VALID_SOURCES = ("kijiji", "autohebdo")
+VALID_SOURCES = ("kijiji", "autohebdo", "facebook")
+DEFAULT_SOURCES = ("kijiji", "autohebdo")
 DEFAULT_SCAN = {"frequency": 120, "min_price": 1500, "max_price": 7500, "max_km": 150_000, "pages": 2,
-                "years": [2016, 2017, 2018], "sources": list(VALID_SOURCES), "read_details": True}
+                "years": [2016, 2017, 2018], "sources": list(DEFAULT_SOURCES), "read_details": True}
 DEFAULT_HOME = {"name": "Saint-Bruno-de-Montarville", "latitude": 45.5333, "longitude": -73.3500}
 DEFAULT_RADIUS_KM = 150
 
@@ -27,7 +28,7 @@ class ScanIn(BaseModel):
     max_km: int = Field(DEFAULT_SCAN["max_km"], ge=1, le=1_000_000)
     pages: int = Field(DEFAULT_SCAN["pages"], ge=1, le=3)
     years: List[int] = Field(default_factory=lambda: list(DEFAULT_SCAN["years"]), min_length=1, max_length=12)
-    sources: List[str] = Field(default_factory=lambda: list(VALID_SOURCES), min_length=1)
+    sources: List[str] = Field(default_factory=lambda: list(DEFAULT_SOURCES), min_length=1)
     read_details: bool = True
     home: Optional[HomeIn] = None
     radius_km: int = Field(DEFAULT_RADIUS_KM, ge=1, le=2000)
@@ -75,7 +76,7 @@ def effective(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     scan = raw.get("scanConfig") if isinstance(raw.get("scanConfig"), dict) else {}
     notify = raw.get("notify") if isinstance(raw.get("notify"), dict) else {}
     years = [y for y in (scan.get("years") or []) if isinstance(y, int) and not isinstance(y, bool) and 2010 <= y <= 2030]
-    sources = [s for s in (scan.get("sources") or VALID_SOURCES) if s in VALID_SOURCES] or list(VALID_SOURCES)
+    sources = [s for s in (scan.get("sources") or DEFAULT_SOURCES) if s in VALID_SOURCES] or list(DEFAULT_SOURCES)
     min_price = _num(scan.get("min_price"), DEFAULT_SCAN["min_price"], 0, 10**9)
     home = scan.get("home") if isinstance(scan.get("home"), dict) else {}
     lat, lon = home.get("latitude"), home.get("longitude")

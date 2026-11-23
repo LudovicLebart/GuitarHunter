@@ -10,7 +10,8 @@ from backend.leaf.filters import DEFAULT_CRITERIA
 MIN_FREQUENCY_MIN = 60          # plancher de politesse : jamais plus d'un passage par heure
 DEFAULT_FREQUENCY_MIN = 120
 DEFAULT_RADIUS_KM = 150
-VALID_SOURCES = ("kijiji", "autohebdo")
+VALID_SOURCES = ("kijiji", "autohebdo", "facebook")
+DEFAULT_SOURCES = ("kijiji", "autohebdo")     # Facebook (navigateur, expérimental) : à activer explicitement
 # Ville de référence (décision utilisateur 2026-11-22) : Saint-Bruno-de-Montarville, coordonnées du catalogue
 # `backend/resources/city_coordinates.json`. Remplaçable par `scanConfig.home` ({latitude, longitude}).
 DEFAULT_HOME = {"name": "Saint-Bruno-de-Montarville", "latitude": 45.5333, "longitude": -73.3500}
@@ -37,7 +38,7 @@ def normalize_config(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     notify = raw.get("notify") if isinstance(raw.get("notify"), dict) else {}
     d = DEFAULT_CRITERIA
     years = [y for y in (scan.get("years") or []) if isinstance(y, int) and not isinstance(y, bool) and 2010 <= y <= 2030]
-    sources = [s for s in (scan.get("sources") or VALID_SOURCES) if s in VALID_SOURCES] or list(VALID_SOURCES)
+    sources = [s for s in (scan.get("sources") or DEFAULT_SOURCES) if s in VALID_SOURCES] or list(DEFAULT_SOURCES)
     min_price = _num(scan.get("min_price"), d["min_price"], 0)
     max_price = max(_num(scan.get("max_price"), d["max_price"], 0), min_price)
     home = scan.get("home") if isinstance(scan.get("home"), dict) else {}

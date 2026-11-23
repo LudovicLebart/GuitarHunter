@@ -28,7 +28,7 @@ class TestConfig(unittest.TestCase):
                                                 "years": [1999, 2017, "x"], "sources": ["nope"], "max_km": "abc"}})["scan"]
         self.assertEqual((c["frequency"], c["pages"], c["years"]), (60, 3, [2017]))
         self.assertEqual((c["min_price"], c["max_price"]), (2000, 2000))     # le plafond ne passe jamais sous le plancher
-        self.assertEqual((c["sources"], c["max_km"]), (["kijiji", "autohebdo"], 150000))
+        self.assertEqual((c["sources"], c["max_km"]), (["kijiji", "autohebdo"], 150000))   # Facebook jamais activé par défaut
 
     def test_incomplete_home_falls_back_to_saint_bruno(self):
         home = lc.normalize_config({"scanConfig": {"home": {"latitude": 45.5}}})["scan"]["home"]
@@ -149,6 +149,23 @@ class TestHunter(unittest.TestCase):
         for _ in range(4):
             self.hunter.run_scan()
         self.assertEqual([t for t, _ in self.sent], ["Leaf : source kijiji en panne"])
+
+    def test_facebook_city_is_resolved_only_when_the_source_is_enabled(self):
+        with self.pool.connection() as conn:
+            conn.execute("INSERT INTO cities (id, name, latitude, longitude, fb_location_id) VALUES "
+                         "('c-leaf-near','Ville Proche',45.5,-73.35,'fb123'),('c-leaf-far','Ville Loin',48.0,-70.0,'fb999') ON CONFLICT (id) DO NOTHING")
+        self.addCleanup(lambda: self.pool.connection().__enter__().execute("DELETE FROM cities WHERE id LIKE 'c-leaf-%'"))
+        seen = []
+        self.hunter._collector = lambda scan: seen.append(scan.get("facebook_city")) or (self.raws, self.runs)
+        self.hunter.run_scan()
+        self.assertEqual(seen, [None])                                   # source absente : aucune ville résolue
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji", "facebook"]}})
+        self.hunter.run_scan()
+        self.assertEqual((seen[1]["id"], seen[1]["name"]), ("fb123", "Ville Proche"))
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["facebook"], "radius_km": 1,
+                                                          "home": {"latitude": 10.0, "longitude": 10.0}}})
+        self.hunter.run_scan()
+        self.assertIsNone(seen[2])                                       # aucune ville dans le rayon : pas de recherche
 
     def test_collector_crash_is_swallowed(self):
         def boom(scan):

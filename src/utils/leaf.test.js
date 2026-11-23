@@ -130,5 +130,5 @@ test('configToForm : valeurs par défaut si la configuration est vide', () => {
     const f = configToForm(null);
     assert.equal(f.frequency, '120');
     assert.equal(f.enabled, false);
-    assert.deepEqual(f.sources, { kijiji: false, autohebdo: false });
+    assert.deepEqual(f.sources, { kijiji: false, autohebdo: false, facebook: false });
 });

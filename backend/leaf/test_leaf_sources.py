@@ -189,6 +189,74 @@ class TestDetailPhotos(unittest.TestCase):
         self.assertEqual(merge_detail(raw, {})["image_urls"], ["a", "b"])
 
 
+class TestFacebookSource(unittest.TestCase):
+    """`deal_to_raw` est pur ; `collect_facebook` est testé avec un faux scraper (aucun navigateur, aucun réseau)."""
+    DEAL = {"id": "9001", "title": "Nissan Leaf 2017 SV", "price": 5500.0, "description": "Annonce Marketplace. 98 000 km, SOH 90 %",
+            "imageUrl": "https://exemple.invalide/a.jpg", "imageUrls": ["https://exemple.invalide/a.jpg", "http://non-https.invalide/b.jpg"],
+            "location": "Ville-Test, QC", "latitude": 45.5, "longitude": -73.3}
+
+    def test_deal_to_raw_maps_to_the_common_format(self):
+        from backend.leaf.sources import facebook
+        raw = facebook.deal_to_raw(self.DEAL)
+        self.assertEqual((raw["id"], raw["source"], raw["source_id"], raw["price"]), ("leaf_facebook_9001", "facebook", "9001", 5500))
+        self.assertEqual((raw["title"], raw["city"], raw["latitude"], raw["image_urls"]),
+                         ("Nissan Leaf 2017 SV", "Ville-Test, QC", 45.5, ["https://exemple.invalide/a.jpg"]))
+        self.assertEqual(raw["url"], "https://www.facebook.com/marketplace/item/9001/")
+        self.assertTrue(all(raw[k] is None for k in ("year", "km", "trim", "vin")))       # rien de deviné : lu plus tard dans le texte
+
+    def test_deal_without_id_or_price_is_handled(self):
+        from backend.leaf.sources import facebook
+        self.assertIsNone(facebook.deal_to_raw({"title": "x"}))
+        self.assertIsNone(facebook.deal_to_raw({**self.DEAL, "price": None})["price"])
+        self.assertEqual(facebook.deal_to_raw({**self.DEAL, "imageUrls": []})["image_urls"], ["https://exemple.invalide/a.jpg"])
+
+    def test_raw_feeds_the_pipeline_with_year_km_and_soh_read_from_the_text(self):
+        from backend.leaf.sources import facebook
+        result = pipeline.evaluate_listings([facebook.deal_to_raw(self.DEAL)], {"max_price": 7500})
+        kept = result["kept"][0]
+        self.assertEqual((kept["year"], kept["km"], kept["trim"], kept["soh_announced"]), (2017, 98000, "SV", 90.0))
+
+    def _scan(self, scraper):
+        from backend.leaf.sources import facebook
+        closed = []
+        scraper.close_session = lambda: closed.append(1)
+        scan = {"min_price": 1500, "max_price": 7500, "facebook_city": {"id": "123", "name": "Ville-Test"}}
+        raws, run = facebook.collect_facebook(scan, scraper_factory=lambda *a: scraper)
+        return raws, run, closed
+
+    def test_collect_ok_then_closes_the_session(self):
+        class Fake:
+            def scan_marketplace(self, cfg, skip, **kw):
+                self.cfg = cfg
+                return {"deals": [FakeDeal], "total_cards_seen": 4, "rejected_out_of_list": 0, "dropped_no_location": 0,
+                        "anti_bot_blocked": False, "error": None}
+        FakeDeal = self.DEAL
+        raws, run, closed = self._scan(Fake())
+        self.assertEqual((len(raws), run["outcome"], run["cards_seen"]), (1, "ok", 4))
+        self.assertEqual(closed, [1])
+
+    def test_collect_reports_block_and_never_raises(self):
+        class Blocked:
+            def scan_marketplace(self, cfg, skip, **kw):
+                return {"deals": [], "total_cards_seen": 0, "anti_bot_blocked": True, "error": None}
+
+        class Boom:
+            def scan_marketplace(self, cfg, skip, **kw):
+                raise RuntimeError("navigateur indisponible")
+        raws, run, closed = self._scan(Blocked())
+        self.assertEqual((raws, run["outcome"], closed), ([], "blocked", [1]))
+        raws, run, closed = self._scan(Boom())
+        self.assertEqual((raws, run["outcome"], closed), ([], "error", [1]))
+        self.assertIn("navigateur indisponible", run["detail"])
+
+    def test_no_facebook_city_means_nothing_is_launched(self):
+        from backend.leaf.sources import facebook
+        called = []
+        raws, run = facebook.collect_facebook({"min_price": 0, "max_price": 1, "facebook_city": None},
+                                              scraper_factory=lambda *a: called.append(1))
+        self.assertEqual((raws, run["outcome"], called), ([], "skipped", []))
+
+
 class TestMergeAndFetcher(unittest.TestCase):
     RAW = {"source": "kijiji", "source_id": "111", "url": "https://exemple.invalid/leaf/111",
            "description": "Texte tronqué ...", "trim": None, "city": "", "year": 2016, "km": 100000}

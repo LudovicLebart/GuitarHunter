@@ -166,3 +166,17 @@ class LeafRepository:
             return conn.execute("UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() "
                                 "WHERE status = 'active' AND last_seen_at < now() - make_interval(days => %s)",
                                 (days,)).rowcount
+
+    def nearest_facebook_city(self, latitude: float, longitude: float, max_km: float) -> Optional[Dict[str, Any]]:
+        """Ville du catalogue partagé (`cities`) la plus proche du point de référence, avec son identifiant Facebook
+        (`COALESCE(fb_location_id, id)`, comme le scraper des guitares), dans un rayon de `max_km`. None si aucune."""
+        from backend.leaf.geo import calculate_distance
+        with self.pool.connection() as conn:
+            rows = conn.execute("SELECT id, name, latitude, longitude, COALESCE(fb_location_id, id) AS fb_id FROM cities "
+                                "WHERE latitude IS NOT NULL AND longitude IS NOT NULL").fetchall()
+        best = None
+        for r in rows:
+            d = calculate_distance(latitude, longitude, r["latitude"], r["longitude"])
+            if d <= max_km and (best is None or d < best["distance_km"]):
+                best = {"id": r["fb_id"], "name": r["name"], "distance_km": d}
+        return best

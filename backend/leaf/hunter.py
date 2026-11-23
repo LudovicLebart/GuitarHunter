@@ -20,9 +20,10 @@ ALERT_AFTER_FAILURES = 3        # alerte santé : au 3e échec consécutif d'une
 MAX_INDIVIDUAL_NOTIFICATIONS = 5
 
 
-def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_html
-                    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """(annonces brutes, passages par source). Résultat d'une source : ok | no_cards | blocked | error."""
+def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_html, logger: Optional[logging.Logger] = None,
+                    browser_guard: Optional[Any] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """(annonces brutes, passages par source). Résultat d'une source : ok | no_cards | blocked | error | skipped.
+    `browser_guard` (sémaphore du bot, facultatif) limite les navigateurs ouverts en même temps (Facebook seulement)."""
     raws: List[Dict[str, Any]] = []
     runs: List[Dict[str, Any]] = []
     if "kijiji" in scan["sources"]:
@@ -60,6 +61,17 @@ def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_ht
         raws += found
         runs.append({"source": "autohebdo", "outcome": outcome, "detail": detail, "cards_seen": len(found),
                      "duration_ms": int((time.time() - t0) * 1000)})
+    if "facebook" in scan["sources"]:
+        from backend.leaf.sources import facebook
+        if browser_guard:
+            browser_guard.acquire()
+        try:
+            found, run = facebook.collect_facebook(scan, logger)
+        finally:
+            if browser_guard:
+                browser_guard.release()
+        raws += found
+        runs.append(run)
     return raws, runs
 
 
@@ -112,10 +124,10 @@ class LeafHunter:
     def __init__(self, repo, user_id: str, logger: Optional[logging.Logger] = None,
                  collector: Optional[Callable[[Dict[str, Any]], Tuple[list, list]]] = None,
                  detail_fetcher_factory: Optional[Callable[[], Any]] = None,
-                 notifier: Callable[..., bool] = leaf_notify.send):
+                 notifier: Callable[..., bool] = leaf_notify.send, browser_guard: Optional[Any] = None):
         self.repo, self.user_id = repo, user_id
         self.log = logger or logging.getLogger(__name__)
-        self._collector = collector or collect_sources
+        self._collector = collector or (lambda scan: collect_sources(scan, logger=self.log, browser_guard=browser_guard))
         self._detail_factory = detail_fetcher_factory or DetailFetcher
         self._notify = notifier
         self._lock = _lock_for(user_id)    # anti-chevauchement (boucle de fond + commande manuelle, même verrou)
@@ -158,6 +170,7 @@ class LeafHunter:
     def _scan(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
         scan, notify_cfg = cfg["scan"], cfg["notify"]
         self.log.info(f"[Leaf] Passage : sources {', '.join(scan['sources'])}, budget {scan['min_price']}-{scan['max_price']} $.")
+        scan = self._with_facebook_city(scan)
         raws, runs = self._collector(scan)
         for r in runs:
             self.repo.record_run(self.user_id, r["source"], r["outcome"], r.get("detail"), r.get("cards_seen"),
@@ -196,6 +209,19 @@ class LeafHunter:
         if notify_cfg["enabled"]:
             self._notify_events(events, notify_cfg)
         return stats
+
+    def _with_facebook_city(self, scan: Dict[str, Any]) -> Dict[str, Any]:
+        """Facebook cherche par ville : on prend la ville du catalogue la plus proche du point de référence (dans son rayon).
+        Aucune ville -> pas de recherche Facebook (le passage est tracé « skipped », jamais une recherche au hasard)."""
+        if "facebook" not in scan["sources"]:
+            return scan
+        home = scan.get("home") or {}
+        city = None
+        if home.get("latitude") is not None and home.get("longitude") is not None:
+            city = self.repo.nearest_facebook_city(home["latitude"], home["longitude"], home.get("max_km") or 150)
+        if city:
+            self.log.info(f"[Leaf] Facebook : ville de recherche « {city['name']} » ({city['distance_km']:.0f} km du point de référence).")
+        return {**scan, "facebook_city": city}
 
     # ------------------------------------------------------------------ notifications
 
