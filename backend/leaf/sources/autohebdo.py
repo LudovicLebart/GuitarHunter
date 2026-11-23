@@ -118,4 +118,7 @@ def parse_detail_page(page_html: str) -> Optional[Dict[str, Any]]:
         "currently_damaged": damage.get("isCurrentlyDamaged"),
         "year": _to_int(vehicle.get("modelYear")),
         "km": _to_int(vehicle.get("mileageInKmRaw")),
+        # Photos de la fiche ; une image de remplacement du concessionnaire (`isCoverImagePlaceholder`) n'est pas une photo.
+        "image_urls": [] if details.get("isCoverImagePlaceholder") else
+                      [u for u in (details.get("images") or []) if isinstance(u, str) and u.startswith("https://")],
     }

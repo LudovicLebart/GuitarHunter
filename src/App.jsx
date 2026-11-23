@@ -5,6 +5,7 @@ import { AuthProvider } from './context/AuthContext';
 import { BotConfigProvider, useBotConfigContext } from './context/BotConfigContext';
 import { DealsProvider } from './context/DealsContext';
 import { CitiesProvider } from './context/CitiesContext';
+import { useCitiesContext } from './context/CitiesContext';
 import { useAuth } from './hooks/useAuth';
 import { useFicheRoute } from './hooks/useFicheRoute';
 import { useLeafRoute } from './hooks/useLeafRoute';
@@ -19,6 +20,7 @@ const LeafPage = lazy(() => import('./components/LeafPage'));   // Leaf Hunter (
 const AppContent = () => {
   const { user, authStatus } = useAuth();
   const { error, setError } = useBotConfigContext();
+  const { cities } = useCitiesContext();   // catalogue de villes : sert à choisir la ville de référence de Leaf
   const leafRoute = useLeafRoute();     // `#leaf` / `#leaf/<id>` : annonces de Nissan Leaf d'occasion
   const ficheRoute = useFicheRoute();   // `#fiches` / `#fiche/<slug>` : fiches techniques, après connexion (l'API exige un jeton)
 
@@ -37,7 +39,7 @@ const AppContent = () => {
   if (leafRoute) {
     return (
       <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">Chargement de Leaf Hunter…</div>}>
-        <LeafPage route={leafRoute} />
+        <LeafPage route={leafRoute} cities={cities} />
       </Suspense>
     );
   }

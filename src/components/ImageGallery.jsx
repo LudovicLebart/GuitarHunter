@@ -99,7 +99,8 @@ export const ImageLightbox = ({ images, currentIndex, title, onNext, onPrev, onC
     );
 };
 
-const ImageGallery = ({ images, title }) => {
+// `fullImages` (facultatif) : mêmes photos en haute résolution pour le plein écran (Leaf Hunter) ; sans elle, `images` sert aux deux.
+const ImageGallery = ({ images, title, fullImages }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFullScreen, setIsFullScreen] = useState(false);
 
@@ -177,7 +178,7 @@ const ImageGallery = ({ images, title }) => {
       {/* Mode Plein Écran */}
       {isFullScreen && (
         <ImageLightbox
-          images={images}
+          images={fullImages && fullImages.length === images.length ? fullImages : images}
           currentIndex={currentIndex}
           title={title}
           onNext={nextImage}

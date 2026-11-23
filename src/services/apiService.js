@@ -1123,6 +1123,9 @@ export const fetchLeafDeal = (id) => apiFetch(`/leaf/deals/${encodeURIComponent(
 /** `patch` : { isFavorite?, isRejected?, notes?, checklist? } — seuls les champs fournis changent. */
 export const setLeafState = (id, patch) => apiFetch(`/leaf/deals/${encodeURIComponent(id)}/state`, { method: 'PATCH', body: patch });
 export const fetchLeafRuns = (limit = 10) => apiFetch(`/leaf/runs?limit=${limit}`);
+export const fetchLeafConfig = () => apiFetch('/leaf/config');
+/** `body` : voir `validateLeafForm` (utils/leaf.js). Le serveur refuse (422) une valeur hors bornes. */
+export const saveLeafConfig = (body) => apiFetch('/leaf/config', { method: 'PUT', body });
 export const triggerLeafRefresh = () => addCommand('LEAF_REFRESH', null);
 /** Suit une commande jusqu'à sa sortie de `pending` (`callback(commande)` à chaque observation) ; renvoie la fonction d'annulation. */
 export const watchLeafCommand = (commandId, callback) => onCommandUpdate(commandId, callback);

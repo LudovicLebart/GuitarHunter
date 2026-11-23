@@ -73,3 +73,62 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress({ leafspy: true, carfax: false, inconnu: true }), { done: 1, total: CHECKLIST_ITEMS.length });
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
+
+import { configToForm, leafImageUrl, leafImages, validateLeafForm } from './leaf.js';
+
+test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
+    const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
+    assert.equal(leafImageUrl(k, 'large'), 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-1600-jpg');
+    assert.equal(leafImageUrl(k, 'medium'), k.replace('-200-', '-640-'));
+    assert.equal(leafImageUrl(k, 'thumb'), k);
+    const a = 'https://prod.pictures.autoscout24.net/listing-images/abc_def.jpg/120x90.webp';
+    assert.equal(leafImageUrl(a, 'large'), 'https://prod.pictures.autoscout24.net/listing-images/abc_def.jpg/1280x960.webp');
+    assert.equal(leafImageUrl(a, 'medium'), a.replace('120x90', '720x540'));
+    assert.equal(leafImageUrl('https://exemple.invalide/p.jpg', 'large'), 'https://exemple.invalide/p.jpg');
+    assert.equal(leafImageUrl('https://media.kijiji.ca/sans-regle.jpg', 'large'), 'https://media.kijiji.ca/sans-regle.jpg');
+    assert.equal(leafImageUrl(null), '');
+});
+
+test('leafImages : sans doublon, https seulement, taille appliquée', () => {
+    const k = (n) => `https://media.kijiji.ca/api/v1/x/images/${n}?rule=kijijica-200-jpg`;
+    assert.deepEqual(leafImages([k('a'), k('a'), k('b'), 'http://non-https.invalide/x.jpg', 3, null], 'large'),
+        [k('a').replace('-200-', '-1600-'), k('b').replace('-200-', '-1600-')]);
+    assert.deepEqual(leafImages(null), []);
+});
+
+const CFG = { enabled: true, scan: { frequency: 180, min_price: 2000, max_price: 6500, max_km: 130000, pages: 2, years: [2017, 2018],
+    sources: ['kijiji'], read_details: true, home: { latitude: 45.5333, longitude: -73.35, name: 'Saint-Bruno' }, radius_km: 90 },
+    notify: { enabled: true, new: false, price_drop: true } };
+
+test('configToForm puis validateLeafForm : aller-retour sans perte', () => {
+    const { errors, body } = validateLeafForm(configToForm(CFG));
+    assert.deepEqual(errors, []);
+    assert.deepEqual(body, { ...CFG, scan: { ...CFG.scan } });
+});
+
+test('validateLeafForm : refuse les valeurs hors bornes avec un message par problème', () => {
+    const bad = (patch) => validateLeafForm({ ...configToForm(CFG), ...patch });
+    assert.match(bad({ frequency: '5' }).errors[0], /Fréquence/);
+    assert.match(bad({ pages: '9' }).errors[0], /Pages/);
+    assert.match(bad({ minPrice: '9000' }).errors.join(' '), /prix maximum/);
+    assert.match(bad({ years: '1999, abc' }).errors[0], /Années/);
+    assert.match(bad({ sources: { kijiji: false, autohebdo: false } }).errors[0], /source/);
+    assert.match(bad({ lat: '200' }).errors[0], /latitude/);
+    assert.match(bad({ lat: '' }).errors[0], /latitude/);
+    assert.match(bad({ radius: '0' }).errors[0], /Rayon/);
+    assert.equal(bad({ frequency: '5' }).body, null);
+    assert.equal(bad({}).errors.length, 0);
+});
+
+test('validateLeafForm : années dédupliquées et triées, nom de ville facultatif', () => {
+    const { body } = validateLeafForm({ ...configToForm(CFG), years: '2018 2016, 2018', homeName: '  ' });
+    assert.deepEqual(body.scan.years, [2016, 2018]);
+    assert.equal('name' in body.scan.home, false);
+});
+
+test('configToForm : valeurs par défaut si la configuration est vide', () => {
+    const f = configToForm(null);
+    assert.equal(f.frequency, '120');
+    assert.equal(f.enabled, false);
+    assert.deepEqual(f.sources, { kijiji: false, autohebdo: false });
+});

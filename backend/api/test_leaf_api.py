@@ -104,6 +104,61 @@ class TestLeafAPI(unittest.TestCase):
         runs = self.client.get("/leaf/runs").json()
         self.assertEqual([(r["source"], r["outcome"], r["cards_seen"]) for r in runs], [("leaf_kijiji", "ok", 12)])
 
+    # --- réglages de recherche -------------------------------------------------------------------
+    BODY = {"enabled": True, "scan": {"frequency": 180, "min_price": 2000, "max_price": 6500, "max_km": 130000, "pages": 2,
+                                      "years": [2017, 2018], "sources": ["kijiji"], "read_details": True,
+                                      "home": {"latitude": 45.6, "longitude": -73.4, "name": "Ville-Test"}, "radius_km": 90},
+            "notify": {"enabled": True, "new": False, "price_drop": True}}
+
+    def test_config_defaults_then_save_and_read_back(self):
+        c = self.client.get("/leaf/config").json()
+        self.assertEqual((c["enabled"], c["scan"]["max_price"], c["scan"]["home"]["name"]), (False, 7500, "Saint-Bruno-de-Montarville"))
+        r = self.client.put("/leaf/config", json=self.BODY)
+        self.assertEqual(r.status_code, 200, r.text)
+        c = self.client.get("/leaf/config").json()
+        self.assertEqual((c["enabled"], c["scan"]["max_price"], c["scan"]["years"], c["scan"]["sources"], c["scan"]["radius_km"],
+                          c["notify"]["new"]), (True, 6500, [2017, 2018], ["kijiji"], 90, False))
+
+    def test_config_is_stored_in_the_shape_the_bot_reads_and_keeps_other_keys(self):
+        async def seed_extra():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("UPDATE users SET config = '{\"leafConfig\": {\"analysisConfig\": {\"x\": 1}}, \"scanConfig\": {\"keep\": true}}' "
+                                   "WHERE uid = $1", ME)
+            finally:
+                await conn.close()
+
+        async def read():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                return await conn.fetchval("SELECT config::text FROM users WHERE uid = $1", ME)
+            finally:
+                await conn.close()
+        asyncio.run(seed_extra())
+        self.assertEqual(self.client.put("/leaf/config", json=self.BODY).status_code, 200)
+        import json as _json
+        stored = _json.loads(asyncio.run(read()))
+        self.assertEqual(stored["leafConfig"]["scanConfig"]["max_price"], 6500)
+        self.assertEqual(stored["leafConfig"]["analysisConfig"], {"x": 1})      # clé voisine de leafConfig conservée
+        self.assertEqual(stored["scanConfig"], {"keep": True})                  # configuration des guitares intacte
+
+    def test_config_out_of_bounds_is_refused(self):
+        def put(**scan):
+            return self.client.put("/leaf/config", json={"scan": {**self.BODY["scan"], **scan}}).status_code
+        self.assertEqual(put(frequency=5), 422)
+        self.assertEqual(put(pages=9), 422)
+        self.assertEqual(put(min_price=9000), 422)                     # max (6500) < min
+        self.assertEqual(put(years=[1999]), 422)
+        self.assertEqual(put(sources=["carvana"]), 422)
+        self.assertEqual(put(sources=[]), 422)
+        self.assertEqual(put(home={"latitude": 200, "longitude": 0}), 422)
+        self.assertEqual(put(), 200)
+
+    def test_config_respects_the_allow_list(self):
+        with mock.patch.dict(os.environ, {"LEAF_ALLOWED_UIDS": OTHER}):
+            self.assertEqual(self.client.get("/leaf/config").status_code, 403)
+            self.assertEqual(self.client.put("/leaf/config", json=self.BODY).status_code, 403)
+
     def test_allow_list_blocks_other_accounts(self):
         with mock.patch.dict(os.environ, {"LEAF_ALLOWED_UIDS": OTHER}):
             self.assertEqual(self.client.get("/leaf/deals").status_code, 403)

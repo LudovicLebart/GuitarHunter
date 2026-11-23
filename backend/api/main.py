@@ -34,7 +34,7 @@ except ImportError:  # pragma: no cover - dépend de l'environnement
 from backend.url_guard import is_listing_url, is_storage_image_url
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, config_guard, chat_repo, cost_alert, index_version, input_guard, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, leaf_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, config_guard, chat_repo, cost_alert, index_version, input_guard, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, leaf_config, leaf_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -1004,6 +1004,20 @@ async def leaf_get_deal(deal_id: str, uid: str = Depends(_leaf_uid)):
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
     return {**dict(row), "priceHistory": await leaf_repo.price_history(pool, uid, deal_id)}
+
+
+@app.get("/leaf/config")
+async def leaf_get_config(uid: str = Depends(_leaf_uid)):
+    """Réglages de recherche EFFECTIFS (valeurs par défaut incluses). Le bot relit la configuration à chaque passage."""
+    return leaf_config.effective(await leaf_repo.get_config(get_pool(), uid))
+
+
+@app.put("/leaf/config")
+async def leaf_put_config(body: leaf_config.LeafConfigIn, uid: str = Depends(_leaf_uid)):
+    """Enregistre les réglages (valeurs hors bornes refusées en 422). S'applique au passage suivant du bot."""
+    pool = get_pool()
+    await leaf_repo.set_config(pool, uid, leaf_config.to_stored(body))
+    return leaf_config.effective(await leaf_repo.get_config(pool, uid))
 
 
 class LeafStateBody(BaseModel):

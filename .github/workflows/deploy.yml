@@ -93,6 +93,7 @@ jobs:
             backend.leaf.test_leaf_sources \
             backend.leaf.test_leaf_repository \
             backend.leaf.test_leaf_hunter \
+            backend.leaf.test_leaf_config_parity \
             backend.scraping.test_catchup \
             backend.scraping.test_scroll \
             backend.test_pricing \

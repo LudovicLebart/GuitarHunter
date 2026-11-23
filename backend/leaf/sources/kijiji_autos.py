@@ -96,4 +96,5 @@ def parse_detail_page(html: str, source_id: Optional[str] = None) -> Optional[Di
         "city": full["city"], "latitude": full["latitude"], "longitude": full["longitude"],
         "seller_type": full["seller_type"],
         "year": full["year"], "km": full["km"],
+        "image_urls": full["image_urls"],       # la fiche en a plus que la liste (≈ 10 contre 5)
     }

@@ -27,6 +27,8 @@ def merge_detail(raw: Dict[str, Any], detail: Dict[str, Any]) -> Dict[str, Any]:
     for key in _FILL_IF_MISSING:
         if merged.get(key) in (None, "") and detail.get(key) not in (None, ""):
             merged[key] = detail[key]
+    if len(detail.get("image_urls") or []) > len(raw.get("image_urls") or []):
+        merged["image_urls"] = list(detail["image_urls"])          # la fiche donne plus de photos que la liste
     for key in ("equipment", "had_accident", "currently_damaged"):
         if key in detail:
             merged[key] = detail[key]

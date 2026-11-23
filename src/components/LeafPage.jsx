@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
-import { fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, setLeafState, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
+import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
+import ImageGallery from './ImageGallery';
+import LeafSettings from './LeafSettings';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
-    priceTrend, winterRange, winterVerdict,
+    leafImages, priceTrend, winterRange, winterVerdict,
 } from '../utils/leaf';
 
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
 
-const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, watchLeafCommand };
+const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
 const WINTER_STYLES = {
     ok: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     juste: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -41,7 +43,7 @@ const Flags = ({ flags }) => (flags?.length ? (
 const DealRow = ({ deal, onToggle }) => (
     <li className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3 flex gap-3">
         <a href={leafDealHref(deal.id)} className="shrink-0 w-24 h-20 rounded-xl overflow-hidden bg-slate-800 flex items-center justify-center">
-            {deal.image_urls?.[0] ? <img src={deal.image_urls[0]} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Car size={28} className="text-slate-600" />}
+            {deal.image_urls?.[0] ? <img src={leafImages([deal.image_urls[0]], 'thumb')[0] || deal.image_urls[0]} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Car size={28} className="text-slate-600" />}
         </a>
         <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-start justify-between gap-2">
@@ -68,7 +70,7 @@ const DealRow = ({ deal, onToggle }) => (
     </li>
 );
 
-const LeafList = ({ api }) => {
+const LeafList = ({ api, cities }) => {
     const [state, setState] = useState({ loading: true, error: null, deals: [], runs: [] });
     const [sort, setSort] = useState('price');
     const [query, setQuery] = useState('');
@@ -108,6 +110,7 @@ const LeafList = ({ api }) => {
 
     return (
         <div className="space-y-4">
+            <LeafSettings api={api} cities={cities} />
             <div className="flex flex-wrap items-center gap-2">
                 <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher (ville, version…)"
                     className="flex-1 min-w-[10rem] bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-200" />
@@ -157,6 +160,8 @@ const LeafDetail = ({ id, api }) => {
     const trend = priceTrend(d.priceHistory);
     const progress = checklistProgress(d.checklist);
     const equipment = d.analysis?.equipment;
+    const photos = leafImages(d.image_urls, 'medium');
+    const photosLarge = leafImages(d.image_urls, 'large');
     return (
         <div className="space-y-4">
             {state.error && <Message tone="error">{String(state.error.message || state.error)}</Message>}
@@ -184,9 +189,10 @@ const LeafDetail = ({ id, api }) => {
                 </div>
             </div>
 
-            {d.image_urls?.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                    {d.image_urls.slice(0, 12).map((u) => <img key={u} src={u} alt="" loading="lazy" className="h-32 rounded-xl border border-slate-800 object-cover" />)}
+            {photos.length > 0 && (
+                // Même galerie que les guitares (ImageGallery) : photos moyennes à l'écran, HAUTE résolution en plein écran.
+                <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden h-72 sm:h-96" title="Cliquer pour agrandir">
+                    <ImageGallery images={photos} fullImages={photosLarge} title={`${d.year || ''} Leaf ${d.trim || ''}`} />
                 </div>
             )}
 
@@ -219,7 +225,7 @@ const LeafDetail = ({ id, api }) => {
     );
 };
 
-const LeafPage = ({ route, api = DEFAULT_API }) => (
+const LeafPage = ({ route, api = DEFAULT_API, cities = [] }) => (
     <div className="min-h-screen bg-slate-950 text-slate-200">
         <header className="sticky top-0 z-10 bg-slate-950/90 backdrop-blur border-b border-slate-800 px-4 py-3 flex items-center gap-3">
             <a href={route?.view === 'detail' ? '#leaf' : '#'} className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300" title={route?.view === 'detail' ? 'Retour à la liste' : 'Retour à l\'application'}>
@@ -229,7 +235,7 @@ const LeafPage = ({ route, api = DEFAULT_API }) => (
             <h1 className="font-black text-slate-100">Leaf Hunter</h1>
         </header>
         <main className="max-w-3xl mx-auto p-4">
-            {route?.view === 'detail' ? <LeafDetail id={route.id} api={api} /> : <LeafList api={api} />}
+            {route?.view === 'detail' ? <LeafDetail id={route.id} api={api} /> : <LeafList api={api} cities={cities} />}
         </main>
     </div>
 );

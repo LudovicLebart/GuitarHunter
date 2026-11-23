@@ -165,6 +165,30 @@ class TestAutoHebdoDetail(unittest.TestCase):
         self.assertIsNone(autohebdo.parse_detail_page('<script id="__NEXT_DATA__">{oups</script>'))
 
 
+class TestDetailPhotos(unittest.TestCase):
+    """La fiche donne plus de photos que la liste (Kijiji : ≈ 10 contre 5) ; une image de remplacement n'est pas une photo."""
+    def test_kijiji_detail_returns_all_photos_of_the_page(self):
+        photos = [f"https://exemple.invalid/p{i}.jpg" for i in range(10)]
+        html = _kijiji_html([_autos_entry(imageUrls=photos)])
+        self.assertEqual(kijiji_autos.parse_detail_page(html, "111")["image_urls"], photos)
+
+    def test_autohebdo_detail_photos_and_placeholder(self):
+        def page(**extra):
+            details = json.loads(_autohebdo_detail_html("t").split('json">')[1].split("</script>")[0])
+            details["props"]["pageProps"]["listingDetails"].update(extra)
+            return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(details)}</script>'
+        urls = ["https://exemple.invalid/a.jpg/1280x960.webp", "https://exemple.invalid/b.jpg/1280x960.webp"]
+        self.assertEqual(autohebdo.parse_detail_page(page(images=urls, isCoverImagePlaceholder=False))["image_urls"], urls)
+        self.assertEqual(autohebdo.parse_detail_page(page(images=urls, isCoverImagePlaceholder=True))["image_urls"], [])
+        self.assertEqual(autohebdo.parse_detail_page(page(images=["http://non-https.invalid/x.jpg", 3]))["image_urls"], [])
+
+    def test_merge_takes_the_longer_photo_list_and_never_shrinks(self):
+        raw = {"source": "kijiji", "image_urls": ["a", "b"]}
+        self.assertEqual(merge_detail(raw, {"image_urls": ["a", "b", "c"]})["image_urls"], ["a", "b", "c"])
+        self.assertEqual(merge_detail(raw, {"image_urls": ["z"]})["image_urls"], ["a", "b"])
+        self.assertEqual(merge_detail(raw, {})["image_urls"], ["a", "b"])
+
+
 class TestMergeAndFetcher(unittest.TestCase):
     RAW = {"source": "kijiji", "source_id": "111", "url": "https://exemple.invalid/leaf/111",
            "description": "Texte tronqué ...", "trim": None, "city": "", "year": 2016, "km": 100000}

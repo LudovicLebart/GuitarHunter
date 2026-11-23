@@ -67,3 +67,16 @@ async def list_runs(pool: asyncpg.Pool, user_id: str, limit: int = 20) -> List[D
         "SELECT source, outcome, detail, cards_seen, duration_ms, created_at FROM scrape_runs "
         "WHERE user_id = $1 AND source LIKE 'leaf\\_%' ORDER BY created_at DESC, id DESC LIMIT $2", user_id, limit)
     return [dict(r) for r in rows]
+
+
+async def get_config(pool: asyncpg.Pool, user_id: str) -> Dict[str, Any]:
+    """`users.config.leafConfig` brut ({} si absent)."""
+    cfg = await pool.fetchval("SELECT config FROM users WHERE uid = $1", user_id)
+    return ((cfg or {}).get("leafConfig")) or {}
+
+
+async def set_config(pool: asyncpg.Pool, user_id: str, new_config: Dict[str, Any]) -> None:
+    """Fusionne dans `leafConfig` (les clés absentes de `new_config`, comme une future `analysisConfig`, sont conservées)."""
+    await pool.execute(
+        "UPDATE users SET config = jsonb_set(COALESCE(config, '{}'::jsonb), '{leafConfig}', "
+        "COALESCE(config->'leafConfig', '{}'::jsonb) || $2::jsonb, true) WHERE uid = $1", user_id, new_config)
