@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Sequence, Tuple
 
+from backend import t1_circuit_breaker
 from backend.leaf import ai_extract, expert
 
 ACTION = "leaf_t2"
@@ -25,7 +26,8 @@ class LeafAI:
         with _T1_LOCAL_SEMAPHORE:
             result, err = self.analyzer._call_openai_compatible_json(
                 prompt, [], config.T1_LOCAL_MODEL, config.T1_LOCAL_API_KEY, config.T1_LOCAL_BASE_URL, action=ACTION,
-                provider_label="local", timeout=config.T1_LOCAL_TIMEOUT_SECONDS)
+                provider_label="local", timeout=config.T1_LOCAL_TIMEOUT_SECONDS,
+                max_retries=0)       # pas de nouvelles tentatives du client : le fournisseur suivant (Gemini) sert de repli
         return result, err, config.T1_LOCAL_MODEL
 
     def _call_gemini(self, prompt: str) -> Tuple[Optional[dict], Optional[str], str]:
@@ -33,6 +35,11 @@ class LeafAI:
         model = config.GEMINI_MODELS["default_analyst"]
         result, err = self.analyzer._call_gemini_json(model, [prompt], action=ACTION)
         return result, err, model
+
+    @staticmethod
+    def _breaker_failure() -> None:
+        import config
+        t1_circuit_breaker.record_failure("local", config.T1_CIRCUIT_BREAKER_FAILURE_THRESHOLD, config.T1_CIRCUIT_BREAKER_COOLDOWN_SECONDS)
 
     def extract(self, listing: Dict[str, Any], providers: Sequence[str] = PROVIDERS) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         if self.analyzer is None:
@@ -43,12 +50,22 @@ class LeafAI:
             call = {"local": self._call_local, "gemini": self._call_gemini}.get(provider)
             if call is None:
                 continue
+            if provider == "local" and t1_circuit_breaker.is_open("local"):
+                # Même coupe-circuit que le Portier des guitares (processus entier) : un Dell en panne n'est pas rappelé à chaque annonce
+                # (60 s d'attente chacune) ; le premier appel après la pause sert de test.
+                last_error = "local : Dell en pause (coupe-circuit)"
+                self.log.warning("[Leaf] IA : Dell en pause (coupe-circuit), fournisseur suivant.")
+                continue
             try:
                 raw, err, model = call(prompt)
             except Exception as e:
                 self.log.error(f"[Leaf] IA ({provider}) : {e}")
                 last_error = f"{provider} : {e}"
+                if provider == "local":
+                    self._breaker_failure()
                 continue
+            if provider == "local":
+                self._breaker_failure() if err else t1_circuit_breaker.record_success("local")
             parsed = ai_extract.parse_response(raw)
             if parsed is None:
                 last_error = f"{provider} : {err or 'réponse inutilisable'}"

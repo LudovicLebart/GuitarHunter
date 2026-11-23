@@ -97,6 +97,9 @@ class TestHunter(unittest.TestCase):
         self.hunter = LeafHunter(self.repo, self.UID, collector=lambda scan: (self.raws, self.runs),
                                  detail_fetcher_factory=lambda: None,
                                  notifier=lambda title, msg, **kw: self.sent.append((title, msg)) or True)
+        from backend import t1_circuit_breaker            # état partagé du processus : chaque test repart avec un Dell « sain »
+        t1_circuit_breaker.record_success("local")
+        self.addCleanup(t1_circuit_breaker.record_success, "local")
         env = mock.patch.dict(os.environ, {"LEAF_ENABLED": "true"})
         env.start()
         self.addCleanup(env.stop)

@@ -167,6 +167,28 @@ class FakeAnalyzer:
 class TestChain(unittest.TestCase):
     GOOD = response(heat_pump=fact(True, "Pompe à chaleur"))
 
+    def setUp(self):
+        from backend import t1_circuit_breaker
+        t1_circuit_breaker.record_success("local")                          # état partagé du processus : repart à zéro
+        self.addCleanup(t1_circuit_breaker.record_success, "local")
+
+    def test_a_dead_dell_is_skipped_after_three_failures_like_for_the_gatekeeper(self):
+        from backend import t1_circuit_breaker
+        analyzer = FakeAnalyzer(local=(None, "timeout"), gemini=self.GOOD)
+        for _ in range(3):
+            ai.LeafAI(analyzer).extract(listing())
+        self.assertTrue(t1_circuit_breaker.is_open("local"))
+        analyzer.calls.clear()
+        result, err = ai.LeafAI(analyzer).extract(listing())
+        self.assertEqual((err, result["provider"], [c[0] for c in analyzer.calls]), (None, "gemini", ["gemini"]))   # Dell non rappelé
+
+    def test_a_working_dell_keeps_the_circuit_closed_and_unusable_json_is_not_a_failure(self):
+        from backend import t1_circuit_breaker
+        analyzer = FakeAnalyzer(local=({"pas": "de faits"}, None), gemini=self.GOOD)       # a répondu, mais réponse inutilisable
+        for _ in range(5):
+            ai.LeafAI(analyzer).extract(listing())
+        self.assertFalse(t1_circuit_breaker.is_open("local"))
+
     def run_chain(self, analyzer, providers=("local", "gemini")):
         return ai.LeafAI(analyzer).extract(listing(), providers)
 
