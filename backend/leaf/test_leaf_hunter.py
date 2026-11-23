@@ -407,6 +407,82 @@ class TestHunter(unittest.TestCase):
         [t.join() for t in threads]
         self.assertEqual(sorted(results), ["Plafond ", "ok"])                              # un seul appel payant, malgré deux clics simultanés
 
+    # --- Ré-analyse d'une annonce déjà stockée ------------------------------------------------------
+    def _stored(self, **extra):
+        """Annonce stockée par un ancien passage : sans SOH ni barres (les règles d'alors ne lisaient pas ces formulations)."""
+        self.repo.upsert_listing({**raw("leaf_test_1", description="Voiture propre.", **extra), "flags": ["soh_unknown"]})
+        self.repo.record_match(self.UID, "leaf_test_1")
+
+    def _reread(self, description):
+        self.hunter._detail_factory = lambda: (lambda r: {"description": description})       # fiche relue
+
+    def test_reanalyze_applies_the_current_rules_to_a_stored_listing(self):
+        self._stored()
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
+        self._reread("Voiture propre. Santé de la batterie : 11 barres sur 12, 91 % selon LeafSpy. Pompe à chaleur.")
+        self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        row = self._ai_of()
+        self.assertEqual((float(row["soh_announced"]), row["capacity_bars"], row["verdict"]), (91.0, 11, "CANDIDAT_FORT"))
+        self.assertNotIn("soh_unknown", row["flags"])
+
+    def test_reanalyze_withdraws_a_listing_that_no_longer_passes_and_says_why(self):
+        self._stored()
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
+        self._reread("Santé : 6 barres sur 12 (~50 % sur LeafSpy).")
+        with self.assertRaisesRegex(RuntimeError, "soh_below_80"):
+            self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertTrue(self._withdrawn())                                                # retirée de la liste de l'utilisateur
+        self.assertEqual(self.repo.get_vehicle("leaf_test_1")["status"], "active")        # fait global inchangé
+
+    def test_reanalyze_restores_a_listing_that_passes_again(self):
+        self._stored()
+        self.repo.mark_withdrawn(self.UID, ["leaf_test_1"])
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
+        self._reread("Voiture propre, aucun accident.")
+        self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertFalse(self._withdrawn())
+
+    def test_reanalyze_forces_a_new_ai_call_even_when_nothing_changed(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        self.assertEqual(len(self.analyzer.calls), 1)
+        self._reread(self.AI_TEXT)                                                         # même texte : le cache suffirait pour un passage
+        self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertEqual(len(self.analyzer.calls), 2)                                      # mais la ré-analyse demandée refait l'appel
+        self.hunter.run_scan()
+        self.assertEqual(len(self.analyzer.calls), 2)                                      # un passage ordinaire reste gratuit
+
+    def test_reanalyze_errors_are_explicit_and_nothing_is_overwritten(self):
+        self._stored()
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
+        before = self._ai_of()["description"]
+        self.hunter._detail_factory = lambda: (lambda r: None)                            # fiche illisible
+        with self.assertRaisesRegex(RuntimeError, "illisible"):
+            self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        self.assertEqual(self._ai_of()["description"], before)
+        with self.assertRaisesRegex(RuntimeError, "introuvable"):
+            self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_inconnue"})
+        with self.assertRaisesRegex(RuntimeError, "non précisée"):
+            self.hunter.command_handlers()["LEAF_REANALYZE"]({})
+
+    def test_facebook_reanalysis_uses_the_stored_text_without_any_fetch(self):
+        self.repo.upsert_listing({**raw("leaf_test_1", source="facebook", description="Nissan Leaf SV 2017. Santé 6 barres sur 12."),
+                                  "flags": [], "year": None})
+        self.repo.record_match(self.UID, "leaf_test_1")
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["facebook"]}})
+        self.hunter._detail_factory = lambda: (_ for _ in ()).throw(AssertionError("aucune relecture pour Facebook"))
+        self.hunter.command_handlers()["LEAF_REANALYZE"]({"dealId": "leaf_test_1"})
+        row = self._ai_of()
+        self.assertEqual((row["capacity_bars"], row["verdict"]), (6, "BATTERIE_DOUTEUSE"))
+
+    def test_refresh_with_force_ai_reanalyzes_every_kept_listing(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        self.hunter.command_handlers()["LEAF_REFRESH"]({"forceAi": True})
+        self.assertEqual(len(self.analyzer.calls), 2)
+        self.hunter.command_handlers()["LEAF_REFRESH"](None)
+        self.assertEqual(len(self.analyzer.calls), 2)
+
     def test_strong_candidate_gets_a_priority_notification(self):
         self._with_ai()
         self.hunter.run_scan()
@@ -483,7 +559,7 @@ class TestHunter(unittest.TestCase):
     def test_commands_fail_clearly_when_server_disabled_and_cleanup_works(self):
         self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"]}})
         handlers = self.hunter.command_handlers()
-        self.assertEqual(set(handlers), {"LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE"})
+        self.assertEqual(set(handlers), {"LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE", "LEAF_REANALYZE"})
         self.hunter.run_scan()
         with self.pool.connection() as conn:
             conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")

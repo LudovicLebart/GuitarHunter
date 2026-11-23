@@ -135,6 +135,12 @@ class TestVerdict(unittest.TestCase):
         self.assertEqual(self.v(soh_announced=90.0, winter_fit={"verdict": "ok"}, price_fit={"delta_pct": 10.0}), "A_VERIFIER")
         self.assertEqual(self.v(), "A_VERIFIER")
 
+    def test_few_dashboard_bars_make_the_battery_doubtful_but_a_stated_soh_wins(self):
+        self.assertEqual(self.v(capacity_bars=6), "BATTERIE_DOUTEUSE")
+        self.assertEqual(self.v(capacity_bars=9), "BATTERIE_DOUTEUSE")
+        self.assertEqual(self.v(capacity_bars=10), "A_VERIFIER")
+        self.assertEqual(self.v(capacity_bars=6, soh_announced=90.0, winter_fit={"verdict": "ok"}), "CANDIDAT_FORT")   # la mesure LeafSpy l'emporte sur la jauge
+
     def test_soh_unknown_is_explained_and_replaced_24_kwh_can_be_strong(self):
         self.assertIn("LeafSpy", " ".join(verdict.compute_verdict(listing())["reasons"]))
         strong = listing(battery_kwh_low=24, battery_kwh_high=24, mentions={"battery_replaced": True}, winter_fit={"verdict": "juste"})

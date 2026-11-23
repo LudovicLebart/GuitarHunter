@@ -100,7 +100,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 3. **Tier 3 — Expert Pro** (**`claude-sonnet-5-5` par défaut depuis 2026-10-31**, `T3_PROVIDER=claude` ; Gemini `gemini-3.1-pro-preview` si `T3_PROVIDER=gemini`) : analyse exhaustive (conditionnel). **Le chat tourne aussi sur Claude Sonnet 5.5 par défaut (depuis le 2026-11-01)** via l'API (`backend/api/chat_claude.py`), Gemini restant un réglage de secours (`analysisConfig.chatModel`) ; Opus se consulte à la demande (dossier rédigé par le modèle du chat). **`ANTHROPIC_API_KEY` doit être dans le `.env` du serveur** (secret GitHub `DOT_ENV`, écrit à chaque déploiement) : sans elle le chat Claude et l'Expert échouent. Voir `docs/management/plans/COUT_SONNET_CHAT_OPUS_PLAN.md`
 
 ### Commandes Backend
-`REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP` | `LEAF_REFRESH` | `LEAF_CLEANUP` | `LEAF_ANALYZE`
+`REFRESH` | `ADD_CITY` | `ANALYZE_DEAL` | `CLEAR_LOGS` | `STOP_BOT` | `STOP_SCAN` | `START_BOT` | `SCAN_URL` | `CLEANUP` | `LEAF_REFRESH` | `LEAF_CLEANUP` | `LEAF_ANALYZE` | `LEAF_REANALYZE`
 
 ---
 

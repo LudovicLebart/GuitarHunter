@@ -141,7 +141,7 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
                                     with in_flight_lock:
                                         in_flight_command_ids.discard(cid)
 
-                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY', 'REEVALUATE_NOT_PROMOTED', 'LEAF_REFRESH', 'LEAF_CLEANUP', 'LEAF_ANALYZE']:
+                            if command.type in ['REFRESH', 'REANALYZE_ALL', 'SCAN_URL', 'ADD_CITY', 'REEVALUATE_NOT_PROMOTED', 'LEAF_REFRESH', 'LEAF_CLEANUP', 'LEAF_ANALYZE', 'LEAF_REANALYZE']:
                                 bot.logger.info(f"Lancement de la commande {command.type} dans un thread séparé...")
                                 threading.Thread(
                                     target=execute_command_async,

@@ -18,7 +18,13 @@ class CommandTest(unittest.TestCase):
 
     def test_types_du_bot_acceptes(self):
         for t in input_guard.COMMAND_TYPES:
-            input_guard.validate_command(t, {"dealId": "leaf_kijiji_123"} if t == "LEAF_ANALYZE" else None)
+            input_guard.validate_command(t, {"dealId": "leaf_kijiji_123"} if t in ("LEAF_ANALYZE", "LEAF_REANALYZE") else None)
+
+    def test_leaf_refresh_n_accepte_que_force_ai(self):
+        input_guard.validate_command("LEAF_REFRESH", {"forceAi": True})
+        for bad in ({"forceAi": "oui"}, {"autre": 1}, "x", 3):
+            with self.assertRaises(ValueError):
+                input_guard.validate_command("LEAF_REFRESH", bad)
 
     def test_leaf_analyze_exige_un_id_d_annonce_leaf(self):
         for bad in (None, {}, {"dealId": "guitare_1"}, {"dealId": 5}):

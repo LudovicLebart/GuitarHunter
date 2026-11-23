@@ -22,7 +22,7 @@ MAX_LONG_TEXT = 5_000
 COMMAND_TYPES = frozenset({
     "REFRESH", "CLEANUP", "REANALYZE_ALL", "SCAN_URL", "ADD_CITY", "ANALYZE_DEAL",
     "REEVALUATE_NOT_PROMOTED", "CLEAR_LOGS", "STOP_BOT", "STOP_SCAN", "START_BOT",
-    "LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE",      # Leaf Hunter (2026-11-23)
+    "LEAF_REFRESH", "LEAF_CLEANUP", "LEAF_ANALYZE", "LEAF_REANALYZE",      # Leaf Hunter (2026-11-23)
 })
 LEAF_DEAL_ID_RE = re.compile(r"^leaf_[a-z0-9]{1,20}_[A-Za-z0-9_-]{1,100}$")
 
@@ -58,9 +58,12 @@ def validate_command(type_, payload):
         raise ValueError("Type de commande inconnu.")
     if _size(payload) > MAX_COMMAND_PAYLOAD_BYTES:
         raise ValueError("Charge de la commande trop volumineuse.")
-    if type_ == "LEAF_ANALYZE" and not (isinstance(payload, dict) and isinstance(payload.get("dealId"), str)
-                                        and LEAF_DEAL_ID_RE.match(payload["dealId"])):
-        raise ValueError("LEAF_ANALYZE : {dealId} d'une annonce Leaf attendu.")
+    if type_ in ("LEAF_ANALYZE", "LEAF_REANALYZE") and not (isinstance(payload, dict) and isinstance(payload.get("dealId"), str)
+                                                            and LEAF_DEAL_ID_RE.match(payload["dealId"])):
+        raise ValueError(f"{type_} : {{dealId}} d'une annonce Leaf attendu.")
+    if type_ == "LEAF_REFRESH" and payload is not None and not (isinstance(payload, dict) and set(payload) <= {"forceAi"}
+                                                                 and isinstance(payload.get("forceAi", False), bool)):
+        raise ValueError("LEAF_REFRESH : charge vide ou {forceAi: booléen} attendue.")
 
 
 def validate_deal_ids(ids):

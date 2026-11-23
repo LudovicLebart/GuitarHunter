@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
-import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafAnalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
+import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, setLeafState, triggerLeafAnalyze, triggerLeafReanalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import {
@@ -11,7 +11,7 @@ import {
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
 
-const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
+const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, triggerLeafReanalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig };
 const WINTER_STYLES = {
     ok: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     juste: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -97,10 +97,10 @@ const LeafList = ({ api, cities }) => {
     // le suivi est annulé si l'on quitte la page.
     const stopWatching = useRef(null);
     useEffect(() => () => { if (stopWatching.current) stopWatching.current(); }, []);
-    const onRefresh = async () => {
+    const onRefresh = async (forceAi = false) => {
         setRefreshing(true);
         try {
-            const command = await api.triggerLeafRefresh();
+            const command = await api.triggerLeafRefresh(forceAi);
             stopWatching.current = api.watchLeafCommand(command.id, (c) => {
                 if (c.status === 'pending') return;
                 setRefreshing(false);
@@ -127,9 +127,14 @@ const LeafList = ({ api, cities }) => {
                     className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${favoritesOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
                     <Star size={14} className="inline -mt-0.5" /> Favoris
                 </button>
-                <button onClick={onRefresh} disabled={refreshing} title="Lancer un passage maintenant"
+                <button onClick={() => onRefresh(false)} disabled={refreshing} title="Lancer un passage maintenant"
                     className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-sm font-bold disabled:opacity-50">
                     <RefreshCw size={14} className={`inline -mt-0.5 ${refreshing ? 'animate-spin' : ''}`} /> Actualiser
+                </button>
+                <button onClick={() => onRefresh(true)} disabled={refreshing}
+                    title="Passage complet + nouvelle analyse IA de chaque annonce (dans le plafond quotidien d'analyses)"
+                    className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-sm font-bold disabled:opacity-50">
+                    Ré-analyser (IA)
                 </button>
             </div>
             {lastRun && <p className="text-[11px] text-slate-500">Dernier passage ({lastRun.source.replace('leaf_', '')}) : {lastRun.outcome}{lastRun.cards_seen != null ? `, ${lastRun.cards_seen} annonces lues` : ''}.</p>}
@@ -146,6 +151,7 @@ const LeafDetail = ({ id, api }) => {
     const [notes, setNotes] = useState('');
     const [saved, setSaved] = useState(true);
     const [expertState, setExpertState] = useState({ running: false, error: null });
+    const [reState, setReState] = useState({ running: false, error: null, done: false });
     const stopWatching = useRef(null);
     useEffect(() => () => { if (stopWatching.current) stopWatching.current(); }, []);
 
@@ -160,6 +166,21 @@ const LeafDetail = ({ id, api }) => {
     const patch = async (fields) => {
         try { const next = await api.setLeafState(id, fields); setState((s) => ({ ...s, deal: { ...s.deal, ...next } })); return true; }
         catch (error) { setState((s) => ({ ...s, error })); return false; }
+    };
+
+    // Ré-analyse : relit la fiche de l'annonce et refait règles, scores, verdict et IA avec le code actuel. Un refus (annonce qui ne passe
+    // plus les règles, fiche illisible) s'affiche tel quel.
+    const runReanalyze = async () => {
+        setReState({ running: true, error: null, done: false });
+        try {
+            const command = await api.triggerLeafReanalyze(id);
+            stopWatching.current = api.watchLeafCommand(command.id, async (c) => {
+                if (c.status === 'pending') return;
+                if (c.status === 'failed') { setReState({ running: false, error: c.error || 'La ré-analyse a échoué.', done: false }); return; }
+                try { const deal = await api.fetchLeafDeal(id); setState((s) => ({ ...s, deal })); setReState({ running: false, error: null, done: true }); }
+                catch (error) { setReState({ running: false, error: String(error.message || error), done: false }); }
+            });
+        } catch (error) { setReState({ running: false, error: String(error.message || error), done: false }); }
     };
 
     // Analyse approfondie : commande suivie par son statut ; un refus (IA éteinte, plafond atteint) s'affiche tel quel.
@@ -206,10 +227,16 @@ const LeafDetail = ({ id, api }) => {
                     {trend && <p>Prix : {formatPrice(trend.first)} → {formatPrice(trend.last)} ({trend.delta < 0 ? '' : '+'}{formatPrice(trend.delta)})</p>}
                 </div>
                 <Flags flags={d.flags} />
+                {reState.error && <p className="text-sm text-rose-300">{reState.error}</p>}
+                {reState.done && !reState.error && <p className="text-sm text-emerald-300">Ré-analyse terminée : fiche relue et verdict recalculé.</p>}
                 {d.link && <a href={d.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold text-blue-400 hover:text-blue-300"><ExternalLink size={14} /> Voir l'annonce</a>}
                 <div className="flex gap-2">
                     <button onClick={() => patch({ isFavorite: !d.is_favorite })} aria-pressed={d.is_favorite}
                         className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${d.is_favorite ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><Star size={14} className="inline -mt-0.5" /> Favori</button>
+                    <button onClick={runReanalyze} disabled={reState.running} title="Relire la fiche et refaire règles, verdict et analyse IA"
+                        className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-sm font-bold disabled:opacity-50">
+                        <RefreshCw size={14} className={`inline -mt-0.5 ${reState.running ? 'animate-spin' : ''}`} /> {reState.running ? 'Ré-analyse…' : 'Ré-analyser'}
+                    </button>
                     <button onClick={() => patch({ isRejected: !d.is_rejected })} aria-pressed={d.is_rejected}
                         className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${d.is_rejected ? 'bg-rose-500/20 border-rose-500/40 text-rose-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}><ThumbsDown size={14} className="inline -mt-0.5" /> {d.is_rejected ? 'Rejetée' : 'Pas intéressé'}</button>
                 </div>

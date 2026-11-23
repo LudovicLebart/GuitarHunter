@@ -1126,7 +1126,10 @@ export const fetchLeafRuns = (limit = 10) => apiFetch(`/leaf/runs?limit=${limit}
 export const fetchLeafConfig = () => apiFetch('/leaf/config');
 /** `body` : voir `validateLeafForm` (utils/leaf.js). Le serveur refuse (422) une valeur hors bornes. */
 export const saveLeafConfig = (body) => apiFetch('/leaf/config', { method: 'PUT', body });
-export const triggerLeafRefresh = () => addCommand('LEAF_REFRESH', null);
+/** `forceAi` : refait aussi l'analyse IA de chaque annonce retenue (dans le plafond quotidien), même si rien n'a changé. */
+export const triggerLeafRefresh = (forceAi = false) => addCommand('LEAF_REFRESH', forceAi ? { forceAi: true } : null);
+/** Ré-analyse UNE annonce : relit sa fiche, refait règles, scores, verdict et IA avec le code actuel. */
+export const triggerLeafReanalyze = (dealId) => addCommand('LEAF_REANALYZE', { dealId });
 /** Analyse approfondie (Expert) d'UNE annonce : commande `LEAF_ANALYZE`, suivie par `watchLeafCommand` ; le serveur refuse si l'IA est éteinte ou le plafond atteint. */
 export const triggerLeafAnalyze = (dealId) => addCommand('LEAF_ANALYZE', { dealId });
 /** Suit une commande jusqu'à sa sortie de `pending` (`callback(commande)` à chaque observation) ; renvoie la fonction d'annulation. */

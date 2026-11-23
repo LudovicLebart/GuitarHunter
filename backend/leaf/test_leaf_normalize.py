@@ -116,6 +116,17 @@ class TestReviewFixes(unittest.TestCase):
             self.assertEqual(n.accident_flags(t), [], t)
         self.assertEqual(n.accident_flags("à réparer, pour pièces"), ["pour pieces", "a reparer"])
 
+    def test_battery_gauge_and_soh_phrasings_seen_in_real_listings(self):
+        # Phrases INVENTÉES, de même forme que celles d'une vraie annonce (dépôt public : aucun texte réel).
+        self.assertEqual(n.extract_capacity_bars("Santé : 6 barres sur 12 au tableau de bord")[0], 6)
+        self.assertEqual(n.extract_capacity_bars("jauge 11 barres / 12")[0], 11)
+        self.assertEqual(n.extract_capacity_bars("10 sur 12 barres")[0], 10)
+        self.assertIsNone(n.extract_capacity_bars("6 barres de cafe, 12 mois"))
+        self.assertEqual(n.extract_soh("Capacité utilisable de 14,3 kWh (~50 % sur LeafSpy, voir capture)")[0], 50.0)
+        self.assertEqual(n.extract_soh("87 % selon LeafSpy")[0], 87.0)
+        self.assertEqual(n.extract_soh("mesuré à 91,5 % avec LeafSpy hier")[0], 91.5)
+        self.assertIsNone(n.extract_soh("Pneus à 50 % d'usure, LeafSpy disponible"))      # pas un état de santé
+
     def test_km_after_year(self):
         self.assertEqual(n.parse_km("Nissan Leaf 2017 120 000 km"), 120000)
         self.assertEqual(n.parse_km("2017 85 000 km"), 85000)

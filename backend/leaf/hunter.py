@@ -177,10 +177,11 @@ class LeafHunter:
 
     # ------------------------------------------------------------------ passage
 
-    def run_scan(self, force: bool = False, strict: bool = False) -> Optional[Dict[str, Any]]:
+    def run_scan(self, force: bool = False, strict: bool = False, force_ai: bool = False) -> Optional[Dict[str, Any]]:
         """Un passage complet. None si désactivé / déjà en cours ; sinon un bilan. `force` (commande manuelle)
         ignore seulement l'interrupteur par utilisateur, jamais celui du serveur. `strict` (commande) : une erreur
-        ou un passage déjà en cours LÈVE au lieu de renvoyer None, pour que la commande soit marquée échouée."""
+        ou un passage déjà en cours LÈVE au lieu de renvoyer None, pour que la commande soit marquée échouée. `force_ai` : refait
+        l'analyse IA de chaque annonce retenue même si son texte et son prix n'ont pas changé (toujours dans le plafond quotidien)."""
         try:
             if not leaf_config.server_enabled():
                 return None
@@ -193,7 +194,7 @@ class LeafHunter:
                     raise RuntimeError("Un passage Leaf est déjà en cours.")
                 return None
             try:
-                return self._scan(cfg)
+                return self._scan(cfg, force_ai)
             finally:
                 self._lock.release()
         except Exception as e:
@@ -202,7 +203,7 @@ class LeafHunter:
                 raise
             return None
 
-    def _scan(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    def _scan(self, cfg: Dict[str, Any], force_ai: bool = False) -> Dict[str, Any]:
         scan, notify_cfg = cfg["scan"], cfg["notify"]
         self.log.info(f"[Leaf] Passage : sources {', '.join(scan['sources'])}, budget {scan['min_price']}-{scan['max_price']} $.")
         scan = self._with_facebook_city(scan)
@@ -226,7 +227,7 @@ class LeafHunter:
             fit = scoring.price_fit(listing, comparables)
             if fit:
                 listing["price_fit"] = fit
-            listing = result["kept"][i] = self._enrich(listing, cfg["analysis"], budget)
+            listing = result["kept"][i] = self._enrich(listing, cfg["analysis"], budget, force_ai)
             self._stabilize_photos(listing)
             outcome = self.repo.upsert_listing(listing)
             self.repo.record_match(self.user_id, listing["id"])
@@ -260,7 +261,7 @@ class LeafHunter:
             self.log.error(f"[Leaf] IA : plafond illisible ({e}), analyses suspendues.")
             return {"left": 0}
 
-    def _enrich(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int]) -> Dict[str, Any]:
+    def _enrich(self, listing: Dict[str, Any], acfg: Dict[str, Any], budget: Dict[str, int], force_ai: bool = False) -> Dict[str, Any]:
         """Applique l'analyse IA (en cache si le texte et le prix n'ont pas changé, sinon un appel dans la limite du plafond),
         recalcule les scores avec les faits PROUVÉS, puis calcule le verdict EN CODE. Ne lève jamais : sans IA, le verdict
         reste calculé sur les règles seules."""
@@ -268,8 +269,9 @@ class LeafHunter:
             stored = self.repo.get_ai(listing["id"])
             fp = ai_extract.fingerprint(listing)
             ai = None
-            if stored and stored.get("fingerprint") == fp:
-                ai = stored                                              # gratuit : texte et prix inchangés
+            if stored and stored.get("fingerprint") == fp and not (force_ai and acfg["enabled"] and self._ai is not None
+                                                                   and not listing.get("detail_unavailable")):
+                ai = stored                                              # gratuit : texte et prix inchangés (sauf ré-analyse demandée)
             elif listing.get("detail_unavailable"):
                 # Fiche illisible à ce passage : le texte est celui, plus court, de la carte. Ni appel payant, ni écrasement d'une analyse
                 # faite sur le texte complet : l'analyse stockée (si elle existe) est réutilisée telle quelle.
@@ -417,6 +419,43 @@ class LeafHunter:
         t.start()
         return True
 
+    def reanalyze_deal(self, deal_id: str) -> Dict[str, Any]:
+        """Ré-analyse UNE annonce déjà stockée : relit sa fiche (Kijiji / AutoHebdo ; Facebook garde son texte stocké), refait normalisation,
+        règles, scores et verdict avec le code ACTUEL, et refait l'analyse IA (nouvel appel, dans le plafond). Utile quand les règles ont
+        été améliorées ou que le vendeur a modifié son annonce. Échec CLAIR si la fiche est illisible ou si l'annonce ne passe plus les
+        règles (elle est alors retirée de la vue de l'utilisateur, avec la raison)."""
+        cfg = self.config()
+        scan = cfg["scan"]
+        row = self.repo.get_visible_vehicle(self.user_id, deal_id)
+        if row is None:
+            raise RuntimeError("Annonce introuvable.")
+        raw = {"id": row["id"], "source": row["source"], "source_id": row["source_id"], "url": row["link"], "title": row["title"],
+               "description": row["description"], "price": float(row["price"]) if row["price"] is not None else None, "year": row["year"],
+               "km": row["km"], "trim": row["trim"], "vin": row["vin"], "seller_type": row["seller_type"], "city": row["location"],
+               "latitude": row["latitude"], "longitude": row["longitude"], "image_urls": list(row["image_urls"] or []), "model": "leaf"}
+        if row["source"] == "facebook":                                  # pas de relecture sans navigateur : on garde le texte stocké
+            raw["detail_fetched"], raw["year_optional"] = True, True
+        criteria = {k: scan[k] for k in ("years", "min_price", "max_price", "max_km")}
+        fetcher = None if raw.get("detail_fetched") else self._detail_factory()
+        result = pipeline.evaluate_listings([raw], criteria, detail_fetcher=fetcher, home=scan["home"])
+        if not result["kept"]:
+            dropped = (result["rejected"] or result["ignored"])[0]
+            reason = ", ".join(dropped.get("reject_reasons") or [dropped.get("ignored_reason") or "?"])
+            self.repo.mark_withdrawn(self.user_id, [deal_id])
+            raise RuntimeError(f"Après relecture, l'annonce ne passe plus les règles ({reason}) : retirée de votre liste.")
+        listing = result["kept"][0]
+        if listing.get("detail_unavailable"):
+            raise RuntimeError("La fiche de l'annonce est illisible pour le moment (site bloqué ?) : réessayez plus tard.")
+        fit = scoring.price_fit(listing, self.repo.comparables())
+        if fit:
+            listing["price_fit"] = fit
+        budget = self._ai_budget(cfg["analysis"])
+        listing = self._enrich(listing, cfg["analysis"], budget, force_ai=True)
+        self.repo.upsert_listing(listing)
+        self.repo.record_match(self.user_id, deal_id)                    # lève un retrait antérieur : l'annonce repasse les règles
+        self.log.info(f"[Leaf] Ré-analyse terminée ({deal_id[-12:]}) : verdict {listing.get('verdict')}.")
+        return listing
+
     def analyze_deal(self, deal_id: str) -> Dict[str, Any]:
         """Analyse approfondie (Expert, niveau 3) d'UNE annonce, à la demande. Échec CLAIR (la commande est marquée échouée) si
         l'IA est éteinte, le plafond atteint, l'annonce introuvable ou le modèle en panne : le bouton affiche la cause."""
@@ -448,9 +487,9 @@ class LeafHunter:
             if not leaf_config.server_enabled():
                 raise RuntimeError("Leaf Hunter est désactivé sur ce serveur (LEAF_ENABLED).")
 
-        def refresh(_):
+        def refresh(payload):
             need_server()
-            self.run_scan(force=True, strict=True)
+            self.run_scan(force=True, strict=True, force_ai=isinstance(payload, dict) and payload.get("forceAi") is True)
 
         def clean(_):
             need_server()
@@ -461,4 +500,11 @@ class LeafHunter:
             if not isinstance(deal_id, str):
                 raise RuntimeError("Annonce non précisée.")
             self.analyze_deal(deal_id)
-        return {"LEAF_REFRESH": refresh, "LEAF_CLEANUP": clean, "LEAF_ANALYZE": analyze}
+        def reanalyze(payload):
+            need_server()
+            deal_id = payload.get("dealId") if isinstance(payload, dict) else None
+            if not isinstance(deal_id, str):
+                raise RuntimeError("Annonce non précisée.")
+            with self._lock:                                             # même verrou que les passages : pas de relecture simultanée
+                self.reanalyze_deal(deal_id)
+        return {"LEAF_REFRESH": refresh, "LEAF_CLEANUP": clean, "LEAF_ANALYZE": analyze, "LEAF_REANALYZE": reanalyze}

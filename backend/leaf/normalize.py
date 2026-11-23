@@ -81,6 +81,8 @@ _SOH_PATTERNS = [
     re.compile(r"(?:\bsoh\b|sante(?: de la)? batterie|etat(?: de sante)?(?: de la)? batterie|battery health|leaf ?spy)"
                r"[^0-9]{0,25}(\d{2,3}(?:[.,]\d)?)\s*%"),
     re.compile(r"(\d{2,3}(?:[.,]\d)?)\s*%\s*(?:de\s*)?(?:\bsoh\b|sante(?: de la)? batterie|battery health)"),
+    # « ~50 % sur LeafSpy », « 87 % selon LeafSpy » : le pourcentage PRÉCÈDE la mention de l'outil
+    re.compile(r"(\d{2,3}(?:[.,]\d)?)\s*%\s*(?:sur|selon|avec|par|d'apres|mesure[^a-z]{0,3}(?:sur|avec|par))\s*leaf ?spy"),
 ]
 
 
@@ -97,10 +99,10 @@ def extract_soh(text: Optional[str]) -> Optional[Tuple[float, str]]:
 
 
 def extract_capacity_bars(text: Optional[str]) -> Optional[Tuple[int, str]]:
-    """(barres sur 12, preuve) : « 11/12 barres », « 10 sur 12 barres »."""
-    m = re.search(r"\b(\d{1,2})\s*(?:/|sur)\s*12\s*barres?", normalize_text(text))
+    """(barres sur 12, preuve) : « 11/12 barres », « 10 sur 12 barres », « 6 barres sur 12 », « 6 barres / 12 »."""
+    m = re.search(r"\b(\d{1,2})\s*(?:/|sur)\s*12\s*barres?|\b(\d{1,2})\s*barres?\s*(?:/|sur)\s*12\b", normalize_text(text))
     if m:
-        bars = int(m.group(1))
+        bars = int(m.group(1) or m.group(2))
         if 1 <= bars <= 12:
             return bars, m.group(0)
     return None

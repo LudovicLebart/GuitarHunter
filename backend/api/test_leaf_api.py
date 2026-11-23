@@ -188,11 +188,14 @@ class TestLeafAPI(unittest.TestCase):
     def test_leaf_commands_are_accepted_by_the_api_and_the_analyze_payload_is_checked(self):
         # Régression (2026-11-23) : la liste blanche de `input_guard` refusait LEAF_REFRESH, donc « Actualiser » échouait en 422.
         for type_, payload in (("LEAF_REFRESH", None), ("LEAF_CLEANUP", None), ("LEAF_ANALYZE", {"dealId": "leaf_kijiji_123"}),
-                               ("LEAF_ANALYZE", {"dealId": "leaf_autohebdo_my-2017_ab12"})):
+                               ("LEAF_ANALYZE", {"dealId": "leaf_autohebdo_my-2017_ab12"}), ("LEAF_REANALYZE", {"dealId": "leaf_kijiji_123"}),
+                               ("LEAF_REFRESH", {"forceAi": True})):
             r = self.client.post("/commands", json={"type": type_, "payload": payload})
             self.assertEqual(r.status_code, 201, (type_, r.text))
         for bad in (None, {}, {"dealId": 3}, {"dealId": "guitare_1"}, {"dealId": "leaf_x_" + "a" * 200}, "leaf_kijiji_1"):
-            self.assertEqual(self.client.post("/commands", json={"type": "LEAF_ANALYZE", "payload": bad}).status_code, 422, bad)
+            for type_ in ("LEAF_ANALYZE", "LEAF_REANALYZE"):
+                self.assertEqual(self.client.post("/commands", json={"type": type_, "payload": bad}).status_code, 422, (type_, bad))
+        self.assertEqual(self.client.post("/commands", json={"type": "LEAF_REFRESH", "payload": {"forceAi": "oui"}}).status_code, 422)
         asyncio.run(self._clear_commands())
 
     async def _clear_commands(self):
