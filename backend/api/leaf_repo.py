@@ -57,3 +57,11 @@ async def set_state(pool: asyncpg.Pool, user_id: str, deal_id: str, **fields: An
         f"INSERT INTO user_vehicle_state ({insert_cols}) VALUES ({placeholders}) "
         f"ON CONFLICT (user_id, deal_id) DO UPDATE SET {updates}", user_id, deal_id, *values)
     return await get_deal(pool, user_id, deal_id)
+
+
+async def list_runs(pool: asyncpg.Pool, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Derniers passages des sources Leaf (`scrape_runs`, sources `leaf_*`) de l'utilisateur : santé des scrapers."""
+    rows = await pool.fetch(
+        "SELECT source, outcome, detail, cards_seen, duration_ms, created_at FROM scrape_runs "
+        "WHERE user_id = $1 AND source LIKE 'leaf\\_%' ORDER BY created_at DESC, id DESC LIMIT $2", user_id, limit)
+    return [dict(r) for r in rows]

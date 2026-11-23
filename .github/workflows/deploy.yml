@@ -95,6 +95,7 @@ jobs:
             backend.test_pricing \
             backend.scripts.test_repair_fb_city_ids \
             backend.api.test_fiches_api \
+            backend.api.test_leaf_api \
             backend.api.test_restoration_api \
             backend.api.test_chat_api \
             backend.api.test_deals_api \

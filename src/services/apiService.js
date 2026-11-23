@@ -1109,3 +1109,13 @@ export const recordLlmUsage = (usage) => {
     console.error('Error recording LLM usage:', error);
   });
 };
+
+// --- Leaf Hunter (phase 4) : annonces de Nissan Leaf d'occasion. Lignes brutes de l'API (snake_case : `is_favorite`,
+// `analysis`, `flags`...), affichées par src/components/LeafPage.jsx via src/utils/leaf.js.
+export const fetchLeafDeals = ({ includeSold = false, includeRejected = false } = {}) =>
+  apiFetch(`/leaf/deals?includeSold=${includeSold}&includeRejected=${includeRejected}`);
+export const fetchLeafDeal = (id) => apiFetch(`/leaf/deals/${encodeURIComponent(id)}`);
+/** `patch` : { isFavorite?, isRejected?, notes?, checklist? } — seuls les champs fournis changent. */
+export const setLeafState = (id, patch) => apiFetch(`/leaf/deals/${encodeURIComponent(id)}/state`, { method: 'PATCH', body: patch });
+export const fetchLeafRuns = (limit = 10) => apiFetch(`/leaf/runs?limit=${limit}`);
+export const triggerLeafRefresh = () => addCommand('LEAF_REFRESH', null);

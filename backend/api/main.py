@@ -7,6 +7,7 @@ l'instant — bascule décidée séparément une fois toutes les tranches valid�
 
 Lancement local : uvicorn backend.api.main:app --reload
 """
+import os
 import asyncio
 import decimal
 import gzip
@@ -32,7 +33,7 @@ except ImportError:  # pragma: no cover - dépend de l'environnement
 
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, leaf_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -811,6 +812,61 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
         if listener_added:
             await listen_conn.remove_listener("chat_changes", _on_notify)
         await listen_conn.close()
+
+
+# --- Leaf Hunter (phase 4) : annonces de Nissan Leaf d'occasion --------------------------------------------------
+# Lecture/préférences sur `vehicle_*` (voir leaf_repo.py, autonome). Visibilité par `user_vehicle_matches`. Accès réservé
+# aux uid de `LEAF_ALLOWED_UIDS` (liste séparée par des virgules) si la variable est définie ; sinon tout utilisateur connecté
+# (il ne verra que ses propres annonces liées).
+
+def _leaf_uid(uid: str = Depends(get_current_uid)) -> str:
+    allowed = [u.strip() for u in os.getenv("LEAF_ALLOWED_UIDS", "").split(",") if u.strip()]
+    if allowed and uid not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Leaf Hunter n'est pas activé pour ce compte.")
+    return uid
+
+
+@app.get("/leaf/deals")
+async def leaf_list_deals(includeSold: bool = False, includeRejected: bool = False, uid: str = Depends(_leaf_uid)):
+    return [dict(r) for r in await leaf_repo.list_deals(get_pool(), uid, includeSold, includeRejected)]
+
+
+@app.get("/leaf/runs")
+async def leaf_list_runs(limit: int = Query(20, ge=1, le=100), uid: str = Depends(_leaf_uid)):
+    return await leaf_repo.list_runs(get_pool(), uid, limit)
+
+
+@app.get("/leaf/deals/{deal_id}")
+async def leaf_get_deal(deal_id: str, uid: str = Depends(_leaf_uid)):
+    pool = get_pool()
+    row = await leaf_repo.get_deal(pool, uid, deal_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return {**dict(row), "priceHistory": await leaf_repo.price_history(pool, uid, deal_id)}
+
+
+class LeafStateBody(BaseModel):
+    isFavorite: Optional[bool] = None
+    isRejected: Optional[bool] = None
+    notes: Optional[str] = Field(None, max_length=5000)
+    checklist: Optional[dict[str, Any]] = None
+
+
+@app.patch("/leaf/deals/{deal_id}/state")
+async def leaf_set_state(deal_id: str, body: LeafStateBody, uid: str = Depends(_leaf_uid)):
+    """Met à jour SEULEMENT les champs fournis (un champ absent du corps n'est pas touché)."""
+    fields = {col: getattr(body, attr) for attr, col in
+              (("isFavorite", "is_favorite"), ("isRejected", "is_rejected"), ("notes", "notes"), ("checklist", "checklist"))
+              if attr in body.model_fields_set}
+    if not fields:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Aucun champ à mettre à jour.")
+    for col in ("is_favorite", "is_rejected"):
+        if col in fields and fields[col] is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{col} ne peut pas être nul.")
+    row = await leaf_repo.set_state(get_pool(), uid, deal_id, **fields)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
+    return dict(row)
 
 
 # --- Fiches techniques de restauration (lot C) -------------------------------------------------

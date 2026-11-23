@@ -7,16 +7,19 @@ import { DealsProvider } from './context/DealsContext';
 import { CitiesProvider } from './context/CitiesContext';
 import { useAuth } from './hooks/useAuth';
 import { useFicheRoute } from './hooks/useFicheRoute';
+import { useLeafRoute } from './hooks/useLeafRoute';
 
 import Dashboard from './components/Dashboard';
 import LoginPage from './components/LoginPage';
 import SharedDealPage from './components/SharedDealPage';
 // Chargé à la demande : la page des fiches (et sa bibliothèque Markdown) ne pèse pas sur le bundle principal.
 const FichesPage = lazy(() => import('./components/FichesPage'));
+const LeafPage = lazy(() => import('./components/LeafPage'));   // Leaf Hunter (`#leaf`), chargé à la demande
 
 const AppContent = () => {
   const { user, authStatus } = useAuth();
   const { error, setError } = useBotConfigContext();
+  const leafRoute = useLeafRoute();     // `#leaf` / `#leaf/<id>` : annonces de Nissan Leaf d'occasion
   const ficheRoute = useFicheRoute();   // `#fiches` / `#fiche/<slug>` : fiches techniques, après connexion (l'API exige un jeton)
 
   if (authStatus.status === 'loading') {
@@ -29,6 +32,14 @@ const AppContent = () => {
 
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (leafRoute) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">Chargement de Leaf Hunter…</div>}>
+        <LeafPage route={leafRoute} />
+      </Suspense>
+    );
   }
 
   if (ficheRoute) {
