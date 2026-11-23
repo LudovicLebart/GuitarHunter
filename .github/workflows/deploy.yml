@@ -404,7 +404,19 @@ jobs:
               echo "❌ guitare-hunter n'est pas actif après le déploiement (journalctl -u guitare-hunter)."
               return 1
             }
-            sleep 5
+            # Le bot met plusieurs dizaines de secondes à démarrer (imports, base, Firebase, Leaf) : il peut être « activating » bien après 5 s
+            # sans qu'il soit en panne (2026-11-23 : échec à tort alors que le service tournait normalement). On l'attend donc jusqu'à
+            # 40 s ; la détection d'une vraie boucle de plantage reste assurée par le second contrôle, plus bas.
+            wait_bot_active() {
+              for _ in $(seq 1 20); do
+                if systemctl is-active --quiet guitare-hunter; then
+                  return 0
+                fi
+                sleep 2
+              done
+              return 1
+            }
+            wait_bot_active || true
             check_bot || DEPLOY_FAILED=1
             check_health() {
               for _ in $(seq 1 15); do
