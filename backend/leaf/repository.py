@@ -161,10 +161,12 @@ class LeafRepository:
         return [r["outcome"] for r in rows]
 
     def mark_stale_sold(self, days: int = 14) -> int:
-        """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`)."""
+        """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`). Les annonces Facebook
+        sont EXCLUES : le scan ne lit que les 20 plus récentes, une annonce plus ancienne mais toujours en ligne n'est jamais
+        revue — l'absence de relecture ne prouve rien pour cette source."""
         with self.pool.connection() as conn:
             return conn.execute("UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() "
-                                "WHERE status = 'active' AND last_seen_at < now() - make_interval(days => %s)",
+                                "WHERE status = 'active' AND source <> 'facebook' AND last_seen_at < now() - make_interval(days => %s)",
                                 (days,)).rowcount
 
     def nearest_facebook_city(self, latitude: float, longitude: float, max_km: float) -> Optional[Dict[str, Any]]:
@@ -178,5 +180,16 @@ class LeafRepository:
         for r in rows:
             d = calculate_distance(latitude, longitude, r["latitude"], r["longitude"])
             if d <= max_km and (best is None or d < best["distance_km"]):
-                best = {"id": r["fb_id"], "name": r["name"], "distance_km": d}
+                best = {"id": r["fb_id"], "name": r["name"], "distance_km": d,
+                        "latitude": r["latitude"], "longitude": r["longitude"]}
         return best
+
+    def known_unchanged(self, user_id: str, deal_id: str, price) -> bool:
+        """Vrai si l'annonce est déjà stockée avec ce prix (inutile de rouvrir sa fiche : ~10 s pour Facebook). Le lien avec
+        l'utilisateur est créé s'il manque, SANS lever un retrait existant (une annonce écartée par ses filtres le reste)."""
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT price FROM vehicle_deals WHERE id = %s AND status = 'active'", (deal_id,)).fetchone()
+            if not row or row["price"] is None or price is None or float(row["price"]) != float(price):
+                return False
+            conn.execute("INSERT INTO user_vehicle_matches (user_id, deal_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, deal_id))
+            return True

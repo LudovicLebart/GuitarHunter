@@ -73,6 +73,8 @@ def risk_flags(listing: Dict[str, Any]) -> List[str]:
         flags.append("soh_unknown")
     if listing.get("km") is None:
         flags.append("km_unknown")
+    if listing.get("year") is None:
+        flags.append("year_unknown")
     if listing.get("battery_kwh_low") == 24:
         replaced = (listing.get("mentions") or {}).get("battery_replaced")
         flags.append("battery_24_replaced" if replaced and listing.get("battery_source") == "stated"

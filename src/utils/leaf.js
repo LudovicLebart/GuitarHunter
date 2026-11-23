@@ -19,6 +19,7 @@ export const formatKm = (n) => (typeof n === 'number' && Number.isFinite(n) ? `$
 export const FLAG_LABELS = {
     soh_unknown: 'SOH inconnu (à mesurer avec LeafSpy)',
     km_unknown: 'Kilométrage inconnu',
+    year_unknown: 'Année inconnue (non écrite dans l\'annonce)',
     battery_unknown: 'Capacité de batterie inconnue',
     battery_24_possible: 'Batterie 24 kWh possible',
     battery_24_replaced: 'Batterie 24 kWh remplacée (preuve à demander)',

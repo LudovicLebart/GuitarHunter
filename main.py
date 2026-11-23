@@ -91,7 +91,8 @@ def main_loop(bot, pg_handler, stop_event, start_event, scan_stop_event):
             from backend.leaf.repository import LeafRepository
             leaf_hunter = LeafHunter(LeafRepository(bot.repo.pool, bot.logger.getChild('leaf')), bot.repo.user_id,
                                      bot.logger.getChild('leaf'),
-                                     browser_guard=getattr(bot, '_browser_semaphore', None))   # même plafond de navigateurs que les guitares
+                                     browser_guard=getattr(bot, '_browser_semaphore', None),   # même plafond de navigateurs que les guitares
+                                     stop_events=(stop_event, scan_stop_event))                # STOP_BOT / STOP_SCAN interrompent un scan Facebook
             command_handlers.update(leaf_hunter.command_handlers())
             # Boucle de fond DÉDIÉE (un fil par utilisateur, démarrée une seule fois même si le watchdog relance
             # main_loop) : un passage long ne bloque pas la boucle du bot, la fréquence se relit à chaud.

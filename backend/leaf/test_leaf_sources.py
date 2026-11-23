@@ -2,6 +2,7 @@
 parseur Kijiji guitares (le paramètre `prefixes` ne doit rien changer par défaut)."""
 import json
 import unittest
+from unittest import mock
 
 from backend.leaf import dry_run, pipeline
 from backend.leaf.sources import BlockedError, autohebdo, kijiji_autos
@@ -248,6 +249,52 @@ class TestFacebookSource(unittest.TestCase):
         raws, run, closed = self._scan(Boom())
         self.assertEqual((raws, run["outcome"], closed), ([], "error", [1]))
         self.assertIn("navigateur indisponible", run["detail"])
+
+    def test_facebook_deal_is_not_reread_nor_flagged_unreadable_and_keeps_listing_without_year(self):
+        from backend.leaf.sources import facebook
+        calls = []
+        deal = {**self.DEAL, "title": "Nissan Leaf SV", "description": "Annonce Marketplace. Très propre."}
+        result = pipeline.evaluate_listings([facebook.deal_to_raw(deal)], {"max_price": 7500},
+                                            detail_fetcher=lambda raw: calls.append(1) or None)
+        self.assertEqual(calls, [])                                       # la fiche a déjà été lue par le scraper Facebook
+        kept = result["kept"][0]
+        self.assertNotIn("detail_unavailable", kept["flags"])
+        self.assertIn("year_unknown", kept["flags"])                       # gardée, pas écartée en silence
+        self.assertIn("year_unknown", kept["risk_flags"])
+
+    def test_year_is_still_required_for_sources_with_structured_year(self):
+        result = pipeline.evaluate_listings([{"id": "x", "title": "Nissan Leaf", "price": 5000, "model": "leaf", "km": 1000}], {})
+        self.assertEqual(result["ignored"][0]["ignored_reason"], "year")
+
+    def test_scraper_gets_city_coordinates_skip_callback_and_stop_event(self):
+        from backend.leaf.sources import facebook
+        seen = {}
+
+        class Fake:
+            def scan_marketplace(self, cfg, skip, **kw):
+                seen.update(skip=skip, stop=kw.get("stop_event"))
+                return {"deals": [], "total_cards_seen": 1, "anti_bot_blocked": False, "error": None}
+
+            def close_session(self):
+                pass
+        factory_args = []
+        scan = {"min_price": 1, "max_price": 2, "facebook_city": {"id": "1", "name": "Ville-Test", "latitude": 45.5, "longitude": -73.3}}
+        skip, stop = (lambda i, p: True), object()
+        facebook.collect_facebook(scan, scraper_factory=lambda *a: factory_args.append(a) or Fake(), should_skip=skip, stop_event=stop)
+        self.assertEqual(factory_args[0][3], {"latitude": 45.5, "longitude": -73.3})
+        self.assertIs(seen["skip"], skip)
+        self.assertIs(seen["stop"], stop)
+
+    def test_busy_browsers_skip_facebook_without_losing_other_sources(self):
+        import threading
+        from backend.leaf import hunter
+        guard = threading.Semaphore(1)
+        guard.acquire()                                                    # tous les navigateurs sont pris
+        with mock.patch.object(hunter, "BROWSER_WAIT_S", 0.05):
+            raws, runs = hunter.collect_sources({"sources": ["facebook"], "years": [], "pages": 1, "min_price": 1, "max_price": 2},
+                                                browser_guard=guard)
+        self.assertEqual((raws, runs[0]["source"], runs[0]["outcome"]), ([], "facebook", "skipped"))
+        self.assertIn("occupés", runs[0]["detail"])
 
     def test_no_facebook_city_means_nothing_is_launched(self):
         from backend.leaf.sources import facebook

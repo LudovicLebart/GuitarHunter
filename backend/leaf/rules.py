@@ -36,6 +36,8 @@ def gatekeeper_rules(listing: Dict[str, Any], soh_min_reject: float = DEFAULT_SO
 
     if listing.get("km") is None:
         flags.append("km_unknown")
+    if listing.get("year") is None:
+        flags.append("year_unknown")
     if listing.get("battery_source") == "unknown":
         flags.append("battery_unknown")
 

@@ -34,7 +34,7 @@ def evaluate_listings(raws: Sequence[Dict[str, Any]], criteria: Optional[Dict[st
         listing = normalize.normalize_listing(raw)
 
         ok, reason = filters.passes_criteria(listing, criteria)
-        if ok and detail_fetcher:
+        if ok and detail_fetcher and not raw.get("detail_fetched"):       # Facebook : fiche déjà lue par son scraper
             detail = detail_fetcher(raw)
             if detail is None:
                 listing["detail_unavailable"] = True

@@ -20,8 +20,12 @@ ALERT_AFTER_FAILURES = 3        # alerte santé : au 3e échec consécutif d'une
 MAX_INDIVIDUAL_NOTIFICATIONS = 5
 
 
+BROWSER_WAIT_S = 120            # attente maximale d'un emplacement de navigateur (les scans de guitares peuvent durer)
+
+
 def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_html, logger: Optional[logging.Logger] = None,
-                    browser_guard: Optional[Any] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+                    browser_guard: Optional[Any] = None, should_skip: Optional[Callable[[str, Any], bool]] = None,
+                    stop_event: Optional[Any] = None) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """(annonces brutes, passages par source). Résultat d'une source : ok | no_cards | blocked | error | skipped.
     `browser_guard` (sémaphore du bot, facultatif) limite les navigateurs ouverts en même temps (Facebook seulement)."""
     raws: List[Dict[str, Any]] = []
@@ -63,16 +67,30 @@ def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_ht
                      "duration_ms": int((time.time() - t0) * 1000)})
     if "facebook" in scan["sources"]:
         from backend.leaf.sources import facebook
+        acquired = True
         if browser_guard:
-            browser_guard.acquire()
-        try:
-            found, run = facebook.collect_facebook(scan, logger)
-        finally:
-            if browser_guard:
-                browser_guard.release()
-        raws += found
-        runs.append(run)
+            acquired = browser_guard.acquire(timeout=BROWSER_WAIT_S)     # jamais d'attente illimitée : Kijiji/AutoHebdo sont déjà lus
+        if not acquired:
+            runs.append({"source": "facebook", "outcome": "skipped", "cards_seen": 0, "duration_ms": 0,
+                         "detail": "navigateurs occupés par les scans de guitares"})
+        else:
+            try:
+                found, run = facebook.collect_facebook(scan, logger, should_skip=should_skip, stop_event=stop_event)
+            finally:
+                if browser_guard:
+                    browser_guard.release()
+            raws += found
+            runs.append(run)
     return raws, runs
+
+
+class _AnyStop:
+    """`is_set()` vrai dès qu'un des événements d'arrêt du bot (STOP_BOT, STOP_SCAN) l'est : interrompt un scan Facebook en cours."""
+    def __init__(self, events):
+        self._events = tuple(e for e in events if e is not None)
+
+    def is_set(self) -> bool:
+        return any(e.is_set() for e in self._events)
 
 
 _LOCKS: Dict[str, threading.Lock] = {}          # un verrou PAR UTILISATEUR, partagé entre boucle de fond et commandes
@@ -124,10 +142,14 @@ class LeafHunter:
     def __init__(self, repo, user_id: str, logger: Optional[logging.Logger] = None,
                  collector: Optional[Callable[[Dict[str, Any]], Tuple[list, list]]] = None,
                  detail_fetcher_factory: Optional[Callable[[], Any]] = None,
-                 notifier: Callable[..., bool] = leaf_notify.send, browser_guard: Optional[Any] = None):
+                 notifier: Callable[..., bool] = leaf_notify.send, browser_guard: Optional[Any] = None,
+                 stop_events: Tuple[Any, ...] = ()):
         self.repo, self.user_id = repo, user_id
         self.log = logger or logging.getLogger(__name__)
-        self._collector = collector or (lambda scan: collect_sources(scan, logger=self.log, browser_guard=browser_guard))
+        self._stop = _AnyStop(stop_events)
+        self._collector = collector or (lambda scan: collect_sources(
+            scan, logger=self.log, browser_guard=browser_guard, stop_event=self._stop,
+            should_skip=lambda fb_id, price: self.repo.known_unchanged(self.user_id, f"leaf_facebook_{fb_id}", price)))
         self._detail_factory = detail_fetcher_factory or DetailFetcher
         self._notify = notifier
         self._lock = _lock_for(user_id)    # anti-chevauchement (boucle de fond + commande manuelle, même verrou)
@@ -217,8 +239,11 @@ class LeafHunter:
             return scan
         home = scan.get("home") or {}
         city = None
-        if home.get("latitude") is not None and home.get("longitude") is not None:
-            city = self.repo.nearest_facebook_city(home["latitude"], home["longitude"], home.get("max_km") or 150)
+        try:
+            if home.get("latitude") is not None and home.get("longitude") is not None:
+                city = self.repo.nearest_facebook_city(home["latitude"], home["longitude"], home.get("max_km") or 150)
+        except Exception as e:           # une panne de lecture des villes ne doit pas arrêter Kijiji/AutoHebdo
+            self.log.error(f"[Leaf] Facebook : ville introuvable ({e}) ; la source est ignorée à ce passage.")
         if city:
             self.log.info(f"[Leaf] Facebook : ville de recherche « {city['name']} » ({city['distance_km']:.0f} km du point de référence).")
         return {**scan, "facebook_city": city}
@@ -250,11 +275,13 @@ class LeafHunter:
 
     def _health_alert(self, source: str, outcome: str) -> None:
         """Alerte unique au 3e échec consécutif d'une source (bloquée, en erreur ou sans carte)."""
-        if outcome == "ok":
+        if outcome in ("ok", "skipped"):          # « skipped » = réglage (aucune ville dans le rayon...), pas une panne
             return
-        recent = self.repo.recent_outcomes(self.user_id, source, ALERT_AFTER_FAILURES + 1)
+        recent = self.repo.recent_outcomes(self.user_id, source, ALERT_AFTER_FAILURES + 3)
         failing = 0
         for o in recent:
+            if o == "skipped":
+                continue
             if o == "ok":
                 break
             failing += 1
@@ -270,6 +297,8 @@ class LeafHunter:
         if not leaf_config.server_enabled():
             return 0
         for source in self.config()["scan"]["sources"]:
+            if source == "facebook":     # n'entre ni dans le balayage (20 annonces lues) ni dans sa condition
+                continue
             last = self.repo.recent_outcomes(self.user_id, source, 1)
             if not last or last[0] != "ok":
                 self.log.info(f"[Leaf] Nettoyage reporté : la source {source} n'a pas répondu normalement au dernier passage.")

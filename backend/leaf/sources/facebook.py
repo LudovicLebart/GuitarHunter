@@ -7,7 +7,8 @@ villes des guitares : `LeafFacebookScraper` laisse passer toutes les cartes.
 
 `deal_to_raw` est PUR (testé sans navigateur) : il met une annonce du scraper au format commun des sources Leaf, pour que
 normalisation, règles, scores et doublons s'appliquent tels quels. Année, km et version ne sont pas des champs structurés ici :
-ils sont lus dans le titre/la description par `normalize` (la fiche Facebook les écrit dans le texte)."""
+ils sont lus dans le titre/la description par `normalize`. Si le texte ne dit pas l'année, l'annonce n'est PAS écartée
+(`year_optional` : drapeau `year_unknown`), car une carte Facebook range souvent l'année dans des attributs que le scraper ne lit pas."""
 import logging
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -34,6 +35,8 @@ def deal_to_raw(deal: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "description": deal.get("description") or "",
         "price": round(price) if isinstance(price, (int, float)) and not isinstance(price, bool) else None,
         "year": None, "km": None, "trim": None, "model": None, "vin": None, "seller_type": None,
+        "year_optional": True,        # année absente du texte : gardée avec un drapeau plutôt qu'écartée en silence
+        "detail_fetched": True,       # le scraper Facebook a DÉJÀ lu la fiche : pas de seconde lecture (aucun parseur de fiche)
         "city": deal.get("location") or "",
         "latitude": deal.get("latitude"), "longitude": deal.get("longitude"),
         "url": ITEM_URL.format(id=fb_id),
@@ -46,7 +49,7 @@ def _scan_config(scan: Dict[str, Any], location: str, max_ads: int) -> Dict[str,
             "max_price": scan["max_price"], "max_ads": max_ads}
 
 
-def _make_scraper(city_id: str, location: str, logger: logging.Logger):
+def _make_scraper(city_id: str, location: str, logger: logging.Logger, coords: Optional[Dict[str, float]] = None):
     from backend.scraping.core import FacebookScraper          # import tardif : Playwright seulement si la source est activée
 
     class LeafFacebookScraper(FacebookScraper):
@@ -55,11 +58,14 @@ def _make_scraper(city_id: str, location: str, logger: logging.Logger):
 
     scraper = LeafFacebookScraper({}, {}, logger=logger)
     scraper.city_mapping = {location: city_id}
+    if coords:        # force la géolocalisation du navigateur sur la ville cherchée (sinon : résultats selon l'IP du serveur)
+        scraper.city_coordinates = {location: {"lat": coords["latitude"], "lng": coords["longitude"]}}
     return scraper
 
 
 def collect_facebook(scan: Dict[str, Any], logger: Optional[logging.Logger] = None,
-                     scraper_factory: Callable[..., Any] = _make_scraper, max_ads: int = 20
+                     scraper_factory: Callable[..., Any] = _make_scraper, max_ads: int = 20,
+                     should_skip: Optional[Callable[[str, Any], bool]] = None, stop_event: Optional[Any] = None
                      ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """(annonces brutes, passage au format de `collect_sources`). `scan['facebook_city']` = {'id': ID/slug Facebook, 'name'} ;
     absent -> passage « skipped » sans rien lancer. Ne lève jamais : un échec devient un résultat `error`/`blocked`."""
@@ -73,8 +79,11 @@ def collect_facebook(scan: Dict[str, Any], logger: Optional[logging.Logger] = No
     try:
         from backend.scraping.parser import ListingParser
         location = ListingParser.normalize_city_name(city.get("name") or str(city["id"]))
-        scraper = scraper_factory(str(city["id"]), location, log)
-        result = scraper.scan_marketplace(_scan_config(scan, location, max_ads), None, allow_catchup=False)
+        coords = {"latitude": city["latitude"], "longitude": city["longitude"]} \
+            if city.get("latitude") is not None and city.get("longitude") is not None else None
+        scraper = scraper_factory(str(city["id"]), location, log, coords)
+        # `should_skip` : annonce déjà connue au même prix (pas de fiche rouverte) ; `stop_event` : STOP_BOT / STOP_SCAN interrompent.
+        result = scraper.scan_marketplace(_scan_config(scan, location, max_ads), should_skip, stop_event=stop_event, allow_catchup=False)
         outcome, detail = classify_facebook(result)
         raws = [r for r in (deal_to_raw(d) for d in (result.get("deals") or [])) if r]
         return raws, {"source": SOURCE, "outcome": outcome, "detail": detail or None,

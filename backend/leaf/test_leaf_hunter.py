@@ -154,7 +154,10 @@ class TestHunter(unittest.TestCase):
         with self.pool.connection() as conn:
             conn.execute("INSERT INTO cities (id, name, latitude, longitude, fb_location_id) VALUES "
                          "('c-leaf-near','Ville Proche',45.5,-73.35,'fb123'),('c-leaf-far','Ville Loin',48.0,-70.0,'fb999') ON CONFLICT (id) DO NOTHING")
-        self.addCleanup(lambda: self.pool.connection().__enter__().execute("DELETE FROM cities WHERE id LIKE 'c-leaf-%'"))
+        def drop_cities():
+            with self.pool.connection() as conn:
+                conn.execute("DELETE FROM cities WHERE id LIKE 'c-leaf-%'")
+        self.addCleanup(drop_cities)
         seen = []
         self.hunter._collector = lambda scan: seen.append(scan.get("facebook_city")) or (self.raws, self.runs)
         self.hunter.run_scan()
@@ -166,6 +169,54 @@ class TestHunter(unittest.TestCase):
                                                           "home": {"latitude": 10.0, "longitude": 10.0}}})
         self.hunter.run_scan()
         self.assertIsNone(seen[2])                                       # aucune ville dans le rayon : pas de recherche
+
+    def test_facebook_city_lookup_failure_does_not_stop_the_other_sources(self):
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji", "facebook"]}})
+        self.repo.nearest_facebook_city = lambda *a: (_ for _ in ()).throw(RuntimeError("colonne fb_location_id absente"))
+        seen = []
+        self.hunter._collector = lambda scan: seen.append(scan.get("facebook_city")) or (self.raws, self.runs)
+        stats = self.hunter.run_scan()
+        self.assertEqual((stats["kept"], seen), (1, [None]))               # Kijiji passe, Facebook est simplement ignoré
+
+    def test_skipped_is_neutral_for_health_alerts_and_cleanup_ignores_facebook(self):
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji", "facebook"]}})
+        self.runs = [{"source": "kijiji", "outcome": "ok", "cards_seen": 1},
+                     {"source": "facebook", "outcome": "skipped", "detail": "aucune ville Facebook configurée"}]
+        for _ in range(5):
+            self.hunter.run_scan()
+        self.assertEqual([t for t, _ in self.sent if "panne" in t], [])     # jamais d'alerte « en panne » pour un simple réglage
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")
+        self.assertEqual(self.hunter.cleanup(), 1)                          # Facebook « skipped » ne bloque pas le balayage
+
+    def test_blocked_facebook_alerts_but_does_not_block_cleanup(self):
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji", "facebook"]}})
+        self.runs = [{"source": "kijiji", "outcome": "ok", "cards_seen": 1}, {"source": "facebook", "outcome": "blocked"}]
+        for _ in range(3):
+            self.hunter.run_scan()
+        self.assertEqual([t for t, _ in self.sent if "panne" in t], ["Leaf : source facebook en panne"])
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")
+        self.assertEqual(self.hunter.cleanup(), 1)
+
+    def test_stale_cleanup_never_sells_facebook_listings(self):
+        self.repo.upsert_listing({**raw("leaf_facebook_1", source="facebook"), "flags": []})
+        self.repo.upsert_listing({**raw("leaf_test_2"), "flags": []})
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '40 days'")
+        self.assertEqual(self.repo.mark_stale_sold(14), 1)
+        self.assertEqual(self.repo.active_ids("facebook"), ["leaf_facebook_1"])
+
+    def test_known_unchanged_links_without_lifting_a_withdrawal(self):
+        self.repo.upsert_listing({**raw("leaf_facebook_7", source="facebook"), "flags": []})
+        self.assertFalse(self.repo.known_unchanged(self.UID, "leaf_facebook_7", 5999))      # prix changé : fiche à rouvrir
+        self.assertFalse(self.repo.known_unchanged(self.UID, "leaf_facebook_inconnue", 6000))
+        self.assertTrue(self.repo.known_unchanged(self.UID, "leaf_facebook_7", 6000))
+        self.repo.mark_withdrawn(self.UID, ["leaf_facebook_7"])
+        self.assertTrue(self.repo.known_unchanged(self.UID, "leaf_facebook_7", 6000))
+        with self.pool.connection() as conn:
+            self.assertTrue(conn.execute("SELECT withdrawn FROM user_vehicle_matches WHERE user_id=%s AND deal_id='leaf_facebook_7'",
+                                         (self.UID,)).fetchone()["withdrawn"])                # retrait conservé
 
     def test_collector_crash_is_swallowed(self):
         def boom(scan):

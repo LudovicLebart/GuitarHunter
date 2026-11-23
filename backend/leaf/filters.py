@@ -32,7 +32,9 @@ def passes_criteria(listing: Dict[str, Any], criteria: Optional[Dict[str, Any]] 
     price = listing.get("price")
     if not isinstance(price, (int, float)) or price <= 0:
         return False, "no_price"
-    if listing.get("year") not in tuple(c["years"]):
+    if listing.get("year") is None and listing.get("year_optional"):
+        pass                    # source sans année structurée (Facebook) : gardée, drapeau `year_unknown` côté règles
+    elif listing.get("year") not in tuple(c["years"]):
         return False, "year"
     if price < c["min_price"]:
         return False, "price_low"
