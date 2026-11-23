@@ -127,8 +127,9 @@ class LeafAI:
                     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """Lit les chiffres visibles sur les photos de l'annonce. Ne lève jamais : (lecture | None, erreur | None).
 
-        Dell : TRI sur des vignettes (toutes les photos, quelques centaines de tokens) puis LECTURE des 3 captures retenues en haute
-        résolution. Gemini (secours) : lecture directe d'au plus 10 photos en résolution moyenne, sans tri. Rien n'est écrit sur disque :
+        Dell : TRI de TOUTES les photos en résolution moyenne (assez nette pour reconnaître un écran ; ~300 tokens chacune, ramenées au budget
+        du Dell si besoin) puis LECTURE des captures retenues (4 au plus) en haute résolution. Gemini (secours) : lecture directe d'au plus 12 photos
+        en résolution moyenne, sans tri. Rien n'est écrit sur disque :
         les images restent en mémoire. Le garde-fou (`photo_extract.apply_guardrails`) recalcule les valeurs depuis les transcriptions."""
         if self.analyzer is None:
             return None, "Analyseur indisponible (bot hors ligne)."
@@ -140,9 +141,9 @@ class LeafAI:
         for provider in providers:
             try:
                 if provider == "local":
-                    thumbs = self.analyzer._download_images([photo_extract.sized_url(u, "thumb") for u in urls])
+                    thumbs = self.analyzer._download_images([photo_extract.sized_url(u, "medium") for u in urls])
                     if len(thumbs) != len(urls):                    # une vignette manquante décalerait les numéros : on n'essaie pas
-                        last_error = "local : vignettes incomplètes"
+                        last_error = "local : photos de tri incomplètes"
                         continue
                     triage, err = self._local_vision(photo_extract.TRIAGE_PROMPT, thumbs, photo_extract.TRIAGE_JSON_SCHEMA)
                     if err or triage is None:

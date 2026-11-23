@@ -33,12 +33,12 @@ class TestUrls(unittest.TestCase):
 
     def test_photo_urls_https_unique_and_capped(self):
         urls = px.photo_urls({"image_urls": [K(0), K(0), "http://non-https.invalide/x.jpg", 3, K(1)] + [K(i) for i in range(2, 30)]})
-        self.assertEqual((urls[:2], len(urls)), ([K(0), K(1)], 12))
+        self.assertEqual((urls[:2], len(urls)), ([K(0), K(1)], 16))
 
 
 class TestParse(unittest.TestCase):
     def test_triage_keeps_valid_unique_indices_up_to_three(self):
-        self.assertEqual(px.parse_triage({"indices": [2, 2, 9, -1, True, "1", 0, 4, 5]}, 6), [2, 0, 4])
+        self.assertEqual(px.parse_triage({"indices": [2, 2, 9, -1, True, "1", 0, 4, 5, 3]}, 6), [2, 0, 4, 5])
         for bad in (None, [], {"indices": "x"}, {}):
             self.assertEqual(px.parse_triage(bad, 6), [])
 
@@ -120,12 +120,18 @@ class TestReadPhotos(unittest.TestCase):
         out, err = ai.LeafAI(v).read_photos(listing())
         self.assertIsNone(err)
         self.assertEqual([c[:3] for c in v.calls], [("local", "leaf_photo_triage", "leaf_photo"), ("local", "leaf_photo_read", "leaf_photo")])
-        self.assertEqual(v.downloads[0], [K(i, 200) for i in range(6)])               # tri : toutes les vignettes
+        self.assertEqual(v.downloads[0], [K(i, 640) for i in range(6)])               # tri : TOUTES les photos, en résolution moyenne
         self.assertEqual(v.downloads[1], [K(3, 1600), K(1, 1600)])                    # lecture : seulement les 2 retenues, en 1600 px
         self.assertEqual((out["selected"], out["provider"]), ([4, 2], "local"))       # numéros de la fiche, à partir de 1
         self.assertEqual((out["facts"]["soh_photo"]["value"], out["facts"]["soh_photo"]["photo"]), (61.2, 4))
         self.assertEqual(out["readings"], [{"photo": 4, "transcript": "LeafSpy SOH 61,2 %"}])
         self.assertEqual(out["fingerprint"], px.fingerprint(listing()["image_urls"]))
+
+    def test_the_last_of_eleven_photos_can_be_selected_and_read(self):
+        v = FakeVision(triage={"indices": [10]}, readings={"readings": [{"photo": 0, "transcript": "Ahr 41.0"}]})
+        out, _ = ai.LeafAI(v).read_photos(listing(image_urls=[K(i) for i in range(11)]))
+        self.assertEqual((len(v.downloads[0]), v.downloads[1], out["selected"]), (11, [K(10, 1600)], [11]))
+        self.assertEqual(out["facts"]["ahr_photo"]["photo"], 11)
 
     def test_nothing_selected_means_no_reading_call(self):
         v = FakeVision(triage={"indices": []})
@@ -137,11 +143,11 @@ class TestReadPhotos(unittest.TestCase):
         out, _ = ai.LeafAI(v).read_photos(listing())
         self.assertEqual(out["facts"], {})
 
-    def test_dell_failure_falls_back_to_gemini_which_reads_up_to_ten_medium_photos_directly(self):
+    def test_dell_failure_falls_back_to_gemini_which_reads_every_photo_including_the_last_one(self):
         v = FakeVision(local_error="timeout", gemini={"readings": [{"photo": 2, "transcript": "SOH 77 %"}]})
-        out, err = ai.LeafAI(v).read_photos(listing(image_urls=[K(i) for i in range(12)]))
+        out, err = ai.LeafAI(v).read_photos(listing(image_urls=[K(i) for i in range(11)]))
         self.assertEqual((err, out["provider"]), (None, "gemini"))
-        self.assertEqual((len(v.downloads[-1]), v.downloads[-1][0]), (10, K(0, 640)))
+        self.assertEqual((len(v.downloads[-1]), v.downloads[-1][0], v.downloads[-1][-1]), (11, K(0, 640), K(10, 640)))   # la 11e photo (tableau de bord) incluse
         self.assertEqual((out["facts"]["soh_photo"]["value"], out["facts"]["soh_photo"]["photo"]), (77.0, 3))
 
     def test_a_dead_dell_is_not_called_again_after_three_failures(self):

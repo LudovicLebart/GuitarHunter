@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from backend.leaf import normalize
 
 PHOTO_VERSION = 1
-MAX_SELECTED = 3                    # captures retenues par le tri
-MAX_GEMINI_PHOTOS = 10              # lecture directe (sans tri) par le fournisseur de secours
+MAX_SELECTED = 4                    # captures retenues par le tri (lues en haute résolution)
+MAX_GEMINI_PHOTOS = 12              # lecture directe (sans tri) par le fournisseur de secours : toutes les photos d'une fiche courante, dont la dernière
 MIN_TRANSCRIPT, MAX_TRANSCRIPT = 2, 80
 SOH_RANGE = (50.0, 100.0)
 AHR_RANGE = (30.0, 130.0)
@@ -22,7 +22,7 @@ KM_MISMATCH_RATIO = 0.05
 TRIAGE_PROMPT = (
     "Voici les photos d'une annonce de voiture. Indique les NUMÉROS (en commençant à 0, dans l'ordre reçu) des photos qui montrent un ÉCRAN "
     "ou un tableau de bord avec des CHIFFRES lisibles : capture d'écran de téléphone (application LeafSpy ou autre), compteur kilométrique, "
-    "écran de batterie. Ne retiens ni les photos de la carrosserie, ni de l'intérieur sans écran, ni du moteur. Au plus 3 numéros ; une liste vide "
+    "écran de batterie. Ne retiens ni les photos de la carrosserie, ni de l'intérieur sans écran, ni du moteur. Au plus 4 numéros ; une liste vide "
     "si aucune photo ne convient. Ne décris rien."
 )
 # Éditable dans l'app (`leafConfig.prompts.photo`) : le schéma JSON strict (READ_JSON_SCHEMA) impose la forme de la réponse.
@@ -68,7 +68,7 @@ def sized_url(url: str, size: str = "medium") -> str:
     return u
 
 
-def photo_urls(listing: Dict[str, Any], limit: int = 12) -> List[str]:
+def photo_urls(listing: Dict[str, Any], limit: int = 16) -> List[str]:
     """Adresses https des photos, sans doublon (l'ordre de la fiche est conservé)."""
     out: List[str] = []
     for u in listing.get("image_urls") or []:
