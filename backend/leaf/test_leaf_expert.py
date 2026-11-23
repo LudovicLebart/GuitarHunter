@@ -80,6 +80,12 @@ class TestPrompt(unittest.TestCase):
         for needle in ("FAITS ÉTABLIS PAR LE CODE", "CANDIDAT_FORT", "88.0", "heat_pump", "TEXTE DE L'ANNONCE", "facture disponible", "MOT POUR MOT"):
             self.assertIn(needle, p)
 
+    def test_unknown_battery_is_never_sent_as_a_fact_like_none_ou_24(self):
+        facts = lambda lo, hi: ex.known_facts(listing(battery_kwh_low=lo, battery_kwh_high=hi))["batterie_kwh"]
+        self.assertEqual((facts(24, None), facts(None, 30), facts(None, None)), ("inconnue", "inconnue", "inconnue"))
+        self.assertEqual((facts(30, 30), facts(24, 30)), ("30", "24 ou 30"))
+        self.assertNotIn("None", ex.build_prompt(listing(battery_kwh_low=24, battery_kwh_high=None)).split("TEXTE DE L'ANNONCE")[0].replace("null", ""))
+
     def test_row_to_listing_rebuilds_what_the_scores_need(self):
         row = {"id": "leaf_x_1", "title": "t", "description": "d", "price": 5000, "year": 2017, "km": 1, "trim": "SV", "location": "V",
                "seller_type": "delr", "battery_kwh_low": 30, "battery_kwh_high": 30, "battery_source": "inferred", "soh_announced": None,

@@ -199,13 +199,26 @@ class TestHunter(unittest.TestCase):
             conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '20 days'")
         self.assertEqual(self.hunter.cleanup(), 1)
 
-    def test_stale_cleanup_never_sells_facebook_listings(self):
+    def test_stale_cleanup_uses_a_much_longer_window_for_facebook(self):
         self.repo.upsert_listing({**raw("leaf_facebook_1", source="facebook"), "flags": []})
         self.repo.upsert_listing({**raw("leaf_test_2"), "flags": []})
         with self.pool.connection() as conn:
             conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '40 days'")
-        self.assertEqual(self.repo.mark_stale_sold(14), 1)
+        self.assertEqual(self.repo.mark_stale_sold(14), 1)                               # 40 jours : Kijiji vendue, Facebook encore là
         self.assertEqual(self.repo.active_ids("facebook"), ["leaf_facebook_1"])
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '70 days' WHERE source = 'facebook'")
+        self.assertEqual(self.repo.mark_stale_sold(14), 1)                               # 70 jours : une annonce Facebook ne reste pas « active » pour toujours
+        self.assertEqual(self.repo.active_ids("facebook"), [])
+
+    def test_a_facebook_card_seen_again_is_kept_fresh_and_stale_ones_leave_the_market_statistics(self):
+        self.repo.upsert_listing({**raw("leaf_facebook_9", source="facebook"), "flags": []})
+        with self.pool.connection() as conn:
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() - interval '30 days'")
+        self.assertEqual(self.repo.comparables(), [])                                    # vue il y a 30 jours : n'alimente plus le prix de marché
+        self.assertTrue(self.repo.known_unchanged(self.UID, "leaf_facebook_9", 6000))
+        self.assertEqual(len(self.repo.comparables()), 1)                                # carte revue : fraîche de nouveau
+        self.assertEqual(self.repo.mark_stale_sold(14), 0)
 
     def test_known_unchanged_links_without_lifting_a_withdrawal(self):
         self.repo.upsert_listing({**raw("leaf_facebook_7", source="facebook"), "flags": []})
@@ -270,7 +283,8 @@ class TestHunter(unittest.TestCase):
         self.raws = [raw("leaf_test_1", description="Texte tout autre.")]
         self.hunter.run_scan()
         row = self._ai_of()
-        self.assertTrue(row["analysis"]["ai"]["stale"])                                  # ancienne analyse : affichée comme périmée
+        self.assertTrue(row["analysis"]["ai_stale"])                                     # ancienne analyse : affichée comme périmée
+        self.assertNotIn("stale", row["analysis"]["ai"])                                 # ...sans modifier la copie stockée
         self.assertIsNone(row["soh_announced"])                                          # et NON appliquée au texte modifié
 
     def test_daily_cap_stops_the_calls_and_notifies_once(self):
@@ -309,6 +323,89 @@ class TestHunter(unittest.TestCase):
         analysis = self._ai_of()["analysis"]
         self.assertEqual(analysis["expert"], {"verdict": "ok"})
         self.assertIn("ai", analysis)
+
+    def test_stale_banner_is_cleared_when_the_original_text_comes_back(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        first = self.analyzer
+        self._with_ai(enabled=False)
+        self.raws = [raw("leaf_test_1", description=self.AI_TEXT, price=5500)]           # prix changé, IA éteinte : analyse périmée
+        self.hunter.run_scan()
+        self.assertTrue(self._ai_of()["analysis"]["ai_stale"])
+        self.raws = [raw("leaf_test_1", description=self.AI_TEXT)]                       # le vendeur remet le prix d'origine
+        self.hunter.run_scan()
+        analysis = self._ai_of()["analysis"]
+        self.assertNotIn("ai_stale", analysis)                                           # empreinte retrouvée : plus de bannière
+        self.assertEqual((len(first.calls), analysis["ai"]["version"]), (1, 1))
+        self.assertEqual(self._ai_of()["verdict"], "CANDIDAT_FORT")
+
+    def test_unreadable_detail_reuses_the_stored_analysis_and_never_spends_a_call(self):
+        self._with_ai()
+        self.hunter.run_scan()
+        first = self.analyzer
+        stored = self._ai_of()["analysis"]["ai"]
+        self._with_ai()                                                                    # nouvel analyseur : doit rester à 0 appel
+        degraded = {**raw("leaf_test_1", description="Texte de la carte seulement."), "detail_unavailable": True}
+        self.raws = [degraded]
+        self.hunter._detail_factory = lambda: (lambda r: None)                             # fiche illisible
+        self._set_config({"enabled": True, "scanConfig": {"sources": ["kijiji"], "read_details": True},
+                          "analysisConfig": {"enabled": True, "max_calls_per_day": 30}})
+        self.hunter.run_scan()
+        self.assertEqual((len(first.calls), self.analyzer.calls), (1, []))
+        self.assertEqual(self._ai_of()["analysis"]["ai"], stored)                          # l'analyse du texte complet est intacte
+
+    def test_facebook_photos_are_copied_once_and_originals_kept_on_failure(self):
+        uploads = []
+        self.hunter._photo_uploader = lambda urls, deal_id: uploads.append((list(urls), deal_id)) or (["https://stockage.invalide/a.jpg"], ["gs://x"])
+        fb = raw("leaf_facebook_5", source="facebook", image_urls=["https://scontent.fbcdn.invalide/p1.jpg"], model="leaf")
+        self.raws = [fb]
+        self.hunter.run_scan()
+        self.assertEqual(self._ai_of("leaf_facebook_5")["image_urls"], ["https://stockage.invalide/a.jpg"])
+        self.hunter.run_scan()
+        self.assertEqual(len(uploads), 1)                                                  # revue : photos déjà stables, pas de seconde copie
+        self.raws = [raw("leaf_test_1", image_urls=["https://exemple.invalide/k.jpg"])]
+        self.hunter.run_scan()
+        self.assertEqual(len(uploads), 1)                                                  # une annonce Kijiji n'est jamais copiée
+        self.assertEqual(self._ai_of()["image_urls"], ["https://exemple.invalide/k.jpg"])
+        self.hunter._photo_uploader = lambda urls, deal_id: (_ for _ in ()).throw(RuntimeError("stockage indisponible"))
+        self.raws = [raw("leaf_facebook_6", source="facebook", image_urls=["https://scontent.fbcdn.invalide/p2.jpg"], model="leaf")]
+        self.hunter.run_scan()
+        self.assertEqual(self._ai_of("leaf_facebook_6")["image_urls"], ["https://scontent.fbcdn.invalide/p2.jpg"])
+
+    def test_expert_cap_counts_answers_only_and_two_clicks_cannot_exceed_it(self):
+        import threading, time
+        self._expert_hunter(max_expert=1)
+        pool = self.pool
+
+        class SlowClaude:
+            def __init__(self, inner):
+                self.inner = inner
+
+            def _call_claude_json(self, model, parts, **kw):
+                time.sleep(0.3)
+                with pool.connection() as conn:                                            # le vrai client écrit sa ligne à la fin de l'appel
+                    conn.execute("INSERT INTO llm_usage (source, provider, model, action, ok) VALUES ('backend','anthropic','m','leaf_t3', true)")
+                return self.inner._call_claude_json(model, parts, **kw)
+
+            def __getattr__(self, name):
+                return getattr(self.inner, name)
+        self.hunter._ai.analyzer = SlowClaude(self.claude)
+        self.addCleanup(lambda: self._purge_usage("leaf_t3"))
+        with pool.connection() as conn:
+            conn.execute("DELETE FROM llm_usage WHERE action = 'leaf_t3'")
+            conn.execute("INSERT INTO llm_usage (source, provider, model, action, ok) VALUES ('backend','anthropic','m','leaf_t3', false)")   # échec : ne compte pas
+        results = []
+
+        def click():
+            try:
+                self.hunter.analyze_deal("leaf_test_1")
+                results.append("ok")
+            except RuntimeError as e:
+                results.append(str(e)[:8])
+        threads = [threading.Thread(target=click) for _ in range(2)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(sorted(results), ["Plafond ", "ok"])                              # un seul appel payant, malgré deux clics simultanés
 
     def test_strong_candidate_gets_a_priority_notification(self):
         self._with_ai()

@@ -3,6 +3,7 @@ Données INVENTÉES uniquement (dépôt public). Se saute sans la variable."""
 import asyncio
 import os
 import unittest
+from unittest import mock
 
 URL = os.getenv("KB_TEST_DATABASE_URL")
 SCHEMA = os.path.join(os.path.dirname(os.path.dirname(__file__)), "api", "schema.sql")
@@ -92,6 +93,16 @@ class TestLeafRepository(unittest.TestCase):
         self.repo.upsert_listing(listing())
         self.repo.upsert_listing(listing("leaf_test_2", km=None))
         self.assertEqual(self.repo.comparables(), [{"year": 2017, "km": 90000, "price": 6000.0}])
+
+    def test_every_preserved_analysis_key_survives_an_upsert(self):
+        from backend.leaf import repository
+        self.repo.upsert_listing(listing())
+        with mock.patch.object(repository, "_PRESERVED_ANALYSIS", ("ai", "expert", "photo_review")):
+            with self.pool.connection() as conn:
+                conn.execute("UPDATE vehicle_deals SET analysis = analysis || '{\"photo_review\": {\"ok\": 1}, \"expert\": {\"o\": 2}}'::jsonb")
+            self.repo.upsert_listing(listing(price=5500))
+        analysis = self.repo.get_vehicle("leaf_test_1")["analysis"]
+        self.assertEqual((analysis["photo_review"], analysis["expert"]), ({"ok": 1}, {"o": 2}))
 
     def test_schema_is_replayable(self):
         import psycopg

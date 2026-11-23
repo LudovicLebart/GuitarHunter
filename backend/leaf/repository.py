@@ -11,7 +11,7 @@ _COLUMNS = ("source", "source_id", "link", "title", "description", "year", "trim
             "battery_kwh_high", "battery_source", "soh_announced", "soh_evidence", "capacity_bars", "vin",
             "seller_type", "location", "latitude", "longitude", "distance_km", "verdict", "duplicate_of")
 _ANALYSIS_KEYS = ("battery_score", "winter_fit", "equipment", "risk_flags", "mentions", "capacity_bars_evidence",
-                  "detail_unavailable", "price_fit", "ai", "verdict_reasons")
+                  "detail_unavailable", "price_fit", "ai", "ai_stale", "verdict_reasons")
 # `analysis.expert` (niveau 3) n'est jamais produit par le passage : il est CONSERVÉ d'un passage à l'autre ; `analysis.ai` aussi
 # tant que le passage n'en fournit pas de nouvelle (IA éteinte, plafond atteint).
 _PRESERVED_ANALYSIS = ("ai", "expert")
@@ -69,8 +69,8 @@ class LeafRepository:
                               "id": deal_id, "price": price, "original_price": original, "price_drop_amount": drop}
                     cols = list(params)
                     updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price", "analysis"))
-                    updates += (", analysis = jsonb_strip_nulls(jsonb_build_object('ai', vehicle_deals.analysis->'ai', "
-                                "'expert', vehicle_deals.analysis->'expert')) || EXCLUDED.analysis")
+                    kept_keys = ", ".join(f"'{k}', vehicle_deals.analysis->'{k}'" for k in _PRESERVED_ANALYSIS)   # constantes du module, jamais d'entrée externe
+                    updates += f", analysis = jsonb_strip_nulls(jsonb_build_object({kept_keys})) || EXCLUDED.analysis"
                     conn.execute(
                         f"INSERT INTO vehicle_deals ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) "
                         f"ON CONFLICT (id) DO UPDATE SET {updates}, "
@@ -138,7 +138,8 @@ class LeafRepository:
         """Annonces actives avec année, km et prix, pour la régression `scoring.price_fit`."""
         with self.pool.connection() as conn:
             rows = conn.execute("SELECT year, km, price FROM vehicle_deals WHERE status = 'active' AND year IS NOT NULL "
-                                "AND km IS NOT NULL AND price IS NOT NULL").fetchall()
+                                "AND km IS NOT NULL AND price IS NOT NULL "
+                                "AND (source <> 'facebook' OR last_seen_at > now() - interval '14 days')").fetchall()
         return [{"year": r["year"], "km": r["km"], "price": float(r["price"])} for r in rows]
 
     # ------------------------------------------------------------------ passages et configuration
@@ -165,14 +166,16 @@ class LeafRepository:
                                 "ORDER BY created_at DESC, id DESC LIMIT %s", (user_id, f"leaf_{source}", limit)).fetchall()
         return [r["outcome"] for r in rows]
 
-    def mark_stale_sold(self, days: int = 14) -> int:
-        """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`). Les annonces Facebook
-        sont EXCLUES : le scan ne lit que les 20 plus récentes, une annonce plus ancienne mais toujours en ligne n'est jamais
-        revue — l'absence de relecture ne prouve rien pour cette source."""
+    def mark_stale_sold(self, days: int = 14, facebook_days: int = 60) -> int:
+        """Annonces actives non revues depuis `days` jours : marquées vendues (nettoyage `LEAF_CLEANUP`). Facebook a une fenêtre
+        PLUS LONGUE (`facebook_days`) : le scan ne lit que les 20 plus récentes, une annonce plus ancienne mais toujours en ligne
+        n'est plus revue, donc une courte fenêtre la vendrait à tort ; sans aucune règle, une annonce vendue resterait affichée
+        pour toujours. Les annonces Facebook encore dans les 20 premières sont revues (`known_unchanged`) et ne vieillissent pas."""
         with self.pool.connection() as conn:
-            return conn.execute("UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() "
-                                "WHERE status = 'active' AND source <> 'facebook' AND last_seen_at < now() - make_interval(days => %s)",
-                                (days,)).rowcount
+            return conn.execute(
+                "UPDATE vehicle_deals SET status = 'sold', sold_at = now(), \"timestamp\" = now() WHERE status = 'active' AND "
+                "last_seen_at < now() - make_interval(days => CASE WHEN source = 'facebook' THEN %s ELSE %s END)",
+                (facebook_days, days)).rowcount
 
     def nearest_facebook_city(self, latitude: float, longitude: float, max_km: float) -> Optional[Dict[str, Any]]:
         """Ville du catalogue partagé (`cities`) la plus proche du point de référence, avec son identifiant Facebook
@@ -196,6 +199,7 @@ class LeafRepository:
             row = conn.execute("SELECT price FROM vehicle_deals WHERE id = %s AND status = 'active'", (deal_id,)).fetchone()
             if not row or row["price"] is None or price is None or float(row["price"]) != float(price):
                 return False
+            conn.execute("UPDATE vehicle_deals SET last_seen_at = now() WHERE id = %s", (deal_id,))      # la carte est toujours en ligne
             conn.execute("INSERT INTO user_vehicle_matches (user_id, deal_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (user_id, deal_id))
             return True
 
@@ -207,11 +211,12 @@ class LeafRepository:
             row = conn.execute("SELECT analysis->'ai' AS ai FROM vehicle_deals WHERE id = %s", (deal_id,)).fetchone()
         return (row or {}).get("ai")
 
-    def count_ai_calls(self, action: str = "leaf_t2", hours: int = 24) -> int:
-        """Appels du modèle (réussis ou non : tous sont facturables) des dernières `hours` heures, pour le plafond quotidien."""
+    def count_ai_calls(self, action: str = "leaf_t2", hours: int = 24, ok_only: bool = False) -> int:
+        """Appels du modèle des dernières `hours` heures, pour le plafond quotidien. Par défaut tous (une tentative échouée est
+        facturable) ; `ok_only` : seulement les réponses obtenues (plafond de l'Expert : un nouvel essai ne consomme pas deux places)."""
         with self.pool.connection() as conn:
-            row = conn.execute("SELECT count(*) AS n FROM llm_usage WHERE action = %s AND created_at >= now() - make_interval(hours => %s)",
-                               (action, hours)).fetchone()
+            row = conn.execute("SELECT count(*) AS n FROM llm_usage WHERE action = %s AND created_at >= now() - make_interval(hours => %s) "
+                               "AND (NOT %s OR ok)", (action, hours, ok_only)).fetchone()
         return int(row["n"])
 
     def get_visible_vehicle(self, user_id: str, deal_id: str) -> Optional[Dict[str, Any]]:

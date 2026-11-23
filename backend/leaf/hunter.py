@@ -95,6 +95,7 @@ class _AnyStop:
 
 _LOCKS: Dict[str, threading.Lock] = {}          # un verrou PAR UTILISATEUR, partagé entre boucle de fond et commandes
 _LOCKS_GUARD = threading.Lock()
+_EXPERT_LOCKS: Dict[str, threading.Lock] = {}     # un verrou PAR UTILISATEUR autour de « vérifier le plafond + appeler l'Expert »
 _BACKGROUND: Dict[str, Tuple[threading.Thread, threading.Event]] = {}   # une seule boucle de fond par utilisateur
 _CURRENT: Dict[str, "LeafHunter"] = {}          # hunter COURANT de chaque utilisateur (remplacé quand le watchdog reconstruit le bot)
 RETRY_AFTER_NONE_S = 600                        # passage manqué (verrou pris, erreur) : nouvel essai dans 10 min, pas à la période suivante
@@ -133,6 +134,11 @@ def _background_loop(user_id: str, stop: threading.Event) -> None:
         stop.wait(LOOP_TICK_S)
 
 
+def _expert_lock_for(user_id: str) -> threading.Lock:
+    with _LOCKS_GUARD:
+        return _EXPERT_LOCKS.setdefault(user_id, threading.Lock())
+
+
 def _lock_for(user_id: str) -> threading.Lock:
     with _LOCKS_GUARD:
         return _LOCKS.setdefault(user_id, threading.Lock())
@@ -143,7 +149,8 @@ class LeafHunter:
                  collector: Optional[Callable[[Dict[str, Any]], Tuple[list, list]]] = None,
                  detail_fetcher_factory: Optional[Callable[[], Any]] = None,
                  notifier: Callable[..., bool] = leaf_notify.send, browser_guard: Optional[Any] = None,
-                 stop_events: Tuple[Any, ...] = (), analyzer: Optional[Any] = None, ai: Optional[Any] = None):
+                 stop_events: Tuple[Any, ...] = (), analyzer: Optional[Any] = None, ai: Optional[Any] = None,
+                 photo_uploader: Optional[Callable[[List[str], str], Any]] = None):
         self.repo, self.user_id = repo, user_id
         self.log = logger or logging.getLogger(__name__)
         if ai is None and analyzer is not None:
@@ -151,6 +158,7 @@ class LeafHunter:
             ai = LeafAI(analyzer, self.log)
         self._ai = ai                      # niveau 2 (IA) : absent = jamais d'appel de modèle
         self._cap_notified_day = None
+        self._photo_uploader = photo_uploader      # (urls, deal_id) -> (urls stables, gs_uris) : photos Facebook (elles expirent)
         self._stop = _AnyStop(stop_events)
         self._collector = collector or (lambda scan: collect_sources(
             scan, logger=self.log, browser_guard=browser_guard, stop_event=self._stop,
@@ -219,6 +227,7 @@ class LeafHunter:
             if fit:
                 listing["price_fit"] = fit
             listing = result["kept"][i] = self._enrich(listing, cfg["analysis"], budget)
+            self._stabilize_photos(listing)
             outcome = self.repo.upsert_listing(listing)
             self.repo.record_match(self.user_id, listing["id"])
             if outcome["action"] in ("new", "price_drop"):
@@ -261,6 +270,10 @@ class LeafHunter:
             ai = None
             if stored and stored.get("fingerprint") == fp:
                 ai = stored                                              # gratuit : texte et prix inchangés
+            elif listing.get("detail_unavailable"):
+                # Fiche illisible à ce passage : le texte est celui, plus court, de la carte. Ni appel payant, ni écrasement d'une analyse
+                # faite sur le texte complet : l'analyse stockée (si elle existe) est réutilisée telle quelle.
+                ai = stored
             elif acfg["enabled"] and self._ai is not None:
                 if budget["left"] > 0:
                     budget["left"] -= 1
@@ -270,10 +283,11 @@ class LeafHunter:
                 else:
                     self._notify_cap(acfg)
             if ai is None and stored:
-                listing = {**listing, "ai": {**stored, "stale": True}}   # ancienne analyse, affichée comme périmée, jamais appliquée
+                listing = {**listing, "ai_stale": True}                  # l'ancienne analyse (conservée en base, intacte) est affichée comme périmée
             if ai is not None:
                 listing = ai_extract.apply_to_listing(listing, ai)
-                listing["ai"] = ai
+                if ai is not stored:
+                    listing["ai"] = ai                                   # nouvelle analyse seulement ; sinon la copie stockée est conservée telle quelle
                 listing["battery_score"] = scoring.battery_score(listing.get("soh_announced"))
                 listing["winter_fit"] = scoring.winter_fit(listing)
                 listing["equipment"] = scoring.equipment_score(listing)
@@ -283,6 +297,22 @@ class LeafHunter:
         v = verdict.compute_verdict(listing)
         listing["verdict"], listing["verdict_reasons"] = v["verdict"], v["reasons"]
         return listing
+
+    def _stabilize_photos(self, listing: Dict[str, Any]) -> None:
+        """Les photos Facebook EXPIRENT : copiées vers le stockage (comme pour les guitares) à la première lecture seulement ; les
+        passages suivants gardent les adresses déjà stables. Sans stockage ou en cas d'échec, les adresses d'origine sont gardées."""
+        if listing.get("source") != "facebook" or self._photo_uploader is None or not listing.get("image_urls"):
+            return
+        try:
+            existing = self.repo.get_vehicle(listing["id"])
+            if existing and existing.get("image_urls"):
+                listing["image_urls"] = list(existing["image_urls"])
+                return
+            stable, _ = self._photo_uploader(listing["image_urls"], listing["id"])
+            if stable:
+                listing["image_urls"] = list(stable)
+        except Exception as e:
+            self.log.warning(f"[Leaf] Photos Facebook non copiées vers le stockage ({e}) : adresses d'origine conservées (elles expirent).")
 
     def _notify_cap(self, acfg: Dict[str, Any]) -> None:
         today = time.strftime("%Y-%m-%d")
@@ -398,13 +428,16 @@ class LeafHunter:
         row = self.repo.get_visible_vehicle(self.user_id, deal_id)
         if row is None:
             raise RuntimeError("Annonce introuvable.")
-        used = self.repo.count_ai_calls("leaf_t3")
-        if used >= acfg["max_expert_per_day"]:
-            raise RuntimeError(f"Plafond atteint : {used} analyses approfondies sur 24 h (maximum {acfg['max_expert_per_day']}, réglable).")
-        opinion, err = self._ai.expert(leaf_expert.row_to_listing(row))
-        if opinion is None:
-            raise RuntimeError(f"L'Expert n'a pas répondu : {err}")
-        self.repo.store_expert(deal_id, opinion)
+        # Vérification du plafond ET appel sous un même verrou : deux clics rapprochés ne dépassent pas le plafond. Le compte porte sur les
+        # réponses OBTENUES (`ok`) : une nouvelle tentative après une erreur passagère ne consomme pas deux places.
+        with _expert_lock_for(self.user_id):
+            used = self.repo.count_ai_calls("leaf_t3", ok_only=True)
+            if used >= acfg["max_expert_per_day"]:
+                raise RuntimeError(f"Plafond atteint : {used} analyses approfondies sur 24 h (maximum {acfg['max_expert_per_day']}, réglable).")
+            opinion, err = self._ai.expert(leaf_expert.row_to_listing(row))
+            if opinion is None:
+                raise RuntimeError(f"L'Expert n'a pas répondu : {err}")
+            self.repo.store_expert(deal_id, opinion)
         self.log.info(f"[Leaf] Analyse approfondie terminée ({deal_id[-12:]}) : à visiter = {opinion['worth_visiting']}.")
         return opinion
 

@@ -52,14 +52,20 @@ def row_to_listing(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _battery_text(low: Any, high: Any) -> str:
+    """Capacité de batterie lisible ; « inconnue » dès qu'une borne manque (jamais « None ou 24 » présenté comme un fait)."""
+    if low is None or high is None:
+        return "inconnue"
+    return str(low) if low == high else f"{low} ou {high}"
+
+
 def known_facts(listing: Dict[str, Any]) -> Dict[str, Any]:
     """Faits établis par le code, donnés à l'Expert comme exacts."""
     ai = listing.get("ai") or {}
     return {
         "annee": listing.get("year"), "version": listing.get("trim"), "km": listing.get("km"), "prix_demande": listing.get("price"),
         "ville": listing.get("location"), "vendeur": {"delr": "commerçant", "ownr": "particulier"}.get(listing.get("seller_type")),
-        "batterie_kwh": listing.get("battery_kwh_low") if listing.get("battery_kwh_low") == listing.get("battery_kwh_high")
-        else f"{listing.get('battery_kwh_low')} ou {listing.get('battery_kwh_high')}",
+        "batterie_kwh": _battery_text(listing.get("battery_kwh_low"), listing.get("battery_kwh_high")),
         "soh_annonce_pct": listing.get("soh_announced"), "autonomie_hiver": listing.get("winter_fit"),
         "equipement": listing.get("equipment"), "prix_marche_estime": listing.get("price_fit"),
         "verdict_du_code": listing.get("verdict"), "raisons_du_verdict": listing.get("verdict_reasons"),

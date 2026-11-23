@@ -228,7 +228,7 @@ const LeafDetail = ({ id, api }) => {
                         <h3 className="text-sm font-black text-slate-200">Analyse IA</h3>
                         <span className="text-[10px] text-slate-500">{ai.model} · {ai.provider === 'local' ? 'Dell' : 'Gemini'}{ai.at ? ` · ${new Date(ai.at).toLocaleDateString('fr-CA')}` : ''}</span>
                     </div>
-                    {ai.stale && <p className="text-xs text-amber-300">Analyse périmée : le texte ou le prix de l'annonce a changé depuis ; elle n'est pas appliquée.</p>}
+                    {d.analysis?.ai_stale && <p className="text-xs text-amber-300">Analyse périmée : le texte ou le prix de l'annonce a changé depuis ; elle n'est pas appliquée.</p>}
                     {ai.summary && <p className="text-sm text-slate-300">{ai.summary}</p>}
                     {aiLines.length > 0 && (
                         <ul className="space-y-2">
