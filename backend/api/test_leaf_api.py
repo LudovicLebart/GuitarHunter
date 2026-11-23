@@ -87,6 +87,19 @@ class TestLeafAPI(unittest.TestCase):
         self.assertEqual(self.client.patch("/leaf/deals/leaf_api_1/state", json={"isFavorite": None}).status_code, 422)
         self.assertEqual(self.client.patch("/leaf/deals/leaf_api_1/state", json={"notes": "x" * 5001}).status_code, 422)
 
+    def test_withdrawn_by_filters_is_hidden_and_not_confused_with_sold(self):
+        async def withdraw():
+            conn = await asyncpg.connect(DATABASE_URL)
+            try:
+                await conn.execute("UPDATE user_vehicle_matches SET withdrawn = true WHERE user_id = $1 AND deal_id = 'leaf_api_1'", ME)
+            finally:
+                await conn.close()
+        asyncio.run(withdraw())
+        self.assertEqual(self.client.get("/leaf/deals").json(), [])                                  # actives et non écartées : rien
+        self.assertEqual([r["id"] for r in self.client.get("/leaf/deals?includeSold=true").json()], ["leaf_api_2"])  # « vendues » seulement
+        rows = self.client.get("/leaf/deals?includeRejected=true").json()
+        self.assertEqual([(r["id"], r["withdrawn"]) for r in rows], [("leaf_api_1", True)])           # écartées par les filtres
+
     def test_runs_only_leaf_sources(self):
         runs = self.client.get("/leaf/runs").json()
         self.assertEqual([(r["source"], r["outcome"], r["cards_seen"]) for r in runs], [("leaf_kijiji", "ok", 12)])

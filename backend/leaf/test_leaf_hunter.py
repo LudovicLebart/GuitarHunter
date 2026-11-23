@@ -184,16 +184,38 @@ class TestHunter(unittest.TestCase):
         self.assertEqual(self.hunter.cleanup(), 0)
         self.assertEqual(self.repo.active_ids(), ["leaf_test_1"])
 
-    def test_known_listing_that_no_longer_passes_is_withdrawn_then_restored(self):
+    def _withdrawn(self, uid=None):
+        with self.pool.connection() as conn:
+            return conn.execute("SELECT withdrawn FROM user_vehicle_matches WHERE user_id = %s AND deal_id = 'leaf_test_1'",
+                                (uid or self.UID,)).fetchone()["withdrawn"]
+
+    def test_known_listing_that_no_longer_passes_is_withdrawn_for_this_user_only(self):
+        from backend.leaf.hunter import LeafHunter
+        with self.pool.connection() as conn:
+            conn.execute("INSERT INTO users (uid) VALUES ('u-leaf-other') ON CONFLICT DO NOTHING")
         self.hunter.run_scan()
-        self.raws = [raw("leaf_test_1", price=9000)]                   # hors budget : « ignorée »
+        self.repo.record_match("u-leaf-other", "leaf_test_1")
+        self.raws = [raw("leaf_test_1", price=9000)]                   # hors budget POUR CET utilisateur : « ignorée »
         self.hunter.run_scan()
-        self.assertEqual(self.repo.active_ids(), [])
-        self.assertEqual(self.repo.get_vehicle("leaf_test_1")["status"], "rejected")
-        self.assertEqual(self.repo.comparables(), [])
+        self.assertTrue(self._withdrawn())
+        self.assertFalse(self._withdrawn("u-leaf-other"))              # l'autre utilisateur la voit toujours
+        self.assertEqual(self.repo.get_vehicle("leaf_test_1")["status"], "active")   # le statut global ne bouge pas
         self.raws = [raw("leaf_test_1", price=6000)]
         self.hunter.run_scan()
-        self.assertEqual(self.repo.active_ids(), ["leaf_test_1"])
+        self.assertFalse(self._withdrawn())                            # retenue de nouveau : retrait levé
+
+    def test_unreadable_detail_does_not_erase_what_a_full_read_stored(self):
+        full = raw("leaf_test_1", soh_announced=92.0, soh_evidence="SOH 92 %", vin="VIN123", description="texte complet",
+                   image_urls=["https://exemple.invalide/p.jpg"])
+        self.repo.upsert_listing({**full, "flags": [], "analysis_marker": 1, "mentions": {"heat_pump": True}})
+        degraded = {**raw("leaf_test_1", price=5800), "detail_unavailable": True, "flags": ["soh_unknown", "detail_unavailable"],
+                    "image_urls": [], "description": ""}
+        self.assertEqual(self.repo.upsert_listing(degraded)["action"], "price_drop")
+        row = self.repo.get_vehicle("leaf_test_1")
+        self.assertEqual((float(row["price"]), float(row["soh_announced"]), row["soh_evidence"], row["vin"]),
+                         (5800.0, 92.0, "SOH 92 %", "VIN123"))
+        self.assertEqual((row["flags"], row["image_urls"], row["description"]), ([], ["https://exemple.invalide/p.jpg"], "texte complet"))
+        self.assertEqual(row["analysis"]["mentions"], {"heat_pump": True})
 
     def test_refresh_command_fails_loudly_on_error_or_overlap(self):
         refresh = self.hunter.command_handlers()["LEAF_REFRESH"]
@@ -221,18 +243,33 @@ class TestHunter(unittest.TestCase):
         self.assertEqual(self.repo.get_vehicle("leaf_test_1")["timestamp"], before)
         self.assertEqual(events, [])
 
-    def test_background_loop_is_started_once_per_user(self):
+    def test_background_loop_is_unique_follows_the_current_hunter_and_can_be_stopped(self):
         from backend.leaf import hunter as hmod
-        stop = __import__("threading").Event()
-        stop.set()                                   # le fil démarre puis sort aussitôt
-        self.assertTrue(self.hunter.ensure_background(stop))
-        hmod._BACKGROUND[self.UID].join(2)
-        self.assertTrue(self.hunter.ensure_background(stop))        # fil terminé : un nouveau peut démarrer
-        hmod._BACKGROUND[self.UID].join(2)
-        live = type("T", (), {"is_alive": lambda self: True})()
-        hmod._BACKGROUND[self.UID] = live
-        self.addCleanup(hmod._BACKGROUND.pop, self.UID, None)
-        self.assertFalse(self.hunter.ensure_background(stop))       # déjà vivant : pas de doublon
+        self.addCleanup(hmod.stop_background, self.UID)
+        with mock.patch.object(hmod, "LOOP_TICK_S", 0.05):
+            self.assertTrue(self.hunter.ensure_background())
+            first_thread = hmod._BACKGROUND[self.UID][0]
+            newer = hmod.LeafHunter(self.repo, self.UID)             # le watchdog reconstruit le bot : nouveau hunter
+            self.assertFalse(newer.ensure_background())              # pas de second fil...
+            self.assertIs(hmod._CURRENT[self.UID], newer)            # ...mais la boucle suit le hunter COURANT (bon logger)
+            self.assertIs(hmod._BACKGROUND[self.UID][0], first_thread)
+            hmod.stop_background(self.UID)
+            first_thread.join(3)
+            self.assertFalse(first_thread.is_alive())
+            self.assertNotIn(self.UID, hmod._BACKGROUND)
+            self.assertTrue(self.hunter.ensure_background())          # après l'arrêt : un nouveau fil peut démarrer
+
+    def test_missed_pass_is_retried_soon_not_after_a_full_period(self):
+        from backend.leaf import hunter as hmod
+        calls = []
+        self.hunter.run_scan = lambda *a, **k: calls.append(1)       # None : passage manqué (verrou pris, erreur)
+        self.addCleanup(hmod.stop_background, self.UID)
+        with mock.patch.object(hmod, "LOOP_TICK_S", 0.05), mock.patch.object(hmod, "RETRY_AFTER_NONE_S", 0.3), \
+                mock.patch.object(hmod.threading.Event, "wait", lambda self, t=None: __import__("time").sleep(min(t or 0, 0.05)) or self.is_set()):
+            self.hunter.ensure_background()
+            __import__("time").sleep(1.2)
+            hmod.stop_background(self.UID)
+        self.assertGreaterEqual(len(calls), 2)                       # retenté après RETRY_AFTER_NONE_S, pas une fois par période
 
 
 if __name__ == "__main__":

@@ -75,6 +75,19 @@ class TestLeafRepository(unittest.TestCase):
         self.assertFalse(self.repo.record_match("u-leaf-1", "leaf_test_1"))
         self.assertTrue(self.repo.record_match("u-leaf-2", "leaf_test_1"))
 
+    def test_withdrawal_is_per_user_and_lifted_by_record_match(self):
+        self.repo.upsert_listing(listing())
+        self.repo.record_match("u-leaf-1", "leaf_test_1")
+        self.repo.record_match("u-leaf-2", "leaf_test_1")
+        self.assertEqual(self.repo.mark_withdrawn("u-leaf-1", ["leaf_test_1", "inconnue"]), 1)
+        self.assertEqual(self.repo.mark_withdrawn("u-leaf-1", ["leaf_test_1"]), 0)
+        with self.pool.connection() as conn:
+            rows = {r["user_id"]: r["withdrawn"] for r in conn.execute("SELECT user_id, withdrawn FROM user_vehicle_matches").fetchall()}
+        self.assertEqual(rows, {"u-leaf-1": True, "u-leaf-2": False})
+        self.assertFalse(self.repo.record_match("u-leaf-1", "leaf_test_1"))       # lien déjà connu : pas « nouveau »...
+        with self.pool.connection() as conn:
+            self.assertFalse(conn.execute("SELECT withdrawn FROM user_vehicle_matches WHERE user_id='u-leaf-1'").fetchone()["withdrawn"])
+
     def test_comparables_only_complete_active_rows(self):
         self.repo.upsert_listing(listing())
         self.repo.upsert_listing(listing("leaf_test_2", km=None))

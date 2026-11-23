@@ -1119,3 +1119,5 @@ export const fetchLeafDeal = (id) => apiFetch(`/leaf/deals/${encodeURIComponent(
 export const setLeafState = (id, patch) => apiFetch(`/leaf/deals/${encodeURIComponent(id)}/state`, { method: 'PATCH', body: patch });
 export const fetchLeafRuns = (limit = 10) => apiFetch(`/leaf/runs?limit=${limit}`);
 export const triggerLeafRefresh = () => addCommand('LEAF_REFRESH', null);
+/** Suit une commande jusqu'à sa sortie de `pending` (`callback(commande)` à chaque observation) ; renvoie la fonction d'annulation. */
+export const watchLeafCommand = (commandId, callback) => onCommandUpdate(commandId, callback);

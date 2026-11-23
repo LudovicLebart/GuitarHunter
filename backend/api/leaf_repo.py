@@ -11,7 +11,7 @@ _STATE_FIELDS = {"is_favorite": "bool", "is_rejected": "bool", "notes": "text", 
 
 _SELECT = """
     SELECT d.*, COALESCE(s.is_favorite, false) AS is_favorite, COALESCE(s.is_rejected, false) AS is_rejected,
-           s.notes, s.checklist, m.matched_at
+           s.notes, s.checklist, m.matched_at, m.withdrawn
     FROM vehicle_deals d
     JOIN user_vehicle_matches m ON m.deal_id = d.id AND m.user_id = $1
     LEFT JOIN user_vehicle_state s ON s.deal_id = d.id AND s.user_id = $1
@@ -20,11 +20,13 @@ _SELECT = """
 
 async def list_deals(pool: asyncpg.Pool, user_id: str, include_sold: bool = False,
                      include_rejected: bool = False) -> List[asyncpg.Record]:
+    """`include_sold` : annonces marquées vendues (fait global). `include_rejected` : annonces que l'utilisateur a rejetées à la
+    main OU que ses filtres ont écartées (`withdrawn`) ; deux notions distinctes de « vendue », jamais mélangées."""
     where = []
     if not include_sold:
         where.append("d.status = 'active'")
     if not include_rejected:
-        where.append("COALESCE(s.is_rejected, false) = false")
+        where.append("COALESCE(s.is_rejected, false) = false AND NOT m.withdrawn")
     clause = f" WHERE {' AND '.join(where)}" if where else ""
     return await pool.fetch(f"{_SELECT}{clause} ORDER BY d.price ASC NULLS LAST, d.km ASC NULLS LAST", user_id)
 

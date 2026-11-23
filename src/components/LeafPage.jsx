@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
-import { fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, setLeafState, triggerLeafRefresh } from '../services/apiService';
+import { fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, setLeafState, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
 import {
     CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
     priceTrend, winterRange, winterVerdict,
@@ -9,7 +9,7 @@ import {
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
 
-const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh };
+const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, watchLeafCommand };
 const WINTER_STYLES = {
     ok: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
     juste: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
@@ -86,10 +86,21 @@ const LeafList = ({ api }) => {
     const onToggle = async (deal, patch) => {
         try { await api.setLeafState(deal.id, patch); await load(); } catch (error) { setState((s) => ({ ...s, error })); }
     };
+    // Le bouton reste désactivé tant que la COMMANDE n'est pas terminée (suivie par son statut, pas par un délai fixe) ;
+    // le suivi est annulé si l'on quitte la page.
+    const stopWatching = useRef(null);
+    useEffect(() => () => { if (stopWatching.current) stopWatching.current(); }, []);
     const onRefresh = async () => {
         setRefreshing(true);
-        try { await api.triggerLeafRefresh(); } catch (error) { setState((s) => ({ ...s, error })); }
-        setTimeout(() => { setRefreshing(false); load(); }, 15000);      // le passage dure quelques dizaines de secondes
+        try {
+            const command = await api.triggerLeafRefresh();
+            stopWatching.current = api.watchLeafCommand(command.id, (c) => {
+                if (c.status === 'pending') return;
+                setRefreshing(false);
+                if (c.status === 'failed') setState((s) => ({ ...s, error: new Error(c.error || 'Le passage Leaf a échoué.') }));
+                else load();
+            });
+        } catch (error) { setRefreshing(false); setState((s) => ({ ...s, error })); }
     };
 
     const shown = useMemo(() => filterAndSortDeals(state.deals, { favoritesOnly, query, sort }), [state.deals, favoritesOnly, query, sort]);

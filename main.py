@@ -345,6 +345,11 @@ def main():
                     logging.getLogger(__name__).info(f"🗑️ Utilisateur {label} retiré de Postgres. Nettoyage du bot...")
                     ctx = user_contexts.pop(uid)
                     ctx["stop_event"].set()
+                    try:
+                        from backend.leaf.hunter import stop_background as stop_leaf_background
+                        stop_leaf_background(uid)      # plus de passage Leaf ni de notification pour un utilisateur retiré
+                    except Exception:
+                        pass
                     if ctx.get("pg_handler"):
                         ctx["pg_handler"].close()
 

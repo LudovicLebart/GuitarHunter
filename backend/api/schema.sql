@@ -752,8 +752,9 @@ ALTER TABLE guitar_knowledge ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 -- retour arrière = DROP des 4 tables. Aucune donnée réelle dans le dépôt (public) : seulement ce schéma.
 -- ============================================================================================
 -- `vehicle_deals` : fait GLOBAL sur l'annonce (comme `guitar_deals`) ; qui la voit et ce que l'utilisateur en pense
--- vivent dans `user_vehicle_matches` / `user_vehicle_state`. `id` = `leaf_<source>_<id source>`. `status` :
--- 'active' | 'sold'. Les champs dérivés par le code (scores, drapeaux, mentions) sont dans `analysis` (JSONB).
+-- vivent dans `user_vehicle_matches` / `user_vehicle_state`. `id` = `leaf_<source>_<id source>`. `status` (fait
+-- GLOBAL) : 'active' | 'sold' — jamais « rejetée » : ce que les filtres d'UN utilisateur écartent est propre à lui
+-- (`user_vehicle_matches.withdrawn`), sinon les réglages d'un utilisateur retireraient l'annonce des autres. Les champs dérivés par le code (scores, drapeaux, mentions) sont dans `analysis` (JSONB).
 CREATE TABLE IF NOT EXISTS vehicle_deals (
     id                TEXT PRIMARY KEY,
     source            TEXT NOT NULL,
@@ -801,6 +802,9 @@ CREATE TABLE IF NOT EXISTS user_vehicle_matches (
     PRIMARY KEY (user_id, deal_id)
 );
 CREATE INDEX IF NOT EXISTS idx_user_vehicle_matches_user ON user_vehicle_matches(user_id, matched_at DESC);
+-- `withdrawn` : l'annonce, déjà liée à cet utilisateur, ne passe PLUS ses filtres/règles (prix hors budget, mot
+-- « accident », SOH sous le seuil...). Posé par SON passage, levé quand un passage la retient de nouveau.
+ALTER TABLE user_vehicle_matches ADD COLUMN IF NOT EXISTS withdrawn BOOLEAN NOT NULL DEFAULT false;
 
 -- Préférences PERSONNELLES (absence de ligne = ni favori, ni rejeté, sans note).
 CREATE TABLE IF NOT EXISTS user_vehicle_state (
@@ -847,7 +851,7 @@ DROP TRIGGER IF EXISTS vehicle_deals_notify ON vehicle_deals;
 CREATE TRIGGER vehicle_deals_notify AFTER INSERT OR UPDATE OR DELETE ON vehicle_deals
     FOR EACH ROW EXECUTE FUNCTION notify_vehicle_deal_change();
 DROP TRIGGER IF EXISTS user_vehicle_matches_notify ON user_vehicle_matches;
-CREATE TRIGGER user_vehicle_matches_notify AFTER INSERT OR DELETE ON user_vehicle_matches
+CREATE TRIGGER user_vehicle_matches_notify AFTER INSERT OR UPDATE OR DELETE ON user_vehicle_matches
     FOR EACH ROW EXECUTE FUNCTION notify_vehicle_change();
 DROP TRIGGER IF EXISTS user_vehicle_state_notify ON user_vehicle_state;
 CREATE TRIGGER user_vehicle_state_notify AFTER INSERT OR UPDATE ON user_vehicle_state

@@ -108,7 +108,7 @@ def extract_capacity_bars(text: Optional[str]) -> Optional[Tuple[int, str]]:
 
 _ACCIDENT_WORDS = ("accident", "reconstruit", "vgr", "salvage", "pour pieces", "a reparer",
                    "non roulante", "dommages importants")
-_NEGATION = re.compile(r"\b(?:jamais|sans|aucun|aucune|pas|non|0|never|no)(?:['\s]+(?:\w+['\s]+){0,3}?)?$")
+_NEGATION = re.compile(r"\b(?:jamais|sans|aucun|aucune|rien|pas|non|ni|0|never|no)(?:['\s]+(?:\w+['\s]+){0,3}?)?$")
 
 
 def accident_flags(text: Optional[str]) -> List[str]:
@@ -116,7 +116,7 @@ def accident_flags(text: Optional[str]) -> List[str]:
     t = normalize_text(text)
     found: List[str] = []
     for word in _ACCIDENT_WORDS:
-        for m in re.finditer(re.escape(word), t):
+        for m in re.finditer(r"\b" + re.escape(word), t):
             if _NEGATION.search(t[max(0, m.start() - 30):m.start()]):
                 continue
             if word not in found:

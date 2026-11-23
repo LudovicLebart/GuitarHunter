@@ -65,7 +65,42 @@ def collect_sources(scan: Dict[str, Any], fetch: Callable[[str], str] = fetch_ht
 
 _LOCKS: Dict[str, threading.Lock] = {}          # un verrou PAR UTILISATEUR, partagé entre boucle de fond et commandes
 _LOCKS_GUARD = threading.Lock()
-_BACKGROUND: Dict[str, threading.Thread] = {}   # une seule boucle de fond par utilisateur (le watchdog relance main_loop)
+_BACKGROUND: Dict[str, Tuple[threading.Thread, threading.Event]] = {}   # une seule boucle de fond par utilisateur
+_CURRENT: Dict[str, "LeafHunter"] = {}          # hunter COURANT de chaque utilisateur (remplacé quand le watchdog reconstruit le bot)
+RETRY_AFTER_NONE_S = 600                        # passage manqué (verrou pris, erreur) : nouvel essai dans 10 min, pas à la période suivante
+
+
+def stop_background(user_id: str) -> None:
+    """Arrête la boucle de fond d'un utilisateur (bot retiré ou main_loop terminée)."""
+    with _LOCKS_GUARD:
+        entry = _BACKGROUND.pop(user_id, None)
+        _CURRENT.pop(user_id, None)
+    if entry:
+        entry[1].set()
+
+
+def _background_loop(user_id: str, stop: threading.Event) -> None:
+    """Chaque minute : relit la config (fréquence modifiable à chaud) et lance un passage à l'échéance ; nettoyage toutes les
+    6 h. Un passage long ne bloque ni le watchdog ni les tâches planifiées du bot. `last_scan` ne bouge qu'après un VRAI
+    passage : un passage manqué (verrou pris par une commande manuelle, erreur) est retenté après RETRY_AFTER_NONE_S."""
+    last_scan = last_cleanup = retry_at = 0.0
+    stop.wait(30)                         # laisse le bot finir de démarrer
+    while not stop.is_set():
+        hunter = _CURRENT.get(user_id)
+        try:
+            if hunter and hunter.is_enabled():
+                now = time.time()
+                if now >= retry_at and now - last_scan >= hunter.config()["scan"]["frequency"] * 60:
+                    if hunter.run_scan() is not None:
+                        last_scan = time.time()
+                    else:
+                        retry_at = time.time() + RETRY_AFTER_NONE_S
+                if now - last_cleanup >= CLEANUP_EVERY_S:
+                    last_cleanup = now
+                    hunter.cleanup()
+        except Exception as e:
+            (hunter.log if hunter else logging.getLogger(__name__)).error(f"[Leaf] Erreur de la boucle de fond : {e}", exc_info=True)
+        stop.wait(LOOP_TICK_S)
 
 
 def _lock_for(user_id: str) -> threading.Lock:
@@ -146,10 +181,12 @@ class LeafHunter:
             self.repo.record_match(self.user_id, listing["id"])
             if outcome["action"] in ("new", "price_drop"):
                 events.append((outcome["action"], listing, outcome["previous_price"]))
-        # Annonce déjà stockée mais qui ne passe plus les filtres/règles : retirée de la vue active (données périmées).
-        withdrawn = self.repo.mark_rejected([l["id"] for l in result["rejected"] + result["ignored"] if l.get("id")])
+        # Annonces écartées par CET utilisateur : elles existent toujours (fraîcheur globale), mais sortent de SA vue.
+        seen_but_excluded = [l["id"] for l in result["rejected"] + result["ignored"] if l.get("id")]
+        self.repo.touch_seen(seen_but_excluded)
+        withdrawn = self.repo.mark_withdrawn(self.user_id, seen_but_excluded)
         if withdrawn:
-            self.log.info(f"[Leaf] {withdrawn} annonce(s) déjà stockée(s) ne passent plus les filtres : retirée(s) de la vue.")
+            self.log.info(f"[Leaf] {withdrawn} annonce(s) déjà stockée(s) ne passent plus vos filtres : retirée(s) de votre vue.")
         stats = {"read": len(raws), "kept": len(result["kept"]), "rejected": len(result["rejected"]),
                  "ignored": len(result["ignored"]), "new": sum(1 for e in events if e[0] == "new"),
                  "price_drops": sum(1 for e in events if e[0] == "price_drop")}
@@ -217,36 +254,18 @@ class LeafHunter:
 
     # ------------------------------------------------------------------ boucle de fond
 
-    def run_background(self, stop_event: Optional[threading.Event] = None) -> None:
-        """Boucle d'un fil dédié : chaque minute, relit la config (fréquence modifiable à chaud) et lance un passage
-        quand l'échéance est atteinte ; nettoyage toutes les 6 h. Un passage long ne bloque donc ni le watchdog ni
-        les tâches planifiées du bot."""
-        stop = stop_event or threading.Event()
-        last_scan = last_cleanup = 0.0
-        stop.wait(30)                     # laisse le bot finir de démarrer
-        while not stop.is_set():
-            try:
-                if self.is_enabled():
-                    now = time.time()
-                    if now - last_scan >= self.config()["scan"]["frequency"] * 60:
-                        last_scan = now
-                        self.run_scan()
-                    if now - last_cleanup >= CLEANUP_EVERY_S:
-                        last_cleanup = now
-                        self.cleanup()
-            except Exception as e:
-                self.log.error(f"[Leaf] Erreur de la boucle de fond : {e}", exc_info=True)
-            stop.wait(LOOP_TICK_S)
-
-    def ensure_background(self, stop_event: Optional[threading.Event] = None) -> bool:
-        """Démarre la boucle de fond de cet utilisateur si elle ne tourne pas déjà (idempotent : `main_loop` est relancé
-        par le watchdog). True si un nouveau fil a été créé."""
+    def ensure_background(self) -> bool:
+        """Démarre la boucle de fond de cet utilisateur si elle ne tourne pas, et la fait pointer vers CE hunter (le watchdog
+        reconstruit le bot, donc son logger : la boucle relit toujours le hunter courant, jamais un ancien logger muet).
+        Idempotent. True si un nouveau fil a été créé."""
         with _LOCKS_GUARD:
-            t = _BACKGROUND.get(self.user_id)
-            if t and t.is_alive():
+            _CURRENT[self.user_id] = self
+            entry = _BACKGROUND.get(self.user_id)
+            if entry and entry[0].is_alive() and not entry[1].is_set():
                 return False
-            t = threading.Thread(target=self.run_background, args=(stop_event,), daemon=True, name=f"leaf-{self.user_id[:8]}")
-            _BACKGROUND[self.user_id] = t
+            stop = threading.Event()
+            t = threading.Thread(target=_background_loop, args=(self.user_id, stop), daemon=True, name=f"leaf-{self.user_id[:8]}")
+            _BACKGROUND[self.user_id] = (t, stop)
         t.start()
         return True
 

@@ -111,6 +111,11 @@ class TestReviewFixes(unittest.TestCase):
         self.assertEqual(n.accident_flags("voiture accidentée"), ["accident"])
         self.assertEqual(n.accident_flags("compas accident"), ["accident"])
 
+    def test_more_french_negations(self):
+        for t in ("Aucun besoin de pièces, rien à réparer, auto impeccable", "véhicule non accidenté", "ni accident ni dommage"):
+            self.assertEqual(n.accident_flags(t), [], t)
+        self.assertEqual(n.accident_flags("à réparer, pour pièces"), ["pour pieces", "a reparer"])
+
     def test_km_after_year(self):
         self.assertEqual(n.parse_km("Nissan Leaf 2017 120 000 km"), 120000)
         self.assertEqual(n.parse_km("2017 85 000 km"), 85000)

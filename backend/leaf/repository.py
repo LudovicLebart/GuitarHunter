@@ -52,30 +52,42 @@ class LeafRepository:
                 elif action == "price_up":
                     drop = None
                 original = old["original_price"] if old and old["original_price"] is not None else price
-                params = {**{k: (Jsonb(v) if isinstance(v, (dict, list)) else v) for k, v in row.items()},
-                          "id": deal_id, "price": price, "original_price": original, "price_drop_amount": drop}
                 bump = action != "unchanged"          # `timestamp` = dernier VRAI changement, pas le dernier passage
-                cols = list(params)
-                updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price"))
-                conn.execute(
-                    f"INSERT INTO vehicle_deals ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) "
-                    f"ON CONFLICT (id) DO UPDATE SET {updates}, "
-                    f"\"timestamp\" = CASE WHEN %(bump)s OR vehicle_deals.status <> 'active' THEN now() "
-                    f"ELSE vehicle_deals.\"timestamp\" END, status = 'active', sold_at = NULL, last_seen_at = now()",
-                    {**params, "bump": bump})
+                if old is not None and listing.get("detail_unavailable"):
+                    # Fiche illisible à CE passage (429...) : on ne dégrade pas ce qu'une lecture complète a déjà stocké
+                    # (SOH et sa preuve, GPS, VIN, version, photos, scores, drapeaux) ; seuls le prix et la fraîcheur bougent.
+                    conn.execute(
+                        "UPDATE vehicle_deals SET price = %s, original_price = %s, price_drop_amount = %s, "
+                        "\"timestamp\" = CASE WHEN %s OR status <> 'active' THEN now() ELSE \"timestamp\" END, "
+                        "status = 'active', sold_at = NULL, last_seen_at = now() WHERE id = %s",
+                        (price, original, drop, bump, deal_id))
+                else:
+                    params = {**{k: (Jsonb(v) if isinstance(v, (dict, list)) else v) for k, v in row.items()},
+                              "id": deal_id, "price": price, "original_price": original, "price_drop_amount": drop}
+                    cols = list(params)
+                    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c not in ("id", "original_price"))
+                    conn.execute(
+                        f"INSERT INTO vehicle_deals ({', '.join(cols)}) VALUES ({', '.join('%(' + c + ')s' for c in cols)}) "
+                        f"ON CONFLICT (id) DO UPDATE SET {updates}, "
+                        f"\"timestamp\" = CASE WHEN %(bump)s OR vehicle_deals.status <> 'active' THEN now() "
+                        f"ELSE vehicle_deals.\"timestamp\" END, status = 'active', sold_at = NULL, last_seen_at = now()",
+                        {**params, "bump": bump})
                 if action in ("new", "price_drop", "price_up") and price is not None:
                     conn.execute("INSERT INTO vehicle_price_history (deal_id, price) VALUES (%s, %s)", (deal_id, price))
         return {"action": action, "previous_price": previous}
 
     def record_match(self, user_id: str, deal_id: str) -> bool:
-        """Rend l'annonce visible pour l'utilisateur. True si le lien est nouveau."""
+        """Rend l'annonce visible pour l'utilisateur (et lève un retrait antérieur). True si le lien est NOUVEAU."""
         with self.pool.connection() as conn:
-            cur = conn.execute("INSERT INTO user_vehicle_matches (user_id, deal_id) VALUES (%s, %s) "
-                               "ON CONFLICT DO NOTHING", (user_id, deal_id))
-            return cur.rowcount > 0
+            row = conn.execute("INSERT INTO user_vehicle_matches (user_id, deal_id) VALUES (%s, %s) "
+                               "ON CONFLICT (user_id, deal_id) DO UPDATE SET withdrawn = false "
+                               "WHERE user_vehicle_matches.withdrawn RETURNING (xmax = 0) AS inserted",
+                               (user_id, deal_id)).fetchone()
+            return bool(row and row["inserted"])
 
     def touch_seen(self, deal_ids: Iterable[str]) -> int:
-        """Annonce revue sans changement : met à jour `last_seen_at` (et la réactive si elle était marquée vendue)."""
+        """Annonce revue (même si elle ne passe pas les filtres d'un utilisateur : elle existe toujours) : met à jour
+        `last_seen_at` et la réactive si elle était marquée vendue."""
         ids = list(deal_ids)
         if not ids:
             return 0
@@ -83,16 +95,16 @@ class LeafRepository:
             return conn.execute("UPDATE vehicle_deals SET last_seen_at = now(), status = 'active', sold_at = NULL "
                                 "WHERE id = ANY(%s)", (ids,)).rowcount
 
-    def mark_rejected(self, deal_ids: Iterable[str]) -> int:
-        """Annonces déjà stockées qui, revues, ne passent plus les filtres/règles (prix hors budget, mot « accident »,
-        SOH sous le seuil...) : retirées de la vue active (statut `rejected`) au lieu de garder des données périmées.
-        Elles redeviennent actives si une lecture ultérieure les retient de nouveau (`upsert_listing`)."""
+    def mark_withdrawn(self, user_id: str, deal_ids: Iterable[str]) -> int:
+        """Annonces déjà liées à CET utilisateur qui, revues, ne passent plus SES filtres/règles (prix hors budget, mot
+        « accident », SOH sous le seuil...) : retirées de SA vue. Jamais de changement du statut global : l'annonce reste
+        visible pour les autres utilisateurs. Le retrait est levé par `record_match` quand un passage la retient de nouveau."""
         ids = list(deal_ids)
         if not ids:
             return 0
         with self.pool.connection() as conn:
-            return conn.execute("UPDATE vehicle_deals SET status = 'rejected', last_seen_at = now(), \"timestamp\" = now() "
-                                "WHERE id = ANY(%s) AND status = 'active'", (ids,)).rowcount
+            return conn.execute("UPDATE user_vehicle_matches SET withdrawn = true "
+                                "WHERE user_id = %s AND deal_id = ANY(%s) AND NOT withdrawn", (user_id, ids)).rowcount
 
     def mark_sold(self, deal_ids: Iterable[str]) -> int:
         ids = list(deal_ids)
