@@ -19,18 +19,18 @@ Flux :
 
 Usage :
   # Lecture depuis USER_ID_TARGET (.env), écriture catalogue partagé uniquement
-  python -m backend.scripts.migrate_cities_to_shared_catalog
+  python -m backend.scripts.archive.migrate_cities_to_shared_catalog
 
   # Simulation sans écriture
-  python -m backend.scripts.migrate_cities_to_shared_catalog --dry-run
+  python -m backend.scripts.archive.migrate_cities_to_shared_catalog --dry-run
 
   # Migrer depuis un ancien UID vers le catalogue + copier prefs vers le nouvel UID
-  python -m backend.scripts.migrate_cities_to_shared_catalog \\
+  python -m backend.scripts.archive.migrate_cities_to_shared_catalog \\
       --source-user-id 00737242777130596039 \\
       --target-user-id wbPlgZgkW2VcAl0a2l44UMSDTaG2
 
   # Aussi initialiser les prefs pour tous les autres users
-  python -m backend.scripts.migrate_cities_to_shared_catalog \\
+  python -m backend.scripts.archive.migrate_cities_to_shared_catalog \\
       --source-user-id 00737242777130596039 \\
       --target-user-id wbPlgZgkW2VcAl0a2l44UMSDTaG2 \\
       --also-migrate-prefs

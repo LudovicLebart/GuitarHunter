@@ -10,6 +10,7 @@ import {
   resetBotConfigToDefaults,
 } from '../services/apiService';
 import promptsData from '../../prompts.json';
+import { sanitizeScanNumbers, mergeServerScanConfig } from '../utils/scanConfig';
 
 // Helper ROBUSTE : Assure qu'on a une liste plate de chaînes, sans sauts de ligne internes
 const ensureArray = (val) => {
@@ -27,7 +28,7 @@ const ensureArray = (val) => {
 
 const DEFAULT_MAIN_PROMPT = ensureArray(promptsData.main_analysis_prompt);
 const DEFAULT_GATEKEEPER_INSTRUCTION = ensureArray(promptsData.gatekeeper_verbosity_instruction);
-const DEFAULT_EXPERT_CONTEXT = ensureArray(promptsData.expert_context_instruction);
+const DEFAULT_EXPERT_CONTEXT = ensureArray(promptsData.expert_pro_context_instruction);
 const DEFAULT_REJECTION_VERDICTS = ensureArray(promptsData.rejection_verdicts || ["BAD_DEAL", "REJECTED_ITEM", "REJECTED_SERVICE", "INCOMPLETE_DATA"]);
 const DEFAULT_EXCLUSION_KEYWORDS = [
   "First Act", "Esteban", "Rogue", "Silvertone", "Spectrum",
@@ -43,6 +44,11 @@ export const useBotConfig = (user) => {
   const [scanConfig, setScanConfig] = useState({
     max_ads: 5, frequency: 60, location: 'montreal', distance: 60, min_price: 0, max_price: 150, search_query: "electric guitar"
   });
+  // Dernière valeur connue du serveur : remplace un champ numérique vidé (jamais enregistré à 0) et distingue, champ par
+  // champ, une saisie non enregistrée (valeur locale ≠ dernière valeur du serveur) que les mises à jour poussées par le
+  // serveur (état du bot, autre appareil…) ne doivent pas écraser.
+  const lastScanConfig = useRef(null);
+  const localError = useRef(false);
   const [exclusionKeywords, setExclusionKeywords] = useState(DEFAULT_EXCLUSION_KEYWORDS);
 
   // Mise à jour des modèles par défaut pour correspondre au backend
@@ -53,7 +59,7 @@ export const useBotConfig = (user) => {
     chatModel: 'claude-sonnet-5-5',
     mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
     gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-    expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
+    expertProContextInstruction: DEFAULT_EXPERT_CONTEXT,
     rejectionVerdicts: DEFAULT_REJECTION_VERDICTS,
     // Chantier G : familles de taxonomie actives (routage T1->T2/T3). Vide = comportement
     // par défaut inchangé ("tout analyser").
@@ -83,6 +89,9 @@ export const useBotConfig = (user) => {
   useEffect(() => {
     if (!user) return;
     const uid = user.uid;
+    // Valeurs liées au compte précédent : jamais réutilisées pour un autre utilisateur.
+    lastScanConfig.current = null;
+    localError.current = false;
 
     const handleUpdate = (data) => {
       console.log("🔄 useBotConfig: Received update", data);
@@ -92,7 +101,9 @@ export const useBotConfig = (user) => {
         setIsNewUser(true);
       } else {
         setIsNewUser(false);
-        setScanConfig(prev => ({ ...prev, ...data.scanConfig }));
+        const known = lastScanConfig.current;
+        lastScanConfig.current = { ...known, ...data.scanConfig };
+        setScanConfig(prev => mergeServerScanConfig(prev, data.scanConfig, known));
       }
       if (data.exclusionKeywords) setExclusionKeywords(ensureArray(data.exclusionKeywords));
 
@@ -106,7 +117,7 @@ export const useBotConfig = (user) => {
           ...data.analysisConfig,
           mainAnalysisPrompt: ensureArray(data.analysisConfig.mainAnalysisPrompt || prev.mainAnalysisPrompt),
           gatekeeperVerbosityInstruction: ensureArray(data.analysisConfig.gatekeeperVerbosityInstruction || prev.gatekeeperVerbosityInstruction),
-          expertContextInstruction: ensureArray(data.analysisConfig.expertContextInstruction || prev.expertContextInstruction),
+          expertProContextInstruction: ensureArray(data.analysisConfig.expertProContextInstruction || prev.expertProContextInstruction),
           rejectionVerdicts: ensureArray(data.analysisConfig.rejectionVerdicts || prev.rejectionVerdicts),
           activeSearchFamilies: ensureArray(data.analysisConfig.activeSearchFamilies || prev.activeSearchFamilies),
         }));
@@ -121,9 +132,11 @@ export const useBotConfig = (user) => {
       // else setError(null) : efface aussi un bandeau laissé par une coupure de connexion
       // désormais résolue (voir les autres hooks — error/setError est un état global partagé,
       // pas propre à ce hook), pas seulement un scanError qui aurait disparu côté serveur.
+      // Une erreur locale (sauvegarde ou commande refusée) reste affichée jusqu'à la prochaine action réussie.
       if (data.scanError) {
+        localError.current = false; // le message appartient désormais au serveur : il s'efface quand il disparaît
         setError(data.scanError);
-      } else {
+      } else if (!localError.current) {
         setError(null);
       }
     };
@@ -135,7 +148,7 @@ export const useBotConfig = (user) => {
 
     const unsubscribe = onBotConfigUpdate(handleUpdate, handleError, uid);
     return () => unsubscribe();
-  }, [user, error]);
+  }, [user]);
 
   // Sauvegarde des filtres/tri avec debounce (évite un write Firestore à chaque clic de filtre).
   const saveUiFilters = useCallback((newFilters) => {
@@ -149,44 +162,73 @@ export const useBotConfig = (user) => {
     }, 800);
   }, [user]);
 
+  // Une action qui échoue garde son message affiché (les mises à jour du serveur ne l'effacent plus) ; la suivante qui
+  // réussit l'efface.
+  const fail = useCallback((e) => {
+    localError.current = true;
+    setError(e.message);
+  }, []);
+  const succeed = useCallback(() => {
+    if (localError.current) {
+      localError.current = false;
+      setError(null);
+    }
+  }, []);
+
   const saveConfig = useCallback(async (newVal) => {
     if (!user) return;
-    try {
-      await updateUserConfig(newVal, user.uid);
-    } catch (e) {
-      setError(e.message);
+    let payload = newVal;
+    if (newVal && newVal.scanConfig) {
+      // Un champ numérique vidé reprend la dernière valeur connue du serveur au lieu d'être enregistré à 0.
+      const clean = sanitizeScanNumbers(newVal.scanConfig, lastScanConfig.current);
+      setScanConfig(prev => ({ ...prev, ...clean }));
+      payload = { ...newVal, scanConfig: clean };
     }
-  }, [user]);
+    try {
+      await updateUserConfig(payload, user.uid);
+      if (payload.scanConfig) {
+        lastScanConfig.current = { ...lastScanConfig.current, ...payload.scanConfig };
+      }
+      succeed();
+    } catch (e) {
+      if (payload.scanConfig) {
+        // Saisie refusée : on revient à la dernière valeur connue du serveur (l'erreur reste affichée).
+        if (lastScanConfig.current) setScanConfig(prev => ({ ...prev, ...lastScanConfig.current }));
+      }
+      fail(e);
+    }
+  }, [user, fail, succeed]);
 
   const handleManualRefresh = useCallback(async () => {
     if (!user) return;
-    try { await triggerManualRefresh(user.uid); } catch (e) { setError(e.message); }
-  }, [user]);
+    try { await triggerManualRefresh(user.uid); succeed(); } catch (e) { fail(e); }
+  }, [user, fail, succeed]);
 
   const handleManualCleanup = useCallback(async () => {
     if (!user) return;
-    try { await triggerManualCleanup(user.uid); } catch (e) { setError(e.message); }
-  }, [user]);
+    try { await triggerManualCleanup(user.uid); succeed(); } catch (e) { fail(e); }
+  }, [user, fail, succeed]);
 
   const handleRelaunchAll = useCallback(async () => {
     if (!user) return;
     if (window.confirm("⚠️ ATTENTION : Voulez-vous vraiment relancer l'analyse IA pour TOUTES les annonces ?")) {
-      try { await triggerRelaunchAll(user.uid); } catch (e) { setError(e.message); }
+      try { await triggerRelaunchAll(user.uid); succeed(); } catch (e) { fail(e); }
     }
-  }, [user]);
+  }, [user, fail, succeed]);
 
   const handleReevaluateNotPromoted = useCallback(async () => {
     if (!user) return;
-    try { await triggerReevaluateNotPromoted(user.uid); } catch (e) { setError(e.message); }
-  }, [user]);
+    try { await triggerReevaluateNotPromoted(user.uid); succeed(); } catch (e) { fail(e); }
+  }, [user, fail, succeed]);
 
   const handleScanSpecificUrl = useCallback(async (specificUrl, setSpecificUrl) => {
     if (!specificUrl || !user) return;
     try {
       await triggerScanSpecificUrl(specificUrl, user.uid);
       setSpecificUrl('');
-    } catch (e) { setError(e.message); }
-  }, [user]);
+      succeed();
+    } catch (e) { fail(e); }
+  }, [user, fail, succeed]);
 
   const handleResetDefaults = useCallback(async () => {
     if (!user) return;
@@ -198,7 +240,7 @@ export const useBotConfig = (user) => {
         chatModel: 'claude-sonnet-5-5',
         mainAnalysisPrompt: DEFAULT_MAIN_PROMPT,
         gatekeeperVerbosityInstruction: DEFAULT_GATEKEEPER_INSTRUCTION,
-        expertContextInstruction: DEFAULT_EXPERT_CONTEXT,
+        expertProContextInstruction: DEFAULT_EXPERT_CONTEXT,
         rejectionVerdicts: DEFAULT_REJECTION_VERDICTS,
         activeSearchFamilies: []
       };
@@ -216,17 +258,19 @@ export const useBotConfig = (user) => {
           'analysisConfig.chatModel': defaultAnalysis.chatModel,
           'analysisConfig.mainAnalysisPrompt': defaultAnalysis.mainAnalysisPrompt,
           'analysisConfig.gatekeeperVerbosityInstruction': defaultAnalysis.gatekeeperVerbosityInstruction,
-          'analysisConfig.expertContextInstruction': defaultAnalysis.expertContextInstruction,
+          'analysisConfig.expertProContextInstruction': defaultAnalysis.expertProContextInstruction,
           'analysisConfig.rejectionVerdicts': defaultAnalysis.rejectionVerdicts,
           'analysisConfig.activeSearchFamilies': defaultAnalysis.activeSearchFamilies,
           logLimit: 100
         }, user.uid);
       } catch (e) {
         console.error("Erreur lors du reset:", e);
-        setError(e.message);
+        fail(e);
+        return;
       }
+      succeed();
     }
-  }, [user]);
+  }, [user, fail, succeed]);
 
   return {
     configStatus, error, setError,

@@ -1,125 +1,55 @@
-# Modèles de Données - Guitar Hunter
+# Modèles de données — contrats d'interface
 
-Ce document définit les contrats d'interface pour les objets échangés via Firestore entre le Backend Python et le Frontend React.
+> Réécrit le 2026-11-05 (passe « deepdocument », section 1). L'ancienne version décrivait des documents Firestore ; ils n'existent plus. **Le schéma réel est dans [`donnees.md`](donnees.md)**. Ce fichier ne garde que la forme des objets tels que le Frontend les manipule, avec leur correspondance en base.
 
-## 1. Objet "Commande" (Command)
-Les commandes sont créées par le Frontend pour demander des actions asynchrones au Bot.
+## Commande (`commands`)
 
-**Collection** : `artifacts/{APP_ID}/users/{USER_ID}/commands/`
+Créée par `POST /commands`, lue et exécutée par le bot (accès SQL direct).
 
 ```typescript
 interface Command {
-  /** Type de l'action à exécuter */
-  type: 'REFRESH' | 'CLEANUP' | 'REANALYZE_ALL' | 'SCAN_URL' | 'ADD_CITY' | 'ANALYZE_DEAL' | 'CLEAR_LOGS' | 'STOP_BOT' | 'STOP_SCAN' | 'START_BOT';
-  
-  /** Données nécessaires à la commande (dépend du type) */
-  payload: any | null; 
-  // Exemples : 
-  // - string (URL pour SCAN_URL, nom de ville pour ADD_CITY)
-  // - { dealId: string, forceExpert: boolean } (pour ANALYZE_DEAL)
-  
-  /** État de traitement par le backend */
+  id: number;
+  type: 'REFRESH' | 'CLEANUP' | 'REANALYZE_ALL' | 'SCAN_URL' | 'ADD_CITY' | 'ANALYZE_DEAL'
+      | 'REEVALUATE_NOT_PROMOTED' | 'CLEAR_LOGS' | 'STOP_BOT' | 'STOP_SCAN' | 'START_BOT';
+  payload: any | null;        // JSONB ; chaîne (URL pour SCAN_URL, nom de ville pour ADD_CITY) ou objet
   status: 'pending' | 'completed' | 'failed';
-  
-  /** Date de création (Firestore Server Timestamp) */
-  createdAt: Timestamp;
+  error_message?: string;
+  created_at: string;
+  completed_at?: string;
 }
 ```
 
----
+Types relevés dans la table de dispatch de `main.py`. `ADD_CITY` accepte une chaîne (repli) ou `{name, latitude, longitude, region_hint}`. `ANALYZE_DEAL` : `{dealId, forceExpert, userComment}` (`bot.py::analyze_single_deal` ; `dealId` obligatoire, les deux autres optionnels).
 
-## 2. Objet "Deal" (Annonce)
-Les "Deals" sont créés/mis à jour par le Backend après analyse et consommés par le Frontend.
+## Annonce (`guitar_deals`, vue par utilisateur)
 
-**Collection** : `artifacts/{APP_ID}/users/{USER_ID}/guitar_deals/`
+Les colonnes sont en snake_case en base ; la fonction de mappage de `src/services/apiService.js` (ligne ≈ 318 à 366) construit l'objet de l'interface. La liste complète des colonnes est dans `donnees.md`. Forme exposée au front :
 
-```typescript
-interface Deal {
-  /** Identifiant unique de l'annonce (souvent l'ID Facebook) */
-  id: string; // Obligatoire
+- **Identité** : `id`, `title`, `price`, `originalPrice`, `priceDropAmount`, `link`, `location`, `latitude`, `longitude`, `publishedAtRaw`, `description` (absente de l'index), `imageUrls`, `storageImageUrls`, `storageImageGsUris`.
+- **Cycle de vie** : `status`, `timestamp` (dernière modification), `soldTimestamp` (colonne `sold_at`), `publishTimestamp` (colonne `published_at_ts`), `soldNotes`. Les dates sont converties au format `{seconds, nanoseconds}` hérité de Firestore (`toFirestoreLikeTimestamp`).
+- **Analyse, sous `aiAnalysis`** (en snake_case, comme en base) : le contenu de `ai_analysis_raw` (texte `reasoning` compris, fiche complète seulement), recouvert par les colonnes promues (`verdict`, `classification`, `brand`, `model_name`, `production_year`, `country_of_origin`, `color`, les cinq scores 0 à 10, `model_used`, `also_qualifies_pepite`, `estimated_gross_margin`…) quand elles ne sont pas nulles, plus `gatekeeperVerdict`.
+- **Propre à l'utilisateur** : `isFavorite` et le rejet manuel (table `user_deal_state`, jamais sur l'annonce partagée). **Un rejet manuel est synthétisé côté front** : `status = 'rejected'` et `aiAnalysis.verdict = 'REJECTED'`, sans rien changer en base sur l'annonce.
+- **Achat** (fait global) : `isPurchased`, `purchasedByUserId`, `purchasePrice`, `purchasedAt`, `userSalePrice`, `userSoldAt`, `restorationSpent` (calculé à la lecture, acheteur seulement).
+- **Corrections manuelles** : `manualClassification` prime sur la classification de l'IA ; `manualAnalysisOverrides` contient les corrections des autres champs et survit aux ré-analyses. `initialVerdict`, `initialModelUsed`.
 
-  /** Informations de base (provenant du scraper) */
-  title: string;       // Obligatoire
-  price: number;       // Obligatoire
-  link: string;        // Obligatoire (URL Facebook)
-  description?: string; // Optionnel
-  location: string;    // Obligatoire (Ville)
-  imageUrl?: string;   // Optionnel (Image principale)
-  imageUrls?: string[]; // Optionnel (Galerie)
-  
-  /** Métadonnées géographiques (si disponibles) */
-  latitude?: number;   // Optionnel
-  longitude?: number;  // Optionnel
+### Verdicts
 
-  /** État de l'annonce dans le flux */
-  status: 'active' | 'rejected' | 'sold' | 'analyzing' | 'analyzing_expert' | 'analysis_failed';
-  
-  /** Marqueur de favoris (géré par le Frontend) */
-  isFavorite: boolean; // Obligatoire (default: false)
+| Verdict | Sens |
+|---|---|
+| `PEPITE`, `FAST_FLIP`, `LUTHIER_PROJ`, `CASE_WIN`, `COLLECTION` | Opportunités. Les quatre derniers peuvent aussi porter `also_qualifies_pepite` (double appartenance) |
+| `FAIR` | Prix correct, pas une opportunité. Verdict du Portier : **n'est pas un rejet**, l'annonce continue vers l'Analyste |
+| `BAD_DEAL` | Prix jugé excessif par l'IA. Garde `status = 'analyzed'`, masqué par `ARCHIVE_GROUP`. Verdict du Portier = rejet : l'annonce n'atteint pas l'Analyste |
+| `REJECTED_ITEM`, `REJECTED_SERVICE`, `INCOMPLETE_DATA` | Rejets de fond |
+| `NOT_PROMOTED` | A passé le Portier mais sa famille n'est pas dans la Recherche Active ; arrêtée avant l'Analyste, conservée pour être repromue. Si `gatekeeper_verdict` vaut `PEPITE`, la carte garde le badge Pépite (« Hors recherche ») |
+| `REJECTED` | Rejet par mot-clé d'exclusion (écrit par le bot avec `status = 'rejected'`) et rejet manuel de l'utilisateur (synthétisé côté front) |
+| `GOOD_DEAL` | Hérité (ancienne nomenclature), encore affiché |
+| `ERROR`, `PENDING` | États d'échec ou d'attente |
 
-  /** Marqueur d'achat réel par l'utilisateur (2026-08-19, géré par le Frontend, totalement
-      indépendant de `status`/`sold` — une annonce peut être achetée avant même que le bot ne
-      détecte sa disparition du marketplace). Index léger : clé `pu` (booléen uniquement). */
-  isPurchased?: boolean; // Optionnel (absent = false)
-  purchasedAt?: Timestamp; // Optionnel, posé au moment du clic (serverTimestamp)
-  purchasePrice?: number | null; // Optionnel, saisi par l'utilisateur si différent du prix affiché
+`ARCHIVE_GROUP` (`src/constants.js`) = `BAD_DEAL`, `REJECTED_ITEM`, `REJECTED_SERVICE`, `INCOMPLETE_DATA`, `REJECTED`, `SOLD`, `NOT_PROMOTED`.
 
-  /** Correction manuelle de la catégorie (2026-08-16) : chemin complet de taxonomie en
-      dot-notation, saisi par l'utilisateur depuis la modale d'analyse. Prime sur
-      aiAnalysis.classification et n'est jamais écrasé par une ré-analyse. */
-  manualClassification?: string; // Optionnel
+`initial_verdict` conserve le verdict du tout premier passage. Une analyse forcée écrase `ai_analysis_raw.gatekeeperVerdict` par `MANUAL_RETRY` : le verdict d'origine du Portier se lit alors dans `initial_verdict`.
 
-  /** Résultat de l'analyse IA (Gemini) */
-  aiAnalysis: {
-    /** Verdict final court */
-    verdict: 'PEPITE' | 'FAST_FLIP' | 'LUTHIER_PROJ' | 'CASE_WIN' | 'COLLECTION' | 
-             'FAIR' | 'BAD_DEAL' | 'REJECTED_ITEM' | 'REJECTED_SERVICE' | 'INCOMPLETE_DATA' | 
-             'NOT_PROMOTED' | 'ERROR' | 'PENDING';
-    // FAIR (« Prix Correct ») : prix conforme au marché sans opportunité claire ; n'est PAS un rejet, l'annonce continue
-    //   vers l'Analyste. Verdict du Portier (T1), absent des anciens enregistrements.
-    // NOT_PROMOTED (« Hors Recherche ») : l'annonce a passé le Portier mais sa famille n'est pas dans la Recherche Active
-    //   de l'utilisateur ; arrêtée avant l'Analyste (seul un verdict PEPITE contourne ce filtre), conservée pour pouvoir
-    //   être repromue si la Recherche Active change. Appartient à ARCHIVE_GROUP (masquée de la vue par défaut).
-    //   Si `aiAnalysis.gatekeeperVerdict == 'PEPITE'` (`isOffSearchPepite`), la carte garde le badge « Pépite » (« Hors recherche »
-    //   en tag secondaire) et l'annonce reste dans le filtre Pépites. Côté backend, une ré-analyse ne peut pas déclasser une
-    //   `PEPITE` existante en `NOT_PROMOTED` (`bot.py::handle_deal_found`).
-    
-    /** Argumentaire détaillé de l'IA */
-    reasoning: string; // Obligatoire si verdict !== 'PENDING'
-    
-    /** Classification taxonomique — chemin complet en dot-notation, canonicalisé par le backend
-        (ex: "guitare.electrique.solid_body.Single_Cut.Les Paul"). null si la valeur renvoyée par
-        l'IA était ambiguë ou hors taxonomie (voir ARCHITECTURE.md § analyzer.py). */
-    classification?: string | null; // Optionnel
-
-    /** Valeur brute écartée par la canonicalisation, conservée pour diagnostic (2026-08-16) */
-    classification_rejected?: string; // Optionnel
-    
-    /** Nom du modèle IA ayant produit le résultat final */
-    model_used?: string; // Optionnel
-
-    /** Double appartenance (2026-07-06) : true si le verdict est FAST_FLIP/LUTHIER_PROJ/CASE_WIN/COLLECTION
-        ET que les critères PEPITE sont AUSSI remplis. L'annonce apparaît alors aussi dans le filtre/notifs Pépites. */
-    also_qualifies_pepite?: boolean; // Optionnel (absent = false)
-
-    /** Indices numériques (0-10) ajoutés en Session 18 */
-    deal_score?: number;
-    authenticity_score?: number;
-    condition_score?: number;
-    liquidity_score?: number;
-    restoration_interest_score?: number;
-  };
-
-  /** Horodatage de détection de vente */
-  soldAt?: Timestamp; // Optionnel
-
-  /** Horodatage de dernière mise à jour */
-  timestamp: Timestamp; // Obligatoire
-}
-```
-
-### Notes sur les types
-- **Timestamp** : Objet Firestore contenant `seconds` et `nanoseconds`.
-- **Status (Deal)** : Le statut `analyzing` et `analyzing_expert` est souvent positionné de manière éphémère par le Frontend juste avant d'envoyer la commande `ANALYZE_DEAL`.
-- **Verdict** : Les verdicts "Legacy" (ex: `REJECTED`, `GOOD_DEAL`) peuvent encore exister dans la base mais sont progressivement remplacés par la nouvelle nomenclature.
-- **Terminology Shift** : Suite à l'expansion aux amplis et étuis (Session 20), le système utilise désormais `ancillary_value` (auparavant `estimated_case_value`) et `net_item_cost` (auparavant `net_guitar_cost`) pour refléter une approche multi-produit.
+## Notes
+- Les horodatages sont des chaînes ISO (`TIMESTAMPTZ` en base) ; `published_at_ts` est un entier (epoch en secondes).
+- Depuis l'extension aux amplis et étuis, les champs de coût utilisent `ancillary_value` et `net_item_cost` (anciennement `estimated_case_value` et `net_guitar_cost`).
+- Le chat et le plan de restauration ont leurs propres tables (`deal_chat`, `restoration_plan_items`) ; leurs champs sont décrits dans `donnees.md`, leur logique dans `DATA_FLOW.md` §5.1 et §5.2.

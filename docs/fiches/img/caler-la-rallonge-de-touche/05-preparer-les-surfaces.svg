@@ -1,13 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 290" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 375" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
   <title id="t">Préparer les surfaces avant collage</title>
   <desc id="d">Coupe latérale : l'ancienne colle est retirée sous la rallonge et sur la table, sans toucher à la finition de la table autour.</desc>
-  <rect width="820" height="290" fill="#f8fafc"/>
-<g transform="rotate(-8.8 220 170)"><rect x="110" y="170" width="110" height="70" fill="#7c4a1e"/><rect x="110" y="161" width="330" height="9" fill="#1e293b" stroke="#475569" stroke-width="2"/></g><rect x="220" y="170" width="290" height="14" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
-  <circle cx="350" cy="108" r="15" fill="#0f172a"/><text x="350" y="114" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
-  <circle cx="340" cy="232" r="15" fill="#0f172a"/><text x="340" y="238" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
-  <path d="M350 124 L370 132" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
-  <path d="M340 216 L340 188" stroke="#334155" stroke-width="2" stroke-dasharray="5 4" fill="none"/>
-  <text x="376" y="112" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Dessous de la rallonge : retirer l'ancienne colle</text>
-  <text x="366" y="238" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Table : même chose, vernis intact autour</text>
-  <text x="410" y="30" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Surfaces propres et saines avant d'essayer la cale</text>
+  <rect width="820" height="375" fill="#f8fafc"/>
+<text x="410" y="30" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Surfaces propres et saines avant d'essayer la cale</text>
+  <rect x="300" y="130" width="46" height="140" fill="#e8cf9b" stroke="#7c4a1e" stroke-width="2"/><rect x="346" y="130" width="144" height="12" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/><rect x="300" y="270" width="200" height="10" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/><line x1="300" y1="130" x2="300" y2="280" stroke="#7c4a1e" stroke-width="4"/><polygon points="300.0,130.0 336.0,130.0 336.0,180.0 300.0,180.0" fill="#7c4a1e" stroke="#7c4a1e" stroke-width="2"/><polygon points="201.2,145.3 300.0,130.0 300.0,251.4 257.1,258.1 243.9,173.1 206.4,178.9" fill="#7c4a1e" stroke="#7c4a1e" stroke-width="2"/><polygon points="199.6,135.4 466.5,94.1 468.0,104.0 201.2,145.3" fill="#1e293b" stroke="#475569" stroke-width="2"/><line x1="214.0" y1="130.2" x2="214.5" y2="133.1" stroke="#cbd5e1" stroke-width="3"/><line x1="254.5" y1="123.9" x2="255.0" y2="126.8" stroke="#cbd5e1" stroke-width="3"/><line x1="296.0" y1="117.5" x2="296.5" y2="120.4" stroke="#cbd5e1" stroke-width="3"/><line x1="337.5" y1="111.0" x2="338.0" y2="114.0" stroke="#cbd5e1" stroke-width="3"/><line x1="377.1" y1="104.9" x2="377.5" y2="107.9" stroke="#cbd5e1" stroke-width="3"/><line x1="414.6" y1="99.1" x2="415.1" y2="102.1" stroke="#cbd5e1" stroke-width="3"/><line x1="450.2" y1="93.6" x2="450.7" y2="96.6" stroke="#cbd5e1" stroke-width="3"/>
+  <line x1="390" y1="74" x2="408.7051219591208" y2="113.17155800875581" stroke="#0f172a" stroke-width="1.5"/><circle cx="408.7051219591208" cy="113.17155800875581" r="3.5" fill="#0f172a"/><circle cx="390" cy="74" r="15" fill="#0f172a"/><text x="390" y="80" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <line x1="420" y1="206" x2="420" y2="136" stroke="#0f172a" stroke-width="1.5"/><circle cx="420" cy="136" r="3.5" fill="#0f172a"/><circle cx="420" cy="206" r="15" fill="#0f172a"/><text x="420" y="212" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <text x="412" y="80" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Dessous de la rallonge : retirer l'ancienne colle</text>
+  <text x="442" y="212" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Table : même chose, vernis intact autour</text>
 </svg>

@@ -1,0 +1,18 @@
+[Unit]
+Description=Watchdog HA (bail Firestore + bascule Dell/Lenovo)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ludovic
+WorkingDirectory=/home/ludovic/GuitareHunter
+EnvironmentFile=/home/ludovic/GuitareHunter/.env
+EnvironmentFile=/home/ludovic/.guitarhunter_ha.env
+ExecStart=/home/ludovic/GuitareHunter/venv/bin/python backend/scripts/run_ha_watchdog.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

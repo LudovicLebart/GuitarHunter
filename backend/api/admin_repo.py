@@ -81,7 +81,7 @@ async def list_admin_users(pool: asyncpg.Pool) -> list[dict]:
             "lastLogin": info.get("lastLogin"),
             "botStatus": r["bot_status"],
             "scanFrequency": scan.get("frequency"),
-            "maxListings": scan.get("max_listings") or 0,
+            "maxListings": scan.get("max_ads") or 0,   # clé réelle de scanConfig (bot, config_guard)
             "citiesCount": r["cities_count"],
             "dailyVolume": r["daily_volume"],
             "reachedT2": r["reached_t2"],

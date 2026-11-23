@@ -3,7 +3,7 @@ import { Send, Bot, User, Loader2, AlertTriangle, ArrowLeft, Paperclip, X, Camer
 import { useDealChat, getAttachedImagePartIndices, getAddedToGalleryUrl, getRestorationProposalState, getRequalificationProposalState } from '../../hooks/useDealChat';
 import { useAuth } from '../../hooks/useAuth';
 import { useBotConfigContext } from '../../context/BotConfigContext';
-import { RESTORATION_CATEGORY_LABELS } from '../../constants/restorationPlan';
+import { restorationCategoryLabel } from '../../constants/restorationPlan';
 import { resolveRestorationReorderProposal, REQUALIFICATION_FIELD_LABELS, chatModelLabel, DEFAULT_CHAT_MODEL } from '../../services/geminiChatService';
 import { isClaudeModel } from '../../utils/claudeChat';
 import { NEW_VERDICTS } from '../../constants';
@@ -30,7 +30,7 @@ const RestorationProposalCard = ({ proposal, state, busy, error, notice, liveIte
             <div className="flex items-center gap-1.5 text-[10px] font-bold text-purple-300 uppercase tracking-wide mb-1">
                 {isReorder
                     ? <><ArrowUpDown size={11} /> Proposition de réordonnancement</>
-                    : <><Wrench size={11} /> Proposition d'étape · {RESTORATION_CATEGORY_LABELS[proposal.category] || proposal.category}</>}
+                    : <><Wrench size={11} /> Proposition d'étape · {restorationCategoryLabel(proposal.category)}</>}
             </div>
             {isReorder ? (
                 resolved?.valid ? (

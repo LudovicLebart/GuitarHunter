@@ -31,9 +31,10 @@ try:  # orjson : 5 à 10x plus rapide que jsonable_encoder + json.dumps ; absent
 except ImportError:  # pragma: no cover - dépend de l'environnement
     orjson = None
 
+from backend.url_guard import is_listing_url, is_storage_image_url
 from backend.api.auth import get_admin_uid, get_current_uid, is_admin_uid, verify_token
 from backend.api.db import DATABASE_URL, close_pool, get_pool, init_pool
-from backend.api import (admin_repo, chat_claude, chat_repo, cost_alert, index_version, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, leaf_repo, logs_repo, restoration_repo,
+from backend.api import (admin_repo, chat_claude, config_guard, chat_repo, cost_alert, index_version, input_guard, model_alerts, cities_repo, commands_repo, deals_repo, fiches_repo, leaf_repo, logs_repo, restoration_repo,
                          shared_repo, usage_repo, users_repo)
 
 
@@ -55,6 +56,53 @@ logger = logging.getLogger(__name__)
 _NOTIFY_BATCH_DELAY_S = 0.25
 _NOTIFY_BULK_THRESHOLD = 50
 _INDEX_IDS_MAX = 200  # > _NOTIFY_BULK_THRESHOLD : au-delà de 50 ids le serveur envoie `bulk` (relecture complète)
+
+# Connexions LISTEN des WebSockets : chacune est une vraie connexion Postgres HORS du pool. Sans plafond, un seul compte
+# pouvait épuiser `max_connections` pour tout le monde (API, bot). Un onglet ouvre 3 à 5 sockets.
+_WS_MAX_PER_USER = 15
+_WS_MAX_TOTAL = 120
+_ws_open: dict = {}          # connexion LISTEN -> (uid, rappel de terminaison)
+
+
+async def _safe_send(websocket: WebSocket, data) -> None:
+    """Envoi d'un push lancé en tâche (`loop.create_task`) : un socket déjà fermé ne doit pas laisser une exception orpheline."""
+    try:
+        await websocket.send_json(data)
+    except Exception:
+        logger.debug("push WebSocket abandonné (socket fermé)", exc_info=True)
+
+
+async def _connect_listener(websocket: WebSocket, uid: str):
+    """Connexion LISTEN dédiée au socket, ou `None` (socket refermé, code 1013) quand le plafond par compte ou global est
+    atteint. Si Postgres coupe cette connexion (redémarrage, bascule HA), le socket est fermé (1011) pour que le client se
+    reconnecte et relise : sans cela il restait ouvert mais muet, et le client se croyait à jour. Libérer avec `_close_listener`."""
+    if len(_ws_open) >= _WS_MAX_TOTAL or sum(1 for u, _cb in _ws_open.values() if u == uid) >= _WS_MAX_PER_USER:
+        await websocket.close(code=1013)  # try again later
+        return None
+    conn = await asyncpg.connect(DATABASE_URL)
+    loop = asyncio.get_running_loop()
+
+    def _on_terminated(_connection):
+        async def _close():
+            try:
+                await websocket.close(code=1011)
+            except Exception:
+                pass  # déjà fermé côté client
+        loop.create_task(_close())
+
+    conn.add_termination_listener(_on_terminated)
+    _ws_open[conn] = (uid, _on_terminated)
+    return conn
+
+
+async def _close_listener(conn) -> None:
+    _uid, callback = _ws_open.pop(conn, (None, None))
+    if callback is not None:
+        try:
+            conn.remove_termination_listener(callback)  # retiré AVANT close() : sinon on refermerait un socket déjà parti
+        except Exception:
+            pass
+    await conn.close()
 
 # Origines autorisées à lire les réponses (le navigateur bloque sinon les appels cross-origin
 # du frontend, hébergé sur une origine différente). Auth par en-tête Authorization (pas de
@@ -126,9 +174,17 @@ async def get_my_config(uid: str = Depends(get_current_uid)):
 
 @app.patch("/users/me/config")
 async def patch_my_config(body: UserConfigPatch, uid: str = Depends(get_current_uid)):
+    patch = body.model_dump(exclude_unset=True)
+    try:
+        # revue R-6-3 ; en thread : json.dumps d'un corps de plusieurs Mo bloquerait la boucle d'événements
+        await asyncio.to_thread(config_guard.validate_config_patch, patch)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
     try:
-        merged = await users_repo.update_user_config(pool, uid, body.model_dump(exclude_unset=True))
+        merged = await users_repo.update_user_config(pool, uid, patch, check_merged=config_guard.validate_merged_size)
+    except ValueError as e:  # configuration fusionnée trop grosse
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dossier Python introuvable.")
     return merged
@@ -144,7 +200,9 @@ async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
 
     await websocket.accept()
 
-    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listen_conn = await _connect_listener(websocket, uid)
+    if listen_conn is None:
+        return
     listener_added = False
     try:
         loop = asyncio.get_running_loop()
@@ -153,7 +211,7 @@ async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
             data = json.loads(payload)
             if data.get("user_id") != uid:
                 return
-            loop.create_task(websocket.send_json(data))
+            loop.create_task(_safe_send(websocket, data))
 
         await listen_conn.add_listener("user_config_changes", _on_notify)
         listener_added = True
@@ -161,12 +219,12 @@ async def ws_user_config(websocket: WebSocket, token: str = Query(...)):
             await websocket.send_json({"type": "ready"})
             while True:
                 await websocket.receive_text()
-        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
+        except (WebSocketDisconnect, RuntimeError, OSError):  # OSError : uvicorn.ClientDisconnected ; RuntimeError : socket déjà fermé
             pass
     finally:
         if listener_added:
             await listen_conn.remove_listener("user_config_changes", _on_notify)
-        await listen_conn.close()
+        await _close_listener(listen_conn)
 
 
 class CommandCreate(BaseModel):
@@ -188,7 +246,18 @@ class CommandOut(BaseModel):
 @app.post("/commands", response_model=CommandOut, status_code=status.HTTP_201_CREATED)
 async def create_command(body: CommandCreate, uid: str = Depends(get_current_uid)):
     """Équivalent HTTP de `firestoreService.js::addCommand()` — même contrat (type, payload)."""
+    # Revue R-6-1 : le bot ouvre cette adresse dans un navigateur du serveur ; seules les annonces
+    # Facebook/Kijiji en https sont acceptées.
+    if body.type == "SCAN_URL" and not is_listing_url(body.payload):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Adresse refusée : une annonce Facebook ou Kijiji en https est attendue.")
+    try:  # revue de l'API : type connu, charge bornée
+        input_guard.validate_command(body.type, body.payload)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
+    # Plafond de commandes en attente : chaque ANALYZE_DEAL/REANALYZE_ALL/REFRESH déclenche des appels payants.
+    if await commands_repo.count_pending(pool, uid) >= input_guard.MAX_PENDING_COMMANDS:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Trop de commandes en attente : patiente le temps qu'elles soient traitées.")
     command_id = await commands_repo.create_command(pool, uid, body.type, body.payload)
     return CommandOut(id=command_id, type=body.type, payload=body.payload, status="pending")
 
@@ -319,6 +388,10 @@ class DealIdsBody(BaseModel):
 
 @app.post("/deals/by-ids")
 async def get_deals_by_ids(request: Request, body: DealIdsBody, uid: str = Depends(get_current_uid)):
+    try:
+        input_guard.validate_deal_ids(body.ids)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     pool = get_pool()
     rows = await deals_repo.get_deals_by_ids(pool, uid, body.ids)
     return (await rows_json_response(request, rows))[0]
@@ -405,6 +478,10 @@ class PurchasedBody(BaseModel):
 
 @app.patch("/deals/{deal_id}/purchased")
 async def patch_purchased(deal_id: str, body: PurchasedBody, uid: str = Depends(get_current_uid)):
+    try:
+        input_guard.check_money(body.purchasePrice, "purchasePrice")
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
     new_value = await deals_repo.toggle_purchased(pool, uid, deal_id, body.purchasePrice, body.confirmUnpurchase)
     if new_value is None:
@@ -425,7 +502,9 @@ class UserSaleBody(BaseModel):
 @app.patch("/deals/{deal_id}/user-sale")
 async def patch_user_sale(deal_id: str, body: UserSaleBody, uid: str = Depends(get_current_uid)):
     """Revente par l'acheteur (2026-10-10) : `salePrice` absent/null annule la revente."""
-    if body.salePrice is not None and body.salePrice < 0:
+    try:
+        input_guard.check_money(body.salePrice, "salePrice")
+    except ValueError:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Le prix de vente doit être positif.")
     pool = get_pool()
     result = await deals_repo.set_user_sale(pool, uid, deal_id, body.salePrice, body.soldAt)
@@ -455,6 +534,8 @@ class GalleryImageBody(BaseModel):
 
 @app.post("/deals/{deal_id}/gallery")
 async def add_gallery_image(deal_id: str, body: GalleryImageBody, uid: str = Depends(get_current_uid)):
+    if not is_storage_image_url(body.url):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     found = await deals_repo.add_gallery_image(pool, uid, deal_id, body.url)
     if not found:
@@ -471,8 +552,13 @@ class AnalysisOverridesBody(BaseModel):
 
 @app.patch("/deals/{deal_id}/analysis-overrides")
 async def patch_analysis_overrides(deal_id: str, body: AnalysisOverridesBody, uid: str = Depends(get_current_uid)):
+    fields = body.model_dump(exclude_unset=True)
+    try:  # correction GLOBALE : valeurs bornées (un type faux donnait une 500 SQL, un texte énorme gonflait la ligne)
+        input_guard.validate_analysis_overrides(fields)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     pool = get_pool()
-    found = await deals_repo.apply_manual_analysis_overrides(pool, uid, deal_id, body.model_dump(exclude_unset=True))
+    found = await deals_repo.apply_manual_analysis_overrides(pool, uid, deal_id, fields)
     if not found:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Annonce introuvable.")
     return {"status": "ok"}
@@ -511,7 +597,9 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
 
     # Connexion dédiée à ce socket (pas le pool applicatif) : LISTEN doit tenir sur UNE
     # connexion vivante en continu, incompatible avec un pool qui recycle ses connexions.
-    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listen_conn = await _connect_listener(websocket, uid)
+    if listen_conn is None:
+        return
     # `listener_added` + le try englobant dès ici (pas seulement autour de la boucle de
     # réception) : si add_listener() ou send_json() lève (ex: client déconnecté juste après
     # accept()) avant d'atteindre le try/finally plus bas, listen_conn ne serait jamais fermée
@@ -602,7 +690,7 @@ async def ws_deals(websocket: WebSocket, token: str = Query(...)):
             # Retiré AVANT close() : fermer nous-mêmes la connexion déclencherait sinon le
             # listener de terminaison (fermeture inutile d'un socket déjà parti).
             listen_conn.remove_termination_listener(_on_pg_terminated)
-        await listen_conn.close()
+        await _close_listener(listen_conn)
 
 
 # --- Chat (tranche 3) ----------------------------------------------------------------------
@@ -643,16 +731,59 @@ class OpusConsultIn(BaseModel):
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Content-Encoding": "identity"}
 
 
+async def _enforce_chat_cap(pool, uid: str) -> None:
+    """Revue R-6-4 : refuse (429) un tour de chat quand l'utilisateur a déjà dépensé son plafond du jour."""
+    if await cost_alert.user_today_chat_cost(pool, uid) >= cost_alert.USER_DAILY_CAP_USD:
+        if await asyncio.to_thread(is_admin_uid, uid):
+            return
+        # `code` : lu par le frontend (`classifyChatError`) pour ne pas relancer un refus qui ne se lève pas en attendant.
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, {
+            "code": "daily_cap",
+            "message": f"Plafond de {cost_alert.USER_DAILY_CAP_USD:.0f} $ atteint pour aujourd'hui : le chat reprendra demain.",
+        })
+
+
+_CHAT_MAX_CONCURRENT = 2
+_chat_inflight: dict = {}   # uid -> instants (monotonic) de départ des flux en cours
+
+
+def _chat_acquire(uid: str) -> None:
+    """Le plafond de dépense ne voit un tour qu'une fois enregistré (fin du flux) : des flux PARALLÈLES passaient donc tous
+    sous le plafond. Au plus `_CHAT_MAX_CONCURRENT` flux simultanés par compte (429 au-delà) ; un flux jamais démarré expire
+    avec le délai de l'appel pour ne pas bloquer le compte."""
+    now = time.monotonic()
+    live = [t for t in _chat_inflight.get(uid, []) if now - t < chat_claude.CHAT_TIMEOUT_S + 60]
+    if len(live) >= _CHAT_MAX_CONCURRENT:
+        _chat_inflight[uid] = live
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Un tour de chat est déjà en cours : attends sa fin avant d'en lancer un autre.")
+    live.append(now)
+    _chat_inflight[uid] = live
+
+
+async def _release_after(uid: str, stream):
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        started = _chat_inflight.get(uid)
+        if started:
+            started.pop(0)
+            if not started:
+                _chat_inflight.pop(uid, None)
+
+
 @app.post("/deals/{deal_id}/chat/claude")
 async def chat_claude_turn(deal_id: str, body: ClaudeChatIn, uid: str = Depends(get_current_uid)):
     """Un tour de chat sur Claude, en SSE (texte au fil de l'eau, puis le message final et l'usage)."""
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    await _enforce_chat_cap(pool, uid)
     try:
         req = chat_claude.validate_chat(body.system, body.tools, body.messages, body.model)
     except chat_claude.ChatRequestError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return StreamingResponse(chat_claude.event_stream(pool, uid, deal_id, body.action, req),
+    _chat_acquire(uid)
+    return StreamingResponse(_release_after(uid, chat_claude.event_stream(pool, uid, deal_id, body.action, req)),
                              media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
@@ -661,11 +792,13 @@ async def chat_consult_opus(deal_id: str, body: OpusConsultIn, uid: str = Depend
     """Consultation d'Opus sur le dossier préparé par l'assistant : sans outils, réponse plafonnée, en SSE."""
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    await _enforce_chat_cap(pool, uid)
     try:
         req = chat_claude.validate_consult(body.brief, body.images)
     except chat_claude.ChatRequestError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return StreamingResponse(chat_claude.event_stream(pool, uid, deal_id, "chat_consult_opus", req, consult=True),
+    _chat_acquire(uid)
+    return StreamingResponse(_release_after(uid, chat_claude.event_stream(pool, uid, deal_id, "chat_consult_opus", req, consult=True)),
                              media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
@@ -673,8 +806,26 @@ async def chat_consult_opus(deal_id: str, body: OpusConsultIn, uid: str = Depend
 async def list_chat(deal_id: str, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    rows = await chat_repo.list_messages(pool, deal_id)
+    rows = await chat_repo.list_messages(pool, deal_id, uid)
     return [dict(r) for r in rows]
+
+
+MAX_CHAT_PARTS_BYTES = 2_000_000  # une photo base64 de 1024 px pèse ~200 ko ; large marge pour 6 photos
+
+
+def _check_chat_payload(role, parts) -> None:
+    """Revue R-6-5 : le rôle d'un message ne peut être que `user` ou `model`, et son contenu reste borné."""
+    if role is not None and role not in ("user", "model"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Rôle de message invalide.")
+    if len(json.dumps(parts, default=str)) > MAX_CHAT_PARTS_BYTES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Message trop volumineux.")
+
+
+def _check_chat_extras(body) -> None:
+    try:
+        input_guard.validate_chat_extras(body.displayText, body.restorationProposals, body.photoRecall, body.requalificationProposal)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
 
 class ChatMessageCreate(BaseModel):
@@ -692,10 +843,12 @@ class ChatMessageCreate(BaseModel):
 async def create_chat_message(deal_id: str, body: ChatMessageCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    _check_chat_payload(body.role, body.parts)
+    _check_chat_extras(body)
     message_id = await chat_repo.add_message(
         pool, deal_id, body.role, body.parts, body.displayText,
         body.attachedImagePartIndices, body.restorationProposals,
-        body.photoRecall, body.isError, body.requalificationProposal,
+        body.photoRecall, body.isError, body.requalificationProposal, uid,
     )
     return {"id": message_id}
 
@@ -718,9 +871,11 @@ async def _require_chat_message_found(found: bool) -> None:
 async def replace_chat_message(deal_id: str, message_id: int, body: ChatMessageReplace, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
+    _check_chat_payload(None, body.parts)
+    _check_chat_extras(body)
     found = await chat_repo.replace_message(
         pool, deal_id, message_id, body.parts, body.displayText,
-        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal,
+        body.restorationProposals, body.photoRecall, body.isError, body.requalificationProposal, uid,
     )
     await _require_chat_message_found(found)
     return {"status": "ok"}
@@ -733,9 +888,11 @@ class GalleryMarkBody(BaseModel):
 
 @app.patch("/deals/{deal_id}/chat/{message_id}/gallery")
 async def mark_gallery(deal_id: str, message_id: int, body: GalleryMarkBody, uid: str = Depends(get_current_uid)):
+    if not is_storage_image_url(body.url):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url)
+    found = await chat_repo.mark_added_to_gallery(pool, deal_id, message_id, body.partIndex, body.url, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -753,7 +910,7 @@ class RestorationProposalStatusBody(BaseModel):
 async def mark_restoration_proposal(deal_id: str, message_id: int, body: RestorationProposalStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId)
+    found = await chat_repo.mark_restoration_proposal_status(pool, deal_id, message_id, body.proposalIndex, body.status, body.itemId, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -766,7 +923,7 @@ class RequalificationStatusBody(BaseModel):
 async def mark_requalification_proposal(deal_id: str, message_id: int, body: RequalificationStatusBody, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_deal_visible(pool, deal_id, uid)
-    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status)
+    found = await chat_repo.mark_requalification_proposal_status(pool, deal_id, message_id, body.status, uid)
     await _require_chat_message_found(found)
     return {"status": "ok"}
 
@@ -789,7 +946,9 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
 
     await websocket.accept()
 
-    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listen_conn = await _connect_listener(websocket, uid)
+    if listen_conn is None:
+        return
     listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
     try:
         loop = asyncio.get_running_loop()
@@ -798,7 +957,9 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
             data = json.loads(payload)
             if data.get("deal_id") != deal_id:
                 return  # canal partagé entre toutes les annonces, filtré ici
-            loop.create_task(websocket.send_json(data))
+            if data.get("user_id") not in (None, uid):
+                return  # fil d'un autre utilisateur (R-6-5) ; None = message commun d'avant le fil par utilisateur
+            loop.create_task(_safe_send(websocket, data))
 
         await listen_conn.add_listener("chat_changes", _on_notify)
         listener_added = True
@@ -806,12 +967,12 @@ async def ws_deal_chat(websocket: WebSocket, deal_id: str, token: str = Query(..
             await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
+        except (WebSocketDisconnect, RuntimeError, OSError):  # OSError : uvicorn.ClientDisconnected ; RuntimeError : socket déjà fermé
             pass
     finally:
         if listener_added:
             await listen_conn.remove_listener("chat_changes", _on_notify)
-        await listen_conn.close()
+        await _close_listener(listen_conn)
 
 
 # --- Leaf Hunter (phase 4) : annonces de Nissan Leaf d'occasion --------------------------------------------------
@@ -945,6 +1106,13 @@ class RestorationItemCreate(BaseModel):
     ficheSlug: Optional[str] = None
 
 
+def _check_restoration_fields(label, category, notes, estimated_cost, actual_cost) -> None:
+    try:
+        input_guard.validate_restoration_item(label, category, notes, estimated_cost, actual_cost)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+
+
 async def _require_known_fiche(pool, slug: Optional[str]) -> None:
     """Un lien d'étape vers une fiche doit viser une fiche qui existe (`None` = pas de lien / effacer le lien)."""
     if slug is not None and slug not in await fiches_repo.existing_slugs(pool, [slug]):
@@ -955,6 +1123,7 @@ async def _require_known_fiche(pool, slug: Optional[str]) -> None:
 async def create_restoration_item(deal_id: str, body: RestorationItemCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
     await _require_plan_access(pool, deal_id, uid)
+    _check_restoration_fields(body.label, body.category, body.notes, body.estimatedCost, None)
     await _require_known_fiche(pool, body.ficheSlug)
     item_id = await restoration_repo.add_item(
         pool, deal_id, uid, body.label, body.category, body.estimatedCost, body.notes,
@@ -998,6 +1167,8 @@ async def patch_restoration_item(deal_id: str, item_id: int, body: RestorationIt
     pool = get_pool()
     await _require_plan_access(pool, deal_id, uid)
     patch = body.model_dump(exclude_unset=True)
+    _check_restoration_fields(patch.get("label"), patch.get("category"), patch.get("notes"),
+                              patch.get("estimatedCost"), patch.get("actualCost"))
     if patch.get("ficheSlug") is not None:
         # L'étape d'abord : 404 si elle n'existe pas (un patch vide ne fait que vérifier), puis 422 si la fiche est inconnue.
         await _require_restoration_item_found(await restoration_repo.update_item(pool, deal_id, uid, item_id, {}))
@@ -1021,6 +1192,8 @@ class RestorationPhotoBody(BaseModel):
 
 @app.post("/deals/{deal_id}/restoration-plan/{item_id}/photos")
 async def add_restoration_photo(deal_id: str, item_id: int, body: RestorationPhotoBody, uid: str = Depends(get_current_uid)):
+    if not is_storage_image_url(body.url):  # comme la galerie : seules les photos du stockage du projet
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "URL refusée : seules les photos du stockage du projet sont acceptées.")
     pool = get_pool()
     await _require_plan_access(pool, deal_id, uid)
     found = await restoration_repo.add_photo(pool, deal_id, uid, item_id, body.url)
@@ -1052,7 +1225,9 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
 
     await websocket.accept()
 
-    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listen_conn = await _connect_listener(websocket, uid)
+    if listen_conn is None:
+        return
     listener_added = False  # voir ws_deals : évite la fuite de connexion si accept/LISTEN échoue avant le try/finally
     try:
         loop = asyncio.get_running_loop()
@@ -1061,7 +1236,7 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
             data = json.loads(payload)
             if data.get("deal_id") != deal_id or data.get("user_id") != uid:
                 return  # canal partagé entre toutes les annonces et tous les utilisateurs, filtré ici
-            loop.create_task(websocket.send_json(data))
+            loop.create_task(_safe_send(websocket, data))
 
         await listen_conn.add_listener("restoration_plan_changes", _on_notify)
         listener_added = True
@@ -1069,12 +1244,12 @@ async def ws_restoration_plan(websocket: WebSocket, deal_id: str, token: str = Q
             await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
+        except (WebSocketDisconnect, RuntimeError, OSError):  # OSError : uvicorn.ClientDisconnected ; RuntimeError : socket déjà fermé
             pass
     finally:
         if listener_added:
             await listen_conn.remove_listener("restoration_plan_changes", _on_notify)
-        await listen_conn.close()
+        await _close_listener(listen_conn)
 
 
 # --- Dashboard Administrateur (2026-10-11) -----------------------------------------------------
@@ -1105,8 +1280,9 @@ class ScanFrequencyBody(BaseModel):
 
 @app.patch("/admin/users/{target_uid}/scan-frequency")
 async def admin_set_scan_frequency(target_uid: str, body: ScanFrequencyBody, _admin: str = Depends(get_admin_uid)):
-    if body.minutes < 1:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La fréquence doit être d'au moins 1 minute.")
+    lo, hi = config_guard.SCAN_BOUNDS["frequency"]  # mêmes bornes que PATCH /users/me/config
+    if not lo <= body.minutes <= hi:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"La fréquence doit être entre {lo} et {hi} minutes.")
     if not await admin_repo.set_scan_frequency(get_pool(), target_uid, body.minutes):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Utilisateur introuvable.")
     return {"scanFrequency": body.minutes}
@@ -1178,7 +1354,9 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
 
     await websocket.accept()
 
-    listen_conn = await asyncpg.connect(DATABASE_URL)
+    listen_conn = await _connect_listener(websocket, uid)
+    if listen_conn is None:
+        return
     # Deux flags distincts (voir ws_deals pour le raisonnement) : chaque add_listener() peut
     # échouer indépendamment, remove_listener() ne doit être tenté que sur celui qui a réussi.
     pref_listener_added = False
@@ -1190,12 +1368,12 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
             data = json.loads(payload)
             if data.get("user_id") != uid:
                 return  # canal partagé entre tous les utilisateurs, filtré ici
-            loop.create_task(websocket.send_json({"type": "city_pref_changed", "cityId": data["city_id"]}))
+            loop.create_task(_safe_send(websocket, {"type": "city_pref_changed", "cityId": data["city_id"]}))
 
         def _on_catalog_notify(connection, pid, channel, payload):
             data = json.loads(payload)
             # Catalogue partagé : diffusé à tous les clients connectés, pas de filtrage par uid.
-            loop.create_task(websocket.send_json({"type": "catalog_changed", "cityId": data["city_id"]}))
+            loop.create_task(_safe_send(websocket, {"type": "catalog_changed", "cityId": data["city_id"]}))
 
         await listen_conn.add_listener("city_prefs_changes", _on_pref_notify)
         pref_listener_added = True
@@ -1205,14 +1383,14 @@ async def ws_cities(websocket: WebSocket, token: str = Query(...)):
             await websocket.send_json({"type": "ready"})  # voir ws_deals : évite la course accept/LISTEN
             while True:
                 await websocket.receive_text()
-        except (WebSocketDisconnect, OSError):  # OSError : uvicorn.ClientDisconnected (client parti pendant un envoi)
+        except (WebSocketDisconnect, RuntimeError, OSError):  # OSError : uvicorn.ClientDisconnected ; RuntimeError : socket déjà fermé
             pass
     finally:
         if pref_listener_added:
             await listen_conn.remove_listener("city_prefs_changes", _on_pref_notify)
         if catalog_listener_added:
             await listen_conn.remove_listener("cities_catalog_changes", _on_catalog_notify)
-        await listen_conn.close()
+        await _close_listener(listen_conn)
 
 
 # --- Annonces partagées (tranche 6, dernière) -----------------------------------------------
@@ -1243,7 +1421,15 @@ class SharedDealCreate(BaseModel):
 @app.put("/shared-deals/{deal_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def upsert_shared_deal(deal_id: str, body: SharedDealCreate, uid: str = Depends(get_current_uid)):
     pool = get_pool()
-    await shared_repo.upsert_shared_deal(pool, deal_id, body.model_dump())
+    # Le partage est PUBLIC : seule une personne qui voit l'annonce peut publier son instantané (sinon n'importe quel compte
+    # écrasait le lien de quelqu'un d'autre), et le contenu est borné (lien d'annonce, photos https, taille).
+    await _require_deal_visible(pool, deal_id, uid)
+    snapshot = body.model_dump()
+    try:
+        input_guard.validate_shared_snapshot(snapshot)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    await shared_repo.upsert_shared_deal(pool, deal_id, snapshot)
 
 
 @app.get("/shared-deals/{deal_id}")

@@ -83,13 +83,17 @@ Le système utilise **Firebase Authentication** pour gérer l'accès multi-utili
 Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `main.py`
-- **Point d'entrée:** Initialise le `GuitarHunterBot` et le `DatabaseService` (Firestore + Firebase Storage).
-- **Boucle principale:**
-  1. Vérifie les commandes dans Firestore (`sync_and_apply_config`).
-  2. Exécute les tâches planifiées (scan, nettoyage) via `TaskScheduler`.
-  3. Gère un `command_handlers` pour router les commandes Firestore vers les bonnes méthodes du bot.
+> **Référence à jour du bot (2026-11-05) : [`bot.md`](bot.md)**, vérifiée contre le code. Les sous-sections `main.py`, `backend/bot.py` et « Watchdog » ci-dessous gardent surtout l'historique des décisions ; leur vocabulaire Firestore (`DatabaseService` pour les données, `FirestoreHandler`, `deals_index` en chunks, collection `commands`) est celui d'avant septembre 2026.
+
+- **Point d'entrée:** initialise Firebase (Auth + Storage, `DatabaseService`), le pool Postgres, puis **un thread `main_loop` par utilisateur** (un `GuitarHunterBot` chacun).
+- **Boucle d'un utilisateur:**
+  1. Lit les commandes `pending` de la table Postgres `commands` (`sync_and_apply_config`), toutes les ≈ 5 s.
+  2. Exécute les tâches planifiées (scan, nettoyage, purge) via `TaskScheduler`.
+  3. Gère un `command_handlers` pour router les commandes vers les bonnes méthodes du bot.
 - **`run.bat`:** Script de lancement à la racine du projet. Utilise toujours le venv Python (`\venv\Scripts\python.exe`) et force l'encodage UTF-8 (`PYTHONUTF8=1`). Commandes : `run.bat` (bot), `run.bat migrate` (migration dry-run), `run.bat migrate --real` (migration réelle).
 - **Déploiement Tailscale (OAuth):** Le workflow de déploiement GitHub Actions utilise des identifiants OAuth Tailscale (`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`) pour se connecter au Tailnet et accéder au serveur via SSH.
+
+> **Référence à jour de l'exploitation (2026-11-06) : [`exploitation.md`](exploitation.md)** (topologie réelle du serveur, déploiement, sauvegardes, haute disponibilité), vérifiée contre `deploy.yml` et un relevé en lecture seule du serveur. Les sous-sections ci-dessous gardent l'historique des décisions.
 
 ### `.github/workflows/deploy.yml`
 - **`deploy` (backend) :** Sur push `master`/`dev`, se connecte au serveur via Tailscale + SSH, `git reset --hard` sur la branche poussée, réinstalle les dépendances Python/Playwright, redémarre le service systemd `guitare-hunter`.
@@ -106,7 +110,7 @@ Le backend est un "worker" persistant qui tourne en boucle.
 
 ### `backend/ha/` — Redondance Dell (chantier en préparation, 2026-09-27)
 Voir `docs/management/plans/DB_REDUNDANCY_DELL_PLAN.md` pour le design complet et l'état
-d'avancement. **Aucun module de ce paquet n'est encore importé par un chemin de production** —
+d'avancement. **Correction 2026-11-06 : le démon `run_ha_watchdog.py` (qui importe ce paquet) tourne en service systemd sur le serveur ; le bot et l'API, eux, ne l'importent pas** (voir `exploitation.md`). Texte d'origine : aucun module de ce paquet n'est encore importé par un chemin de production —
 isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRESTORE_MIGRATION_PLAN.md`
 §5.1 : "construire sur une branche séparée, sans toucher au chemin existant").
 - **`lease.py`** — le "juge" : bail de leadership dans un document Firestore unique
@@ -174,6 +178,8 @@ isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRES
 - **`sync_and_apply_config()`:** Lit la configuration depuis Firestore et applique les changements (fréquence, etc.).
 - **`add_city_auto(city_payload)`:** Pilote le scraper pour découvrir une nouvelle ville globalement. `city_payload` est soit une chaîne simple (repli historique, géocodage à l'aveugle), soit un dict structuré `{name, latitude, longitude, region_hint}` produit par le sélecteur de suggestions en direct du frontend (Photon, voir `src/hooks/useCitySuggestions.js`). Utilise `CityFinder.find_city_id_and_coords()` (`backend/scraping/city_finder.py`) pour naviguer dans le sélecteur de lieu de Facebook — **v2 (2026-10-23) : l'ID est VÉRIFIÉ avant d'être rendu** (voir « `CityFinder` v2 » plus bas) ; un ID ambigu, indéterminé ou introuvable n'est **pas enregistré** (l'ajout échoue avec un message d'erreur) ; sans province connue (payload en chaîne, région hors Canada) l'ancien comportement subsiste, signalé `needsReview`. Une ville déjà au catalogue sous un autre identifiant (ID texte hérité, ID erroné) garde sa ligne et reçoit l'ID vérifié dans `fb_location_id` — avant, l'ID trouvé était ignoré dans ce cas. (Historique v1 : itérait les suggestions et choisissait celle dont le libellé correspondait à `region_hint`, `needsReview` en cas de non-correspondance.) Les coordonnées confirmées par l'utilisateur (payload structuré) priment sur celles de Facebook, elles-mêmes prioritaires sur le repli Nominatim (texte libre, dernier recours). **(2026-09-08)** `needsReview` est aussi posé chaque fois que ce repli Nominatim aveugle fournit les coordonnées finales (`_geocode_nominatim()`, sans indice régional) — volontairement pas de restriction géographique/pays sur ce repli (l'app doit rester utilisable pour des villes hors Québec/Canada), donc un homonyme lointain (ex: "Saint-Lambert" → France) peut toujours être retourné en 1er résultat ; `needsReview` rend cette incertitude visible dans l'app plutôt que de l'empêcher a priori. **(2026-09-27)** Dédoublonnage sur le nom (avant l'appel à `CityFinder`) désormais basé sur `normalize_city_key()` (`backend/cities.py`, insensible accents/casse/tirets) plutôt qu'un simple `.lower()`, qui laissait passer des quasi-doublons ("Montreal" vs "Montréal") comme deux villes distinctes — voir `backend/scripts/audit_city_catalog_duplicates.py` pour l'audit des doublons déjà présents au catalogue.
 
+> **Référence à jour du pipeline IA (2026-11-05) : [`ia.md`](ia.md)**, vérifiée contre le code (cascade, fournisseurs, seuils de l'Expert, taxonomie, prompts). La sous-section ci-dessous garde l'historique des décisions.
+
 ### `backend/analyzer.py` (`DealAnalyzer`)
 - **Découpage du 2026-10-02 (sans changement de comportement)** : les clients LLM (`_call_gemini_json`, `_call_openai_compatible_json`, `_call_t1_provider`, `_get_model`, notifications d'échec, `_t1_model_name_for`) et le contrat JSON du Portier (`T1_VALID_STATUSES`, `T1_GATEKEEPER_*_SCHEMA`) vivent dans **`backend/llm_clients.py`** (`LLMClientsMixin`, hérité par `DealAnalyzer` ; `analyzer.py` ré-exporte les constantes T1_*). Les tests qui patchent `OpenAI`/`TOKENROUTER_API_KEY` ciblent `backend.llm_clients`. La décision de déclencher l'Expert est la fonction pure `expert_trigger_reason()` (testée seule). La cascade `_run_analysis_cascade_body` (337 → 86 lignes) est découpée en phases : `_run_t1_phase` (Portier + routage Recherche Active ; retourne un `_T1Outcome` dont `early_result` non None = sortie anticipée rejet/NOT_PROMOTED/GATEKEEPER_FAILED_SKIP), `_t1_call_chain` (chaîne de fournisseurs + coupe-circuit), `_run_t2_phase`, `_run_t3_phase` (lève `RuntimeError` si l'Expert échoue). Comportement figé par `TestCascadeCharacterization` (13 tests sur `analyze_deal`).
 - **Responsabilité unique:** Analyser une annonce en cascade.
@@ -231,6 +237,12 @@ isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRES
 - **`notify_scrape_health()` (2026-10-23)** : alerte ntfy (priorité haute) + email quand un scraper (Facebook/Kijiji) échoue de façon répétée pour une ville : source, ville, code dominant, nombre d'échecs récents, date du dernier succès, et **piste de réparation** (`scrape_health.repair_hint`, ex. la commande `list_fb_city_candidates` pour un `geo_mismatch`). Le délai minimal entre deux alertes d'une même (source, ville) est géré par `bot.py` via `scrape_runs.alerted_at` (résiste aux redémarrages).
 - **`notify_scan_url_finished()` (2026-07-21)** : Message adapté au code de statut retourné par `handle_deal_found()` (`processed`, `duplicate_unchanged`, `duplicate_cross_platform`, `already_rejected`, `marked_sold`, `rejected_prefilter`, `scrape_failed`, `sold_marker`), capturé par `bot.py::scan_specific_url()`. Inclut un lien direct vers l'annonce dans Guitar Hunter (`?dealId={id}`, même schéma que `notify_deal()`) en plus du lien d'origine. **`source` (2026-07-27, défaut `"Facebook"`)** : étiquette correctement le message ("URL Facebook :"/"URL Kijiji :") — auparavant toujours "URL Facebook" même pour un scan Kijiji, symptôme du même bug que `scan_specific_url()` ci-dessus (dispatch absent).
 
+### Suppression d'un utilisateur depuis le dashboard Administrateur (`DELETE /admin/users/{uid}`, `admin_repo.delete_user_data`)
+- **Périmètre (décision utilisateur 2026-11-05)** : ne supprime que les **données Postgres** : la ligne `users` et, en cascade (FK `ON DELETE CASCADE`), ses préférences de villes, favoris/rejets, correspondances, commandes, journaux (`logs`, `logs_archive`) et suivi de santé des scrapers. **Ne sont PAS supprimés** (corrigé le 2026-11-05 après relecture du schéma, voir `donnees.md`) : les étapes de son plan de restauration (`restoration_plan_items.user_id` n'a pas de clé étrangère, elles restent orphelines) et ses achats (`guitar_deals.purchased_by_user_id` passe à `NULL` mais `is_purchased` reste vrai) ; le **compte Firebase Auth est conservé** (la personne peut se reconnecter et repartir de zéro ; pour l'effacer : console Firebase > Authentication). Pas de suppression Auth dans l'app : accepté tant que le compte est arrêté.
+- **Garde-fous** : refusée (409) si le bot de l'utilisateur est en `scanning`/`scanning_url` (contrôle et suppression en une seule requête) ; un administrateur ne peut pas supprimer ses propres données. Le message de confirmation (`AdminDashboard.jsx::handleDeleteUser`) l'explique en toutes lettres.
+
+> **Référence à jour de l'API (2026-11-06) : [`api.md`](api.md)** (54 routes, authentification, WebSocket, chat Claude, alertes), vérifiée contre le code. Les sous-sections API ci-dessous gardent l'historique des décisions.
+
 ### Instrument de coût du chat (2026-11-01, `backend/api/llm_pricing.py`, `cost_alert.py`, `admin_repo.chat_cost`)
 - **Tarifs** : `llm_pricing.PRICING` est la source unique (Gemini 3.1 Pro, Sonnet 5.5, Opus 5.5) ; `cost_dashboard.py` l'importe. Un modèle sans tarif est compté au tarif le plus haut connu (`FALLBACK_TIER`) et signalé, jamais à 0 $. Module autonome : l'API de production ne recopie qu'une liste de modules de `backend/`.
 - **Enregistrement** : le chat (navigateur) poste son `usageMetadata` à `POST /usage` → `llm_usage` (`source='chat'`, fournisseur déduit du modèle par `usage_repo.provider_of`) ; les tours `claude*` y sont refusés (le serveur les enregistrera lui-même). `llm_usage.cache_write_tokens` (créée par `schema.sql`) reçoit les tokens écrits dans le cache de prompt Anthropic (inclus dans `input_tokens`, facturés 1,25 × ou 2 ×).
@@ -245,6 +257,8 @@ isolé, sur le modèle déjà suivi pour la bascule Firestore→Postgres (`FIRES
 
 ### Alerte « modèle injoignable » (2026-11-01, `backend/api/model_alerts.py`)
 - Appelée par `llm_usage.record` (robot, tout échec enregistré, même base injoignable), `chat_claude.py` et `POST /usage` (échecs du chat Gemini vus du navigateur). Causes à traiter (`no_key`, `no_credit`, `http_401/403`, `http_404`/`model_unavailable`) : ntfy immédiat, une fois par jour par (fournisseur, modèle, cause), avec la consigne ; pannes passagères (`timeout`, `http_429`, `http_5xx`, `connection` côté serveur) : seulement 5 échecs en 15 minutes, au plus une alerte par heure ; les coupures de connexion vues du navigateur sont ignorées. État en mémoire ; sans `NTFY_TOPIC`, rien n'est envoyé. Module autonome dans `backend/api/` (déployé avec l'API de production, importé aussi par le robot).
+
+> **Référence à jour du scraping (2026-11-05) : [`scraping.md`](scraping.md)**, vérifiée contre le code. Les sous-sections `backend/scraping/`, `kijiji/`, `CityFinder v2` et « Suivi de santé des scrapers » ci-dessous restent comme historique des décisions.
 
 ### `backend/scraping/`
 - **`FacebookScraper`** : Utilise Playwright pour naviguer sur Facebook Marketplace, scroller, et extraire les données brutes des annonces. 
@@ -349,6 +363,8 @@ if not ctx["thread"].is_alive():
 ---
 
 ## 3. ⚛️ Frontend (React)
+
+> **Référence à jour du frontend (2026-11-06) : [`frontend.md`](frontend.md)**, vérifiée contre le code (relecture partielle des gros composants, voir son en-tête). Les sous-sections ci-dessous gardent l'historique des décisions ; plusieurs parlent encore de Firestore (`firestoreService.js`, `onSnapshot`, `deals_index` en chunks).
 
 Le frontend est une Single Page Application (SPA) conçue pour être très réactive.
 
@@ -650,6 +666,8 @@ Le système dispose d'un mécanisme de fallback à deux niveaux :
 ---
 
 ## 5. 🧠 Pipeline d'Auto-Annotation (YOLO-OBB)
+
+> **Référence à jour (2026-11-06) : [`restauration_et_pieces.md`](restauration_et_pieces.md) §3** — le détecteur n'est pas branché en production et aucun modèle n'est entraîné ; cette section garde l'historique du plan V2.1.
 
 > **Statut (2026-10-02)** : pipeline d'annotation non branché en production ; objectif, taxonomie commune à 10 classes (`headstock, neck, heel, body, bridge, saddle, nut, soundhole, pickups, plate` — `CLASS_NAMES` de `config.py`, `label_studio_template_obb.xml`, `classes.txt`) et étapes dans [`PARTS_DETECTOR_AND_CROPS_PLAN.md`](../management/plans/PARTS_DETECTOR_AND_CROPS_PLAN.md). Le neck reset est un chantier distinct qui consomme ce détecteur ([`NECK_RESET_VISION_PLAN.md`](../management/plans/NECK_RESET_VISION_PLAN.md)).
 

@@ -58,6 +58,8 @@
 import { auth } from './firebase';
 
 import { parseSseBuffer } from '../utils/claudeChat';
+import { latestOnly } from '../utils/latestOnly';
+import { buildHttpError, commandRefusedMessage } from '../utils/httpError';
 import { FULL_REFRESH_INTERVAL_MS, chooseIndexRefresh, deltaIdFromMessage, mergeIndexDelta } from '../utils/indexDelta';
 import { decodeIndexRows } from '../utils/indexColumnar';
 import { hashShape, loadIndexCache, saveIndexCache } from '../utils/indexCache';
@@ -130,9 +132,8 @@ async function apiFetch(path, { method = 'GET', body, skipAuth = false, onRespon
   if (resp.status === 404 && skipAuth) return null; // lecture publique (shared-deals) : absent = null, pas une erreur
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const error = new Error(`apiService: ${method} ${path} a échoué (${resp.status}) ${text}`);
-    error.status = resp.status; // permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
-    throw error;
+    // `status` permet aux appelants de distinguer un cas précis (ex: 409 sur un achat déjà pris par un autre utilisateur, voir toggleDealPurchased)
+    throw buildHttpError(method, path, resp.status, text);
   }
   onResponse?.(resp);
   if (resp.status === 204) return null;
@@ -375,7 +376,9 @@ function chatMessageFromRow(row) {
     restorationProposals: row.restoration_proposals ?? undefined,
     photoRecall: row.photo_recall ?? undefined,
     isError: row.is_error,
-    requalificationProposal: row.requalification_proposal ?? undefined,
+    // Un PATCH de statut sur un message sans proposition crée `{status}` seul (chat_repo.py, COALESCE
+    // voulu) : sans `fields`, ce n'est pas une proposition — on ne l'expose pas (sinon carte fantôme).
+    requalificationProposal: row.requalification_proposal?.fields ? row.requalification_proposal : undefined,
     createdAt: row.created_at,
   };
 }
@@ -467,8 +470,7 @@ export async function* streamChatEvents(path, body, { signal } = {}) {
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const error = new Error(`apiService: POST ${path} a échoué (${resp.status}) ${text}`);
-    error.status = resp.status;
+    const error = buildHttpError('POST', path, resp.status, text);
     error.customErrorData = { status: resp.status };
     throw error;
   }
@@ -518,17 +520,17 @@ export const updateUserConfig = async (newConfig, _userId) => {
 };
 
 export const onBotConfigUpdate = (onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const config = await apiFetch('/users/me/config');
-      onUpdate(config);
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    () => apiFetch('/users/me/config'),
+    onUpdate,
+    (error) => {
       console.error("Error fetching bot config:", error);
       onError({ message: "Dossier Python introuvable" });
-    }
-  };
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket('/ws/users/me/config', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/users/me/config', fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 // --- Commands ---
@@ -538,7 +540,10 @@ const addCommand = async (type, payload) => {
     return await apiFetch('/commands', { method: 'POST', body: { type, payload } });
   } catch (error) {
     console.error(`Error adding command ${type}:`, error);
-    throw new Error("Erreur lors de l'envoi de la commande.");
+    // Le détail lisible du serveur (429 trop de commandes en attente, 422 refusée) est conservé : rien n'est parti.
+    const wrapped = new Error(commandRefusedMessage(error));
+    wrapped.status = error.status;
+    throw wrapped;
   }
 };
 
@@ -845,17 +850,17 @@ export const addImageToDealGallery = async (dealId, url, _userId) => {
 // --- Chat IA ---
 
 export const onDealChatUpdate = (dealId, onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch(`/deals/${dealId}/chat`);
-      onUpdate(rows.map(chatMessageFromRow));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch(`/deals/${dealId}/chat`)).map(chatMessageFromRow),
+    onUpdate,
+    (error) => {
       console.error(`Error listening to chat for deal ${dealId}:`, error);
       onError?.(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket(`/ws/deals/${dealId}/chat`, fetchAndEmit, onError);
+  const closeSocket = openChangeSocket(`/ws/deals/${dealId}/chat`, fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 export const addDealChatMessage = async (dealId, role, parts, displayText, _userId, attachedImagePartIndices, restorationProposals, photoRecall, isError, requalificationProposal) => {
@@ -939,15 +944,14 @@ const refreshRestorationPlan = (dealId) =>
   Promise.all([...(restorationPlanRefreshers.get(dealId) || [])].map((refresh) => refresh()));
 
 export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch(`/deals/${dealId}/restoration-plan`);
-      onUpdate(rows.map(restorationItemFromRow));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch(`/deals/${dealId}/restoration-plan`)).map(restorationItemFromRow),
+    onUpdate,
+    (error) => {
       console.error(`Error listening to restoration plan for deal ${dealId}:`, error);
       onError?.(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
   // Rafraîchissement direct après nos propres écritures (voir `refreshRestorationPlan`) : ne dépend
   // plus du seul WebSocket pour qu'une étape ajoutée apparaisse.
@@ -956,6 +960,7 @@ export const onRestorationPlanUpdate = (dealId, onUpdate, onError, _userId) => {
   const closeSocket = openChangeSocket(`/ws/deals/${dealId}/restoration-plan`, fetchAndEmit, onError);
   return () => {
     restorationPlanRefreshers.get(dealId)?.delete(fetchAndEmit);
+    fetchAndEmit.close();
     closeSocket();
   };
 };
@@ -1059,17 +1064,17 @@ export const fetchFiche = async (slug) => {
 };
 
 export const onCitiesUpdate = (onUpdate, onError, _userId) => {
-  const fetchAndEmit = async () => {
-    try {
-      const rows = await apiFetch('/cities');
-      onUpdate(rows.map(cityFromRow).sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-    } catch (error) {
+  const fetchAndEmit = latestOnly(
+    async () => (await apiFetch('/cities')).map(cityFromRow).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    onUpdate,
+    (error) => {
       console.error("Error listening to cities:", error);
       onError(error);
-    }
-  };
+    },
+  );
   fetchAndEmit();
-  return openChangeSocket('/ws/cities', fetchAndEmit, onError);
+  const closeSocket = openChangeSocket('/ws/cities', fetchAndEmit, onError);
+  return () => { fetchAndEmit.close(); closeSocket(); };
 };
 
 export const requestAddCity = (cityPayload, _userId) => addCommand('ADD_CITY', cityPayload);

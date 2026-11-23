@@ -8,16 +8,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from kit import C, fleche, repere, svg, texte  # noqa: E402
+from kit import C, fleche, repere, texte  # noqa: E402
+from kit import ecrire as kit_ecrire  # noqa: E402
 
-IMG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "img", "angle-manche-visse")
+SLUG = "angle-manche-visse"
 
 
 def ecrire(nom, largeur, hauteur, titre, desc, morceaux):
-    os.makedirs(IMG, exist_ok=True)
-    with open(os.path.join(IMG, nom), "w", encoding="utf-8", newline="\n") as f:
-        f.write(svg(largeur, hauteur, titre, desc, "\n  ".join(morceaux)))
-    print("écrit :", nom)
+    kit_ecrire(SLUG, nom, largeur, hauteur, titre, desc, morceaux)
 
 
 # 01 Le signe : sillet de chevalet au plus bas, corde encore haute ------------------------------------------------------

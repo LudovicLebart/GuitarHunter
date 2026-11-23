@@ -1,7 +1,7 @@
 ---
 slug: reglage-truss-rod
 titre: Ajuster le truss rod
-categorie: reglage
+categorie: manche
 difficulte: 2
 duree: 20 à 40 min (hors temps de stabilisation)
 statut: brouillon

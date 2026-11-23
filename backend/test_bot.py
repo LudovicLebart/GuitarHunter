@@ -837,6 +837,50 @@ class TestHandleDealFoundGatekeeperSkip(unittest.TestCase):
         mock_notification_service.notify_deal.assert_called_once()
 
 
+@patch("backend.bot.NotificationService")
+class TestHandleDealFoundAnalystFailure(unittest.TestCase):
+    """Revue R-4-2 : un échec de l'Analyste (T2) n'est ni stocké ni notifié comme analyse ; pour une mise à
+    jour de prix, le nouveau prix est conservé."""
+    ERROR = {"verdict": "GOOD_DEAL", "reasoning": "Erreur Tier 2", "model_used": "a -> b (Error)"}
+
+    def test_nouvelle_annonce_ni_stockee_ni_notifiee(self, ns):
+        bot = _make_handle_deal_found_bot(dict(self.ERROR))
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+        self.assertEqual(outcome, "analysis_failed")
+        self.assertIn("analysis_failed", bot._NEVER_MARK_PROCESSED_OUTCOMES)
+        bot.repo.create_new_deal.assert_not_called()
+        bot.repo.update_deal_data_and_analysis.assert_not_called()
+        ns.notify_deal.assert_not_called()
+
+    def test_mise_a_jour_de_prix_gardee_sans_toucher_a_l_analyse(self, ns):
+        bot = _make_handle_deal_found_bot(dict(self.ERROR))
+        bot.repo.get_deal_by_id.return_value = {"id": "deal_1", "price": 400, "status": "analyzed", "verdict": "GOOD_DEAL"}
+        bot.repo.get_deals_index_snapshot.return_value = {"deal_1": {"price": 400, "status": "analyzed"}}
+        outcome = bot.handle_deal_found(_new_listing(), source="Facebook")
+        self.assertEqual(outcome, "analysis_failed")
+        bot.repo.create_new_deal.assert_not_called()
+        ns.notify_deal.assert_not_called()
+        if bot.repo.update_deal_data_and_analysis.called:  # prix mis à jour, analyse laissée telle quelle (None)
+            self.assertIsNone(bot.repo.update_deal_data_and_analysis.call_args.args[2])
+
+
+@patch("backend.bot.NotificationService")
+class TestScanSpecificUrlRefusal(unittest.TestCase):
+    """Revue R-6-1 : une adresse hors Facebook/Kijiji n'est jamais visitée, et l'utilisateur en est informé."""
+
+    def test_adresse_refusee_notifiee_sans_navigation(self, ns):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot.set_status = MagicMock()
+        bot._user_email = ""
+        bot._browser_semaphore = MagicMock()
+        bot.scan_specific_url("https://l.facebook.com/l.php?u=http://127.0.0.1:8000/")
+        ns.notify_scan_url_finished.assert_called_once()
+        self.assertEqual(ns.notify_scan_url_finished.call_args.kwargs["outcome"], "url_refused")
+        bot._browser_semaphore.acquire.assert_not_called()
+        bot.set_status.assert_not_called()
+
+
 @patch("backend.bot.time.sleep")
 @patch("backend.bot.FacebookScraper")
 class TestFacebookScanUsesRealFacebookId(unittest.TestCase):
@@ -998,6 +1042,96 @@ class TestScrapeHealthWiringKijiji(unittest.TestCase):
         scraper.scan_city.side_effect = RuntimeError("boom")
         self.bot._run_kijiji_scan(self.scan_config, [LONGUEUIL])
         self.assertEqual(self.bot._record_scrape_health.call_args.args[3], "error")
+
+
+class TestCheckListingsAvailability(unittest.TestCase):
+    """Revue R-3-2 : un blocage anti-bot (login/captcha) ne doit jamais marquer une annonce vendue,
+    et le nettoyage s'arrête après trois blocages d'affilée."""
+
+    def setUp(self):
+        self.bot = _make_bot()
+        self.bot.repo = MagicMock()
+        self.bot._is_stop_requested = MagicMock(return_value=False)
+        self.listings = [{"id": str(i), "url": f"https://x/{i}"} for i in range(6)]
+
+    @patch("backend.bot.time.sleep")
+    def test_annonce_indisponible_marquee_vendue(self, _sleep):
+        scraper = MagicMock(last_check_blocked=False)
+        scraper.check_listing_availability.side_effect = [False, True]
+        n = self.bot._check_listings_availability(scraper, self.listings[:2])
+        self.assertEqual(n, 1)
+        self.bot.repo.mark_deal_as_sold.assert_called_once()
+
+    @patch("backend.bot.time.sleep")
+    def test_blocages_repetes_arretent_le_nettoyage_sans_rien_marquer(self, _sleep):
+        scraper = MagicMock(last_check_blocked=True)
+        scraper.check_listing_availability.return_value = True
+        n = self.bot._check_listings_availability(scraper, self.listings)
+        self.assertEqual(n, 0)
+        self.assertEqual(scraper.check_listing_availability.call_count, 3)
+        self.bot.repo.mark_deal_as_sold.assert_not_called()
+
+
+class TestRetryQueueRevue(unittest.TestCase):
+    """Revue R-4-1 / R-4-2 : la file de ré-analyse utilise les photos stockées et n'écrase pas
+    l'ancienne analyse par un résultat d'erreur."""
+
+    def _bot_with_doc(self, analysis):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot.set_status = MagicMock()
+        bot._is_stop_requested = MagicMock(return_value=False)
+        bot._check_exclusion = MagicMock(return_value=None)
+        bot.config_manager = MagicMock()
+        bot._user_email = ''
+        doc = MagicMock(id="42")
+        doc.to_dict.return_value = {
+            "title": "Strat", "imageUrls": ["https://fb/expire.jpg"],
+            "storageImageUrls": ["https://storage/ok.jpg"],
+        }
+        bot.repo = MagicMock()
+        bot.repo.get_retry_queue_listings.return_value = [doc]
+        bot.analyzer = MagicMock()
+        bot.analyzer.analyze_deal.return_value = analysis
+        return bot
+
+    def test_urls_stockees_preferees(self):
+        bot = self._bot_with_doc({"verdict": "GOOD_DEAL", "model_used": "a -> b"})
+        bot.process_retry_queue()
+        listing = bot.analyzer.analyze_deal.call_args.args[0]
+        self.assertEqual(listing["imageUrls"], ["https://storage/ok.jpg"])
+        bot.repo.update_deal_analysis.assert_called_once()
+
+    def test_analyse_en_erreur_non_enregistree(self):
+        bot = self._bot_with_doc({"verdict": "PEPITE", "reasoning": "Erreur Tier 2", "model_used": "a -> b (Error)"})
+        bot.process_retry_queue()
+        bot.repo.update_deal_analysis.assert_not_called()
+        # Statut inchangé : l'annonce reste en file (`retry_analysis`), pas de bascule en `analysis_failed`.
+        bot.repo.update_deal_status.assert_not_called()
+
+    def test_is_analysis_error(self):
+        self.assertTrue(GuitarHunterBot._is_analysis_error({"model_used": "x (Error)"}))
+        self.assertFalse(GuitarHunterBot._is_analysis_error({"model_used": "x"}))
+        self.assertFalse(GuitarHunterBot._is_analysis_error(None))
+
+
+
+class TestManualAnalysisErrorGuard(unittest.TestCase):
+    """Revue pipeline #2 : une analyse manuelle ou une repromotion en échec n'écrase pas l'analyse existante."""
+    ERROR = {"verdict": "ERROR", "reasoning": "clé absente", "model_used": "gemini (Error)"}
+
+    def test_analyze_single_deal_conserve_l_analyse(self):
+        bot = _make_bot()
+        bot.offline_mode = False
+        bot._user_email = None
+        bot.repo = MagicMock()
+        bot.repo.get_deal_by_id.return_value = {"title": "Strat", "price": 500}
+        bot.config_manager = MagicMock()
+        bot.analyzer = MagicMock()
+        bot.analyzer.analyze_deal.return_value = dict(self.ERROR)
+        bot.analyze_single_deal({"dealId": "d1"})
+        bot.repo.update_deal_analysis.assert_not_called()
+        bot.repo.update_deal_status.assert_not_called()
 
 
 if __name__ == "__main__":

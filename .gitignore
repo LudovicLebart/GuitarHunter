@@ -34,3 +34,16 @@ backend/scripts/data/t3_replay*
 fb_login_failed.png
 fb_city_repair_report*.json
 cities_backup_*.json
+
+# Fichiers de travail locaux (2026-11-06, revue R-8-1) : photos d'annonces, journaux, rapports d'audit — dépôt public, jamais versionnés.
+backend/data/
+**/yolo_dataset/
+backend/scripts/data/blind_answers/
+frontal_filter_results/
+/*.log
+/*.jpg
+/*.png
+/img_*.txt
+/cors.json
+/gemini_audit_*.html
+/GATEKEEPER_ERRORS_REPORT_*.md

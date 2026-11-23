@@ -22,14 +22,14 @@ from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import asyncpg
 
 from config import APP_ID_TARGET, FIREBASE_KEY_PATH, FIREBASE_STORAGE_BUCKET
 from backend.database import DatabaseService
 from backend.api.db import _register_json_codecs
-from backend.scripts.export_firestore_to_postgres import map_deal, DEAL_COLUMNS
+from backend.scripts.archive.export_firestore_to_postgres import map_deal, DEAL_COLUMNS
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 logger = logging.getLogger("compare_firestore_postgres")

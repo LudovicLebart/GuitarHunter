@@ -5,7 +5,7 @@ categorie: structurel
 difficulte: 3
 duree: 30 min à 1 h
 statut: brouillon
-revision: 2026-10-31
+revision: 2026-11-05
 alias: décoller la rallonge de touche, décoller la touche, rallonge de touche collée à la table, détacher la touche de la table, première étape du neck reset
 ---
 
@@ -68,7 +68,7 @@ Faire avancer la lame de la ouïe vers le joint avec le manche. Le bout et les c
 
 ### 6. Suite
 
-Une fois la rallonge libre, l'accès à la queue d'aronde se fait en retirant une frette au-dessus du joint (la 15e sur une guitare courante, la 13e sur un petit instrument comme un tenor) et en perçant la fente pour y glisser la vapeur : voir la fiche de dépose du manche (fiche à venir). Les frettes de vieux instruments plient facilement : les mettre de côté (Crawls Backward).
+Une fois la rallonge libre, l'accès à la queue d'aronde se fait en retirant une frette au-dessus du joint (la 15e sur une guitare courante, la 13e sur un petit instrument comme un tenor) et en perçant la fente pour y glisser la vapeur : voir [Refaire l'angle d'un manche collé](neck-reset-manche-colle.md), étapes 2 à 4. Les frettes de vieux instruments plient facilement : les mettre de côté (Crawls Backward).
 
 ## Pièges et erreurs courantes
 
@@ -99,3 +99,4 @@ Une fois la rallonge libre, l'accès à la queue d'aronde se fait en retirant un
 | Date | Changement |
 |------|------------|
 | 2026-10-31 | Création du brouillon, d'après Haze Guitars, Crawls Backward et Forsyth Music Shop |
+| 2026-11-05 | Schémas 02 à 04 redessinés sur la coupe commune (`_banque/coupe.py`) : même corps, même rallonge que le reste de la série |

@@ -3,6 +3,7 @@ test_chat_api.py : vraie base Postgres, se saute proprement si injoignable.
 """
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +11,8 @@ import asyncpg
 import requests
 import websockets.sync.client as ws_sync_client
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("FIREBASE_STORAGE_BUCKET", "test-bucket")  # photos du plan : stockage du projet seulement
 
 from backend.api.db import DATABASE_URL
 from backend.api.main import app
@@ -234,7 +237,7 @@ class TestRestorationPlanAPI(unittest.TestCase):
     def test_add_photo_is_deduplicated_and_remove_photo(self):
         create = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan", json={"label": "x"})
         item_id = create.json()["id"]
-        url = "https://storage.example/photo.jpg"
+        url = "https://storage.googleapis.com/test-bucket/photo.jpg"
 
         self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan/{item_id}/photos", json={"url": url})
         self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan/{item_id}/photos", json={"url": url})  # doublon ignoré
@@ -265,7 +268,7 @@ class TestRestorationPlanAPI(unittest.TestCase):
         self.assertEqual(patch.status_code, 404)
 
         photo = self.client.post(f"/deals/{self.DEAL_ID}/restoration-plan/{other_item_id}/photos", json={
-            "url": "https://storage.example/hacked.jpg",
+            "url": "https://storage.googleapis.com/test-bucket/hacked.jpg",
         })
         self.assertEqual(photo.status_code, 404)
 

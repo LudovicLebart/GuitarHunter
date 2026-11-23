@@ -150,7 +150,7 @@ artifacts/{APP_ID}/users/{USER_ID}/
 | `backend/api/admin_repo.py` | Dashboard Administrateur sur Postgres (`/admin/*`, claim Firebase `admin`) |
 | `src/hooks/useDealsManager.js` | Hook central — tri, filtres, actions |
 | `src/components/Dashboard.jsx` | Interface principale — vues Liste/Carte/Stats |
-| `src/components/DealCard.jsx` | Carte d'annonce avec analyse IA |
+| `src/components/DealCard/` | Carte d'annonce avec analyse IA (dossier : `DealCardActions.jsx`, `DealCardImage.jsx`, `DealAnalysisModal.jsx`…) |
 | `backend/leaf/` | **Leaf Hunter** (Nissan Leaf d'occasion 2016-2018, tranche utile **codée, non déployée** au 2026-11-23) : bibliothèque pure (normalisation, règles du Portier, scores, doublons, sources Kijiji Autos/AutoHebdo, `dry_run`) + `repository.py`/`hunter.py`/`config.py`/`notify.py` (bot) ; API `backend/api/leaf_repo.py` + `/leaf/*` ; page `#leaf` (`src/components/LeafPage.jsx`). Commandes `LEAF_REFRESH`/`LEAF_CLEANUP`, **double interrupteur** `LEAF_ENABLED` (serveur) + `users.config.leafConfig.enabled`, sujet ntfy `LEAF_NTFY_TOPIC` distinct, sources `scrape_runs` `leaf_*`. `backend/api/leaf_repo.py` doit rester **autonome** (API de production). Plan : `docs/management/plans/LEAF_HUNTER_PLAN.md`. Tests sur données inventées uniquement (dépôt public) ; `run_once.py` est armé pour `enable_leaf` : le désarmer après le déploiement |
 | `docs/fiches/` + `backend/scripts/seed_guitar_fiches.py` | Fiches techniques de restauration (source Markdown, chargeur vers la base commune), consultables sur le site (`#fiches`) et liées aux étapes/au chat |
 | `docs/how-to/` | Guides pratiques (Diataxis) ; `FICHES_TECHNIQUES.md` = comment lire, créer, valider et publier une fiche (`.html` généré depuis le `.md`) |

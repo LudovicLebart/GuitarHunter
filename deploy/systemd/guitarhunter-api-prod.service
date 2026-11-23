@@ -1,0 +1,16 @@
+[Unit]
+Description=Guitar Hunter API (Postgres, Chantier A, PROD data)
+After=network.target
+
+[Service]
+Type=simple
+User=ludovic
+WorkingDirectory=/home/ludovic/guitarhunter-api-prod
+EnvironmentFile=/home/ludovic/GuitareHunter/.env
+EnvironmentFile=/home/ludovic/.guitarhunter_prod_db.env
+ExecStart=/home/ludovic/GuitareHunter/venv/bin/uvicorn backend.api.main:app --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

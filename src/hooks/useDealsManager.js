@@ -14,6 +14,7 @@ import {
 import { NEW_VERDICTS, LEGACY_VERDICTS, ARCHIVE_GROUP, computeInterestScore, isOffSearchPepite } from '../constants';
 // Résolution/index de la taxonomie : source unique partagée avec DealCard et l'autocomplétion.
 import { TAXONOMY_NODES, resolveClassification } from '../utils/taxonomy';
+import { snapshotReanalysisState, restoreReanalysisState } from '../utils/reanalysisState';
 
 const ALL_VERDICTS = { ...NEW_VERDICTS, ...LEGACY_VERDICTS };
 
@@ -49,6 +50,13 @@ const normalizeLoose = (str) => {
 export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
   const [dealsIndexMap, setDealsIndexMap] = useState({});
   const [loadedDeals, setLoadedDeals] = useState({});
+  const dealsIndexMapRef = useRef(dealsIndexMap);
+  const loadedDealsRef = useRef(loadedDeals);
+  // Mises à jour après le rendu validé (jamais pendant le rendu) ; les gestionnaires ne les lisent qu'à l'appel.
+  useEffect(() => {
+    dealsIndexMapRef.current = dealsIndexMap;
+    loadedDealsRef.current = loadedDeals;
+  }, [dealsIndexMap, loadedDeals]);
   const [visibleCount, setVisibleCount] = useState(30);
   const [loading, setLoading] = useState(true);
   const [selectedDeal, setSelectedDeal] = useState(null);
@@ -194,8 +202,25 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
     }
   }, [user, setError]);
 
+  // Commande refusée (429, réseau…) : l'état « en analyse » posé de façon optimiste est restauré, sinon la carte
+  // resterait bloquée sur « analyzing » sans que le bot ait rien reçu.
+  // Seuls le statut et le verdict sont restaurés, carte par carte (l'index temps réel et le document complet en cache
+  // peuvent différer) : le reste de l'entrée a pu être mis à jour entre-temps. Les instantanés sont lus dans des refs, les
+  // gestionnaires gardent ainsi une identité stable (les cartes mémoïsées ne se redessinent pas à chaque rafraîchissement).
+  const rollbackReanalysis = (dealId, before) => {
+    pendingReanalysisIdsRef.current.delete(dealId);
+    const restore = (entry, snap) => (entry && snap ? restoreReanalysisState(entry, snap) : entry);
+    setDealsIndexMap(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId], before.index) } : prev));
+    setLoadedDeals(prev => (prev[dealId] ? { ...prev, [dealId]: restore(prev[dealId], before.loaded) } : prev));
+  };
+  const snapshotDeal = (dealId) => ({
+    index: snapshotReanalysisState(dealsIndexMapRef.current[dealId]),
+    loaded: snapshotReanalysisState(loadedDealsRef.current[dealId]),
+  });
+
   const handleRetryAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
+    const before = snapshotDeal(dealId);
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -215,11 +240,15 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       return next;
     });
     pendingReanalysisIdsRef.current.add(dealId);
-    try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
+    try { await retryDealAnalysis(dealId, user.uid, userComment); } catch (e) {
+      rollbackReanalysis(dealId, before);
+      setError(e.message);
+    }
   }, [user, setError]);
 
   const handleForceExpertAnalysis = useCallback(async (dealId, userComment = '') => {
     if (!user) return;
+    const before = snapshotDeal(dealId);
     setDealsIndexMap(prev => {
       const next = { ...prev };
       if (next[dealId]) {
@@ -235,7 +264,10 @@ export const useDealsManager = (user, setError, uiFilters, saveUiFilters) => {
       return next;
     });
     pendingReanalysisIdsRef.current.add(dealId);
-    try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) { setError(e.message); }
+    try { await forceExpertAnalysis(dealId, user.uid, userComment); } catch (e) {
+      rollbackReanalysis(dealId, before);
+      setError(e.message);
+    }
   }, [user, setError]);
 
   // Correction manuelle de la catégorie (null = annuler et revenir à la classification de l'IA).

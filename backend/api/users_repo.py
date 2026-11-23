@@ -46,13 +46,16 @@ async def get_user_config(pool: asyncpg.Pool, user_id: str):
     return {**(row["config"] or {}), "botStatus": row["bot_status"]}
 
 
-async def update_user_config(pool: asyncpg.Pool, user_id: str, patch: dict) -> dict:
+async def update_user_config(pool: asyncpg.Pool, user_id: str, patch: dict, check_merged=None) -> dict:
+    """`check_merged(merged)` (optionnel) peut lever `ValueError` : la transaction est alors annulée."""
     async with pool.acquire() as conn:
         async with conn.transaction():
             row = await conn.fetchrow("SELECT config FROM users WHERE uid = $1 FOR UPDATE", user_id)
             if row is None:
                 raise LookupError(f"Utilisateur '{user_id}' introuvable.")
             merged = _deep_merge(row["config"] or {}, patch)
+            if check_merged is not None:
+                check_merged(merged)
             await conn.execute(
                 "UPDATE users SET config = $2, updated_at = now() WHERE uid = $1", user_id, merged
             )

@@ -15,6 +15,8 @@ from config import (
     DEFAULT_GATEKEEPER_INSTRUCTION, DEFAULT_ANALYST_INSTRUCTION, DEFAULT_EXPERT_CONTEXT,
     GEMINI_MODELS, IMAGE_RETENTION_REJECTED_DAYS, KIJIJI_GUITARS_CATEGORY_ID, HA_NODE_ID
 )
+from urllib.parse import urlparse
+from backend.url_guard import is_listing_url
 from backend.analyzer import DealAnalyzer
 from backend.cities import normalize_city_key, format_city_label, pick_best_label
 from backend.sold_markers import find_sold_marker
@@ -375,7 +377,7 @@ class GuitarHunterBot:
     # connu, traité...) EST marqué, comme avant.
     _NEVER_MARK_PROCESSED_OUTCOMES = frozenset({
         "scrape_failed", "duplicate_cross_platform", "marked_sold", "sold_marker",
-        "stopped", "error", "gatekeeper_failed",
+        "stopped", "error", "gatekeeper_failed", "analysis_failed",
     })
 
     def _handle_deal_found_unless_stopped(self, deal, source):
@@ -581,6 +583,17 @@ class GuitarHunterBot:
             self.logger.warning(f"⏩ [{source}] Portier T1 en échec pour '{listing_data.get('title')}' — sautée, sera retentée à la prochaine session.")
             return "gatekeeper_failed"
 
+        # Revue R-4-2 (2026-11-06) : un échec de l'Analyste (Tier 2) renvoie le verdict du Portier avec un
+        # texte d'erreur et aucun score ; ce n'est pas une analyse. Ni notifiée ni stockée : retentée au
+        # prochain cycle, comme un échec du Portier.
+        if self._is_analysis_error(analysis):
+            self.logger.warning(f"⏩ [{source}] Analyste T2 en échec pour '{listing_data.get('title')}' — analyse non enregistrée, sera retentée à la prochaine session.")
+            if is_update and not self.offline_mode:
+                # Le nouveau prix (et son historique) est un fait du scrape, pas de l'analyse : on le garde,
+                # l'analyse existante reste en place.
+                self.repo.update_deal_data_and_analysis(listing_data['id'], listing_data, None)
+            return "analysis_failed"
+
         # Garde-fou : une ré-analyse (mise à jour de prix) ne doit jamais déclasser une PEPITE en
         # NOT_PROMOTED — le Portier local n'est pas déterministe, et le routage par recherche
         # active ne doit jamais cacher une pépite. On garde l'analyse existante, seul le prix bouge.
@@ -622,6 +635,12 @@ class GuitarHunterBot:
                 self.repo.create_new_deal(listing_data['id'], listing_data, analysis)
 
         return "processed"
+
+    @staticmethod
+    def _is_analysis_error(analysis):
+        """True si `analysis` est le résultat d'un échec d'appel de modèle (`model_used` finit par
+        "(Error)", voir `analyzer._run_analysis_cascade_body`), pas une vraie analyse."""
+        return str((analysis or {}).get('model_used') or '').endswith('(Error)')
 
     def _is_stop_requested(self):
         """Vérifie si un arrêt total (STOP_BOT) ou un arrêt de scan (STOP_SCAN) est demandé."""
@@ -811,6 +830,7 @@ class GuitarHunterBot:
             else:
                 self.logger.info(f"--- Scan de la ville : {city_name} ({city_id}) ---")
 
+            found_deals = []
             if self._browser_semaphore:
                 self._browser_semaphore.acquire()
             try:
@@ -933,14 +953,16 @@ class GuitarHunterBot:
                         self.logger.info(f"{len(deals_in_radius)}/{len(found_deals)} annonces conservées après filtrage par rayon de {radius_km}km.")
                         found_deals = deals_in_radius
 
-                    # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
-                    self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
-
                 finally:
                     temp_scraper.close_session()
             finally:
                 if self._browser_semaphore:
                     self._browser_semaphore.release()
+
+            # --- TRAITEMENT DES ANNONCES FILTRÉES (parallélisé, voir _dispatch_analysis_batch) ---
+            # Hors du sémaphore et de la session Playwright : le scraping est fini, l'analyse IA
+            # (minutes) ne doit pas retenir un des emplacements navigateur des autres comptes.
+            self._dispatch_analysis_batch(found_deals, "Facebook", cycle_stats)
 
             time.sleep(2)
 
@@ -1104,6 +1126,7 @@ class GuitarHunterBot:
             "rejected_prefilter": 0, "out_of_budget": 0, "processed": 0,
         }
 
+        pending_batches = []
         if self._browser_semaphore:
             self._browser_semaphore.acquire()
         try:
@@ -1197,7 +1220,7 @@ class GuitarHunterBot:
                             continue
                         ready_deals.append(deal)
 
-                    self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
+                    pending_batches.append(ready_deals)
 
                     time.sleep(2)
             finally:
@@ -1205,6 +1228,10 @@ class GuitarHunterBot:
         finally:
             if self._browser_semaphore:
                 self._browser_semaphore.release()
+
+        # Analyse IA hors du sémaphore et de la session Playwright (scraping terminé), comme côté Facebook.
+        for ready_deals in pending_batches:
+            self._dispatch_analysis_batch(ready_deals, "Kijiji", cycle_stats)
 
         self._purge_scrape_runs_safely()
         self.logger.info(
@@ -1228,6 +1255,14 @@ class GuitarHunterBot:
         URL kijiji.ca — échec silencieux, "❓ Impossible de récupérer les informations..."
         générique, notification mal étiquetée "URL Facebook" — signalé par l'utilisateur).
         """
+        # Revue R-6-1 : défense en profondeur (l'API filtre déjà) — jamais de navigation vers autre chose
+        # qu'une annonce Facebook/Kijiji en https.
+        if not is_listing_url(url):
+            self.logger.error(f"❌ Scan URL refusé : adresse non autorisée ({str(url)[:120]})")
+            NotificationService.notify_scan_url_finished(
+                str(url)[:200], user_email=self._user_email, logger=self.logger, outcome="url_refused",
+            )
+            return
         if not self.offline_mode:
             self.set_status('scanning_url', task_name='scanning_url')
         if self._browser_semaphore:
@@ -1249,7 +1284,7 @@ class GuitarHunterBot:
                     self.set_status('idle', task_name='scanning_url')
                 return
         try:
-            is_kijiji = "kijiji.ca" in url.lower()
+            is_kijiji = (urlparse(url.strip()).hostname or "").lower().endswith("kijiji.ca")
             source = "Kijiji" if is_kijiji else "Facebook"
             temp_scraper = KijijiScraper(logger=self.logger) if is_kijiji else FacebookScraper({}, {}, logger=self.logger)
             # Coordonnées des villes configurées, pour nearest_configured_city() — même
@@ -1348,12 +1383,21 @@ class GuitarHunterBot:
         marque vendue si indisponible. Ferme toujours `scraper` avant de retourner. Retourne
         le nombre d'annonces marquées vendues."""
         deleted_count = 0
+        consecutive_blocks = 0
         try:
             for item in listings:
                 if self._is_stop_requested():
                     self.logger.info("🛑 Nettoyage interrompu.")
                     break
-                if not scraper.check_listing_availability(item['url']):
+                available = scraper.check_listing_availability(item['url'])
+                if getattr(scraper, 'last_check_blocked', False):
+                    consecutive_blocks += 1
+                    if consecutive_blocks >= 3:
+                        self.logger.warning("⚠️ Blocage anti-bot répété pendant le nettoyage : arrêt, annonces conservées.")
+                        break
+                else:
+                    consecutive_blocks = 0
+                if not available:
                     self.logger.info(f"   📉 Marquage de l'annonce {item['id']} comme VENDUE.")
                     self.repo.mark_deal_as_sold(item['id'], 'Annonce indisponible ou vendue (détecté par le bot)')
                     deleted_count += 1
@@ -1401,7 +1445,8 @@ class GuitarHunterBot:
                 data = doc.to_dict()
                 self.logger.info(f"Réanalyse de l'annonce en file d'attente : {data.get('title')}")
 
-                listing_data = self._build_listing_data_from_row(doc.id, data)
+                # R-4-1 : les URL Facebook du CDN expirent, les copies Firebase Storage non.
+                listing_data = self._build_listing_data_from_row(doc.id, data, prefer_storage_images=True)
 
                 current_config = self.config_manager.current_config_snapshot
                 
@@ -1414,6 +1459,12 @@ class GuitarHunterBot:
 
                 try:
                     analysis = self.analyzer.analyze_deal(listing_data, firestore_config=current_config, user_email=self._user_email)
+                    if self._is_analysis_error(analysis):
+                        # R-4-2 : ne pas écraser l'ancienne analyse par un résultat d'erreur.
+                        # Statut INCHANGÉ (`retry_analysis`) : l'annonce reste en file et sera retentée au prochain
+                        # cycle ; la passer en `analysis_failed` la sortirait des vues normales sur une panne passagère.
+                        self.logger.warning(f"Réanalyse en échec pour {doc.id} : analyse existante conservée, annonce laissée en file.")
+                        continue
                     self.repo.update_deal_analysis(doc.id, analysis)
                 except Exception as e:
                     self.logger.error(f"Erreur lors de la réanalyse de {doc.id}: {e}")
@@ -1470,6 +1521,9 @@ class GuitarHunterBot:
                     # aucun nouvel appel Portier ne les regénère), y compris quand elles valent
                     # légitimement None : ne pas le faire laisserait le placeholder MANUAL_RETRY
                     # écraser un gatekeeper_verdict correct mais vide.
+                    if self._is_analysis_error(analysis):
+                        self.logger.warning(f"Repromotion de {doc.id} en échec ({analysis.get('reasoning')}) : annonce laissée telle quelle.")
+                        continue
                     for key, col in GATEKEEPER_FIELD_TO_COLUMN.items():
                         analysis[key] = data.get(col)
                     # Chantier H (porté depuis dev le 2026-09-22) : restaure aussi l'observation
@@ -1753,6 +1807,10 @@ class GuitarHunterBot:
                 listing_data, firestore_config=current_config, force_expert=force_expert,
                 user_comment=user_comment, user_email=self._user_email
             )
+            if self._is_analysis_error(analysis):
+                # Même garde que process_retry_queue : un échec de modèle n'écrase pas l'analyse existante.
+                self.logger.warning(f"Analyse manuelle de {deal_id} en échec ({analysis.get('reasoning')}) : analyse existante conservée.")
+                return
             self.repo.update_deal_analysis(deal_id, analysis)
             self.logger.info(f"Analyse manuelle terminée pour {deal_id}.")
         except Exception as e:

@@ -1,4 +1,5 @@
 import contextvars
+from concurrent.futures import ThreadPoolExecutor
 from backend import llm_usage
 import json
 import threading
@@ -85,6 +86,8 @@ T1_FILTER_BYPASS_VERDICTS = frozenset({"PEPITE"})
 # historique vers l'Analyste (Chantier H, porté depuis dev le 2026-09-22) — provisoire, en
 # attendant un vrai mécanisme de repli (ex: second appel Gemini).
 T1_ERROR_STATUSES = frozenset({"ERROR", "ERROR_GATEKEEPER"})
+SHADOW_JOIN_TIMEOUT_S = 60          # attente maximale de l'observation miroir du Portier
+IMAGE_MAX_BYTES = 15 * 1024 * 1024  # plafond de téléchargement d'une photo
 
 # Frontière entre la partie STATIQUE du prompt T2/T3 (consigne, taxonomie, exemples — identique d'une annonce à
 # l'autre) et la partie propre à l'annonce. Partagée par `_construct_base_user_prompt` (qui l'écrit) et
@@ -167,7 +170,10 @@ class DealAnalyzer(LLMClientsMixin):
             if not url or "via.placeholder.com" in url: return None
             response = requests.get(url, timeout=10)
             if response.status_code != 200: return None
-            
+            if len(response.content) > IMAGE_MAX_BYTES:
+                self.logger.warning(f"⚠️ Image ignorée (trop volumineuse : {len(response.content)} octets) : {url}")
+                return None
+
             img = Image.open(BytesIO(response.content))
             if img.size[0] > max_size or img.size[1] > max_size:
                 img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
@@ -176,6 +182,15 @@ class DealAnalyzer(LLMClientsMixin):
             self.logger.warning(f"⚠️ Impossible de traiter l'image {url}: {e}")
             return None
 
+
+    def _download_images(self, image_urls):
+        """Télécharge les photos en parallèle (ordre conservé, échecs écartés) : en série, 8 photos lentes
+        coûtaient jusqu'à 8 × 10 s avant même le premier appel de modèle."""
+        urls = list(image_urls)
+        if len(urls) <= 1:
+            return [img for url in urls if (img := self._download_and_optimize_image(url))]
+        with ThreadPoolExecutor(max_workers=min(8, len(urls))) as pool:
+            return [img for img in pool.map(self._download_and_optimize_image, urls) if img]
 
     def _construct_base_user_prompt(self, listing_data, main_prompt_template, taxonomy_data, few_shot_examples=None):
         """Construit le prompt utilisateur de base (DRY)"""
@@ -338,7 +353,7 @@ class DealAnalyzer(LLMClientsMixin):
         annonces dans le Funnel alors qu'elles ont bien été scorées.
         """
         if not GEMINI_API_KEY:
-            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
+            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée.", "model_used": "gemini (Error)"}
 
         llm_usage.current_deal_id.set(listing_data.get('id'))
         llm_usage.current_user_ref.set(user_email)
@@ -348,7 +363,7 @@ class DealAnalyzer(LLMClientsMixin):
         few_shot_examples = config.get('fewShotExamples', DEFAULT_FEW_SHOT_EXAMPLES)
 
         image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
-        images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+        images = self._download_images(image_urls)
 
         base_prompt = self._construct_base_user_prompt(
             listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples
@@ -442,7 +457,7 @@ class DealAnalyzer(LLMClientsMixin):
         elle-même ne peut plus être oubliée à un site d'appel particulier (rattrapage Chantier G,
         2026-09-19)."""
         if not GEMINI_API_KEY:
-            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée."}
+            return {"verdict": "ERROR", "reasoning": "La clé API Gemini n'est pas configurée.", "model_used": "gemini (Error)"}
 
         result, gatekeeper_brand, gatekeeper_classification, gatekeeper_status, qwen_observation = self._run_analysis_cascade_body(
             listing_data, firestore_config, force_expert, user_comment, user_email, bypass_active_search,
@@ -477,7 +492,7 @@ class DealAnalyzer(LLMClientsMixin):
 
         # Téléchargement des images
         image_urls = (listing_data.get('imageUrls') or [listing_data.get('imageUrl')])[:8]
-        images = [img for url in image_urls if (img := self._download_and_optimize_image(url))]
+        images = self._download_images(image_urls)
 
         # 1. Construction du Prompt de Base (DRY : Fait une seule fois)
         base_prompt = self._construct_base_user_prompt(listing_data, config.get('mainAnalysisPrompt', DEFAULT_MAIN_PROMPT), taxonomy, few_shot_examples)
@@ -641,7 +656,10 @@ class DealAnalyzer(LLMClientsMixin):
         )
         model_chain.append(t1_real_model_name)
 
-        shadow_thread.join()
+        # Délai borné : l'observation miroir ne doit jamais bloquer la décision réelle du Portier.
+        shadow_thread.join(timeout=SHADOW_JOIN_TIMEOUT_S)
+        if shadow_thread.is_alive():
+            self.logger.warning("   ⚠️ Observation miroir du Portier trop lente : ignorée pour cette annonce.")
         qwen_observation = {**shadow_result_holder[0], **knowledge_trace}   # + traçabilité de la base de connaissances
 
         if not result_t1:
@@ -775,10 +793,11 @@ class DealAnalyzer(LLMClientsMixin):
             expert_context_raw = "\n".join(expert_context_raw)
 
         # Contextualisation de l'expert pro avec le json T2
-        context_t3 = expert_context_raw.format(
-            status=result_t2.get('verdict', ''),
-            reasoning=result_t2.get('summary', 'Analyse rapide T2 terminée.')
-        )
+        # replace et non str.format : le gabarit est modifiable dans l'app, une accolade littérale
+        # (JSON, exemple) ferait lever KeyError/ValueError et échouer chaque analyse Tier 3.
+        context_t3 = (expert_context_raw
+                      .replace("{status}", str(result_t2.get('verdict', '')))
+                      .replace("{reasoning}", str(result_t2.get('summary', 'Analyse rapide T2 terminée.'))))
 
         # base_prompt avant context_t3 (et non l'inverse) : aligne T3 sur le pattern déjà
         # correct de T1/T2 (bloc statique taxonomie/prompt de base en tête, addendum

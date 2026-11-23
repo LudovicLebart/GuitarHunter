@@ -34,6 +34,14 @@ Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](pl
 - [ ] Le VIN n'est exposé par aucune des deux sources : vérifier si la fiche Kijiji ou AutoHebdo le donne (dédup par VIN inopérant tant qu'il manque).
 - [ ] CarGurus et AutoTrader : non automatisés (HTTP 406, conditions d'utilisation) ; décision de principe à confirmer.
 
+## 🚦 Séparer `dev` et la production (R-9-2, 2026-11-10, tâche dédiée, rien codé)
+
+Aujourd'hui chaque push sur `dev` redéploie le bot et **les deux API (production comprise)** dans le même dossier `~/GuitareHunter`, avec le même venv et le même `.env`. Décision de l'utilisateur (2026-11-10) : en faire une tâche à part, non traitée dans le lot 2C.
+- [ ] Choisir le modèle : `dev` déployé dans un autre dossier / autre port / autre venv, production déployée seulement depuis `master`.
+- [ ] Prévoir les unités systemd (versionnées dans `deploy/systemd/`) et le `.env` de chaque environnement.
+- [ ] Adapter `deploy.yml` (branches, dossiers, vérification finale) et le site (URL de l'API de test).
+- Contexte : `revue/2026-exploitation.md` R-9-2, `PERF_API_INDEX_PLAN.md`.
+
 ## ⚡ Lenteur de `/deals/index` : suites (2026-11-04, paliers 1 à 3 + M0 à M3 poussés sur `dev`)
 
 Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md).
@@ -78,7 +86,8 @@ Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md)
 - [x] **Banque d'éléments SVG** `docs/fiches/_banque/` (2026-10-30) : `kit.py` + README de style. À étendre (sillet, truss rod, barrage, serre-joint) et à utiliser pour reconstruire les schémas faits à la main.
 - [x] **Illustrer les fiches existantes** (2026-10-30) : « Ajuster l'action » et « Ajuster le truss rod » illustrées ; extraites en `mesurer-relief-manche`, `debloquer-truss-rod`, `regler-sillet-de-tete`, `regler-hauteur-chevalet` (valeurs cibles sourcées). Reste : confirmer les valeurs avec l'atelier (relief à la 10e frette si c'est sa référence), vérifier le manuel Martin SC-13E, remplacer les valeurs du site tiers par celles des constructeurs, reconstruire avec la banque les 4 schémas faits à la main.
 - [ ] **Tunnel SSH permanent vers Postgres de production depuis le poste de dev** : `ssh -N -L 5434:127.0.0.1:5434 ludovic@serveur`, ouvert à la main le 2026-10-30 pour le dry-run ; tâche planifiée Windows (relance en cas de coupure) à créer si l'utilisateur la valide.
-- [x] **Neck reset : fiche maîtresse et fiche de cale** (2026-10-30, brouillons) : `refaire-angle-du-manche`, `caler-la-rallonge-de-touche`. **Écrite le 2026-11-01** : `decoller-la-touche`. **Complétée le 2026-11-02** : `caler-la-rallonge-de-touche` (fabrication de la cale, 2 schémas, relue par Opus). **Écrite le 2026-11-02** : `angle-manche-visse` (cale pleine poche, 3 schémas ; le ponçage du talon n'y est qu'un geste d'atelier non sourcé). **À écrire** : neck reset d'un manche collé, conversion en vissé, recoller la touche ; puis lier la maîtresse à chacune. À contrôler : rendu des schémas sur le site ; valeurs d'atelier (seuil 2 mm, délai de séchage, ordre des collages) à faire confirmer.
+- [x] **Neck reset : fiche maîtresse et fiche de cale** (2026-10-30, brouillons) : `refaire-angle-du-manche`, `caler-la-rallonge-de-touche`. **Écrite le 2026-11-01** : `decoller-la-touche`. **Complétée le 2026-11-02** : `caler-la-rallonge-de-touche` (fabrication de la cale, 2 schémas, relue par Opus). **Écrite le 2026-11-02** : `angle-manche-visse` (cale pleine poche, 3 schémas ; le ponçage du talon n'y est qu'un geste d'atelier non sourcé). **Écrite le 2026-11-03, complétée le 2026-11-04** : `neck-reset-manche-colle` (4 schémas sur la coupe commune `_banque/coupe.py`, 2 relectures Opus, 12 sources dont Frank Ford ; StewMac non cité, lu par résumé). **Migrés le 2026-11-05 sur `coupe.py`** : schémas en coupe de `decoller-la-touche` et `caler-la-rallonge-de-touche` (à faire relire par Opus). **À écrire** : conversion en vissé, recoller la touche. À contrôler : rendu des schémas sur le site ; valeurs d'atelier (seuil 2 mm, délai de séchage, ordre des collages) à faire confirmer.
+- [x] **Catégories des fiches élargies à 9** (2026-11-17, non déployé) : `evaluation`, `reglage`, `manche`, `structurel`, `finition`, `electronique`, `quincaillerie`, `lutherie-base`, `autre` ; une seule catégorie par fiche, pas de sous-catégories (à scinder une catégorie au-delà de ~10-12 fiches). À faire : relancer `seed_guitar_fiches.py --dry-run` avec base, vérifier le rendu de `#fiches`, puis déployer. Catégories `finition`, `electronique`, `quincaillerie` sans fiche pour l'instant.
 - [ ] **Fiches suivantes** : voir ci-dessus ; ajouter des vidéos de luthiers jugées fiables (aucune pour l'instant).
 - [x] **Lot A : base commune marques/fiches** (2026-10-15, non déployé) : liste blanche de types, code de sources partagé, schéma `guitar_knowledge_fiche` / `guitar_knowledge_link` / `fiche_slug`, test de garde ; slugs en double de l'amorçage corrigés. Journal `2026-W42`.
 - [x] **Lot B : chargeur** `backend/scripts/seed_guitar_fiches.py` (2026-10-16, validé et **chargé en production le 2026-10-25** : 2 fiches `sourced`, aucune version créée). En-tête `alias:` / `concerne:`, sources extraites de « Sources et liens », `--dry-run`, `--force`, `--prune --yes`. Le serveur est resté sur la branche `ccr-a6708397-9dr6ta`.
@@ -216,7 +225,7 @@ Plan et mesures : [`plans/PERF_API_INDEX_PLAN.md`](plans/PERF_API_INDEX_PLAN.md)
 
 ## 🎯 Priorité Immédiate — Chantiers C/I/V/M (2026-09-24)
 
-*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](../explanation/plan/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.pdf)*
+*Plan global réduction des coûts + perception locale + mentor RAG — voir [`docs/management/plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md`](plans/LOCAL_PERCEPTION_AND_MENTOR_RAG_PLAN.md)* — état de chaque plan : [`plans/README.md`](plans/README.md)
 
 **Objectif primaire : la facture.** Chaque chantier classé par ce qu'il rapporte en dollars. Chantiers sans gain économique direct (I — Qwen local, M — Mentor RAG) justifiés comme coût de plaisir/apprentissage, **jamais comme économies**.
 
@@ -427,7 +436,7 @@ Deux passes `/code-review` locales sur ce commit ont ensuite trouvé plusieurs r
 
 ## 📚 Dérive documentaire connue (constatée par `/deepdocument`, 2026-10-03)
 
-- [ ] **Aligner `docs/reference/DATA_FLOW.md` et `docs/reference/ARCHITECTURE.md` sur Postgres/API** : ils décrivent encore Firestore (24 et 89 mentions, contre 2 et 5 pour Postgres) ; un bandeau d'avertissement a été ajouté en tête de chacun, mais la couche de transport (règles Firestore, `FirestoreRepository`, `onSnapshot`, commandes, TTL des journaux) reste à réécrire d'après `backend/pg_repository.py`, `backend/api/` et `src/services/apiService.js`. Gros chantier de rédaction, aucun impact sur le code.
+- [ ] **Aligner `docs/reference/DATA_FLOW.md` et `docs/reference/ARCHITECTURE.md` sur Postgres/API** : ils décrivent encore Firestore (24 et 89 mentions, contre 2 et 5 pour Postgres) ; un bandeau d'avertissement a été ajouté en tête de chacun, mais la couche de transport (règles Firestore, `FirestoreRepository`, `onSnapshot`, commandes, TTL des journaux) reste à réécrire d'après `backend/pg_repository.py`, `backend/api/` et `src/services/apiService.js`. Gros chantier de rédaction, aucun impact sur le code. *(2026-11-06 : la passe « deepdocument » a écrit les références vérifiées `donnees.md`, `bot.md`, `api.md`, etc. et corrigé les deux fichiers section par section ; il reste 32 et 79 mentions de Firestore dans `DATA_FLOW.md` et `ARCHITECTURE.md`, à trier lors de la section 12 — voir `reference/COUVERTURE.md`.)*
 - [ ] **Tenir `STATE_MODELS.md` à jour** des autres verdicts et statuts apparus depuis l'écriture initiale (vérifier `INCOMPLETE_DATA`, `GATEKEEPER_FAILED_SKIP`, statut `sold` ; `FAIR` et `NOT_PROMOTED` ajoutés le 2026-10-03).
 - [x] Journal découpé par semaine (`docs/management/journal/`, index dans `JOURNAL.md`), `CLAUDE.md`, `AI_BRIEFING.md`, `PROJECT_OVERVIEW.md` alignés sur la base Postgres et le Portier local (2026-10-03).
 

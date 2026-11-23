@@ -93,7 +93,7 @@ class TestCommandsAPI(unittest.TestCase):
         exactement ce que ferait le process bot, séparé du process API en production."""
         from backend.api import commands_repo
 
-        self.client.post("/commands", json={"type": "SCAN_URL", "payload": "https://example.com/x"})
+        self.client.post("/commands", json={"type": "SCAN_URL", "payload": "https://www.kijiji.ca/v-guitare/montreal/x/123456"})
 
         async def _check():
             conn = await asyncpg.connect(DATABASE_URL)
@@ -104,6 +104,11 @@ class TestCommandsAPI(unittest.TestCase):
 
         rows = asyncio.run(_check())
         self.assertTrue(any(r["type"] == "SCAN_URL" for r in rows))
+
+    def test_scan_url_refuse_les_adresses_hors_annonces(self):
+        for bad in ("https://example.com/x", "http://www.facebook.com/marketplace/item/1", "https://127.0.0.1:8000/", None):
+            resp = self.client.post("/commands", json={"type": "SCAN_URL", "payload": bad})
+            self.assertEqual(resp.status_code, 422, (bad, resp.text))
 
 
 if __name__ == "__main__":

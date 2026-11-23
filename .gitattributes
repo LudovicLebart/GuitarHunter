@@ -12,3 +12,7 @@ docs/management/JOURNAL.md text eol=lf
 # (ex: "set -euo pipefail" lu comme "set -euo pipefail\r", `$'\r': commande introuvable`).
 # Vécu le 2026-09-21 avec install_ollama_qwen_dell.sh transféré depuis Windows vers le Dell.
 *.sh text eol=lf
+
+# Lus par pip et systemd sur Linux : un \r final ne doit jamais s'y retrouver (R-9-6, R-9-3).
+constraints.txt text eol=lf
+*.service text eol=lf
