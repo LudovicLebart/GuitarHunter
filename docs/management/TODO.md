@@ -11,7 +11,7 @@ Ce document sert à suivre les tâches à accomplir, les bugs à corriger et les
 
 ---
 
-## 🔌 Leaf Hunter : extension « Nissan Leaf d'occasion » (2026-11-23, phases 1 à 4 codées et poussées sur `ccr-53ac32f1-id7v2n`, **non déployées**)
+## 🔌 Leaf Hunter : extension « Nissan Leaf d'occasion » (2026-11-23, phases 1 à 4 déployées sur `dev` ; Facebook, phases 5 et 6 codées sur `ccr-53ac32f1-id7v2n`, **non déployées**)
 
 Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](plans/LEAF_HUNTER_PLAN.md). Besoin : Leaf 2016-2018, budget bas (5 000 à 7 500 $, viser le bas), ~50 km/jour en hiver au Québec.
 
@@ -29,11 +29,14 @@ Plan complet (décisions, risques, questions) : [`plans/LEAF_HUNTER_PLAN.md`](pl
 - [x] **Déployé le 2026-11-23** (`dev` à `d0740d6`, déploiement vert, annonces visibles dans `#leaf`) ; `run_once.py` désarmé (`be15364`). Rappel de ce que fait le déploiement : écrit `LEAF_ENABLED=true` et `LEAF_NTFY_TOPIC` dans le `.env` du serveur et exécute `enable_leaf`), puis **désarmer `backend/scripts/run_once.py` (`ACTIVE = False`) dans un commit séparé**. S'abonner au sujet ntfy défini dans `deploy.yml`.
 - [x] Premier passage réel : annonces visibles dans `#leaf` (confirmé par l'utilisateur). - [ ] Reste à vérifier : apparence mobile de la page, réception ntfy, logs `[Leaf]` sans erreur, photos haute résolution sur une annonce relue.
 - [x] **Réglages de recherche** dans la page (`GET/PUT /leaf/config`, validation autonome côté API + test de parité) et **photos haute résolution** (galerie `ImageGallery` réutilisée, plein écran 1600 px).
-- [ ] **Facebook Marketplace (véhicules)** : volontairement reporté (décision 2026-11-23, « d'abord un cycle fonctionnel avec Kijiji et AutoHebdo »). Première étape quand on y reviendra : essai à blanc de lecture autour de Saint-Bruno, sans rien stocker, pour mesurer prix/km/photos présents.
-- [ ] **SOH inconnu sur toutes les annonces** du premier passage à blanc (22 lues, 5 retenues, aucune ne donne le SOH) : l'IA de la phase 5 ne peut pas le lire s'il n'est pas écrit ; prévoir la mesure LeafSpy chez le vendeur (questions à poser : phase 6).
+- [x] **Source Facebook Marketplace** codée (`backend/leaf/sources/facebook.py`, optionnelle, éteinte par défaut, case dans les réglages), après le cycle fonctionnel Kijiji/AutoHebdo voulu par l'utilisateur. - [ ] **À vérifier en réel sur le serveur** : l'essai depuis le conteneur est bloqué (redirection vers la connexion Facebook). Mesurer cartes vues / retenues, prix, année et km lus dans le texte, photos copiées vers le stockage.
+- [x] **Phase 5 — IA niveau 2** : extraction avec citations, garde-fou des preuves, Qwen local puis Gemini Flash, plafond 30 appels / 24 h, verdict calculé en code. **Éteinte par défaut** (réglages : « Analyse IA des annonces »). - [ ] **À valider en réel** : Qwen local respecte-t-il le JSON avec citations exactes, ou Gemini prend-il toujours le relais ? Rejeu sur 20-30 annonces (critère du plan : 0 champ sans preuve accepté ; coût lu dans `llm_usage`, actions `leaf_t2`).
+- [x] **Phase 6 — Expert** à la demande (`LEAF_ANALYZE`, bouton « Analyse approfondie », Sonnet 5.5, plafond 5 / 24 h) : avis, questions au vendeur (LeafSpy ajoutée par le code), points d'inspection, prix plafond. - [ ] Déclenchement automatique pour les candidats forts (non fait : notification prioritaire seulement) ; prompts surchargeables par `leafConfig` / `prompts.json` (non fait).
+- [x] Bug corrigé : la liste blanche de l'API refusait les commandes `LEAF_*` (« Actualiser » en 422).
+- [ ] **SOH inconnu sur toutes les annonces** du premier passage à blanc (22 lues, 5 retenues, aucune ne donne le SOH) : l'IA ne peut pas le lire s'il n'est pas écrit ; la question LeafSpy est posée au vendeur par l'Expert (ajoutée par le code).
 - [ ] **Décision** : le sujet ntfy est dans le dépôt public (choix de l'utilisateur) — n'importe qui peut s'abonner ou publier ; à reprendre si cela gêne (le déplacer dans `DOT_ENV`).
-- [ ] Panneau de réglage `leafConfig` dans l'app (aujourd'hui : valeurs par défaut ou base), graphique de marché, `LEAF_SCAN_URL` (saisie manuelle), temps réel de la page (canal `vehicle_changes` posé, non consommé).
-- [ ] **Phases 5 à 9** : IA niveaux 1 et 2 avec garde-fou des preuves, Expert et questions au vendeur, marché/historique/nettoyage, options (Facebook, URL manuelles), documentation.
+- [x] Panneau de réglage `leafConfig` dans l'app (fait le 2026-11-23). - [ ] Graphique de marché, `LEAF_SCAN_URL` (saisie manuelle), temps réel de la page (canal `vehicle_changes` posé, non consommé).
+- [ ] **Phases 7 à 9** : marché/historique (graphique), options (URL manuelles, chat Leaf), documentation complète.
 - [ ] Le VIN n'est exposé par aucune des deux sources : vérifier si la fiche Kijiji ou AutoHebdo le donne (dédup par VIN inopérant tant qu'il manque).
 - [ ] CarGurus et AutoTrader : non automatisés (HTTP 406, conditions d'utilisation) ; décision de principe à confirmer.
 
