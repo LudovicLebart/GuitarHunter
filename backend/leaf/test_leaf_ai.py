@@ -75,10 +75,15 @@ class TestGuardrails(unittest.TestCase):
         self.assertEqual(absurd["facts"], {})
 
     def test_rules_win_when_the_model_contradicts_them(self):
-        out = self.guard(response(heat_pump=fact(False, "Pompe à chaleur"), soh_pct=fact(95.0, "SOH 95 %")),
-                         description="Pompe à chaleur. SOH 95 %.", mentions={"heat_pump": True}, soh_announced=86.0)
+        out = self.guard(response(soh_pct=fact(95.0, "SOH 95 %")), description="SOH 95 %.", soh_announced=86.0)
         self.assertEqual(out["facts"], {})
         self.assertEqual(out["flags"], ["ai_conflict"])
+
+    def test_polarity_is_corrected_before_the_rules_are_consulted(self):
+        # Le modèle dit « non » mais la citation affirme et les règles aussi : la valeur corrigée (oui) concorde, donc elle est retenue.
+        out = self.guard(response(heat_pump=fact(False, "Pompe à chaleur")), description="Pompe à chaleur.", mentions={"heat_pump": True})
+        self.assertIs(out["facts"]["heat_pump"]["value"], True)
+        self.assertEqual(out["flags"], ["ai_polarity_corrected"])
 
     def test_model_may_add_what_the_regex_missed(self):
         out = self.guard(response(battery_replaced=fact(True, "Batterie remplacée en 2024")), mentions={"battery_replaced": False})
@@ -92,12 +97,63 @@ class TestGuardrails(unittest.TestCase):
         self.assertEqual([a["text"] for a in out["attention"]], ["Facture à demander"])
 
 
+class TestPolarity(unittest.TestCase):
+    """Cas réel (2026-11-24) : l'IA a rendu « accident mentionné : OUI » avec la citation « JAMAIS ACCIDENTÉ ». La citation existait : l'ancien garde-fou
+    l'acceptait. La polarité est maintenant vérifiée PAR LE CODE d'après la citation."""
+    def guard(self, key, value, evidence, description):
+        parsed = ax.parse_response(response(**{key: fact(value, evidence)}))
+        return ax.apply_guardrails(parsed, listing(description=description))
+
+    def test_a_denial_given_as_an_affirmation_is_flipped_to_false(self):
+        out = self.guard("accident_mentioned", True, "JAMAIS ACCIDENTÉ 😎", "JAMAIS ACCIDENTÉ 😎 batterie 7/12")
+        f = out["facts"]["accident_mentioned"]
+        self.assertEqual((f["value"], f["confidence"], f["corrected"]), (False, "medium", True))
+        self.assertEqual(out["flags"], ["ai_polarity_corrected"])
+        for phrase in ("aucun accident", "sans accident", "véhicule non accidenté", "pas d'accident", "jamais eu d'accident"):
+            self.assertIs(self.guard("accident_mentioned", True, phrase, phrase)["facts"]["accident_mentioned"]["value"], False, phrase)
+
+    def test_a_real_accident_stays_true_and_a_correct_denial_stays_false(self):
+        kept = self.guard("accident_mentioned", True, "a subi un accident en 2022", "Voiture qui a subi un accident en 2022, réparée.")
+        self.assertEqual((kept["facts"]["accident_mentioned"]["value"], "corrected" in kept["facts"]["accident_mentioned"]), (True, False))
+        self.assertEqual(kept["flags"], [])
+        right = self.guard("accident_mentioned", False, "jamais accidentée", "jamais accidentée")
+        self.assertEqual((right["facts"]["accident_mentioned"]["value"], right["flags"]), (False, []))
+
+    def test_an_affirmation_given_as_a_denial_is_flipped_to_true(self):
+        out = self.guard("accident_mentioned", False, "carrosserie reconstruite après accident", "carrosserie reconstruite après accident")
+        self.assertIs(out["facts"]["accident_mentioned"]["value"], True)
+
+    def test_other_boolean_facts_get_the_same_check(self):
+        out = self.guard("heat_pump", True, "sans pompe à chaleur", "Version SV sans pompe à chaleur.")
+        self.assertIs(out["facts"]["heat_pump"]["value"], False)
+        out = self.guard("chademo", True, "pas de CHAdeMO", "pas de CHAdeMO")
+        self.assertIs(out["facts"]["chademo"]["value"], False)
+        ok = self.guard("heat_pump", True, "Pompe à chaleur", "Pompe à chaleur incluse.")
+        self.assertIs(ok["facts"]["heat_pump"]["value"], True)
+
+    def test_an_ambiguous_quote_is_left_to_the_model(self):
+        both = self.guard("accident_mentioned", True, "jamais accidentée sauf un accrochage... accident mineur", "jamais accidentée sauf un accrochage... accident mineur")
+        self.assertIn("accident_mentioned", both["facts"])                                # affirmé ET nié : indéterminé, aucune correction
+        self.assertNotIn("corrected", both["facts"]["accident_mentioned"])
+
+    def test_a_corrected_denial_never_raises_the_accident_flag_nor_blocks_a_strong_candidate(self):
+        out = self.guard("accident_mentioned", True, "JAMAIS ACCIDENTÉ", "JAMAIS ACCIDENTÉ")
+        enriched = ax.apply_to_listing(listing(), out)
+        self.assertNotIn("ai_accident_mentioned", enriched["flags"])
+        strong = {**enriched, "soh_announced": 90.0, "winter_fit": {"verdict": "ok"}}
+        self.assertEqual(verdict.compute_verdict(strong)["verdict"], "CANDIDAT_FORT")
+
+    def test_prompt_states_the_rule_and_the_version_forces_a_new_analysis(self):
+        self.assertIn("JAMAIS true", ax.DEFAULT_INSTRUCTIONS)
+        self.assertGreaterEqual(ax.AI_VERSION, 2)
+
+
 class TestApply(unittest.TestCase):
     def test_accepted_facts_enrich_a_copy_and_clear_soh_unknown(self):
         base = listing()
         out_ai = ax.apply_guardrails(ax.parse_response(response(
             soh_pct=fact(91.0, "SOH 91 %"), battery_replaced=fact(True, "Batterie remplacée en 2024"),
-            accident_mentioned=fact(True, "Aucun accident"))), {**base, "description": base["description"] + " SOH 91 %."})
+            accident_mentioned=fact(True, "Accident mineur en 2022"))), {**base, "description": base["description"] + " SOH 91 %. Accident mineur en 2022."})
         enriched = ax.apply_to_listing(base, out_ai)
         self.assertEqual((enriched["soh_announced"], enriched["soh_source"]), (91.0, "ai"))
         self.assertTrue(enriched["mentions"]["battery_replaced"])

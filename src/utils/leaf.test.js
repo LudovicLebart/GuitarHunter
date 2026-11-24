@@ -160,6 +160,7 @@ test('aiFactLines : seulement les faits connus, valeurs lisibles et citation con
 test('flagLabel : drapeaux de l\'IA', () => {
     assert.match(flagLabel2('ai_unsupported_claim'), /sans preuve/);
     assert.match(flagLabel2('ai_conflict'), /règles/);
+    assert.match(flagLabel2('ai_polarity_corrected'), /corrigé/);
     assert.match(flagLabel2('year_unknown'), /Année inconnue/);
 });
 

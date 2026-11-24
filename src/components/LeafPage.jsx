@@ -311,7 +311,7 @@ const LeafDetail = ({ id, api }) => {
                         <ul className="space-y-2">
                             {aiLines.map((l) => (
                                 <li key={l.key} className="text-sm text-slate-300">
-                                    <span className="font-bold">{l.label} : {l.value}</span> <span className="text-[10px] text-slate-500">({l.confidence})</span>
+                                    <span className="font-bold">{l.label} : {l.value}</span> <span className="text-[10px] text-slate-500">({l.confidence}{l.corrected ? ', sens corrigé d\'après la citation' : ''})</span>
                                     {l.evidence && <blockquote className="mt-0.5 border-l-2 border-slate-700 pl-2 text-xs italic text-slate-400">« {l.evidence} »</blockquote>}
                                 </li>
                             ))}

@@ -99,10 +99,12 @@ def extract_soh(text: Optional[str]) -> Optional[Tuple[float, str]]:
 
 
 def extract_capacity_bars(text: Optional[str]) -> Optional[Tuple[int, str]]:
-    """(barres sur 12, preuve) : « 11/12 barres », « 10 sur 12 barres », « 6 barres sur 12 », « 6 barres / 12 »."""
-    m = re.search(r"\b(\d{1,2})\s*(?:/|sur)\s*12\s*barres?|\b(\d{1,2})\s*barres?\s*(?:/|sur)\s*12\b", normalize_text(text))
+    """(barres sur 12, preuve) : « 11/12 barres », « 10 sur 12 barres », « 6 barres sur 12 », « 6 barres / 12 », et « ÉTAT DE LA BATTERIE 7/12 »
+    (le mot « barres » est absent : c'est le mot « batterie » juste avant qui donne le sens ; « 12/12 mois » n'est pas une jauge)."""
+    m = re.search(r"\b(\d{1,2})\s*(?:/|sur)\s*12\s*barres?|\b(\d{1,2})\s*barres?\s*(?:/|sur)\s*12\b"
+                  r"|batterie[^0-9]{0,40}\b(\d{1,2})\s*/\s*12\b(?!\s*(?:mois|m\b|ans?\b))", normalize_text(text))
     if m:
-        bars = int(m.group(1) or m.group(2))
+        bars = int(m.group(1) or m.group(2) or m.group(3))
         if 1 <= bars <= 12:
             return bars, m.group(0)
     return None

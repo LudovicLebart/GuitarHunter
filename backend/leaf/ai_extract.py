@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.leaf import normalize
 
-AI_VERSION = 1                      # change quand le prompt ou le garde-fou change : les analyses stockées sont alors refaites
+AI_VERSION = 2                      # change quand le prompt ou le garde-fou change : les analyses stockées sont alors refaites
 MAX_TEXT_CHARS = 3500
 MAX_SUMMARY_CHARS = 500
 MAX_ATTENTION = 5
@@ -36,7 +36,8 @@ Règles strictes :
 - Pour chaque fait, donne "evidence" : la phrase ou le morceau de phrase COPIÉ MOT POUR MOT du texte. Sans citation exacte, mets "value": null.
 - Ne déduis rien (ni de l'année, ni du modèle, ni de ce qui est « habituel »). Si le texte ne le dit pas : "value": null.
 - "battery_replaced" concerne la batterie de TRACTION (haute tension), pas la batterie 12 V.
-- "accident_mentioned" = true seulement si le texte dit que la voiture a subi un accident ou un dommage ; false seulement si le texte le nie explicitement.
+- "accident_mentioned" = true seulement si le texte dit que la voiture a subi un accident ou un dommage ; false seulement si le texte le nie explicitement (« jamais accidentée », « aucun accident » = false).
+- Un fait NIÉ par le texte (« sans pompe à chaleur », « pas de CHAdeMO », « jamais accidentée ») vaut false, JAMAIS true : la citation d'une négation ne prouve pas que le fait existe.
 - "soh_pct" : l'état de santé de la batterie en pourcentage, seulement s'il est écrit (SOH, état de santé, LeafSpy).
 - "confidence" : "high" si la citation est sans ambiguïté, "medium" ou "low" sinon.
 - "summary" : 2 à 3 phrases en français sur ce que dit (et ne dit pas) l'annonce, sans rien inventer.
@@ -103,6 +104,33 @@ def _evidence_in_text(evidence: Optional[str], norm_text: str) -> bool:
     return len(ev) >= MIN_EVIDENCE_CHARS and ev in norm_text
 
 
+# Mots qui désignent chaque fait booléen DANS une citation (texte normalisé) : sert à vérifier la POLARITÉ, pas seulement l'existence de la citation.
+_POLARITY_TERMS = {
+    "accident_mentioned": r"\b(?:accident|dommage|reconstruit|vgr|salvage)",
+    "heat_pump": normalize._MENTIONS["heat_pump"],
+    "winter_tires": normalize._MENTIONS["winter_tires"],
+    "chademo": normalize._MENTIONS["chademo"],
+    "charging_cable": normalize._MENTIONS["charging_cable"],
+    "battery_replaced": normalize._MENTIONS["battery_replaced"],
+}
+
+
+def _polarity(key: str, evidence: str) -> Optional[bool]:
+    """Ce que dit la CITATION elle-même sur le fait : True (affirmé), False (nié : « jamais accidentée », « sans pompe à chaleur »), None (indéterminé :
+    mot du fait absent, ou affirmé ET nié). Calculé par le code avec les mêmes négations que les règles, jamais par le modèle."""
+    pattern = _POLARITY_TERMS.get(key)
+    if not pattern:
+        return None
+    text = normalize.normalize_text(evidence)
+    affirmed = negated = False
+    for m in re.finditer(pattern, text):
+        if normalize._NEGATION.search(text[max(0, m.start() - 30):m.start()]):
+            negated = True
+        else:
+            affirmed = True
+    return True if affirmed and not negated else (False if negated and not affirmed else None)
+
+
 def regex_facts(listing: Dict[str, Any]) -> Dict[str, Any]:
     """Ce que les règles ont déjà établi (référence en cas de contradiction). Absent = les règles n'ont rien vu (≠ « faux »)."""
     m = listing.get("mentions") or {}
@@ -140,12 +168,24 @@ def apply_guardrails(parsed: Dict[str, Any], listing: Dict[str, Any]) -> Dict[st
                 if "ai_unsupported_claim" not in flags:
                     flags.append("ai_unsupported_claim")
                 continue
+        corrected = False
+        if isinstance(value, bool) and key in _POLARITY_TERMS:
+            said = _polarity(key, fact["evidence"])
+            if said is not None and said != value:
+                # La citation dit le CONTRAIRE du fait annoncé (ex. « JAMAIS ACCIDENTÉ » donné comme « accident mentionné : oui »). Le code corrige
+                # la polarité d'après la citation et rétrograde la confiance ; le modèle n'a pas le dernier mot.
+                value, corrected = said, True
+                fact = {**fact, "confidence": "medium"}
+                if "ai_polarity_corrected" not in flags:
+                    flags.append("ai_polarity_corrected")
         ref = reference.get(key)
         if ref is not None and (ref != value if key != "soh_pct" else abs(ref - value) > 1.0):
             if "ai_conflict" not in flags:                      # les règles gagnent : le fait de l'IA n'est pas retenu
                 flags.append("ai_conflict")
             continue
         accepted[key] = {"value": value, "evidence": fact["evidence"].strip(), "confidence": fact["confidence"]}
+        if corrected:
+            accepted[key]["corrected"] = True
     attention = [a for a in parsed["attention"] if _evidence_in_text(a["evidence"], norm_text)][:MAX_ATTENTION]
     return {"summary": parsed["summary"], "facts": accepted, "attention": attention, "flags": flags, "rejected": rejected}
 

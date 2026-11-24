@@ -4,6 +4,7 @@ import os
 import unittest
 from unittest import mock
 
+from backend.leaf import ai_extract
 from backend.leaf import config as lc
 from backend.leaf import notify
 
@@ -431,7 +432,7 @@ class TestHunter(unittest.TestCase):
         self.hunter.run_scan()
         analysis = self._ai_of()["analysis"]
         self.assertNotIn("ai_stale", analysis)                                           # empreinte retrouvée : plus de bannière
-        self.assertEqual((len(first.calls), analysis["ai"]["version"]), (1, 1))
+        self.assertEqual((len(first.calls), analysis["ai"]["version"]), (1, ai_extract.AI_VERSION))
         self.assertEqual(self._ai_of()["verdict"], "CANDIDAT_FORT")
 
     def test_unreadable_detail_reuses_the_stored_analysis_and_never_spends_a_call(self):

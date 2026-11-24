@@ -127,6 +127,14 @@ class TestReviewFixes(unittest.TestCase):
         self.assertEqual(n.extract_soh("mesuré à 91,5 % avec LeafSpy hier")[0], 91.5)
         self.assertIsNone(n.extract_soh("Pneus à 50 % d'usure, LeafSpy disponible"))      # pas un état de santé
 
+    def test_battery_gauge_written_as_a_plain_fraction_after_the_word_battery(self):
+        # Cas réel (2026-11-24) : « ÉTAT DE LA BATTERIE 7/12 ( PLEINE 155 KM ) » — pas de mot « barres ».
+        self.assertEqual(n.extract_capacity_bars("ÉTAT DE LA BATTERIE 7/12 ( PLEINE 155 KM )")[0], 7)
+        self.assertEqual(n.extract_capacity_bars("Batterie : 11/12")[0], 11)
+        self.assertIsNone(n.extract_capacity_bars("garantie batterie 12/12 mois"))          # mois, pas une jauge
+        self.assertIsNone(n.extract_capacity_bars("7/12 de la facture"))                    # sans le mot batterie : ambigu
+        self.assertEqual(n.normalize_listing({"title": "t", "description": "ÉTAT DE LA BATTERIE 7/12"})["capacity_bars"], 7)
+
     def test_km_after_year(self):
         self.assertEqual(n.parse_km("Nissan Leaf 2017 120 000 km"), 120000)
         self.assertEqual(n.parse_km("2017 85 000 km"), 85000)

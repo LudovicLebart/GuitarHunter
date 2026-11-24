@@ -26,6 +26,7 @@ export const FLAG_LABELS = {
     detail_unavailable: 'Fiche de l\'annonce illisible',
     ai_unsupported_claim: 'IA : un fait sans preuve dans l\'annonce a été écarté',
     ai_conflict: 'IA : contredite par les règles (les règles sont retenues)',
+    ai_polarity_corrected: 'IA : sens d\'un fait corrigé par le code d\'après sa citation (ex. « jamais accidentée »)',
     ai_accident_mentioned: 'Accident ou dommage mentionné (lu par l\'IA)',
     photo_km_mismatch: 'Kilométrage d\'une photo différent de celui de l\'annonce',
 };
@@ -58,7 +59,7 @@ export const aiFactLines = (ai) => Object.entries(AI_FACT_LABELS)
     .map(([key, label]) => {
         const f = ai.facts[key];
         return { key, label, value: typeof f.value === 'number' ? `${f.value} %` : (f.value ? 'Oui' : 'Non'), evidence: f.evidence || '',
-            confidence: CONFIDENCE_LABELS[f.confidence] || CONFIDENCE_LABELS.low };
+            confidence: CONFIDENCE_LABELS[f.confidence] || CONFIDENCE_LABELS.low, corrected: f.corrected === true };
     });
 export const AI_PROVIDERS = [['local', 'Qwen local (Dell)'], ['gemini', 'Gemini Flash']];
 
