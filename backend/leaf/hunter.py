@@ -363,7 +363,7 @@ class LeafHunter:
         self._cap_notified_day = today
         self.log.warning(f"[Leaf] IA : plafond de {acfg['max_calls_per_day']} analyses atteint, les suivantes attendent.")
         self._notify("Leaf : plafond d'analyses IA atteint", f"{acfg['max_calls_per_day']} analyses sur 24 h. Les prochaines annonces "
-                     "sont affichées sans résumé IA ; le plafond se règle dans les réglages.", logger=self.log)
+                     "sont affichées sans résumé IA ; le plafond se règle dans les réglages.", click_url=leaf_notify.leaf_link(), logger=self.log)
 
     def _with_facebook_city(self, scan: Dict[str, Any]) -> Dict[str, Any]:
         """Facebook cherche par ville : on prend la ville du catalogue la plus proche du point de référence (dans son rayon).
@@ -389,23 +389,31 @@ class LeafHunter:
         soh = f"SOH {listing['soh_announced']:.0f} %" if listing.get("soh_announced") is not None else "SOH ?"
         return f"{listing.get('year') or '?'} Leaf {listing.get('trim') or '?'} — {listing['price']:.0f} $ — {km} — {soh}"
 
+    @staticmethod
+    def _links(listing: Dict[str, Any]) -> Dict[str, Any]:
+        """Le toucher d'une notification ouvre l'annonce DANS Leaf Hunter (fiche, verdict, analyse) ; un bouton « Annonce » ouvre la page d'origine."""
+        out: Dict[str, Any] = {"click_url": leaf_notify.leaf_link(listing.get("id"))}
+        if str(listing.get("url") or "").startswith("https://"):
+            out["actions"] = [("Annonce", listing["url"])]
+        return out
+
     def _notify_events(self, events, notify_cfg) -> None:
         wanted = [e for e in events if (e[0] == "new" and notify_cfg["new"]) or (e[0] == "price_drop" and notify_cfg["price_drop"])]
         if not wanted:
             return
         if len(wanted) > MAX_INDIVIDUAL_NOTIFICATIONS:    # premier passage : un seul résumé plutôt qu'une rafale
             lines = [self._describe(l) for _, l, _ in wanted[:10]]
-            self._notify(f"Leaf : {len(wanted)} annonces", "\n".join(lines), logger=self.log)
+            self._notify(f"Leaf : {len(wanted)} annonces", "\n".join(lines), click_url=leaf_notify.leaf_link(), logger=self.log)
             return
         for action, listing, previous in wanted:
             if action == "new":
                 strong = listing.get("verdict") == "CANDIDAT_FORT"
                 self._notify("Leaf : candidat fort" if strong else "Leaf : nouvelle annonce", self._describe(listing),
-                             priority="high" if strong else "default", click_url=listing.get("url"),
+                             priority="high" if strong else "default", **self._links(listing),
                              tags=["star" if strong else "car"], logger=self.log)
             else:
                 self._notify(f"Leaf : baisse de prix ({previous:.0f} → {listing['price']:.0f} $)",
-                             self._describe(listing), priority="high", click_url=listing.get("url"),
+                             self._describe(listing), priority="high", **self._links(listing),
                              tags=["chart_with_downwards_trend"], logger=self.log)
 
     def _health_alert(self, source: str, outcome: str) -> None:
@@ -422,7 +430,8 @@ class LeafHunter:
             failing += 1
         if failing == ALERT_AFTER_FAILURES:
             self._notify(f"Leaf : source {source} en panne", f"{ALERT_AFTER_FAILURES} passages de suite sans résultat "
-                         f"({outcome}). Vérifier le site ou le parseur.", priority="high", tags=["warning"], logger=self.log)
+                         f"({outcome}). Vérifier le site ou le parseur.", priority="high", tags=["warning"],
+                         click_url=leaf_notify.leaf_link(), logger=self.log)
 
     # ------------------------------------------------------------------ commandes
 

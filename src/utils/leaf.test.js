@@ -74,7 +74,7 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
 
-import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines, promptToValue, validatePrompts, MAX_PROMPT_CHARS } from './leaf.js';
+import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines, promptToValue, validatePrompts, MAX_PROMPT_CHARS, SORT_KEYS } from './leaf.js';
 
 test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
     const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
@@ -203,4 +203,36 @@ test('validatePrompts : refuse un texte trop long, accepte la limite', () => {
     const errs = validatePrompts({ extract: 'x'.repeat(MAX_PROMPT_CHARS + 1), photo: 'y'.repeat(9000) });
     assert.equal(errs.length, 2);
     assert.match(errs[0], /8000 caractères/);
+});
+
+const ROWS = [
+    { id: 'a', price: 6000, km: 90000, year: 2017, first_seen_at: '2026-11-01T10:00:00Z', timestamp: '2026-11-20T10:00:00Z', price_drop_amount: 300, is_favorite: false, verdict: 'A_VERIFIER', soh_announced: 88, analysis: { winter_fit: { high_km: 110 } } },
+    { id: 'b', price: 5000, km: 120000, year: 2016, first_seen_at: '2026-11-03T10:00:00Z', timestamp: '2026-11-10T10:00:00Z', price_drop_amount: null, is_favorite: true, verdict: 'CANDIDAT_FORT', soh_announced: 91, analysis: { winter_fit: { high_km: 95 } } },
+    { id: 'c', price: null, km: null, year: 2018, first_seen_at: null, timestamp: null, price_drop_amount: 0, is_favorite: false, verdict: 'BATTERIE_DOUTEUSE', soh_announced: null, analysis: {} },
+    { id: 'd', price: 5000, km: 60000, year: 2017, first_seen_at: '2026-11-02T10:00:00Z', timestamp: '2026-11-22T10:00:00Z', price_drop_amount: 500, is_favorite: true, verdict: 'TROP_CHER', soh_announced: 80, analysis: { winter_fit: { high_km: 140 } } },
+];
+const ids = (sort, reverse = false) => filterAndSortDeals(ROWS, { sort, reverse }).map((d) => d.id);
+
+test('tris : date, dernière modification, baisse de prix, SOH, autonomie — valeurs inconnues toujours en dernier', () => {
+    assert.deepEqual(ids('recent'), ['b', 'd', 'a', 'c']);
+    assert.deepEqual(ids('updated'), ['d', 'a', 'b', 'c']);
+    assert.deepEqual(ids('drop'), ['d', 'a', 'b', 'c']);                         // 500 $, 300 $, puis sans baisse (null ou 0)
+    assert.deepEqual(ids('soh'), ['b', 'a', 'd', 'c']);
+    assert.deepEqual(ids('winter'), ['d', 'a', 'b', 'c']);
+});
+
+test('tris : favoris d\'abord et verdict, avec le prix pour départager', () => {
+    assert.deepEqual(ids('favorite'), ['b', 'd', 'a', 'c']);                    // favoris (b, d à 5 000 $ : ordre stable), puis les autres par prix
+    assert.deepEqual(ids('verdict'), ['b', 'a', 'd', 'c']);                     // CANDIDAT_FORT, A_VERIFIER, TROP_CHER, BATTERIE_DOUTEUSE
+});
+
+test('tris : le bouton de sens inverse l\'ordre sans remonter les valeurs inconnues', () => {
+    assert.deepEqual(ids('recent', true), ['a', 'd', 'b', 'c']);
+    assert.deepEqual(ids('price', true), ['a', 'b', 'd', 'c']);                 // le prix inconnu reste dernier
+    assert.deepEqual(ids('km', true), ['b', 'a', 'd', 'c']);
+    for (const key of SORT_KEYS.filter((k) => !['favorite', 'verdict'].includes(k))) assert.equal(ids(key, true)[3], 'c', key);   // « c » n'a pas de valeur : toujours en bas
+});
+
+test('tris : une clé inconnue retombe sur le prix', () => {
+    assert.deepEqual(ids('inexistant'), ids('price'));
 });

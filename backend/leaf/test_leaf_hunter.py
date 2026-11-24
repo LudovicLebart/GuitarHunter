@@ -58,6 +58,23 @@ class TestNotify(unittest.TestCase):
         self.assertEqual(post.call_args.args[0], "https://ntfy.sh/sujet-test")
         self.assertTrue(post.call_args.kwargs["headers"]["Title"].isascii())
 
+    def test_click_opens_leaf_and_a_button_opens_the_original_ad(self):
+        with mock.patch.dict(os.environ, {"LEAF_NTFY_TOPIC": "sujet-test"}), \
+                mock.patch("requests.post", return_value=mock.Mock(status_code=200)) as post:
+            notify.send("t", "m", click_url=notify.leaf_link("leaf_kijiji_123"),
+                        actions=[("Annonce", "https://www.kijiji.ca/v-x/1"), ("Accentué", "https://exemple.invalide/a"),
+                                 ("Http", "http://non-https.invalide/x"), ("Virgule,", "https://exemple.invalide/b")])
+        headers = post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Click"], "https://ludoviclebart.github.io/GuitarHunter/#leaf/leaf_kijiji_123")
+        self.assertEqual(headers["Actions"], "view, Annonce, https://www.kijiji.ca/v-x/1")        # libellé non ASCII, http et virgule : ignorés
+
+    def test_leaf_link_falls_back_to_the_list_and_site_is_configurable(self):
+        self.assertEqual(notify.leaf_link(), "https://ludoviclebart.github.io/GuitarHunter/#leaf")
+        self.assertEqual(notify.leaf_link("id avec espace"), "https://ludoviclebart.github.io/GuitarHunter/#leaf")
+        self.assertEqual(notify.leaf_link("a" * 121), "https://ludoviclebart.github.io/GuitarHunter/#leaf")
+        with mock.patch.dict(os.environ, {"LEAF_SITE_URL": "http://localhost:5173"}):
+            self.assertEqual(notify.leaf_link("leaf_x_1"), "http://localhost:5173/#leaf/leaf_x_1")
+
     def test_network_failure_never_raises(self):
         with mock.patch.dict(os.environ, {"LEAF_NTFY_TOPIC": "x"}), mock.patch("requests.post", side_effect=OSError("down")):
             self.assertFalse(notify.send("t", "m"))
@@ -92,11 +109,11 @@ class TestHunter(unittest.TestCase):
         self.pool = ConnectionPool(URL, min_size=1, max_size=3, kwargs={"row_factory": dict_row}, open=True)
         self.addCleanup(self.pool.close)
         self.repo = LeafRepository(self.pool)
-        self.sent = []
+        self.sent, self.sent_full = [], []
         self.raws, self.runs = [raw("leaf_test_1")], [{"source": "kijiji", "outcome": "ok", "cards_seen": 1, "duration_ms": 5}]
         self.hunter = LeafHunter(self.repo, self.UID, collector=lambda scan: (self.raws, self.runs),
                                  detail_fetcher_factory=lambda: None,
-                                 notifier=lambda title, msg, **kw: self.sent.append((title, msg)) or True)
+                                 notifier=lambda title, msg, **kw: self.sent.append((title, msg)) or self.sent_full.append((title, kw)) or True)
         from backend import t1_circuit_breaker            # état partagé du processus : chaque test repart avec un Dell « sain »
         t1_circuit_breaker.record_success("local")
         self.addCleanup(t1_circuit_breaker.record_success, "local")
@@ -117,6 +134,16 @@ class TestHunter(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT count(*) AS n FROM user_vehicle_matches WHERE user_id = %s", (self.UID,)).fetchone()["n"], 1)
             self.assertEqual(conn.execute("SELECT source, outcome FROM scrape_runs").fetchone(), {"source": "leaf_kijiji", "outcome": "ok"})
         self.assertEqual([t for t, _ in self.sent], ["Leaf : nouvelle annonce"])
+
+    def test_notifications_open_the_listing_in_leaf_with_a_button_to_the_original_ad(self):
+        self.hunter.run_scan()
+        title, kw = self.sent_full[0]
+        self.assertEqual(kw["click_url"], "https://ludoviclebart.github.io/GuitarHunter/#leaf/leaf_test_1")
+        self.assertEqual(kw["actions"], [("Annonce", "https://exemple.invalide/leaf_test_1")])
+        self.raws = [raw(f"leaf_test_{i}", price=5000 + i) for i in range(2, 10)]            # beaucoup de nouvelles : un résumé
+        self.sent_full.clear()
+        self.hunter.run_scan()
+        self.assertEqual(self.sent_full[0][1]["click_url"], "https://ludoviclebart.github.io/GuitarHunter/#leaf")
 
     def test_second_scan_is_silent_and_price_drop_notifies(self):
         self.hunter.run_scan()

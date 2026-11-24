@@ -1,16 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
+import { AlertTriangle, ArrowDownUp, ArrowLeft, Car, ExternalLink, RefreshCw, Snowflake, Star, ThumbsDown } from 'lucide-react';
 import { fetchLeafConfig, fetchLeafDeal, fetchLeafDeals, fetchLeafRuns, saveLeafConfig, fetchLeafPrompts, saveLeafPrompts, setLeafState, triggerLeafAnalyze, triggerLeafReanalyze, triggerLeafRefresh, watchLeafCommand } from '../services/apiService';
 import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import LeafPrompts from './LeafPrompts';
 import {
-    CHECKLIST_ITEMS, SORTS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
+    CHECKLIST_ITEMS, SORTS, SORT_KEYS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
     aiFactLines, expertView, formatPrice as fmtPrice, leafImages, photoFactLines, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
 } from '../utils/leaf';
 
 // Page Leaf Hunter (`#leaf`, `#leaf/<id>`, voir hooks/useLeafRoute.js) : liste triable des Leaf d'occasion retenues par le bot,
 // et fiche d'une annonce (drapeaux, historique de prix, notes, checklist d'inspection). `api` est injectable (affichage sans serveur).
+
+const LIST_PREFS_KEY = 'leaf.listPrefs';
+const readListPrefs = () => {
+    const defaults = { sort: 'price', reverse: false, favoritesOnly: false };
+    try {
+        const saved = JSON.parse(window.localStorage.getItem(LIST_PREFS_KEY) || '{}');
+        return { sort: SORT_KEYS.includes(saved.sort) ? saved.sort : defaults.sort, reverse: saved.reverse === true, favoritesOnly: saved.favoritesOnly === true };
+    } catch { return defaults; }
+};
 
 const DEFAULT_API = { fetchLeafDeals, fetchLeafDeal, setLeafState, fetchLeafRuns, triggerLeafRefresh, triggerLeafAnalyze, triggerLeafReanalyze, watchLeafCommand, fetchLeafConfig, saveLeafConfig, fetchLeafPrompts, saveLeafPrompts };
 const WINTER_STYLES = {
@@ -78,9 +87,14 @@ const DealRow = ({ deal, onToggle }) => (
 
 const LeafList = ({ api, cities }) => {
     const [state, setState] = useState({ loading: true, error: null, deals: [], runs: [] });
-    const [sort, setSort] = useState('price');
+    // Choix de tri, de sens et de filtre mémorisés dans ce navigateur (jamais bloquant : sans stockage, valeurs par défaut).
+    const [prefs, setPrefs] = useState(readListPrefs);
+    const { sort, reverse, favoritesOnly } = prefs;
+    const setSort = (value) => setPrefs((p) => ({ ...p, sort: value }));
+    const setReverse = (value) => setPrefs((p) => ({ ...p, reverse: value }));
+    const setFavoritesOnly = (updater) => setPrefs((p) => ({ ...p, favoritesOnly: typeof updater === 'function' ? updater(p.favoritesOnly) : updater }));
+    useEffect(() => { try { window.localStorage.setItem(LIST_PREFS_KEY, JSON.stringify(prefs)); } catch { /* stockage indisponible : sans effet */ } }, [prefs]);
     const [query, setQuery] = useState('');
-    const [favoritesOnly, setFavoritesOnly] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
 
     const load = useCallback(async () => {
@@ -111,7 +125,7 @@ const LeafList = ({ api, cities }) => {
         } catch (error) { setRefreshing(false); setState((s) => ({ ...s, error })); }
     };
 
-    const shown = useMemo(() => filterAndSortDeals(state.deals, { favoritesOnly, query, sort }), [state.deals, favoritesOnly, query, sort]);
+    const shown = useMemo(() => filterAndSortDeals(state.deals, { favoritesOnly, query, sort, reverse }), [state.deals, favoritesOnly, query, sort, reverse]);
     const lastRun = state.runs[0];
 
     return (
@@ -125,6 +139,10 @@ const LeafList = ({ api, cities }) => {
                     className="bg-slate-900 border border-slate-700 rounded-xl px-2 py-1.5 text-sm text-slate-200">
                     {Object.entries(SORTS).map(([key, s]) => <option key={key} value={key}>{s.label}</option>)}
                 </select>
+                <button onClick={() => setReverse(!reverse)} aria-pressed={reverse} title="Inverser l'ordre (les valeurs inconnues restent en bas)"
+                    className={`px-2.5 py-1.5 rounded-xl border text-sm font-bold ${reverse ? 'bg-blue-500/20 border-blue-500/40 text-blue-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
+                    <ArrowDownUp size={14} className="inline -mt-0.5" /><span className="sr-only">Inverser l'ordre</span>
+                </button>
                 <button onClick={() => setFavoritesOnly((v) => !v)} aria-pressed={favoritesOnly}
                     className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${favoritesOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
                     <Star size={14} className="inline -mt-0.5" /> Favoris

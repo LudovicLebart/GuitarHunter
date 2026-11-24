@@ -70,19 +70,46 @@ export const winterRange = (analysis) => {
 };
 export const winterVerdict = (analysis) => analysis?.winter_fit?.verdict || 'inconnu';
 
+// Tris de la liste. `key` : valeur numérique à comparer (null = inconnue, TOUJOURS rangée en dernier, quel que soit le sens) ; `dir` : sens naturel
+// (« asc » = le plus petit d'abord). Le bouton de sens de la page inverse l'ordre sans jamais remonter les valeurs inconnues.
+const VERDICT_RANK = { CANDIDAT_FORT: 0, A_VERIFIER: 1, INCOMPLET: 2, TROP_CHER: 3, BATTERIE_DOUTEUSE: 4 };
+const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : (v != null && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null));
+const time = (v) => { const t = Date.parse(v || ''); return Number.isFinite(t) ? t : null; };
 export const SORTS = {
-    price: { label: 'Prix', cmp: (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity) },
-    km: { label: 'Kilométrage', cmp: (a, b) => (a.km ?? Infinity) - (b.km ?? Infinity) },
-    year: { label: 'Année', cmp: (a, b) => (b.year ?? 0) - (a.year ?? 0) },
-    recent: { label: 'Récentes', cmp: (a, b) => String(b.first_seen_at || '').localeCompare(String(a.first_seen_at || '')) },
+    price: { label: 'Prix', key: (d) => num(d.price), dir: 'asc' },
+    km: { label: 'Kilométrage', key: (d) => num(d.km), dir: 'asc' },
+    year: { label: 'Année', key: (d) => num(d.year), dir: 'desc' },
+    recent: { label: 'Date : nouvelles d\'abord', key: (d) => time(d.first_seen_at), dir: 'desc' },
+    updated: { label: 'Dernière modification', key: (d) => time(d.timestamp), dir: 'desc' },
+    drop: { label: 'Baisse de prix', key: (d) => (num(d.price_drop_amount) > 0 ? num(d.price_drop_amount) : null), dir: 'desc' },
+    favorite: { label: 'Favoris d\'abord', key: (d) => (d.is_favorite ? 0 : 1), dir: 'asc', then: 'price' },
+    verdict: { label: 'Verdict (meilleurs d\'abord)', key: (d) => (d.verdict in VERDICT_RANK ? VERDICT_RANK[d.verdict] : null), dir: 'asc', then: 'price' },
+    soh: { label: 'SOH annoncé', key: (d) => num(d.soh_announced), dir: 'desc' },
+    winter: { label: 'Autonomie hivernale', key: (d) => num(d.analysis?.winter_fit?.high_km), dir: 'desc' },
+};
+export const SORT_KEYS = Object.keys(SORTS);
+
+/** Comparateur du tri `sort` (clé inconnue = prix). `reverse` inverse le sens naturel ; les valeurs inconnues restent en dernier dans les deux sens. */
+export const compareBy = (sort, reverse = false) => {
+    const spec = SORTS[sort] || SORTS.price;
+    const sign = (spec.dir === 'desc' ? -1 : 1) * (reverse ? -1 : 1);
+    const tie = spec.then && SORTS[spec.then] ? compareBy(spec.then) : null;
+    return (a, b) => {
+        const x = spec.key(a);
+        const y = spec.key(b);
+        if (x === null && y === null) return tie ? tie(a, b) : 0;
+        if (x === null) return 1;
+        if (y === null) return -1;
+        return x === y ? (tie ? tie(a, b) : 0) : (x - y) * sign;
+    };
 };
 
 const normalize = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /** Filtre (favoris seulement, recherche texte sans accents) puis tri. N'altère pas la liste d'origine. */
-export const filterAndSortDeals = (deals, { favoritesOnly = false, query = '', sort = 'price' } = {}) => {
+export const filterAndSortDeals = (deals, { favoritesOnly = false, query = '', sort = 'price', reverse = false } = {}) => {
     const q = normalize(query).trim();
-    const sorter = (SORTS[sort] || SORTS.price).cmp;
+    const sorter = compareBy(sort, reverse);
     return (deals || [])
         .filter((d) => (!favoritesOnly || d.is_favorite)
             && (!q || normalize(`${d.title} ${d.location} ${d.trim} ${d.year}`).includes(q)))
