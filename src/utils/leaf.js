@@ -107,14 +107,28 @@ export const compareBy = (sort, reverse = false) => {
 const normalize = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 /** Filtre (favoris seulement, recherche texte sans accents) puis tri. N'altère pas la liste d'origine. */
-export const filterAndSortDeals = (deals, { favoritesOnly = false, query = '', sort = 'price', reverse = false } = {}) => {
+/** Doublons probables MASQUABLES : une annonce marquée `duplicate_of` dont l'originale est bien dans la liste (sinon on la garde : ne jamais faire
+ *  disparaître une annonce parce que son original est masqué, rejeté ou vendu). */
+export const hiddenDuplicateIds = (deals) => {
+    const present = new Set((deals || []).map((d) => d.id));
+    return new Set((deals || []).filter((d) => d.duplicate_of && d.duplicate_of !== d.id && present.has(d.duplicate_of)).map((d) => d.id));
+};
+/** { idOriginal: nombre de doublons } (seulement ceux dont l'original est présent), pour afficher « +2 doublons » sur la carte. */
+export const duplicateCounts = (deals) => {
+    const hidden = hiddenDuplicateIds(deals);
+    const counts = {};
+    for (const d of deals || []) if (hidden.has(d.id)) counts[d.duplicate_of] = (counts[d.duplicate_of] || 0) + 1;
+    return counts;
+};
+
+export const filterAndSortDeals = (deals, { favoritesOnly = false, query = '', sort = 'price', reverse = false, hideDuplicates = false } = {}) => {
     const q = normalize(query).trim();
     const sorter = compareBy(sort, reverse);
-    return (deals || [])
-        .filter((d) => (!favoritesOnly || d.is_favorite)
-            && (!q || normalize(`${d.title} ${d.location} ${d.trim} ${d.year}`).includes(q)))
-        .slice()
-        .sort(sorter);
+    const filtered = (deals || []).filter((d) => (!favoritesOnly || d.is_favorite)
+        && (!q || normalize(`${d.title} ${d.location} ${d.trim} ${d.year}`).includes(q)));
+    // Les doublons se décident APRÈS les autres filtres : une copie dont l'original est filtré (ex. « favoris seulement ») reste affichée.
+    const duplicates = hideDuplicates ? hiddenDuplicateIds(filtered) : new Set();
+    return filtered.filter((d) => !duplicates.has(d.id)).sort(sorter);
 };
 
 /** Évolution du prix : { first, last, delta } (delta < 0 = baisse), ou null s'il n'y a pas assez de points. */

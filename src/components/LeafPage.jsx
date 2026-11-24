@@ -5,7 +5,7 @@ import ImageGallery from './ImageGallery';
 import LeafSettings from './LeafSettings';
 import LeafPrompts from './LeafPrompts';
 import {
-    CHECKLIST_ITEMS, SORTS, SORT_KEYS, WINTER_LABELS, checklistProgress, filterAndSortDeals, flagLabel, formatKm, formatPrice, leafDealHref,
+    CHECKLIST_ITEMS, SORTS, SORT_KEYS, WINTER_LABELS, checklistProgress, duplicateCounts, filterAndSortDeals, hiddenDuplicateIds, flagLabel, formatKm, formatPrice, leafDealHref,
     aiFactLines, expertView, formatPrice as fmtPrice, leafImages, photoFactLines, priceTrend, questionsText, verdictInfo, winterRange, winterVerdict,
 } from '../utils/leaf';
 
@@ -14,10 +14,11 @@ import {
 
 const LIST_PREFS_KEY = 'leaf.listPrefs';
 const readListPrefs = () => {
-    const defaults = { sort: 'price', reverse: false, favoritesOnly: false };
+    const defaults = { sort: 'price', reverse: false, favoritesOnly: false, showDuplicates: false };
     try {
         const saved = JSON.parse(window.localStorage.getItem(LIST_PREFS_KEY) || '{}');
-        return { sort: SORT_KEYS.includes(saved.sort) ? saved.sort : defaults.sort, reverse: saved.reverse === true, favoritesOnly: saved.favoritesOnly === true };
+        return { sort: SORT_KEYS.includes(saved.sort) ? saved.sort : defaults.sort, reverse: saved.reverse === true, favoritesOnly: saved.favoritesOnly === true,
+            showDuplicates: saved.showDuplicates === true };
     } catch { return defaults; }
 };
 
@@ -55,7 +56,7 @@ const Flags = ({ flags }) => (flags?.length ? (
     </div>
 ) : null);
 
-const DealRow = ({ deal, onToggle }) => (
+const DealRow = ({ deal, onToggle, duplicates = 0 }) => (
     <li className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3 flex gap-3">
         <a href={leafDealHref(deal.id)} className="shrink-0 w-24 h-20 rounded-xl overflow-hidden bg-slate-800 flex items-center justify-center">
             {deal.image_urls?.[0] ? <img src={leafImages([deal.image_urls[0]], 'thumb')[0] || deal.image_urls[0]} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Car size={28} className="text-slate-600" />}
@@ -72,6 +73,7 @@ const DealRow = ({ deal, onToggle }) => (
                 {deal.soh_announced != null ? ` · SOH ${Math.round(deal.soh_announced)} %` : ''}
                 {deal.price_drop_amount > 0 ? <span className="text-amber-300"> · baisse de {formatPrice(deal.price_drop_amount)}</span> : null}
                 {deal.duplicate_of ? ' · doublon probable' : ''}
+                {duplicates > 0 ? <span className="text-sky-300" title="Annonces semblables (même titre, même prix, même endroit) masquées"> · +{duplicates} doublon{duplicates > 1 ? 's' : ''} masqué{duplicates > 1 ? 's' : ''}</span> : null}
             </div>
             <div className="flex flex-wrap gap-1.5"><VerdictBadge code={deal.verdict} reasons={deal.analysis?.verdict_reasons} /><WinterBadge analysis={deal.analysis} /></div>
             <Flags flags={deal.flags} />
@@ -89,7 +91,7 @@ const LeafList = ({ api, cities }) => {
     const [state, setState] = useState({ loading: true, error: null, deals: [], runs: [] });
     // Choix de tri, de sens et de filtre mémorisés dans ce navigateur (jamais bloquant : sans stockage, valeurs par défaut).
     const [prefs, setPrefs] = useState(readListPrefs);
-    const { sort, reverse, favoritesOnly } = prefs;
+    const { sort, reverse, favoritesOnly, showDuplicates } = prefs;
     const setSort = (value) => setPrefs((p) => ({ ...p, sort: value }));
     const setReverse = (value) => setPrefs((p) => ({ ...p, reverse: value }));
     const setFavoritesOnly = (updater) => setPrefs((p) => ({ ...p, favoritesOnly: typeof updater === 'function' ? updater(p.favoritesOnly) : updater }));
@@ -125,7 +127,9 @@ const LeafList = ({ api, cities }) => {
         } catch (error) { setRefreshing(false); setState((s) => ({ ...s, error })); }
     };
 
-    const shown = useMemo(() => filterAndSortDeals(state.deals, { favoritesOnly, query, sort, reverse }), [state.deals, favoritesOnly, query, sort, reverse]);
+    const shown = useMemo(() => filterAndSortDeals(state.deals, { favoritesOnly, query, sort, reverse, hideDuplicates: !showDuplicates }), [state.deals, favoritesOnly, query, sort, reverse, showDuplicates]);
+    const dupCounts = useMemo(() => duplicateCounts(state.deals), [state.deals]);
+    const hiddenCount = useMemo(() => hiddenDuplicateIds(state.deals).size, [state.deals]);
     const lastRun = state.runs[0];
 
     return (
@@ -147,6 +151,13 @@ const LeafList = ({ api, cities }) => {
                     className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${favoritesOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
                     <Star size={14} className="inline -mt-0.5" /> Favoris
                 </button>
+                {hiddenCount > 0 && (
+                    <button onClick={() => setPrefs((p) => ({ ...p, showDuplicates: !p.showDuplicates }))} aria-pressed={showDuplicates}
+                        title="Annonces semblables (même titre, même prix, même endroit) : masquées par défaut, l'ancienne reste affichée"
+                        className={`px-3 py-1.5 rounded-xl border text-sm font-bold ${showDuplicates ? 'bg-sky-500/20 border-sky-500/40 text-sky-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
+                        {showDuplicates ? 'Doublons affichés' : `Doublons masqués (${hiddenCount})`}
+                    </button>
+                )}
                 <button onClick={() => onRefresh(false)} disabled={refreshing} title="Lancer un passage maintenant"
                     className="px-3 py-1.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-300 text-sm font-bold disabled:opacity-50">
                     <RefreshCw size={14} className={`inline -mt-0.5 ${refreshing ? 'animate-spin' : ''}`} /> Actualiser
@@ -161,7 +172,7 @@ const LeafList = ({ api, cities }) => {
             {state.error && <Message tone="error">{String(state.error.message || state.error)}</Message>}
             {state.loading ? <Message>Chargement…</Message>
                 : shown.length === 0 ? <Message>{state.deals.length ? 'Aucune annonce ne correspond.' : 'Aucune annonce pour le moment : le prochain passage du bot les ajoutera.'}</Message>
-                    : <ul className="space-y-3">{shown.map((d) => <DealRow key={d.id} deal={d} onToggle={onToggle} />)}</ul>}
+                    : <ul className="space-y-3">{shown.map((d) => <DealRow key={d.id} deal={d} onToggle={onToggle} duplicates={showDuplicates ? 0 : (dupCounts[d.id] || 0)} />)}</ul>}
         </div>
     );
 };

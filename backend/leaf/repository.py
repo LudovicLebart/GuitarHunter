@@ -236,3 +236,10 @@ class LeafRepository:
         with self.pool.connection() as conn:
             conn.execute("UPDATE vehicle_deals SET analysis = COALESCE(analysis, '{}'::jsonb) || jsonb_build_object('expert', %s::jsonb), "
                          "\"timestamp\" = now() WHERE id = %s", (Jsonb(opinion), deal_id))
+
+    def vehicle_summaries(self) -> List[Dict[str, Any]]:
+        """Annonces ACTIVES déjà stockées, au format lu par `dedup.same_vehicle` : sert à marquer les doublons ENTRE passages (et entre sources)."""
+        with self.pool.connection() as conn:
+            rows = conn.execute("SELECT id, title, year, trim, km, vin, latitude, longitude, price, location, first_seen_at, duplicate_of "
+                                "FROM vehicle_deals WHERE status = 'active'").fetchall()
+        return [{**r, "price": float(r["price"]) if r["price"] is not None else None, "city": r["location"]} for r in rows]

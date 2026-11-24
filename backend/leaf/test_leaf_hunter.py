@@ -140,10 +140,59 @@ class TestHunter(unittest.TestCase):
         title, kw = self.sent_full[0]
         self.assertEqual(kw["click_url"], "https://ludoviclebart.github.io/GuitarHunter/#leaf/leaf_test_1")
         self.assertEqual(kw["actions"], [("Annonce", "https://exemple.invalide/leaf_test_1")])
-        self.raws = [raw(f"leaf_test_{i}", price=5000 + i) for i in range(2, 10)]            # beaucoup de nouvelles : un résumé
+        self.raws = [raw(f"leaf_test_{i}", price=5000 + i, km=30000 + i * 9000) for i in range(2, 10)]   # voitures DISTINCTES (km différents) : un résumé
         self.sent_full.clear()
         self.hunter.run_scan()
         self.assertEqual(self.sent_full[0][1]["click_url"], "https://ludoviclebart.github.io/GuitarHunter/#leaf")
+
+    # --- Doublons -----------------------------------------------------------------------------------
+    def _fb(self, n, price=6950):
+        return raw(f"leaf_facebook_{n}", source="facebook", title="Nissan Leaf SV 2017", price=price, km=None, year=None, model="leaf",
+                   year_optional=True, detail_fetched=True, trim=None, latitude=45.66, longitude=-73.93, city="Mirabel, QC")
+
+    def _dups(self):
+        with self.pool.connection() as conn:
+            return {r["id"]: r["duplicate_of"] for r in conn.execute("SELECT id, duplicate_of FROM vehicle_deals").fetchall()}
+
+    def test_three_identical_facebook_ads_become_one_original_and_two_duplicates(self):
+        self.raws = [self._fb(1), self._fb(2), self._fb(3)]
+        self.hunter.run_scan()
+        self.assertEqual(self._dups(), {"leaf_facebook_1": None, "leaf_facebook_2": "leaf_facebook_1", "leaf_facebook_3": "leaf_facebook_1"})
+        self.assertEqual(len(self.sent), 1)                                                # une seule notification : les copies restent silencieuses
+
+    def test_a_copy_posted_in_a_later_pass_points_to_the_oldest_stored_ad(self):
+        self.raws = [self._fb(1)]
+        self.hunter.run_scan()
+        self.sent.clear()
+        self.raws = [self._fb(5)]                                                          # l'originale n'est plus relue (annonce connue)
+        self.hunter.run_scan()
+        self.assertEqual(self._dups()["leaf_facebook_5"], "leaf_facebook_1")
+        self.assertEqual(self.sent, [])                                                    # nouvelle annonce mais doublon : pas de notification
+
+    def test_a_different_price_is_not_a_duplicate_and_does_notify(self):
+        self.raws = [self._fb(1)]
+        self.hunter.run_scan()
+        self.sent.clear()
+        self.raws = [self._fb(2, price=5500)]
+        self.hunter.run_scan()
+        self.assertIsNone(self._dups()["leaf_facebook_2"])
+        self.assertEqual(len(self.sent), 1)
+
+    def test_no_cycle_and_the_flag_is_stable_from_one_pass_to_the_next(self):
+        self.raws = [self._fb(1), self._fb(2)]
+        self.hunter.run_scan()
+        first = self._dups()
+        self.hunter.run_scan()
+        self.hunter.run_scan()
+        self.assertEqual(self._dups(), first)
+        self.assertEqual(sum(1 for v in first.values() if v is None), 1)                  # exactement un original
+
+    def test_kijiji_duplicates_with_the_same_km_are_still_marked_across_passes(self):
+        self.raws = [raw("leaf_test_1", km=90000)]
+        self.hunter.run_scan()
+        self.raws = [raw("leaf_test_2", km=90300, price=6000)]
+        self.hunter.run_scan()
+        self.assertEqual(self._dups()["leaf_test_2"], "leaf_test_1")
 
     def test_second_scan_is_silent_and_price_drop_notifies(self):
         self.hunter.run_scan()
@@ -163,7 +212,7 @@ class TestHunter(unittest.TestCase):
             self.assertIsNone(self.hunter.run_scan(force=True))          # jamais l'interrupteur serveur
 
     def test_first_scan_with_many_listings_sends_one_summary(self):
-        self.raws = [raw(f"leaf_test_{i}", price=5000 + i) for i in range(8)]
+        self.raws = [raw(f"leaf_test_{i}", price=5000 + i, km=30000 + i * 9000) for i in range(8)]
         self.hunter.run_scan()
         self.assertEqual(len(self.sent), 1)
         self.assertIn("8 annonces", self.sent[0][0])

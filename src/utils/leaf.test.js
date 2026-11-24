@@ -74,7 +74,7 @@ test('checklistProgress : ne compte que les « true » connus', () => {
     assert.deepEqual(checklistProgress(null), { done: 0, total: CHECKLIST_ITEMS.length });
 });
 
-import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines, promptToValue, validatePrompts, MAX_PROMPT_CHARS, SORT_KEYS } from './leaf.js';
+import { aiFactLines, configToForm, flagLabel as flagLabel2, leafImageUrl, leafImages, validateLeafForm, verdictInfo, expertView, questionsText, photoFactLines, promptToValue, validatePrompts, MAX_PROMPT_CHARS, SORT_KEYS, hiddenDuplicateIds, duplicateCounts } from './leaf.js';
 
 test('leafImageUrl : tailles Kijiji et AutoHebdo, autres URL intactes', () => {
     const k = 'https://media.kijiji.ca/api/v1/ca-prod-fsbo-ads/images/ae/ae58?rule=kijijica-200-jpg';
@@ -235,4 +235,32 @@ test('tris : le bouton de sens inverse l\'ordre sans remonter les valeurs inconn
 
 test('tris : une clé inconnue retombe sur le prix', () => {
     assert.deepEqual(ids('inexistant'), ids('price'));
+});
+
+const DUPS = [
+    { id: 'orig', price: 6950, duplicate_of: null },
+    { id: 'copie1', price: 6950, duplicate_of: 'orig' },
+    { id: 'copie2', price: 6950, duplicate_of: 'orig' },
+    { id: 'orpheline', price: 5000, duplicate_of: 'absente' },          // son original n'est pas dans la liste : jamais masquée
+    { id: 'seule', price: 4000, duplicate_of: null },
+];
+
+test('doublons : masqués seulement si leur original est présent, avec compteur par original', () => {
+    assert.deepEqual([...hiddenDuplicateIds(DUPS)].sort(), ['copie1', 'copie2']);
+    assert.deepEqual(duplicateCounts(DUPS), { orig: 2 });
+    assert.deepEqual(filterAndSortDeals(DUPS, { hideDuplicates: true }).map((d) => d.id), ['seule', 'orpheline', 'orig']);
+    assert.equal(filterAndSortDeals(DUPS, { hideDuplicates: false }).length, 5);            // « tout voir » : rien n'est retiré
+    assert.equal(filterAndSortDeals(DUPS).length, 5);                                      // sans l'option : comportement inchangé
+});
+
+test('doublons : une copie dont l\'original est filtré (favoris seulement) reste affichée', () => {
+    const rows = [{ id: 'o', duplicate_of: null, is_favorite: false, price: 1 }, { id: 'c', duplicate_of: 'o', is_favorite: true, price: 1 }];
+    assert.deepEqual(filterAndSortDeals(rows, { favoritesOnly: true, hideDuplicates: true }).map((d) => d.id), ['c']);
+    assert.deepEqual(filterAndSortDeals(rows, { hideDuplicates: true }).map((d) => d.id), ['o']);              // sans autre filtre : l'original seul
+});
+
+test('doublons : cas dégénérés (liste vide, auto-référence)', () => {
+    assert.deepEqual([...hiddenDuplicateIds(null)], []);
+    assert.deepEqual(duplicateCounts([]), {});
+    assert.deepEqual([...hiddenDuplicateIds([{ id: 'x', duplicate_of: 'x' }])], []);
 });

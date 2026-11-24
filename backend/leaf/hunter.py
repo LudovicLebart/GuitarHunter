@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from backend.leaf import config as leaf_config
 from backend.leaf import notify as leaf_notify
-from backend.leaf import ai_extract, expert as leaf_expert, photo_extract, pipeline, scoring, verdict
+from backend.leaf import ai_extract, dedup, expert as leaf_expert, photo_extract, pipeline, scoring, verdict
 from backend.leaf.sources import BlockedError, autohebdo, fetch_html, kijiji_autos
 from backend.leaf.sources.detail import DetailFetcher
 
@@ -223,6 +223,7 @@ class LeafHunter:
         comparables = self.repo.comparables()
         events: List[Tuple[str, Dict[str, Any], Optional[float]]] = []
         acfg = {**cfg["analysis"], "prompts": cfg["prompts"]}
+        self._mark_duplicates(result["kept"])
         budget = self._ai_budget(acfg)
         for i, listing in enumerate(result["kept"]):
             fit = scoring.price_fit(listing, comparables)
@@ -365,6 +366,27 @@ class LeafHunter:
         self._notify("Leaf : plafond d'analyses IA atteint", f"{acfg['max_calls_per_day']} analyses sur 24 h. Les prochaines annonces "
                      "sont affichées sans résumé IA ; le plafond se règle dans les réglages.", click_url=leaf_notify.leaf_link(), logger=self.log)
 
+    def _mark_duplicates(self, kept: List[Dict[str, Any]]) -> None:
+        """Marque `duplicate_of` ENTRE passages et entre sources : le pipeline ne compare que les annonces d'un même passage, alors qu'une
+        annonce Facebook déjà stockée n'est pas relue (`known_unchanged`). Une annonce est le doublon de la plus ANCIENNE annonce active
+        (ordre : première lecture, puis identifiant) qui lui ressemble, jamais l'inverse : pas de cycle, la plus ancienne reste affichée.
+        Remplace le marquage du pipeline (limité au passage en cours). Ne lève jamais."""
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            pool = {s["id"]: s for s in self.repo.vehicle_summaries()}
+            for listing in kept:                                          # nouvelles annonces : « lues maintenant », départagées par l'identifiant
+                pool.setdefault(listing["id"], {**listing, "first_seen_at": now, "duplicate_of": None})
+            order = lambda item: (item["first_seen_at"], item["id"])
+            for listing in sorted(kept, key=lambda l: order(pool[l["id"]])):          # les plus anciennes d'abord : les racines sont fixées avant leurs copies
+                mine = order(pool[listing["id"]])
+                older = [s for s in pool.values() if s["id"] != listing["id"] and s["duplicate_of"] is None and order(s) < mine
+                         and dedup.same_vehicle(listing, s)]
+                listing["duplicate_of"] = min(older, key=order)["id"] if older else None
+                pool[listing["id"]]["duplicate_of"] = listing["duplicate_of"]
+        except Exception as e:
+            self.log.warning(f"[Leaf] Doublons entre passages non marqués ({e}).")
+
     def _with_facebook_city(self, scan: Dict[str, Any]) -> Dict[str, Any]:
         """Facebook cherche par ville : on prend la ville du catalogue la plus proche du point de référence (dans son rayon).
         Aucune ville -> pas de recherche Facebook (le passage est tracé « skipped », jamais une recherche au hasard)."""
@@ -399,6 +421,7 @@ class LeafHunter:
 
     def _notify_events(self, events, notify_cfg) -> None:
         wanted = [e for e in events if (e[0] == "new" and notify_cfg["new"]) or (e[0] == "price_drop" and notify_cfg["price_drop"])]
+        wanted = [e for e in wanted if not e[1].get("duplicate_of")]          # un doublon probable ne déclenche pas de notification
         if not wanted:
             return
         if len(wanted) > MAX_INDIVIDUAL_NOTIFICATIONS:    # premier passage : un seul résumé plutôt qu'une rafale

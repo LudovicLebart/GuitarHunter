@@ -304,6 +304,39 @@ class TestFacebookSource(unittest.TestCase):
         self.assertEqual((raws, run["outcome"], called), ([], "skipped", []))
 
 
+class TestDuplicatesWithoutKm(unittest.TestCase):
+    """Annonces Facebook : pas de kilométrage structuré, donc la règle « même km » ne s'applique pas. Règle dédiée, plus stricte."""
+    BASE = {"title": "Nissan Leaf SV 2017", "price": 6950, "year": 2017, "trim": "SV", "km": None, "latitude": 45.66, "longitude": -73.93, "city": "Mirabel, QC"}
+
+    def same(self, **b):
+        from backend.leaf import dedup
+        return dedup.same_vehicle(self.BASE, {**self.BASE, **b})
+
+    def test_identical_ads_from_one_dealer_are_probable_duplicates(self):
+        self.assertTrue(self.same())
+        self.assertTrue(self.same(title="  nissan LEAF sv, 2017 !! ", price=6960))              # casse, ponctuation, prix à 1 %
+
+    def test_any_difference_that_could_mean_another_car_breaks_the_match(self):
+        self.assertFalse(self.same(price=6500))                                                  # autre prix
+        self.assertFalse(self.same(title="Nissan Leaf S 2017"))                                  # autre titre
+        self.assertFalse(self.same(year=2016))
+        self.assertFalse(self.same(latitude=45.8, longitude=-73.9))                              # plus de 1 km
+        self.assertFalse(self.same(price=None))
+        self.assertFalse(self.same(title=""))
+
+    def test_without_gps_the_city_decides(self):
+        no_gps = {"latitude": None, "longitude": None}
+        self.assertTrue(self.same(**no_gps, city="mirabel qc"))
+        self.assertFalse(self.same(**no_gps, city="Laval, QC"))
+        self.assertFalse(self.same(**no_gps, city=""))
+
+    def test_a_listing_with_a_km_never_matches_one_without(self):
+        self.assertFalse(self.same(km=90000))                                                    # un seul km connu : on ne confirme pas
+        from backend.leaf import dedup
+        self.assertTrue(dedup.same_vehicle({**self.BASE, "km": 90000}, {**self.BASE, "km": 90500}))   # règle avec km inchangée
+        self.assertTrue(dedup.same_vehicle({**self.BASE, "vin": "abc"}, {**self.BASE, "vin": "ABC", "price": 1}))   # le VIN prime
+
+
 class TestMergeAndFetcher(unittest.TestCase):
     RAW = {"source": "kijiji", "source_id": "111", "url": "https://exemple.invalid/leaf/111",
            "description": "Texte tronqué ...", "trim": None, "city": "", "year": 2016, "km": 100000}
