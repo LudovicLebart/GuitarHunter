@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 360" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Fabriquer la cale en coin au rabot</title>
+  <desc id="d">Coupe latérale : la pièce est fixée au double face sur une planche plane ; un bloc-guide de deux fois l'épaisseur du gros bout, placé à deux fois la longueur du coin, soutient l'arrière de la semelle du rabot ; le coin s'annule au bout mince.</desc>
+  <rect width="820" height="360" fill="#f8fafc"/>
+<text x="410" y="28" font-size="15" fill="#334155" font-weight="bold" text-anchor="middle">Le bloc-guide fixe la pente : la semelle repose sur lui et sur la planche, le coin s'arrête de lui-même</text>
+  <rect x="130" y="245" width="620" height="32" fill="#f1dcb0" stroke="#7c4a1e" stroke-width="2"/>
+  <rect x="440" y="241" width="200" height="4" fill="#fde68a" stroke="#a16207" stroke-width="1"/>
+  <rect x="440" y="205" width="200" height="36" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="5 4"/>
+  <polygon points="440,241 640,241 440,205" fill="#7c4a1e" stroke="#475569" stroke-width="2"/>
+  <rect x="225" y="173" width="30" height="72" fill="#fbbf24" stroke="#a16207" stroke-width="2"/>
+  <polygon points="230,171.2 640,245.0 640,205.0 230,131.2" fill="#cbd5e1" stroke="#475569" stroke-width="2" opacity="0.85"/>
+  <text x="400" y="112" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">Rabot à longue semelle, lame très affûtée</text>
+  <text x="216" y="209" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="end">Bloc-guide (2 × e)</text>
+  <text x="430" y="231" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="end">e</text>
+  <text x="658" y="217" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">bout mince</text>
+  <text x="658" y="235" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">(côté joint)</text>
+  <path d="M440 302 H640 M440 296 v12 M640 296 v12" stroke="#334155" stroke-width="2"/>
+  <path d="M240 322 H640 M240 316 v12 M640 316 v12" stroke="#334155" stroke-width="2"/>
+  <text x="540.0" y="296" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">L (longueur du coin)</text>
+  <text x="440" y="340" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="middle">2 × L : distance du bloc-guide au bout mince</text>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 580" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Quel cas pour refaire l'angle du manche</title>
+  <desc id="d">Arbre de décision : action trop haute malgré relief correct et sillet au plus bas, puis fixation du manche : vissé (cale ou ponçage du talon) ou collé (retailler et recoller, ou convertir en vissé) ; pour un manche collé, caler ou recoller la rallonge de touche.</desc>
+  <rect width="820" height="580" fill="#f8fafc"/>
+<text x="410" y="32" font-size="17" fill="#334155" font-weight="bold" text-anchor="middle">Quel cas ? Cela dépend de la façon dont le manche est fixé</text>
+  <rect x="210" y="52" width="400" height="70" rx="10" fill="#fff" stroke="#dc2626" stroke-width="3"/><text x="410.0" y="80" font-size="15" fill="#dc2626" font-weight="bold" text-anchor="middle">Action trop haute malgré tout</text><text x="410.0" y="102" font-size="13" fill="#334155" text-anchor="middle">relief correct, sillet au plus bas</text>
+  <path d="M410 124 L410 150" stroke="#334155" stroke-width="3" fill="none"/><polygon points="410,150 404.5,137.1 415.5,137.1" fill="#334155"/>
+  <rect x="260" y="152" width="300" height="56" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="410.0" y="180" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">Comment le manche est-il fixé ?</text>
+  <path d="M330 210 L160 252" stroke="#334155" stroke-width="3" fill="none"/><polygon points="160,252 171.2,243.6 173.8,254.2" fill="#334155"/>
+  <path d="M490 210 L640 252" stroke="#334155" stroke-width="3" fill="none"/><polygon points="640,252 626.1,253.8 629.1,243.3" fill="#334155"/>
+  <rect x="30" y="254" width="260" height="80" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="160.0" y="282" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">Vissé</text><text x="160.0" y="304" font-size="13" fill="#334155" text-anchor="middle">cale pleine poche</text><text x="160.0" y="322" font-size="13" fill="#334155" text-anchor="middle">ou ponçage du talon</text>
+  <rect x="520" y="254" width="280" height="80" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="660.0" y="282" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">Collé</text><text x="660.0" y="304" font-size="13" fill="#334155" text-anchor="middle">queue d'aronde ou tenon</text>
+  <path d="M590 336 L530 372" stroke="#334155" stroke-width="3" fill="none"/><polygon points="530,372 538.3,360.7 543.9,370.0" fill="#334155"/>
+  <path d="M730 336 L710 372" stroke="#334155" stroke-width="3" fill="none"/><polygon points="710,372 711.5,358.1 721.0,363.4" fill="#334155"/>
+  <rect x="400" y="374" width="200" height="76" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="500.0" y="402" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">Retailler et recoller</text><text x="500.0" y="424" font-size="13" fill="#334155" text-anchor="middle">(neck reset)</text>
+  <rect x="620" y="374" width="190" height="76" rx="10" fill="#fff" stroke="#0284c7" stroke-width="3"/><text x="715.0" y="402" font-size="15" fill="#0284c7" font-weight="bold" text-anchor="middle">Convertir en vissé</text><text x="715.0" y="424" font-size="13" fill="#334155" text-anchor="middle">(joint modifié)</text>
+  <path d="M500 452 L560 490" stroke="#334155" stroke-width="3" fill="none"/><polygon points="560,490 546.2,487.7 552.0,478.5" fill="#334155"/>
+  <path d="M715 452 L640 490" stroke="#334155" stroke-width="3" fill="none"/><polygon points="640,490 649.0,479.3 654.0,489.0" fill="#334155"/>
+  <rect x="380" y="492" width="430" height="70" rx="10" fill="#fff" stroke="#15803d" stroke-width="3"/><text x="595.0" y="520" font-size="15" fill="#15803d" font-weight="bold" text-anchor="middle">Manche collé : rallonge de touche</text><text x="595.0" y="542" font-size="13" fill="#334155" text-anchor="middle">caler ou recoller la rallonge</text>
+</svg>

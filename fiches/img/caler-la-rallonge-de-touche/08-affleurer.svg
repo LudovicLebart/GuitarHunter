@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 270" role="img" aria-labelledby="t d" font-family="Arial, Helvetica, sans-serif">
+  <title id="t">Affleurer les côtés de la cale</title>
+  <desc id="d">Vue de dessus : la cale dépasse un peu sur les côtés de la rallonge ; on la reprend au ras de la touche sans toucher la table.</desc>
+  <rect width="820" height="270" fill="#f8fafc"/>
+<text x="410" y="36" font-size="16" fill="#334155" font-weight="bold" text-anchor="middle">Vue de dessus de la rallonge</text>
+  <rect x="120" y="100" width="560" height="64" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+  <rect x="440" y="92" width="240" height="8" fill="#fbbf24" stroke="#a16207" stroke-width="2"/>
+  <rect x="440" y="164" width="240" height="8" fill="#fbbf24" stroke="#a16207" stroke-width="2"/>
+  <circle cx="560" cy="60" r="15" fill="#0f172a"/><text x="560" y="66" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">1</text>
+  <circle cx="330" cy="214" r="15" fill="#0f172a"/><text x="330" y="220" font-size="17" font-weight="bold" fill="#fff" text-anchor="middle">2</text>
+  <path d="M560 76 V90" stroke="#334155" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="585" y="66" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Cale qui dépasse sur les côtés</text>
+  <text x="355" y="220" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">Reprendre au ras de la touche (racloir, lime plate),</text>
+  <text x="355" y="240" font-size="14" fill="#0f172a" font-weight="bold" text-anchor="start">sans toucher la finition de la table</text>
+</svg>
